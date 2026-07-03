@@ -1,13 +1,18 @@
 /**
- * BIZ-02 — confirmPayout double-credit (HIGH)
+ * BIZ-02 — confirmPayout double-credit (HIGH): within-path + cross-path tests
  *
- * Proves that two concurrent calls to `confirmPayout` for the same PAYOUT
- * row only produce ONE PAYOUT_CONFIRMED credit and the PAYOUT flips to PAID
- * exactly once.
+ * Within-path (AC1-a/b/c): two concurrent/sequential calls to `confirmPayout`
+ * for the same PAYOUT row only produce ONE PAYOUT_CONFIRMED credit and the
+ * PAYOUT row flips to PAID exactly once.
  *
- * Also tests the cross-path: after a successful confirmPayout the linked
- * payout_request must have its status updated so that payPayoutRequest
- * (which gates on status==='PENDING') cannot create a second credit.
+ * Cross-path (BIZ-02 describe block): after a successful confirmPayout(P), the
+ * linked payout_request R is atomically flipped to PAID in the SAME transaction.
+ * This blocks the `payPayoutRequest` path (which gates on req.status === 'PENDING')
+ * from creating a second credit on the same request. Tests use real DB writes and
+ * assert both ledger state (PAYOUT_CONFIRMED count) and request state (status=PAID).
+ *
+ * HIGH-4 fix: persona IDs were invalid UUID format (7-2-4-4-4-12 layout);
+ * replaced with valid 8-4-4-4-12 format that Postgres accepts.
  *
  * Run against the scratch DB:
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
@@ -30,8 +35,11 @@ import { companyAccount, payoutRequests, transactions, users } from '../database
 import * as schema from '../database/schema'
 
 // ── Personas (stable IDs, namespaced to this spec) ────────────────────────
+// HIGH-4 fix: IDs must be valid UUID v4 format (8-4-4-4-12 hex groups).
+// Previous IDs ('biz02-00-0000-4000-aa00-000000000001') used a 7-2-4-4-4-12
+// layout which Postgres rejects as invalid uuid syntax → beforeAll crashed.
 const ADMIN: SessionUser = {
-  id: 'biz02-00-0000-4000-aa00-000000000001',
+  id: 'b1020000-0000-4000-aa00-000000000001',
   email: 'biz02-admin@test.spec',
   displayName: 'BIZ02 Admin',
   avatarUrl: null,
@@ -40,7 +48,7 @@ const ADMIN: SessionUser = {
   legalFullName: null,
 }
 const ADMIN2: SessionUser = {
-  id: 'biz02-00-0000-4000-aa00-000000000002',
+  id: 'b1020000-0000-4000-aa00-000000000002',
   email: 'biz02-admin2@test.spec',
   displayName: 'BIZ02 Admin 2',
   avatarUrl: null,
@@ -49,7 +57,7 @@ const ADMIN2: SessionUser = {
   legalFullName: null,
 }
 const SENIOR: SessionUser = {
-  id: 'biz02-00-0000-4000-aa00-000000000003',
+  id: 'b1020000-0000-4000-aa00-000000000003',
   email: 'biz02-senior@test.spec',
   displayName: 'BIZ02 Senior',
   avatarUrl: null,
@@ -60,7 +68,7 @@ const SENIOR: SessionUser = {
 
 const ALL = [ADMIN, ADMIN2, SENIOR]
 const TEST_USER_IDS = ALL.map((u) => u.id)
-const ACCOUNT_ID = 'biz02-00-0000-4000-cc00-000000000001'
+const ACCOUNT_ID = 'b1020000-0000-4000-cc00-000000000001'
 const WALLET = '0xBIZ020000000000000000000000000000000def'
 
 const fakeNbu: Pick<NbuCurrencyService, 'getRates'> = {
@@ -159,6 +167,31 @@ describe('confirmPayout — BIZ-02 double-credit idempotency (real DB)', () => {
       })
       .returning()
     return payout!.id
+  }
+
+  /**
+   * HIGH-3: Seed a payout_request R (status PENDING) + linked PAYOUT P.
+   * Returns { requestId, payoutTxId }.
+   * Used for cross-path tests: confirmPayout(P) should flip R to PAID so
+   * that payPayoutRequest(R) cannot open a second credit.
+   */
+  async function seedPayoutRequestWithPayout(
+    amount = '500',
+  ): Promise<{ requestId: string; payoutTxId: string }> {
+    const [req] = await dbSvc.db
+      .insert(payoutRequests)
+      .values({
+        seniorId: SENIOR.id,
+        incomeAmount: amount,
+        payableAmount: amount,
+        contractAddress: '0x0000000000000000000000000000000000000000',
+        status: 'PENDING',
+      })
+      .returning()
+    const requestId = req!.id
+
+    const payoutTxId = await seedPayoutTx(amount, requestId)
+    return { requestId, payoutTxId }
   }
 
   beforeAll(async () => {
@@ -310,4 +343,67 @@ describe('confirmPayout — BIZ-02 double-credit idempotency (real DB)', () => {
     })
     expect(confirmed).toHaveLength(1)
   }, 30_000)
+
+  // ── HIGH-3: Real cross-path integration tests ────────────────────────────
+  //
+  // These are the ACTUAL cross-path tests referenced in the file header:
+  // confirmPayout(PAYOUT_P) atomically flips payout_request R to PAID, so
+  // payPayoutRequest(R) (which gates on req.status === 'PENDING') is blocked.
+  // Previously this describe block only contained confirmPayout×confirmPayout
+  // (within-path). The cross-path tests are here.
+  describe('BIZ-02 cross-path: confirmPayout then payPayoutRequest blocked', () => {
+    it('after confirmPayout(P) → payout_request R is PAID → payPayoutRequest(R) throws "already paid"', async () => {
+      if (!dbAvailable) return
+      const { requestId, payoutTxId } = await seedPayoutRequestWithPayout('600')
+
+      // Step 1: ADMIN confirms via confirmPayout (the "direct PAYOUT confirm" path)
+      await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
+
+      // Step 2: the linked payout_request must now be PAID (BIZ-02 cross-path flip)
+      const reqAfter = await dbSvc.db.query.payoutRequests.findFirst({
+        where: eq(payoutRequests.id, requestId),
+      })
+      expect(reqAfter?.status).toBe('PAID')
+
+      // Step 3: SENIOR attempting payPayoutRequest on the now-PAID request must be
+      // rejected — "already paid" guard in payPayoutRequest (req.status !== 'PENDING').
+      await expect(
+        svc.payPayoutRequest(requestId, '0xSIMdeadbeefdeadbeef', SENIOR, 'success'),
+      ).rejects.toThrow('already paid')
+
+      // Step 4: no double-credit — exactly ONE PAYOUT_CONFIRMED row for this payout
+      const confirmed = await dbSvc.db.query.transactions.findMany({
+        where: and(
+          eq(transactions.type, 'PAYOUT_CONFIRMED'),
+          eq(transactions.receiverId, ADMIN.id),
+        ),
+      })
+      expect(confirmed).toHaveLength(1)
+
+      // Step 5: PAYOUT row is PAID exactly once, no duplicate ledger entries
+      const payoutRow = await dbSvc.db.query.transactions.findFirst({
+        where: and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+      })
+      expect(payoutRow?.status).toBe('PAID')
+    }, 30_000)
+
+    it('after confirmPayout(P) → second confirmPayout on same PAYOUT tx throws, no double credit', async () => {
+      if (!dbAvailable) return
+      const { payoutTxId } = await seedPayoutRequestWithPayout('400')
+
+      // First confirm succeeds
+      await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
+
+      // Second confirm on the same PAYOUT tx must be rejected (within-path guard)
+      await expect(
+        svc.confirmPayout(payoutTxId, ADMIN2.id, ADMIN, { method: 'CASH', txHash: null }),
+      ).rejects.toThrow()
+
+      // Still only one PAYOUT_CONFIRMED total
+      const confirmed = await dbSvc.db.query.transactions.findMany({
+        where: eq(transactions.type, 'PAYOUT_CONFIRMED'),
+      })
+      expect(confirmed.length).toBe(1)
+    }, 30_000)
+  })
 })

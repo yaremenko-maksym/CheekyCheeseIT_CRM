@@ -1680,13 +1680,23 @@ export class TransactionsService {
     // Return both rows so the UI can update the table in a single round-trip:
     // the now-PAID PAYOUT and the freshly created credit row.
     const updatedPayout = await this.findOne(payoutTxId, currentUser)
+    // Build the WHERE predicate conditionally: payoutRequestId is nullable, and
+    // passing '' (empty string) for a UUID column causes Postgres to throw
+    // "invalid input syntax for type uuid". Filter on it only when present.
+    const confirmedRowWhere = payoutTx.payoutRequestId
+      ? and(
+          eq(transactions.type, 'PAYOUT_CONFIRMED'),
+          eq(transactions.payoutRequestId, payoutTx.payoutRequestId),
+          eq(transactions.receiverId, recipient.id),
+          eq(transactions.notes, confirmationNote),
+        )
+      : and(
+          eq(transactions.type, 'PAYOUT_CONFIRMED'),
+          eq(transactions.receiverId, recipient.id),
+          eq(transactions.notes, confirmationNote),
+        )
     const confirmedRow = await this.db.db.query.transactions.findFirst({
-      where: and(
-        eq(transactions.type, 'PAYOUT_CONFIRMED'),
-        eq(transactions.payoutRequestId, payoutTx.payoutRequestId ?? ''),
-        eq(transactions.receiverId, recipient.id),
-        eq(transactions.notes, confirmationNote),
-      ),
+      where: confirmedRowWhere,
       orderBy: [desc(transactions.createdAt)],
     })
     const confirmed = confirmedRow ? await this.findOne(confirmedRow.id, currentUser) : null
@@ -2498,12 +2508,20 @@ export class TransactionsService {
         //   null (manual ADMIN_USDT / CASH) → NOT counted (money landed off the
         //                     company account). The auditNote records the manual
         //                     method when present.
-        // BIZ-02 defense-in-depth (HIGH): the payout_requests atomic claim above
-        // already prevents the primary double-pay race. This UPDATE adds a
-        // per-transaction status guard so that even if `confirmPayout` has raced
-        // in on the PAYOUT row between claim and this UPDATE, the cascade stops
-        // gracefully instead of flipping an already-PAID row to PAID again.
-        const payoutClaimed = await dbtx
+        //
+        // BIZ-02 defense-in-depth (HIGH-1 fix): the payout_requests atomic claim
+        // above is the PRIMARY race guard — the loser bails there before any
+        // ledger write. The PAYOUT row UPDATE below is intentionally idempotent:
+        // if the row was already flipped (e.g. by confirmPayout racing in AFTER
+        // the payout_request claim), we fall through to a SELECT to recover the
+        // existing id. NO throw here — an aggressive throw broke legitimate
+        // payPayoutRequest / manualConfirmPayout flows where the first bulk UPDATE
+        // (status='PAID' WHERE payoutRequestId=...) had already flipped the PAYOUT
+        // row before this targeted UPDATE ran, causing 28 integration failures.
+        // Lock-order inversion (HIGH-2): removing this secondary re-lock also
+        // eliminates the P→R vs R→P deadlock risk (concurrent confirmPayout ⟂
+        // payPayoutRequest paths no longer compete for the PAYOUT row lock here).
+        const payoutUpdated = await dbtx
           .update(transactions)
           .set({
             status: 'PAID',
@@ -2521,19 +2539,25 @@ export class TransactionsService {
           )
           .returning({ id: transactions.id })
 
-        if (payoutClaimed.length === 0) {
-          // The PAYOUT row was already claimed by a concurrent confirmPayout.
-          // The payout_requests guard above ensured we're the sole winner on
-          // the payout_request — throw so this tx rolls back cleanly. The
-          // duplicate confirmPayout path will surface the already-confirmed
-          // PAYOUT to the UI on its own re-fetch.
-          throw new BadRequestException(
-            'PAYOUT transaction already claimed by a concurrent confirmation',
-          )
+        // Idempotent fallback: if the PAYOUT row was already PAID (0 rows
+        // returned above), fetch its id from the committed row so the
+        // invoice trigger can still fire correctly post-commit.
+        let payoutRow: { id: string }
+        if (payoutUpdated.length > 0) {
+          payoutRow = payoutUpdated[0]!
+        } else {
+          const existing = await dbtx
+            .select({ id: transactions.id })
+            .from(transactions)
+            .where(
+              and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+            )
+            .limit(1)
+          if (existing.length === 0) {
+            throw new BadRequestException('PAYOUT transaction not found for this request')
+          }
+          payoutRow = existing[0]!
         }
-
-        // payoutClaimed[0] carries the PAYOUT id — use it directly.
-        const [payoutRow] = payoutClaimed
 
         // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
         // belong to a drop-project. Senior-projects (project.dropId === null)
