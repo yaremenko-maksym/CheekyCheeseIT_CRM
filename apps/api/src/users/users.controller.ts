@@ -306,9 +306,13 @@ export class UsersController {
   @Patch(':id/role')
   @Roles('ADMIN')
   @AuditLog('role_change')
-  async changeRole(@Param('id', ParseUUIDPipe) id: string, @Body() body: unknown) {
+  async changeRole(
+    @CurrentUser() currentUser: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+  ) {
     const dto = changeRoleSchema.parse(body)
-    return this.usersService.changeRole(id, dto.role)
+    return this.usersService.changeRole(id, dto.role, currentUser.id)
   }
 
   @Patch(':id/salary')

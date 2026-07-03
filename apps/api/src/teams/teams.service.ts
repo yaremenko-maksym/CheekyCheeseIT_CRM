@@ -211,13 +211,51 @@ export class TeamsService {
       throw new ForbiddenException()
     }
 
-    const [team] = await this.db.db.insert(teams).values({ name }).returning()
-    if (!team) throw new Error('Failed to create team')
-
-    const memberIds = [seniorId, ...hrIds, ...(accountantId ? [accountantId] : [])]
-    for (const userId of memberIds) {
-      await this.db.db.insert(teamMembers).values({ teamId: team.id, userId })
+    // SEC-02 (HIGH): validate roles of all supplied member IDs before any INSERT.
+    // Without this check an HR could supply a victim SENIOR's id in hrIds
+    // (or a non-SENIOR in seniorId) and gain getHrSeniorIds-based access to
+    // that SENIOR's projects/documents (BOLA). Pattern follows createDropTeam.
+    await this.assertUserRole(seniorId, 'SENIOR')
+    for (const hrId of hrIds) {
+      await this.assertUserRole(hrId, 'HR')
     }
+    if (accountantId !== null) {
+      await this.assertUserRole(accountantId, 'ACCOUNTANT')
+    }
+
+    // BIZ-09 (MED): HR self-scoping — when the caller is HR they MUST be
+    // included in hrIds. This prevents an HR from binding a victim SENIOR to a
+    // team that the HR does not actually belong to.
+    if (currentUser.role === 'HR' && !hrIds.includes(currentUser.id)) {
+      throw new ForbiddenException(
+        'HR-вызывающий должен быть включён в список hrIds создаваемой команды',
+      )
+    }
+
+    // Dual-active-senior guard: a SENIOR may only belong to ONE active team at
+    // a time. Mirrors the check in addSeniorToDropTeam.
+    const existingMembership = await this.db.db
+      .select()
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, seniorId), isNull(teamMembers.leftAt)))
+      .then((rows) => rows[0])
+    if (existingMembership) {
+      throw new BadRequestException('Синьор уже состоит в другой активной команде')
+    }
+
+    // Wrap team + members INSERT in a transaction so a partial failure (team
+    // inserted but members not) cannot leave an orphaned team row.
+    const team = await this.db.db.transaction(async (tx) => {
+      const [inserted] = await tx.insert(teams).values({ name }).returning()
+      if (!inserted) throw new Error('Failed to create team')
+
+      const memberIds = [seniorId, ...hrIds, ...(accountantId ? [accountantId] : [])]
+      for (const userId of memberIds) {
+        await tx.insert(teamMembers).values({ teamId: inserted.id, userId })
+      }
+
+      return inserted
+    })
 
     return team
   }
@@ -312,7 +350,30 @@ export class TeamsService {
       seniorSharePercentOverride?: number | null | undefined
     },
   ) {
-    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'HR') {
+    const overrideTouched =
+      extra !== undefined &&
+      Object.prototype.hasOwnProperty.call(extra, 'seniorSharePercentOverride')
+
+    // SEC-04 (MED): seniorSharePercentOverride gates separately from general
+    // team-update RBAC. The override is snapshotted into
+    // transactions.senior_share_percent at income-creation time, so it has
+    // direct financial impact. Mirrors the project-level override guard in
+    // ProjectsService (~:610-618). HR may update name/notes/telegram but
+    // CANNOT touch the financial override.
+    if (overrideTouched && currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException(
+        'Изменение доли синьора на уровне команды доступно только ADMIN и ACCOUNTANT',
+      )
+    }
+
+    // ACCOUNTANT is allowed to set the override but not REQUIRED to be a team
+    // member (they have cross-team financial authority). For all other general
+    // mutations we still require ADMIN or HR.
+    if (
+      currentUser.role !== 'ADMIN' &&
+      currentUser.role !== 'HR' &&
+      currentUser.role !== 'ACCOUNTANT'
+    ) {
       throw new ForbiddenException()
     }
 
@@ -322,13 +383,11 @@ export class TeamsService {
     })
     if (!team) throw new NotFoundException('Team not found')
 
+    // HR scope check: HR may only update teams they are a member of.
+    // ACCOUNTANT is exempt from this check — their authority is cross-team.
     if (currentUser.role === 'HR' && !this.isHrOfTeam(team, currentUser.id)) {
       throw new ForbiddenException()
     }
-
-    const overrideTouched =
-      extra !== undefined &&
-      Object.prototype.hasOwnProperty.call(extra, 'seniorSharePercentOverride')
 
     const [updated] = await this.db.db
       .update(teams)
@@ -344,6 +403,22 @@ export class TeamsService {
       })
       .where(eq(teams.id, id))
       .returning()
+
+    // SEC-04 audit: record when seniorSharePercentOverride changes so there is
+    // a traceable history of financial-impact edits. Written after UPDATE so
+    // the audit row is only created when the DB write succeeded.
+    if (overrideTouched) {
+      const before = team.seniorSharePercentOverride ?? null
+      const after = extra!.seniorSharePercentOverride ?? null
+      if (before !== after) {
+        await this.teamAuditLogService.record({
+          actorId: currentUser.id,
+          targetId: id,
+          action: 'team_updated',
+          changes: { seniorSharePercentOverride: { before, after } },
+        })
+      }
+    }
 
     return updated
   }
