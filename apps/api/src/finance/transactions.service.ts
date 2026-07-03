@@ -2540,12 +2540,26 @@ export class TransactionsService {
           .returning({ id: transactions.id })
 
         // Idempotent fallback: if the PAYOUT row was already PAID (0 rows
-        // returned above), fetch its id from the committed row so the
-        // invoice trigger can still fire correctly post-commit.
+        // returned above), the bulk UPDATE at line ~2471 (WHERE payoutRequestId=requestId,
+        // no type filter) already flipped the PAYOUT row to PAID but did NOT set
+        // txHash / fundingSource / notes. We must write those fields now so that
+        // computeBalance sees fundingSource='COMPANY_ACCOUNT' and credits the company.
         let payoutRow: { id: string }
         if (payoutUpdated.length > 0) {
           payoutRow = payoutUpdated[0]!
         } else {
+          // Patch missing txHash + fundingSource on the already-PAID PAYOUT row.
+          await dbtx
+            .update(transactions)
+            .set({
+              txHash: effectiveTxHash,
+              fundingSource,
+              updatedAt: new Date(),
+              ...(auditNote ? { notes: auditNote } : {}),
+            })
+            .where(
+              and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+            )
           const existing = await dbtx
             .select({ id: transactions.id })
             .from(transactions)

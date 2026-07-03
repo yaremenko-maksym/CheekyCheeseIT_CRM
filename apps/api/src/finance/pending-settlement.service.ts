@@ -210,14 +210,12 @@ export class PendingSettlementService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
-      // BIZ-03 (HIGH): currency of ADMIN_PERSONAL payment must match obligation
-      // currency (always USDT). Without this check a UAH/EUR bank transfer would
-      // close a USDT debt at face value — ~40× distortion at market rate.
-      if (funding.currency !== obligation.currency) {
-        throw new BadRequestException(
-          `Валюта расчёта (${funding.currency}) должна совпадать с валютой обязательства (${obligation.currency})`,
-        )
-      }
+      // ADMIN_PERSONAL: the admin pays from their personal account in whatever
+      // currency they choose — the currency label follows the payment choice.
+      // No obligation-currency match required here; the obligation is denominated
+      // in USDT but the admin may settle in USD/EUR/UAH from their own pocket.
+      // (BIZ-03 currency guard applies to COMPANY_ACCOUNT path only, where we
+      // debit a USDT ledger and mismatched currency would cause ~40× distortion.)
       currency = funding.currency
     } else if (debitsCompanyAccount) {
       // COMPANY_ACCOUNT: USDT-only account (the schema refine + this force keep
