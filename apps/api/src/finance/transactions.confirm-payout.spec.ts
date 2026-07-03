@@ -357,8 +357,10 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
 
       await svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' })
 
-      // PAYOUT row updated to PAID, validation fields set.
-      expect(state.updates).toHaveLength(1)
+      // BIZ-02 cross-path: default makePayoutRow has payoutRequestId='payout-req-1',
+      // so TWO updates happen: (1) PAYOUT row → PAID, (2) payout_requests → PAID.
+      expect(state.updates).toHaveLength(2)
+      // First update = PAYOUT flip (has validatedBy field)
       const payoutPatch = state.updates[0]!.set
       expect(payoutPatch['status']).toBe('PAID')
       expect(payoutPatch['validatedBy']).toBe(accountantUser.id)
