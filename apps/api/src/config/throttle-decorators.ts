@@ -14,6 +14,9 @@ import { Throttle } from '@nestjs/throttler'
  * ── Why certain routes carry strict per-endpoint limits ─────────────────────
  *
  * The following write routes are sensitive to automated abuse:
+ *   • GET  /api/auth/google/callback        — AUTH_LIMIT req/min           (SEC-20: OAuth endpoint)
+ *   • POST /api/auth/google/one-tap         — AUTH_LIMIT req/min           (SEC-20: credential submission)
+ *   • POST /api/auth/dev-login              — AUTH_LIMIT req/min           (SEC-20: dev login gate)
  *   • POST /api/contracts/sign              — SENSITIVE_WRITE_LIMIT req/min
  *   • POST /api/tos/accept                  — SENSITIVE_WRITE_LIMIT req/min
  *   • POST /api/contracts/templates         — ADMIN_WRITE_LIMIT req/min
@@ -97,6 +100,15 @@ export const DEPOSIT_LIMIT = 12
  * M2: rare money-out op — tighten vs global 100/min. Never lowerable via env.
  */
 export const DIVIDEND_LIMIT = 5
+
+/**
+ * Prod cap for auth endpoints (Google OAuth callback, One-Tap, dev-login).
+ * SEC-20: global throttle (100/min) is insufficient for credential submission
+ * endpoints. Hard-limited to 10 req/min per IP — tight enough to prevent
+ * automated brute-force while comfortably allowing legitimate interactive use.
+ * Never lowerable via env (security critical path).
+ */
+export const AUTH_LIMIT = 10
 
 /** Default global request cap when THROTTLER_LIMIT is unset. Mirrors ThrottlerModule default in app.module.ts. */
 export const GLOBAL_LIMIT_DEFAULT = 100
@@ -197,4 +209,21 @@ export function SensitiveWriteThrottle(): MethodDecorator {
  */
 export function AdminWriteThrottle(): MethodDecorator {
   return RelaxableThrottle(ADMIN_WRITE_LIMIT)
+}
+
+/**
+ * @AuthThrottle()
+ *
+ * For auth credential endpoints (GET /auth/google/callback, POST /auth/google/one-tap,
+ * POST /auth/dev-login). These are the highest-value targets for automated abuse
+ * (credential stuffing / brute-force OAuth state). Tighter than the global 100/min.
+ *
+ * Hardened prod limit: AUTH_LIMIT (10) req/min per IP.
+ * Relaxed (non-prod + THROTTLE_RELAXED=true): global limit (CI/test safe).
+ *
+ * Implemented via RelaxableThrottle — single source for the relax guardrail.
+ * The prod cap cannot be lowered by any env combination (security critical path).
+ */
+export function AuthThrottle(): MethodDecorator {
+  return RelaxableThrottle(AUTH_LIMIT)
 }

@@ -1,4 +1,4 @@
-import { CanActivate, Controller, ExecutionContext, Module, Patch, Post } from '@nestjs/common'
+import { CanActivate, Controller, ExecutionContext, Get, Module, Patch, Post } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
@@ -11,6 +11,7 @@ import {
   WALLET_UPDATE_LIMIT,
   DEPOSIT_LIMIT,
   DIVIDEND_LIMIT,
+  AUTH_LIMIT,
 } from '../config/throttle-decorators'
 
 /**
@@ -667,5 +668,207 @@ describe('Throttle integration — Section E3: company-account THROTTLE_RELAXED 
       hitAt,
       'In production THROTTLE_RELAXED must be ignored — 429 at request 6 (DIVIDEND_LIMIT=5)',
     ).toBe(6)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Section F — auth endpoints (AC1 SEC-20): per-endpoint throttle
+//
+// Pins that auth endpoints carry AuthThrottle() (RelaxableThrottle(AUTH_LIMIT))
+// and therefore:
+//   F1. Respect prod-hardened AUTH_LIMIT when THROTTLE_RELAXED is unset.
+//   F2. Raise limits when THROTTLE_RELAXED=true (non-prod) — CI safety.
+//   F3. THROTTLE_RELAXED is IGNORED in production (security guardrail).
+//
+// WHY sentinel controller:
+//   AuthController depends on AuthService/UsersService/ConfigService and
+//   requires live Google OAuth env vars. A sentinel with the same decorator
+//   exercises the identical decorator code path without the full DI graph.
+// ---------------------------------------------------------------------------
+
+@Controller('auth')
+class AuthThrottleController {
+  /**
+   * GET /api/auth/google/callback — OAuth callback (high-value target).
+   * Uses @RelaxableThrottle(AUTH_LIMIT) — 10 req/min in prod.
+   */
+  @Get('google/callback')
+  @RelaxableThrottle(AUTH_LIMIT)
+  googleCallback() {
+    return { ok: true }
+  }
+
+  /**
+   * POST /api/auth/google/one-tap — One Tap credential submission.
+   * Uses @RelaxableThrottle(AUTH_LIMIT) — 10 req/min in prod.
+   */
+  @Post('google/one-tap')
+  @RelaxableThrottle(AUTH_LIMIT)
+  oneTap() {
+    return { ok: true }
+  }
+
+  /**
+   * POST /api/auth/dev-login — Dev-only login (also throttled defensively).
+   * Uses @RelaxableThrottle(AUTH_LIMIT) — 10 req/min in prod.
+   */
+  @Post('dev-login')
+  @RelaxableThrottle(AUTH_LIMIT)
+  devLogin() {
+    return { ok: true }
+  }
+}
+
+/** Boot a fresh Fastify app with AuthThrottleController for isolation. */
+async function buildAuthApp(throttleCfg: {
+  ttl: number
+  limit: number
+}): Promise<NestFastifyApplication> {
+  @Module({
+    imports: [
+      ThrottlerModule.forRoot([
+        {
+          name: 'default',
+          ttl: throttleCfg.ttl,
+          limit: throttleCfg.limit,
+        },
+      ]),
+    ],
+    controllers: [AuthThrottleController],
+    providers: [
+      Reflector,
+      { provide: APP_GUARD, useFactory: () => new AuthBypassGuard() },
+      { provide: APP_GUARD, useClass: ThrottlerGuard },
+    ],
+  })
+  class AuthThrottleModule {}
+
+  const moduleRef = await Test.createTestingModule({
+    imports: [AuthThrottleModule],
+  }).compile()
+
+  const app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+  app.setGlobalPrefix('api')
+  await app.init()
+  await app.getHttpAdapter().getInstance().ready()
+  return app
+}
+
+/** Sends count GET requests to url and returns the first 429 status index (1-based), or -1. */
+async function firstThrottleHitGet(
+  app: NestFastifyApplication,
+  url: string,
+  count: number,
+): Promise<number> {
+  for (let i = 1; i <= count; i++) {
+    const res = await app.inject({ method: 'GET', url })
+    if (res.statusCode === 429) return i
+  }
+  return -1
+}
+
+describe('Throttle integration — Section F1: auth endpoints prod-hardened limits (THROTTLE_RELAXED unset)', () => {
+  let app: NestFastifyApplication
+
+  beforeEach(async () => {
+    delete process.env.THROTTLE_RELAXED
+    delete process.env.NODE_ENV
+    // Global limit high (100) so only per-endpoint RelaxableThrottle kicks in first.
+    app = await buildAuthApp({ ttl: 60_000, limit: 100 })
+  })
+
+  afterEach(async () => {
+    if (app) await app.close()
+  })
+
+  afterAll(() => {
+    process.env.NODE_ENV = 'test'
+    delete process.env.THROTTLE_RELAXED
+    delete process.env.THROTTLER_LIMIT
+  })
+
+  it(`throttles GET /api/auth/google/callback after AUTH_LIMIT req/min (429 on ${AUTH_LIMIT + 1}th)`, async () => {
+    const hitAt = await firstThrottleHitGet(app, '/api/auth/google/callback', AUTH_LIMIT + 1)
+    expect(hitAt, `Expected 429 within ${AUTH_LIMIT + 1} requests (AUTH_LIMIT=${AUTH_LIMIT})`).toBe(
+      AUTH_LIMIT + 1,
+    )
+  })
+
+  it(`throttles POST /api/auth/google/one-tap after AUTH_LIMIT req/min (429 on ${AUTH_LIMIT + 1}th)`, async () => {
+    const hitAt = await firstThrottleHit(app, '/api/auth/google/one-tap', AUTH_LIMIT + 1)
+    expect(hitAt, `Expected 429 within ${AUTH_LIMIT + 1} requests (AUTH_LIMIT=${AUTH_LIMIT})`).toBe(
+      AUTH_LIMIT + 1,
+    )
+  })
+
+  it(`throttles POST /api/auth/dev-login after AUTH_LIMIT req/min (429 on ${AUTH_LIMIT + 1}th)`, async () => {
+    const hitAt = await firstThrottleHit(app, '/api/auth/dev-login', AUTH_LIMIT + 1)
+    expect(hitAt, `Expected 429 within ${AUTH_LIMIT + 1} requests (AUTH_LIMIT=${AUTH_LIMIT})`).toBe(
+      AUTH_LIMIT + 1,
+    )
+  })
+})
+
+describe('Throttle integration — Section F2: auth endpoints THROTTLE_RELAXED raises limits (non-prod)', () => {
+  let app: NestFastifyApplication
+  const savedEnv = {
+    NODE_ENV: process.env.NODE_ENV,
+    THROTTLE_RELAXED: process.env.THROTTLE_RELAXED,
+    THROTTLER_LIMIT: process.env.THROTTLER_LIMIT,
+  }
+
+  afterEach(async () => {
+    if (app) await app.close()
+    if (savedEnv.NODE_ENV !== undefined) process.env.NODE_ENV = savedEnv.NODE_ENV
+    else delete process.env.NODE_ENV
+    if (savedEnv.THROTTLE_RELAXED !== undefined)
+      process.env.THROTTLE_RELAXED = savedEnv.THROTTLE_RELAXED
+    else delete process.env.THROTTLE_RELAXED
+    if (savedEnv.THROTTLER_LIMIT !== undefined)
+      process.env.THROTTLER_LIMIT = savedEnv.THROTTLER_LIMIT
+    else delete process.env.THROTTLER_LIMIT
+  })
+
+  it('THROTTLE_RELAXED=true (NODE_ENV=test) — /google/callback allows >AUTH_LIMIT requests (raised to global 20)', async () => {
+    process.env.NODE_ENV = 'test'
+    process.env.THROTTLE_RELAXED = 'true'
+    process.env.THROTTLER_LIMIT = '20'
+
+    app = await buildAuthApp({ ttl: 60_000, limit: 20 })
+
+    // Relaxed: limit raised to globalLimit()=20 → 429 on 21st request.
+    const hitAt = await firstThrottleHitGet(app, '/api/auth/google/callback', 21)
+    expect(hitAt, 'Relaxed mode: 429 at request 21 (global limit 20)').toBe(21)
+  })
+})
+
+describe('Throttle integration — Section F3: auth endpoints THROTTLE_RELAXED IGNORED in production', () => {
+  let app: NestFastifyApplication
+  const savedNodeEnv = process.env.NODE_ENV
+  const savedRelaxed = process.env.THROTTLE_RELAXED
+  const savedLimit = process.env.THROTTLER_LIMIT
+
+  afterEach(async () => {
+    if (app) await app.close()
+    if (savedNodeEnv !== undefined) process.env.NODE_ENV = savedNodeEnv
+    else delete process.env.NODE_ENV
+    if (savedRelaxed !== undefined) process.env.THROTTLE_RELAXED = savedRelaxed
+    else delete process.env.THROTTLE_RELAXED
+    if (savedLimit !== undefined) process.env.THROTTLER_LIMIT = savedLimit
+    else delete process.env.THROTTLER_LIMIT
+  })
+
+  it(`THROTTLE_RELAXED=true + NODE_ENV=production → /google/callback still AUTH_LIMIT req/min (429 on ${AUTH_LIMIT + 1}th)`, async () => {
+    process.env.NODE_ENV = 'production'
+    process.env.THROTTLE_RELAXED = 'true'
+    process.env.THROTTLER_LIMIT = '1000'
+
+    app = await buildAuthApp({ ttl: 60_000, limit: 1000 })
+
+    const hitAt = await firstThrottleHitGet(app, '/api/auth/google/callback', AUTH_LIMIT + 1)
+    expect(
+      hitAt,
+      `In production THROTTLE_RELAXED must be ignored — 429 at request ${AUTH_LIMIT + 1} (AUTH_LIMIT=${AUTH_LIMIT})`,
+    ).toBe(AUTH_LIMIT + 1)
   })
 })
