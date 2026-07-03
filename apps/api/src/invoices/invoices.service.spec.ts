@@ -800,6 +800,170 @@ describe('InvoicesService', () => {
       h.ctrl.findTxId = 'tx-missing'
       await expect(h.svc.verifyInvoice('tx-missing')).rejects.toThrow(NotFoundException)
     })
+
+    // ── SEC-05: COMPANY signature must not expose admin display name ───────────
+    it('SEC-05: COMPANY signature signerName is brand name, not admin display name', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-sec05',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-sec05',
+            amount: '800',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-company',
+            transactionId: 'tx-sec05',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'c'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-counterparty',
+            transactionId: 'tx-sec05',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'c'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: 'Maksym Real Name', role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-sec05'
+      const result = await h.svc.verifyInvoice('tx-sec05')
+
+      const companySig = result.signatures.find((s) => s.role === 'COMPANY')
+      expect(companySig).toBeDefined()
+      // Must be brand name, NOT the real admin display name
+      expect(companySig!.signerName).toBe('CheekyCheeseIT')
+      expect(companySig!.signerName).not.toBe('Maksym Real Name')
+
+      // Counterparty name is NOT masked — it's the real display name
+      const counterpartySig = result.signatures.find((s) => s.role === 'COUNTERPARTY')
+      expect(counterpartySig).toBeDefined()
+      expect(counterpartySig!.signerName).toBe(SENIOR.displayName)
+    })
+
+    // ── SEC-11: verify must gate on SIGNED status — PENDING → 404 ─────────────
+    it('SEC-11: returns 404 for PENDING invoice (no COUNTERPARTY signature)', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-pending',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-pending',
+            amount: '1200',
+          }),
+        ],
+        sigs: [
+          // Only COMPANY signature present — counterparty has not signed yet
+          {
+            id: 's-company-only',
+            transactionId: 'tx-pending',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'd'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-pending'
+      // Must return 404 — not amount/counterparty leak
+      await expect(h.svc.verifyInvoice('tx-pending')).rejects.toThrow(NotFoundException)
+    })
+
+    it('SEC-11: returns 404 for PENDING SALARY invoice (no COUNTERPARTY signature)', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-salary-pending',
+            type: 'SALARY',
+            receiverId: JUNIOR.id,
+            invoiceDocumentId: 'doc-salary-pending',
+            amount: '700',
+          }),
+        ],
+        sigs: [],
+        users: [{ id: JUNIOR.id, displayName: JUNIOR.displayName, role: 'JUNIOR' }],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-salary-pending'
+      await expect(h.svc.verifyInvoice('tx-salary-pending')).rejects.toThrow(NotFoundException)
+    })
+
+    it('SEC-11: SIGNED invoice (COUNTERPARTY signature exists) is still accessible', async () => {
+      const h = buildHarness({
+        txs: [
+          tx({
+            id: 'tx-signed',
+            type: 'SENIOR_INCOME',
+            receiverId: SENIOR.id,
+            invoiceDocumentId: 'doc-signed',
+            amount: '500',
+          }),
+        ],
+        sigs: [
+          {
+            id: 's-co',
+            transactionId: 'tx-signed',
+            signerRole: 'COMPANY',
+            signerId: ADMIN.id,
+            pdfHash: 'e'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'AUTO_COMPANY',
+            signedAt: new Date('2026-05-26T10:00:00Z'),
+          },
+          {
+            id: 's-cp',
+            transactionId: 'tx-signed',
+            signerRole: 'COUNTERPARTY',
+            signerId: SENIOR.id,
+            pdfHash: 'e'.repeat(64),
+            ipAddress: null,
+            userAgent: null,
+            method: 'MANUAL_CLICK',
+            signedAt: new Date('2026-05-26T11:00:00Z'),
+          },
+        ],
+        users: [
+          { id: ADMIN.id, displayName: ADMIN.displayName, role: 'ADMIN' },
+          { id: SENIOR.id, displayName: SENIOR.displayName, role: 'SENIOR' },
+        ],
+        projects: [],
+      })
+
+      h.ctrl.findTxId = 'tx-signed'
+      const result = await h.svc.verifyInvoice('tx-signed')
+      expect(result.transactionId).toBe('tx-signed')
+      expect(result.status).toBe('SIGNED')
+    })
   })
 
   // task-aggregate-invoice-per-payout — AC1 / AC2 / AC7.

@@ -82,6 +82,7 @@ import { S3Service } from '../documents/s3.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import {
   InvoicePdfService,
+  COMPANY_BRAND_NAME,
   type InvoiceCompanyInfo,
   type InvoiceCounterpartyInfo,
   type InvoiceSignatureInfo,
@@ -899,22 +900,32 @@ export class InvoicesService {
     }
 
     const sigs = await this.getSignaturesWithSignerNames(tx.id)
-    const status: InvoiceStatus = sigs.some((s) => s.signerRole === 'COUNTERPARTY')
-      ? 'SIGNED'
-      : 'PENDING'
+
+    // SEC-11: gate on SIGNED status — an invoice is publicly verifiable only
+    // once the counterparty has signed. Returning data for PENDING invoices
+    // would expose amount and counterparty name via transactionId enumeration
+    // before the employee has consented to the payment record.
+    const isSigned = sigs.some((s) => s.signerRole === 'COUNTERPARTY')
+    if (!isSigned) {
+      throw new NotFoundException('Инвойс не найден')
+    }
 
     return {
       transactionId: tx.id,
-      status,
+      status: 'SIGNED' as InvoiceStatus,
       amount: tx.amount,
       currency: tx.currency,
       // Public InvoiceType enum is SENIOR_INCOME | SALARY — PAYOUT maps to
       // SENIOR_INCOME for the verify response.
       type: (tx.type === 'PAYOUT' ? 'SENIOR_INCOME' : tx.type) as 'SENIOR_INCOME' | 'SALARY',
       // CRITICAL: only public fields. Strip ip / user_agent / full hash.
+      // SEC-05: mask COMPANY signer name with brand constant — the PDF already
+      // does this via drawCompanySignature; the verify API must mirror it so
+      // the admin's personal display name is never exposed to unauthenticated
+      // callers enumerating the public verify endpoint.
       signatures: sigs.map((s) => ({
         role: s.signerRole,
-        signerName: s.signerName,
+        signerName: s.signerRole === 'COMPANY' ? COMPANY_BRAND_NAME : s.signerName,
         signedAt: s.signedAt.toISOString(),
         pdfHashShort: s.pdfHashShort,
       })),
