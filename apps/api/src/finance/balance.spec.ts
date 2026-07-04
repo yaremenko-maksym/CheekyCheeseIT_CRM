@@ -285,9 +285,19 @@ function makeViewer(role: SessionUser['role'], id = `${role.toLowerCase()}-id`):
 describe('R3 — BalanceService RBAC helpers: assertCanReadAdminBalance', () => {
   const TARGET_ADMIN_ID = '00000000-0000-0000-0000-aaaaaaaaaaaa'
 
-  it('ADMIN can read any admin balance', () => {
+  // SEC-13: ADMIN is now scoped to reading their OWN balance only.
+  // Reading a different admin's balance is forbidden (cross-admin data leak).
+  it('ADMIN can read their OWN admin balance', () => {
     const svc = makeService()
-    expect(() => svc.assertCanReadAdminBalance(makeViewer('ADMIN'), TARGET_ADMIN_ID)).not.toThrow()
+    // makeViewer('ADMIN') produces id 'admin-id'; pass the same id as target
+    const viewer = makeViewer('ADMIN', TARGET_ADMIN_ID)
+    expect(() => svc.assertCanReadAdminBalance(viewer, TARGET_ADMIN_ID)).not.toThrow()
+  })
+
+  it('ADMIN cannot read a DIFFERENT admin balance → ForbiddenException', () => {
+    const svc = makeService()
+    const viewer = makeViewer('ADMIN', 'other-admin-id')
+    expect(() => svc.assertCanReadAdminBalance(viewer, TARGET_ADMIN_ID)).toThrow(ForbiddenException)
   })
 
   it('ACCOUNTANT can read any admin balance', () => {

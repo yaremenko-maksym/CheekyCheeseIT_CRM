@@ -101,12 +101,15 @@ describe('adminUpdateTransaction — #6: settled company-funded edit guard', () 
     expect(updateSpy).toHaveBeenCalled()
   })
 
-  it('ALLOWS an amount edit on a PAID admin-personal SALARY (not company-funded)', async () => {
-    const { svc, updateSpy } = makeSvc({ ...settledSalary, fundingSource: 'ADMIN_PERSONAL' })
-    await expect(
-      svc.adminUpdateTransaction('tx-1', { amount: 999 }, admin()),
-    ).resolves.toBeDefined()
-    expect(updateSpy).toHaveBeenCalled()
+  // BIZ-18: AC3 broadened the guard — ALL PAID transactions are now immutable
+  // for money-defining fields (amount/currency/salaryMonth), not just
+  // company-funded ones. A PAID admin-personal SALARY has already cleared
+  // cash; retroactive amount edits would desync the ledger.
+  it('BLOCKS an amount edit on a PAID admin-personal SALARY (BIZ-18 broadened guard)', async () => {
+    const { svc } = makeSvc({ ...settledSalary, fundingSource: 'ADMIN_PERSONAL' })
+    await expect(svc.adminUpdateTransaction('tx-1', { amount: 999 }, admin())).rejects.toThrow(
+      BadRequestException,
+    )
   })
 })
 
