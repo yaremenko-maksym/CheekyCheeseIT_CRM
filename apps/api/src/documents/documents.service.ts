@@ -599,7 +599,8 @@ export class DocumentsService {
       category: 'CONTRACT',
       name: readableName,
       originalName: null,
-      s3Key: '',
+      // s3Key omitted — not part of public DTO; virtual employee_contract entries
+      // are served via a separate PDF endpoint, not direct S3 download.
       thumbnailS3Key: null,
       // task-junior-ut-round2 §7: real PDF size from the signed contract. Filled at
       // signing time; lazily backfilled on first download for legacy rows. For
@@ -634,7 +635,10 @@ export class DocumentsService {
     // Use category-based TTL: sensitive categories (CONTRACT/RECEIPT/INVOICE/
     // RESUME/SCAN) get 30 min; AVATAR/LOGO keep 24h default.
     const ttl = presignTtlForCategory(doc.category as DocumentCategory)
-    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs)
+    // s3/documents hygiene: force Content-Disposition: attachment so the browser
+    // always downloads the file rather than opening it inline (e.g. a PDF opened
+    // inline in a new tab could be shared via URL — attachment forces Save dialog).
+    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs, 'attachment')
   }
 
   // -------------------------------------------------------------------------
@@ -1211,7 +1215,7 @@ export class DocumentsService {
       category: row.category as DocumentCategory,
       name: row.name,
       originalName: row.originalName ?? null,
-      s3Key: row.s3Key,
+      // s3Key omitted — internal storage key, not part of the public DTO (s3/documents hygiene)
       thumbnailS3Key: row.thumbnailS3Key ?? null,
       sizeBytes: row.sizeBytes,
       mimeType: row.mimeType,

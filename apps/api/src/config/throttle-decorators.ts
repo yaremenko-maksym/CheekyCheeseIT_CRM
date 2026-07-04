@@ -21,9 +21,10 @@ import { Throttle } from '@nestjs/throttler'
  *   • POST /api/tos/accept                  — SENSITIVE_WRITE_LIMIT req/min
  *   • POST /api/contracts/templates         — ADMIN_WRITE_LIMIT req/min
  *   • POST /api/tos (publish)               — ADMIN_WRITE_LIMIT req/min
- *   • PATCH /api/company-account/wallet     — WALLET_UPDATE_LIMIT req/min  (M2: rare admin op)
- *   • POST  /api/company-account/deposits   — DEPOSIT_LIMIT req/min        (M2: money-write)
- *   • POST  /api/company-account/dividends  — DIVIDEND_LIMIT req/min       (M2: rare money-out op)
+ *   • PATCH /api/company-account/wallet             — WALLET_UPDATE_LIMIT req/min      (M2: rare admin op)
+ *   • POST  /api/company-account/deposits            — DEPOSIT_LIMIT req/min            (M2: money-write)
+ *   • POST  /api/company-account/dividends           — DIVIDEND_LIMIT req/min           (M2: rare money-out op)
+ *   • GET   /api/company-account/deposits/:id/status — DEPOSIT_STATUS_LIMIT req/min     (AC4: Etherscan polling)
  *   • POST /api/users/:id/contract/ready    — falls back to global
  *
  * In CI E2E suites (rbac-matrix-smoke, drop-role-end-to-end,
@@ -100,6 +101,14 @@ export const DEPOSIT_LIMIT = 12
  * M2: rare money-out op — tighten vs global 100/min. Never lowerable via env.
  */
 export const DIVIDEND_LIMIT = 5
+
+/**
+ * Prod cap for deposit status polling (GET /company-account/deposits/:id/status).
+ * AC4 (BIZ-23): each request re-queries Etherscan; throttling prevents API abuse.
+ * 30 req/min = once every 2 s per IP — sufficient for a progress bar with 5-10 s
+ * polling intervals, while limiting Etherscan rate-limit exposure.
+ */
+export const DEPOSIT_STATUS_LIMIT = 30
 
 /**
  * Prod cap for auth endpoints (Google OAuth callback, One-Tap, dev-login).

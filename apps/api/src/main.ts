@@ -37,7 +37,11 @@ async function bootstrap() {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", 'data:', 'https://api.dicebear.com', 'https:'],
+            // CSP: img-src allows https: because DocumentImage (<img src={presignedR2Url}>)
+            // fetches presigned R2/S3 thumbnails and full-res previews directly as <img>,
+            // not via fetch(). Narrowing to a specific R2 hostname is fragile (env-specific
+            // endpoint, changes per deployment). All other directives remain tightly scoped.
+            imgSrc: ["'self'", 'data:', 'https:', 'https://api.dicebear.com'],
             fontSrc: ["'self'", 'data:'],
             connectSrc: ["'self'"],
             frameSrc: ["'self'", 'blob:'],

@@ -117,7 +117,8 @@ export const documentSchema = z.object({
    * 0011 — the UI falls back to `name` when this is null.
    */
   originalName: z.string().min(1).max(255).nullable(),
-  s3Key: z.string().min(1).max(512),
+  // s3Key intentionally omitted from the public DTO — it is an internal storage
+  // identifier that clients do not need and should not see (s3/documents hygiene).
   /**
    * S3 key of the 256x256 JPEG thumbnail (generated synchronously for image
    * MIME types). NULL for non-image documents (UI shows a category icon).

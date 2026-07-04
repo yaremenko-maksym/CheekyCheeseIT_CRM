@@ -17,12 +17,7 @@
  * notification types only requires appending to the enum + a single emitter
  * call site.
  */
-import {
-  BadRequestException,
-  ForbiddenException,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common'
+import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common'
 import { and, desc, eq, isNull, sql } from 'drizzle-orm'
 import type {
   Notification as NotificationDto,
@@ -122,10 +117,9 @@ export class NotificationsService {
   }
 
   /**
-   * Mark a single notification as read. Throws 404 if missing, 403 if the
-   * caller is not the owner — we deliberately surface a different code from
-   * 404 here so the front-end can distinguish (e.g. show "permission denied"
-   * vs "already-deleted" toasts).
+   * Mark a single notification as read. Throws 404 if missing or if the row
+   * belongs to a different user — a uniform 404 avoids leaking notification
+   * existence to other users (existence oracle, SEC-10).
    */
   async markRead(userId: string, notificationId: string): Promise<void> {
     const row = await this.db.db.query.notifications.findFirst({
@@ -133,7 +127,9 @@ export class NotificationsService {
     })
     if (!row) throw new NotFoundException('Уведомление не найдено')
     if (row.userId !== userId) {
-      throw new ForbiddenException('Это уведомление принадлежит другому пользователю')
+      // SEC-10: return 404 (not 403) to avoid leaking that the notification
+      // exists but belongs to another user (existence oracle).
+      throw new NotFoundException('Уведомление не найдено')
     }
     if (row.readAt) return // idempotent
     await this.db.db
@@ -156,9 +152,10 @@ export class NotificationsService {
 
   /**
    * Hard-delete a single notification row. Used by the Trash icon in the
-   * header bell dropdown. Same ownership semantics as `markRead`:
+   * header bell dropdown. Ownership semantics:
    *   - 404 when the row does not exist
-   *   - 403 when the row belongs to a different user
+   *   - 404 (not 403) when the row belongs to a different user — avoids leaking
+   *     existence (SEC-10 existence oracle).
    * (No soft delete — notifications are ephemeral, recreated by the system
    *  whenever the underlying event re-occurs.)
    */
@@ -168,7 +165,9 @@ export class NotificationsService {
     })
     if (!row) throw new NotFoundException('Уведомление не найдено')
     if (row.userId !== userId) {
-      throw new ForbiddenException('Это уведомление принадлежит другому пользователю')
+      // SEC-10: return 404 (not 403) to avoid leaking that the notification
+      // exists but belongs to another user (existence oracle).
+      throw new NotFoundException('Уведомление не найдено')
     }
     await this.db.db.delete(notifications).where(eq(notifications.id, notificationId))
   }

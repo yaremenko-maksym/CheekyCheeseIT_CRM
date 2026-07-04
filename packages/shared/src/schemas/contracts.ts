@@ -59,7 +59,7 @@ export type CustomVariable = z.infer<typeof customVariableSchema>
  */
 export const createContractTemplateSchema = z.object({
   targetRole: contractTargetRoleSchema,
-  bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым'),
+  bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым').max(100_000), // BIZ-14
   customVariables: z.array(customVariableSchema).default([]),
 })
 

@@ -165,7 +165,7 @@ describe('AuditLogService.diff', () => {
       expect(d).toEqual({})
     })
 
-    it('SENSITIVE_FIELDS set covers all 13 expected fields', () => {
+    it('SENSITIVE_FIELDS set covers all 15 expected fields', () => {
       const expected = [
         'email',
         'googleId',
@@ -181,11 +181,14 @@ describe('AuditLogService.diff', () => {
         // HIGH-1 + MED-2 additions
         'adminNote',
         'monthlySalary',
+        // SEC-08: FOP PII fields
+        'registrationAddress',
+        'usrRecord',
       ]
       for (const field of expected) {
         expect(SENSITIVE_FIELDS.has(field), `Expected "${field}" in SENSITIVE_FIELDS`).toBe(true)
       }
-      expect(SENSITIVE_FIELDS.size).toBe(13)
+      expect(SENSITIVE_FIELDS.size).toBe(15)
     })
   })
 })

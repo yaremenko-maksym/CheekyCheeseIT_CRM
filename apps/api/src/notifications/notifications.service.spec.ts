@@ -15,7 +15,7 @@
  *  - markRead throws 404 for missing notification
  *  - markAllRead flips every unread row for the user
  */
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { NotFoundException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import { NotificationsService } from './notifications.service'
 
@@ -319,11 +319,11 @@ describe('NotificationsService', () => {
       expect(h.rows[0]!.readAt).toEqual(past)
     })
 
-    it('throws 403 when caller is not the owner', async () => {
+    it('throws 404 (not 403) when caller is not the owner — existence oracle (SEC-10)', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
       const svc = new NotificationsService(h.db)
       h.ctx.markReadId = 'n1'
-      await expect(svc.markRead('u-1', 'n1')).rejects.toThrow(ForbiddenException)
+      await expect(svc.markRead('u-1', 'n1')).rejects.toThrow(NotFoundException)
     })
 
     it('throws 404 when notification does not exist', async () => {
@@ -367,11 +367,11 @@ describe('NotificationsService', () => {
       expect(h.rows.find((r) => r.id === 'n2')).toBeDefined()
     })
 
-    it('throws 403 when the caller is not the owner', async () => {
+    it('throws 404 (not 403) when the caller is not the owner — existence oracle (SEC-10)', async () => {
       const h = makeHarness([{ id: 'n1', userId: 'u-other', readAt: null }])
       const svc = new NotificationsService(h.db)
       h.ctx.deleteId = 'n1'
-      await expect(svc.delete('u-1', 'n1')).rejects.toThrow(ForbiddenException)
+      await expect(svc.delete('u-1', 'n1')).rejects.toThrow(NotFoundException)
       // Row still present after the failed call
       expect(h.rows.find((r) => r.id === 'n1')).toBeDefined()
     })

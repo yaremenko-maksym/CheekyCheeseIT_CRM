@@ -291,7 +291,7 @@ function refineCompanyAccountUsdt(
 export const createAdminIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive(),
+    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -312,7 +312,7 @@ export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
 export const createSeniorIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive(),
+    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -332,7 +332,7 @@ export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
 export const createDropIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive(),
+    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -348,7 +348,7 @@ export type CreateDropIncomeDto = z.infer<typeof createDropIncomeSchema>
 // Update REJECTED senior income (resets to PENDING)
 export const updateSeniorIncomeSchema = z
   .object({
-    amount: z.number().positive().optional(),
+    amount: z.number().positive().max(500_000).optional(), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -362,7 +362,7 @@ export type UpdateSeniorIncomeDto = z.infer<typeof updateSeniorIncomeSchema>
 // balance, gated by available funds). Currency forced to USDT. Absent → legacy.
 export const createExpenseSchema = z
   .object({
-    amount: z.number().positive(),
+    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     category: z.string().min(1).max(255),
     notes: z.string().max(1000).optional().nullable(),
@@ -388,7 +388,7 @@ export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 // nominal of the reminder (default USD); it is overridden by the pay-time choice.
 export const createSalarySchema = z.object({
   receiverId: z.string().uuid(),
-  amount: z.number().positive(),
+  amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USD'),
   salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
   notes: z.string().max(1000).optional().nullable(),
@@ -404,7 +404,7 @@ export type CreateSalaryDto = z.infer<typeof createSalarySchema>
 export const createAdminTransferSchema = z.object({
   senderId: z.string().uuid().optional(),
   receiverId: z.string().uuid(),
-  amount: z.number().positive(),
+  amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
   notes: z.string().max(1000).optional().nullable(),
   txDate: z
@@ -493,14 +493,14 @@ export type ManualConfirmPayoutDto = z.infer<typeof manualConfirmPayoutSchema>
 // Update project finance settings (ADMIN/ACCOUNTANT)
 export const updateProjectFinanceSettingsSchema = z.object({
   seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
-  juniorSalaryOverride: z.number().nonnegative().nullable().optional(),
+  juniorSalaryOverride: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14
 })
 export type UpdateProjectFinanceSettingsDto = z.infer<typeof updateProjectFinanceSettingsSchema>
 
 // Admin edit any transaction (ADMIN only, blocks PAYOUT/PAYOUT_ADMIN on backend)
 export const adminUpdateTransactionSchema = z
   .object({
-    amount: z.number().positive().optional(),
+    amount: z.number().positive().max(500_000).optional(), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     notes: z.string().max(1000).optional().nullable(),
     ...receiptFields,
