@@ -36,7 +36,10 @@ export class HrAccessService {
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
       .where(and(eq(teamMembers.userId, hrId), isNull(teamMembers.leftAt)))
-      .limit(50)
+      // BIZ-21: raised from 50 → 200 to avoid silent truncation for HR with
+      // many teams (50 was an arbitrary cap that could exclude valid teams at
+      // the tail, making assertHrCanManageProject return false-negative 403s).
+      .limit(200)
 
     if (hrTeams.length === 0) return false
 

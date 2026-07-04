@@ -118,9 +118,13 @@ export const signedContractSchema = z.object({
  * name from `users.legalFullName` (spec §4.3 Option A). Clients MAY still
  * send `typedName` for backward compatibility but the value is ignored.
  */
-export const signContractSchema = z.object({
-  typedName: z.string().max(200).optional(),
-})
+// SEC-19: .strict() rejects unknown fields so a rogue caller cannot smuggle
+// extra properties past the controller boundary.
+export const signContractSchema = z
+  .object({
+    typedName: z.string().max(200).optional(),
+  })
+  .strict()
 
 export type ContractTargetRole = z.infer<typeof contractTargetRoleSchema>
 export type ContractTemplateDto = z.infer<typeof contractTemplateSchema>
