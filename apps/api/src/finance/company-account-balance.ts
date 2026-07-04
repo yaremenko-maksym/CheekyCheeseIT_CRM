@@ -18,13 +18,18 @@
  * NO currency conversion is applied; non-USDT company-funded rows are a client
  * bug rejected upstream):
  *
- *   Balance = + Σ(COMPANY_DEPOSIT        PAID)
- *             + Σ(PAYOUT                 PAID, fundingSource='COMPANY_ACCOUNT')
- *             + Σ(ADMIN_INCOME           PAID, fundingSource='COMPANY_ACCOUNT')
- *             − Σ(DIVIDEND_TO_ADMIN      PAID)
- *             − Σ(SALARY                 PAID, fundingSource='COMPANY_ACCOUNT')
- *             − Σ(EXPENSE                PAID, fundingSource='COMPANY_ACCOUNT')
- *             − Σ(SENIOR_INCOME          PAID, fundingSource='COMPANY_ACCOUNT')
+ *   Balance = + Σ(COMPANY_DEPOSIT        PAID, currency='USDT')
+ *             + Σ(PAYOUT                 PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
+ *             + Σ(ADMIN_INCOME           PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
+ *             − Σ(DIVIDEND_TO_ADMIN      PAID, currency='USDT')
+ *             − Σ(SALARY                 PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
+ *             − Σ(EXPENSE                PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
+ *             − Σ(SENIOR_INCOME          PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
+ *
+ * AC5 (BIZ-23 defence-in-depth): every term is additionally filtered by
+ * currency='USDT'. The company account is USDT-only; upstream creation rejects
+ * non-USDT rows, but the ledger formula adds its own guard so a mis-categorised
+ * row cannot silently distort the balance.
  *
  * The two `← НОВОЕ` terms (ADMIN_INCOME +, EXPENSE −) were added in
  * task-salary-company-account: admin income directed into the company pool
@@ -118,13 +123,22 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
     companyExpenses,
     companySeniorPayouts,
   ] = await Promise.all([
-    sumAmount(db, and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.status, 'PAID'))),
+    // AC5 (BIZ-23): currency='USDT' guard on EVERY term — defence-in-depth.
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'COMPANY_DEPOSIT'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.currency, 'USDT'),
+      ),
+    ),
     sumAmount(
       db,
       and(
         eq(transactions.type, 'PAYOUT'),
         eq(transactions.status, 'PAID'),
         eq(transactions.fundingSource, COMPANY_ACCOUNT),
+        eq(transactions.currency, 'USDT'),
       ),
     ),
     sumAmount(
@@ -133,15 +147,24 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
         eq(transactions.type, 'ADMIN_INCOME'),
         eq(transactions.status, 'PAID'),
         eq(transactions.fundingSource, COMPANY_ACCOUNT),
+        eq(transactions.currency, 'USDT'),
       ),
     ),
-    sumAmount(db, and(eq(transactions.type, 'DIVIDEND_TO_ADMIN'), eq(transactions.status, 'PAID'))),
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'DIVIDEND_TO_ADMIN'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.currency, 'USDT'),
+      ),
+    ),
     sumAmount(
       db,
       and(
         eq(transactions.type, 'SALARY'),
         eq(transactions.status, 'PAID'),
         eq(transactions.fundingSource, COMPANY_ACCOUNT),
+        eq(transactions.currency, 'USDT'),
       ),
     ),
     sumAmount(
@@ -150,6 +173,7 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
         eq(transactions.type, 'EXPENSE'),
         eq(transactions.status, 'PAID'),
         eq(transactions.fundingSource, COMPANY_ACCOUNT),
+        eq(transactions.currency, 'USDT'),
       ),
     ),
     // task-drop-payout-company-account: company-funded senior IOU settlement
@@ -160,6 +184,7 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
         eq(transactions.type, 'SENIOR_INCOME'),
         eq(transactions.status, 'PAID'),
         eq(transactions.fundingSource, COMPANY_ACCOUNT),
+        eq(transactions.currency, 'USDT'),
       ),
     ),
   ])

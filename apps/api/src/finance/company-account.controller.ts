@@ -23,6 +23,7 @@ import {
   RelaxableThrottle,
   WALLET_UPDATE_LIMIT,
   DEPOSIT_LIMIT,
+  DEPOSIT_STATUS_LIMIT,
   DIVIDEND_LIMIT,
 } from '../config/throttle-decorators'
 import { CompanyAccountService } from './company-account.service'
@@ -91,6 +92,7 @@ export class CompanyAccountController {
   // owner-vs-privileged decision (a SENIOR/DROP who is not the owner → 403).
   @Get('deposits/:id/status')
   @Roles('SENIOR', 'DROP', 'ADMIN', 'ACCOUNTANT')
+  @RelaxableThrottle(DEPOSIT_STATUS_LIMIT) // AC4 (BIZ-23): each call hits Etherscan — throttle to prevent API abuse
   getDepositStatus(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
     return this.svc.getDepositStatus(id, user)
   }

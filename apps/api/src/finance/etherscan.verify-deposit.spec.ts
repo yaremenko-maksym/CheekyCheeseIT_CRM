@@ -9,11 +9,18 @@ import { EtherscanService } from './etherscan.service'
  * credited when the on-chain recipient is the company wallet AND confirmations
  * reach the threshold. We mock global `fetch` to drive deterministic chain
  * responses and assert each branch.
+ *
+ * BIZ-08 migration note: verifyDeposit was refactored to use direct JSON-RPC
+ * lookup (eth_getTransactionByHash + eth_getTransactionReceipt + eth_getLogs +
+ * eth_blockNumber) instead of the tokentx listing endpoint. Mocks updated
+ * accordingly to match the 4-call sequential JSON-RPC pattern.
  */
 
 const COMPANY_WALLET = '0x1111111111111111111111111111111111111111'
 const OTHER_WALLET = '0x2222222222222222222222222222222222222222'
 const TX_HASH = '0xabc1230000000000000000000000000000000000000000000000000000000def'
+const USDT_CONTRACT = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
+const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
 
 function makeService(apiKey: string, nodeEnv: string | undefined = 'test'): EtherscanService {
   // Per-key config stub: ETHERSCAN_API_KEY → apiKey; NODE_ENV → nodeEnv. The
@@ -26,30 +33,93 @@ function makeService(apiKey: string, nodeEnv: string | undefined = 'test'): Ethe
   return new EtherscanService(config)
 }
 
-function mockChainTx(opts: {
-  to: string
-  confirmations: string
-  value?: string
-  tokenDecimal?: string
-}) {
-  const body = {
-    status: '1',
-    result: [
-      {
-        hash: TX_HASH,
-        from: '0x9999999999999999999999999999999999999999',
-        to: opts.to,
-        value: opts.value ?? '500000000', // 500 USDT @ 6 decimals
-        contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-        tokenSymbol: 'USDT',
-        tokenDecimal: opts.tokenDecimal ?? '6',
-        blockNumber: '123',
-        confirmations: opts.confirmations,
-      },
+/**
+ * Build a Transfer log entry in eth_getLogs JSON-RPC format.
+ * `to` address is padded as per ABI encoding (right-aligned in 32-byte topic).
+ * `value` is USDT units (e.g. 500 = 500 USDT) converted to raw uint256 (6 decimals).
+ */
+function makeTransferLog(opts: { to: string; value: number; blockNumber?: string }) {
+  return {
+    transactionHash: TX_HASH,
+    blockNumber: opts.blockNumber ?? '0x7b', // block 123
+    address: USDT_CONTRACT,
+    topics: [
+      TRANSFER_TOPIC,
+      '0x0000000000000000000000009999999999999999999999999999999999999999', // from
+      `0x000000000000000000000000${opts.to.replace('0x', '').toLowerCase()}`, // to (padded)
     ],
+    data: `0x${BigInt(Math.round(opts.value * 1_000_000))
+      .toString(16)
+      .padStart(64, '0')}`,
   }
+}
+
+/**
+ * Set up fetch mock sequence for the direct-lookup path.
+ * verifyDeposit makes 4 sequential JSON-RPC calls:
+ *   1. eth_getTransactionByHash
+ *   2. eth_getTransactionReceipt
+ *   3. eth_getLogs
+ *   4. eth_blockNumber
+ */
+function mockDirectLookup(opts: {
+  txFound?: boolean
+  txBlockHex?: string
+  receiptFound?: boolean
+  receiptStatus?: '0x0' | '0x1'
+  logs?: Array<{ to: string; value: number }>
+  currentBlock?: number
+}) {
+  const {
+    txFound = true,
+    txBlockHex = '0x7b', // block 123
+    receiptFound = true,
+    receiptStatus = '0x1',
+    logs = [{ to: COMPANY_WALLET, value: 500 }],
+    currentBlock = 135, // 12 confirmations above block 123
+  } = opts
+
+  const txResponse = txFound
+    ? {
+        jsonrpc: '2.0',
+        result: {
+          hash: TX_HASH,
+          blockNumber: txBlockHex,
+          from: '0x9999999999999999999999999999999999999999',
+          to: USDT_CONTRACT,
+        },
+      }
+    : { jsonrpc: '2.0', result: null }
+
+  const receiptResponse = receiptFound
+    ? {
+        jsonrpc: '2.0',
+        result: {
+          transactionHash: TX_HASH,
+          blockNumber: txBlockHex,
+          status: receiptStatus,
+        },
+      }
+    : { jsonrpc: '2.0', result: null }
+
+  const logsResponse = {
+    jsonrpc: '2.0',
+    result: logs.map((l) => makeTransferLog({ ...l, blockNumber: txBlockHex })),
+  }
+
+  const blockNumberResponse = {
+    jsonrpc: '2.0',
+    result: `0x${currentBlock.toString(16)}`,
+  }
+
+  const responses = [txResponse, receiptResponse, logsResponse, blockNumberResponse]
+  let idx = 0
+
   // @ts-expect-error — test stub for global fetch
-  globalThis.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve(body) })
+  globalThis.fetch = vi.fn().mockImplementation(() => {
+    const body = responses[idx++] ?? { jsonrpc: '2.0', result: null }
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
+  })
 }
 
 describe('EtherscanService.verifyDeposit (keyed — real verification branch)', () => {
@@ -64,40 +134,42 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   })
 
   it('SECURITY: recipient mismatch → toMatches=false, NOT confirmed (no credit)', async () => {
-    mockChainTx({ to: OTHER_WALLET, confirmations: '50' })
+    // Transfer log goes to OTHER_WALLET, not COMPANY_WALLET
+    mockDirectLookup({ logs: [{ to: OTHER_WALLET, value: 500 }] })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.found).toBe(true)
     expect(r.toMatches).toBe(false)
-    // Even with 50 confirmations, a non-matching recipient must NEVER be confirmed.
+    // Even with 12 confirmations, a non-matching recipient must NEVER be confirmed.
     expect(r.confirmed).toBe(false)
   })
 
-  // ── H2: the keyed tokentx request MUST carry &address= (the company wallet) ──
-  // Etherscan `account/tokentx` REQUIRES `address`; without it the API returns an
-  // empty/error result and verifyDeposit would ALWAYS report "tx not found" in
-  // prod (fail-closed but non-functional). Assert the URL includes both the
-  // wallet `address` and the USDT `contractaddress` filter.
-  it('H2: keyed request URL includes &address=<wallet> and &contractaddress=USDT', async () => {
-    mockChainTx({ to: COMPANY_WALLET, confirmations: '12' })
+  // ── H2: the keyed request MUST use direct txHash lookup (JSON-RPC proxy) ──
+  // New BIZ-08 path uses eth_getTransactionByHash, NOT tokentx listing.
+  // Assert the first fetch URL carries the correct JSON-RPC action and txhash.
+  it('H2: keyed request uses eth_getTransactionByHash with the tx hash', async () => {
+    mockDirectLookup({})
     await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
-    expect(fetchMock).toHaveBeenCalledTimes(1)
-    const calledUrl = String(fetchMock.mock.calls[0]![0])
-    expect(calledUrl).toContain(`&address=${COMPANY_WALLET}`)
-    expect(calledUrl).toContain('&contractaddress=0xdAC17F958D2ee523a2206206994597C13D831ec7')
-    expect(calledUrl).toContain('action=tokentx')
+    // At least 1 call
+    expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1)
+    const firstUrl = String(fetchMock.mock.calls[0]![0])
+    expect(firstUrl).toContain('action=eth_getTransactionByHash')
+    expect(firstUrl).toContain(`txhash=${TX_HASH}`)
+    // Should NOT use the old tokentx listing endpoint
+    expect(firstUrl).not.toContain('action=tokentx')
   })
 
   it('SECURITY: recipient match but below threshold → pending (confirmed=false)', async () => {
-    mockChainTx({ to: COMPANY_WALLET, confirmations: '5' })
+    // block 123, currentBlock 129 → 6 confirmations
+    mockDirectLookup({ txBlockHex: '0x7b', currentBlock: 129 })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.toMatches).toBe(true)
-    expect(r.confirmations).toBe(5)
+    expect(r.confirmations).toBe(6)
     expect(r.confirmed).toBe(false)
   })
 
   it('recipient match AND confirmations >= threshold → confirmed=true + amount', async () => {
-    mockChainTx({ to: COMPANY_WALLET, confirmations: '12', value: '750000000' })
+    mockDirectLookup({ logs: [{ to: COMPANY_WALLET, value: 750 }], currentBlock: 135 })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.toMatches).toBe(true)
     expect(r.confirmed).toBe(true)
@@ -106,17 +178,16 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   })
 
   it('case-insensitive recipient match', async () => {
-    mockChainTx({ to: COMPANY_WALLET.toUpperCase().replace('0X', '0x'), confirmations: '30' })
+    // Transfer log has uppercase wallet address (minus 0x prefix which is lowercase)
+    const upperWallet = COMPANY_WALLET.toUpperCase().replace('0X', '0x')
+    mockDirectLookup({ logs: [{ to: upperWallet, value: 300 }], currentBlock: 135 })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.toMatches).toBe(true)
     expect(r.confirmed).toBe(true)
   })
 
   it('tx not found on-chain → found=false, not confirmed', async () => {
-    // @ts-expect-error — test stub
-    globalThis.fetch = vi.fn().mockResolvedValue({
-      json: () => Promise.resolve({ status: '1', result: [] }),
-    })
+    mockDirectLookup({ txFound: false })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.found).toBe(false)
     expect(r.confirmed).toBe(false)
@@ -133,15 +204,39 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   })
 
   it('null company wallet → never matches / never confirmed (invariant)', async () => {
-    mockChainTx({ to: COMPANY_WALLET, confirmations: '50' })
+    mockDirectLookup({})
     const r = await svc.verifyDeposit(TX_HASH, null, 12)
     expect(r.toMatches).toBe(false)
     expect(r.confirmed).toBe(false)
   })
 
   it('confirmations not parseable → treated as 0, not confirmed', async () => {
-    mockChainTx({ to: COMPANY_WALLET, confirmations: 'not-a-number' })
+    // Simulate eth_blockNumber returning a non-parseable value
+    const responses = [
+      {
+        jsonrpc: '2.0',
+        result: {
+          hash: TX_HASH,
+          blockNumber: '0x7b',
+          from: '0x9999999999999999999999999999999999999999',
+          to: USDT_CONTRACT,
+        },
+      },
+      { jsonrpc: '2.0', result: { transactionHash: TX_HASH, blockNumber: '0x7b', status: '0x1' } },
+      {
+        jsonrpc: '2.0',
+        result: [makeTransferLog({ to: COMPANY_WALLET, value: 500, blockNumber: '0x7b' })],
+      },
+      { jsonrpc: '2.0', result: 'not-a-hex' }, // unparseable block number
+    ]
+    let idx = 0
+    // @ts-expect-error — test stub for global fetch
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+      const body = responses[idx++] ?? { jsonrpc: '2.0', result: null }
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
+    })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    // NaN - NaN = NaN → Math.max(0, NaN) = 0
     expect(r.confirmations).toBe(0)
     expect(r.confirmed).toBe(false)
   })
@@ -149,35 +244,13 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   // Audit 2026-06-28 (#12): a single on-chain tx can emit MULTIPLE USDT transfers
   // to the wallet under the same hash — sum ALL of them, not just the first.
   it('two USDT transfers with the same hash to the wallet → amount summed', async () => {
-    const body = {
-      status: '1',
-      result: [
-        {
-          hash: TX_HASH,
-          from: '0x9999999999999999999999999999999999999999',
-          to: COMPANY_WALLET,
-          value: '500000000', // 500 USDT @ 6 decimals
-          contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-          tokenSymbol: 'USDT',
-          tokenDecimal: '6',
-          blockNumber: '123',
-          confirmations: '20',
-        },
-        {
-          hash: TX_HASH,
-          from: '0x8888888888888888888888888888888888888888',
-          to: COMPANY_WALLET,
-          value: '250000000', // 250 USDT
-          contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-          tokenSymbol: 'USDT',
-          tokenDecimal: '6',
-          blockNumber: '123',
-          confirmations: '20',
-        },
+    mockDirectLookup({
+      logs: [
+        { to: COMPANY_WALLET, value: 500 },
+        { to: COMPANY_WALLET, value: 250 },
       ],
-    }
-    // @ts-expect-error — test stub for global fetch
-    globalThis.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve(body) })
+      currentBlock: 135,
+    })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.found).toBe(true)
     expect(r.toMatches).toBe(true)
@@ -188,35 +261,13 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   // Only transfers TO the company wallet are summed; a same-hash transfer to a
   // different recipient must NOT inflate the credited amount.
   it('same-hash transfer to a different wallet is excluded from the sum', async () => {
-    const body = {
-      status: '1',
-      result: [
-        {
-          hash: TX_HASH,
-          from: '0x9999999999999999999999999999999999999999',
-          to: COMPANY_WALLET,
-          value: '500000000', // 500 USDT to the company wallet
-          contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-          tokenSymbol: 'USDT',
-          tokenDecimal: '6',
-          blockNumber: '123',
-          confirmations: '20',
-        },
-        {
-          hash: TX_HASH,
-          from: '0x9999999999999999999999999999999999999999',
-          to: OTHER_WALLET,
-          value: '999000000', // 999 USDT to someone else — must be ignored
-          contractAddress: '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-          tokenSymbol: 'USDT',
-          tokenDecimal: '6',
-          blockNumber: '123',
-          confirmations: '20',
-        },
+    mockDirectLookup({
+      logs: [
+        { to: COMPANY_WALLET, value: 500 }, // company wallet — counts
+        { to: OTHER_WALLET, value: 999 }, // different wallet — must be ignored
       ],
-    }
-    // @ts-expect-error — test stub for global fetch
-    globalThis.fetch = vi.fn().mockResolvedValue({ json: () => Promise.resolve(body) })
+      currentBlock: 135,
+    })
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.amountUsdt).toBe(500) // only the company-wallet transfer
   })
@@ -244,7 +295,7 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
   // credit. The config stub returns 'staging' directly (no process.env fallback,
   // so the assertion is deterministic regardless of the test runner's env).
   it("keyless + NODE_ENV='staging' + wallet configured → does NOT auto-confirm (fail-closed)", async () => {
-    mockChainTx({ to: COMPANY_WALLET, confirmations: '50' })
+    mockDirectLookup({})
     const svc = makeService('', 'staging')
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.confirmed).toBe(false)
@@ -255,7 +306,7 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
   // 'production' NODE_ENV → fail-closed (the canonical prod case). Pins that the
   // keyless branch never auto-credits in a real deployment.
   it("keyless + NODE_ENV='production' + wallet configured → does NOT auto-confirm (fail-closed)", async () => {
-    mockChainTx({ to: COMPANY_WALLET, confirmations: '50' })
+    mockDirectLookup({})
     const svc = makeService('', 'production')
     const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
     expect(r.confirmed).toBe(false)
