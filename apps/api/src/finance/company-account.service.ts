@@ -447,7 +447,11 @@ export class CompanyAccountService {
         // B hits the partial unique index (23505). Instead of a 500 we re-read
         // the committed row and return it — idempotent response, no double-debit.
         if (input.idempotencyKey && isUniqueViolation(err)) {
-          const existing = await dbtx.query.transactions.findFirst({
+          // After a 23505 the Postgres transaction is in aborted state — any
+          // further query on `dbtx` would fail with "current transaction is
+          // aborted". Use a fresh connection (this.db.db) to re-read the row
+          // that the concurrent winner already committed.
+          const existing = await this.db.db.query.transactions.findFirst({
             where: and(
               eq(transactions.type, 'DIVIDEND_TO_ADMIN'),
               eq(transactions.idempotencyKey, input.idempotencyKey),
