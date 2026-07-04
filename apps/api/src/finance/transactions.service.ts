@@ -1603,13 +1603,10 @@ export class TransactionsService {
     const confirmationNote = `Manual payout confirmation by ${currentUser.id} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
-      // BIZ-02 (HIGH): atomic claim — flip PAYOUT→PAID ONLY when the row is
-      // still PENDING_PAYMENT (conditional UPDATE with WHERE status predicate).
-      // The UPDATE takes a row-level lock and re-evaluates the predicate
-      // against the committed row, so exactly ONE concurrent caller wins.
-      // If zero rows are returned the row was already claimed by a concurrent
-      // winner → throw before any INSERT runs, preventing a double credit.
-      const claimed = await dbtx
+      // 1) Flip PAYOUT to PAID + record who/when confirmed. For CRYPTO method
+      //    also stamp the txHash on the PAYOUT row so the senior-side audit
+      //    matches the new credit row.
+      await dbtx
         .update(transactions)
         .set({
           status: 'PAID',
@@ -1618,39 +1615,7 @@ export class TransactionsService {
           updatedAt: now,
           ...(method === 'CRYPTO' && recordedTxHash ? { txHash: recordedTxHash } : {}),
         })
-        .where(and(eq(transactions.id, payoutTxId), eq(transactions.status, 'PENDING_PAYMENT')))
-        .returning({ id: transactions.id })
-
-      if (claimed.length === 0) {
-        // The row was already confirmed by a concurrent call — bail out before
-        // inserting a PAYOUT_CONFIRMED so no double credit occurs.
-        throw new BadRequestException(
-          'Payout is not pending payment (already confirmed by a concurrent request)',
-        )
-      }
-
-      // BIZ-02 cross-path (HIGH): when this PAYOUT is linked to a payout_request,
-      // flip the request's status PENDING→PAID atomically in the SAME transaction.
-      // This closes the race with `payPayoutRequest` which gates on
-      // `payout_requests.status === 'PENDING'` before calling `applyPayoutPaidCascade`.
-      // Without this flip, `payPayoutRequest` can still pass its gate AFTER
-      // `confirmPayout` has committed, producing a second credit.
-      //
-      // 0 rows returned = payout_request already PAID (race with payPayoutRequest) —
-      // still valid here because the PAYOUT row was already claimed above (the
-      // primary race guard). We just ensure the request is also marked PAID.
-      if (payoutTx.payoutRequestId) {
-        await dbtx
-          .update(payoutRequests)
-          .set({ status: 'PAID', updatedAt: now })
-          .where(
-            and(
-              eq(payoutRequests.id, payoutTx.payoutRequestId),
-              eq(payoutRequests.status, 'PENDING'),
-            ),
-          )
-          .returning({ id: payoutRequests.id })
-      }
+        .where(eq(transactions.id, payoutTxId))
 
       // 2) Insert the PAYOUT_CONFIRMED row crediting the chosen admin. The
       //    inputs (amount/currency/projectId/payoutRequestId) snapshot the
@@ -1680,23 +1645,13 @@ export class TransactionsService {
     // Return both rows so the UI can update the table in a single round-trip:
     // the now-PAID PAYOUT and the freshly created credit row.
     const updatedPayout = await this.findOne(payoutTxId, currentUser)
-    // Build the WHERE predicate conditionally: payoutRequestId is nullable, and
-    // passing '' (empty string) for a UUID column causes Postgres to throw
-    // "invalid input syntax for type uuid". Filter on it only when present.
-    const confirmedRowWhere = payoutTx.payoutRequestId
-      ? and(
-          eq(transactions.type, 'PAYOUT_CONFIRMED'),
-          eq(transactions.payoutRequestId, payoutTx.payoutRequestId),
-          eq(transactions.receiverId, recipient.id),
-          eq(transactions.notes, confirmationNote),
-        )
-      : and(
-          eq(transactions.type, 'PAYOUT_CONFIRMED'),
-          eq(transactions.receiverId, recipient.id),
-          eq(transactions.notes, confirmationNote),
-        )
     const confirmedRow = await this.db.db.query.transactions.findFirst({
-      where: confirmedRowWhere,
+      where: and(
+        eq(transactions.type, 'PAYOUT_CONFIRMED'),
+        eq(transactions.payoutRequestId, payoutTx.payoutRequestId ?? ''),
+        eq(transactions.receiverId, recipient.id),
+        eq(transactions.notes, confirmationNote),
+      ),
       orderBy: [desc(transactions.createdAt)],
     })
     const confirmed = confirmedRow ? await this.findOne(confirmedRow.id, currentUser) : null
@@ -2508,20 +2463,7 @@ export class TransactionsService {
         //   null (manual ADMIN_USDT / CASH) → NOT counted (money landed off the
         //                     company account). The auditNote records the manual
         //                     method when present.
-        //
-        // BIZ-02 defense-in-depth (HIGH-1 fix): the payout_requests atomic claim
-        // above is the PRIMARY race guard — the loser bails there before any
-        // ledger write. The PAYOUT row UPDATE below is intentionally idempotent:
-        // if the row was already flipped (e.g. by confirmPayout racing in AFTER
-        // the payout_request claim), we fall through to a SELECT to recover the
-        // existing id. NO throw here — an aggressive throw broke legitimate
-        // payPayoutRequest / manualConfirmPayout flows where the first bulk UPDATE
-        // (status='PAID' WHERE payoutRequestId=...) had already flipped the PAYOUT
-        // row before this targeted UPDATE ran, causing 28 integration failures.
-        // Lock-order inversion (HIGH-2): removing this secondary re-lock also
-        // eliminates the P→R vs R→P deadlock risk (concurrent confirmPayout ⟂
-        // payPayoutRequest paths no longer compete for the PAYOUT row lock here).
-        const payoutUpdated = await dbtx
+        await dbtx
           .update(transactions)
           .set({
             status: 'PAID',
@@ -2530,48 +2472,16 @@ export class TransactionsService {
             updatedAt: new Date(),
             ...(auditNote ? { notes: auditNote } : {}),
           })
-          .where(
-            and(
-              eq(transactions.payoutRequestId, requestId),
-              eq(transactions.type, 'PAYOUT'),
-              eq(transactions.status, 'PENDING_PAYMENT'),
-            ),
-          )
-          .returning({ id: transactions.id })
+          .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
 
-        // Idempotent fallback: if the PAYOUT row was already PAID (0 rows
-        // returned above), the bulk UPDATE at line ~2471 (WHERE payoutRequestId=requestId,
-        // no type filter) already flipped the PAYOUT row to PAID but did NOT set
-        // txHash / fundingSource / notes. We must write those fields now so that
-        // computeBalance sees fundingSource='COMPANY_ACCOUNT' and credits the company.
-        let payoutRow: { id: string }
-        if (payoutUpdated.length > 0) {
-          payoutRow = payoutUpdated[0]!
-        } else {
-          // Patch missing txHash + fundingSource on the already-PAID PAYOUT row.
-          await dbtx
-            .update(transactions)
-            .set({
-              txHash: effectiveTxHash,
-              fundingSource,
-              updatedAt: new Date(),
-              ...(auditNote ? { notes: auditNote } : {}),
-            })
-            .where(
-              and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
-            )
-          const existing = await dbtx
-            .select({ id: transactions.id })
-            .from(transactions)
-            .where(
-              and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
-            )
-            .limit(1)
-          if (existing.length === 0) {
-            throw new BadRequestException('PAYOUT transaction not found for this request')
-          }
-          payoutRow = existing[0]!
-        }
+        // Re-fetch the PAYOUT id (the UPDATE above doesn't return rows in
+        // drizzle's current Postgres flavour without `.returning()` chaining).
+        // Captured here so the invoice trigger can run AFTER commit (best-effort).
+        const [payoutRow] = await dbtx
+          .select({ id: transactions.id })
+          .from(transactions)
+          .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')))
+          .limit(1)
 
         // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
         // belong to a drop-project. Senior-projects (project.dropId === null)
@@ -3733,10 +3643,6 @@ export class TransactionsService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
-      // Currency audit (LOW): SALARY has no fixed-currency obligation — unlike
-      // settleByCompany (which guards against currency mismatch with a
-      // pending_obligation), SALARY rows carry no locked currency at creation
-      // (the PENDING row is denomination-neutral). Any currency is valid here.
       currency = data.currency
     }
 
@@ -3840,7 +3746,6 @@ export class TransactionsService {
       return
     }
 
-    const hrAccountantFailures: string[] = []
     for (const emp of employees) {
       if (!emp.monthlySalary) continue
 
@@ -3857,46 +3762,27 @@ export class TransactionsService {
       // `uq_transactions_salary_receiver_month` (WHERE type='SALARY' AND
       // salary_month IS NOT NULL). A duplicate is silently ignored — idempotent,
       // race-free, no read round-trip per employee (also kills the N+1).
-      //
-      // MED-1: per-employee try/catch — a DB error on one employee (e.g. transient
-      // lock or network issue) must NOT abort the loop; remaining employees still
-      // get their salary reminder. Failures are collected and logged after the loop
-      // so the cron does not silently skip employees.
-      try {
-        await this.db.db
-          .insert(transactions)
-          .values({
-            type: 'SALARY',
-            status: 'PENDING',
-            amount: emp.monthlySalary,
-            currency: 'USD',
-            senderId: null,
-            senderLabel: 'CheekyCheeseIT',
-            receiverId: emp.id,
-            salaryMonth: month,
-            fundingSource: null,
-            createdBy: admin.id,
-          })
-          .onConflictDoNothing({
-            target: [transactions.receiverId, transactions.salaryMonth],
-            // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
-            // this as the conflict-target predicate, matching the partial index's
-            // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
-            where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
-          })
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        this.logger.error(
-          `createMonthlySalaries: failed for employee ${emp.id} (${emp.email}) month=${month} — ${msg}`,
-          err instanceof Error ? err.stack : undefined,
-        )
-        hrAccountantFailures.push(emp.id)
-      }
-    }
-    if (hrAccountantFailures.length > 0) {
-      this.logger.error(
-        `createMonthlySalaries: ${hrAccountantFailures.length} HR/ACCOUNTANT salary(ies) failed for month=${month}. Failed employee ids: ${hrAccountantFailures.join(', ')}`,
-      )
+      await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: emp.monthlySalary,
+          currency: 'USD',
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: emp.id,
+          salaryMonth: month,
+          fundingSource: null,
+          createdBy: admin.id,
+        })
+        .onConflictDoNothing({
+          target: [transactions.receiverId, transactions.salaryMonth],
+          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+          // this as the conflict-target predicate, matching the partial index's
+          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+        })
     }
 
     // Create PENDING salary for JUNIORs on active projects.
@@ -3912,7 +3798,6 @@ export class TransactionsService {
       },
     })
 
-    const juniorFailures: string[] = []
     for (const member of activeMembers) {
       const user = (member as typeof member & { user: typeof users.$inferSelect | null }).user
       const project = (
@@ -3934,44 +3819,28 @@ export class TransactionsService {
       // Audit 2026-06-27 (LOW #5): idempotent, race-free salary creation — see the
       // HR/ACCOUNTANT loop above. ON CONFLICT DO NOTHING against the partial
       // unique index replaces the find-then-insert TOCTOU + N+1 read.
-      //
-      // MED-1: per-member try/catch — see HR/ACCOUNTANT loop above for rationale.
-      try {
-        await this.db.db
-          .insert(transactions)
-          .values({
-            type: 'SALARY',
-            status: 'PENDING',
-            amount: String(salaryAmount),
-            currency: 'USD',
-            senderId: null,
-            senderLabel: 'CheekyCheeseIT',
-            receiverId: user.id,
-            projectId: project.id,
-            salaryMonth: month,
-            fundingSource: null,
-            createdBy: admin.id,
-          })
-          .onConflictDoNothing({
-            target: [transactions.receiverId, transactions.salaryMonth],
-            // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
-            // this as the conflict-target predicate, matching the partial index's
-            // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
-            where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
-          })
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        this.logger.error(
-          `createMonthlySalaries: failed for junior ${user.id} (${user.email}) project=${project.id} month=${month} — ${msg}`,
-          err instanceof Error ? err.stack : undefined,
-        )
-        juniorFailures.push(user.id)
-      }
-    }
-    if (juniorFailures.length > 0) {
-      this.logger.error(
-        `createMonthlySalaries: ${juniorFailures.length} JUNIOR salary(ies) failed for month=${month}. Failed employee ids: ${juniorFailures.join(', ')}`,
-      )
+      await this.db.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: String(salaryAmount),
+          currency: 'USD',
+          senderId: null,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: user.id,
+          projectId: project.id,
+          salaryMonth: month,
+          fundingSource: null,
+          createdBy: admin.id,
+        })
+        .onConflictDoNothing({
+          target: [transactions.receiverId, transactions.salaryMonth],
+          // `where` (NOT targetWhere) — drizzle-orm 0.36 onConflictDoNothing emits
+          // this as the conflict-target predicate, matching the partial index's
+          // WHERE. Must match `uq_transactions_salary_receiver_month` exactly.
+          where: sql`${transactions.type} = 'SALARY' AND ${transactions.salaryMonth} IS NOT NULL`,
+        })
     }
   }
 

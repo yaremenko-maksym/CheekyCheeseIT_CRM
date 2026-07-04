@@ -462,7 +462,11 @@ export class CompanyAccountService {
 
     return {
       id: tx.id,
-      amount: parseFloat(tx.amount as unknown as string),
+      // Use input.amount (already a number) for the happy-path INSERT return.
+      // The tx row holds amount as a string column; parseFloat is only needed
+      // for idempotent re-read paths (early-SELECT / MED-1 catch) that map DB
+      // rows — those return early above with their own parseFloat calls.
+      amount: input.amount,
       receiverId: tx.receiverId ?? receiverId,
     }
   }
