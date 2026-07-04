@@ -46,6 +46,8 @@ interface MockTx {
   createdBy?: string | null
   createdAt?: Date
   updatedAt?: Date
+  // BIZ-04: null = net pass-through; number = gross, multiply by pct/100
+  seniorSharePercent?: number | null
 }
 
 function makeTx(overrides: Partial<MockTx>): MockTx {
@@ -61,6 +63,8 @@ function makeTx(overrides: Partial<MockTx>): MockTx {
     fundingSource: null,
     payoutRequestId: null,
     type: 'TOV_INCOME',
+    createdAt: new Date('2026-01-01T00:00:00.000Z'),
+    updatedAt: new Date('2026-01-01T00:00:00.000Z'),
     ...overrides,
   }
 }
@@ -152,6 +156,9 @@ describe('AC2 BIZ-12 — EXPENSE PAID-gating in getSeniorBalance', () => {
         amount: '1000',
         currency: 'USD',
         receiverId: SENIOR_ID,
+        // BIZ-04: null seniorSharePercent means amount is already the net senior
+        // share (settled by company); use as-is to avoid NaN from pct multiply.
+        seniorSharePercent: null,
       }),
       makeTx({
         type: 'EXPENSE',
@@ -174,6 +181,8 @@ describe('AC2 BIZ-12 — EXPENSE PAID-gating in getSeniorBalance', () => {
         amount: '1000',
         currency: 'USD',
         receiverId: SENIOR_ID,
+        // BIZ-04: null → net pass-through (no pct multiply)
+        seniorSharePercent: null,
       }),
       makeTx({
         type: 'EXPENSE',
@@ -241,59 +250,84 @@ describe('AC5 SEC-13 — assertCanReadAdminBalance: ADMIN scoped to own target',
 import { TransactionsService } from './transactions.service'
 
 function makeAdminTransferService(
-  users: Record<string, { id: string; role: string }>,
+  userMap: Record<string, { id: string; role: string }>,
   capturedInserts: Array<{ senderId: string }>,
 ) {
+  // Shared inserted-tx slot: set by insert().values() so findFirst (called by
+  // findOne after insert) can return the same row with relation stubs.
+  let lastInserted: Record<string, unknown> | null = null
+
   const db = {
     db: {
       query: {
         users: {
           findFirst: async ({ where }: { where: unknown }) => {
-            // Extract UUID from the drizzle eq() condition via duck-type inspection.
-            // The 'where' is a drizzle SQL object; we look for any value matching a UUID.
-            // More robust: caller passes id directly. We use the 'where.value' pattern.
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const id = (where as any)?.right?.value ?? (where as any)?.value
-            return users[id] ?? null
+            // Drizzle eq() produces a circular PgTable AST — walk it manually
+            // with a visited-set guard and collect all UUID strings encountered.
+            const uuidRe = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+            const visited = new Set<unknown>()
+            function collectUuids(node: unknown): string[] {
+              if (node === null || node === undefined) return []
+              if (visited.has(node)) return []
+              if (typeof node === 'string') return uuidRe.test(node) ? [node] : []
+              if (typeof node !== 'object') return []
+              visited.add(node)
+              return Object.values(node as Record<string, unknown>).flatMap(collectUuids)
+            }
+            for (const id of collectUuids(where)) {
+              if (userMap[id]) return userMap[id]
+            }
+            return null
           },
         },
-        transactions: { findFirst: async () => null },
+        transactions: {
+          findFirst: async () => {
+            if (!lastInserted) return null
+            // Return with the relation stubs findOne / assertReadAccess expect.
+            return {
+              ...lastInserted,
+              sender: null,
+              receiver: null,
+              project: null,
+              payoutRequest: null,
+            }
+          },
+        },
       },
       insert: (_table: unknown) => ({
         values: (row: { senderId: string; receiverId?: string }) => {
           capturedInserts.push({ senderId: row.senderId })
+          lastInserted = {
+            id: 'new-tx-id',
+            type: 'ADMIN_TRANSFER',
+            status: 'PAID',
+            amount: '100',
+            currency: 'USDT',
+            senderId: row.senderId,
+            receiverId: row.receiverId ?? null,
+            senderLabel: null,
+            receiverLabel: null,
+            payoutRequestId: null,
+            projectId: null,
+            fundingSource: null,
+            notes: null,
+            salaryMonth: null,
+            txHash: null,
+            validatedBy: null,
+            validatedAt: null,
+            rejectionReason: null,
+            createdBy: null,
+            seniorSharePercent: null,
+            seniorSharePercentSource: null,
+            receiptDocumentId: null,
+            receiptExternalUrl: null,
+            txDate: null,
+            recipientId: null,
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          }
           return {
-            returning: async () => [
-              {
-                id: 'new-tx-id',
-                type: 'ADMIN_TRANSFER',
-                status: 'PAID',
-                amount: '100',
-                currency: 'USDT',
-                senderId: row.senderId,
-                receiverId: row.receiverId ?? null,
-                senderLabel: null,
-                receiverLabel: null,
-                payoutRequestId: null,
-                projectId: null,
-                fundingSource: null,
-                notes: null,
-                salaryMonth: null,
-                txHash: null,
-                validatedBy: null,
-                validatedAt: null,
-                rejectionReason: null,
-                createdBy: null,
-                seniorSharePercent: null,
-                seniorSharePercentSource: null,
-                receiptDocumentId: null,
-                receiptExternalUrl: null,
-                txDate: null,
-                recipientId: null,
-                createdAt: new Date(),
-                updatedAt: new Date(),
-              },
-            ],
+            returning: async () => [lastInserted],
           }
         },
       }),
@@ -596,13 +630,16 @@ describe('AC7 SEC-19 — sign schema: .strict() rejects unknown fields', () => {
   it('signContractSchema rejects unknown fields', async () => {
     // Import dynamically to keep test self-contained
     const { signContractSchema } = await import('@crm/shared')
-    const validPayload = { contractId: '550e8400-e29b-41d4-a716-446655440000' }
-    // Valid payload passes
-    expect(() => signContractSchema.parse(validPayload)).not.toThrow()
-    // Unknown field must throw (strict mode)
+    // Empty body is valid (typedName is optional)
+    expect(() => signContractSchema.parse({})).not.toThrow()
+    // typedName field is valid
+    expect(() => signContractSchema.parse({ typedName: 'John Doe' })).not.toThrow()
+    // Unknown field must throw in strict mode
     expect(() =>
-      signContractSchema.parse({ ...validPayload, unknownField: 'should-fail' }),
+      signContractSchema.parse({ typedName: 'John Doe', unknownField: 'should-fail' }),
     ).toThrow()
+    // Unknown-only field must also throw
+    expect(() => signContractSchema.parse({ contractId: 'anything' })).toThrow()
   })
 })
 

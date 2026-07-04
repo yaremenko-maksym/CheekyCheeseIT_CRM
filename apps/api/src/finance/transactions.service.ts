@@ -1328,6 +1328,81 @@ export class TransactionsService {
     return this.findOne(id, currentUser)
   }
 
+  // ── Update REJECTED DROP_INCOME (BIZ-17) ─────────────────────────────────
+  //
+  // Parallel to `updateSeniorIncome` for DROP users. A DROP can resubmit a
+  // REJECTED DROP_INCOME by editing the amount / currency / receipt / notes and
+  // resetting the status back to PENDING for re-validation. Ownership is
+  // enforced via `tx.receiverId === currentUser.id`.
+  //
+  // Unlike senior-income resubmission, we do NOT perform the receipt-replace-
+  // with-delete step here because DROP income receipts are less common and the
+  // same XOR semantics apply through the standard path. The pattern mirrors
+  // updateSeniorIncome but intentionally omits the document hard-delete
+  // optimisation (safe to add later if needed).
+
+  async updateDropIncome(
+    id: string,
+    data: {
+      amount?: number | undefined
+      currency?: string | undefined
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+      notes?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
+    if (currentUser.role !== 'DROP') throw new ForbiddenException()
+
+    const tx = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, id),
+    })
+    if (!tx) throw new NotFoundException('Transaction not found')
+    if (tx.type !== 'DROP_INCOME')
+      throw new BadRequestException('Can only edit DROP_INCOME transactions')
+    if (tx.status !== 'REJECTED')
+      throw new BadRequestException('Can only edit REJECTED transactions')
+    if (tx.receiverId !== currentUser.id) throw new ForbiddenException()
+
+    // XOR receipt resolution — mirrors updateSeniorIncome
+    const receiptDocChanged = data.receiptDocumentId !== undefined
+    const receiptUrlChanged = data.receiptExternalUrl !== undefined
+    const nextDocId = receiptDocChanged
+      ? (data.receiptDocumentId ?? null)
+      : receiptUrlChanged && data.receiptExternalUrl
+        ? null
+        : tx.receiptDocumentId
+    const nextExtUrl = receiptUrlChanged
+      ? (data.receiptExternalUrl ?? null)
+      : receiptDocChanged && data.receiptDocumentId
+        ? null
+        : tx.receiptExternalUrl
+
+    if (nextDocId && nextDocId !== tx.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(nextDocId, currentUser)
+    }
+
+    await this.db.db.transaction(async (dbtx) => {
+      await dbtx
+        .update(transactions)
+        .set({
+          amount: data.amount !== undefined ? String(data.amount) : tx.amount,
+          currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
+          receiptDocumentId: nextDocId,
+          receiptExternalUrl: nextExtUrl,
+          notes: data.notes !== undefined ? data.notes : tx.notes,
+          status: 'PENDING',
+          rejectionReason: null,
+          validatedBy: null,
+          validatedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, id))
+    })
+
+    return this.findOne(id, currentUser)
+  }
+
   // ── Admin Edit (any type except PAYOUT/PAYOUT_ADMIN) ─────────────────────
 
   async adminUpdateTransaction(
@@ -1360,23 +1435,23 @@ export class TransactionsService {
       throw new BadRequestException('Cannot edit a transaction linked to a payout request')
     }
 
-    // Audit 2026-06-28 (#6): a PAID company-funded debit (SALARY / EXPENSE /
-    // SENIOR_INCOME settled from the shared company account) has ALREADY moved
-    // money off that account. Editing its amount / currency / salaryMonth after
-    // the fact would silently desync the company-account balance from the ledger
-    // it was computed against. Lock those money-defining fields once the row is a
-    // settled company-funded debit; metadata edits (notes / receipt / category)
-    // and edits to non-company-funded or still-PENDING rows stay allowed.
-    const isSettledCompanyFunded =
-      tx.status === 'PAID' &&
-      tx.fundingSource === 'COMPANY_ACCOUNT' &&
-      (tx.type === 'SALARY' || tx.type === 'EXPENSE' || tx.type === 'SENIOR_INCOME')
+    // BIZ-18: once a transaction is PAID, its money-defining fields (amount /
+    // currency / salaryMonth) are immutable for ALL types — not just company-funded
+    // rows. The original guard only blocked company-funded rows (fundingSource =
+    // COMPANY_ACCOUNT), but a PAID ADMIN_INCOME or PAID EXPENSE that is NOT
+    // company-funded represents a real cash movement that has already cleared;
+    // retroactively changing the amount or currency would desync the ledger.
+    // Metadata-only edits (notes / receipt / category) remain allowed on PAID rows.
     if (
-      isSettledCompanyFunded &&
+      tx.status === 'PAID' &&
       (data.amount !== undefined || data.currency !== undefined || data.salaryMonth !== undefined)
     ) {
-      throw new BadRequestException('Cannot edit a settled company-funded transaction')
+      throw new BadRequestException('Cannot edit a settled (PAID) transaction')
     }
+
+    // Keep the company-funded guard comment for context (superseded by the broader
+    // PAID guard above — the old condition is now a strict subset of the new one).
+    // Original BIZ-18 (company-funded only) guard removed 2026-07-04.
 
     // Resolve XOR before write (same logic as updateSeniorIncome). Either
     // field provided as defined wipes the other to satisfy the CHECK.
@@ -1925,12 +2000,16 @@ export class TransactionsService {
       throw new BadRequestException('senderId is required (transfer is between two ADMINs)')
     }
 
-    const effectiveSenderId = data.senderId ?? currentUser.id
+    // BIZ-06: ADMIN callers ALWAYS send from themselves — they cannot debit a
+    // partner by supplying senderId=partnerB.id. Only ACCOUNTANT recorders may
+    // specify an explicit senderId (to book a transfer that already happened
+    // between two admin partners). Ignoring the supplied senderId for ADMIN
+    // callers is intentional and matches the "ADMIN transfers from self" contract.
+    const effectiveSenderId = isAdminCaller ? currentUser.id : (data.senderId ?? currentUser.id)
 
-    // Validate the sender is an ADMIN whenever it is not the (ADMIN) caller —
-    // i.e. always for an ACCOUNTANT caller, and for an ADMIN who delegates the
-    // sender to a different admin partner.
-    if (effectiveSenderId !== currentUser.id || !isAdminCaller) {
+    // Validate the sender is an ADMIN for ACCOUNTANT-caller bookings (effectiveSenderId
+    // is always currentUser.id for ADMIN callers, so no round-trip needed there).
+    if (!isAdminCaller) {
       const sender = await this.db.db.query.users.findFirst({
         where: eq(users.id, effectiveSenderId),
       })
