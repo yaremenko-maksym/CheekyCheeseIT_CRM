@@ -9,7 +9,14 @@ import { TransactionsService } from './transactions.service'
 import { ProjectsService } from '../projects/projects.service'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
-import { projects, projectFinanceSettings, teamMembers, teams, users, transactions } from '../database/schema'
+import {
+  projects,
+  projectFinanceSettings,
+  teamMembers,
+  teams,
+  users,
+  transactions,
+} from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
@@ -68,7 +75,9 @@ describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real 
       await probe.query('SELECT 1')
       await probe.end()
     } catch {
-      console.warn('[finance-settings-override integration] SKIPPED — no DB reachable at DATABASE_URL')
+      console.warn(
+        '[finance-settings-override integration] SKIPPED — no DB reachable at DATABASE_URL',
+      )
       dbAvailable = false
       return
     }
@@ -82,7 +91,11 @@ describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real 
     const teamAuditSvc = { record: async () => {} } as unknown as TeamAuditLogService
     const projectAuditSvc = { record: async () => {} } as unknown as ProjectAuditLogService
     const projectsSvc = Object.create(ProjectsService.prototype) as ProjectsService
-    Object.assign(projectsSvc, { db: dbSvc, teamAuditLogService: teamAuditSvc, projectAuditLogService: projectAuditSvc })
+    Object.assign(projectsSvc, {
+      db: dbSvc,
+      teamAuditLogService: teamAuditSvc,
+      projectAuditLogService: projectAuditSvc,
+    })
     txSvc = Object.create(TransactionsService.prototype) as TransactionsService
     Object.assign(txSvc, { db: dbSvc })
 
@@ -90,12 +103,27 @@ describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real 
     await db
       .insert(users)
       .values([
-        { id: ADMIN.id, email: ADMIN.email, displayName: ADMIN.displayName, role: 'ADMIN', googleId: `test-fso-${ADMIN.id}` },
-        { id: SENIOR.id, email: SENIOR.email, displayName: SENIOR.displayName, role: 'SENIOR', googleId: `test-fso-${SENIOR.id}` },
+        {
+          id: ADMIN.id,
+          email: ADMIN.email,
+          displayName: ADMIN.displayName,
+          role: 'ADMIN',
+          googleId: `test-fso-${ADMIN.id}`,
+        },
+        {
+          id: SENIOR.id,
+          email: SENIOR.email,
+          displayName: SENIOR.displayName,
+          role: 'SENIOR',
+          googleId: `test-fso-${SENIOR.id}`,
+        },
       ])
       .onConflictDoNothing()
 
-    await db.insert(teams).values([{ id: TEAM_ID, name: 'FSO Team' }]).onConflictDoNothing()
+    await db
+      .insert(teams)
+      .values([{ id: TEAM_ID, name: 'FSO Team' }])
+      .onConflictDoNothing()
     await db
       .insert(teamMembers)
       .values([{ teamId: TEAM_ID, userId: SENIOR.id }])
@@ -121,7 +149,9 @@ describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real 
     if (!dbAvailable) return
     try {
       await dbSvc.db.delete(transactions).where(eq(transactions.projectId, PROJECT_ID))
-      await dbSvc.db.delete(projectFinanceSettings).where(eq(projectFinanceSettings.projectId, PROJECT_ID))
+      await dbSvc.db
+        .delete(projectFinanceSettings)
+        .where(eq(projectFinanceSettings.projectId, PROJECT_ID))
       await dbSvc.db.delete(projects).where(eq(projects.id, PROJECT_ID))
       await dbSvc.db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
       await dbSvc.db.delete(teams).where(eq(teams.id, TEAM_ID))
@@ -147,11 +177,7 @@ describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real 
   it('upsertProjectFinanceSettings mirrors seniorSharePercentOverride into projects table', async () => {
     if (!dbAvailable) return
 
-    await txSvc.upsertProjectFinanceSettings(
-      PROJECT_ID,
-      { seniorSharePercentOverride: 30 },
-      ADMIN,
-    )
+    await txSvc.upsertProjectFinanceSettings(PROJECT_ID, { seniorSharePercentOverride: 30 }, ADMIN)
 
     // BOTH tables must have the updated value
     const fsRow = await dbSvc.db.query.projectFinanceSettings.findFirst({
@@ -169,11 +195,7 @@ describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real 
     if (!dbAvailable) return
 
     // First set a value
-    await txSvc.upsertProjectFinanceSettings(
-      PROJECT_ID,
-      { seniorSharePercentOverride: 35 },
-      ADMIN,
-    )
+    await txSvc.upsertProjectFinanceSettings(PROJECT_ID, { seniorSharePercentOverride: 35 }, ADMIN)
 
     // Then clear it
     await txSvc.upsertProjectFinanceSettings(
@@ -197,11 +219,7 @@ describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real 
     if (!dbAvailable) return
 
     // Set override to 40% via the finance-settings path
-    await txSvc.upsertProjectFinanceSettings(
-      PROJECT_ID,
-      { seniorSharePercentOverride: 40 },
-      ADMIN,
-    )
+    await txSvc.upsertProjectFinanceSettings(PROJECT_ID, { seniorSharePercentOverride: 40 }, ADMIN)
 
     // The resolver reads from project.seniorSharePercentOverride — verify it is 40
     const projectRow = await dbSvc.db.query.projects.findFirst({

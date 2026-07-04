@@ -73,8 +73,18 @@ let dbAvailable = true
         const db = drizzle(_pool, { schema })
         const instance = Object.create(DatabaseService.prototype) as DatabaseService
         Object.assign(instance, { pool: _pool, db })
-        Object.defineProperty(instance, 'onModuleInit', { value: () => Promise.resolve(), writable: false, enumerable: false, configurable: true })
-        Object.defineProperty(instance, 'onModuleDestroy', { value: () => _pool?.end() ?? Promise.resolve(), writable: false, enumerable: false, configurable: true })
+        Object.defineProperty(instance, 'onModuleInit', {
+          value: () => Promise.resolve(),
+          writable: false,
+          enumerable: false,
+          configurable: true,
+        })
+        Object.defineProperty(instance, 'onModuleDestroy', {
+          value: () => _pool?.end() ?? Promise.resolve(),
+          writable: false,
+          enumerable: false,
+          configurable: true,
+        })
         return instance
       },
     },
@@ -141,7 +151,9 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
       )
       await probe.end()
       if (col.rowCount === 0) {
-        console.warn('[dividend-idempotency integration] SKIPPED — idempotency_key column not yet migrated')
+        console.warn(
+          '[dividend-idempotency integration] SKIPPED — idempotency_key column not yet migrated',
+        )
         dbAvailable = false
         return
       }
@@ -151,7 +163,9 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
       return
     }
 
-    const moduleRef = await Test.createTestingModule({ imports: [DividendIdemTestModule] }).compile()
+    const moduleRef = await Test.createTestingModule({
+      imports: [DividendIdemTestModule],
+    }).compile()
     await moduleRef.init()
     svc = moduleRef.get(CompanyAccountService)
     dbSvc = moduleRef.get(DatabaseService)

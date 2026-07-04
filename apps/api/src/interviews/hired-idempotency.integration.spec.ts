@@ -91,12 +91,27 @@ describe('BIZ-07 — HIRED idempotency: repeated move to HIRED must not duplicat
     await db
       .insert(users)
       .values([
-        { id: ADMIN.id, email: ADMIN.email, displayName: ADMIN.displayName, role: 'ADMIN', googleId: `test-hid-${ADMIN.id}` },
-        { id: SENIOR.id, email: SENIOR.email, displayName: SENIOR.displayName, role: 'SENIOR', googleId: `test-hid-${SENIOR.id}` },
+        {
+          id: ADMIN.id,
+          email: ADMIN.email,
+          displayName: ADMIN.displayName,
+          role: 'ADMIN',
+          googleId: `test-hid-${ADMIN.id}`,
+        },
+        {
+          id: SENIOR.id,
+          email: SENIOR.email,
+          displayName: SENIOR.displayName,
+          role: 'SENIOR',
+          googleId: `test-hid-${SENIOR.id}`,
+        },
       ])
       .onConflictDoNothing()
 
-    await db.insert(teams).values([{ id: TEAM_ID, name: 'HID Team' }]).onConflictDoNothing()
+    await db
+      .insert(teams)
+      .values([{ id: TEAM_ID, name: 'HID Team' }])
+      .onConflictDoNothing()
     await db
       .insert(teamMembers)
       .values([{ teamId: TEAM_ID, userId: SENIOR.id }])
@@ -115,8 +130,20 @@ describe('BIZ-07 — HIRED idempotency: repeated move to HIRED must not duplicat
     await dbSvc.db
       .insert(interviews)
       .values([
-        { id: CARD_A_ID, seniorId: SENIOR.id, companyName: 'HID Co A', stage: 'OFFER_RECEIVED', position: 0 },
-        { id: CARD_B_ID, seniorId: SENIOR.id, companyName: 'HID Co B', stage: 'OFFER_RECEIVED', position: 1 },
+        {
+          id: CARD_A_ID,
+          seniorId: SENIOR.id,
+          companyName: 'HID Co A',
+          stage: 'OFFER_RECEIVED',
+          position: 0,
+        },
+        {
+          id: CARD_B_ID,
+          seniorId: SENIOR.id,
+          companyName: 'HID Co B',
+          stage: 'OFFER_RECEIVED',
+          position: 1,
+        },
       ])
       .onConflictDoNothing()
     // Force fresh state: reset stage + clear created_project_id
