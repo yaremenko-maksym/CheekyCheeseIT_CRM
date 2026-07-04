@@ -45,6 +45,9 @@ export class InterviewsService {
       notesCorpTech: i.notesCorpTech ?? null,
       notesGeneral: i.notesGeneral ?? null,
       position: i.position,
+      // BIZ-07: surface the linked project id so callers can navigate to it
+      // without a separate lookup. Null when the interview has not yet reached HIRED.
+      createdProjectId: i.createdProjectId ?? null,
       createdAt: i.createdAt.toISOString(),
       updatedAt: i.updatedAt.toISOString(),
     }
@@ -276,12 +279,24 @@ export class InterviewsService {
         with: { senior: true, hr: true },
       })) as InterviewWithRelations
 
-      // Auto-create project when moved to HIRED — inside the SAME tx, so a
-      // failure rolls the stage change back (no orphaned HIRED interview).
-      let projectId: string | null = null
-      if (newStage === 'HIRED' && oldStage !== 'HIRED') {
+      // BIZ-07: auto-create project when moved to HIRED — idempotent.
+      // If `created_project_id` is already set (e.g. HIRED → REJECTED → HIRED),
+      // skip project creation and return the existing project id. This prevents
+      // duplicate projects and duplicate project_members on re-hire.
+      // The unique index `uq_interviews_created_project_id` (WHERE IS NOT NULL)
+      // is the DB-level backstop for concurrent races.
+      let projectId: string | null = refreshed.createdProjectId ?? null
+      if (newStage === 'HIRED' && projectId === null) {
         const project = await this.projects.createFromInterview(refreshed, currentUser, tx)
         projectId = project?.id ?? null
+        // Persist the linked project id on the interview row so subsequent
+        // HIRED transitions are no-ops for project creation.
+        if (projectId !== null) {
+          await tx
+            .update(interviews)
+            .set({ createdProjectId: projectId })
+            .where(eq(interviews.id, id))
+        }
       }
 
       return { updated: refreshed, createdProjectId: projectId }

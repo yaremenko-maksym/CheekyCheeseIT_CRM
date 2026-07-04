@@ -349,28 +349,60 @@ export const projectMembers = pgTable('project_members', {
 // Interviews
 // ---------------------------------------------------------------------------
 
-export const interviews = pgTable('interviews', {
-  id: uuid('id').defaultRandom().primaryKey(),
-  seniorId: uuid('senior_id')
-    .notNull()
-    .references(() => users.id, { onDelete: 'cascade' }),
-  hrId: uuid('hr_id').references(() => users.id, { onDelete: 'set null' }),
-  companyName: varchar('company_name', { length: 255 }).notNull(),
-  vacancyUrl: varchar('vacancy_url', { length: 1000 }),
-  callUrl: varchar('call_url', { length: 1000 }),
-  stage: interviewStageEnum().notNull().default('HR_SCREEN'),
-  notesDomain: varchar('notes_domain', { length: 255 }),
-  notesTechStack: varchar('notes_tech_stack', { length: 500 }),
-  notesTeamSize: varchar('notes_team_size', { length: 100 }),
-  notesBenefits: varchar('notes_benefits', { length: 500 }),
-  notesPaymentType: varchar('notes_payment_type', { length: 100 }),
-  notesSalaryReview: varchar('notes_salary_review', { length: 255 }),
-  notesCorpTech: varchar('notes_corp_tech', { length: 255 }),
-  notesGeneral: varchar('notes_general', { length: 1000 }),
-  position: integer('position').notNull().default(0),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
-})
+export const interviews = pgTable(
+  'interviews',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    seniorId: uuid('senior_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    hrId: uuid('hr_id').references(() => users.id, { onDelete: 'set null' }),
+    companyName: varchar('company_name', { length: 255 }).notNull(),
+    vacancyUrl: varchar('vacancy_url', { length: 1000 }),
+    callUrl: varchar('call_url', { length: 1000 }),
+    stage: interviewStageEnum().notNull().default('HR_SCREEN'),
+    notesDomain: varchar('notes_domain', { length: 255 }),
+    notesTechStack: varchar('notes_tech_stack', { length: 500 }),
+    notesTeamSize: varchar('notes_team_size', { length: 100 }),
+    notesBenefits: varchar('notes_benefits', { length: 500 }),
+    notesPaymentType: varchar('notes_payment_type', { length: 100 }),
+    notesSalaryReview: varchar('notes_salary_review', { length: 255 }),
+    notesCorpTech: varchar('notes_corp_tech', { length: 255 }),
+    notesGeneral: varchar('notes_general', { length: 1000 }),
+    position: integer('position').notNull().default(0),
+    /**
+     * BIZ-07: idempotency guard for HIRED → auto-project creation.
+     * Set to the project.id the first time this interview is moved to HIRED.
+     * On subsequent HIRED transitions the service checks this field and skips
+     * createFromInterview, preventing duplicate projects / project_members.
+     *
+     * Partial unique index (WHERE created_project_id IS NOT NULL) is the
+     * DB-level backstop: even a concurrent race cannot insert a second non-null
+     * value for the same interview row because the index enforces uniqueness
+     * across the entire table (not just per-interview — effectively each row
+     * is unique by PK, so the partial index catches any attempt to set two
+     * different project ids via concurrent transactions).
+     *
+     * ADD COLUMN DDL (apply to dev/prod manually before deploy):
+     *   ALTER TABLE interviews ADD COLUMN created_project_id uuid;
+     *   CREATE UNIQUE INDEX uq_interviews_created_project_id
+     *     ON interviews (created_project_id)
+     *     WHERE created_project_id IS NOT NULL;
+     */
+    createdProjectId: uuid('created_project_id').references(() => projects.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // BIZ-07: partial unique index — each created project can be linked to at
+    // most one interview. Prevents duplicate project creation on repeated HIRED.
+    uniqueIndex('uq_interviews_created_project_id')
+      .on(t.createdProjectId)
+      .where(sql`${t.createdProjectId} IS NOT NULL`),
+  ],
+)
 
 // ---------------------------------------------------------------------------
 // Finance — Transactions (unified ledger)
@@ -484,6 +516,20 @@ export const transactions = pgTable(
     // admin-personal for balance purposes). varchar (not a pg enum) to keep the
     // additive migration push-friendly and the nullable semantics simple.
     fundingSource: varchar('funding_source', { length: 16 }),
+    /**
+     * BIZ-19: client-supplied idempotency key for DIVIDEND_TO_ADMIN.
+     * The caller generates a UUID and passes it on the first request.
+     * Subsequent requests with the same key return the existing row (no-op).
+     * NULL for all non-dividend rows and for dividends without a key
+     * (backward-compat: older callers without the key get fresh rows).
+     *
+     * ADD COLUMN DDL (apply to dev/prod manually before deploy):
+     *   ALTER TABLE transactions ADD COLUMN idempotency_key uuid;
+     *   CREATE UNIQUE INDEX uq_transactions_dividend_idempotency_key
+     *     ON transactions (idempotency_key)
+     *     WHERE type = 'DIVIDEND_TO_ADMIN' AND idempotency_key IS NOT NULL;
+     */
+    idempotencyKey: uuid('idempotency_key'),
     // Accountant/admin validation fields (for SENIOR_INCOME)
     validatedBy: uuid('validated_by').references(() => users.id, { onDelete: 'set null' }),
     validatedAt: timestamp('validated_at', { withTimezone: true }),
@@ -525,6 +571,13 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_salary_receiver_month')
       .on(t.receiverId, t.salaryMonth)
       .where(sql`${t.type} = 'SALARY' AND ${t.salaryMonth} IS NOT NULL`),
+    // BIZ-19: idempotency key for DIVIDEND_TO_ADMIN. Client supplies a UUID;
+    // the DB enforces that the same key cannot produce two dividend rows.
+    // Partial (WHERE type='DIVIDEND_TO_ADMIN' AND idempotency_key IS NOT NULL)
+    // so all other transaction types and keyless dividends are unaffected.
+    uniqueIndex('uq_transactions_dividend_idempotency_key')
+      .on(t.idempotencyKey)
+      .where(sql`${t.type} = 'DIVIDEND_TO_ADMIN' AND ${t.idempotencyKey} IS NOT NULL`),
   ],
 )
 

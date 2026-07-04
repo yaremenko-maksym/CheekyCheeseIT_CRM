@@ -3631,11 +3631,7 @@ export class TransactionsService {
     })
     if (!project) throw new NotFoundException('Project not found')
 
-    const existing = await this.db.db.query.projectFinanceSettings.findFirst({
-      where: eq(projectFinanceSettings.projectId, projectId),
-    })
-
-    const values = {
+    const fsValues = {
       seniorSharePercentOverride: data.seniorSharePercentOverride ?? null,
       juniorSalaryOverride:
         data.juniorSalaryOverride !== undefined && data.juniorSalaryOverride !== null
@@ -3645,14 +3641,41 @@ export class TransactionsService {
       updatedAt: new Date(),
     }
 
-    if (existing) {
-      await this.db.db
-        .update(projectFinanceSettings)
-        .set(values)
-        .where(eq(projectFinanceSettings.projectId, projectId))
-    } else {
-      await this.db.db.insert(projectFinanceSettings).values({ projectId, ...values })
-    }
+    // BIZ-22: upsertProjectFinanceSettings must be the SINGLE SOURCE OF TRUTH
+    // for the senior-share override. Before this fix it only wrote to
+    // project_finance_settings, but createSeniorIncome reads
+    // projects.senior_share_percent_override (via the hierarchy resolver).
+    // Resolution: wrap both writes in one transaction — project_finance_settings
+    // and projects.senior_share_percent_override are always in sync after this call.
+    //
+    // Design choice: mirror the write into projects (same strategy as
+    // ProjectsService.syncFinanceSettingsOverride) rather than changing the
+    // resolver read-path — keeps the hierarchy resolver pure and avoids a JOIN.
+    await this.db.db.transaction(async (tx) => {
+      const existing = await tx.query.projectFinanceSettings.findFirst({
+        where: eq(projectFinanceSettings.projectId, projectId),
+      })
+
+      if (existing) {
+        await tx
+          .update(projectFinanceSettings)
+          .set(fsValues)
+          .where(eq(projectFinanceSettings.projectId, projectId))
+      } else {
+        await tx.insert(projectFinanceSettings).values({ projectId, ...fsValues })
+      }
+
+      // Mirror seniorSharePercentOverride into projects so the resolver
+      // (which reads projects.senior_share_percent_override) picks it up.
+      // juniorSalaryOverride lives ONLY in project_finance_settings (used by
+      // salary cron) and does NOT exist on the projects table — no mirror needed.
+      if (data.seniorSharePercentOverride !== undefined) {
+        await tx
+          .update(projects)
+          .set({ seniorSharePercentOverride: data.seniorSharePercentOverride ?? null })
+          .where(eq(projects.id, projectId))
+      }
+    })
 
     return this.getProjectFinanceSettings(projectId, currentUser)
   }

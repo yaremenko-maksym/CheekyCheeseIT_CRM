@@ -21,6 +21,19 @@ import {
   lockCompanyAccount,
 } from './company-account-balance'
 
+/** Postgres SQLSTATE for unique-constraint violations. */
+const PG_UNIQUE_VIOLATION = '23505'
+
+/** Walk the cause chain (drizzle wraps pg errors) to find 23505. */
+function isUniqueViolation(err: unknown): boolean {
+  let cur: unknown = err
+  for (let depth = 0; cur != null && depth < 8; depth += 1) {
+    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
+    cur = (cur as { cause?: unknown }).cause
+  }
+  return false
+}
+
 /**
  * task-company-account-backend — the shared company USDT account.
  *
@@ -354,7 +367,7 @@ export class CompanyAccountService {
    * company-account debit (closes the TOCTOU vs. concurrent salary/expense).
    */
   async createDividend(
-    input: { amount: number; adminId?: string | undefined },
+    input: { amount: number; adminId?: string | undefined; idempotencyKey?: string | undefined },
     currentUser: SessionUser,
   ): Promise<{ id: string; amount: number; receiverId: string }> {
     if (currentUser.role !== 'ADMIN') {
@@ -362,6 +375,26 @@ export class CompanyAccountService {
     }
     if (!(input.amount > 0)) {
       throw new BadRequestException('Сумма дивидендов должна быть положительной')
+    }
+
+    // BIZ-19: idempotency check. If the caller supplied a key, look for an
+    // existing DIVIDEND_TO_ADMIN row with that key BEFORE acquiring the advisory
+    // lock (the lookup is a plain SELECT — no concurrency risk). On hit, return
+    // the existing row immediately — no double-debit, no error.
+    if (input.idempotencyKey) {
+      const existing = await this.db.db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.type, 'DIVIDEND_TO_ADMIN'),
+          eq(transactions.idempotencyKey, input.idempotencyKey),
+        ),
+      })
+      if (existing) {
+        return {
+          id: existing.id,
+          amount: parseFloat(existing.amount as unknown as string),
+          receiverId: existing.receiverId ?? currentUser.id,
+        }
+      }
     }
 
     const receiverId = input.adminId ?? currentUser.id
@@ -387,24 +420,59 @@ export class CompanyAccountService {
           'Недостаточно средств на счёте компании для вывода дивидендов',
         )
       }
-      const [row] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'DIVIDEND_TO_ADMIN',
-          status: 'PAID',
-          amount: String(input.amount),
-          currency: 'USDT',
-          senderId: null,
-          senderLabel: 'Счёт компании',
-          receiverId,
-          recipientId: receiverId,
-          createdBy: currentUser.id,
-        })
-        .returning()
+      let row: typeof transactions.$inferSelect | undefined
+      try {
+        const [inserted] = await dbtx
+          .insert(transactions)
+          .values({
+            type: 'DIVIDEND_TO_ADMIN',
+            status: 'PAID',
+            amount: String(input.amount),
+            currency: 'USDT',
+            senderId: null,
+            senderLabel: 'Счёт компании',
+            receiverId,
+            recipientId: receiverId,
+            createdBy: currentUser.id,
+            // BIZ-19: persist the key so the unique index enforces idempotency
+            // as a DB-level backstop (concurrent races that bypass the SELECT above).
+            idempotencyKey: input.idempotencyKey ?? null,
+          })
+          .returning()
+        row = inserted
+      } catch (err) {
+        // MED-1 (BIZ-19 race): two concurrent requests with the same
+        // idempotencyKey both miss the early-SELECT (it runs outside the lock),
+        // both enter the advisory-lock serialization queue, A inserts + commits,
+        // B hits the partial unique index (23505). Instead of a 500 we re-read
+        // the committed row and return it — idempotent response, no double-debit.
+        if (input.idempotencyKey && isUniqueViolation(err)) {
+          // After a 23505 the Postgres transaction is in aborted state — any
+          // further query on `dbtx` would fail with "current transaction is
+          // aborted". Use a fresh connection (this.db.db) to re-read the row
+          // that the concurrent winner already committed.
+          const existing = await this.db.db.query.transactions.findFirst({
+            where: and(
+              eq(transactions.type, 'DIVIDEND_TO_ADMIN'),
+              eq(transactions.idempotencyKey, input.idempotencyKey),
+            ),
+          })
+          if (existing) return existing
+        }
+        throw err
+      }
       return row!
     })
 
-    return { id: tx.id, amount: input.amount, receiverId }
+    return {
+      id: tx.id,
+      // Use input.amount (already a number) for the happy-path INSERT return.
+      // The tx row holds amount as a string column; parseFloat is only needed
+      // for idempotent re-read paths (early-SELECT / MED-1 catch) that map DB
+      // rows — those return early above with their own parseFloat calls.
+      amount: input.amount,
+      receiverId: tx.receiverId ?? receiverId,
+    }
   }
 
   // ── Mapping helpers ─────────────────────────────────────────────────────────
