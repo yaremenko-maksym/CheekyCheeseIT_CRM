@@ -27,7 +27,7 @@ export const tosVersionSchema = z.object({
 
 /** ADMIN publishes a new ToS version. Service atomically deactivates prev active. */
 export const createTosVersionSchema = z.object({
-  bodyMarkdown: z.string().min(1, 'Тело ToS не может быть пустым'),
+  bodyMarkdown: z.string().min(1, 'Тело ToS не может быть пустым').max(100_000), // BIZ-14
 })
 
 export const tosAcceptanceSchema = z.object({

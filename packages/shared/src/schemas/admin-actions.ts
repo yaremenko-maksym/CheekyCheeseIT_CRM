@@ -6,13 +6,15 @@ export const changeRoleSchema = z.object({
   role: roleSchema,
 })
 
-export const changeSalarySchema = z.object({
-  monthlySalary: z.number().nonnegative().nullable().optional(),
-  salaryCurrency: currencyEnumSchema.optional(),
-  seniorSharePercent: z.number().int().min(0).max(100).optional(),
-}).refine((d) => d.monthlySalary !== undefined || d.seniorSharePercent !== undefined, {
-  message: 'Укажите хотя бы одно из полей: monthlySalary или seniorSharePercent',
-})
+export const changeSalarySchema = z
+  .object({
+    monthlySalary: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14
+    salaryCurrency: currencyEnumSchema.optional(),
+    seniorSharePercent: z.number().int().min(0).max(100).optional(),
+  })
+  .refine((d) => d.monthlySalary !== undefined || d.seniorSharePercent !== undefined, {
+    message: 'Укажите хотя бы одно из полей: monthlySalary или seniorSharePercent',
+  })
 
 export const changeRequisitesSchema = paymentRequisitesSchema
 

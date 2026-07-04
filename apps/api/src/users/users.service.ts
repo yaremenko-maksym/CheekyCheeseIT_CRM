@@ -59,7 +59,6 @@ export type UserListItem = Pick<
   | 'role'
   | 'avatarUrl'
   | 'avatarDocumentId'
-  | 'googleId'
   | 'telegram'
   | 'phone'
   | 'techStack'
@@ -89,7 +88,6 @@ const USER_LIST_PROJECTION = {
   role: users.role,
   avatarUrl: users.avatarUrl,
   avatarDocumentId: users.avatarDocumentId,
-  googleId: users.googleId,
   telegram: users.telegram,
   phone: users.phone,
   techStack: users.techStack,
@@ -1477,7 +1475,10 @@ export class UsersService {
     // FilteredUser extends User but allows email to be null when realContacts
     // is masked (e.g. JUNIOR viewing SENIOR). The DB type is string (NOT NULL)
     // but the API contract intentionally redacts it at this layer.
-    type FilteredUser = Omit<User, 'email'> & { email: string | null }
+    // SEC-09: exclude googleId — Google's internal identifier is not part of the
+    // profile API contract and should not be returned to any caller. The field
+    // is used only for OAuth callback flow (updateGoogleId), never for display.
+    type FilteredUser = Omit<User, 'email' | 'googleId'> & { email: string | null }
     const filteredUser: FilteredUser = {
       // Always-safe identity fields (persona display, never masked)
       id: target.id,
@@ -1485,7 +1486,6 @@ export class UsersService {
       role: target.role,
       avatarUrl: target.avatarUrl,
       avatarDocumentId: target.avatarDocumentId,
-      googleId: target.googleId,
       archivedAt: target.archivedAt,
       createdAt: target.createdAt,
       updatedAt: target.updatedAt,

@@ -61,7 +61,7 @@ function makeInvoiceDoc(overrides: Partial<Document> = {}): Document {
     category: 'INVOICE',
     name: 'invoice-12345678.pdf',
     originalName: 'invoice-12345678.pdf',
-    s3Key: 'documents/INVOICE/x/y.pdf',
+    // s3Key removed from public DTO (s3/documents hygiene)
     thumbnailS3Key: null,
     sizeBytes: 1024,
     mimeType: 'application/pdf',

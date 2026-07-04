@@ -152,7 +152,7 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
     expect(result[0]!.name).not.toContain(rows[0]!.id)
   })
 
-  it('s3Key remains empty string — download path not affected', async () => {
+  it('s3Key is absent from public DTO — not exposed to callers (s3/documents hygiene)', async () => {
     const rows = [
       makeContractRow({ status: 'SIGNED', contractNumber: 'CHK-AABBCC', userId: SENIOR.id }),
     ]
@@ -160,7 +160,8 @@ describe('DocumentsService — contract virtual entry readable name (п.4)', () 
 
     const result = await svc.list(SENIOR, { category: 'CONTRACT' })
 
-    expect(result[0]!.s3Key).toBe('')
+    // s3Key intentionally omitted from the public document DTO; must not be present
+    expect(result[0]).not.toHaveProperty('s3Key')
   })
 
   it('multiple statuses — each gets correct label', async () => {
