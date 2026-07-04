@@ -28,6 +28,7 @@ import {
   payPayoutRequestSchema,
   paySalarySchema,
   updateProjectFinanceSettingsSchema,
+  updateDropIncomeSchema,
   updateSeniorIncomeSchema,
   validateTransactionSchema,
 } from '@crm/shared'
@@ -126,6 +127,22 @@ export class TransactionsController {
       updateSeniorIncomeSchema.parse(body) as Parameters<
         TransactionsService['updateSeniorIncome']
       >[1],
+      user,
+    )
+  }
+
+  // BIZ-17: DROP resubmit path for REJECTED DROP_INCOME. Service-side ownership
+  // check (tx.receiverId === currentUser.id) is the gate — no @Roles needed;
+  // RolesGuard passes when no metadata is present.
+  @Patch('drop-income/:id')
+  updateDropIncome(
+    @Param('id') id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    return this.svc.updateDropIncome(
+      id,
+      updateDropIncomeSchema.parse(body) as Parameters<TransactionsService['updateDropIncome']>[1],
       user,
     )
   }

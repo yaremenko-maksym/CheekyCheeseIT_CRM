@@ -145,12 +145,14 @@ describe('assertCanReadAdminBalance', () => {
   it('ADMIN can read own balance', () => {
     expect(() => svc.assertCanReadAdminBalance(adminUser, adminUser.id)).not.toThrow()
   })
-  // Phase 4-B fix. `/crm/stats` (ADMIN/ACCOUNTANT only) shows Maksym + Kostya
-  // balances side-by-side — the old "self only" wording broke it with 403.
-  // ADMIN can now read any admin balance; the page itself is the only
-  // gate for cross-admin visibility.
-  it("ADMIN can read another admin's balance", () => {
-    expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).not.toThrow()
+  // SEC-13: Phase 4-B "any admin" behaviour reverted. ADMIN is scoped to own
+  // balance only — reading a partner's breakdown is a data-leak. The /stats
+  // page ONLY passes viewer.id as targetAdminId, so ADMIN sees only their own
+  // share on that page (ACCOUNTANT unrestricted and sees both partners).
+  it("ADMIN cannot read another admin's balance → ForbiddenException", () => {
+    expect(() => svc.assertCanReadAdminBalance(adminUser, 'other-admin')).toThrow(
+      ForbiddenException,
+    )
   })
   it.each([seniorA, juniorUser, hrUser, dropUser])('%s forbidden', (user) => {
     expect(() => svc.assertCanReadAdminBalance(user, 'any-admin')).toThrow(ForbiddenException)

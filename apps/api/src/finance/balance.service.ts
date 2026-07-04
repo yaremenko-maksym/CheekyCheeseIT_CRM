@@ -137,7 +137,10 @@ export class BalanceService {
         cryptoIncome += converted
       } else if (tx.type === 'DIVIDEND_TO_ADMIN' && recipient === adminId) {
         dividends += converted
-      } else if (tx.type === 'EXPENSE' && tx.senderId === adminId) {
+      } else if (tx.type === 'EXPENSE' && tx.senderId === adminId && tx.status === 'PAID') {
+        // BIZ-12: EXPENSE is only a real cash debit once PAID. A PENDING/REJECTED
+        // EXPENSE represents an intent that hasn't cleared yet; counting it early
+        // would understate the admin's available balance.
         expenses += converted
       }
     }
@@ -201,7 +204,8 @@ export class BalanceService {
         // but guards NULL explicitly to avoid applying 26% to already-net rows.
         platformIncome +=
           tx.seniorSharePercent !== null ? converted * (tx.seniorSharePercent / 100) : converted
-      } else if (tx.type === 'EXPENSE' && tx.senderId === seniorId) {
+      } else if (tx.type === 'EXPENSE' && tx.senderId === seniorId && tx.status === 'PAID') {
+        // BIZ-12: mirror the admin-balance guard — only debit settled EXPENSEs.
         expenses += converted
       }
     }
@@ -379,21 +383,24 @@ export class BalanceService {
   // ── RBAC helpers ──────────────────────────────────────────────────────────
 
   /**
-   * /api/balances/admin/:id — ADMIN can read **any** admin balance (needed
-   * for /crm/stats where the page shows Maksym + Kostya side-by-side);
-   * ACCOUNTANT can read any. Other roles are forbidden.
+   * /api/balances/admin/:id — ADMIN can read only their OWN balance breakdown;
+   * ACCOUNTANT is the privileged finance reader and can read any admin's balance.
+   * Other roles are forbidden.
    *
-   * Earlier wording restricted ADMIN to self only — that broke /crm/stats
-   * with 403 on the non-self balance card. The page lives only behind
-   * ADMIN/ACCOUNTANT navigation anyway, so widening ADMIN to "any" stays
-   * inside the original threat model. `_targetAdminId` is kept in the
-   * signature (with `_` prefix to satisfy the no-unused-vars rule) so future
-   * per-target audit can hook in without an API change.
+   * SEC-13 fix: the previous implementation allowed any ADMIN to read another
+   * admin's personal balance breakdown (cashIncome / cryptoIncome / dividends /
+   * expenses). This is an information-disclosure gap — one partner should not
+   * freely inspect the other's ledger split. ACCOUNTANT already exists precisely
+   * to provide that oversight role, so it retains unrestricted access.
+   *
+   * /crm/stats (formerly /crm/finance) only requests the calling admin's own
+   * balance; the fetch is keyed by the viewer's id, so this change does not
+   * break the stats page.
    */
-  assertCanReadAdminBalance(viewer: SessionUser, _targetAdminId: string): void {
+  assertCanReadAdminBalance(viewer: SessionUser, targetAdminId: string): void {
     if (viewer.role === 'ACCOUNTANT') return
-    if (viewer.role === 'ADMIN') return
-    throw new ForbiddenException('Доступ к балансу админа: ADMIN или ACCOUNTANT')
+    if (viewer.role === 'ADMIN' && viewer.id === targetAdminId) return
+    throw new ForbiddenException('Доступ к балансу админа: ADMIN (свой) или ACCOUNTANT')
   }
 
   /**

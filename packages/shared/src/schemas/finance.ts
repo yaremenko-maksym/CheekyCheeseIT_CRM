@@ -356,6 +356,18 @@ export const updateSeniorIncomeSchema = z
   .refine(receiptXor, receiptXorMessage)
 export type UpdateSeniorIncomeDto = z.infer<typeof updateSeniorIncomeSchema>
 
+// BIZ-17: Update REJECTED drop income (resets to PENDING for re-validation).
+// Parallel to updateSeniorIncomeSchema — DROP role resubmission path.
+export const updateDropIncomeSchema = z
+  .object({
+    amount: z.number().positive().max(500_000).optional(), // BIZ-13: reasonable ceiling
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
+    ...receiptFields,
+    notes: z.string().max(1000).optional().nullable(),
+  })
+  .refine(receiptXor, receiptXorMessage)
+export type UpdateDropIncomeDto = z.infer<typeof updateDropIncomeSchema>
+
 // EXPENSE — admin declares a company expense.
 // task-salary-company-account: optional `fundingSource` — when COMPANY_ACCOUNT
 // the expense is paid OUT of the shared company USDT account (debits its
