@@ -32,7 +32,7 @@ import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
 const JWT_SECRET = 'contract-preview-rendered-sec12-secret-32c'
 
 const base: SessionUser = {
-  id: 'pr-000001-0000-4000-a000-000000000001',
+  id: 'aa000001-0000-4000-a000-000000000001',
   email: 'pr-admin@test.spec',
   displayName: 'PR Admin',
   avatarUrl: null,
@@ -43,31 +43,31 @@ const base: SessionUser = {
 const ADMIN: SessionUser = { ...base, role: 'ADMIN' }
 const HR: SessionUser = {
   ...base,
-  id: 'pr-000002-0000-4000-a000-000000000002',
+  id: 'aa000002-0000-4000-a000-000000000002',
   email: 'pr-hr@test.spec',
   role: 'HR',
 }
 const ACCOUNTANT: SessionUser = {
   ...base,
-  id: 'pr-000003-0000-4000-a000-000000000003',
+  id: 'aa000003-0000-4000-a000-000000000003',
   email: 'pr-acct@test.spec',
   role: 'ACCOUNTANT',
 }
 const SENIOR: SessionUser = {
   ...base,
-  id: 'pr-000004-0000-4000-a000-000000000004',
+  id: 'aa000004-0000-4000-a000-000000000004',
   email: 'pr-sen@test.spec',
   role: 'SENIOR',
 }
 const JUNIOR: SessionUser = {
   ...base,
-  id: 'pr-000005-0000-4000-a000-000000000005',
+  id: 'aa000005-0000-4000-a000-000000000005',
   email: 'pr-jun@test.spec',
   role: 'JUNIOR',
 }
 const DROP: SessionUser = {
   ...base,
-  id: 'pr-000006-0000-4000-a000-000000000006',
+  id: 'aa000006-0000-4000-a000-000000000006',
   email: 'pr-drop@test.spec',
   role: 'DROP',
 }
@@ -116,7 +116,11 @@ const serviceStub = {
   providers: [
     Reflector,
     PdfGenerationService,
-    { provide: ContractPdfService, useFactory: (p: PdfGenerationService) => new ContractPdfService(p), inject: [PdfGenerationService] },
+    {
+      provide: ContractPdfService,
+      useFactory: (p: PdfGenerationService) => new ContractPdfService(p),
+      inject: [PdfGenerationService],
+    },
     { provide: ContractTemplatesService, useValue: serviceStub },
     { provide: DatabaseService, useValue: dbMock },
     {

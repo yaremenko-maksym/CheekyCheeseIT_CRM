@@ -56,7 +56,7 @@ function baseDoc(overrides: Partial<Document> = {}): Document {
     category: 'RESUME',
     name: 'cv.pdf',
     originalName: 'CV.pdf',
-    s3Key: 'documents/RESUME/x/cv.pdf',
+    // s3Key removed from public DTO (s3/documents hygiene)
     thumbnailS3Key: null,
     sizeBytes: 1024,
     mimeType: 'application/pdf',

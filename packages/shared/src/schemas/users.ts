@@ -169,7 +169,7 @@ export const createUserSchema = z
     avatarUrl: z.string().url().nullable().optional(),
     techStack: techStackSchema.nullable().optional(),
     seniorSharePercent: z.number().int().min(0).max(100).optional(),
-    monthlySalary: z.number().nonnegative().nullable().optional(),
+    monthlySalary: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14
     salaryCurrency: currencyEnumSchema.optional(),
     hrIds: z.array(z.string().uuid()).optional(),
     accountantId: z.string().uuid().nullable().optional(),
@@ -326,7 +326,7 @@ export const adminUpdateUserSchema = z
      * DROP-only override on edit. Service ignores for non-DROP targets.
      */
     dropSharePercent: z.number().int().min(0).max(100).optional(),
-    monthlySalary: z.number().nonnegative().nullable().optional(),
+    monthlySalary: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14
     salaryCurrency: currencyEnumSchema.optional(),
     // Payment requisites — optional in admin update; when paymentMethod is set,
     // matching fields must also be provided (validated via superRefine).

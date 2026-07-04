@@ -37,7 +37,10 @@ async function bootstrap() {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'"],
-            imgSrc: ["'self'", 'data:', 'https://api.dicebear.com', 'https:'],
+            // CSP: narrowed from 'https:' wildcard to explicit allowlist (CSP hygiene).
+            // R2 presigned download URLs are fetched via fetch()/window.open() —
+            // not <img src> — so no R2 hostname is needed here.
+            imgSrc: ["'self'", 'data:', 'https://api.dicebear.com'],
             fontSrc: ["'self'", 'data:'],
             connectSrc: ["'self'"],
             frameSrc: ["'self'", 'blob:'],

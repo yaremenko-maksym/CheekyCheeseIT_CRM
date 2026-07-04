@@ -58,7 +58,7 @@ export const employeeContractSchema = z.object({
  * Only allowed when status is DRAFT or READY_TO_SIGN.
  */
 export const updateEmployeeContractSchema = z.object({
-  bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым'),
+  bodyMarkdown: z.string().min(1, 'Тело контракта не может быть пустым').max(100_000), // BIZ-14
 })
 
 export type EmployeeContractStatus = z.infer<typeof employeeContractStatusSchema>
