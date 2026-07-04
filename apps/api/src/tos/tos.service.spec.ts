@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { TosService } from './tos.service'
 import type { DatabaseService } from '../database/database.service'
@@ -200,6 +201,38 @@ describe('TosService', () => {
       const result = await service.publish({ bodyMarkdown: '# body', createdByUserId: 'admin-1' })
       expect(result.version).toBe(1)
     })
+  })
+
+  it('MED-2: throws ConflictException (409) when concurrent publish hits unique violation', async () => {
+    // Simulate concurrent publish: tx.insert throws a PG unique violation (23505)
+    // because another caller already inserted an active row between our deactivate and insert.
+    const pgUniqueError = Object.assign(new Error('unique violation'), { code: '23505' })
+
+    const mockDb = makeDb({ maxVersion: 1 })
+    mockDb.db.transaction.mockImplementation(async (fn) => {
+      const tx = {
+        select: vi.fn().mockReturnValue({
+          from: vi.fn().mockReturnValue({
+            execute: vi.fn().mockResolvedValue([{ max: 1 }]),
+          }),
+        }),
+        update: vi.fn().mockReturnValue({
+          set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+        }),
+        insert: vi.fn().mockReturnValue({
+          values: vi.fn().mockReturnValue({
+            returning: vi.fn().mockRejectedValue(pgUniqueError),
+          }),
+        }),
+      }
+      return fn(tx as never)
+    })
+
+    const service = new TosService(mockDb as unknown as DatabaseService)
+
+    await expect(
+      service.publish({ bodyMarkdown: '# body', createdByUserId: 'admin-1' }),
+    ).rejects.toThrow(ConflictException)
   })
 
   describe('accept', () => {
