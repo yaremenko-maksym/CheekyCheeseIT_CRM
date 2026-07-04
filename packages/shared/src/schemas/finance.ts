@@ -1314,9 +1314,15 @@ export type DepositStatusDto = z.infer<typeof depositStatusSchema>
 // POST /api/company-account/dividends — ADMIN only. Free amount (no balance
 // gate — owner decision). Receiver defaults to the calling admin; `adminId`
 // targets a specific admin partner.
+//
+// BIZ-19 — idempotencyKey: optional client-generated UUID. When supplied, a
+// second POST with the same key returns the EXISTING dividend row (no-op)
+// instead of creating a duplicate. Omitting the key preserves backward-
+// compatible behaviour (every call creates a fresh row).
 export const createDividendSchema = z.object({
   amount: z.number().positive(),
   adminId: z.string().uuid().optional(),
+  idempotencyKey: z.string().uuid().optional(),
 })
 export type CreateDividendDto = z.infer<typeof createDividendSchema>
 export type IncomeComplianceQuery = z.infer<typeof incomeComplianceQuerySchema>

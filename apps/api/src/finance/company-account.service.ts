@@ -354,7 +354,7 @@ export class CompanyAccountService {
    * company-account debit (closes the TOCTOU vs. concurrent salary/expense).
    */
   async createDividend(
-    input: { amount: number; adminId?: string | undefined },
+    input: { amount: number; adminId?: string | undefined; idempotencyKey?: string | undefined },
     currentUser: SessionUser,
   ): Promise<{ id: string; amount: number; receiverId: string }> {
     if (currentUser.role !== 'ADMIN') {
@@ -362,6 +362,26 @@ export class CompanyAccountService {
     }
     if (!(input.amount > 0)) {
       throw new BadRequestException('Сумма дивидендов должна быть положительной')
+    }
+
+    // BIZ-19: idempotency check. If the caller supplied a key, look for an
+    // existing DIVIDEND_TO_ADMIN row with that key BEFORE acquiring the advisory
+    // lock (the lookup is a plain SELECT — no concurrency risk). On hit, return
+    // the existing row immediately — no double-debit, no error.
+    if (input.idempotencyKey) {
+      const existing = await this.db.db.query.transactions.findFirst({
+        where: and(
+          eq(transactions.type, 'DIVIDEND_TO_ADMIN'),
+          eq(transactions.idempotencyKey, input.idempotencyKey),
+        ),
+      })
+      if (existing) {
+        return {
+          id: existing.id,
+          amount: parseFloat(existing.amount as unknown as string),
+          receiverId: existing.receiverId ?? currentUser.id,
+        }
+      }
     }
 
     const receiverId = input.adminId ?? currentUser.id
@@ -399,6 +419,9 @@ export class CompanyAccountService {
           receiverId,
           recipientId: receiverId,
           createdBy: currentUser.id,
+          // BIZ-19: persist the key so the unique index enforces idempotency
+          // as a DB-level backstop (concurrent races that bypass the SELECT above).
+          idempotencyKey: input.idempotencyKey ?? null,
         })
         .returning()
       return row!
