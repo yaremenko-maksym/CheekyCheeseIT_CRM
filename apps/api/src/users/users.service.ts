@@ -59,7 +59,6 @@ export type UserListItem = Pick<
   | 'role'
   | 'avatarUrl'
   | 'avatarDocumentId'
-  | 'googleId'
   | 'telegram'
   | 'phone'
   | 'techStack'
@@ -89,7 +88,6 @@ const USER_LIST_PROJECTION = {
   role: users.role,
   avatarUrl: users.avatarUrl,
   avatarDocumentId: users.avatarDocumentId,
-  googleId: users.googleId,
   telegram: users.telegram,
   phone: users.phone,
   techStack: users.techStack,

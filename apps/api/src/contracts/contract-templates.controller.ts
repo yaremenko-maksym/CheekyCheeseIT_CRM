@@ -39,7 +39,7 @@ import { appendCompanyRequisitesSection, renderContractTemplate } from './contra
  * | GET    /api/contracts/templates/current/:role   | ADMIN or self (role match)   |
  * | POST   /api/contracts/templates                 | ADMIN                        |
  * | POST   /api/contracts/templates/preview-pdf     | ADMIN                        |
- * | GET    /api/contracts/templates/preview-rendered/:id | any authenticated user  |
+ * | GET    /api/contracts/templates/preview-rendered/:id | ADMIN or HR (SEC-12)    |
  * | GET    /api/contracts/templates/:id             | ADMIN                        |
  *
  * `current/:role` and `preview-rendered/:id` are both reachable through the
