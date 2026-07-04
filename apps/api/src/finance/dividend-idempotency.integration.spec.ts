@@ -250,4 +250,38 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     expect(res2.amount).toBe(100) // original amount preserved
     expect(await countDividends()).toBe(1)
   }, 30_000)
+
+  it('MED-1: concurrent race with same key → one row, both calls succeed (no 500)', async () => {
+    // Two simultaneous calls with the same idempotencyKey. Both miss the
+    // early-SELECT (executed concurrently before either inserts). Under the
+    // advisory lock they serialize: A inserts, B hits the unique index (23505),
+    // the catch block re-reads and returns the committed row.
+    // Expected: Promise.allSettled resolves BOTH as fulfilled, exactly 1 row.
+    if (!dbAvailable) return
+    await seedDeposit(100_000)
+
+    const RACE_KEY = 'f4a5b6c7-0d1e-4f4a-ee00-000000000001'
+
+    const results = await Promise.allSettled([
+      svc.createDividend({ amount: 100, idempotencyKey: RACE_KEY }, ADMIN),
+      svc.createDividend({ amount: 100, idempotencyKey: RACE_KEY }, ADMIN),
+    ])
+
+    // Both must resolve successfully (no 500, no rejection)
+    expect(results[0].status).toBe('fulfilled')
+    expect(results[1].status).toBe('fulfilled')
+
+    const ids = results
+      .filter(
+        (r): r is PromiseFulfilledResult<{ id: string; amount: number; receiverId: string }> =>
+          r.status === 'fulfilled',
+      )
+      .map((r) => r.value.id)
+
+    // Both return the SAME id (idempotent)
+    expect(ids[0]).toBe(ids[1])
+
+    // Exactly ONE DIVIDEND_TO_ADMIN row in the DB
+    expect(await countDividends()).toBe(1)
+  }, 30_000)
 })

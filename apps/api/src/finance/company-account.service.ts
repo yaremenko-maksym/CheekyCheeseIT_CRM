@@ -21,6 +21,19 @@ import {
   lockCompanyAccount,
 } from './company-account-balance'
 
+/** Postgres SQLSTATE for unique-constraint violations. */
+const PG_UNIQUE_VIOLATION = '23505'
+
+/** Walk the cause chain (drizzle wraps pg errors) to find 23505. */
+function isUniqueViolation(err: unknown): boolean {
+  let cur: unknown = err
+  for (let depth = 0; cur != null && depth < 8; depth += 1) {
+    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
+    cur = (cur as { cause?: unknown }).cause
+  }
+  return false
+}
+
 /**
  * task-company-account-backend — the shared company USDT account.
  *
@@ -407,27 +420,51 @@ export class CompanyAccountService {
           'Недостаточно средств на счёте компании для вывода дивидендов',
         )
       }
-      const [row] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'DIVIDEND_TO_ADMIN',
-          status: 'PAID',
-          amount: String(input.amount),
-          currency: 'USDT',
-          senderId: null,
-          senderLabel: 'Счёт компании',
-          receiverId,
-          recipientId: receiverId,
-          createdBy: currentUser.id,
-          // BIZ-19: persist the key so the unique index enforces idempotency
-          // as a DB-level backstop (concurrent races that bypass the SELECT above).
-          idempotencyKey: input.idempotencyKey ?? null,
-        })
-        .returning()
+      let row: typeof transactions.$inferSelect | undefined
+      try {
+        const [inserted] = await dbtx
+          .insert(transactions)
+          .values({
+            type: 'DIVIDEND_TO_ADMIN',
+            status: 'PAID',
+            amount: String(input.amount),
+            currency: 'USDT',
+            senderId: null,
+            senderLabel: 'Счёт компании',
+            receiverId,
+            recipientId: receiverId,
+            createdBy: currentUser.id,
+            // BIZ-19: persist the key so the unique index enforces idempotency
+            // as a DB-level backstop (concurrent races that bypass the SELECT above).
+            idempotencyKey: input.idempotencyKey ?? null,
+          })
+          .returning()
+        row = inserted
+      } catch (err) {
+        // MED-1 (BIZ-19 race): two concurrent requests with the same
+        // idempotencyKey both miss the early-SELECT (it runs outside the lock),
+        // both enter the advisory-lock serialization queue, A inserts + commits,
+        // B hits the partial unique index (23505). Instead of a 500 we re-read
+        // the committed row and return it — idempotent response, no double-debit.
+        if (input.idempotencyKey && isUniqueViolation(err)) {
+          const existing = await dbtx.query.transactions.findFirst({
+            where: and(
+              eq(transactions.type, 'DIVIDEND_TO_ADMIN'),
+              eq(transactions.idempotencyKey, input.idempotencyKey),
+            ),
+          })
+          if (existing) return existing
+        }
+        throw err
+      }
       return row!
     })
 
-    return { id: tx.id, amount: input.amount, receiverId }
+    return {
+      id: tx.id,
+      amount: parseFloat(tx.amount as unknown as string),
+      receiverId: tx.receiverId ?? receiverId,
+    }
   }
 
   // ── Mapping helpers ─────────────────────────────────────────────────────────
