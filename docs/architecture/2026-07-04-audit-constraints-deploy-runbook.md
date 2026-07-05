@@ -1,10 +1,10 @@
 # Audit-hardening constraints — prod deploy runbook
 
-**Date:** 2026-07-04
-**Relates to:** PR #328–#336 (audit-fix pass)
+**Date:** 2026-07-04 (updated 2026-07-05)
+**Relates to:** PR #328–#336 (audit-fix pass); PR fix/deploy-apply-audit-ddl (automation)
 **DDL file:** `apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql`
 **Status on dev `crm_db`:** already applied (via `drizzle-kit push`)
-**Status on prod VPS:** NOT YET APPLIED — apply before or alongside next deploy
+**Status on prod VPS:** applied automatically by `deploy.yml` on next deploy (Step 2 — DDL before api/nginx swap)
 
 ---
 
@@ -99,29 +99,53 @@ columns) — proceed to the apply step.
 
 ## 3. Apply to prod
 
-### Option A — copy file to VPS then apply (recommended)
+### Automatic (default) — via `deploy.yml`
+
+As of PR `fix/deploy-apply-audit-ddl`, the `deploy.yml` workflow handles this
+automatically on every deploy. The pipeline order is:
+
+1. Pull new GHCR images (`api`, `nginx`)
+2. Ensure `postgres` + `redis` are up
+3. Wait for postgres healthy
+4. **Apply DDL** (pipe host file → `psql stdin` via `exec -T` + `-v ON_ERROR_STOP=1`)
+   — DDL is idempotent (IF NOT EXISTS); subsequent deploys are no-ops
+5. Start / update `api` + `nginx` with the new images
+
+If DDL fails (e.g. data conflict detected by postgres), the deploy fails at
+step 4 before the new code goes live. Run the pre-checks in §2 to diagnose.
+
+### Fallback — manual apply on the VPS
+
+Use this if the automated deploy is unavailable or for out-of-band remediation.
 
 ```bash
-# From your local machine — copy the script to the VPS:
+# cd to the deploy directory on the VPS:
+cd /opt/crm
+
+# Pipe SQL file into the running postgres container via exec -T stdin.
+# (-f inside the container would need the file mounted there; piping avoids that.)
+PGUSER=$(grep '^POSTGRES_USER=' .env.production | cut -d= -f2)
+PGDB=$(grep '^POSTGRES_DB='   .env.production | cut -d= -f2)
+DDL=/opt/crm/apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
+
+docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml \
+  --env-file .env.production \
+  exec -T postgres \
+  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+  < "$DDL"
+```
+
+If the SQL file is not yet on the VPS:
+
+```bash
+# Copy from local machine first:
 scp apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql \
-    <user>@<vps-ip>:/tmp/audit_constraints.sql
+    <user>@<vps-ip>:/opt/crm/apps/api/drizzle/manual/
 
-# On the VPS — pipe into the running postgres container:
-docker exec -i $(docker compose -f docker-compose.prod.yml ps -q postgres) \
-  psql -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  < /tmp/audit_constraints.sql
+# Then run the psql command above.
 ```
 
-### Option B — inline from the VPS where the stack lives
-
-```bash
-# cd to the deploy directory on the VPS that has docker-compose.prod.yml, then:
-docker compose -f docker-compose.prod.yml exec -T postgres psql \
-  -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-  < apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
-```
-
-### Option C — manual psql session (for interactive troubleshooting)
+### Interactive troubleshooting
 
 ```bash
 docker exec -it $(docker compose -f docker-compose.prod.yml ps -q postgres) \
@@ -131,10 +155,10 @@ docker exec -it $(docker compose -f docker-compose.prod.yml ps -q postgres) \
 -- \q to exit.
 ```
 
-> **Timing:** apply **before** deploying the API image that contains PR #332–#335
-> code. The service-layer guards assume the DB constraints exist as a backstop.
-> Applying after code deploy is still safe (the service guards protect the window),
-> but the DB-level race safety net is absent until the DDL runs.
+> **Timing:** the automated deploy applies DDL **before** swapping the api
+> container. The additive DDL (ADD COLUMN IF NOT EXISTS, CREATE INDEX IF NOT
+> EXISTS) does not break the running old api image during the window between
+> steps 4 and 5. Once step 5 completes the new api sees the columns and indexes.
 
 ---
 
