@@ -300,6 +300,14 @@ jobs:
             PGUSER=$(grep '^POSTGRES_USER=' /opt/crm/.env.production | cut -d= -f2)
             PGDB=$(grep '^POSTGRES_DB='   /opt/crm/.env.production | cut -d= -f2)
 
+            # Guard: explicit error if scp-action flattened the tree instead of preserving it.
+            if [ ! -f "$DDL_FILE" ]; then
+              echo "ERROR: DDL file not found at $DDL_FILE — scp-action may have flattened the tree."
+              echo "Check copy-compose scp layout; expected /opt/crm/apps/api/drizzle/manual/<file>."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
             echo "==> Applying audit-hardening DDL (idempotent) — user=${PGUSER} db=${PGDB}"
             # -f inside the container would require the file to be mounted there.
             # Pipe the host-side file to psql stdin via `exec -T` (no TTY → stdin passthrough).
