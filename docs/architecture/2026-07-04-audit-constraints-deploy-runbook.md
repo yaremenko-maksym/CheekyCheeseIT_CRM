@@ -13,15 +13,15 @@
 The audit-fix pass (PR #328–#336, 2026-06-27/07-03) added DB-level safety nets
 for idempotency races and business invariants. Without them:
 
-| Finding | Risk without DB constraint |
-| ------- | -------------------------- |
-| **SEC-01** `uq_transactions_salary_receiver_month` | Salary-cron TOCTOU race → duplicate SALARY rows → double salary credit for same employee+month |
-| **BIZ-07** `uq_interviews_created_project_id` + `created_project_id` column | Concurrent HIRED transitions → duplicate project creation / duplicate `project_members` |
-| **BIZ-11** `uq_pending_obligations_source_pending` | Two concurrent income flows create two PENDING obligations for the same source transaction |
-| **BIZ-11** `employee_contracts_one_per_user` | Admin race → duplicate active employee contracts per user |
-| **BIZ-11** `uq_contract_templates_active_role` | Concurrent publish → two active templates for the same role |
-| **BIZ-11** `uq_tos_versions_active` | Concurrent publish → two globally active ToS versions |
-| **BIZ-19** `uq_transactions_dividend_idempotency_key` + `idempotency_key` column | Network retry → DIVIDEND_TO_ADMIN created twice, double-crediting an admin |
+| Finding                                                                          | Risk without DB constraint                                                                     |
+| -------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| **SEC-01** `uq_transactions_salary_receiver_month`                               | Salary-cron TOCTOU race → duplicate SALARY rows → double salary credit for same employee+month |
+| **BIZ-07** `uq_interviews_created_project_id` + `created_project_id` column      | Concurrent HIRED transitions → duplicate project creation / duplicate `project_members`        |
+| **BIZ-11** `uq_pending_obligations_source_pending`                               | Two concurrent income flows create two PENDING obligations for the same source transaction     |
+| **BIZ-11** `employee_contracts_one_per_user`                                     | Admin race → duplicate active employee contracts per user                                      |
+| **BIZ-11** `uq_contract_templates_active_role`                                   | Concurrent publish → two active templates for the same role                                    |
+| **BIZ-11** `uq_tos_versions_active`                                              | Concurrent publish → two globally active ToS versions                                          |
+| **BIZ-19** `uq_transactions_dividend_idempotency_key` + `idempotency_key` column | Network retry → DIVIDEND_TO_ADMIN created twice, double-crediting an admin                     |
 
 The prod image does **not** ship `drizzle-kit` (dev dependency only). These
 objects must be applied manually via `psql` before the audit-hardened API code
