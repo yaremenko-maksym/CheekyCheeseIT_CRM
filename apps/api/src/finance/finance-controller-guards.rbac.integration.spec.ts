@@ -40,7 +40,8 @@ import * as schema from '../database/schema'
  *     POST /transactions/expense          ADMIN/ACCOUNTANT only → SENIOR/JUNIOR/HR/DROP 403
  *     POST /transactions/admin-income     ADMIN/ACCOUNTANT only → SENIOR 403
  *     POST /transactions/senior-income    SENIOR only           → ADMIN/HR 403
- *     POST /transactions/drop-income      DROP only             → ADMIN 403
+ *     POST  /transactions/drop-income      DROP only             → ADMIN 403
+ *     PATCH /transactions/drop-income/:id ownership-gated       → non-DROP 403, non-owner 403
  *     DELETE /transactions/:id            ADMIN only            → ACCOUNTANT 403
  *   #2 PendingSettlementController
  *     GET  /pending-settlements/company   ADMIN/ACCOUNTANT only → SENIOR/JUNIOR 403
@@ -274,6 +275,15 @@ describe('finance controller guards — real backend RBAC integration (real DB)'
     const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(user) } })
     return res.statusCode
   }
+  async function patch(user: SessionUser, url: string, payload: unknown): Promise<number> {
+    const res = await app.inject({
+      method: 'PATCH',
+      url,
+      cookies: { jwt: tokenFor(user) },
+      payload: payload as object,
+    })
+    return res.statusCode
+  }
 
   // ── #3 TransactionsController — guard fires BEFORE handler (403, not 4xx body) ─
   describe('#3 TransactionsController @Roles guards', () => {
@@ -319,6 +329,59 @@ describe('finance controller guards — real backend RBAC integration (real DB)'
           currency: 'USDT',
         }),
       ).toBe(403)
+    })
+
+    // ── PATCH drop-income/:id — ownership-gated (no @Roles, service-side check) ─
+    // BIZ-17: updateDropIncome has NO @Roles decorator — RolesGuard passes all
+    // authenticated callers. The service enforces:
+    //   (a) currentUser.role !== 'DROP' → ForbiddenException (403)
+    //   (b) tx.receiverId !== currentUser.id → ForbiddenException (403)
+    // We insert a REJECTED DROP_INCOME owned by DROP and test two cases:
+    //   1. ADMIN (non-DROP role) → 403
+    //   2. SENIOR (DROP-owned tx, wrong user) → 403
+    describe('PATCH /transactions/drop-income/:id — ownership enforcement', () => {
+      const DROP_TX_ID = 'fc550000-0000-4000-ac00-000000000001'
+      const url = `/api/transactions/drop-income/${DROP_TX_ID}`
+      const patchPayload = { amount: 99 }
+
+      beforeAll(async () => {
+        if (!dbAvailable) return
+        const db = dbSvc.db
+        await db.delete(transactions).where(inArray(transactions.id, [DROP_TX_ID]))
+        // Seed a REJECTED DROP_INCOME owned by DROP (receiverId = DROP.id)
+        await db.insert(transactions).values({
+          id: DROP_TX_ID,
+          type: 'DROP_INCOME',
+          status: 'REJECTED',
+          amount: '50',
+          currency: 'USDT',
+          senderId: null,
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          createdBy: DROP.id,
+          rejectionReason: 'test rejection',
+        })
+      }, 15_000)
+
+      afterAll(async () => {
+        if (!dbAvailable) return
+        try {
+          await dbSvc.db.delete(transactions).where(inArray(transactions.id, [DROP_TX_ID]))
+        } catch {
+          // non-fatal
+        }
+      }, 10_000)
+
+      it('PATCH drop-income/:id — ADMIN (non-DROP role) → 403', async () => {
+        if (!dbAvailable) return
+        expect(await patch(ADMIN, url, patchPayload)).toBe(403)
+      })
+
+      it('PATCH drop-income/:id — SENIOR (not owner) → 403', async () => {
+        if (!dbAvailable) return
+        // SENIOR role triggers the `currentUser.role !== 'DROP'` check first → 403
+        expect(await patch(SENIOR, url, patchPayload)).toBe(403)
+      })
     })
 
     it('DELETE /transactions/:id — ACCOUNTANT → 403 (ADMIN only)', async () => {

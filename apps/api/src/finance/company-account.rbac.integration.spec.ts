@@ -379,17 +379,28 @@ describe('company-account — real backend RBAC integration (real DB, no mocks)'
   }
 
   // ── POST /company-account/dividends — ADMIN only ────────────────────────────
+  // MED-2: idempotencyKey is now REQUIRED in createDividendSchema; every test
+  // that hits this endpoint must supply a valid UUID or it gets a 400 from Zod
+  // (which would mask the 403 we're asserting). Use a stable UUID per test so
+  // ADMIN-201 succeeds cleanly and non-ADMIN callers still hit the RolesGuard
+  // (403) before the service even sees the body.
   it('POST dividends — ADMIN → 201/200', async () => {
     if (!dbAvailable) return
-    const code = await status('POST', '/api/company-account/dividends', ADMIN, { amount: 100 })
+    const code = await status('POST', '/api/company-account/dividends', ADMIN, {
+      amount: 100,
+      idempotencyKey: 'ca000000-0000-4000-aa00-000000000099',
+    })
     expect([200, 201]).toContain(code)
   })
   for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
     it(`POST dividends — ${persona.role} → 403`, async () => {
       if (!dbAvailable) return
-      expect(await status('POST', '/api/company-account/dividends', persona, { amount: 100 })).toBe(
-        403,
-      )
+      expect(
+        await status('POST', '/api/company-account/dividends', persona, {
+          amount: 100,
+          idempotencyKey: 'ca000000-0000-4000-aa00-000000000099',
+        }),
+      ).toBe(403)
     })
   }
 
