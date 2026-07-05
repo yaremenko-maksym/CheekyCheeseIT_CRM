@@ -55,9 +55,9 @@ const SENIOR: SessionUser = {
 
 const ALL = [ADMIN, SENIOR]
 const TEST_USER_IDS = ALL.map((u) => u.id)
-const DEPOSIT_ID = 'f4a5b6c7-0d1e-4f4a-cc00-000000000001'
-const IDEM_KEY_1 = 'f4a5b6c7-0d1e-4f4a-dd00-000000000001'
-const IDEM_KEY_2 = 'f4a5b6c7-0d1e-4f4a-dd00-000000000002'
+const DEPOSIT_ID = 'f4a5b6c7-0d1e-4f4a-ac00-000000000001'
+const IDEM_KEY_1 = 'f4a5b6c7-0d1e-4f4a-8d00-000000000001'
+const IDEM_KEY_2 = 'f4a5b6c7-0d1e-4f4a-8d00-000000000002'
 
 const stubEtherscan = {} as unknown as EtherscanService
 
@@ -261,7 +261,7 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     if (!dbAvailable) return
     await seedDeposit(100_000)
 
-    const RACE_KEY = 'f4a5b6c7-0d1e-4f4a-ee00-000000000001'
+    const RACE_KEY = 'f4a5b6c7-0d1e-4f4a-ae00-000000000001'
 
     const results = await Promise.allSettled([
       svc.createDividend({ amount: 100, idempotencyKey: RACE_KEY }, ADMIN),

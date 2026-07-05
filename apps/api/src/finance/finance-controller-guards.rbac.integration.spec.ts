@@ -340,7 +340,7 @@ describe('finance controller guards — real backend RBAC integration (real DB)'
     //   1. ADMIN (non-DROP role) → 403
     //   2. SENIOR (DROP-owned tx, wrong user) → 403
     describe('PATCH /transactions/drop-income/:id — ownership enforcement', () => {
-      const DROP_TX_ID = 'fc550000-0000-4000-cc00-000000000001'
+      const DROP_TX_ID = 'fc550000-0000-4000-ac00-000000000001'
       const url = `/api/transactions/drop-income/${DROP_TX_ID}`
       const patchPayload = { amount: 99 }
 
