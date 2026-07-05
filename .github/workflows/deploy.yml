@@ -196,14 +196,20 @@ jobs:
       - name: Checkout (for compose files)
         uses: actions/checkout@v4
 
-      - name: Copy compose files via SCP
+      - name: Copy compose files and DDL via SCP
         uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql'
           target: '/opt/crm'
+          # scp-action preserves the source directory tree under target.
+          # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
+          # docker-compose.ghcr.yml → /opt/crm/docker-compose.ghcr.yml
+          # apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
+          # The deploy step reads from that full path via /opt/crm.
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
@@ -244,12 +250,14 @@ jobs:
               --env-file .env.production \
               pull api nginx
 
-            echo "==> Starting / updating stack (no-rebuild — GHCR images)"
+            # ── Step 1: ensure postgres + redis are up (persistent — usually already running) ──
+            # api and nginx are started AFTER DDL is applied (see Step 3).
+            echo "==> Ensuring postgres and redis are up"
             docker compose \
               -f docker-compose.prod.yml \
               -f docker-compose.ghcr.yml \
               --env-file .env.production \
-              up -d --remove-orphans
+              up -d postgres redis
 
             echo "==> Waiting for postgres to be healthy"
             for i in $(seq 1 30); do
@@ -274,35 +282,45 @@ jobs:
               sleep 2
             done
 
-            echo "==> Running Drizzle schema push (idempotent, NO seed)"
-            # drizzle-kit is a dev dependency — not in the prod API image.
-            # We run schema sync from a temporary container with the source files,
-            # or via the pre-built migrate script if present in dist/.
-            # Strategy: run a one-shot drizzle-kit container with the same DATABASE_URL.
+            # ── Step 2: apply audit-hardening DDL (idempotent) ───────────────────────────────
+            # The SQL file was copied by the copy-compose job to:
+            #   /opt/crm/apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
+            # [prod-verify] path matches scp-action tree layout (source dir preserved under target).
             #
-            # NOTE [UNTESTED]: if the prod API image does not include drizzle-kit,
-            # adjust this step to use a dedicated migration runner image or ship
-            # drizzle migrations as SQL files (see runbook §5 for alternatives).
-            docker run --rm \
-              --network "$(docker compose \
-                -f docker-compose.prod.yml \
-                -f docker-compose.ghcr.yml \
-                --env-file .env.production \
-                ps -q postgres | xargs docker inspect \
-                  --format '{{range $k, $v := .NetworkSettings.Networks}}{{$k}}{{end}}' \
-                2>/dev/null | head -1 || echo crm_backend)" \
-              --env-file .env.production \
-              ghcr.io/yaremenko-maksym/cheekycheeseit-crm-api:"${IMAGE_TAG}" \
-              sh -c 'node -e "console.log(\"Migration placeholder — see runbook §5\")"' 2>/dev/null || true
+            # Credentials come from .env.production (POSTGRES_USER / POSTGRES_DB written by
+            # write-env job). psql reads them as plain env vars via --env-file equivalent
+            # (passed through `docker compose exec -T` which inherits the compose env-file).
+            # We parse POSTGRES_USER and POSTGRES_DB directly from .env.production to be
+            # explicit and avoid relying on exec env inheritance.
+            #
+            # ON_ERROR_STOP=1 — any SQL error exits psql with non-zero status, which
+            # propagates through `exec -T`, causing the whole script to fail (set -e).
+            # The DDL is fully idempotent (IF NOT EXISTS) — safe on repeated deploys.
+            DDL_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql"
+            PGUSER=$(grep '^POSTGRES_USER=' /opt/crm/.env.production | cut -d= -f2)
+            PGDB=$(grep '^POSTGRES_DB='   /opt/crm/.env.production | cut -d= -f2)
 
-            # Practical fallback: run db:push via the running api container if drizzle-kit
-            # is available there (it is in dev builds; verify in prod image first).
+            echo "==> Applying audit-hardening DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            # -f inside the container would require the file to be mounted there.
+            # Pipe the host-side file to psql stdin via `exec -T` (no TTY → stdin passthrough).
             docker compose \
               -f docker-compose.prod.yml \
               -f docker-compose.ghcr.yml \
               --env-file .env.production \
-              exec -T api \
-              sh -c 'command -v drizzle-kit && drizzle-kit push || echo "drizzle-kit not in image — run manually per runbook §5"' || true
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$DDL_FILE"
+            echo "==> DDL applied successfully"
+
+            # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
+            # DDL is already applied — new api image will see the columns and indexes.
+            # --remove-orphans cleans up any containers from old service names.
+            echo "==> Starting / updating api and nginx (no-rebuild — GHCR images)"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              up -d --remove-orphans
 
             echo "==> Health check — waiting for API container"
             for i in $(seq 1 20); do
