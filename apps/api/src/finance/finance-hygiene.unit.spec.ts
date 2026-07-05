@@ -12,8 +12,8 @@
  *   - HrAccessService .limit(50) truncation
  */
 
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it, vi } from 'vitest'
+import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { BalanceService } from './balance.service'
 

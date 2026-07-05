@@ -5,6 +5,7 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { createDividendSchema } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { CompanyAccountService } from './company-account.service'
@@ -227,16 +228,16 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     expect(await countDividends()).toBe(2)
   }, 30_000)
 
-  it('omitting idempotency-key creates fresh rows every time (backward-compat path)', async () => {
-    if (!dbAvailable) return
-    await seedDeposit(100_000)
-
-    const r1 = await svc.createDividend({ amount: 50 }, ADMIN)
-    const r2 = await svc.createDividend({ amount: 50 }, ADMIN)
-
-    expect(r1.id).not.toBe(r2.id)
-    expect(await countDividends()).toBe(2)
-  }, 30_000)
+  it('missing idempotency-key → Zod rejects (400 path)', () => {
+    // MED-2: idempotencyKey is REQUIRED. A body without the field must throw
+    // a ZodError so the controller maps it to HTTP 400. No DB needed.
+    expect(() => createDividendSchema.parse({ amount: 50 })).toThrow()
+    expect(() => createDividendSchema.parse({ amount: 50, idempotencyKey: 'not-a-uuid' })).toThrow()
+    // Valid UUID passes schema validation
+    expect(() =>
+      createDividendSchema.parse({ amount: 50, idempotencyKey: IDEM_KEY_1 }),
+    ).not.toThrow()
+  })
 
   it('idempotency check ignores amount mismatch — returns existing row without error', async () => {
     if (!dbAvailable) return
