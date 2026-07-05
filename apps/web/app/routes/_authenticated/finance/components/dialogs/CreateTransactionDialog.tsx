@@ -160,6 +160,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   })
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [notes, setNotes] = useState('')
+  // MED-2 (BIZ-19): one UUID per dialog open — generated at mount, refreshed on
+  // each resetForm (= dialog close + reopen). Stable within a single open session
+  // so a double-click / retry with the same key is idempotent server-side.
+  const [dividendIdempotencyKey, setDividendIdempotencyKey] = useState(() => crypto.randomUUID())
   const [txDate, setTxDate] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -385,8 +389,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         // Company-account dividend (ADMIN-only). Always USDT; receiver is an
         // ADMIN partner (adminId). Currency / project / receipt fields are
         // irrelevant here — the endpoint only needs amount + target admin.
+        // MED-2 (BIZ-19): send the stable idempotencyKey (generated at dialog
+        // open, refreshed on close). A double-click retry with the same key is
+        // idempotent on the backend; reopening the dialog gets a fresh UUID.
         return companyAccountApi.createDividend({
           amount: amt,
+          idempotencyKey: dividendIdempotencyKey,
           ...(dividendReceiverId ? { adminId: dividendReceiverId } : {}),
         })
       }
@@ -438,6 +446,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setTxDate(
       `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`,
     )
+    // MED-2 (BIZ-19): generate a fresh idempotency key on each dialog close so
+    // the next open session starts with a new key (new dialog = new dividend intent).
+    setDividendIdempotencyKey(crypto.randomUUID())
   }
 
   const error = mutation.error instanceof Error ? mutation.error.message : null
