@@ -1442,16 +1442,28 @@ export class TransactionsService {
     // company-funded represents a real cash movement that has already cleared;
     // retroactively changing the amount or currency would desync the ledger.
     // Metadata-only edits (notes / receipt / category) remain allowed on PAID rows.
-    if (
-      tx.status === 'PAID' &&
-      (data.amount !== undefined || data.currency !== undefined || data.salaryMonth !== undefined)
-    ) {
-      throw new BadRequestException('Cannot edit a settled (PAID) transaction')
-    }
+    //
+    // BIZ-18-fix (2026-07-06): change-based guard, not presence-based.
+    // The frontend edit-form always sends the full form state (amount + currency +
+    // notes + receipt), even when the user only touched the receipt field. A
+    // presence-based check (data.amount !== undefined) therefore blocked every
+    // metadata-only edit on PAID rows. The guard must compare NEW vs STORED value
+    // and only block when a money-defining field actually differs.
+    //
+    // Float-safe comparison: DB stores numeric(15,6) as a string e.g. '233304.560000';
+    // incoming data.amount is a JS number (e.g. 233304.56). We normalise both to
+    // Number(…).toFixed(6) before comparing — identical values round to the same
+    // string, genuine changes produce a different string.
+    const amountChanged =
+      data.amount !== undefined && Number(data.amount).toFixed(6) !== Number(tx.amount).toFixed(6)
+    const currencyChanged = data.currency !== undefined && data.currency !== tx.currency
+    const salaryMonthChanged = data.salaryMonth !== undefined && data.salaryMonth !== tx.salaryMonth
 
-    // Keep the company-funded guard comment for context (superseded by the broader
-    // PAID guard above — the old condition is now a strict subset of the new one).
-    // Original BIZ-18 (company-funded only) guard removed 2026-07-04.
+    if (tx.status === 'PAID' && (amountChanged || currencyChanged || salaryMonthChanged)) {
+      throw new BadRequestException(
+        'Cannot change amount, currency or salary month of a settled (PAID) transaction',
+      )
+    }
 
     // Resolve XOR before write (same logic as updateSeniorIncome). Either
     // field provided as defined wipes the other to satisfy the CHECK.

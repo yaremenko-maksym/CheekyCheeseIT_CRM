@@ -193,6 +193,16 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
   const STORED_AMOUNT_STR = '233304.560000'
   const SAME_AMOUNT_NUM = 233304.56
 
+  // Receipt document stub — matches the receiverId of paidAdminIncome so that
+  // assertReceiptDocumentBindable (called when receiptDocumentId changes) passes.
+  const RECEIPT_DOC_ID = 'doc-new-uuid'
+  const RECEIVER_ID = 'recv-1'
+  const receiptDocStub = {
+    id: RECEIPT_DOC_ID,
+    category: 'RECEIPT',
+    ownerId: RECEIVER_ID,
+  }
+
   function makeSvc(row: Record<string, unknown>) {
     const findOne = vi.fn().mockResolvedValue({ id: row['id'] })
     const updateSpy = vi.fn().mockResolvedValue(undefined)
@@ -200,6 +210,8 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
       db: {
         query: {
           transactions: { findFirst: () => Promise.resolve(row) },
+          // Required by assertReceiptDocumentBindable when receiptDocumentId changes.
+          documents: { findFirst: () => Promise.resolve(receiptDocStub) },
         },
         update: () => ({ set: () => ({ where: updateSpy }) }),
       },
@@ -217,7 +229,7 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
     amount: STORED_AMOUNT_STR,
     currency: 'USD',
     payoutRequestId: null,
-    receiverId: 'recv-1',
+    receiverId: RECEIVER_ID,
     receiptDocumentId: null,
     receiptExternalUrl: null,
     salaryMonth: null,
