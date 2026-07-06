@@ -1,0 +1,220 @@
+name: Salary Month Shift (Maintenance)
+
+# ── Trigger ─────────────────────────────────────────────────────────────────
+# ONE-SHOT maintenance workflow. Only triggered manually — never on push/PR.
+# Run dry-run first, verify the output, then run with mode=apply and
+# confirm=SHIFT-SALARY-MONTHS to execute the actual UPDATE.
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'dry-run (read-only preview) or apply (executes UPDATE)'
+        required: true
+        type: choice
+        options:
+          - dry-run
+          - apply
+        default: dry-run
+      confirm:
+        description: 'Safety confirmation — must equal SHIFT-SALARY-MONTHS to allow apply'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  # ── Single SSH job: dry-run always; apply only when confirmed ─────────────
+  shift-salary-months:
+    name: Shift salary_month on VPS
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - name: Run salary_month shift via SSH
+        uses: appleboy/ssh-action@v1.2.0
+        env:
+          INPUT_MODE: ${{ inputs.mode }}
+          INPUT_CONFIRM: ${{ inputs.confirm }}
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          envs: INPUT_MODE,INPUT_CONFIRM
+          script: |
+            set -euo pipefail
+            cd /opt/crm
+
+            # ── Parse DB credentials from .env.production (same pattern as deploy.yml) ──
+            PGUSER=$(grep '^POSTGRES_USER=' /opt/crm/.env.production | cut -d= -f2)
+            PGDB=$(grep '^POSTGRES_DB='   /opt/crm/.env.production | cut -d= -f2)
+
+            echo "==> mode=${INPUT_MODE}  db=${PGDB}  user=${PGUSER}"
+
+            # ────────────────────────────────────────────────────────────────
+            # DRY-RUN (always executed — read-only SELECT queries)
+            # Shows rows that would change, collision check, and skipped rows.
+            # ────────────────────────────────────────────────────────────────
+            echo ""
+            echo "============================================================"
+            echo "  DRY-RUN PREVIEW"
+            echo "============================================================"
+
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              <<'SQL'
+            \echo '== ROWS THAT WOULD CHANGE (old -> new) =='
+            SELECT id,
+                   receiver_id,
+                   salary_month                                                              AS old_month,
+                   to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM')   AS new_month,
+                   tx_date::date                                                             AS pay_date,
+                   left(coalesce(notes, ''), 45)                                            AS notes
+            FROM transactions
+            WHERE type = 'SALARY'
+              AND salary_month IS NOT NULL
+              AND tx_date IS NOT NULL
+              AND salary_month <> to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM')
+            ORDER BY receiver_id, tx_date;
+
+            \echo '== COUNT to change =='
+            SELECT count(*)
+            FROM transactions
+            WHERE type = 'SALARY'
+              AND salary_month IS NOT NULL
+              AND tx_date IS NOT NULL
+              AND salary_month <> to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM');
+
+            \echo '== COLLISIONS (receiver+new_month appears >1; MUST be empty to apply) =='
+            SELECT receiver_id,
+                   new_month,
+                   count(*)
+            FROM (
+              SELECT receiver_id,
+                     to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM') AS new_month
+              FROM transactions
+              WHERE type = 'SALARY'
+                AND salary_month IS NOT NULL
+                AND tx_date IS NOT NULL
+            ) s
+            GROUP BY receiver_id, new_month
+            HAVING count(*) > 1;
+
+            \echo '== SKIPPED (null month or null tx_date — NOT touched) =='
+            SELECT count(*) FILTER (WHERE salary_month IS NULL) AS null_month,
+                   count(*) FILTER (WHERE tx_date IS NULL)      AS null_txdate
+            FROM transactions
+            WHERE type = 'SALARY';
+            SQL
+
+            echo ""
+            echo "============================================================"
+            echo "  END OF DRY-RUN PREVIEW"
+            echo "============================================================"
+
+            # ────────────────────────────────────────────────────────────────
+            # APPLY guard — only executes when mode=apply AND confirm matches
+            # ────────────────────────────────────────────────────────────────
+            if [ "$INPUT_MODE" != "apply" ]; then
+              echo ""
+              echo "==> mode=dry-run — no changes written. Review the preview above."
+              echo "    To apply: re-run with mode=apply and confirm=SHIFT-SALARY-MONTHS"
+              exit 0
+            fi
+
+            if [ "$INPUT_CONFIRM" != "SHIFT-SALARY-MONTHS" ]; then
+              echo ""
+              echo "ERROR: apply mode requires confirm='SHIFT-SALARY-MONTHS' exactly."
+              echo "       Got: '${INPUT_CONFIRM}'"
+              echo "       Re-run with the correct confirmation string to proceed."
+              exit 1
+            fi
+
+            echo ""
+            echo "============================================================"
+            echo "  APPLY — executing UPDATE inside a single transaction"
+            echo "============================================================"
+
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              <<'SQL'
+            BEGIN;
+
+            -- 1) Abort if any receiver+new_month collision exists.
+            --    RAISE EXCEPTION triggers ON_ERROR_STOP=1 → psql exits non-zero
+            --    → set -e aborts the script → transaction is NOT committed.
+            DO $$
+            DECLARE n int;
+            BEGIN
+              SELECT count(*) INTO n
+              FROM (
+                SELECT 1
+                FROM (
+                  SELECT receiver_id,
+                         to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM') AS nm
+                  FROM transactions
+                  WHERE type = 'SALARY'
+                    AND salary_month IS NOT NULL
+                    AND tx_date IS NOT NULL
+                ) s
+                GROUP BY receiver_id, nm
+                HAVING count(*) > 1
+              ) g;
+              IF n > 0 THEN
+                RAISE EXCEPTION 'ABORT: % collision group(s) found — resolve duplicates first', n;
+              END IF;
+            END $$;
+
+            -- 2) Persistent backup of rows about to change (idempotent via INSERT).
+            --    Use this table to audit or manually roll back if needed.
+            CREATE TABLE IF NOT EXISTS salary_month_shift_backup (
+              id            uuid          NOT NULL,
+              old_month     text          NOT NULL,
+              tx_date       timestamptz   NOT NULL,
+              backed_up_at  timestamptz   NOT NULL DEFAULT now()
+            );
+
+            INSERT INTO salary_month_shift_backup (id, old_month, tx_date)
+            SELECT id, salary_month, tx_date
+            FROM transactions
+            WHERE type = 'SALARY'
+              AND salary_month IS NOT NULL
+              AND tx_date IS NOT NULL
+              AND salary_month <> to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM');
+
+            -- 3) The shift — update only rows where salary_month is still off by one.
+            UPDATE transactions
+            SET salary_month = to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM'),
+                updated_at   = now()
+            WHERE type = 'SALARY'
+              AND salary_month IS NOT NULL
+              AND tx_date IS NOT NULL
+              AND salary_month <> to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM');
+
+            \echo '== updated_count =='
+            -- rows affected is printed by psql UPDATE output; this query confirms post-state.
+
+            -- 4) Verify: after a correct run, 0 rows should remain "off".
+            --    If > 0 the transaction is still open so this acts as a sanity check.
+            SELECT count(*) AS still_off
+            FROM transactions
+            WHERE type = 'SALARY'
+              AND salary_month IS NOT NULL
+              AND tx_date IS NOT NULL
+              AND salary_month <> to_char(date_trunc('month', tx_date) - interval '1 month', 'YYYY-MM');
+
+            COMMIT;
+            SQL
+
+            echo ""
+            echo "==> APPLY complete."
+            echo "    Backup rows written to table: salary_month_shift_backup"
+            echo "    To verify: SELECT * FROM salary_month_shift_backup;"
