@@ -6,6 +6,7 @@ import type { TransactionType } from '@crm/shared'
 import { SALARY_ELIGIBLE_ROLES } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -451,7 +452,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setDividendIdempotencyKey(crypto.randomUUID())
   }
 
-  const error = mutation.error instanceof Error ? mutation.error.message : null
+  const error = mutation.error != null ? getApiErrorMessage(mutation.error) : null
   const showReceipt =
     type === 'ADMIN_INCOME' ||
     type === 'SENIOR_INCOME' ||
@@ -599,11 +600,19 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 </div>
                 <div className="space-y-1.5">
                   <Label className="text-xs text-muted-foreground">Месяц</Label>
-                  <Input
+                  <input
+                    type="month"
                     value={salaryMonth}
                     onChange={(e) => setSalaryMonth(e.target.value)}
-                    placeholder="2025-03"
-                    className="h-9 text-sm"
+                    data-testid="create-transaction-salary-month"
+                    className={cn(
+                      'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors',
+                      'file:border-0 file:bg-transparent file:text-sm file:font-medium',
+                      'placeholder:text-muted-foreground',
+                      'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      'disabled:cursor-not-allowed disabled:opacity-50',
+                      '[color-scheme:dark]',
+                    )}
                   />
                 </div>
               </div>
