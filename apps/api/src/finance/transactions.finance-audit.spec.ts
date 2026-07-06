@@ -11,6 +11,11 @@
  *   #11 paySalary (ADMIN_PERSONAL) — the PENDING→PAID flip is atomic; a lost race
  *       (0 rows updated) throws and does NOT fire a second invoice.
  *
+ * BIZ-18-fix: adminUpdateTransaction — change-based guard (presence-based regression)
+ *   Frontend always sends amount+currency in the PATCH body, even for receipt-only edits.
+ *   Guard must block ONLY if a money-defining field actually CHANGES (new value ≠ stored value).
+ *   Float-safe comparison: both sides rounded to 6 decimal places.
+ *
  * The flows that need real transactional / FOR-UPDATE semantics (#3 cascade, #5
  * multi-project lock) are covered by the integration specs.
  */
@@ -170,6 +175,126 @@ describe('createMonthlySalaries — #7: resolve any admin as author', () => {
     })
     await expect(svc.createMonthlySalaries('2099-11')).resolves.toBeUndefined()
     expect(insertValues).not.toHaveBeenCalled()
+  })
+})
+
+// ── BIZ-18-fix: adminUpdateTransaction — change-based guard ───────────────────
+//
+// Regression: the BIZ-18 guard blocked ANY PATCH that included amount/currency
+// in the payload, even when those values were IDENTICAL to what is already stored.
+// Frontend edit-form always sends the full form state (amount+currency+notes+receipt),
+// so metadata-only edits on PAID rows were falsely rejected with 400.
+//
+// Fix: block ONLY if a money-defining field CHANGES (stored ≠ incoming).
+// Float-safe: both sides normalised to Number(…).toFixed(6) for comparison.
+
+describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presence-based)', () => {
+  // DB amount is stored as a numeric string with trailing zeros e.g. '233304.560000'
+  const STORED_AMOUNT_STR = '233304.560000'
+  const SAME_AMOUNT_NUM = 233304.56
+
+  function makeSvc(row: Record<string, unknown>) {
+    const findOne = vi.fn().mockResolvedValue({ id: row['id'] })
+    const updateSpy = vi.fn().mockResolvedValue(undefined)
+    const dbStub = {
+      db: {
+        query: {
+          transactions: { findFirst: () => Promise.resolve(row) },
+        },
+        update: () => ({ set: () => ({ where: updateSpy }) }),
+      },
+    }
+    const svc = makeTransactionsService({ db: dbStub as never })
+    ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
+    return { svc, updateSpy }
+  }
+
+  const paidAdminIncome = {
+    id: 'tx-biz18-001',
+    type: 'ADMIN_INCOME',
+    status: 'PAID',
+    fundingSource: null,
+    amount: STORED_AMOUNT_STR,
+    currency: 'USD',
+    payoutRequestId: null,
+    receiverId: 'recv-1',
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    salaryMonth: null,
+    notes: null,
+    sender: null,
+    receiver: null,
+    project: null,
+    payoutRequest: null,
+  }
+
+  // AC1 (RED on current code): PAID ADMIN_INCOME — payload sends same amount+currency
+  // + new receiptDocumentId → must SUCCEED (metadata-only change, no money diff).
+  it('PAID ADMIN_INCOME — same amount+currency + new receiptDocumentId → 200 (not 400)', async () => {
+    const { svc, updateSpy } = makeSvc(paidAdminIncome)
+    await expect(
+      svc.adminUpdateTransaction(
+        'tx-biz18-001',
+        {
+          amount: SAME_AMOUNT_NUM,
+          currency: 'USD',
+          receiptDocumentId: 'doc-new-uuid',
+        },
+        admin(),
+      ),
+    ).resolves.toBeDefined()
+    expect(updateSpy).toHaveBeenCalled()
+  })
+
+  // AC2: PAID + truly different amount → must BLOCK (400).
+  it('PAID ADMIN_INCOME — different amount in payload → 400', async () => {
+    const { svc } = makeSvc(paidAdminIncome)
+    await expect(
+      svc.adminUpdateTransaction('tx-biz18-001', { amount: 999, currency: 'USD' }, admin()),
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  // AC3: PAID + different currency → must BLOCK (400).
+  it('PAID ADMIN_INCOME — different currency in payload → 400', async () => {
+    const { svc } = makeSvc(paidAdminIncome)
+    await expect(
+      svc.adminUpdateTransaction(
+        'tx-biz18-001',
+        { amount: SAME_AMOUNT_NUM, currency: 'EUR' },
+        admin(),
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  // AC4: PAID + different salaryMonth → must BLOCK (400).
+  it('PAID ADMIN_INCOME — different salaryMonth in payload → 400', async () => {
+    const { svc } = makeSvc({ ...paidAdminIncome, salaryMonth: '2026-01' })
+    await expect(
+      svc.adminUpdateTransaction('tx-biz18-001', { salaryMonth: '2026-02' }, admin()),
+    ).rejects.toBeInstanceOf(BadRequestException)
+  })
+
+  // AC5: PENDING (not PAID) + changed amount → must SUCCEED.
+  it('PENDING tx — different amount in payload → 200 (not settled)', async () => {
+    const { svc, updateSpy } = makeSvc({ ...paidAdminIncome, status: 'PENDING' })
+    await expect(
+      svc.adminUpdateTransaction('tx-biz18-001', { amount: 999, currency: 'USD' }, admin()),
+    ).resolves.toBeDefined()
+    expect(updateSpy).toHaveBeenCalled()
+  })
+
+  // AC6 (float edge): DB stores '233304.560000', frontend sends 233304.56
+  // → numerically identical → must SUCCEED (not considered a change).
+  it('float-safe: DB "233304.560000" vs incoming 233304.56 → NOT a change → 200', async () => {
+    const { svc, updateSpy } = makeSvc(paidAdminIncome)
+    await expect(
+      svc.adminUpdateTransaction(
+        'tx-biz18-001',
+        { amount: SAME_AMOUNT_NUM, currency: 'USD', notes: 'just updating notes' },
+        admin(),
+      ),
+    ).resolves.toBeDefined()
+    expect(updateSpy).toHaveBeenCalled()
   })
 })
 
