@@ -639,7 +639,8 @@ export class EmployeeContractsService {
         isEmpty = false
       } else if (source === 'auto') {
         // Auto-computed values (e.g. onboardingDate) from the shared map.
-        value = resolvedMap[key as keyof typeof resolvedMap] ?? new Date().toISOString().slice(0, 10)
+        value =
+          resolvedMap[key as keyof typeof resolvedMap] ?? new Date().toISOString().slice(0, 10)
         isEmpty = false
       } else if (source === 'custom' || source === 'unknown') {
         const saved = savedCustomValues[key] ?? ''

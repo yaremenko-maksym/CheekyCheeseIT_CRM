@@ -793,10 +793,7 @@ describe('buildContractVariableMap', () => {
     })
 
     it('salary is "не указано" when monthlySalary is null', () => {
-      const map = buildContractVariableMap(
-        makeUser({ monthlySalary: null }),
-        FIXED_DATE,
-      )
+      const map = buildContractVariableMap(makeUser({ monthlySalary: null }), FIXED_DATE)
       expect(map.salary).toBe('не указано')
     })
 
@@ -817,10 +814,7 @@ describe('buildContractVariableMap', () => {
     })
 
     it('rnokpp resolves from bankUahRnokpp', () => {
-      const map = buildContractVariableMap(
-        makeUser({ bankUahRnokpp: '1234567890' }),
-        FIXED_DATE,
-      )
+      const map = buildContractVariableMap(makeUser({ bankUahRnokpp: '1234567890' }), FIXED_DATE)
       expect(map.rnokpp).toBe('1234567890')
     })
 

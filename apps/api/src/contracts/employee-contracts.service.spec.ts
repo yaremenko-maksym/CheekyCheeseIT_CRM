@@ -931,9 +931,11 @@ describe('EmployeeContractsService', () => {
       db.db.select.mockReturnValue({
         from: vi.fn().mockReturnValue({
           where: vi.fn().mockReturnValue({
-            limit: vi.fn().mockResolvedValue([
-              { customVariables: [{ key: 'projectName', label: 'Project Name' }] },
-            ]),
+            limit: vi
+              .fn()
+              .mockResolvedValue([
+                { customVariables: [{ key: 'projectName', label: 'Project Name' }] },
+              ]),
           }),
         }),
       })

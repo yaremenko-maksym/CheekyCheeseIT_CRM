@@ -73,7 +73,10 @@ function AutoFilledRow({ variable }: { variable: ContractVariableInfo }) {
 
       {/* Resolved value — main information the admin needs to see */}
       {variable.isEmpty ? (
-        <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`auto-var-label-${variable.key}`}>
+        <p
+          className="mt-0.5 text-[11px] text-muted-foreground"
+          data-testid={`auto-var-label-${variable.key}`}
+        >
           {variable.label}
         </p>
       ) : (

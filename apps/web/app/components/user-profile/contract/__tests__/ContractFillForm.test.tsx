@@ -97,10 +97,9 @@ describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
       error: null,
     })
 
-    render(
-      <ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />,
-      { wrapper: makeWrapper() },
-    )
+    render(<ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />, {
+      wrapper: makeWrapper(),
+    })
 
     await waitFor(() => {
       // The real value should be visible in the DOM
@@ -126,10 +125,9 @@ describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
       error: null,
     })
 
-    render(
-      <ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />,
-      { wrapper: makeWrapper() },
-    )
+    render(<ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />, {
+      wrapper: makeWrapper(),
+    })
 
     await waitFor(() => {
       expect(screen.getByTestId('auto-var-value-employeeName').textContent).toBe(
@@ -155,10 +153,9 @@ describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
       error: null,
     })
 
-    render(
-      <ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />,
-      { wrapper: makeWrapper() },
-    )
+    render(<ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />, {
+      wrapper: makeWrapper(),
+    })
 
     await waitFor(() => {
       // The value element should NOT be present for empty vars
@@ -201,10 +198,9 @@ describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
       error: null,
     })
 
-    render(
-      <ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />,
-      { wrapper: makeWrapper() },
-    )
+    render(<ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />, {
+      wrapper: makeWrapper(),
+    })
 
     await waitFor(() => {
       expect(screen.getByTestId('auto-var-row-companyName')).toBeTruthy()
@@ -239,10 +235,9 @@ describe('ContractFillForm — AutoFilledRow displays resolved values', () => {
       error: null,
     })
 
-    render(
-      <ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />,
-      { wrapper: makeWrapper() },
-    )
+    render(<ContractFillForm userId="user-uuid" savedCustomValues={{}} onReady={() => {}} />, {
+      wrapper: makeWrapper(),
+    })
 
     await waitFor(() => {
       const el = screen.getByTestId('auto-var-value-registrationAddress')
