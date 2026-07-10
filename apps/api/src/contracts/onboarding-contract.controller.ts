@@ -45,7 +45,7 @@ export class OnboardingContractController {
   /**
    * GET /api/onboarding/contract/pdf
    * Renders the caller's READY_TO_SIGN employee_contract as an unsigned PDF
-   * preview (signature block shows "Требуется подпись участника").
+   * preview (signature block shows "Потрібен підпис учасника").
    *
    * Cache: private, max-age=60 — own contract, so page reloads reuse the
    * browser cache instead of re-rendering the (expensive) PDF. Prevents the
