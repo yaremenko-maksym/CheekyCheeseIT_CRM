@@ -65,11 +65,6 @@ export const userProfileSchema = z.object({
    * Example: "м. Київ, вул. Хрещатик, 1".
    */
   registrationAddress: z.string().nullable().optional(),
-  /**
-   * Unified State Register (ЄДР) entry record. Used in contract template as {{usrRecord}}.
-   * Example: "12.05.2024 №2070010099".
-   */
-  usrRecord: z.string().nullable().optional(),
   monthlySalary: z.string().nullable(),
   salaryCurrency: currencyEnumSchema.default('USD'),
   archivedAt: z.coerce.date().nullable(),
@@ -190,8 +185,6 @@ export const createUserSchema = z
     legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
     /** Ukrainian registration address (ФОП). Used in contract template as {{registrationAddress}}. */
     registrationAddress: z.string().max(500).nullable().optional(),
-    /** Unified State Register (ЄДР) entry. Used in contract template as {{usrRecord}}. */
-    usrRecord: z.string().max(200).nullable().optional(),
     /**
      * Senior-only: select between creating a fresh senior-team (default
      * `CREATE_NEW`) and joining an existing drop-team (`JOIN_DROP_TEAM`).
@@ -359,11 +352,6 @@ export const adminUpdateUserSchema = z
      * Ukrainian registration address (ФОП). Used in contract template as {{registrationAddress}}.
      */
     registrationAddress: z.string().max(500).nullable().optional(),
-    /**
-     * Unified State Register (ЄДР) entry. Used in contract template as {{usrRecord}}.
-     * Example: "12.05.2024 №2070010099".
-     */
-    usrRecord: z.string().max(200).nullable().optional(),
   })
   .superRefine(refineRequisitePresence)
 
