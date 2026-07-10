@@ -33,7 +33,6 @@ export type ContractRenderUserContext = Pick<
   | 'dropSharePercent'
   | 'phone'
   | 'registrationAddress'
-  | 'usrRecord'
 >
 
 const ROLE_LABELS: Record<string, string> = {
@@ -166,7 +165,6 @@ export function renderContractTemplate(
     phone: user.phone?.trim() ?? '',
     salaryCurrency: user.salaryCurrency ?? '',
     registrationAddress: user.registrationAddress?.trim() ?? '',
-    usrRecord: user.usrRecord?.trim() ?? '',
     sharePercent,
     companySharePercent,
     companyRegNumber: CONTRACT_COMPANY.regNumber,
