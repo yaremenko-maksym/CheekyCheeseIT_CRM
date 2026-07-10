@@ -4,16 +4,17 @@
  * Tests for the AdminActionsMenu — "Действия" dropdown visible when ADMIN
  * views any user profile at /profile/:userId.
  *
- * The fixture mock returns buildAdminViewingUser(target) for GET /users/:id,
- * which includes the full actions array. PATCH /users/:id/role is intercepted
- * to verify the correct payload and trigger the "Роль изменена" toast.
- * UI revisions (commits a209dca/01ac2e8): emoji prefixes in action menu items
- * removed in favour of lucide-react icons — selectors use plain labels.
+ * PR #343 consolidated 4 separate edit dialogs (ChangeRoleDialog,
+ * ChangeSalaryDialog, ChangeRequisitesDialog, EditProfileDialog) into a
+ * single "Редактировать" item that opens UserDialog(mode='edit').
+ * "Заметка админа" and "Архивировать" remain as separate items.
+ *
+ * Fixture mock returns buildAdminViewingUser(target) for GET /users/:id,
+ * which includes the full actions array. PATCH /users/:id is intercepted
+ * to verify the correct payload and trigger the "Пользователь обновлён" toast.
  */
 
 import { test, expect, USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
 
 test.describe('Admin actions on user profile', () => {
   // -------------------------------------------------------------------------
@@ -26,93 +27,133 @@ test.describe('Admin actions on user profile', () => {
     await expect(page.getByRole('button', { name: /Действия/ })).toBeVisible()
   })
 
-  test('Действия dropdown lists all admin action items', async ({ asAdmin: page }) => {
+  test('Действия dropdown lists consolidated menu items', async ({ asAdmin: page }) => {
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
 
-    // Emoji prefixes removed in commit a209dca — selectors use plain labels.
-    await expect(page.getByRole('menuitem', { name: 'Редактировать данные' })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: 'Изменить роль' })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: 'Изменить зарплату' })).toBeVisible()
-    await expect(page.getByRole('menuitem', { name: 'Изменить реквизиты' })).toBeVisible()
+    // PR #343: 4 separate edit items replaced by a single "Редактировать"
+    // that opens UserDialog. "Заметка админа" and "Архивировать" remain.
+    await expect(page.getByRole('menuitem', { name: 'Редактировать' })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: 'Заметка админа' })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: 'Архивировать' })).toBeVisible()
+
+    // Removed items — must NOT appear in the menu
+    await expect(page.getByRole('menuitem', { name: 'Изменить роль' })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: 'Изменить зарплату' })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: 'Изменить реквизиты' })).toHaveCount(0)
+    await expect(page.getByRole('menuitem', { name: 'Редактировать данные' })).toHaveCount(0)
   })
 
   // -------------------------------------------------------------------------
-  // Change-role dialog
+  // "Редактировать" → UserDialog (replaces 4 old separate dialogs)
   // -------------------------------------------------------------------------
 
-  test('opening "Изменить роль" shows ChangeRoleDialog with current role selected', async ({
+  test('opening "Редактировать" shows UserDialog prefilled with current role', async ({
     asAdmin: page,
   }) => {
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
+    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
 
-    const dialog = page.getByRole('dialog')
+    const dialog = page.locator('[data-testid="user-dialog"]')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByRole('heading', { name: 'Изменить роль' })).toBeVisible()
-    // ChangeRoleDialog now uses the colored RoleSelect (commit 163b850).
-    // The trigger shows the role's localized label via a Badge — ROLE_LABELS.JUNIOR = 'Джун'.
-    const combobox = dialog.getByRole('combobox')
-    await expect(combobox).toBeVisible()
-    await expect(combobox).toContainText('Джун')
+    // UserDialog edit-mode heading
+    await expect(dialog.getByRole('heading', { name: 'Редактировать пользователя' })).toBeVisible()
+    // Role select prefilled with JUNIOR = 'Джун'
+    const roleTrigger = dialog.locator('[data-testid="user-dialog-role-trigger"]')
+    await expect(roleTrigger).toBeVisible()
+    await expect(roleTrigger).toContainText('Джун')
   })
 
-  test('changing role sends PATCH /users/:id/role with new role and shows toast', async ({
+  test('changing role via UserDialog sends PATCH /users/:id and shows toast', async ({
     asAdmin: page,
   }) => {
-    // Use route interception to capture the PATCH payload deterministically.
-    // page.waitForRequest races under parallel load — the fixture already
-    // registers a mock for this route; we override it here to also record the
-    // request body before fulfilling.
-    let capturedBody: Record<string, unknown> = {}
-    await page.route(new RegExp(`/api/users/${USERS.junior.id}/role$`), async (route) => {
+    // Override PATCH /users/:id to capture the request body deterministically.
+    // The global fixture mock already handles this route; per-test route runs
+    // first (LIFO) so we record the body before the global handler fires.
+    let patchCalled = false
+    await page.route(new RegExp(`/api/users/${USERS.junior.id}$`), async (route) => {
       const req = route.request()
       if (req.method() === 'PATCH') {
-        capturedBody = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
+        patchCalled = true
         await route.fulfill({
           status: 200,
           contentType: 'application/json',
-          body: JSON.stringify({ ...USERS.junior, role: capturedBody['role'] }),
+          body: JSON.stringify({ ...USERS.junior }),
         })
       } else {
-        await route.continue()
+        // GET — return full profile so UserDialog prefills correctly
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            user: {
+              ...USERS.junior,
+              archivedAt: null,
+              adminNote: null,
+              walletUsdtErc20: null,
+              walletUsdtLabel: null,
+              bankUahRecipient: 'Test User',
+              bankUahIban: 'UA213223130000026007233566001',
+              bankUahRnokpp: '1234567890',
+              bankUahBankName: null,
+            },
+            permissions: {
+              tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
+              actions: [
+                'edit-profile',
+                'change-role',
+                'change-salary',
+                'change-requisites',
+                'set-note',
+                'archive',
+              ],
+              fields: { salary: true, techStack: true },
+            },
+            data: {},
+          }),
+        })
       }
     })
 
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
+    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
 
-    const dialog = page.getByRole('dialog')
-    // Open shadcn Select and pick HR
-    await dialog.getByRole('combobox').click()
+    const dialog = page.locator('[data-testid="user-dialog"]')
+    await expect(dialog).toBeVisible()
+
+    // Open the role Select and pick HR
+    await dialog.locator('[data-testid="user-dialog-role-trigger"]').click()
     await page.getByRole('option', { name: 'HR' }).click()
     await dialog.getByRole('button', { name: 'Сохранить' }).click()
 
-    // Wait for toast — confirms the mutation completed and mock was called
-    await expect(page.getByText('Роль изменена')).toBeVisible()
-    expect(capturedBody['role']).toBe('HR')
+    // Toast confirms mutation completed — "Пользователь обновлён" per updateMutation.onSuccess
+    await expect(page.getByText('Пользователь обновлён')).toBeVisible()
+    expect(patchCalled).toBe(true)
+    // Dialog closes on success
+    await expect(dialog).not.toBeVisible()
   })
 
-  test('cancelling ChangeRoleDialog sends no PATCH', async ({ asAdmin: page }) => {
+  test('cancelling UserDialog sends no PATCH to /users/:id', async ({ asAdmin: page }) => {
     let patched = false
     page.on('request', (req) => {
-      if (req.url().includes('/role') && req.method() === 'PATCH') patched = true
+      if (req.url().includes(`/users/${USERS.junior.id}`) && req.method() === 'PATCH')
+        patched = true
     })
 
     await page.goto(`/profile/${USERS.junior.id}`)
     await expect(page.getByRole('heading', { name: 'Junior Dev' })).toBeVisible()
     await page.getByRole('button', { name: /Действия/ }).click()
-    await page.getByRole('menuitem', { name: 'Изменить роль' }).click()
+    await page.getByRole('menuitem', { name: 'Редактировать' }).click()
 
-    await page.getByRole('dialog').getByRole('button', { name: 'Отмена' }).click()
-    await expect(page.getByRole('dialog')).not.toBeVisible()
+    const dialog = page.locator('[data-testid="user-dialog"]')
+    await expect(dialog).toBeVisible()
+    await dialog.getByRole('button', { name: 'Отмена' }).click()
+    await expect(dialog).not.toBeVisible()
     expect(patched).toBe(false)
   })
 
@@ -123,8 +164,9 @@ test.describe('Admin actions on user profile', () => {
   test('HR viewing senior — no "Действия" button (no actions in permissions)', async ({ page }) => {
     // HR viewing senior: permissions.actions = []
     await mockAuthAs(page, USERS.hr)
-    // Override the GET /users/:id to return hr-viewing-senior permissions
-    await page.route(new RegExp(`${API}/users/([^/?]+)$`), (r) => {
+    // Override the GET /users/:id to return hr-viewing-senior permissions.
+    // Use origin-agnostic RegExp (no hardcoded port) so this matches any env.
+    await page.route(new RegExp(`/api/users/([^/?]+)$`), (r) => {
       if (r.request().method() === 'GET') {
         return r.fulfill({
           status: 200,
