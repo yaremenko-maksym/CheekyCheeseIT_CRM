@@ -33,9 +33,13 @@ const DEFAULT_MAX_SUGGESTIONS = 5
  *   capped at `maxSuggestions`, excluding already-selected values.
  * - Tab or Enter accepts the highlighted suggestion when the dropdown is open;
  *   otherwise Enter adds the raw input as a custom tag.
- * - ArrowDown/Up navigate suggestions, Escape clears input and closes dropdown.
+ * - ArrowDown/Up navigate suggestions.
+ * - Escape: ALWAYS stops propagation (prevents parent Radix Dialog from closing).
+ *   Dropdown open → closes it (clears input so suggestions disappear); input
+ *   non-empty → clears input; input already empty → no-op. Chips are NEVER
+ *   affected by Escape.
  * - Click on a suggestion adds it.
- * - Backspace on an empty input removes the last chip.
+ * - Backspace on an empty input removes the last chip (QoL — intentional).
  */
 export function TechAutocompleteInput({
   value,
@@ -124,13 +128,18 @@ export function TechAutocompleteInput({
     }
 
     if (e.key === 'Escape') {
-      if (dropdownOpen) {
-        // Dropdown is open: dismiss only the dropdown, not the parent Dialog.
-        e.preventDefault()
-        e.stopPropagation()
+      // ALWAYS stop propagation: prevents Radix Dialog from intercepting Escape
+      // and discarding unsaved form data (including chips added this session).
+      e.preventDefault()
+      e.stopPropagation()
+
+      if (input !== '') {
+        // Non-empty input: clear it. If dropdown was open, clearing input
+        // removes suggestions → dropdown collapses on next render.
+        setInput('')
+        setActiveIdx(0)
       }
-      setInput('')
-      setActiveIdx(0)
+      // Empty input + dropdown closed → no-op. Chips are never touched by Escape.
       return
     }
 
@@ -153,16 +162,20 @@ export function TechAutocompleteInput({
   }
 
   return (
-    <div ref={containerRef} className={cn('space-y-2', className)} onBlur={handleBlur}>
+    <div ref={containerRef} className={cn('space-y-3', className)} onBlur={handleBlur}>
       {value.length > 0 && (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-1.5">
           {value.map((tag) => (
-            <Badge key={tag} variant="outline" className="gap-1 pr-1">
-              <span>{tag}</span>
+            <Badge
+              key={tag}
+              variant="outline"
+              className="h-6 gap-1 py-0 pl-2 pr-1 text-xs font-normal"
+            >
+              <span className="leading-none">{tag}</span>
               <button
                 type="button"
                 onClick={() => removeTag(tag)}
-                className="rounded-sm p-0.5 transition-colors hover:bg-destructive/20 hover:text-destructive focus:outline-none focus:ring-1 focus:ring-ring"
+                className="flex h-4 w-4 items-center justify-center rounded-sm transition-colors hover:bg-destructive/20 hover:text-destructive focus:outline-none focus:ring-1 focus:ring-ring"
                 aria-label={`Удалить ${tag}`}
               >
                 <X className="h-3 w-3" />
@@ -211,7 +224,7 @@ export function TechAutocompleteInput({
                     }}
                     onMouseEnter={() => setActiveIdx(i)}
                     className={cn(
-                      'flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-sm transition-colors',
+                      'flex w-full items-center justify-between gap-2 px-3 py-2 text-left text-sm transition-colors',
                       isActive ? 'bg-accent text-accent-foreground' : 'hover:bg-accent/40',
                     )}
                   >
