@@ -28,13 +28,13 @@ function Controlled({
   )
 }
 
-/** Find the autocomplete text input (role=textbox, not combobox — no explicit role attr). */
+/** Find the autocomplete text input (role=textbox, no explicit combobox role). */
 function getInput() {
   return screen.getByRole('textbox')
 }
 
 // ---------------------------------------------------------------------------
-// Escape key behaviour — the core bug fix
+// Escape key behaviour — bug fix
 // ---------------------------------------------------------------------------
 
 describe('TechAutocompleteInput — Escape key behaviour', () => {
@@ -70,12 +70,10 @@ describe('TechAutocompleteInput — Escape key behaviour', () => {
     expect(screen.queryByRole('listbox')).not.toBeInTheDocument()
 
     // The Escape event must NOT have bubbled to the parent (stopPropagation was called).
-    // React batches synthetic events but the onKeyDown spy fires on bubble; if it is
-    // called here the bug is still present.
     expect(parentKeyDown).not.toHaveBeenCalled()
   })
 
-  it('does NOT stop propagation on Escape when dropdown is already closed', async () => {
+  it('does NOT propagate Escape to parent even when dropdown is already closed (empty input)', async () => {
     const user = userEvent.setup({ delay: null })
     const parentKeyDown = vi.fn()
 
@@ -94,14 +92,54 @@ describe('TechAutocompleteInput — Escape key behaviour', () => {
 
     await user.keyboard('{Escape}')
 
-    // When dropdown is closed, Escape must bubble normally so a parent Dialog
-    // (Radix) can close itself.
-    expect(parentKeyDown).toHaveBeenCalledOnce()
-    const eventKey = (parentKeyDown.mock.calls[0] as [React.KeyboardEvent])[0].key
-    expect(eventKey).toBe('Escape')
+    // Escape must NEVER propagate to parent from inside the tech input — the parent
+    // Radix Dialog would otherwise close and discard unsaved chips.
+    expect(parentKeyDown).not.toHaveBeenCalled()
   })
 
-  it('input is cleared after Escape regardless of whether dropdown was open', async () => {
+  it('does NOT propagate Escape to parent when dropdown is closed and input is non-empty', async () => {
+    const user = userEvent.setup({ delay: null })
+    const parentKeyDown = vi.fn()
+
+    render(
+      <div onKeyDown={parentKeyDown}>
+        <Controlled />
+      </div>,
+    )
+
+    const input = getInput()
+    await user.click(input)
+    // Type something that yields no suggestions (unlikely tech name).
+    await user.type(input, 'zzzzz_no_match')
+    expect(input).toHaveAttribute('aria-expanded', 'false')
+    parentKeyDown.mockClear()
+
+    await user.keyboard('{Escape}')
+
+    // Input cleared, but event still does NOT bubble.
+    expect(input).toHaveValue('')
+    expect(parentKeyDown).not.toHaveBeenCalled()
+  })
+
+  it('Escape with empty input leaves chips unchanged (no-op on value)', async () => {
+    const user = userEvent.setup({ delay: null })
+    const onChange = vi.fn()
+
+    render(<Controlled initial={['React', 'TypeScript']} onChange={onChange} />)
+
+    const input = getInput()
+    await user.click(input)
+
+    // Input is already empty, dropdown closed.
+    expect(input).toHaveValue('')
+
+    await user.keyboard('{Escape}')
+
+    // onChange must NOT be called — chips are untouched.
+    expect(onChange).not.toHaveBeenCalled()
+  })
+
+  it('input is cleared after Escape when input is non-empty', async () => {
     const user = userEvent.setup({ delay: null })
     render(<Controlled />)
 
