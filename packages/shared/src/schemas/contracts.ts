@@ -207,7 +207,6 @@ export const CONTRACT_VARIABLE_DESCRIPTIONS = {
   rnokpp: 'РНОКПП (ИНН ФОП) сотрудника',
   phone: 'Телефон сотрудника',
   registrationAddress: 'Адреса реєстрації (ФОП)',
-  usrRecord: 'Запис в ЄДР (дата, номер)',
   companyName: 'Название компании (Cheeky Cheese IT)',
   /** Legal name of the contracting legal entity */
   companyLegalName: 'Юридическое название компании-контрагента',
