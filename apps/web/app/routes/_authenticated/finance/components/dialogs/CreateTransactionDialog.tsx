@@ -138,7 +138,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const [receiverId, setReceiverId] = useState('')
   const [transferSenderId, setTransferSenderId] = useState<string>('')
   const [amount, setAmount] = useState('')
-  const [currency, setCurrency] = useState<Currency>('USDT')
+  const [currency, setCurrency] = useState<Currency>('USD')
   const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]!)
 
   // task-salary-company-account / task-salary-pay-flow: funding source per-type.
@@ -436,7 +436,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setReceiverId('')
     setTransferSenderId('')
     setAmount('')
-    setCurrency('USDT')
+    setCurrency('USD')
     setCategory(EXPENSE_CATEGORIES[0]!)
     setReceipt(emptyReceiptState())
     setNotes('')
@@ -503,7 +503,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     // Reset fundingSource to per-type default and restore the
                     // default currency (any USDT-lock is re-derived from funding).
                     setFundingSource(defaultFundingSource(t))
-                    setCurrency('USDT')
+                    setCurrency('USD')
                   }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
@@ -604,14 +604,20 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     type="month"
                     value={salaryMonth}
                     onChange={(e) => setSalaryMonth(e.target.value)}
+                    onClick={(e) => e.currentTarget.showPicker?.()}
+                    onFocus={(e) => e.currentTarget.showPicker?.()}
                     data-testid="create-transaction-salary-month"
                     className={cn(
                       'flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors',
-                      'file:border-0 file:bg-transparent file:text-sm file:font-medium',
                       'placeholder:text-muted-foreground',
                       'focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                       'disabled:cursor-not-allowed disabled:opacity-50',
+                      'cursor-pointer',
                       '[color-scheme:dark]',
+                      '[&::-webkit-calendar-picker-indicator]:opacity-60',
+                      '[&::-webkit-calendar-picker-indicator]:cursor-pointer',
+                      '[&::-webkit-calendar-picker-indicator]:invert',
+                      '[&::-webkit-calendar-picker-indicator]:hover:opacity-100',
                     )}
                   />
                 </div>
