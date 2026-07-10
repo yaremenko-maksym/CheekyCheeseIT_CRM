@@ -72,7 +72,6 @@ export function ContractTab({
 
   // Local editor state — tracks unsaved body changes.
   const [localBody, setLocalBody] = useState<string | null>(null)
-  const [showHint, setShowHint] = useState(false)
 
   const saveMutation = useSaveContractBody(userId)
   const markReadyMutation = useMarkContractReady(userId)
@@ -255,8 +254,6 @@ export function ContractTab({
           onChange={(val) => setLocalBody(val)}
           readOnly={readOnly}
           {...(frozenBanner !== undefined ? { frozenBanner } : {})}
-          showHint={showHint}
-          onToggleHint={() => setShowHint((v) => !v)}
         />
 
         {/* Right: PDF preview */}

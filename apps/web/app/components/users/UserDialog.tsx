@@ -205,7 +205,6 @@ export function UserDialog(props: UserDialogProps) {
   const [hasContract, setHasContract] = useState<boolean>(false)
   const [wizardContractBody, setWizardContractBody] = useState<string>('')
   const [wizardContractDirty, setWizardContractDirty] = useState<boolean>(false)
-  const [wizardShowHint, setWizardShowHint] = useState<boolean>(false)
 
   // Reset wizard state when dialog opens/closes
   useEffect(() => {
@@ -215,7 +214,6 @@ export function UserDialog(props: UserDialogProps) {
       setHasContract(false)
       setWizardContractBody('')
       setWizardContractDirty(false)
-      setWizardShowHint(false)
     }
   }, [isCreate, open])
 
@@ -964,8 +962,6 @@ export function UserDialog(props: UserDialogProps) {
                   setWizardContractDirty(true)
                 }}
                 isDirty={wizardContractDirty}
-                showHint={wizardShowHint}
-                onToggleHint={() => setWizardShowHint((p) => !p)}
               />
             )}
 
@@ -2109,8 +2105,6 @@ interface WizardStep2Props {
   body: string
   onBodyChange: (v: string) => void
   isDirty: boolean
-  showHint: boolean
-  onToggleHint: () => void
 }
 
 /**
@@ -2118,15 +2112,7 @@ interface WizardStep2Props {
  * Lazy-loads the A3-2 ContractEditor + uses useEmployeeContract for DRAFT lazy-create.
  * Renders a skippable empty-state when no active template (404).
  */
-function WizardStep2({
-  userId,
-  onHasContract,
-  body,
-  onBodyChange,
-  isDirty,
-  showHint,
-  onToggleHint,
-}: WizardStep2Props) {
+function WizardStep2({ userId, onHasContract, body, onBodyChange, isDirty }: WizardStep2Props) {
   const { data: contract, isLoading, error } = useEmployeeContract(userId)
   const saveBody = useSaveContractBody(userId)
 
@@ -2188,8 +2174,6 @@ function WizardStep2({
             {...(contract.status === 'READY_TO_SIGN'
               ? { frozenBanner: 'Контракт передан на подпись — редактирование заблокировано.' }
               : {})}
-            showHint={showHint}
-            onToggleHint={onToggleHint}
           />
           <ContractActionBar
             status={contract.status}

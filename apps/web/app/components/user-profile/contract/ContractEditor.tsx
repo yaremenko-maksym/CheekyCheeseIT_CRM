@@ -1,7 +1,5 @@
 import { lazy, Suspense } from 'react'
-import { Info } from 'lucide-react'
 import { Skeleton } from '@/components/ui/skeleton'
-import { CONTRACT_VARIABLE_DESCRIPTIONS_BRACED } from '@crm/shared'
 import { cn } from '@/lib/utils'
 
 // Lazy-load CodeMirror + markdown extension + dark theme — heavy deps (~500 KB gzip).
@@ -28,9 +26,6 @@ export interface ContractEditorProps {
   /** Banner message shown above the editor when frozen. */
   frozenBanner?: string
   className?: string
-  /** Whether to show the variables hint panel (controlled externally). */
-  showHint?: boolean
-  onToggleHint?: () => void
 }
 
 export function ContractEditor({
@@ -39,8 +34,6 @@ export function ContractEditor({
   readOnly,
   frozenBanner,
   className,
-  showHint = false,
-  onToggleHint,
 }: ContractEditorProps) {
   return (
     <div className={cn('flex flex-col gap-2', className)}>
@@ -58,20 +51,6 @@ export function ContractEditor({
         className="flex flex-col rounded-lg border border-border/60 overflow-hidden"
         style={{ height: '480px' }}
       >
-        {onToggleHint && (
-          <div className="flex items-center justify-end border-b border-border/60 bg-muted/30 px-3 py-1.5 shrink-0">
-            <button
-              type="button"
-              onClick={onToggleHint}
-              aria-label="Подсказка переменных"
-              data-testid="contract-editor-hint-toggle"
-              className="rounded p-0.5 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-            >
-              <Info className="h-3.5 w-3.5" />
-            </button>
-          </div>
-        )}
-
         <div className="flex-1 overflow-auto min-h-0">
           <Suspense fallback={<Skeleton className="h-72 w-full" />}>
             <CodeMirrorEditor
@@ -103,28 +82,6 @@ export function ContractEditor({
           </Suspense>
         </div>
       </div>
-
-      {/* Variables hint panel */}
-      {showHint && (
-        <div
-          className="rounded-lg border border-border/60 bg-muted/40 p-4"
-          data-testid="contract-editor-hint-panel"
-        >
-          <p className="mb-2 text-sm font-medium">Доступные переменные</p>
-          <div className="grid gap-1 sm:grid-cols-2">
-            {Object.entries(CONTRACT_VARIABLE_DESCRIPTIONS_BRACED).map(
-              ([variable, description]) => (
-                <div key={variable} className="flex items-start gap-2 text-xs">
-                  <code className="shrink-0 rounded bg-primary/10 px-1 py-0.5 font-mono text-primary">
-                    {variable}
-                  </code>
-                  <span className="text-muted-foreground">{description}</span>
-                </div>
-              ),
-            )}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
