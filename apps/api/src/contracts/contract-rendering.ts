@@ -50,27 +50,28 @@ const METHOD_LABELS: Record<string, string> = {
 }
 
 /**
- * Resolve all `{{placeholder}}` tokens in a contract template body.
+ * Build the complete key→resolvedValue map for all standard contract variables.
  *
- * @param bodyMarkdown   Raw template body from `contract_templates.body_markdown`.
- * @param user           User row (or pick of relevant fields).
- * @param signedAt       Timestamp used for `{{onboardingDate}}`.
- * @param customValues   Optional map of custom variable key → value supplied by the
- *                       client (e.g. from the "fill variables" form before signing).
- *                       Resolution order: standard variables → customValues → leave
- *                       `{{key}}` as-is (unknown token, visible to admin).
- *                       Single-pass substitution is preserved — customValues are
- *                       inserted in the same regex pass, so values containing
- *                       `{{...}}` tokens are NOT re-interpolated.
- * @returns              `body` — rendered markdown; `variables` — frozen
- *                       key→value map for audit trail storage.
+ * This is a pure data-building step extracted from `renderContractTemplate` so
+ * that `getContractVariables` (the variables-list endpoint) can reuse the exact
+ * same resolution logic as the PDF renderer — keeping the list and the document
+ * byte-for-byte consistent.
+ *
+ * Security note: this function only BUILDS the map — it does NOT perform any
+ * string substitution. The single-pass substitution that preserves the security
+ * invariant happens inside `renderContractTemplate`, which calls this function
+ * and then runs ONE regex replace over the body.
+ *
+ * @param user       User row (pick of relevant fields).
+ * @param signedAt   Timestamp used for `{{onboardingDate}}`.
+ *                   When called from the variables-list endpoint (no sign time
+ *                   available), pass `new Date()` — the value is shown as a
+ *                   preview and is NOT baked into any stored record.
  */
-export function renderContractTemplate(
-  bodyMarkdown: string,
+export function buildContractVariableMap(
   user: ContractRenderUserContext,
   signedAt: Date,
-  customValues?: Record<string, string>,
-): { body: string; variables: Record<InterpolatableVariableKey, string> } {
+): Record<InterpolatableVariableKey, string> {
   const walletUsdt = user.walletUsdtErc20?.trim() || 'не указано'
 
   const fopParts = [
@@ -140,7 +141,7 @@ export function renderContractTemplate(
     companySharePercent = ''
   }
 
-  const variables: Record<InterpolatableVariableKey, string> = {
+  return {
     // Fallback chain: legal ФИО → platform displayName → 'не указано' (AC1).
     // legalFullName is set by ADMIN (Cyrillic ФИО for the contract).
     // Fallback through displayName preserves backward compat for users
@@ -172,6 +173,33 @@ export function renderContractTemplate(
     companyBank: CONTRACT_COMPANY.bank,
     companyAuthorityBasis: CONTRACT_COMPANY.authorityBasis,
   }
+}
+
+/**
+ * Resolve all `{{placeholder}}` tokens in a contract template body.
+ *
+ * @param bodyMarkdown   Raw template body from `contract_templates.body_markdown`.
+ * @param user           User row (or pick of relevant fields).
+ * @param signedAt       Timestamp used for `{{onboardingDate}}`.
+ * @param customValues   Optional map of custom variable key → value supplied by the
+ *                       client (e.g. from the "fill variables" form before signing).
+ *                       Resolution order: standard variables → customValues → leave
+ *                       `{{key}}` as-is (unknown token, visible to admin).
+ *                       Single-pass substitution is preserved — customValues are
+ *                       inserted in the same regex pass, so values containing
+ *                       `{{...}}` tokens are NOT re-interpolated.
+ * @returns              `body` — rendered markdown; `variables` — frozen
+ *                       key→value map for audit trail storage.
+ */
+export function renderContractTemplate(
+  bodyMarkdown: string,
+  user: ContractRenderUserContext,
+  signedAt: Date,
+  customValues?: Record<string, string>,
+): { body: string; variables: Record<InterpolatableVariableKey, string> } {
+  // Build the full variable map using the shared helper.
+  // renderContractTemplate is the ONLY place that runs string substitution.
+  const variables = buildContractVariableMap(user, signedAt)
 
   // SECURITY: single-pass substitution via one regex so user-controlled values
   // (e.g. `displayName = '{{walletUsdt}}'`) CANNOT trigger a second round.

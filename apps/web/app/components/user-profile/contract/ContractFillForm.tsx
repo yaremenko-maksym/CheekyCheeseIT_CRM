@@ -37,11 +37,12 @@ const SOURCE_LABEL: Record<ContractVariableInfo['source'], string> = {
 function AutoFilledRow({ variable }: { variable: ContractVariableInfo }) {
   return (
     <div
-      className="flex items-start justify-between gap-3 rounded-md px-2.5 py-2 hover:bg-muted/30 transition-colors"
+      className="rounded-md px-2.5 py-2 hover:bg-muted/30 transition-colors"
       data-testid={`auto-var-row-${variable.key}`}
     >
-      <div className="flex flex-col gap-0.5 min-w-0">
-        <div className="flex items-center gap-1.5 flex-wrap">
+      {/* Top row: token key + source badge + status */}
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-center gap-1.5 flex-wrap min-w-0">
           <code className="shrink-0 rounded bg-primary/10 px-1.5 py-0.5 font-mono text-[11px] text-primary">
             {`{{${variable.key}}}`}
           </code>
@@ -50,24 +51,40 @@ function AutoFilledRow({ variable }: { variable: ContractVariableInfo }) {
             {SOURCE_LABEL[variable.source]}
           </span>
         </div>
-        <p className="text-[11px] text-muted-foreground">{variable.label}</p>
+
+        {variable.isEmpty ? (
+          <Badge
+            variant="outline"
+            className="shrink-0 border-amber-500/50 text-amber-600 dark:text-amber-400 text-[10px] h-5 px-1.5"
+            data-testid={`auto-var-empty-${variable.key}`}
+          >
+            Не заполнено
+          </Badge>
+        ) : (
+          <div
+            className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 shrink-0"
+            data-testid={`auto-var-filled-${variable.key}`}
+          >
+            <CheckCircle2 className="h-3 w-3" />
+            Заполнено
+          </div>
+        )}
       </div>
 
+      {/* Resolved value — main information the admin needs to see */}
       {variable.isEmpty ? (
-        <Badge
-          variant="outline"
-          className="shrink-0 border-amber-500/50 text-amber-600 dark:text-amber-400 text-[10px] h-5 px-1.5"
-          data-testid={`auto-var-empty-${variable.key}`}
-        >
-          Не заполнено
-        </Badge>
+        <p className="mt-0.5 text-[11px] text-muted-foreground" data-testid={`auto-var-label-${variable.key}`}>
+          {variable.label}
+        </p>
       ) : (
-        <div
-          className="flex items-center gap-1 text-[10px] text-emerald-600 dark:text-emerald-400 shrink-0"
-          data-testid={`auto-var-filled-${variable.key}`}
-        >
-          <CheckCircle2 className="h-3 w-3" />
-          Заполнено
+        <div className="mt-0.5 space-y-0.5">
+          <p
+            className="break-words text-sm text-foreground"
+            data-testid={`auto-var-value-${variable.key}`}
+          >
+            {variable.value}
+          </p>
+          <p className="text-[11px] text-muted-foreground">{variable.label}</p>
         </div>
       )}
     </div>
