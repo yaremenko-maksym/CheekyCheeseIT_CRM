@@ -210,9 +210,6 @@ export const users = pgTable('users', {
   // ФОП registration address (адреса реєстрації ФОП).
   // Used in contract templates via {{registrationAddress}}. Nullable.
   registrationAddress: text('registration_address'),
-  // ЄДР record — date + record number as single string (e.g. "12.05.2024 №2070...").
-  // Used in contract templates via {{usrRecord}}. Nullable.
-  usrRecord: text('usr_record'),
   // Soft delete (archived users hidden from main UI, restorable)
   archivedAt: timestamp('archived_at', { withTimezone: true }),
   // Admin note (single overwriteable text field)

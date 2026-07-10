@@ -55,7 +55,6 @@ describe('CONTRACT_VARIABLE_DESCRIPTIONS', () => {
     expect(keys).toContain('phone')
     expect(keys).toContain('salaryCurrency')
     expect(keys).toContain('registrationAddress')
-    expect(keys).toContain('usrRecord')
     expect(keys).toContain('companyRegNumber')
     expect(keys).toContain('companyVat')
     expect(keys).toContain('companyBank')

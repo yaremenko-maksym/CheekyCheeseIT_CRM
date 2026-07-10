@@ -22,7 +22,6 @@ const SYSTEM_VARIABLE_SOURCE: Partial<Record<string, string>> = {
   rnokpp: 'Карточка сотрудника',
   phone: 'Карточка сотрудника',
   registrationAddress: 'Карточка сотрудника',
-  usrRecord: 'Карточка сотрудника',
   companyName: 'Константы компании',
   companyLegalName: 'Константы компании',
   companyAddress: 'Константы компании',

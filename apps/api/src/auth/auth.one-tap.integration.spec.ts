@@ -74,7 +74,6 @@ function makeRow(overrides: Partial<User>): User {
     techStack: null,
     legalFullName: null,
     registrationAddress: null,
-    usrRecord: null,
     adminNote: null,
     monthlySalary: null,
     salaryCurrency: null,

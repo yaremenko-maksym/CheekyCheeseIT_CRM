@@ -521,7 +521,6 @@ export class EmployeeContractsService {
       'rnokpp',
       'phone',
       'registrationAddress',
-      'usrRecord',
     ])
     const COMPANY_KEYS = new Set<string>([
       'companyName',
@@ -585,8 +584,6 @@ export class EmployeeContractsService {
           return !user.phone?.trim()
         case 'registrationAddress':
           return !user.registrationAddress?.trim()
-        case 'usrRecord':
-          return !user.usrRecord?.trim()
         default:
           return false
       }

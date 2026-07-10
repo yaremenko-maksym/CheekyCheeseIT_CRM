@@ -721,7 +721,6 @@ describe('EmployeeContractsService', () => {
         salaryCurrency: null,
         phone: null,
         registrationAddress: null,
-        usrRecord: null,
       })
       // select for template customVariables
       db.db.select.mockReturnValue({
@@ -789,7 +788,6 @@ describe('EmployeeContractsService', () => {
         salaryCurrency: null,
         phone: null,
         registrationAddress: null,
-        usrRecord: null,
       })
       db.db.select.mockReturnValue({
         from: vi.fn().mockReturnValue({

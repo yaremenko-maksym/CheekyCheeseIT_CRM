@@ -39,7 +39,6 @@ function makeUser(overrides: Partial<ContractRenderUserContext> = {}): ContractR
     dropSharePercent: null,
     phone: null,
     registrationAddress: null,
-    usrRecord: null,
     ...overrides,
   }
 }
@@ -548,7 +547,7 @@ describe('renderContractTemplate', () => {
 
   // ---------------------------------------------------------------------------
   // New simple field variables: rnokpp, phone, salaryCurrency,
-  // registrationAddress, usrRecord
+  // registrationAddress
   // ---------------------------------------------------------------------------
 
   describe('new simple field variables', () => {
@@ -620,22 +619,11 @@ describe('renderContractTemplate', () => {
       expect(body).toBe('')
     })
 
-    it('{{usrRecord}} resolves from usrRecord', () => {
-      const { body } = renderContractTemplate(
-        '{{usrRecord}}',
-        makeUser({ usrRecord: '12.05.2024 №2070020000000123456' }),
-        FIXED_DATE,
-      )
-      expect(body).toBe('12.05.2024 №2070020000000123456')
-    })
-
-    it('{{usrRecord}} resolves to "" when null', () => {
-      const { body } = renderContractTemplate(
-        '{{usrRecord}}',
-        makeUser({ usrRecord: null }),
-        FIXED_DATE,
-      )
-      expect(body).toBe('')
+    it('{{usrRecord}} in legacy contract body is left as-is (unknown token, no crash)', () => {
+      // usrRecord was removed from the system; old saved contract bodies may still
+      // contain {{usrRecord}}. The single-pass regex must leave unknown tokens unchanged.
+      const { body } = renderContractTemplate('{{usrRecord}}', makeUser({}), FIXED_DATE)
+      expect(body).toBe('{{usrRecord}}')
     })
   })
 

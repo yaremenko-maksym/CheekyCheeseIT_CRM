@@ -62,7 +62,7 @@ export class UsersAccessService {
       fields.legalName = true
       // adminNote — ADMIN only, never self (internal staff note, not surfaced to subject)
       fields.adminNote = !isSelf
-      // FOP PII (registrationAddress, usrRecord) — ADMIN + self
+      // FOP PII (registrationAddress) — ADMIN + self
       fields.fopPii = true
       // Real contacts (email, phone, telegram) — visible to ADMIN always
       fields.realContacts = true
@@ -122,7 +122,7 @@ export class UsersAccessService {
       fields.legalName = true
       // adminNote — self does NOT see their own admin note (internal staff memo)
       fields.adminNote = false
-      // FOP PII — owner always sees own registrationAddress/usrRecord
+      // FOP PII — owner always sees own registrationAddress
       fields.fopPii = true
       // Real contacts — owner sees own contacts
       fields.realContacts = true
@@ -144,7 +144,7 @@ export class UsersAccessService {
       fields.requisitesExcludeWallet = target.role === 'ADMIN'
       // adminNote — ACCOUNTANT does not see admin notes
       fields.adminNote = false
-      // FOP PII — ACCOUNTANT does not see registrationAddress/usrRecord
+      // FOP PII — ACCOUNTANT does not see registrationAddress
       fields.fopPii = false
       // Real contacts — ACCOUNTANT sees contacts (email/phone/telegram)
       fields.realContacts = true
@@ -167,7 +167,7 @@ export class UsersAccessService {
         fields.registrationDate = true
         // adminNote — HR does not see admin notes
         fields.adminNote = false
-        // FOP PII — HR does not see registrationAddress/usrRecord
+        // FOP PII — HR does not see registrationAddress
         fields.fopPii = false
         // Real contacts — HR sees contacts (email/phone/telegram), including for an
         // ACCOUNTANT / HR teammate.

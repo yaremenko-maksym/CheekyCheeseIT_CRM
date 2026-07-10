@@ -45,7 +45,7 @@ export interface TeamMemberPreview {
 // list payload (security data-exposure fix, ревью #222):
 //   bankUahIban / bankUahRnokpp (налоговый №) / bankUahRecipient / bankUahBankName,
 //   walletUsdtErc20 / walletUsdtLabel, paymentMethod, monthlySalary,
-//   registrationAddress / usrRecord (ФОП ЄДР PII), adminNote, legalFullName.
+//   registrationAddress (ФОП PII), adminNote, legalFullName.
 // Those remain accessible ONLY via the single-resource GET /api/users/:id
 // endpoint, where buildProfileView applies RBAC masking per viewer→target.
 // `UserListItem` is an explicit Pick (not Omit<User, …>) so adding a new column
@@ -74,7 +74,7 @@ export type UserWithAvailability = UserListItem & { hasActiveProject: boolean }
 /**
  * Drizzle select projection for list endpoints (GET /api/users). Mirrors
  * `UserListItem` exactly. PII / finance columns (bankUah*, wallet*,
- * paymentMethod, monthlySalary, registrationAddress, usrRecord, adminNote,
+ * paymentMethod, monthlySalary, registrationAddress, adminNote,
  * legalFullName) are intentionally absent — they are only accessible via
  * GET /api/users/:id through buildProfileView + RBAC masking.
  *
@@ -98,7 +98,7 @@ const USER_LIST_PROJECTION = {
   createdAt: users.createdAt,
   updatedAt: users.updatedAt,
   // SENSITIVE — intentionally excluded from list (see UserListItem): bankUah*,
-  // wallet*, paymentMethod, monthlySalary, registrationAddress, usrRecord,
+  // wallet*, paymentMethod, monthlySalary, registrationAddress,
   // adminNote, legalFullName. Available via GET /api/users/:id only.
 } as const
 
@@ -392,11 +392,6 @@ export class UsersService {
        * Used in contract template as {{registrationAddress}}.
        */
       registrationAddress?: string | null | undefined
-      /**
-       * Unified State Register (ЄДР) entry record.
-       * Used in contract template as {{usrRecord}}.
-       */
-      usrRecord?: string | null | undefined
     },
     actorId: string | null = null,
   ): Promise<User> {
@@ -454,7 +449,6 @@ export class UsersService {
       bankUahBankName: string | null
       legalFullName: string | null
       registrationAddress: string | null
-      usrRecord: string | null
       updatedAt: Date
     }> = { updatedAt: new Date() }
 
@@ -479,7 +473,6 @@ export class UsersService {
     if (data.legalFullName !== undefined) set.legalFullName = data.legalFullName.trim() || null
     if ('registrationAddress' in data)
       set.registrationAddress = data.registrationAddress?.trim() || null
-    if ('usrRecord' in data) set.usrRecord = data.usrRecord?.trim() || null
 
     // Payment requisites — switching method clears the other branch's fields.
     if (data.paymentMethod !== undefined) {
@@ -1464,7 +1457,7 @@ export class UsersService {
     //   email / phone / telegram (realContacts) — hidden when fields.realContacts=false
     //     (e.g. JUNIOR viewing SENIOR/DROP: legend persona boundary)
     //   adminNote                               — ADMIN only (fields.adminNote), never self
-    //   registrationAddress / usrRecord (fopPii)— ADMIN + self (fields.fopPii)
+    //   registrationAddress (fopPii)            — ADMIN + self (fields.fopPii)
     //   legalFullName                           — ADMIN + self (fields.legalName)
     //   monthlySalary                           — fields.salary
     //   seniorSharePercent / dropSharePercent   — fields.share
@@ -1498,9 +1491,8 @@ export class UsersService {
       // Admin-only internal note (never visible to subject or non-ADMIN)
       adminNote: permissions.fields.adminNote ? (target.adminNote ?? null) : null,
 
-      // FOP PII: registrationAddress + usrRecord — ADMIN + self only
+      // FOP PII: registrationAddress — ADMIN + self only
       registrationAddress: permissions.fields.fopPii ? (target.registrationAddress ?? null) : null,
-      usrRecord: permissions.fields.fopPii ? (target.usrRecord ?? null) : null,
 
       // Passport PII — ADMIN + self only
       legalFullName: permissions.fields.legalName ? (target.legalFullName ?? null) : null,
