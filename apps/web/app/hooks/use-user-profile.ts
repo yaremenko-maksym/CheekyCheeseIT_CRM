@@ -1,10 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type {
-  AdminUpdateUserDto,
-  ChangeRequisitesDto,
-  ChangeRoleDto,
-  ChangeSalaryDto,
   PaymentRequisites,
   SetNoteDto,
   UpdateProfileDto,
@@ -59,65 +55,6 @@ export function useUpdateMeRequisites() {
       toast.success('Реквизиты обновлены')
     },
     onError: (e: Error) => toast.error(`Ошибка: ${e.message}`),
-  })
-}
-
-export function useAdminUpdateUser(userId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: AdminUpdateUserDto) =>
-      api.patch(`/users/${userId}`, data).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      // Список пользователей и admin-список тоже отображают displayName/email/avatar
-      void qc.invalidateQueries({ queryKey: ['users'] })
-      void qc.invalidateQueries({ queryKey: ['users-admin'] })
-      toast.success('Профиль обновлён')
-    },
-  })
-}
-
-export function useAdminChangeRole(userId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: ChangeRoleDto) =>
-      api.patch(`/users/${userId}/role`, data).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      // Смена роли меняет отображение в списке пользователей, командах, проектах
-      void qc.invalidateQueries({ queryKey: ['users'] })
-      void qc.invalidateQueries({ queryKey: ['users-admin'] })
-      void qc.invalidateQueries({ queryKey: ['teams'] })
-      toast.success('Роль изменена')
-    },
-  })
-}
-
-export function useAdminChangeSalary(userId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: ChangeSalaryDto) =>
-      api.patch(`/users/${userId}/salary`, data).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      // Зарплата видна в admin-списке пользователей
-      void qc.invalidateQueries({ queryKey: ['users-admin'] })
-      toast.success('Зарплата обновлена')
-    },
-  })
-}
-
-export function useAdminChangeRequisites(userId: string) {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (data: ChangeRequisitesDto) =>
-      api.patch(`/users/${userId}/requisites`, data).then((r) => r.data),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['user-profile', userId] })
-      // Реквизиты (кошелёк) используются при выплатах — finance-summary зависит
-      void qc.invalidateQueries({ queryKey: ['users-admin'] })
-      toast.success('Реквизиты обновлены')
-    },
   })
 }
 
