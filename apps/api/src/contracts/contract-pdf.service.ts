@@ -53,7 +53,7 @@ export interface GenerateContractPdfParams {
   /**
    * A3-1: signature block logic driven by this field.
    *   - Non-empty → render real signature (name + date + QR).
-   *   - Empty string '' → render «Требуется подпись участника» (unsigned preview mode).
+   *   - Empty string '' → render «Потрібен підпис учасника» (unsigned preview mode).
    * isPreview removed — this field is the single conditional.
    * IP address removed from output (AC7) — stored in DB for audit only.
    */
@@ -243,7 +243,7 @@ export class ContractPdfService {
     })
     cursor.y -= 14
     if (isSigned && params.signedAt) {
-      this.pdfGen.drawText(cursor.page, `Подписан: ${formatDateRu(params.signedAt)}`, {
+      this.pdfGen.drawText(cursor.page, `Підписано: ${formatDateRu(params.signedAt)}`, {
         x: pageMargin,
         y: cursor.y,
         font: regularFont,
@@ -429,7 +429,7 @@ export class ContractPdfService {
     )
     cursor.y -= 4
 
-    const sigHeading = bilingual ? 'Підписи сторін / Signatures' : 'Подписи сторон'
+    const sigHeading = bilingual ? 'Підписи сторін / Signatures' : 'Підписи сторін'
     this.pdfGen.drawText(cursor.page, sigHeading, {
       x: pageMargin,
       y: cursor.y,
@@ -517,8 +517,8 @@ export class ContractPdfService {
       const companyEndY = drawSignatory(midX, 'Компанія / Company', PDF_BRAND.companyName, true)
       cursor.y = Math.min(participantEndY, companyEndY)
     } else {
-      // ── Single-column (Russian) path — byte-for-byte unchanged (MED-1 determinism) ──
-      const participantLabel = '1. Участник'
+      // ── Single-column (Ukrainian) path — MED-1 determinism preserved ──
+      const participantLabel = '1. Учасник'
       this.pdfGen.drawText(cursor.page, participantLabel, {
         x: pageMargin,
         y: cursor.y,
@@ -549,7 +549,7 @@ export class ContractPdfService {
         cursor.y -= SIG_LINE_HEIGHT
       } else {
         cursor.y -= SIG_LINE_HEIGHT
-        this.pdfGen.drawText(cursor.page, 'Требуется подпись участника', {
+        this.pdfGen.drawText(cursor.page, 'Потрібен підпис учасника', {
           x: pageMargin,
           y: cursor.y,
           font: regularFont,
@@ -559,7 +559,7 @@ export class ContractPdfService {
         cursor.y -= SIG_LINE_HEIGHT
       }
 
-      const companyLabel = '2. От CheekyCheeseIT'
+      const companyLabel = '2. Від CheekyCheeseIT'
       let companyY = dualSigStartY
       this.pdfGen.drawText(cursor.page, companyLabel, {
         x: midX,
@@ -577,7 +577,7 @@ export class ContractPdfService {
         color: textColor,
       })
       companyY -= SIG_LINE_HEIGHT
-      const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : 'Подписано'
+      const companyDateStr = params.signedAt ? formatDateRu(params.signedAt) : 'Підписано'
       this.pdfGen.drawText(cursor.page, companyDateStr, {
         x: midX,
         y: companyY,
@@ -602,7 +602,7 @@ export class ContractPdfService {
         width: PDF_LAYOUT.qrSize,
         height: PDF_LAYOUT.qrSize,
       })
-      this.pdfGen.drawText(finalPage, `Проверка: ${params.verifyUrl}`, {
+      this.pdfGen.drawText(finalPage, `Перевірка: ${params.verifyUrl}`, {
         x: pageMargin,
         y: pageMargin + 8,
         font: regularFont,
