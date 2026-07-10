@@ -144,9 +144,6 @@ function TosNewPage() {
         className="flex flex-col rounded-lg border border-border/60 overflow-hidden"
         data-testid="tos-editor-wrapper"
       >
-        <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-          Markdown редактор
-        </div>
         <div className="overflow-hidden">
           <Suspense fallback={<Skeleton className="h-[520px] w-full" />}>
             <CodeMirrorEditor

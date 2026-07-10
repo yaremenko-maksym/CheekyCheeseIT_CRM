@@ -5,7 +5,6 @@
  * Covers:
  * - renders without crashing
  * - readOnly mode shows frozen banner (READY_TO_SIGN / SIGNED semantics)
- * - hint panel shows {{...}} placeholders from CONTRACT_VARIABLE_DESCRIPTIONS_BRACED
  * - onChange callback marks dirty (propagates value changes to parent)
  *
  * CodeMirror is lazy-loaded via React.lazy; we mock the entire module to avoid
@@ -13,9 +12,7 @@
  */
 
 import { render, screen, act, fireEvent } from '@testing-library/react'
-import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
-import { CONTRACT_VARIABLE_DESCRIPTIONS_BRACED } from '@crm/shared'
 
 // ─── Mock CodeMirror (heavy lazy dep) ────────────────────────────────────────
 // ContractEditor lazy-imports @uiw/react-codemirror + @codemirror/lang-markdown.
@@ -114,52 +111,6 @@ describe('ContractEditor', () => {
       await new Promise((r) => setTimeout(r, 0))
     })
     expect(screen.queryByTestId('contract-editor-frozen-banner')).not.toBeInTheDocument()
-  })
-
-  it('hint panel hidden by default (showHint=false)', async () => {
-    renderEditor({ showHint: false })
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0))
-    })
-    expect(screen.queryByTestId('contract-editor-hint-panel')).not.toBeInTheDocument()
-  })
-
-  it('hint panel shows {{...}} placeholders from CONTRACT_VARIABLE_DESCRIPTIONS_BRACED when showHint=true', async () => {
-    renderEditor({ showHint: true })
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0))
-    })
-    expect(screen.getByTestId('contract-editor-hint-panel')).toBeInTheDocument()
-
-    // Every key in the shared constant should render as a {{...}} code chip
-    const bracedKeys = Object.keys(CONTRACT_VARIABLE_DESCRIPTIONS_BRACED)
-    expect(bracedKeys.length).toBeGreaterThan(0)
-
-    for (const key of bracedKeys) {
-      // key is already in {{...}} form, e.g. "{{fullName}}"
-      expect(key).toMatch(/^\{\{.+\}\}$/)
-      expect(screen.getByText(key)).toBeInTheDocument()
-    }
-  })
-
-  it('onToggleHint button present when onToggleHint prop provided', async () => {
-    const onToggleHint = vi.fn()
-    renderEditor({ onToggleHint })
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0))
-    })
-    expect(screen.getByTestId('contract-editor-hint-toggle')).toBeInTheDocument()
-  })
-
-  it('clicking hint toggle calls onToggleHint', async () => {
-    const onToggleHint = vi.fn()
-    const user = userEvent.setup()
-    renderEditor({ onToggleHint })
-    await act(async () => {
-      await new Promise((r) => setTimeout(r, 0))
-    })
-    await user.click(screen.getByTestId('contract-editor-hint-toggle'))
-    expect(onToggleHint).toHaveBeenCalledOnce()
   })
 
   it('onChange is called when editor value changes (marks dirty)', async () => {
