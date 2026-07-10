@@ -544,7 +544,6 @@ export function UserDialog(props: UserDialogProps) {
       legalFullName: editingUser?.legalFullName ?? '',
       // ФОП юридические данные для контракта
       registrationAddress: editingUser?.registrationAddress ?? '',
-      usrRecord: editingUser?.usrRecord ?? '',
     },
     onSubmit: async ({ value }) => {
       const isSenior = value.role === 'SENIOR'
@@ -664,9 +663,6 @@ export function UserDialog(props: UserDialogProps) {
             ...(value.registrationAddress.trim() && {
               registrationAddress: value.registrationAddress.trim(),
             }),
-            ...(value.usrRecord.trim() && {
-              usrRecord: value.usrRecord.trim(),
-            }),
           }
           const updateResult = adminUpdateUserSchema.safeParse(updatePayload)
           if (!updateResult.success) {
@@ -749,9 +745,6 @@ export function UserDialog(props: UserDialogProps) {
           ...(value.registrationAddress.trim() && {
             registrationAddress: value.registrationAddress.trim(),
           }),
-          ...(value.usrRecord.trim() && {
-            usrRecord: value.usrRecord.trim(),
-          }),
         }
         const result = createUserSchema.safeParse(payload)
         if (!result.success) {
@@ -815,7 +808,6 @@ export function UserDialog(props: UserDialogProps) {
           }),
           // ФОП юридические данные — передаём null при очистке поля.
           registrationAddress: value.registrationAddress.trim() || null,
-          usrRecord: value.usrRecord.trim() || null,
           // Payment requisites — only include when admin actually changed them.
           // Sending paymentMethod without matching requisite fields would trip
           // `refineRequisitePresence` on the shared schema and block submit.
@@ -886,7 +878,6 @@ export function UserDialog(props: UserDialogProps) {
         teamTelegramChannelDrop: '',
         legalFullName: editingUser.legalFullName ?? '',
         registrationAddress: editingUser.registrationAddress ?? '',
-        usrRecord: editingUser.usrRecord ?? '',
       })
     }
     // Re-seed when the edited user changes AND when the full profile finishes
@@ -1221,23 +1212,6 @@ export function UserDialog(props: UserDialogProps) {
                         )}
                       </form.Field>
 
-                      {/* ── Запис в ЄДР ──────────────────────────────────── */}
-                      <form.Field name="usrRecord">
-                        {(field) => (
-                          <Field
-                            label="Запис в ЄДР (дата, номер)"
-                            hint="Використовується в контракті як {{usrRecord}}"
-                          >
-                            <Input
-                              placeholder="12.05.2024 №2070..."
-                              value={field.state.value}
-                              onChange={(e) => field.handleChange(e.target.value)}
-                              onBlur={field.handleBlur}
-                              data-testid="user-dialog-usr-record"
-                            />
-                          </Field>
-                        )}
-                      </form.Field>
                     </Section>
                   ) : null
                 }
