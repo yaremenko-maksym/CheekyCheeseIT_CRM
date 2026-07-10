@@ -1457,7 +1457,7 @@ export class UsersService {
     //   email / phone / telegram (realContacts) — hidden when fields.realContacts=false
     //     (e.g. JUNIOR viewing SENIOR/DROP: legend persona boundary)
     //   adminNote                               — ADMIN only (fields.adminNote), never self
-    //   registrationAddress / usrRecord (fopPii)— ADMIN + self (fields.fopPii)
+    //   registrationAddress (fopPii)            — ADMIN + self (fields.fopPii)
     //   legalFullName                           — ADMIN + self (fields.legalName)
     //   monthlySalary                           — fields.salary
     //   seniorSharePercent / dropSharePercent   — fields.share

@@ -172,7 +172,7 @@ export function UserDialog(props: UserDialogProps) {
 
   // Slim list payload (GET /api/users) deliberately omits PII / finance fields
   // (bankUah*, wallet*, paymentMethod, monthlySalary, registrationAddress,
-  // usrRecord, …). For the edit form to prefill those, fetch the full
+  // …). For the edit form to prefill those, fetch the full
   // single-resource profile (GET /api/users/:id → buildProfileView). The ADMIN
   // viewer sees every field unmasked there. Until it loads we fall back to the
   // list-item so identity (name/email/role) renders instantly; `form.reset`
