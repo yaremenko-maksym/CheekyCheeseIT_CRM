@@ -1211,7 +1211,6 @@ export function UserDialog(props: UserDialogProps) {
                           </Field>
                         )}
                       </form.Field>
-
                     </Section>
                   ) : null
                 }
