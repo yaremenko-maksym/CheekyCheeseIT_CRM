@@ -183,12 +183,11 @@ describe('AuditLogService.diff', () => {
         'monthlySalary',
         // SEC-08: FOP PII fields
         'registrationAddress',
-        'usrRecord',
       ]
       for (const field of expected) {
         expect(SENSITIVE_FIELDS.has(field), `Expected "${field}" in SENSITIVE_FIELDS`).toBe(true)
       }
-      expect(SENSITIVE_FIELDS.size).toBe(15)
+      expect(SENSITIVE_FIELDS.size).toBe(14)
     })
   })
 })

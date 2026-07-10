@@ -301,7 +301,6 @@ const SENSITIVE_LIST_FIELDS = [
   'paymentMethod',
   'monthlySalary',
   'registrationAddress',
-  'usrRecord',
   'adminNote',
   'legalFullName',
 ] as const
@@ -759,7 +758,7 @@ describe('UsersService.adminUpdateUser', () => {
     expect(result.telegram).toBe('@newhandle')
   })
 
-  // ─── fix(bug-2): registrationAddress / usrRecord persist via adminUpdateUser ──
+  // ─── fix(bug-2): registrationAddress persists via adminUpdateUser ──
 
   it('persists registrationAddress when provided', async () => {
     const existing = makeUser({ registrationAddress: null })
@@ -778,25 +777,6 @@ describe('UsersService.adminUpdateUser', () => {
     if (setCalls?.length) {
       const setArg = setCalls[0][0] as Record<string, unknown>
       expect(setArg).toHaveProperty('registrationAddress', 'м. Київ, вул. Хрещатик, 1')
-    }
-  })
-
-  it('persists usrRecord when provided', async () => {
-    const existing = makeUser({ usrRecord: null })
-    const updated = makeUser({ usrRecord: '12.05.2024 №2070020000000123456' })
-    const db = makeDb({ existingUser: existing, updatedUser: updated })
-    const service = makeUsersService(db)
-
-    const result = await service.adminUpdateUser('user-1', {
-      usrRecord: '12.05.2024 №2070020000000123456',
-    })
-    expect(result.usrRecord).toBe('12.05.2024 №2070020000000123456')
-
-    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
-    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
-    if (setCalls?.length) {
-      const setArg = setCalls[0][0] as Record<string, unknown>
-      expect(setArg).toHaveProperty('usrRecord', '12.05.2024 №2070020000000123456')
     }
   })
 
@@ -1255,7 +1235,7 @@ describe('UsersService.buildProfileView — ForbiddenException on empty tabs', (
 //
 // Matrix enforced by buildProfileView explicit allow-list projection:
 //   adminNote         → ADMIN only (never self)
-//   registrationAddress, usrRecord (FOP PII) → ADMIN + self
+//   registrationAddress (FOP PII)             → ADMIN + self
 //   email, phone, telegram (realContacts)    → hidden when viewer=JUNIOR
 //                                              and target is SENIOR or DROP
 //                                              (legend-subject persona boundary)
@@ -1298,7 +1278,6 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     telegram: '@secrethandle',
     adminNote: 'Internal admin-only note',
     registrationAddress: 'Kyiv, Khreshchatyk 1',
-    usrRecord: '12.05.2024 №123456',
   } as Record<string, unknown>)
 
   // ── JUNIOR viewing their SENIOR (legend-subject) ──────────────────────────
@@ -1350,18 +1329,6 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     const service = makeServicePii(seniorTarget, permissions)
     const result = await service.buildProfileView(viewer as never, 'senior-target')
     expect((result.user as Record<string, unknown>).registrationAddress).toBeNull()
-  })
-
-  it('JUNIOR → SENIOR: usrRecord is null (fopPii hidden from non-ADMIN/non-self)', async () => {
-    const viewer = makeJunior({ id: 'junior-viewer' })
-    const permissions = {
-      tabs: ['overview', 'projects', 'team'],
-      actions: [],
-      fields: { techStack: true, registrationDate: true, legend: true, realContacts: false },
-    }
-    const service = makeServicePii(seniorTarget, permissions)
-    const result = await service.buildProfileView(viewer as never, 'senior-target')
-    expect((result.user as Record<string, unknown>).usrRecord).toBeNull()
   })
 
   it('JUNIOR → SENIOR: adminNote is null (adminNote never exposed to non-ADMIN)', async () => {
@@ -1416,18 +1383,6 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     expect((result.user as Record<string, unknown>).registrationAddress).toBeNull()
   })
 
-  it('ACCOUNTANT → SENIOR: usrRecord is null (fopPii not in fields)', async () => {
-    const viewer = makeUser({ id: 'acc-viewer', role: 'ACCOUNTANT' })
-    const permissions = {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents'],
-      actions: [],
-      fields: { salary: true, share: true, requisites: true, techStack: true, realContacts: true },
-    }
-    const service = makeServicePii(seniorTarget, permissions)
-    const result = await service.buildProfileView(viewer as never, 'senior-target')
-    expect((result.user as Record<string, unknown>).usrRecord).toBeNull()
-  })
-
   // ── HR viewing their SENIOR ───────────────────────────────────────────────
 
   it('HR → SENIOR: adminNote is null', async () => {
@@ -1452,18 +1407,6 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     const service = makeServicePii(seniorTarget, permissions)
     const result = await service.buildProfileView(viewer as never, 'senior-target')
     expect((result.user as Record<string, unknown>).registrationAddress).toBeNull()
-  })
-
-  it('HR → SENIOR: usrRecord is null (fopPii not for HR)', async () => {
-    const viewer = makeHr({ id: 'hr-viewer' })
-    const permissions = {
-      tabs: ['overview', 'projects', 'team'],
-      actions: [],
-      fields: { techStack: true, registrationDate: true, realContacts: true },
-    }
-    const service = makeServicePii(seniorTarget, permissions)
-    const result = await service.buildProfileView(viewer as never, 'senior-target')
-    expect((result.user as Record<string, unknown>).usrRecord).toBeNull()
   })
 
   // ── ADMIN viewing any user ────────────────────────────────────────────────
@@ -1491,18 +1434,16 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     expect((result.user as Record<string, unknown>).registrationAddress).toBe(
       'Kyiv, Khreshchatyk 1',
     )
-    expect((result.user as Record<string, unknown>).usrRecord).toBe('12.05.2024 №123456')
     expect((result.user as Record<string, unknown>).email).toBe('secret-email@example.com')
   })
 
-  it('ADMIN self: registrationAddress/usrRecord visible, adminNote null (self cannot see own note)', async () => {
+  it('ADMIN self: registrationAddress visible, adminNote null (self cannot see own note)', async () => {
     const adminSelf = makeUser({
       id: 'admin-self',
       role: 'ADMIN',
       email: 'admin@cc.com',
       adminNote: 'My own note',
       registrationAddress: 'Admin street 1',
-      usrRecord: 'admin-record',
     } as Record<string, unknown>)
     const viewer = makeUser({ id: 'admin-self', role: 'ADMIN' })
     // ADMIN self: isSelf → fopPii=true (legalName=true), but adminNote=false
@@ -1522,18 +1463,16 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     const result = await service.buildProfileView(viewer as never, 'admin-self')
     expect((result.user as Record<string, unknown>).adminNote).toBeNull()
     expect((result.user as Record<string, unknown>).registrationAddress).toBe('Admin street 1')
-    expect((result.user as Record<string, unknown>).usrRecord).toBe('admin-record')
   })
 
   // ── SENIOR self ───────────────────────────────────────────────────────────
-  // self sees fopPii (registrationAddress/usrRecord), but NOT adminNote
+  // self sees fopPii (registrationAddress), but NOT adminNote
 
   it('SENIOR self: registrationAddress visible, adminNote null', async () => {
     const seniorSelf = makeSenior({
       id: 'senior-self',
       adminNote: 'Staff note',
       registrationAddress: 'Lviv, Rynok sq 1',
-      usrRecord: 'lviv-record',
     } as Record<string, unknown>)
     const viewer = makeSenior({ id: 'senior-self' })
     const permissions = {
@@ -1553,7 +1492,6 @@ describe('UsersService.buildProfileView — PII field masking matrix (RBAC A01)'
     const result = await service.buildProfileView(viewer as never, 'senior-self')
     expect((result.user as Record<string, unknown>).adminNote).toBeNull()
     expect((result.user as Record<string, unknown>).registrationAddress).toBe('Lviv, Rynok sq 1')
-    expect((result.user as Record<string, unknown>).usrRecord).toBe('lviv-record')
   })
 })
 

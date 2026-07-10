@@ -85,7 +85,6 @@ const dbMock = {
           email: 'pr-admin@test.spec',
           legalFullName: null,
           registrationAddress: null,
-          usrRecord: null,
           walletUsdtErc20: null,
           walletUsdtLabel: null,
           bankUahRecipient: null,

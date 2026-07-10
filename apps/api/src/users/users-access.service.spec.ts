@@ -16,7 +16,6 @@ const makeUser = (overrides: Partial<User>): User =>
     techStack: null,
     legalFullName: null,
     registrationAddress: null,
-    usrRecord: null,
     paymentMethod: null,
     walletUsdtErc20: null,
     walletUsdtLabel: null,

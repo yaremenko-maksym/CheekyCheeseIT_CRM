@@ -57,7 +57,6 @@ const ACCOUNTANT_MATE: User = makeRow({
   monthlySalary: '3100',
   salaryCurrency: 'USD',
   registrationAddress: 'м. Львів, вул. Прихована 5',
-  usrRecord: 'USR-11223344',
   paymentMethod: 'BANK_UAH_FOP',
   bankUahIban: 'UA987654321098765432109876543',
   bankUahRecipient: 'Олена Бухгалтер-Прізвище',
@@ -142,7 +141,6 @@ function makeRow(overrides: Partial<User>): User {
     techStack: null,
     legalFullName: null,
     registrationAddress: null,
-    usrRecord: null,
     adminNote: null,
     monthlySalary: null,
     salaryCurrency: null,
@@ -267,7 +265,6 @@ describe('HR teammate profile RBAC — real DB integration (task-hr-rbac-teammat
     expect(view.user.bankUahIban).toBeNull()
     expect(view.user.bankUahRecipient).toBeNull()
     expect(view.user.registrationAddress).toBeNull()
-    expect(view.user.usrRecord).toBeNull()
     expect(view.user.legalFullName).toBeNull()
     expect(view.user.adminNote).toBeNull()
 

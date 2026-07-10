@@ -3,7 +3,7 @@
  *
  * WHY this exists (AC2 / AC «пикеры работают» + non-regression):
  *   GET /api/users (list) is now slim — it no longer carries PII / finance
- *   (bankUah*, wallet*, monthlySalary, registrationAddress, usrRecord, …). The
+ *   (bankUah*, wallet*, monthlySalary, registrationAddress, …). The
  *   admin user list (/users) passes a slim list-item into <UserDialog
  *   mode="edit">. For the edit form to still prefill requisites / salary / FOP
  *   PII, the dialog now fetches the full single-resource profile via
@@ -71,7 +71,6 @@ const fullProfileResponse = {
     dropSharePercent: null,
     legalFullName: 'Іваненко Іван Іванович',
     registrationAddress: 'м. Київ, вул. Хрещатик, 1',
-    usrRecord: '12.05.2024 №2070010099',
     monthlySalary: null,
     salaryCurrency: 'USD',
     archivedAt: null,
@@ -139,7 +138,7 @@ const slimListItem = {
   archivedAt: null,
   createdAt: new Date().toISOString(),
   updatedAt: new Date().toISOString(),
-  // NOTE: NO bankUah* / wallet* / monthlySalary / registrationAddress / usrRecord
+  // NOTE: NO bankUah* / wallet* / monthlySalary / registrationAddress
 }
 
 describe('UserDialog — edit-mode prefill from full /:id profile', () => {

@@ -65,7 +65,6 @@ const makeDbUser = (id: string, role: string) => ({
   legalFullName: null,
   adminNote: null,
   registrationAddress: null,
-  usrRecord: null,
   archivedAt: null,
   createdAt: new Date(),
   updatedAt: new Date(),
