@@ -58,9 +58,8 @@ export function ContractEditor({
         className="flex flex-col rounded-lg border border-border/60 overflow-hidden"
         style={{ height: '480px' }}
       >
-        <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-1.5 shrink-0">
-          <span className="text-xs font-medium text-muted-foreground">Markdown редактор</span>
-          {onToggleHint && (
+        {onToggleHint && (
+          <div className="flex items-center justify-end border-b border-border/60 bg-muted/30 px-3 py-1.5 shrink-0">
             <button
               type="button"
               onClick={onToggleHint}
@@ -70,8 +69,8 @@ export function ContractEditor({
             >
               <Info className="h-3.5 w-3.5" />
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         <div className="flex-1 overflow-auto min-h-0">
           <Suspense fallback={<Skeleton className="h-72 w-full" />}>

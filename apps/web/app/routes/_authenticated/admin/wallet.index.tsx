@@ -167,9 +167,6 @@ function CompanyWalletPage() {
               className="flex flex-col overflow-hidden rounded-lg border border-border/60"
               data-testid="admin-company-requisites-editor-wrapper"
             >
-              <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                Markdown редактор
-              </div>
               <Suspense fallback={<Skeleton className="h-[220px] w-full" />}>
                 <CodeMirrorEditor
                   value={currentRequisites}
