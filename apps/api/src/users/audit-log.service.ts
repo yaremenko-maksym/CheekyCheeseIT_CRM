@@ -46,9 +46,8 @@ export const SENSITIVE_FIELDS = new Set([
   'adminNote',
   // MED-2: monthlySalary — financially-sensitive compensation data
   'monthlySalary',
-  // SEC-08: FOP PII fields — legal business address and government tax record
+  // SEC-08: FOP PII fields — legal business address
   'registrationAddress',
-  'usrRecord',
 ])
 
 export const REDACTED_TOKEN = '[redacted]' as const
