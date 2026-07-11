@@ -26,7 +26,7 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import type { Env } from '../config/env'
-import { AuthThrottle } from '../config/throttle-decorators'
+import { AdminWriteThrottle, RelaxableThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { UsersService } from '../users/users.service'
@@ -173,7 +173,7 @@ export class AuthController {
   @Post('impersonate')
   @UseGuards(RolesGuard)
   @Roles('ADMIN')
-  @AuthThrottle()
+  @AdminWriteThrottle()
   @HttpCode(HttpStatus.OK)
   async impersonate(
     @Body() body: unknown,
@@ -233,6 +233,7 @@ export class AuthController {
    * of the caller's token — never an arbitrary user.
    */
   @Post('stop-impersonating')
+  @RelaxableThrottle(20)
   @HttpCode(HttpStatus.OK)
   async stopImpersonating(
     @CurrentUser() currentUser: JwtPayload,
