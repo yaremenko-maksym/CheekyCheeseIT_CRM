@@ -184,20 +184,21 @@ export class AuthController {
 
     // Block nested impersonation — the current token already represents someone else.
     if (currentUser.impersonatorId) {
-      throw new ForbiddenException('Нельзя применить импертонацию во время другой импертонации')
+      throw new ForbiddenException('Нельзя применить имперсонацию во время другой имперсонации')
     }
 
     const target = await this.usersService.findById(userId)
     if (!target) throw new NotFoundException('Пользователь не найден')
 
+    // Cannot impersonate self — checked before the ADMIN-role guard so that
+    // self-impersonation by an ADMIN yields 400 (not 403).
+    if (target.id === currentUser.id) {
+      throw new BadRequestException('Нельзя войти как самого себя')
+    }
+
     // ADMIN → cannot impersonate another ADMIN.
     if (target.role === 'ADMIN') {
       throw new ForbiddenException('Нельзя войти как другой администратор')
-    }
-
-    // Cannot impersonate self.
-    if (target.id === currentUser.id) {
-      throw new BadRequestException('Нельзя войти как самого себя')
     }
 
     const jwtPayload = jwtPayloadSchema.parse({
@@ -240,7 +241,7 @@ export class AuthController {
     @Res({ passthrough: true }) reply: FastifyReply,
   ) {
     if (!currentUser.impersonatorId) {
-      throw new BadRequestException('Нет активной импертонации')
+      throw new BadRequestException('Нет активной имперсонации')
     }
 
     const admin = await this.usersService.findById(currentUser.impersonatorId)

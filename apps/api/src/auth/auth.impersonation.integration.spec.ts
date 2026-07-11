@@ -43,16 +43,19 @@ const JWT_SECRET = 'test-secret-impersonation-32-chars-xx'
 const FRONTEND_URL = 'http://localhost:3000'
 
 // ── Personas ────────────────────────────────────────────────────────────────
-const ADMIN_ID = 'a9e10001-0000-0000-0000-000000000001'
+// UUIDs must be RFC-4122 v4 (version nibble = 4, variant nibble = 8/9/a/b)
+// because both impersonateSchema.userId and jwtPayloadSchema.impersonatorId
+// use z.string().uuid() which enforces the strict pattern.
+const ADMIN_ID = 'a9e10001-0000-4000-8000-000000000001'
 const ADMIN_EMAIL = 'admin-impersonation@test.spec'
 
-const SENIOR_ID = 'a9e10001-0000-0000-0000-000000000002'
+const SENIOR_ID = 'a9e10001-0000-4000-8000-000000000002'
 const SENIOR_EMAIL = 'senior-impersonation@test.spec'
 
-const JUNIOR_ID = 'a9e10001-0000-0000-0000-000000000003'
+const JUNIOR_ID = 'a9e10001-0000-4000-8000-000000000003'
 const JUNIOR_EMAIL = 'junior-impersonation@test.spec'
 
-const ADMIN2_ID = 'a9e10001-0000-0000-0000-000000000004'
+const ADMIN2_ID = 'a9e10001-0000-4000-8000-000000000004'
 const ADMIN2_EMAIL = 'admin2-impersonation@test.spec'
 
 const TEST_USER_IDS = [ADMIN_ID, SENIOR_ID, JUNIOR_ID, ADMIN2_ID]
@@ -143,6 +146,8 @@ describe('AuthController — impersonation security invariants (real DB)', () =>
       config: makeConfig(),
     })
 
+    // Re-declare design:paramtypes — vitest esbuild drops decorator metadata
+    // (same pattern as auth.oauth-callback.integration.spec.ts).
     Reflect.defineMetadata(
       'design:paramtypes',
       [AuthService, UsersService, JwtService, ConfigService],
@@ -154,7 +159,6 @@ describe('AuthController — impersonation security invariants (real DB)', () =>
       controllers: [AuthController],
       providers: [
         Reflector,
-        RolesGuard,
         { provide: AuthService, useValue: authService },
         { provide: UsersService, useValue: usersService },
         { provide: ConfigService, useValue: makeConfig() },
@@ -170,7 +174,10 @@ describe('AuthController — impersonation security invariants (real DB)', () =>
 
     const moduleRef = await Test.createTestingModule({
       imports: [TestImpersonationModule],
-    }).compile()
+    })
+      .overrideGuard(RolesGuard)
+      .useValue(new RolesGuard(new Reflector()))
+      .compile()
 
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
     await app.register(cookie, { secret: 'integration-test-cookie-secret' })
