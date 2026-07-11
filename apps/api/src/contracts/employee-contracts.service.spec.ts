@@ -801,4 +801,149 @@ describe('EmployeeContractsService', () => {
       expect(v?.isEmpty).toBe(true)
     })
   })
+
+  // ─── getContractVariables — real resolved values (not key names) ─────────────
+
+  describe('getContractVariables — value field contains real resolved values', () => {
+    /** Minimal user fixture for value-resolution tests. */
+    const baseUser = {
+      id: 'user-uuid',
+      role: 'SENIOR' as const,
+      seniorSharePercent: 26,
+      dropSharePercent: null,
+      email: 'test@example.com',
+      displayName: 'Test User',
+      legalFullName: null,
+      walletUsdtErc20: null,
+      walletUsdtLabel: null,
+      bankUahRecipient: null,
+      bankUahIban: null,
+      bankUahRnokpp: null,
+      bankUahBankName: null,
+      paymentMethod: null,
+      monthlySalary: null,
+      salaryCurrency: null,
+      phone: null,
+      registrationAddress: null,
+    }
+
+    function makeValueService(body: string, userOverrides: Record<string, unknown> = {}) {
+      const contract = makeContract({ bodyMarkdown: body, customValues: {} })
+      const { service, db } = makeService(
+        {},
+        { id: 'template-uuid', bodyMarkdown: body, customVariables: [] },
+      )
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue({ ...baseUser, ...userOverrides })
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi.fn().mockResolvedValue([{ customVariables: [] }]),
+          }),
+        }),
+      })
+      return service
+    }
+
+    it('companyName value is "Cheeky Cheese IT" (not the key string "companyName")', async () => {
+      const service = makeValueService('{{companyName}}')
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'companyName')
+      expect(v?.source).toBe('company')
+      expect(v?.value).toBe('Cheeky Cheese IT')
+      expect(v?.isEmpty).toBe(false)
+    })
+
+    it('employeeName value is the real display name when legalFullName is null', async () => {
+      const service = makeValueService('{{employeeName}}', { displayName: 'Максим Яременко' })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.source).toBe('user')
+      expect(v?.value).toBe('Максим Яременко')
+      expect(v?.isEmpty).toBe(false)
+    })
+
+    it('employeeName value is legalFullName when it is set', async () => {
+      const service = makeValueService('{{employeeName}}', {
+        legalFullName: 'Яременко Максим Олександрович',
+        displayName: 'Maksym',
+      })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.value).toBe('Яременко Максим Олександрович')
+    })
+
+    it('employeeName value is "" and isEmpty=true when both name fields are null', async () => {
+      const service = makeValueService('{{employeeName}}', {
+        legalFullName: null,
+        displayName: null,
+      })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'employeeName')
+      expect(v?.isEmpty).toBe(true)
+      expect(v?.value).toBe('')
+    })
+
+    it('salary value is "<amount> <currency>" when filled', async () => {
+      const service = makeValueService('{{salary}}', {
+        monthlySalary: '800.00',
+        salaryCurrency: 'USD',
+      })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'salary')
+      expect(v?.source).toBe('user')
+      expect(v?.value).toBe('800 USD')
+      expect(v?.isEmpty).toBe(false)
+    })
+
+    it('salary value is "" and isEmpty=true when monthlySalary is null', async () => {
+      const service = makeValueService('{{salary}}', { monthlySalary: null })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'salary')
+      expect(v?.isEmpty).toBe(true)
+      expect(v?.value).toBe('')
+    })
+
+    it('onboardingDate (auto) value is a YYYY-MM-DD date string', async () => {
+      const service = makeValueService('{{onboardingDate}}')
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'onboardingDate')
+      expect(v?.source).toBe('auto')
+      expect(v?.isEmpty).toBe(false)
+      expect(v?.value).toMatch(/^\d{4}-\d{2}-\d{2}$/)
+    })
+
+    it('custom variable value comes from savedCustomValues', async () => {
+      const contract = makeContract({
+        bodyMarkdown: '{{projectName}}',
+        customValues: { projectName: 'ACME Corp' },
+      })
+      const { service, db } = makeService(
+        {},
+        {
+          id: 'template-uuid',
+          bodyMarkdown: '{{projectName}}',
+          customVariables: [{ key: 'projectName', label: 'Project Name' }],
+        },
+      )
+      db.db.query.employeeContracts.findFirst.mockResolvedValue(contract)
+      db.db.query.users.findFirst.mockResolvedValue(baseUser)
+      db.db.select.mockReturnValue({
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockReturnValue({
+            limit: vi
+              .fn()
+              .mockResolvedValue([
+                { customVariables: [{ key: 'projectName', label: 'Project Name' }] },
+              ]),
+          }),
+        }),
+      })
+      const result = await service.getContractVariables('user-uuid')
+      const v = result.variables.find((x) => x.key === 'projectName')
+      expect(v?.source).toBe('custom')
+      expect(v?.value).toBe('ACME Corp')
+      expect(v?.isEmpty).toBe(false)
+    })
+  })
 })

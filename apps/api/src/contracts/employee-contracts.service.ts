@@ -19,6 +19,7 @@ import { contractTemplates, employeeContracts, tosAcceptances } from '../databas
 import type { EmployeeContract } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { ContractTemplatesService } from './contract-templates.service'
+import { buildContractVariableMap } from './contract-rendering'
 
 /**
  * A3-1 — per-employee contract lifecycle.
@@ -604,6 +605,13 @@ export class EmployeeContractsService {
 
     const savedCustomValues = (contract.customValues as Record<string, string> | null) ?? {}
 
+    // Build the full resolved variable map using the shared helper — this is the
+    // same logic used by renderContractTemplate / PDF generation, so the values
+    // shown in the list are byte-for-byte identical to what ends up in the PDF.
+    // We pass `new Date()` for onboardingDate because the contract hasn't been
+    // signed yet; the value is shown as a preview (not stored).
+    const resolvedMap = buildContractVariableMap(user, new Date())
+
     const variables: ContractVariableInfo[] = orderedKeys.map((key) => {
       let source: ContractVariableSource
       if (USER_KEYS.has(key)) source = 'user'
@@ -622,12 +630,17 @@ export class EmployeeContractsService {
 
       if (source === 'user') {
         isEmpty = resolveUserFieldEmpty(key)
-        value = isEmpty ? '' : key
+        // Use the real resolved value from the shared map (same as PDF).
+        // Empty when the source profile field is not filled.
+        value = isEmpty ? '' : (resolvedMap[key as keyof typeof resolvedMap] ?? '')
       } else if (source === 'company') {
-        value = key
+        // Company constants are always filled — resolve from the shared map.
+        value = resolvedMap[key as keyof typeof resolvedMap] ?? ''
         isEmpty = false
       } else if (source === 'auto') {
-        value = new Date().toISOString().slice(0, 10)
+        // Auto-computed values (e.g. onboardingDate) from the shared map.
+        value =
+          resolvedMap[key as keyof typeof resolvedMap] ?? new Date().toISOString().slice(0, 10)
         isEmpty = false
       } else if (source === 'custom' || source === 'unknown') {
         const saved = savedCustomValues[key] ?? ''

@@ -11,6 +11,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   appendCompanyRequisitesSection,
+  buildContractVariableMap,
   COMPANY_REQUISITES_HEADING,
   renderContractTemplate,
   type ContractRenderUserContext,
@@ -715,6 +716,150 @@ describe('renderContractTemplate', () => {
         { a: 'first', b: 'second' },
       )
       expect(body).toBe('first / second / Charlie')
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// buildContractVariableMap — extracted pure data-building helper
+// ---------------------------------------------------------------------------
+
+describe('buildContractVariableMap', () => {
+  describe('company constants', () => {
+    it('companyName is always "Cheeky Cheese IT"', () => {
+      const map = buildContractVariableMap(makeUser(), FIXED_DATE)
+      expect(map.companyName).toBe('Cheeky Cheese IT')
+    })
+
+    it('all company keys resolve to strings (not undefined)', () => {
+      const map = buildContractVariableMap(makeUser(), FIXED_DATE)
+      const companyKeys = [
+        'companyName',
+        'companyLegalName',
+        'companyAddress',
+        'companyCountry',
+        'companyRegNumber',
+        'companyVat',
+        'companyBank',
+        'companyAuthorityBasis',
+      ] as const
+      for (const k of companyKeys) {
+        expect(typeof map[k], `${k} should be string`).toBe('string')
+      }
+    })
+  })
+
+  describe('user fields resolve to real values (not the key name)', () => {
+    it('employeeName uses legalFullName when set', () => {
+      const map = buildContractVariableMap(
+        makeUser({ legalFullName: 'Коваленко Олена Іванівна', displayName: 'Olena' }),
+        FIXED_DATE,
+      )
+      expect(map.employeeName).toBe('Коваленко Олена Іванівна')
+    })
+
+    it('employeeName falls back to displayName when legalFullName is null', () => {
+      const map = buildContractVariableMap(
+        makeUser({ legalFullName: null, displayName: 'Ivan Shevchenko' }),
+        FIXED_DATE,
+      )
+      expect(map.employeeName).toBe('Ivan Shevchenko')
+    })
+
+    it('employeeName is "не указано" when both fields are null', () => {
+      const map = buildContractVariableMap(
+        makeUser({ legalFullName: null, displayName: null }),
+        FIXED_DATE,
+      )
+      expect(map.employeeName).toBe('не указано')
+    })
+
+    it('employeeEmail resolves from email', () => {
+      const map = buildContractVariableMap(makeUser({ email: 'alice@cc.com' }), FIXED_DATE)
+      expect(map.employeeEmail).toBe('alice@cc.com')
+    })
+
+    it('role resolves to human-readable label', () => {
+      const map = buildContractVariableMap(makeUser({ role: 'SENIOR' }), FIXED_DATE)
+      expect(map.role).toBe('Senior')
+    })
+
+    it('salary resolves to "<amount> <currency>"', () => {
+      const map = buildContractVariableMap(
+        makeUser({ monthlySalary: '800.00', salaryCurrency: 'USD' }),
+        FIXED_DATE,
+      )
+      expect(map.salary).toBe('800 USD')
+    })
+
+    it('salary is "не указано" when monthlySalary is null', () => {
+      const map = buildContractVariableMap(makeUser({ monthlySalary: null }), FIXED_DATE)
+      expect(map.salary).toBe('не указано')
+    })
+
+    it('walletUsdt resolves from walletUsdtErc20', () => {
+      const wallet = '0xABC'
+      const map = buildContractVariableMap(makeUser({ walletUsdtErc20: wallet }), FIXED_DATE)
+      expect(map.walletUsdt).toBe(wallet)
+    })
+
+    it('walletUsdt is "не указано" when walletUsdtErc20 is null', () => {
+      const map = buildContractVariableMap(makeUser({ walletUsdtErc20: null }), FIXED_DATE)
+      expect(map.walletUsdt).toBe('не указано')
+    })
+
+    it('phone resolves from phone field', () => {
+      const map = buildContractVariableMap(makeUser({ phone: '+380501234567' }), FIXED_DATE)
+      expect(map.phone).toBe('+380501234567')
+    })
+
+    it('rnokpp resolves from bankUahRnokpp', () => {
+      const map = buildContractVariableMap(makeUser({ bankUahRnokpp: '1234567890' }), FIXED_DATE)
+      expect(map.rnokpp).toBe('1234567890')
+    })
+
+    it('registrationAddress resolves from registrationAddress field', () => {
+      const map = buildContractVariableMap(
+        makeUser({ registrationAddress: 'м. Київ, вул. Хрещатик, 1' }),
+        FIXED_DATE,
+      )
+      expect(map.registrationAddress).toBe('м. Київ, вул. Хрещатик, 1')
+    })
+  })
+
+  describe('onboardingDate (auto)', () => {
+    it('resolves to YYYY-MM-DD from signedAt', () => {
+      const map = buildContractVariableMap(makeUser(), FIXED_DATE)
+      expect(map.onboardingDate).toBe('2026-06-04')
+    })
+
+    it('different signedAt produces different onboardingDate', () => {
+      const map = buildContractVariableMap(makeUser(), new Date('2025-01-15T00:00:00Z'))
+      expect(map.onboardingDate).toBe('2025-01-15')
+    })
+  })
+
+  describe('map result matches renderContractTemplate variables (PDF parity)', () => {
+    it('buildContractVariableMap and renderContractTemplate produce identical standard variables', () => {
+      const user = makeUser({
+        legalFullName: 'Тест Тестовий',
+        displayName: 'Test',
+        email: 'test@cc.com',
+        role: 'SENIOR',
+        monthlySalary: '800.00',
+        salaryCurrency: 'USD',
+        walletUsdtErc20: '0xABC123',
+        paymentMethod: 'USDT_ERC20',
+        phone: '+380501111111',
+        bankUahRnokpp: '1234567890',
+        registrationAddress: 'Kyiv',
+      })
+      const map = buildContractVariableMap(user, FIXED_DATE)
+      const { variables } = renderContractTemplate('', user, FIXED_DATE)
+      // Every key in the rendered variables snapshot must match the map value exactly.
+      for (const key of Object.keys(variables) as Array<keyof typeof variables>) {
+        expect(map[key], `key: ${key}`).toBe(variables[key])
+      }
     })
   })
 })
