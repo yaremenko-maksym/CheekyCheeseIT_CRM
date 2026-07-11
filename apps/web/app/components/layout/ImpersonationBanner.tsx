@@ -50,7 +50,7 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
       role="alert"
       aria-live="polite"
       data-testid="impersonation-banner"
-      className="shrink-0 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 sm:py-1.5"
+      className="shrink-0 border-b border-amber-500/50 bg-amber-500/10 px-4 py-2 sm:py-1.5"
       initial={{ opacity: 0, y: -8 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.2, ease: 'easeOut' }}
@@ -69,7 +69,7 @@ export function ImpersonationBanner({ user, onStopped }: ImpersonationBannerProp
         <Button
           variant="outline"
           size="sm"
-          className="min-h-[44px] w-full border-amber-500/40 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300 sm:w-auto sm:min-h-0"
+          className="min-h-[44px] w-full border-amber-500/40 text-amber-700 hover:bg-amber-500/10 hover:text-amber-800 dark:text-amber-400 dark:hover:text-amber-300 sm:w-auto sm:min-h-[36px]"
           aria-label="Вернуться в свой профиль"
           data-testid="impersonation-banner-return"
           disabled={stopMutation.isPending}

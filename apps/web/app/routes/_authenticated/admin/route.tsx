@@ -62,7 +62,7 @@ function AdminTemplatesRoot() {
       <PageHeader>
         {/* Animated tab navigation — pill animation via framer-motion */}
         <div
-          className="mt-2"
+          className="mt-2 overflow-x-auto"
           role="navigation"
           aria-label="Разделы администратора"
           data-testid="admin-tabs-nav"
