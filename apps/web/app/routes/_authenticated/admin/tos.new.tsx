@@ -2,9 +2,8 @@ import { createFileRoute, useNavigate } from '@tanstack/react-router'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { lazy, Suspense, useState } from 'react'
 import { api } from '@/lib/axios'
-import ReactMarkdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { Button } from '@/components/ui/button'
+import { TosPdfPreview } from '@/components/admin/TosPdfPreview'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Dialog,
@@ -168,7 +167,7 @@ function TosNewPage() {
         </div>
       </div>
 
-      {/* Preview modal — GFM-rendered document view */}
+      {/* Preview modal — PDF document view */}
       <Dialog open={showPreview} onOpenChange={setShowPreview}>
         <DialogContent
           className="max-w-4xl w-full"
@@ -181,25 +180,17 @@ function TosNewPage() {
               Предпросмотр ToS
             </DialogTitle>
             <DialogDescription>
-              Финальный вид документа Terms of Service для пользователей.
+              Финальный вид документа Terms of Service — как PDF.
             </DialogDescription>
           </DialogHeader>
 
-          {/* Scrollable document container */}
-          <div className="flex-1 overflow-y-auto min-h-0 py-2">
-            <div
-              className="mx-auto bg-white dark:bg-zinc-950 rounded-lg border border-border/40 shadow-sm"
-              style={{ maxWidth: '680px', padding: '56px 64px', minHeight: '900px' }}
-              data-testid="preview-tos-dialog-document"
-            >
-              {currentBody.trim() ? (
-                <div className="prose prose-sm dark:prose-invert max-w-none [&_table]:border-collapse [&_td]:border [&_td]:border-border/60 [&_td]:px-3 [&_td]:py-1.5 [&_th]:border [&_th]:border-border/60 [&_th]:px-3 [&_th]:py-1.5 [&_th]:bg-muted/40">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentBody}</ReactMarkdown>
-                </div>
-              ) : (
-                <p className="text-muted-foreground italic">Редактор пуст.</p>
-              )}
-            </div>
+          {/* PDF preview */}
+          <div
+            className="flex-1 overflow-hidden min-h-0"
+            style={{ minHeight: '520px' }}
+            data-testid="preview-tos-dialog-document"
+          >
+            <TosPdfPreview bodyMarkdown={currentBody} className="h-full" />
           </div>
 
           <DialogFooter className="pt-2 border-t border-border/40">

@@ -1,22 +1,37 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Req, UseGuards } from '@nestjs/common'
-import type { FastifyRequest } from 'fastify'
+import {
+  Body,
+  Controller,
+  Get,
+  Header,
+  HttpCode,
+  HttpStatus,
+  Inject,
+  Post,
+  Req,
+  Res,
+  UseGuards,
+} from '@nestjs/common'
+import type { FastifyReply, FastifyRequest } from 'fastify'
+import { Throttle } from '@nestjs/throttler'
 
-import { createTosVersionSchema, type SessionUser } from '@crm/shared'
+import { createTosVersionSchema, tosPdfPreviewSchema, type SessionUser } from '@crm/shared'
 import { AdminWriteThrottle, SensitiveWriteThrottle } from '../config/throttle-decorators'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { TosService } from './tos.service'
+import { TosPdfService } from './tos-pdf.service'
 
 /**
  * Terms of Service endpoints.
  *
- * | Endpoint                  | Allowed roles  | OnboardingGuard bypass |
- * | ------------------------- | -------------- | ---------------------- |
- * | GET    /api/tos/current   | any authn'd    | YES                    |
- * | GET    /api/tos/versions  | ADMIN          | NO                     |
- * | POST   /api/tos           | ADMIN          | NO                     |
- * | POST   /api/tos/accept    | any authn'd    | YES                    |
+ * | Endpoint                     | Allowed roles  | OnboardingGuard bypass |
+ * | ---------------------------- | -------------- | ---------------------- |
+ * | GET    /api/tos/current      | any authn'd    | YES                    |
+ * | GET    /api/tos/versions     | ADMIN          | NO                     |
+ * | POST   /api/tos              | ADMIN          | NO                     |
+ * | POST   /api/tos/accept       | any authn'd    | YES                    |
+ * | POST   /api/tos/preview-pdf  | ADMIN          | NO                     |
  *
  * `current` and `accept` are in the bypass list because mid-onboarding users
  * need them to fulfill the gate.
@@ -27,7 +42,10 @@ import { TosService } from './tos.service'
 @Controller('tos')
 @UseGuards(RolesGuard)
 export class TosController {
-  constructor(private readonly service: TosService) {}
+  constructor(
+    @Inject(TosService) private readonly service: TosService,
+    @Inject(TosPdfService) private readonly tosPdf: TosPdfService,
+  ) {}
 
   @Get('current')
   current() {
@@ -60,5 +78,29 @@ export class TosController {
     const ip = (request.ip as string | undefined) ?? null
     const userAgent = (request.headers['user-agent'] as string | undefined)?.slice(0, 1000) ?? null
     return this.service.accept({ userId: user.id, ip, userAgent })
+  }
+
+  /**
+   * POST /api/tos/preview-pdf
+   *
+   * Live-renders the provided markdown as a clean ToS PDF (no contract chrome).
+   * ADMIN-only — the admin ToS editor uses this for the split-view right pane.
+   *
+   * Rate-limit: 20 req/min — PDF generation is CPU-intensive.
+   * Cache-Control: no-store — preview is always fresh (body changes on each keystroke).
+   */
+  @Post('preview-pdf')
+  @Roles('ADMIN')
+  @Header('Cache-Control', 'no-store, private')
+  @Throttle({ default: { limit: 20, ttl: 60_000 } })
+  async previewPdf(@Body() body: unknown, @Res() reply: FastifyReply): Promise<void> {
+    const { bodyMarkdown } = tosPdfPreviewSchema.parse(body)
+    const pdfBuffer = await this.tosPdf.generateTosPdf(bodyMarkdown)
+
+    await reply
+      .code(200)
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', 'inline; filename="tos-preview.pdf"')
+      .send(pdfBuffer)
   }
 }

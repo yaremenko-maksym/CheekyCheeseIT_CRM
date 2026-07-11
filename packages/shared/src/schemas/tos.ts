@@ -30,6 +30,15 @@ export const createTosVersionSchema = z.object({
   bodyMarkdown: z.string().min(1, 'Тело ToS не может быть пустым').max(100_000), // BIZ-14
 })
 
+/**
+ * ADMIN live-previews the ToS body as a PDF.
+ * Endpoint: POST /api/tos/preview-pdf
+ * ADMIN-only (preview page is an admin route).
+ */
+export const tosPdfPreviewSchema = z.object({
+  bodyMarkdown: z.string().min(1).max(100_000),
+})
+
 export const tosAcceptanceSchema = z.object({
   id: z.string().uuid(),
   userId: z.string().uuid(),
