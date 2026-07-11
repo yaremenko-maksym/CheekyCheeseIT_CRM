@@ -26,7 +26,7 @@ import {
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import type { Env } from '../config/env'
-import { AdminWriteThrottle, RelaxableThrottle } from '../config/throttle-decorators'
+import { AdminWriteThrottle, AuthThrottle, RelaxableThrottle } from '../config/throttle-decorators'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { UsersService } from '../users/users.service'
