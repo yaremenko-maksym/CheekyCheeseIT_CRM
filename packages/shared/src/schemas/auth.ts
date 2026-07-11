@@ -36,6 +36,12 @@ export const sessionUserSchema = z.object({
    * block and gate the sign button without an extra round-trip.
    */
   legalFullName: z.string().nullable().optional(),
+  /**
+   * True when the current session is an admin impersonating another user.
+   * Derived from `jwtPayloadSchema.impersonatorId` being present.
+   * Used by the frontend to render the impersonation banner.
+   */
+  impersonating: z.boolean().optional(),
 })
 
 /**
@@ -51,6 +57,11 @@ export const sessionUserSchema = z.object({
  *
  * `SessionUser` (full DTO returned by /me) retains legalFullName —
  * the frontend consumes it from the /me response, never from the cookie.
+ *
+ * `impersonatorId` — set when an ADMIN is impersonating another user.
+ * Contains the ADMIN's own userId so `POST /auth/stop-impersonating` can
+ * restore the original admin session. NOT used for audit (intentional owner
+ * decision — no audit trail required).
  */
 export const jwtPayloadSchema = z.object({
   id: z
@@ -58,8 +69,21 @@ export const jwtPayloadSchema = z.object({
     .regex(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i, 'Invalid UUID'),
   email: z.string().email(),
   role: z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP']),
+  /**
+   * Present only during impersonation. Holds the original ADMIN's userId
+   * so the return-to-self endpoint can restore the admin session.
+   */
+  impersonatorId: z.string().uuid().optional(),
 })
 
+/**
+ * Body schema for POST /api/auth/impersonate.
+ */
+export const impersonateSchema = z.object({
+  userId: z.string().uuid(),
+})
+
+export type ImpersonateDto = z.infer<typeof impersonateSchema>
 export type JwtPayload = z.infer<typeof jwtPayloadSchema>
 
 export type GoogleCallbackDto = z.infer<typeof googleCallbackSchema>
