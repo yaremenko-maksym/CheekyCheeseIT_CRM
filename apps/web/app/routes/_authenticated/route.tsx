@@ -14,6 +14,7 @@ import { BrandMark } from '@/components/brand-mark'
 import { NotificationsBell } from '@/components/layout/notifications-bell'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { TosUpdateBanner } from '@/components/onboarding/TosUpdateBanner'
+import { ImpersonationBanner } from '@/components/layout/ImpersonationBanner'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -148,7 +149,17 @@ function CrmLayout() {
   // AC6: onboarding route renders only the <Outlet /> — no sidebar, no header.
   // Computed here (not inside useEffect) so it is available at render time.
   const onOnboardingRoute = location.pathname.startsWith('/onboarding')
-  if (onOnboardingRoute) return <Outlet />
+  if (onOnboardingRoute) {
+    // Edge case: if the admin is impersonating a user who hasn't completed
+    // onboarding, the impersonation banner must still be accessible so the
+    // admin can return to their own session without being trapped.
+    return (
+      <div className="flex flex-col min-h-screen">
+        {user.impersonating && <ImpersonationBanner user={user} onStopped={() => {}} />}
+        <Outlet />
+      </div>
+    )
+  }
 
   return (
     <div className="relative flex h-screen flex-col bg-background text-foreground">
@@ -299,6 +310,9 @@ function CrmLayout() {
 
       {/* Soft-notify banner: user accepted an older ToS version, new one available */}
       {onboardingStatus?.tosUpdateAvailable && !onboardingStatus.requiresTos && <TosUpdateBanner />}
+
+      {/* Impersonation banner: shown when ADMIN is acting as another user */}
+      {user.impersonating && <ImpersonationBanner user={user} onStopped={() => {}} />}
 
       <div className="flex flex-1 overflow-hidden">
         <NavSidebar

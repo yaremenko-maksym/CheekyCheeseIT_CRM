@@ -1,6 +1,8 @@
 import {
+  BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   HttpCode,
   HttpStatus,
@@ -11,14 +13,22 @@ import {
   Req,
   Res,
   UnauthorizedException,
+  UseGuards,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { JwtService } from '@nestjs/jwt'
-import { jwtPayloadSchema, sessionUserSchema, type JwtPayload } from '@crm/shared'
+import {
+  impersonateSchema,
+  jwtPayloadSchema,
+  sessionUserSchema,
+  type JwtPayload,
+} from '@crm/shared'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import type { Env } from '../config/env'
-import { AuthThrottle } from '../config/throttle-decorators'
+import { AdminWriteThrottle, AuthThrottle, RelaxableThrottle } from '../config/throttle-decorators'
+import { Roles } from '../common/decorators/roles.decorator'
+import { RolesGuard } from '../common/guards/roles.guard'
 import { UsersService } from '../users/users.service'
 import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
@@ -139,7 +149,124 @@ export class AuthController {
       role: fresh.role,
       seniorSharePercent: fresh.seniorSharePercent,
       legalFullName: fresh.legalFullName ?? null,
+      // Derived: true when the JWT has impersonatorId set (admin is acting as another user).
+      impersonating: Boolean(user.impersonatorId),
     })
+  }
+
+  /**
+   * POST /api/auth/impersonate
+   *
+   * ADMIN-only. Issues a new JWT cookie where `id`/`email`/`role` belong to
+   * the target user, and `impersonatorId` contains the calling admin's userId.
+   * This allows the admin to act as the target user across the CRM.
+   *
+   * Security invariants enforced:
+   *  - Only ADMIN can call this (RolesGuard + @Roles).
+   *  - Target must not be ADMIN (no impersonating admins).
+   *  - Target must not be the caller themselves.
+   *  - No nesting: if the current JWT already has `impersonatorId`, reject.
+   *
+   * no-audit — intentional owner decision (no per-action attribution required).
+   * list excludes admins — enforced here; frontend filters UI list accordingly.
+   */
+  @Post('impersonate')
+  @UseGuards(RolesGuard)
+  @Roles('ADMIN')
+  @AdminWriteThrottle()
+  @HttpCode(HttpStatus.OK)
+  async impersonate(
+    @Body() body: unknown,
+    @CurrentUser() currentUser: JwtPayload,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    const { userId } = impersonateSchema.parse(body)
+
+    // Block nested impersonation — the current token already represents someone else.
+    if (currentUser.impersonatorId) {
+      throw new ForbiddenException('Нельзя применить имперсонацию во время другой имперсонации')
+    }
+
+    const target = await this.usersService.findById(userId)
+    if (!target) throw new NotFoundException('Пользователь не найден')
+
+    // Cannot impersonate self — checked before the ADMIN-role guard so that
+    // self-impersonation by an ADMIN yields 400 (not 403).
+    if (target.id === currentUser.id) {
+      throw new BadRequestException('Нельзя войти как самого себя')
+    }
+
+    // ADMIN → cannot impersonate another ADMIN.
+    if (target.role === 'ADMIN') {
+      throw new ForbiddenException('Нельзя войти как другой администратор')
+    }
+
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: target.id,
+      email: target.email,
+      role: target.role,
+      impersonatorId: currentUser.id,
+    })
+    const token = this.jwtService.sign(jwtPayload)
+
+    reply.setCookie(JWT_COOKIE, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+    })
+
+    return { ok: true }
+  }
+
+  /**
+   * POST /api/auth/stop-impersonating
+   *
+   * Requires a valid JWT (global JwtAuthGuard) — NOT @Roles('ADMIN') because
+   * the current role in the token belongs to the impersonated target, not the
+   * original admin.
+   *
+   * Restores the original admin session by signing a new JWT with the admin's
+   * own identity (fetched from DB by `impersonatorId` in the current token).
+   *
+   * Security invariant: restores ONLY the admin whose id is in `impersonatorId`
+   * of the caller's token — never an arbitrary user.
+   */
+  @Post('stop-impersonating')
+  @RelaxableThrottle(20)
+  @HttpCode(HttpStatus.OK)
+  async stopImpersonating(
+    @CurrentUser() currentUser: JwtPayload,
+    @Res({ passthrough: true }) reply: FastifyReply,
+  ) {
+    if (!currentUser.impersonatorId) {
+      throw new BadRequestException('Нет активной имперсонации')
+    }
+
+    const admin = await this.usersService.findById(currentUser.impersonatorId)
+    if (!admin || admin.role !== 'ADMIN') {
+      // Safety check: if the original admin was demoted or deleted, reject.
+      throw new UnauthorizedException('Исходный администратор недоступен')
+    }
+
+    const jwtPayload = jwtPayloadSchema.parse({
+      id: admin.id,
+      email: admin.email,
+      role: admin.role,
+      // No impersonatorId — restoring clean admin session.
+    })
+    const token = this.jwtService.sign(jwtPayload)
+
+    reply.setCookie(JWT_COOKIE, token, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+    })
+
+    return { ok: true }
   }
 
   @Post('google/one-tap')

@@ -16,6 +16,7 @@ const ADMIN_TABS = [
   // Route key stays `wallet` (avoids route churn); the tab now covers the whole
   // company config — wallet + requisites — so its label is «Компания».
   { value: 'wallet', label: 'Компания', ariaLabel: 'Компания' },
+  { value: 'login-as', label: 'Войти как', ariaLabel: 'Войти как' },
 ]
 
 function AdminTemplatesRoot() {
@@ -61,7 +62,7 @@ function AdminTemplatesRoot() {
       <PageHeader>
         {/* Animated tab navigation — pill animation via framer-motion */}
         <div
-          className="mt-2"
+          className="mt-2 overflow-x-auto"
           role="navigation"
           aria-label="Разделы администратора"
           data-testid="admin-tabs-nav"
@@ -83,6 +84,9 @@ function AdminTemplatesRoot() {
             </a>
             <a data-testid="admin-templates-tab-wallet" href="/admin/wallet">
               Компания
+            </a>
+            <a data-testid="admin-templates-tab-login-as" href="/admin/login-as">
+              Войти как
             </a>
           </span>
         </div>
