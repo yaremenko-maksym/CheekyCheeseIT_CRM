@@ -241,8 +241,8 @@ export class TosPdfService {
       // Numbered list (1. 2. etc.)
       const numberedMatch = /^(\d+\.\s+)(.*)$/.exec(line)
       if (numberedMatch) {
-        const prefix = numberedMatch[1]
-        const rest = numberedMatch[2]
+        const prefix = numberedMatch[1] ?? ''
+        const rest = numberedMatch[2] ?? ''
         this.ensureSpace(pdfDoc, cursor, PDF_LAYOUT.lineHeight)
         this.pdfGen.drawText(cursor.page, prefix.trim(), {
           x: pageMargin,
@@ -352,7 +352,9 @@ export class TosPdfService {
       let x = leftX + indent
 
       for (let i = 0; i < lineTokens.length; i++) {
-        const { word, bold } = lineTokens[i]
+        const token = lineTokens[i]
+        if (!token) continue
+        const { word, bold } = token
         const font = bold ? boldFont : regularFont
         this.pdfGen.drawText(cursor.page, word, { x, y: cursor.y, font, size, color })
         const wordWidth = font.widthOfTextAtSize(word, size)
