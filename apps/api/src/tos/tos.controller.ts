@@ -1,15 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Header,
-  HttpCode,
-  HttpStatus,
-  Post,
-  Req,
-  Res,
-  UseGuards,
-} from '@nestjs/common'
+import { Body, Controller, Get, Header, Inject, Post, Req, Res, UseGuards } from '@nestjs/common'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { Throttle } from '@nestjs/throttler'
 
@@ -42,8 +31,8 @@ import { TosPdfService } from './tos-pdf.service'
 @UseGuards(RolesGuard)
 export class TosController {
   constructor(
-    private readonly service: TosService,
-    private readonly tosPdf: TosPdfService,
+    @Inject(TosService) private readonly service: TosService,
+    @Inject(TosPdfService) private readonly tosPdf: TosPdfService,
   ) {}
 
   @Get('current')
@@ -97,6 +86,7 @@ export class TosController {
     const pdfBuffer = await this.tosPdf.generateTosPdf(bodyMarkdown)
 
     await reply
+      .code(200)
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', 'inline; filename="tos-preview.pdf"')
       .send(pdfBuffer)
