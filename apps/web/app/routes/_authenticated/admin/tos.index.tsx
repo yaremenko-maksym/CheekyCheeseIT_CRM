@@ -1,8 +1,8 @@
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useQuery } from '@tanstack/react-query'
 import { api } from '@/lib/axios'
-import ReactMarkdown from 'react-markdown'
 import { lazy, Suspense, useState } from 'react'
+import { TosPdfPreview } from '@/components/admin/TosPdfPreview'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -149,15 +149,12 @@ function TosEditorPage() {
               </div>
             </div>
 
-            {/* Right: preview */}
-            <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
-              <div className="border-b border-border/60 bg-muted/30 px-3 py-1.5 text-xs font-medium text-muted-foreground">
-                Предпросмотр
-              </div>
-              <div className="flex-1 overflow-auto p-4 prose prose-sm dark:prose-invert max-w-none">
-                <ReactMarkdown>{displayedVersion.bodyMarkdown}</ReactMarkdown>
-              </div>
-            </div>
+            {/* Right: PDF preview */}
+            <TosPdfPreview
+              bodyMarkdown={displayedVersion.bodyMarkdown}
+              className="overflow-hidden"
+              data-testid="tos-preview-pane"
+            />
           </div>
         </>
       ) : (
