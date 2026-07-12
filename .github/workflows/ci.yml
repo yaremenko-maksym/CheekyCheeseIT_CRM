@@ -359,7 +359,7 @@ jobs:
           - name: team-users
             files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
           - name: projects
-            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts
+            files: tests/projects.spec.ts tests/projects-senior-share-override.spec.ts tests/drop-attach-project.spec.ts
           - name: finance
             files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts
           - name: misc
