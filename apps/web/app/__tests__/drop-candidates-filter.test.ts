@@ -7,6 +7,7 @@
  *    (button hidden, not shown in picker — conditional render upstream).
  * 3. availableToAdd excludes role==='DROP' (prevents 400 from POST /members).
  * 4. availableToAdd still includes JUNIOR/HR/ACCOUNTANT as before (regression).
+ * 5. DROP identity masking: SENIOR viewer sees null drop; ADMIN/HR/ACCOUNTANT see drop.
  */
 import { describe, it, expect } from 'vitest'
 
@@ -98,6 +99,47 @@ describe('getDropCandidates — filter for attach-drop picker', () => {
     const candidates = getDropCandidates(SAMPLE_USERS, undefined)
     expect(candidates).toHaveLength(2)
     candidates.forEach((u) => expect(u.role).toBe('DROP'))
+  })
+})
+
+// ─── H1 fix: DROP identity masking per viewerRole ──────────────────────────
+/**
+ * Mirror of the maskedDrop logic in ProjectEffectiveTeamCard
+ * (after H1 fix: viewerRole === 'SENIOR' || viewerRole === 'JUNIOR' → null).
+ */
+function getMaskedDrop(
+  rawDrop: { id: string; displayName: string } | null,
+  viewerRole: string | undefined,
+): { id: string; displayName: string } | null {
+  if (viewerRole === 'SENIOR' || viewerRole === 'JUNIOR') return null
+  return rawDrop
+}
+
+const SAMPLE_DROP = { id: 'drop1', displayName: 'Drop User' }
+
+describe('getMaskedDrop — RBAC identity masking for drop row (H1 fix)', () => {
+  it('returns null for SENIOR viewer — drop identity hidden', () => {
+    expect(getMaskedDrop(SAMPLE_DROP, 'SENIOR')).toBeNull()
+  })
+
+  it('returns null for JUNIOR viewer — drop identity hidden', () => {
+    expect(getMaskedDrop(SAMPLE_DROP, 'JUNIOR')).toBeNull()
+  })
+
+  it('returns drop for ADMIN viewer — drop identity visible', () => {
+    expect(getMaskedDrop(SAMPLE_DROP, 'ADMIN')).toEqual(SAMPLE_DROP)
+  })
+
+  it('returns drop for HR viewer — drop identity visible', () => {
+    expect(getMaskedDrop(SAMPLE_DROP, 'HR')).toEqual(SAMPLE_DROP)
+  })
+
+  it('returns drop for ACCOUNTANT viewer — drop identity visible', () => {
+    expect(getMaskedDrop(SAMPLE_DROP, 'ACCOUNTANT')).toEqual(SAMPLE_DROP)
+  })
+
+  it('returns null when rawDrop is already null (no drop on project)', () => {
+    expect(getMaskedDrop(null, 'ADMIN')).toBeNull()
   })
 })
 

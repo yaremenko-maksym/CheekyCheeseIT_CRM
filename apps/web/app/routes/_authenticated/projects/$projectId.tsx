@@ -39,6 +39,7 @@ import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-curre
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 import { cn } from '@/lib/utils'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { ProjectLegendSection } from '@/components/projects/ProjectLegendSection'
@@ -70,6 +71,7 @@ import {
 } from '@/hooks/use-archive'
 import { CascadeUnarchiveModal } from '@/components/archive/CascadeUnarchiveModal'
 import { ProfileNameLink } from '@/components/users/ProfileNameLink'
+import { toast } from 'sonner'
 import type { AxiosError } from 'axios'
 
 /**
@@ -651,6 +653,9 @@ function ProjectDetailPage() {
       void qc.invalidateQueries({ queryKey: ['users'] })
       setDropPickerOpen(false)
       setDetachDropConfirmOpen(false)
+    },
+    onError: (err) => {
+      toast.error(getApiErrorMessage(err, 'Не удалось изменить дропа'))
     },
   })
 
@@ -1336,43 +1341,36 @@ function ProjectDetailPage() {
                 {dropCandidates.length === 0 && (
                   <p className="py-2 text-sm text-muted-foreground">Нет доступных дропов</p>
                 )}
-                {dropCandidates.map((u) => {
-                  const isAssigned = project.dropId === u.id
-                  return (
-                    <li key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
-                      <Avatar className="h-7 w-7 shrink-0">
-                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
-                        <AvatarFallback className="text-[10px]">
-                          {getInitials(u.displayName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{u.displayName}</p>
-                        <p className="truncate text-xs text-muted-foreground">{u.email}</p>
-                      </div>
-                      <Badge
-                        variant="outline"
-                        className="shrink-0 border-blue-500/30 bg-blue-500/10 text-[9px] text-blue-400"
-                      >
-                        Дроп
-                      </Badge>
-                      <Button
-                        size="sm"
-                        variant={isAssigned ? 'outline' : 'default'}
-                        className={cn(
-                          'h-7 min-w-[72px] shrink-0 px-2.5 text-xs sm:min-h-0',
-                          isAssigned && 'border-emerald-500/40 text-emerald-500',
-                        )}
-                        disabled={isAssigned || dropMutation.isPending}
-                        onClick={() => dropMutation.mutate(u.id)}
-                        aria-label={`Назначить ${u.displayName} дропом`}
-                        data-testid={`assign-drop-btn-${u.id}`}
-                      >
-                        {isAssigned ? 'Назначено' : dropMutation.isPending ? '...' : 'Назначить'}
-                      </Button>
-                    </li>
-                  )
-                })}
+                {dropCandidates.map((u) => (
+                  <li key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
+                    <Avatar className="h-7 w-7 shrink-0">
+                      {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
+                      <AvatarFallback className="text-[10px]">
+                        {getInitials(u.displayName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{u.displayName}</p>
+                      <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                    </div>
+                    <Badge
+                      variant="outline"
+                      className="shrink-0 border-blue-500/30 bg-blue-500/10 text-[9px] text-blue-400"
+                    >
+                      Дроп
+                    </Badge>
+                    <Button
+                      size="sm"
+                      className="h-7 min-h-[44px] min-w-[72px] shrink-0 px-2.5 text-xs sm:min-h-0"
+                      disabled={dropMutation.isPending}
+                      onClick={() => dropMutation.mutate(u.id)}
+                      aria-label={`Назначить ${u.displayName} дропом`}
+                      data-testid={`assign-drop-btn-${u.id}`}
+                    >
+                      {dropMutation.isPending ? '...' : 'Назначить'}
+                    </Button>
+                  </li>
+                ))}
               </ul>
             </CrmDialogBody>
           </CrmDialogContent>
@@ -1382,9 +1380,8 @@ function ProjectDetailPage() {
         <Dialog
           open={detachDropConfirmOpen}
           onOpenChange={(v) => !v && setDetachDropConfirmOpen(false)}
-          data-testid="detach-drop-dialog"
         >
-          <CrmDialogContent maxWidth="sm:max-w-sm">
+          <CrmDialogContent maxWidth="sm:max-w-sm" data-testid="detach-drop-dialog">
             <CrmDialogHeader>
               <DialogTitle>Снять дропа?</DialogTitle>
               <DialogDescription className="sr-only">
@@ -1750,7 +1747,12 @@ function ProjectEffectiveTeamCard({
   // Drop role - phase 2. Optional drop row in the «Эффективный состав»
   // card. Shown only when `effectiveTeam.drop` is set (the project has a
   // dropId). Regular senior-projects render exactly as before.
-  const drop = effective?.drop ?? null
+  const rawDrop = effective?.drop ?? null
+  // RBAC rule: SENIOR viewers must not see DROP identity (same pattern as
+  // junior-masking below). UI double-guard — backend computeEffectiveTeam
+  // will also mask this server-side once patched, but the client guard
+  // ensures drop identity never reaches the render tree regardless.
+  const drop = viewerRole === 'SENIOR' || viewerRole === 'JUNIOR' ? null : rawDrop
   const hrs = effective?.hrs ?? []
   const accountants = effective?.accountants ?? []
   // RBAC rule #1: SENIOR viewers must not see JUNIOR identity.
@@ -1853,7 +1855,7 @@ function ProjectEffectiveTeamCard({
                   <Button
                     variant="ghost"
                     size="sm"
-                    className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground min-h-[44px] sm:min-h-0"
+                    className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground min-h-[44px] sm:h-7 sm:min-h-0"
                     onClick={onAttachDrop}
                     disabled={dropCandidates.length === 0}
                     data-testid="attach-drop-btn"
@@ -1940,7 +1942,7 @@ function ProjectEffectiveTeamCard({
           // Detach drop button — only for DROP rows when canManageDrop
           const detachBtn =
             m.role === 'DROP' && canManageDrop ? (
-              <span className="flex items-center justify-center p-2.5 -m-2.5">
+              <span className="flex items-center justify-center p-3 -m-3">
                 <Button
                   variant="ghost"
                   size="icon"
