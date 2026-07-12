@@ -237,12 +237,14 @@ describe('LegendsService.getLegend', () => {
     await expect(service.getLegend(drop, PROJECT_ID)).rejects.toThrow(ForbiddenException)
   })
 
-  it('throws NotFoundException if legend does not exist', async () => {
+  it('returns null if legend does not exist yet (accessible project, no legend created)', async () => {
+    // AC1: missing legend → null (not NotFoundException); server contract change
     const { service, chain } = buildService()
     chain.limit
       .mockResolvedValueOnce([seniorProject]) // project found
-      .mockResolvedValueOnce([]) // no legend
-    await expect(service.getLegend(admin, PROJECT_ID)).rejects.toThrow(NotFoundException)
+      .mockResolvedValueOnce([]) // no legend row
+    const result = await service.getLegend(admin, PROJECT_ID)
+    expect(result).toBeNull()
   })
 
   it('returns parsed legend with entries for ADMIN', async () => {
