@@ -259,7 +259,9 @@ export function OverviewTab({ user, mode, data, permissions, onGoToTab }: Overvi
                 <CardTitle className="text-xs uppercase text-muted-foreground">Доля</CardTitle>
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{user.seniorSharePercent ?? 0}%</div>
+                <div className="text-2xl font-bold">
+                  {(user.role === 'DROP' ? user.dropSharePercent : user.seniorSharePercent) ?? 0}%
+                </div>
               </CardContent>
             </Card>
           )}
