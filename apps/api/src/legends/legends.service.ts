@@ -106,7 +106,8 @@ export class LegendsService {
   }
 
   /**
-   * Load legend row for the project (no entries) — throws NotFoundException if not found.
+   * Load legend row for the project (no entries).
+   * Returns null if no legend exists yet — caller decides whether to throw or return null.
    */
   private async loadLegendRow(projectId: string) {
     const rows = await this.db.db
