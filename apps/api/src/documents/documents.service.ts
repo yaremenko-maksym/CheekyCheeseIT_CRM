@@ -459,9 +459,14 @@ export class DocumentsService {
     }
     if (category === 'RECEIPT') {
       if (!receiptTxStatus) return null
+      // Income lifecycle: PENDING → VALIDATED → PENDING_PAYMENT → PAID
+      // Only PENDING means «awaiting admin confirmation».
+      // VALIDATED / PENDING_PAYMENT / PAID = already approved / in progress / settled.
+      // REJECTED = needs re-confirmation → pending.
+      const validatedStatuses = new Set(['VALIDATED', 'PENDING_PAYMENT', 'PAID'])
       return {
         kind: 'receipt',
-        state: receiptTxStatus === 'VALIDATED' ? 'validated' : 'pending',
+        state: validatedStatuses.has(receiptTxStatus) ? 'validated' : 'pending',
       }
     }
     // RESUME, SCAN, CONTRACT (uploaded file), AVATAR, LOGO — no badge

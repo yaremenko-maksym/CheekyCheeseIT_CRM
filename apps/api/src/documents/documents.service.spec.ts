@@ -772,7 +772,7 @@ interface ExtendedHarnessOptions extends HarnessOptions {
   /** transactions rows for receipt badge derivation */
   txRows?: Array<{
     id: string
-    status: 'PENDING' | 'VALIDATED' | 'REJECTED'
+    status: 'PENDING' | 'VALIDATED' | 'PENDING_PAYMENT' | 'PAID' | 'REJECTED'
     receiptDocumentId?: string | null
     invoiceDocumentId?: string | null
     type?: string
@@ -1129,6 +1129,62 @@ describe('DocumentsService.list — PR-2 statusBadge (Task 2)', () => {
     const result = await h.service.list(SENIOR, {})
     const row = result.find((r) => r.id === DOC_ID)
     expect(row?.statusBadge).toEqual({ kind: 'receipt', state: 'pending' })
+  })
+
+  // Bug fix: PAID and PENDING_PAYMENT were incorrectly shown as 'pending'
+  // (Требует подтверждения) because deriveStatusBadge only checked for VALIDATED.
+  // Income lifecycle: PENDING → VALIDATED → PENDING_PAYMENT → PAID.
+  it('RECEIPT with PAID tx → statusBadge {kind:receipt, state:validated} (already paid out, not pending)', async () => {
+    const TX_ID = 'tx-006'
+    const DOC_ID = 'rcpt-doc-004'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'RECEIPT' }],
+      txRows: [
+        {
+          id: TX_ID,
+          status: 'PAID',
+          receiptDocumentId: DOC_ID,
+          type: 'SENIOR_INCOME',
+          senderId: SENIOR.id,
+          receiverId: null,
+        },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toEqual({ kind: 'receipt', state: 'validated' })
+  })
+
+  it('RECEIPT with PENDING_PAYMENT tx → statusBadge {kind:receipt, state:validated} (approved, payout in progress)', async () => {
+    const TX_ID = 'tx-007'
+    const DOC_ID = 'rcpt-doc-005'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'RECEIPT' }],
+      txRows: [
+        {
+          id: TX_ID,
+          status: 'PENDING_PAYMENT',
+          receiptDocumentId: DOC_ID,
+          type: 'SENIOR_INCOME',
+          senderId: SENIOR.id,
+          receiverId: null,
+        },
+      ],
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toEqual({ kind: 'receipt', state: 'validated' })
+  })
+
+  it('RECEIPT without linked tx → statusBadge null (no badge rendered)', async () => {
+    const DOC_ID = 'rcpt-doc-006'
+    const h = makeExtendedHarness({
+      docs: [{ id: DOC_ID, ownerId: SENIOR.id, category: 'RECEIPT' }],
+      txRows: [], // no tx linked to this doc
+    })
+    const result = await h.service.list(SENIOR, {})
+    const row = result.find((r) => r.id === DOC_ID)
+    expect(row?.statusBadge).toBeNull()
   })
 })
 
