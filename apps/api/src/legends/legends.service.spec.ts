@@ -14,7 +14,7 @@
  *     other SENIOR/DROP → false
  *
  *   view-access == edit-access
- *   getLegend: 404 if project not found; 404 if no legend; 403 if !canAccess
+ *   getLegend: 404 if project not found; null if no legend (accessible project, no legend created yet); 403 if !canAccess
  *   upsertLegend: 403 if !canAccess; atomic upsert on legends.projectId
  *   addEntry: 403 if !canAccess; 404 if no legend; inserts entry
  */
