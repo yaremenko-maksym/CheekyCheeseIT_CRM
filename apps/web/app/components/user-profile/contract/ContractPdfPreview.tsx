@@ -114,7 +114,7 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
             type="button"
             size="sm"
             variant="ghost"
-            className="h-7 gap-1 px-2 text-xs"
+            className="h-11 gap-1 px-2 text-xs sm:h-7"
             disabled={isDownloading}
             onClick={() => void downloadPdf()}
             data-testid="contract-pdf-download-btn"
@@ -129,7 +129,7 @@ export function ContractPdfPreview({ userId, isDirty, className }: ContractPdfPr
                   type="button"
                   size="sm"
                   variant="ghost"
-                  className="h-7 gap-1 px-2 text-xs"
+                  className="h-11 gap-1 px-2 text-xs sm:h-7"
                   disabled={!canRefresh || isLoading}
                   onClick={() => void loadPdf()}
                   data-testid="contract-pdf-refresh-btn"

@@ -124,7 +124,7 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
           type="button"
           size="sm"
           variant="ghost"
-          className="h-7 gap-1 px-2 text-xs"
+          className="h-11 gap-1 px-2 text-xs sm:h-7"
           disabled={isLoading || !bodyMarkdown.trim()}
           onClick={handleRefresh}
           data-testid="tos-pdf-refresh-btn"
