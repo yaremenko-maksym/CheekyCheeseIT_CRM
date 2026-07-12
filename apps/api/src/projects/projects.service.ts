@@ -116,11 +116,10 @@ export class ProjectsService {
 
   private mapProject(
     project: ProjectWithRelations,
-    teamOverridesBySeniorId?: Map<
-      string,
-      { id: string; seniorSharePercentOverride: number | null }[]
-    >,
-    viewerRole?: string,
+    teamOverridesBySeniorId:
+      | Map<string, { id: string; seniorSharePercentOverride: number | null }[]>
+      | undefined,
+    viewerRole: SessionUser['role'],
   ) {
     // task-team-senior-share-override. Compute effective share + source for
     // the UI. The resolver mirrors the snapshot logic in
@@ -494,7 +493,7 @@ export class ProjectsService {
    */
   private async computeEffectiveTeam(
     project: ProjectWithRelations,
-    viewerRole?: string,
+    viewerRole: SessionUser['role'],
   ): Promise<EffectiveTeam> {
     // task-admin-as-senior: when the project's senior is an ADMIN user,
     // non-privileged viewers (SENIOR/HR/DROP) must not receive PII (email)
