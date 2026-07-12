@@ -31,8 +31,14 @@ vi.mock('@/hooks/use-invoices', async (orig) => {
 
 // Use `about:blank` so happy-dom does not attempt a real DNS lookup for the
 // iframe `src` — the URL is observable on the iframe element either way.
+// InvoicePdfPreview uses useDocumentPreviewUrl (inline disposition) — keep
+// useDocumentDownloadUrl in the mock so other callers don't break.
 vi.mock('@/hooks/use-documents', () => ({
   useDocumentDownloadUrl: () => ({
+    data: { url: 'about:blank' },
+    isLoading: false,
+  }),
+  useDocumentPreviewUrl: () => ({
     data: { url: 'about:blank' },
     isLoading: false,
   }),
