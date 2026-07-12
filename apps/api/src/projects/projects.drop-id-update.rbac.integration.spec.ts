@@ -14,7 +14,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { inArray } from 'drizzle-orm'
+import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -22,6 +22,7 @@ import { updateProjectSchema } from '@crm/shared'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { HrAccessService } from '../common/hr-access.service'
+import { ZodExceptionFilter } from '../zod-exception.filter'
 import { DatabaseService } from '../database/database.service'
 import { ProjectsService } from './projects.service'
 import { ProjectAuditLogService } from './project-audit-log.service'
@@ -45,11 +46,15 @@ import * as schema from '../database/schema'
  *   DROP-UPD-3  PATCH {dropId: userId with role≠DROP (JUNIOR)} → 400 'User is not a DROP'
  *   DROP-UPD-4  PATCH {dropId: archivedDrop (archivedAt set)} → 400 'Drop is archived'
  *   DROP-UPD-5  PATCH {dropId: null} on project with existing dropId → 200, column cleared
- *   DROP-UPD-6  RBAC denials: ACCOUNTANT (dropId in payload) → 403
+ *   DROP-UPD-6  RBAC denials: ACCOUNTANT (dropId in payload) → 403 (message: 'Forbidden')
  *               SENIOR → 403; JUNIOR → 403; DROP → 403;
  *               HR of foreign team (doesn't contain project's senior) → 403
  *   DROP-UPD-7  RBAC positive: HR of project's own team + {dropId: validDrop} → 200
  *               (proves DROP-UPD-6 denials are real and not a false-positive from outer gate)
+ *   DROP-UPD-8  PATCH without dropId key (undefined = unchanged) → 200, dropId unmodified
+ *               (contract: absent key must NOT clear the column — security regression guard)
+ *   DROP-UPD-9  PATCH {dropId: 'invalid-uuid'} → 400 from updateProjectSchema.parse
+ *               (Zod v4 rejects non-RFC-4122 strings before service layer is reached)
  *
  * SEED namespace: a9b8c7d6-e5f4-4020-**
  *   (distinct from 4000/4002/4003/4010 used by other integration specs)
@@ -308,6 +313,7 @@ describe('ProjectsService.update dropId validation — real DB integration', () 
     app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
     await app.register(cookie, { secret: 'drop-upd-integration-cookie-secret' })
     app.setGlobalPrefix('api')
+    app.useGlobalFilters(new ZodExceptionFilter())
     await app.init()
     await app.getHttpAdapter().getInstance().ready()
 
@@ -429,11 +435,10 @@ describe('ProjectsService.update dropId validation — real DB integration', () 
 
   // Helper: reset the project's dropId to a given value between tests
   async function resetDropId(value: string | null): Promise<void> {
-    const { eq: drizzleEq } = await import('drizzle-orm')
     await dbSvc.db
       .update(projects)
       .set({ dropId: value, updatedAt: new Date() })
-      .where(drizzleEq(projects.id, TEST_PROJ_ID))
+      .where(eq(projects.id, TEST_PROJ_ID))
   }
 
   // ── DROP-UPD-1: ADMIN sets valid active DROP → 200, column written ──────────
@@ -453,9 +458,8 @@ describe('ProjectsService.update dropId validation — real DB integration', () 
     expect(res.statusCode, 'ADMIN PATCH with valid dropId must return 200').toBe(200)
 
     // Verify the column was actually written in the DB
-    const { eq: drizzleEq } = await import('drizzle-orm')
     const row = await dbSvc.db.query.projects.findFirst({
-      where: drizzleEq(projects.id, TEST_PROJ_ID),
+      where: eq(projects.id, TEST_PROJ_ID),
     })
     expect(row?.dropId, 'projects.dropId must be set to DROP1.id in DB after 200').toBe(DROP1.id)
   })
@@ -530,9 +534,8 @@ describe('ProjectsService.update dropId validation — real DB integration', () 
     expect(res.statusCode, 'PATCH {dropId: null} must return 200').toBe(200)
 
     // Verify the column is null in the DB
-    const { eq: drizzleEq } = await import('drizzle-orm')
     const row = await dbSvc.db.query.projects.findFirst({
-      where: drizzleEq(projects.id, TEST_PROJ_ID),
+      where: eq(projects.id, TEST_PROJ_ID),
     })
     expect(row?.dropId, 'projects.dropId must be null in DB after clearing').toBeNull()
   })
@@ -554,6 +557,10 @@ describe('ProjectsService.update dropId validation — real DB integration', () 
       res.statusCode,
       'ACCOUNTANT with dropId in payload must be denied (hasOnlyOverride=false → 403)',
     ).toBe(403)
+    // LOW-4: assert on response body — ForbiddenException() without custom message → 'Forbidden'
+    // This distinguishes it from other 403 paths that may include a custom message.
+    const body = res.json() as { message?: string }
+    expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
   })
 
   it('DROP-UPD-6b. SENIOR PATCH {dropId: validDrop} → 403', async () => {
@@ -631,13 +638,79 @@ describe('ProjectsService.update dropId validation — real DB integration', () 
     ).toBe(200)
 
     // Confirm column was written
-    const { eq: drizzleEq } = await import('drizzle-orm')
     const row = await dbSvc.db.query.projects.findFirst({
-      where: drizzleEq(projects.id, TEST_PROJ_ID),
+      where: eq(projects.id, TEST_PROJ_ID),
     })
     expect(
       row?.dropId,
       'projects.dropId must be written to DROP1.id when HR of own team patches it',
     ).toBe(DROP1.id)
+  })
+
+  // ── DROP-UPD-8: absent dropId key (undefined) → 200, column unchanged ────────
+  //
+  // Security contract: `undefined` (key absent from payload) means "leave unchanged".
+  // This is the inverse of `null` (which clears). Regressing this would silently
+  // clear drop routing on any unrelated PATCH (e.g. name update) that doesn't
+  // include dropId.
+
+  it('DROP-UPD-8. ADMIN PATCH without dropId key → 200, projects.dropId unchanged (undefined = unchanged contract)', async () => {
+    if (!dbAvailable) return
+
+    // Ensure the project has a dropId set so we can verify it was NOT cleared
+    await resetDropId(DROP1.id)
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${TEST_PROJ_ID}`,
+      cookies: { jwt: tokenFor(ADMIN) },
+      // Payload deliberately omits the dropId key — only touches an unrelated field
+      payload: { name: 'DropUpd Test Project (renamed)' },
+    })
+    expect(res.statusCode, 'PATCH without dropId key must return 200').toBe(200)
+
+    // Critical: dropId must be unchanged — absent key must NOT clear the column
+    const row = await dbSvc.db.query.projects.findFirst({
+      where: eq(projects.id, TEST_PROJ_ID),
+    })
+    expect(
+      row?.dropId,
+      'projects.dropId must remain DROP1.id when dropId key is absent from payload',
+    ).toBe(DROP1.id)
+
+    // Restore project name for subsequent tests
+    await dbSvc.db
+      .update(projects)
+      .set({ name: 'DropUpd Test Project', updatedAt: new Date() })
+      .where(eq(projects.id, TEST_PROJ_ID))
+  })
+
+  // ── DROP-UPD-9: invalid (non-RFC-4122) UUID string → 400 from Zod schema ────
+  //
+  // Zod v4 enforces strict RFC 4122 UUID format on dropId before the service layer
+  // is reached. This test pins that behaviour as a regression guard — ensures Zod
+  // catches bad input at the schema boundary, not inside service logic.
+  // (Finding documented during initial implementation: 'cc00' prefix failed silently
+  // as NotFoundException; this test locks in the correct Zod-layer rejection.)
+
+  it('DROP-UPD-9. ADMIN PATCH {dropId: "invalid-uuid"} → 400 from updateProjectSchema.parse (Zod v4 UUID validation)', async () => {
+    if (!dbAvailable) return
+
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/api/projects/${TEST_PROJ_ID}`,
+      cookies: { jwt: tokenFor(ADMIN) },
+      payload: { dropId: 'invalid-uuid' },
+    })
+    expect(
+      res.statusCode,
+      'Non-RFC-4122 dropId string must be rejected by Zod schema with 400',
+    ).toBe(400)
+
+    // ZodExceptionFilter (registered via app.useGlobalFilters) handles ZodError on
+    // non-finance routes: { statusCode: 400, message: 'Validation failed', errors: [...] }
+    const body = res.json() as { message?: string; errors?: unknown[] }
+    expect(body.message, "400 body message must be 'Validation failed'").toBe('Validation failed')
+    expect(Array.isArray(body.errors), '400 body must contain errors array from Zod').toBe(true)
   })
 })
