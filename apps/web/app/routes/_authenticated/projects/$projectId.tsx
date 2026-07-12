@@ -1277,7 +1277,7 @@ function ProjectDetailPage() {
             <CrmDialogHeader>
               <DialogTitle>Добавить участника</DialogTitle>
               <DialogDescription className="sr-only">
-                Выбор дропа для добавления в проект.
+                Выбор участников для добавления в проект.
               </DialogDescription>
             </CrmDialogHeader>
             <CrmDialogBody>
