@@ -62,7 +62,7 @@ export type DocumentCategory = z.infer<typeof documentCategorySchema>
  * `state` — derived from the source's data:
  *   contract: 'draft' | 'ready' | 'signed'
  *   invoice:  'ready' (missing sig) | 'signed' (both sigs present)
- *   receipt:  'pending' (PENDING/REJECTED) | 'validated' (VALIDATED)
+ *   receipt:  'pending' (PENDING/REJECTED) | 'validated' (VALIDATED/PENDING_PAYMENT/PAID)
  *
  * Backend sends semantics only; Russian labels live in the frontend
  * (DocumentStatusBadge component). RESUME/SCAN/uploaded CONTRACT files
