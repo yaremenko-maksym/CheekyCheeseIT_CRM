@@ -747,6 +747,60 @@ describe('DocumentsService.getDownloadUrl', () => {
   })
 })
 
+// =============================================================================
+// Presigned inline preview URL
+// =============================================================================
+
+describe('DocumentsService.getPreviewUrl', () => {
+  it('returns a presigned URL (ADMIN can preview any doc)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'INVOICE' }],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getPreviewUrl(ADMIN, 'd1')
+    expect(result.url).toContain('signed.example')
+    expect(h.s3.getPresignedDownloadUrl).toHaveBeenCalledTimes(1)
+  })
+
+  it('calls getPresignedDownloadUrl with disposition="inline" (not attachment)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'INVOICE' }],
+      honorSoftDeleteFilter: true,
+    })
+    await h.service.getPreviewUrl(ADMIN, 'd1')
+    const [, , , disposition] = h.s3.getPresignedDownloadUrl.mock.calls[0] as [
+      string,
+      number,
+      string,
+      'inline' | 'attachment',
+    ]
+    expect(disposition).toBe('inline')
+  })
+
+  it('getDownloadUrl uses disposition="attachment" (regression guard)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd2', ownerId: SENIOR.id, category: 'INVOICE' }],
+      honorSoftDeleteFilter: true,
+    })
+    await h.service.getDownloadUrl(ADMIN, 'd2')
+    const [, , , disposition] = h.s3.getPresignedDownloadUrl.mock.calls[0] as [
+      string,
+      number,
+      string,
+      'inline' | 'attachment',
+    ]
+    expect(disposition).toBe('attachment')
+  })
+
+  it('soft-deleted doc is invisible to getPreviewUrl → 404', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'INVOICE', deletedAt: new Date() }],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getPreviewUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+})
+
 beforeEach(() => {
   vi.clearAllMocks()
 })

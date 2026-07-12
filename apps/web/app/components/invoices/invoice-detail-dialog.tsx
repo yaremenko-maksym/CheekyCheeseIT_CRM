@@ -64,7 +64,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { cn } from '@/lib/utils'
 import { useInvoice, useSignInvoice } from '@/hooks/use-invoices'
-import { useDocumentDownloadUrl } from '@/hooks/use-documents'
+import { useDocumentPreviewUrl } from '@/hooks/use-documents'
 import { formatAmount } from '@/lib/format-amount'
 import { getInvoiceTypeLabel } from '@/lib/invoice-labels'
 
@@ -390,7 +390,11 @@ function InvoiceDetailContent({
 function InvoicePdfPreview({ documentId }: { documentId: string | null }) {
   // documentId is nullable in the schema for the brief generation race window
   // — fall back to a "Готовится…" placeholder rather than a broken iframe.
-  const { data, isLoading } = useDocumentDownloadUrl(documentId ?? undefined, {
+  // useDocumentPreviewUrl fetches a presigned URL with Content-Disposition:
+  // inline so the browser renders the PDF inside the iframe instead of
+  // triggering a Save dialog (which useDocumentDownloadUrl's attachment
+  // disposition would cause).
+  const { data, isLoading } = useDocumentPreviewUrl(documentId ?? undefined, {
     enabled: Boolean(documentId),
   })
   // Track whether the iframe actually rendered. Chrome blocks cross-origin

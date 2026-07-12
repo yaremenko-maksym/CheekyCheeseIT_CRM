@@ -647,6 +647,31 @@ export class DocumentsService {
   }
 
   // -------------------------------------------------------------------------
+  // Presigned inline preview URL (for iframe embed — browser renders in-place)
+  // -------------------------------------------------------------------------
+
+  /**
+   * Like `getDownloadUrl` but forces `Content-Disposition: inline` so the
+   * browser renders the PDF inside an iframe instead of triggering a Save
+   * dialog. Used by the invoice PDF preview panel and any other in-app PDF
+   * viewer that embeds content via <iframe src={url}>.
+   *
+   * Security note: the same category-based TTL applies (sensitive categories
+   * get 30 min). The URL is still presigned (authenticated via S3 signature)
+   * so it cannot be accessed without the signed query params.
+   */
+  async getPreviewUrl(actor: SessionUser, docId: string): Promise<PresignedDownload> {
+    const doc = await this.findActiveOrThrow(docId, actor)
+    const downloadAs = doc.originalName ?? doc.name
+    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
+    // disposition='inline' tells the browser to render the PDF in-place
+    // rather than offering a Save dialog (contrast with getDownloadUrl which
+    // uses 'attachment' to force a download prompt for the explicit download
+    // button flow).
+    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs, 'inline')
+  }
+
+  // -------------------------------------------------------------------------
   // Soft delete / restore
   // -------------------------------------------------------------------------
 

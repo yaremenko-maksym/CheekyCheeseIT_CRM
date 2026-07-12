@@ -138,6 +138,22 @@ export class DocumentsController {
   }
 
   // ---------------------------------------------------------------------------
+  // GET /api/documents/:id/preview — inline presigned URL for PDF viewers
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Returns a presigned URL with `Content-Disposition: inline` so that the
+   * browser renders the document inside an <iframe> rather than offering a
+   * Save dialog. Intended for in-app PDF preview panels (e.g. invoice detail
+   * dialog). Auth is the same as /download — only the owner or an authorised
+   * viewer can obtain the URL.
+   */
+  @Get(':id/preview')
+  preview(@Param('id', ParseUUIDPipe) id: string, @CurrentUser() user: SessionUser) {
+    return this.documentsService.getPreviewUrl(user, id)
+  }
+
+  // ---------------------------------------------------------------------------
   // GET /api/documents/:id/thumbnail — presigned thumbnail URL (or 204)
   // ---------------------------------------------------------------------------
 
