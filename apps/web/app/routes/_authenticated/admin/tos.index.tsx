@@ -60,7 +60,7 @@ function TosEditorPage() {
     return (
       <div className="space-y-4">
         <Skeleton className="h-8 w-48" />
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <Skeleton className="h-96" />
           <Skeleton className="h-96" />
         </div>
@@ -110,7 +110,7 @@ function TosEditorPage() {
             </div>
           )}
 
-          <div className="grid grid-cols-2 gap-4" style={{ minHeight: '420px' }}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2" style={{ minHeight: '420px' }}>
             {/* Left: read-only editor */}
             <div className="flex flex-col rounded-lg border border-border/60 overflow-hidden">
               <div className="flex items-center justify-between border-b border-border/60 bg-muted/30 px-3 py-1.5">

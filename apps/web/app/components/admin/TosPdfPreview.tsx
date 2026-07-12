@@ -116,7 +116,7 @@ export function TosPdfPreview({ bodyMarkdown, className }: TosPdfPreviewProps) {
   }
 
   return (
-    <div className={cn('flex flex-col', className)} data-testid="tos-pdf-preview">
+    <div className={cn('flex flex-col gap-2', className)} data-testid="tos-pdf-preview">
       {/* Toolbar */}
       <div className="flex items-center justify-between rounded-t-lg border-x border-t border-border/60 bg-muted/30 px-3 py-1.5">
         <span className="text-xs font-medium text-muted-foreground">PDF предпросмотр</span>
