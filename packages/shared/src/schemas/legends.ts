@@ -53,6 +53,15 @@ export const legendSchema = z.object({
 export type Legend = z.infer<typeof legendSchema>
 
 /**
+ * Response schema for GET /projects/:projectId/legend.
+ * - Legend object when legend exists for the project
+ * - null when project is accessible but no legend has been created yet
+ *   (200 with null body — replaces the former 404 for missing-legend case)
+ */
+export const legendResponseSchema = legendSchema.nullable()
+export type LegendResponse = z.infer<typeof legendResponseSchema>
+
+/**
  * ISO date string — YYYY-MM-DD (10 chars, numbers + dashes).
  * We store as text in the DB so the format is enforced here at the boundary.
  */
