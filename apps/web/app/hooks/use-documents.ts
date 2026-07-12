@@ -110,6 +110,39 @@ export function useDocumentDownloadUrl(
   })
 }
 
+// ---------------------------------------------------------------------------
+// Query: inline preview URL (Content-Disposition: inline — for <iframe> embed)
+// ---------------------------------------------------------------------------
+
+/** Stable query key for the presigned inline-preview URL. */
+export function documentPreviewUrlQueryKey(docId: string) {
+  return ['document-preview-url', docId] as const
+}
+
+/**
+ * Returns a presigned URL with `Content-Disposition: inline` so the browser
+ * renders the document inside an <iframe> instead of opening a Save dialog.
+ * Use this hook wherever a PDF is embedded for in-app viewing (e.g. the
+ * invoice detail preview panel). For the explicit "Download" button use
+ * `useDocumentDownloadUrl` which returns an `attachment`-disposition URL.
+ */
+export function useDocumentPreviewUrl(
+  docId: string | undefined,
+  options?: { enabled?: boolean },
+): UseQueryResult<PresignedDownload, Error> {
+  return useQuery<PresignedDownload, Error>({
+    queryKey: documentPreviewUrlQueryKey(docId ?? ''),
+    queryFn: async () => {
+      const res = await api.get<PresignedDownload>(`/documents/${docId}/preview`)
+      return res.data
+    },
+    staleTime: DOCUMENT_URL_STALE_MS,
+    gcTime: DOCUMENT_URL_GC_MS,
+    enabled: Boolean(docId) && (options?.enabled ?? true),
+    retry: 1,
+  })
+}
+
 /**
  * Presigned URL for the 256x256 JPEG thumbnail.
  *
