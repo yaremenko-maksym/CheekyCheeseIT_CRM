@@ -1,8 +1,7 @@
 # Deployment Runbook — CheekyCheeseIT CRM
 
-> **Статус:** черновик (VPS не провижнен). Весь pipeline построен и задокументирован.
-> End-to-end деплой **не протестирован** — нет реального VPS.
-> Разделы помечены `[UNTESTED]` там, где требуется проверка на живом сервере.
+> **Статус:** первый деплой выполнен 2026-06-27. Авто-деплой включён 2026-07-12.
+> Разделы, требующие проверки на живом сервере, помечены `[UNTESTED]`.
 
 ## Обзор архитектуры
 
@@ -397,13 +396,23 @@ ON CONFLICT (email) DO NOTHING;
    - `https://app.cheekycheese.tech` — редирект на Google Login (не 502).
    - `https://app.cheekycheese.tech/api/health` — `{"status":"ok"}`.
    - Войти через Google SSO — попасть в CRM.
-9. **После успешного ручного деплоя** — включить автодеплой:
-   В `.github/workflows/deploy.yml` раскомментировать блок:
-   ```yaml
-   push:
-     branches: [main]
-   ```
-   Закоммитить и запушить.
+9. **Авто-деплой включён** (с 2026-07-12 — двухканальная модель):
+   - **Человеческий пуш/merge** (владелец через GitHub UI, revert, hotfix) —
+     `push: branches: [main]` в `deploy.yml` запускает Deploy напрямую.
+   - **Авто-merge через `merge-approved`** — `auto-merge-on-label.yml` после
+     сквоша явно диспатчит `deploy.yml` (`gh workflow run --ref main`), потому
+     что GITHUB_TOKEN-пуши не создают push-события для workflows (GitHub
+     anti-recursion защита; `workflow_dispatch` — документированное исключение,
+     работает без PAT).
+   - Двойного запуска нет: на авто-мердже push-триггер молчит (GITHUB_TOKEN),
+     диспатч-шаг срабатывает; на ручном мердже push срабатывает, dispatch не участвует.
+   - Race condition покрыт `concurrency: deploy-production` + `cancel-in-progress: true`.
+
+   **Экстренно отключить авто-деплой:**
+   1. Закомментировать `push:` блок в `.github/workflows/deploy.yml`.
+   2. Удалить шаг «Dispatch production deploy» из
+      `.github/workflows/auto-merge-on-label.yml`.
+   3. Закоммитить и запушить.
 
 ---
 
@@ -531,9 +540,8 @@ IP Cloudflare, а не реального клиента. Nginx настроен
 
 ---
 
-## 12. Что НЕ протестировано (нет VPS)
+## 12. Что ещё НЕ протестировано автоматически
 
-- Фактическое выполнение workflow `deploy.yml` на реальном VPS.
 - Drizzle migrations внутри prod API-контейнера (§5) — `drizzle-kit` не в prod-образе.
 - `pg-backup.sh` — требует aws CLI и работающий R2/S3 бакет.
 - TLS / Cloudflare Full (strict) handshake с origin-cert на nginx.

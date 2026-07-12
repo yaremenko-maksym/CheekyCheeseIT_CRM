@@ -1,11 +1,29 @@
 name: Deploy
 
-# ── Trigger ────────────────────────────────────────────────────────────────
-# IMPORTANT: auto-trigger is DISABLED until the first successful manual deploy.
-# After a successful `workflow_dispatch` run on the VPS:
-#   1. Verify the stack is healthy (smoke-test checklist in docs/runbooks/deployment.md).
-#   2. Uncomment the `push:` block below.
-#   3. Commit + push the change.
+# ── Trigger model (auto-deploy ENABLED 2026-07-12) ────────────────────────
+# Two complementary channels — no PAT required, no double-trigger:
+#
+# 1. `push: branches: [main]`
+#    Fires on human pushes to main: owner UI-merge, revert, hotfix.
+#    Does NOT fire on GITHUB_TOKEN-authored pushes (GitHub anti-recursion
+#    protection) — auto-merge squashes from auto-merge-on-label.yml are
+#    therefore NOT covered here.
+#
+# 2. `workflow_dispatch`
+#    Used for:
+#      a) Manual one-off runs (e.g. rollback, re-deploy a specific image_tag).
+#      b) Explicit dispatch from auto-merge-on-label.yml after a squash-merge,
+#         because GITHUB_TOKEN-pushes do not create push events for workflows
+#         (workflow_dispatch is the documented exception to this rule).
+#
+# Result: every merge to main triggers exactly one deploy run.
+# Double-trigger impossible: auto-merge squash -> push-trigger silent
+# (GITHUB_TOKEN), dispatch fires; human merge -> push fires, no dispatch.
+# Race condition handled by concurrency group `deploy-production` below.
+#
+# Emergency: to disable auto-deploy, comment out `push:` below AND remove
+# the dispatch step in auto-merge-on-label.yml.
+# See docs/runbooks/deployment.md for full details.
 on:
   workflow_dispatch:
     inputs:
@@ -13,9 +31,8 @@ on:
         description: 'Docker image tag to deploy (default: git SHA of HEAD)'
         required: false
         default: ''
-  # ── Enable after first successful manual deploy ──────────────────────────
-  # push:
-  #   branches: [main]
+  push:
+    branches: [main]
 
 concurrency:
   # One deploy at a time. If a new push arrives while deploying, cancel the
