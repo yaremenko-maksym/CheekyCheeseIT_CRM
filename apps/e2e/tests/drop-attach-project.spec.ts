@@ -435,11 +435,11 @@ test.describe('Regression — non-DROP members still addable (AC4)', () => {
 })
 
 // ---------------------------------------------------------------------------
-// AC5 — RBAC: SENIOR has no attach/detach controls
+// AC5 — RBAC: SENIOR/JUNIOR cannot see drop identity or manage drop
 // ---------------------------------------------------------------------------
 
 test.describe('RBAC — SENIOR cannot manage drop (AC5)', () => {
-  test('SENIOR sees drop row in effective team but no attach-drop-btn', async ({
+  test('SENIOR: drop row fully hidden (maskedDrop=null) and no attach/detach controls', async ({
     asSenior: page,
   }) => {
     await page.route(/\/api\/projects\/[^/?]+$/, (r) => {
@@ -454,15 +454,15 @@ test.describe('RBAC — SENIOR cannot manage drop (AC5)', () => {
     await page.goto(`/projects/${PROJECT_ID}`)
     await page.getByRole('tab', { name: 'Состав' }).click()
 
-    // Drop row visible (SENIOR sees effective team)
-    await expect(page.getByTestId('effective-team-drop')).toBeVisible()
+    // Drop identity fully masked for SENIOR — row not rendered at all (maskedDrop = null)
+    await expect(page.getByTestId('effective-team-drop')).not.toBeAttached()
 
-    // No management controls — canManage = ADMIN||HR only
-    await expect(page.getByTestId('attach-drop-btn')).not.toBeVisible()
-    await expect(page.getByTestId('detach-drop-btn')).not.toBeVisible()
+    // No management controls either
+    await expect(page.getByTestId('attach-drop-btn')).not.toBeAttached()
+    await expect(page.getByTestId('detach-drop-btn')).not.toBeAttached()
   })
 
-  test('SENIOR sees no attach-drop-btn on project without drop', async ({ asSenior: page }) => {
+  test('SENIOR: no attach-drop-btn on project without drop', async ({ asSenior: page }) => {
     await page.route(/\/api\/projects\/[^/?]+$/, (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
@@ -475,6 +475,6 @@ test.describe('RBAC — SENIOR cannot manage drop (AC5)', () => {
     await page.goto(`/projects/${PROJECT_ID}`)
     await page.getByRole('tab', { name: 'Состав' }).click()
 
-    await expect(page.getByTestId('attach-drop-btn')).not.toBeVisible()
+    await expect(page.getByTestId('attach-drop-btn')).not.toBeAttached()
   })
 })
