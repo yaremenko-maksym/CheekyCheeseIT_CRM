@@ -495,6 +495,9 @@ function ProjectDetailPage() {
   // ut-28: explicit Archive button in header replaces «Действия» dropdown + «Завершить» button.
   const [archiveDialogOpen, setArchiveDialogOpen] = useState(false)
   const [cascadeEntities, setCascadeEntities] = useState<UnarchiveCascadeEntity[] | null>(null)
+  // Drop attach/detach dialogs (feature/drop-attach-existing-project)
+  const [dropPickerOpen, setDropPickerOpen] = useState(false)
+  const [detachDropConfirmOpen, setDetachDropConfirmOpen] = useState(false)
 
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', 'today'],
@@ -638,6 +641,19 @@ function ProjectDetailPage() {
     },
   })
 
+  // Drop mutation: PATCH /projects/:id { dropId } for attach (string) and detach (null)
+  const dropMutation = useMutation({
+    mutationFn: (dropId: string | null) =>
+      api.patch<ProjectDto>(`/projects/${projectId}`, { dropId }).then((r) => r.data),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['projects', projectId] })
+      void qc.invalidateQueries({ queryKey: ['projects'] })
+      void qc.invalidateQueries({ queryKey: ['users'] })
+      setDropPickerOpen(false)
+      setDetachDropConfirmOpen(false)
+    },
+  })
+
   function openEdit() {
     if (!project) return
     editForm.setFieldValue('name', project.name)
@@ -693,6 +709,7 @@ function ProjectDetailPage() {
   const hasActiveJunior = activeJuniors.length > 0
   const availableToAdd = (allUsers ?? []).filter((u) => {
     if (u.role === 'ADMIN' || u.role === 'SENIOR') return false
+    if (u.role === 'DROP') return false // DROP goes through PATCH /projects/:id, not POST /members
     if (activeMembers.some((m) => m.userId === u.id)) return false
     if (u.role === 'JUNIOR') {
       if (hasActiveJunior) return false
@@ -700,6 +717,9 @@ function ProjectDetailPage() {
     }
     return true
   })
+  // DROP candidates for the attach-drop picker (only when no drop is assigned)
+  const dropCandidates =
+    project.dropId == null ? (allUsers ?? []).filter((u) => u.role === 'DROP') : []
 
   return (
     <div className="flex flex-col h-full min-h-0 overflow-y-auto px-0 pb-6">
@@ -918,6 +938,10 @@ function ProjectDetailPage() {
           <ProjectEffectiveTeamCard
             project={project}
             {...(user?.role !== undefined ? { viewerRole: user.role } : {})}
+            canManageDrop={canManage && !project.archivedAt}
+            dropCandidates={dropCandidates}
+            onAttachDrop={() => setDropPickerOpen(true)}
+            onDetachDrop={() => setDetachDropConfirmOpen(true)}
           />
         )}
 
@@ -1300,6 +1324,97 @@ function ProjectDetailPage() {
           </CrmDialogContent>
         </Dialog>
 
+        {/* ── Drop picker dialog (attach drop) ── */}
+        <Dialog open={dropPickerOpen} onOpenChange={(v) => !v && setDropPickerOpen(false)}>
+          <CrmDialogContent maxWidth="max-w-sm" data-testid="attach-drop-dialog">
+            <CrmDialogHeader>
+              <DialogTitle>Привязать дропа</DialogTitle>
+              <DialogDescription className="sr-only">Выбор дропа для проекта</DialogDescription>
+            </CrmDialogHeader>
+            <CrmDialogBody>
+              <ul className="max-h-72 space-y-1.5 overflow-y-auto">
+                {dropCandidates.length === 0 && (
+                  <p className="py-2 text-sm text-muted-foreground">Нет доступных дропов</p>
+                )}
+                {dropCandidates.map((u) => {
+                  const isAssigned = project.dropId === u.id
+                  return (
+                    <li key={u.id} className="flex items-center gap-2.5 rounded-md px-3 py-2">
+                      <Avatar className="h-7 w-7 shrink-0">
+                        {u.avatarUrl && <AvatarImage src={u.avatarUrl} />}
+                        <AvatarFallback className="text-[10px]">
+                          {getInitials(u.displayName)}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium">{u.displayName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{u.email}</p>
+                      </div>
+                      <Badge
+                        variant="outline"
+                        className="shrink-0 border-blue-500/30 bg-blue-500/10 text-[9px] text-blue-400"
+                      >
+                        Дроп
+                      </Badge>
+                      <Button
+                        size="sm"
+                        variant={isAssigned ? 'outline' : 'default'}
+                        className={cn(
+                          'h-7 min-w-[72px] shrink-0 px-2.5 text-xs sm:min-h-0',
+                          isAssigned && 'border-emerald-500/40 text-emerald-500',
+                        )}
+                        disabled={isAssigned || dropMutation.isPending}
+                        onClick={() => dropMutation.mutate(u.id)}
+                        aria-label={`Назначить ${u.displayName} дропом`}
+                        data-testid={`assign-drop-btn-${u.id}`}
+                      >
+                        {isAssigned ? 'Назначено' : dropMutation.isPending ? '...' : 'Назначить'}
+                      </Button>
+                    </li>
+                  )
+                })}
+              </ul>
+            </CrmDialogBody>
+          </CrmDialogContent>
+        </Dialog>
+
+        {/* ── Detach drop confirm dialog ── */}
+        <Dialog
+          open={detachDropConfirmOpen}
+          onOpenChange={(v) => !v && setDetachDropConfirmOpen(false)}
+          data-testid="detach-drop-dialog"
+        >
+          <CrmDialogContent maxWidth="sm:max-w-sm">
+            <CrmDialogHeader>
+              <DialogTitle>Снять дропа?</DialogTitle>
+              <DialogDescription className="sr-only">
+                Подтверждение снятия дропа с проекта
+              </DialogDescription>
+            </CrmDialogHeader>
+            <CrmDialogBody className="pb-2">
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {project.effectiveTeam?.drop?.displayName ?? 'Дроп'}
+                </span>{' '}
+                будет снят с проекта. Приходы больше не будут проходить через него.
+              </p>
+            </CrmDialogBody>
+            <CrmDialogFooter>
+              <Button variant="outline" onClick={() => setDetachDropConfirmOpen(false)}>
+                Отмена
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => dropMutation.mutate(null)}
+                disabled={dropMutation.isPending}
+                data-testid="detach-drop-confirm-btn"
+              >
+                Снять
+              </Button>
+            </CrmDialogFooter>
+          </CrmDialogContent>
+        </Dialog>
+
         {/* ut-28: Archive confirm dialog — triggered by explicit Archive button. */}
         {archiveDialogOpen && (
           <ArchiveConfirmDialog
@@ -1618,9 +1733,17 @@ function MemberRow({
 function ProjectEffectiveTeamCard({
   project,
   viewerRole,
+  canManageDrop = false,
+  dropCandidates = [],
+  onAttachDrop,
+  onDetachDrop,
 }: {
   project: ProjectDetailDto
   viewerRole?: string | undefined
+  canManageDrop?: boolean
+  dropCandidates?: { id: string; displayName: string }[]
+  onAttachDrop?: () => void
+  onDetachDrop?: () => void
 }) {
   const effective = project.effectiveTeam
   const senior = effective?.senior ?? null
@@ -1715,12 +1838,35 @@ function ProjectEffectiveTeamCard({
   return (
     <Card className="border-border/40" data-testid="effective-team-card">
       <CardHeader className="pb-3">
-        <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-          Эффективный состав
-          <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
-            (HR/бухгалтер — из текущей команды синьора)
-          </span>
-        </CardTitle>
+        <div className="flex items-center justify-between gap-2">
+          <CardTitle className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+            Эффективный состав
+            <span className="ml-2 text-[10px] font-normal normal-case text-muted-foreground/60">
+              (HR/бухгалтер — из текущей команды синьора)
+            </span>
+          </CardTitle>
+          {/* Attach drop button — only when canManageDrop and no drop yet */}
+          {canManageDrop && project.dropId == null && (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="h-7 gap-1.5 text-xs text-muted-foreground hover:text-foreground min-h-[44px] sm:min-h-0"
+                    onClick={onAttachDrop}
+                    disabled={dropCandidates.length === 0}
+                    data-testid="attach-drop-btn"
+                  >
+                    <UserPlus className="h-3 w-3" />
+                    Привязать дропа
+                  </Button>
+                </span>
+              </TooltipTrigger>
+              {dropCandidates.length === 0 && <TooltipContent>Нет доступных дропов</TooltipContent>}
+            </Tooltip>
+          )}
+        </div>
       </CardHeader>
       <CardContent className="space-y-1">
         {!senior && (
@@ -1791,6 +1937,27 @@ function ProjectEffectiveTeamCard({
               )}
             </>
           )
+          // Detach drop button — only for DROP rows when canManageDrop
+          const detachBtn =
+            m.role === 'DROP' && canManageDrop ? (
+              <span className="flex items-center justify-center p-2.5 -m-2.5">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-5 w-5 shrink-0 text-muted-foreground hover:text-destructive"
+                  aria-label="Снять дропа с проекта"
+                  data-testid="detach-drop-btn"
+                  onClick={(e) => {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    onDetachDrop?.()
+                  }}
+                >
+                  <UserMinus className="h-3 w-3" />
+                </Button>
+              </span>
+            ) : null
+
           return isNavigable ? (
             <Link
               key={m.key}
@@ -1800,6 +1967,7 @@ function ProjectEffectiveTeamCard({
               className="flex items-center gap-2.5 rounded-md px-2 py-1.5 hover:bg-muted/30 transition-colors"
             >
               {rowContent}
+              {detachBtn}
             </Link>
           ) : (
             <div
@@ -1808,6 +1976,7 @@ function ProjectEffectiveTeamCard({
               className="flex items-center gap-2.5 rounded-md px-2 py-1.5"
             >
               {rowContent}
+              {detachBtn}
             </div>
           )
         })}
