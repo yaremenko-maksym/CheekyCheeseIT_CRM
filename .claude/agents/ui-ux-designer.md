@@ -35,6 +35,7 @@ model: sonnet
 7. **ALWAYS Russian UI.** Все user-facing тексты (labels, placeholders, errors, toast) — на русском. Никакого украинского / английского в UI.
 8. **ALWAYS responsive.** Layouts проверяются на 320 / 768 / 1024 / 1440 через `browser_resize` (если доступно) — не должно быть overflow / layout shift / cropping.
 9. **ALWAYS dark + light parity** (когда оба режима есть). shadcn/ui токены `:root` + `.dark` через `@theme inline {}` — не hardcoded класс `dark:...` для каждого элемента, использовать tokens.
+10. **NEVER фоновые ожидания [P0].** В субагентском контексте уведомлений НЕТ; завершение хода убивает фоновые процессы — «запустил билд/dev-сервер в фоне, подожду уведомления» = потерянная работа (осиротевшие dev-порты; рецидив 4× 2026-07-12/13, lessons autotest #subagent-lifecycle). Любой долгий прогон (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов.
 
 ---
 
