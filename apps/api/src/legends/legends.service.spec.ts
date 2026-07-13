@@ -14,7 +14,7 @@
  *     other SENIOR/DROP → false
  *
  *   view-access == edit-access
- *   getLegend: 404 if project not found; 404 if no legend; 403 if !canAccess
+ *   getLegend: 404 if project not found; null if no legend (accessible project, no legend created yet); 403 if !canAccess
  *   upsertLegend: 403 if !canAccess; atomic upsert on legends.projectId
  *   addEntry: 403 if !canAccess; 404 if no legend; inserts entry
  */
@@ -237,12 +237,14 @@ describe('LegendsService.getLegend', () => {
     await expect(service.getLegend(drop, PROJECT_ID)).rejects.toThrow(ForbiddenException)
   })
 
-  it('throws NotFoundException if legend does not exist', async () => {
+  it('returns null if legend does not exist yet (accessible project, no legend created)', async () => {
+    // AC1: missing legend → null (not NotFoundException); server contract change
     const { service, chain } = buildService()
     chain.limit
       .mockResolvedValueOnce([seniorProject]) // project found
-      .mockResolvedValueOnce([]) // no legend
-    await expect(service.getLegend(admin, PROJECT_ID)).rejects.toThrow(NotFoundException)
+      .mockResolvedValueOnce([]) // no legend row
+    const result = await service.getLegend(admin, PROJECT_ID)
+    expect(result).toBeNull()
   })
 
   it('returns parsed legend with entries for ADMIN', async () => {

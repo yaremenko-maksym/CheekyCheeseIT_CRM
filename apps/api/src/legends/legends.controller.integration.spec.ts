@@ -357,21 +357,31 @@ describe('LegendsController (project-scoped) — guard stack integration', () =>
     expect(legendsServiceMock.addEntry).toHaveBeenCalledOnce()
   })
 
-  // ── NotFoundException → 404 ───────────────────────────────────────────────
+  // ── null response — missing legend → 200 + null body (AC1/AC7) ──────────
 
-  it('GET 404 — service NotFoundException → 404 (no legend yet)', async () => {
-    const { NotFoundException } = await import('@nestjs/common')
-    legendsServiceMock.getLegend.mockRejectedValue(
-      new NotFoundException('Легенда проекта не найдена'),
-    )
+  it('GET 200 null body — service returns null (no legend yet) → 200 with JSON null', async () => {
+    /**
+     * AC7 / tech-gotcha: assert REAL Fastify serialization of null.
+     * NestJS+Fastify may serialize `return null` as empty body instead of JSON null.
+     * This test pins the actual Content-Type and body to catch any regression.
+     *
+     * Documents.controller already uses `return null` and serializes correctly
+     * (same Fastify adapter). This spec confirms the same for legends.
+     */
+    legendsServiceMock.getLegend.mockResolvedValue(null)
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${PROJECT_ID}/legend`,
       cookies: { jwt: sign(USERS.admin) },
     })
-    expect(res.statusCode).toBe(404)
+    expect(res.statusCode).toBe(200)
     expect(legendsServiceMock.getLegend).toHaveBeenCalledOnce()
+    // Assert actual body: Fastify must serialize null as JSON "null", not empty string
+    expect(res.body).toBe('null')
+    expect(res.headers['content-type']).toContain('application/json')
   })
+
+  // ── NotFoundException → 404 ───────────────────────────────────────────────
 
   it('GET 404 — service NotFoundException → 404 (project not found)', async () => {
     const { NotFoundException } = await import('@nestjs/common')

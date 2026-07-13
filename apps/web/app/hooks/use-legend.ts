@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import {
   addLegendEntrySchema,
+  legendResponseSchema,
   legendSchema,
   upsertLegendSchema,
   type AddLegendEntryDto,
@@ -14,7 +15,8 @@ import { getAxiosStatus } from '@/lib/axios-utils'
 /**
  * Fetch the legend for a project.
  *
- * - 404 → no legend yet → returns null (not an error)
+ * - 200 + null body → no legend yet → returns null (not an error; server-contract change)
+ * - 404 → kept as fallback (real project-not-found still returns 404 on network errors)
  * - 403 → viewer lacks access (subject excluded / ACCOUNTANT etc.) → returns null silently
  */
 export function useLegend(projectId: string | undefined, enabled = true) {
@@ -23,9 +25,10 @@ export function useLegend(projectId: string | undefined, enabled = true) {
     queryFn: async () => {
       try {
         const res = await api.get<unknown>(`/projects/${projectId}/legend`)
-        return legendSchema.parse(res.data)
+        // legendResponseSchema is legendSchema.nullable() — handles both Legend and null
+        return legendResponseSchema.parse(res.data)
       } catch (err: unknown) {
-        // 404 = no legend yet — empty state, not an error
+        // 404 = project not found (real 404 from loadProject) — treat as null
         // 403 = no permission (subject excluded / ACCOUNTANT) — silent
         if (getAxiosStatus(err) === 404 || getAxiosStatus(err) === 403) return null
         throw err

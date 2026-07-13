@@ -106,7 +106,8 @@ export class LegendsService {
   }
 
   /**
-   * Load legend row for the project (no entries) — throws NotFoundException if not found.
+   * Load legend row for the project (no entries).
+   * Returns null if no legend exists yet — caller decides whether to throw or return null.
    */
   private async loadLegendRow(projectId: string) {
     const rows = await this.db.db
@@ -220,17 +221,17 @@ export class LegendsService {
    * GET legend for a given projectId.
    * - 404 if project not found
    * - 403 if viewer lacks permission
-   * - 404 if no legend exists yet
+   * - null if no legend exists yet (accessible project, no legend created yet)
    * - defaults: non-null only for ADMIN/HR (AC8)
    */
-  async getLegend(viewer: SessionUser, projectId: string): Promise<Legend> {
+  async getLegend(viewer: SessionUser, projectId: string): Promise<Legend | null> {
     const project = await this.loadProject(projectId)
 
     const allowed = await this.canAccess(viewer, project)
     if (!allowed) throw new ForbiddenException('Нет доступа к легенде проекта')
 
     const row = await this.loadLegendRow(projectId)
-    if (!row) throw new NotFoundException('Легенда проекта не найдена')
+    if (!row) return null
 
     const [entries, defaults] = await Promise.all([
       this.loadEntries(row.id),
