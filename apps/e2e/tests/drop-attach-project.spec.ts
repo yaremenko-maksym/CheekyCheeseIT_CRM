@@ -66,6 +66,20 @@ const PROJECT_WITH_DROP = {
   },
 }
 
+/**
+ * Same project WITH a drop attached, but as the real API responds to a
+ * SENIOR viewer post-#363: `effectiveTeam.drop` is masked to `null` even
+ * though `dropId` is still set on the project. Used to assert the «Обзор»
+ * tab team-card-drop-row (PR #365 review MED) stays unrendered for SENIOR.
+ */
+const PROJECT_WITH_DROP_MASKED_FOR_SENIOR = {
+  ...PROJECT_WITH_DROP,
+  effectiveTeam: {
+    ...PROJECT_WITH_DROP.effectiveTeam,
+    drop: null,
+  },
+}
+
 // ---------------------------------------------------------------------------
 // AC1 — Attach drop happy-path
 // ---------------------------------------------------------------------------
@@ -476,5 +490,73 @@ test.describe('RBAC — SENIOR cannot manage drop (AC5)', () => {
     await page.getByRole('tab', { name: 'Состав' }).click()
 
     await expect(page.getByTestId('attach-drop-btn')).not.toBeAttached()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// PR #365 review MED — team-card-drop-row role visibility (Обзор tab)
+//
+// team-card-drop-row is a DISPLAY-ONLY row in the "Команда" card on the
+// "Обзор" tab (distinct from effective-team-drop on the "Состав" tab).
+// It renders only when effectiveTeam.drop != null AND viewer role is
+// ADMIN/HR/ACCOUNTANT (see $projectId.tsx ~line 1110). For SENIOR the real
+// API already masks effectiveTeam.drop to null (PR #363), so both guards
+// independently keep the row out of the DOM.
+// ---------------------------------------------------------------------------
+
+test.describe('Team card drop row — Обзор tab role visibility (PR #365 review MED)', () => {
+  test('ADMIN: team-card-drop-row visible with drop name + «Дроп» badge when project has drop', async ({
+    asAdmin: page,
+  }) => {
+    await page.route(/\/api\/projects\/[^/?]+$/, (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROJECT_WITH_DROP),
+      })
+    })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.getByTestId('tab-overview').click()
+
+    const dropRow = page.getByTestId('team-card-drop-row')
+    await expect(dropRow).toBeVisible()
+    await expect(dropRow.getByText(DROP.displayName)).toBeVisible()
+    await expect(dropRow.getByText('Дроп')).toBeVisible()
+  })
+
+  test('ADMIN: team-card-drop-row absent when project has no drop', async ({ asAdmin: page }) => {
+    await page.route(/\/api\/projects\/[^/?]+$/, (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROJECT_NO_DROP),
+      })
+    })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.getByTestId('tab-overview').click()
+
+    await expect(page.getByTestId('team-card-drop-row')).not.toBeAttached()
+  })
+
+  test('SENIOR: team-card-drop-row absent even when project has a drop (API masks drop=null, #363)', async ({
+    asSenior: page,
+  }) => {
+    await page.route(/\/api\/projects\/[^/?]+$/, (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(PROJECT_WITH_DROP_MASKED_FOR_SENIOR),
+      })
+    })
+
+    await page.goto(`/projects/${PROJECT_ID}`)
+    await page.getByTestId('tab-overview').click()
+
+    await expect(page.getByTestId('team-card-drop-row')).not.toBeAttached()
   })
 })
