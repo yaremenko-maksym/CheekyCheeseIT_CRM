@@ -73,6 +73,8 @@ interface ProjectRow {
   rate: number
   currency: string
   seniorSharePercentOverride: number | null
+  dropSharePercentOverride?: number | null
+  drop?: { id: string; dropSharePercent: number | null } | null
   techStack: string | null
   teamSize: string | null
   benefits: string | null
@@ -130,6 +132,7 @@ function buildHarness(initialProject: Partial<ProjectRow> = {}) {
     rate: 4000,
     currency: 'USDT',
     seniorSharePercentOverride: null,
+    dropSharePercentOverride: null,
     techStack: null,
     teamSize: null,
     benefits: null,
@@ -409,6 +412,92 @@ describe('ProjectsService.update — seniorSharePercentOverride RBAC', () => {
         }),
       }),
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-drop-share-override-and-receiver (AC6): field-scoped RBAC for
+// dropSharePercentOverride + paymentType — only ADMIN/ACCOUNTANT may send them.
+// ---------------------------------------------------------------------------
+describe('ProjectsService.update — dropSharePercentOverride + paymentType field-scoped RBAC', () => {
+  it('rejects HR PATCH with dropSharePercentOverride → ForbiddenException', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.update('proj-1', { dropSharePercentOverride: 12 }, hrUser),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('rejects HR PATCH with dropSharePercentOverride: null (explicit clear) → ForbiddenException', async () => {
+    const h = buildHarness({ dropSharePercentOverride: 12 })
+    await expect(
+      h.service.update('proj-1', { dropSharePercentOverride: null }, hrUser),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('rejects SENIOR PATCH with dropSharePercentOverride → ForbiddenException', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.update('proj-1', { dropSharePercentOverride: 12 }, seniorUser),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('rejects HR PATCH with paymentType → ForbiddenException', async () => {
+    const h = buildHarness()
+    await expect(h.service.update('proj-1', { paymentType: 'USDT' }, hrUser)).rejects.toThrow(
+      ForbiddenException,
+    )
+  })
+
+  it('rejects SENIOR PATCH with paymentType → ForbiddenException', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.update('proj-1', { paymentType: 'GIG_CONTRACT' }, seniorUser),
+    ).rejects.toThrow(ForbiddenException)
+  })
+
+  it('allows ADMIN PATCH with dropSharePercentOverride: 30 — persists on projects.*', async () => {
+    const h = buildHarness()
+    await h.service.update('proj-1', { dropSharePercentOverride: 30 }, adminUser)
+    expect(h.projectRow.dropSharePercentOverride).toBe(30)
+    expect(h.auditRecord).toHaveBeenCalledWith(
+      expect.objectContaining({
+        changes: expect.objectContaining({
+          dropSharePercentOverride: { before: null, after: 30 },
+        }),
+      }),
+    )
+  })
+
+  it('allows ACCOUNTANT PATCH with ONLY dropSharePercentOverride (finance-scoped) — persists', async () => {
+    const h = buildHarness()
+    await h.service.update('proj-1', { dropSharePercentOverride: 18 }, accountantUser)
+    expect(h.projectRow.dropSharePercentOverride).toBe(18)
+  })
+
+  it('allows ACCOUNTANT PATCH with ONLY paymentType (finance-scoped) — persists valid enum', async () => {
+    const h = buildHarness()
+    await h.service.update('proj-1', { paymentType: 'USDT' }, accountantUser)
+    expect(h.projectRow.paymentType).toBe('USDT')
+  })
+
+  it('allows ADMIN PATCH with paymentType: GIG_CONTRACT — persists', async () => {
+    const h = buildHarness()
+    await h.service.update('proj-1', { paymentType: 'GIG_CONTRACT' }, adminUser)
+    expect(h.projectRow.paymentType).toBe('GIG_CONTRACT')
+  })
+
+  it('rejects an invalid paymentType value from ADMIN → 400 (Zod)', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.update('proj-1', { paymentType: 'Crypto USDT' }, adminUser),
+    ).rejects.toThrow()
+  })
+
+  it('rejects ACCOUNTANT PATCH that piggybacks a non-finance field (dropSharePercentOverride + rate)', async () => {
+    const h = buildHarness()
+    await expect(
+      h.service.update('proj-1', { dropSharePercentOverride: 18, rate: 9999 }, accountantUser),
+    ).rejects.toThrow(ForbiddenException)
   })
 })
 

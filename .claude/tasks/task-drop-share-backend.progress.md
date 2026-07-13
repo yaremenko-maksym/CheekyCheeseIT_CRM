@@ -1,8 +1,8 @@
 # Progress — task-drop-share-backend
 
-current_milestone: 4/6 (Part B backend)
+current_milestone: 6/6 (tests + verification)
 branch: backend-v2 → feature/drop-share-override-and-receiver
-last_push: 472e0a1f
+last_push: 3f909f6e (Part B); tests chunk pending
 
 ## Done
 
