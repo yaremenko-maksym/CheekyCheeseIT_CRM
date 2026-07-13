@@ -4,12 +4,17 @@ name: Auto-Merge on Label
 # Когда PM ставит `merge-approved` на PR с уже зелёным CI:
 #   1. `gh pr checks --watch` exit'ит немедленно (всё уже passed)
 #   2. `gh pr merge --squash` мерджит без задержки
+#   3. После успешного сквоша: явный dispatch `deploy.yml` на main
 #
 # Если CI ещё бежит — workflow ждёт пока required checks отвердеют,
 # потом мерджит. Если упало — workflow тоже падает, PR не мерджится.
 #
 # Главный CI (.github/workflows/ci.yml) триггерится на push/synchronize.
 # Этот workflow триггерится ТОЛЬКО на label — typecheck/lint/e2e не дёргаются.
+#
+# Зачем явный dispatch деплоя: GITHUB_TOKEN-пуши от squash-merge НЕ создают
+# push-события для других workflows (GitHub anti-recursion). workflow_dispatch —
+# документированное исключение, поэтому диспатч работает без PAT.
 
 on:
   pull_request:
@@ -32,6 +37,7 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      actions: write
     steps:
       - name: Wait for required checks
         env:
@@ -53,3 +59,14 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+
+      - name: Dispatch production deploy
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          # GITHUB_TOKEN-пуш от squash-merge выше НЕ создаёт push-событие для
+          # workflows (GitHub anti-recursion), поэтому push-триггер deploy.yml на
+          # авто-мерджах не срабатывает. workflow_dispatch — документированное
+          # исключение: диспатчим Deploy явно.
+          gh workflow run deploy.yml --repo "$REPO" --ref main
