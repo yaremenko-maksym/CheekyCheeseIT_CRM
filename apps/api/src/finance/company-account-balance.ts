@@ -25,6 +25,7 @@
  *             − Σ(SALARY                 PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
  *             − Σ(EXPENSE                PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
  *             − Σ(SENIOR_INCOME          PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
+ *             − Σ(PAYOUT_DROP            PAID, fundingSource='COMPANY_ACCOUNT', currency='USDT')
  *
  * AC5 (BIZ-23 defence-in-depth): every term is additionally filtered by
  * currency='USDT'. The company account is USDT-only; upstream creation rejects
@@ -122,6 +123,7 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
     companySalaries,
     companyExpenses,
     companySeniorPayouts,
+    companyDropPayouts,
   ] = await Promise.all([
     // AC5 (BIZ-23): currency='USDT' guard on EVERY term — defence-in-depth.
     sumAmount(
@@ -187,6 +189,22 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
         eq(transactions.currency, 'USDT'),
       ),
     ),
+    // task-drop-share-override-and-receiver (C7): company-funded DROP IOU
+    // settlement (settleByCompany on a DROP_PENDING_PAYOUT with COMPANY_ACCOUNT
+    // funding) debits the company account, exactly like the senior term above.
+    // Existing drop-payout-cascade PAYOUT_DROP rows carry fundingSource=null →
+    // NOT matched here (they never touched the pool). ADMIN_PERSONAL drop
+    // settlements (senderId=admin, fundingSource=null) are caught by
+    // adminBalances.sent in getSummary, so no ledger term is needed for them.
+    sumAmount(
+      db,
+      and(
+        eq(transactions.type, 'PAYOUT_DROP'),
+        eq(transactions.status, 'PAID'),
+        eq(transactions.fundingSource, COMPANY_ACCOUNT),
+        eq(transactions.currency, 'USDT'),
+      ),
+    ),
   ])
   return (
     deposits +
@@ -195,6 +213,7 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
     dividends -
     companySalaries -
     companyExpenses -
-    companySeniorPayouts
+    companySeniorPayouts -
+    companyDropPayouts
   )
 }

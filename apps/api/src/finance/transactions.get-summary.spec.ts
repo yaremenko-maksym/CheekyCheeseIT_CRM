@@ -57,7 +57,15 @@ type UserStub = {
   dropSharePercent: number | null
 }
 
-function makeStub(txs: TxStub[], dropUsers: UserStub[] = [], adminUsers: UserStub[] = []) {
+function makeStub(
+  txs: TxStub[],
+  dropUsers: UserStub[] = [],
+  adminUsers: UserStub[] = [],
+  // task-drop-share-override-and-receiver (C4): ids of SENIOR_INCOME rows that
+  // are settlements (they close a pending_obligation) and must be excluded from
+  // income. getSummary reads these via db.select({id}).from(pendingObligations).
+  closingTxIds: string[] = [],
+) {
   // getSummary calls users.findMany twice, in this order:
   //   1st call: eq(users.role, 'ADMIN')  → adminUsers
   //   2nd call: eq(users.role, 'DROP')   → dropUsers
@@ -86,6 +94,13 @@ function makeStub(txs: TxStub[], dropUsers: UserStub[] = [], adminUsers: UserStu
           },
         },
       },
+      // C4 closing-transaction lookup: db.select({id}).from(pendingObligations)
+      //   .where(isNotNull(closingTransactionId)) → [{ id }].
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve(closingTxIds.map((id) => ({ id }))),
+        }),
+      }),
     },
   }
   return makeTransactionsService({ db: dbStub as never })
@@ -215,25 +230,56 @@ describe('getSummary — HIGH#2: pendingCount correctness', () => {
   })
 })
 
-// ── Audit 2026-06-28 (#1): company-funded SENIOR_INCOME excluded from income ──
-describe('getSummary — #1: company-funded SENIOR_INCOME not double-counted', () => {
-  it('PAID DROP_INCOME gross + company-funded SENIOR_INCOME slice → totalIncome counts the gross once', async () => {
-    const svc = makeStub([
-      tx({ type: 'DROP_INCOME', amount: '1000', receiverId: DROP_ID }),
-      // Company→senior settlement of the drop IOU — already represented by the gross.
-      tx({
-        type: 'SENIOR_INCOME',
-        amount: '260',
-        fundingSource: 'COMPANY_ACCOUNT',
-        receiverId: 'sr',
-      }),
-    ])
+// ── C4 (task-drop-share-override-and-receiver): settlement SENIOR_INCOME excluded ──
+// The discriminator is now "is this SENIOR_INCOME a closing transaction of an
+// obligation" (regardless of funding), replacing the old funding-only check —
+// so ADMIN_PERSONAL settlements (funding=null) are excluded too.
+describe('getSummary — C4: settlement SENIOR_INCOME not double-counted', () => {
+  it('PAID DROP_INCOME gross + settlement SENIOR_INCOME slice → totalIncome counts the gross once', async () => {
+    const svc = makeStub(
+      [
+        tx({ type: 'DROP_INCOME', amount: '1000', receiverId: DROP_ID }),
+        // Company→senior settlement of the drop IOU — already represented by the gross.
+        tx({
+          id: 'settle-senior-1',
+          type: 'SENIOR_INCOME',
+          amount: '260',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiverId: 'sr',
+        }),
+      ],
+      [],
+      [],
+      ['settle-senior-1'],
+    )
     const result = await svc.getSummary(user('ADMIN'))
-    // 1000 gross only — the 260 company-funded slice is excluded.
+    // 1000 gross only — the 260 settlement slice is excluded.
     expect(result.totalIncome).toBeCloseTo(1000, 6)
   })
 
-  it('NON-company-funded SENIOR_INCOME is still counted', async () => {
+  it('ADMIN_PERSONAL settlement SENIOR_INCOME (funding=null) is ALSO excluded (C4 fix)', async () => {
+    const svc = makeStub(
+      [
+        tx({ type: 'ADMIN_INCOME', amount: '1000', receiverId: 'admin-x' }),
+        // Admin-personal settlement of the senior IOU — funding=null, but it is a
+        // closing transaction so it must NOT be double-counted.
+        tx({
+          id: 'settle-senior-2',
+          type: 'SENIOR_INCOME',
+          amount: '260',
+          fundingSource: null,
+          receiverId: 'sr',
+        }),
+      ],
+      [],
+      [],
+      ['settle-senior-2'],
+    )
+    const result = await svc.getSummary(user('ADMIN'))
+    expect(result.totalIncome).toBeCloseTo(1000, 6)
+  })
+
+  it('NON-settlement SENIOR_INCOME is still counted', async () => {
     const svc = makeStub([
       tx({ type: 'SENIOR_INCOME', amount: '740', fundingSource: null, receiverId: 'sr' }),
     ])
@@ -241,16 +287,22 @@ describe('getSummary — #1: company-funded SENIOR_INCOME not double-counted', (
     expect(result.totalIncome).toBeCloseTo(740, 6)
   })
 
-  it('monthly income series also excludes company-funded SENIOR_INCOME', async () => {
-    const svc = makeStub([
-      tx({ type: 'DROP_INCOME', amount: '1000', receiverId: DROP_ID }),
-      tx({
-        type: 'SENIOR_INCOME',
-        amount: '260',
-        fundingSource: 'COMPANY_ACCOUNT',
-        receiverId: 'sr',
-      }),
-    ])
+  it('monthly income series also excludes settlement SENIOR_INCOME', async () => {
+    const svc = makeStub(
+      [
+        tx({ type: 'DROP_INCOME', amount: '1000', receiverId: DROP_ID }),
+        tx({
+          id: 'settle-senior-3',
+          type: 'SENIOR_INCOME',
+          amount: '260',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiverId: 'sr',
+        }),
+      ],
+      [],
+      [],
+      ['settle-senior-3'],
+    )
     const result = await svc.getSummary(user('ADMIN'))
     const month = result.monthly.find((m) => m.month === '2026-06')
     expect(month!.income).toBeCloseTo(1000, 6)
