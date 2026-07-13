@@ -102,16 +102,25 @@ describe('salary cron — idempotency via partial unique index (LOW #5, real DB)
   let svc: TransactionsService
   let dbSvc: DatabaseService
 
-  // Scope cleanup to salaries RECEIVED by this spec's own users for the test
-  // month. We must NOT delete by `createdBy = MAKSYM_ID` — the cron stamps EVERY
-  // salary (incl. other specs' employees on the shared crm_qa) with MAKSYM_ID as
-  // author, so a broad createdBy delete would wipe unrelated rows.
+  // Scope cleanup by `salaryMonth = MONTH` ALONE (no receiverId filter).
+  //
+  // WHY (residue bug, task-integration-spec-cleanup): `createMonthlySalaries`
+  // is a COMPANY-WIDE cron — it inserts a PENDING SALARY row for EVERY eligible
+  // employee with `monthlySalary` set, not just this spec's own 2 throwaway
+  // users. The original cleanup only deleted `receiverId IN MY_USER_IDS`,
+  // silently leaving 9 orphaned SALARY/2099-12 rows behind for real seeded
+  // HR/ACCOUNTANT/JUNIOR employees on every run (confirmed empirically via a
+  // before/after row-count diff on crm_qa).
+  //
+  // The far-future sentinel `MONTH = '2099-12'` (see const above) is already
+  // spec-unique — no other spec or real cron would ever use it — so scoping
+  // the delete to `salaryMonth = MONTH` alone is both SAFE (touches nothing
+  // else) and COMPLETE (removes every row this spec's cron calls created,
+  // company-wide, not just its own 2 fixtures). We must NOT delete by
+  // `createdBy = MAKSYM_ID` — the cron stamps EVERY salary with MAKSYM_ID as
+  // author, so that filter would still be too broad across real months.
   async function cleanup() {
-    await dbSvc.db
-      .delete(transactions)
-      .where(
-        and(eq(transactions.salaryMonth, MONTH), inArray(transactions.receiverId, MY_USER_IDS)),
-      )
+    await dbSvc.db.delete(transactions).where(eq(transactions.salaryMonth, MONTH))
   }
 
   async function countSalaries(receiverId: string): Promise<number> {

@@ -5,6 +5,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
+import { eq } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -278,6 +279,16 @@ class OnboardingContractTestModule {}
 // Suite
 // ---------------------------------------------------------------------------
 
+/**
+ * Test-only cleanup for the `signed_contracts` audit rows this spec's own
+ * sign() call creates for DMYTRO. See the beforeAll comment for why this is
+ * safe (bypasses the service layer for cleanup only; production code's
+ * immutability invariant is untouched) and necessary (residue self-heal).
+ */
+async function deleteDmytroSignedContracts(dbSvc: DatabaseService): Promise<void> {
+  await dbSvc.db.delete(schema.signedContracts).where(eq(schema.signedContracts.userId, DMYTRO.id))
+}
+
 describe('A3-4 onboarding personal-contract — real backend integration', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
@@ -327,6 +338,21 @@ describe('A3-4 onboarding personal-contract — real backend integration', () =>
       await ecSvc.markReady(DMYTRO.id, ADMIN)
     }
     // If already READY_TO_SIGN — nothing to do.
+
+    // Residue self-heal (task-integration-spec-cleanup): test 4a below calls
+    // the REAL SignedContractsService.sign(), which — by production design —
+    // creates an immutable `signed_contracts` audit row
+    // (employee-contracts.service.ts revert() docstring: "signed_contracts row
+    // is immutable audit — NOT deleted"). That invariant is correct for
+    // PRODUCTION but leaves ONE new row in the scratch DB on every test run
+    // (confirmed empirically via a before/after row-count diff on crm_qa — 17
+    // signed_contracts baseline → 18 after a single run, forever). Cleaning it
+    // up here is a TEST-only action (bypasses the service layer, same pattern
+    // every other *.integration.spec.ts uses for its own fixtures) — it does
+    // NOT touch or weaken the production immutability guarantee. Runs in
+    // beforeAll too so a DB that already carries stale rows from before this
+    // fix self-heals on the next run.
+    await deleteDmytroSignedContracts(app.get(DatabaseService))
   }, 30_000)
 
   afterAll(async () => {
@@ -348,6 +374,14 @@ describe('A3-4 onboarding personal-contract — real backend integration', () =>
     } catch {
       // Ignore cleanup failures — they don't affect test results.
     }
+
+    // Residue cleanup (task-integration-spec-cleanup) — see beforeAll comment.
+    try {
+      await deleteDmytroSignedContracts(app.get(DatabaseService))
+    } catch {
+      // Non-fatal — next run's beforeAll self-heals regardless.
+    }
+
     await app.close()
     // Pool torn down by factory-registered onModuleDestroy.
   }, 15_000)
