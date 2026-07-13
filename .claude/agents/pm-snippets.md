@@ -8,6 +8,16 @@
 
 ## Диспетч агентов
 
+**P0 — обязательная строка в КАЖДОМ dispatch-промпте write/test-агента (Coder / AutoTest / Manual QA / Designer / DevOps):**
+
+```
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы.
+Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс;
+при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов.
+```
+
+Причина: рецидив 4× за 2026-07-12/13 — агент запускал E2E/vitest в фоне и завершал ход «подожду уведомления»; фон умирал вместе с ходом, спеки оставались незакоммиченными, dev-порты сиротели (lessons autotest #subagent-lifecycle). Шаблоны ниже уже содержат эту строку — при написании ad-hoc промпта добавить вручную.
+
 ### Coder — новая фича
 
 ```
@@ -20,7 +30,8 @@ Agent(
 Прочитай .claude/agents/project-state.md — фазы / миграции / RBAC / shared schemas / технические gotchas.
 Прочитай .claude/agents/memory/coder/lessons.md — накопленные уроки.
 Task-файл: .claude/tasks/task-<slug>.md
-Repo: yaremenko-maksym/CheekyCheeseIT_CRM"""
+Repo: yaremenko-maksym/CheekyCheeseIT_CRM
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
 )
 ```
 
@@ -43,7 +54,8 @@ Agent(
 Прочитай .claude/agents/memory/coder/lessons.md.
 Task: .claude/tasks/task-fix-<slug>.md
 target_branch: <pr_branch>
-Ветка уже существует — переключись: git checkout <pr_branch>"""
+Ветка уже существует — переключись: git checkout <pr_branch>
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
 )
 ```
 
@@ -87,7 +99,8 @@ Agent(
 Прочитай .claude/agents/project-state.md (RBAC / seed users).
 Прочитай .claude/agents/memory/autotest/lessons.md.
 PR для анализа: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM.
-Режим 1: Post-approval — написать E2E тесты для новых AC."""
+Режим 1: Post-approval — написать E2E тесты для новых AC.
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (E2E/vitest) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по spec-файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
 )
 ```
 
@@ -103,7 +116,8 @@ Agent(
 Прочитай .claude/agents/memory/autotest/lessons.md.
 Task: .claude/tasks/task-fix-e2e-<slug>.md
 target_branch: <pr_branch>
-Ветка: git checkout <pr_branch>"""
+Ветка: git checkout <pr_branch>
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (E2E/vitest) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по spec-файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
 )
 ```
 
@@ -127,7 +141,8 @@ Brief: .claude/briefs/pm-brief-<slug>.md (или task: .claude/tasks/task-design
 Output: docs/design/<slug>.md
 
 Invoke skills: frontend-design-direction → design-system (если нужны новые tokens) → accessibility (critical paths).
-Spec должен содержать: Purpose / Audience / Tone / Memorable detail / Constraints / Component list / Token map / Motion spec / A11y critical paths / Edge cases."""
+Spec должен содержать: Purpose / Audience / Tone / Memorable detail / Constraints / Component list / Token map / Motion spec / A11y critical paths / Edge cases.
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
 )
 ```
 
@@ -150,7 +165,8 @@ target_branch: <pr_branch>
 
 Invoke skills: design-system (Mode 2 10-dim audit + Mode 3 AI-slop) → make-interfaces-feel-better → accessibility (spot-check WCAG SC 2.4.11 / 2.5.8 / 1.4.3).
 Pоsтить PR comment через mcp__github__add_issue_comment с первой строкой `Design Review: PASS|POLISH-REQUESTED|BLOCK`.
-Mode D — если нашёл LOW/MED cosmetic в зоне apps/web/** — пофикси сам + re-verify скриншотом + push в ту же ветку.""",
+Mode D — если нашёл LOW/MED cosmetic в зоне apps/web/** — пофикси сам + re-verify скриншотом + push в ту же ветку.
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов.""",
   run_in_background=True
 )
 ```
@@ -182,7 +198,8 @@ target_branch: <pr_branch>
 Mode: <pr-final-visual | download-verify | rbac-verify | complement-e2e>
 
 Зона фиксов: cosmetic UI в apps/web/** (apply + re-verify скриншотом).
-Backend / функциональные баги — отчёт PM с severity (CRITICAL/HIGH/MED/LOW) + repro + скриншот.""",
+Backend / функциональные баги — отчёт PM с severity (CRITICAL/HIGH/MED/LOW) + repro + скриншот.
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд/стек) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов.""",
   run_in_background=True
 )
 ```
