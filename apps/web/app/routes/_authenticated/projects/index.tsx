@@ -38,6 +38,7 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { ProjectRow } from '@/components/projects/ProjectRow'
 import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
+import { PAYMENT_TYPE_LABELS } from './constants'
 import { useActiveTeam } from '@/hooks/use-active-team'
 
 /**
@@ -136,6 +137,12 @@ function ProjectsPage() {
   const canCreate = user?.role === 'ADMIN' || user?.role === 'HR'
   const isAdmin = user?.role === 'ADMIN'
   const isAccountant = user?.role === 'ACCOUNTANT'
+  // task-drop-share-override-and-receiver (Surface C). Field-scoped RBAC for
+  // the "Тип оплаты" Select — same rule as the edit form's `canEditOverride`.
+  // ACCOUNTANT never actually reaches this create form (canCreate excludes
+  // them), kept symmetric with the edit-form gate per the design spec so the
+  // two forms read identically.
+  const canEditPaymentType = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
 
   // AC1-AC3: non-ADMIN roles always see active-only; tabs + ?archived URL are
   // ADMIN-exclusive. For non-ADMIN we ignore `search.archived` entirely so a
@@ -226,7 +233,10 @@ function ProjectsPage() {
       techStack: '',
       teamSize: '',
       benefits: '',
-      paymentType: '',
+      // task-drop-share-override-and-receiver (Surface C). Default to the
+      // backend's own default ('FOP') — matches the enum Select's initial
+      // selection (mirrors $projectId.tsx edit-form convention).
+      paymentType: 'FOP',
       salaryReview: '',
       corpTech: '',
       notesGeneral: '',
@@ -250,7 +260,11 @@ function ProjectsPage() {
         techStack: value.techStack.trim() || null,
         teamSize: value.teamSize.trim() || null,
         benefits: value.benefits.trim() || null,
-        paymentType: value.paymentType.trim() || null,
+        // task-drop-share-override-and-receiver (Surface C). Field-scoped RBAC —
+        // backend throws ForbiddenException for non-ADMIN/ACCOUNTANT if this key
+        // is present at all. HR (who CAN reach this create form via `canCreate`)
+        // never sends it — the Select stays disabled at the backend default.
+        ...(canEditPaymentType ? { paymentType: value.paymentType } : {}),
         salaryReview: value.salaryReview.trim() || null,
         corpTech: value.corpTech.trim() || null,
         notesGeneral: value.notesGeneral.trim() || null,
@@ -773,6 +787,48 @@ function ProjectsPage() {
                         paymentType: 'Тип оплаты',
                         salaryReview: 'Пересмотр ЗП',
                         corpTech: 'Корп. технологии',
+                      }
+                      // task-drop-share-override-and-receiver (Surface C).
+                      // paymentType moves from free-text Input to a 3-value
+                      // Select — same field-scoped RBAC pattern as the edit form.
+                      if (fieldName === 'paymentType') {
+                        return (
+                          <createForm.Field key="paymentType" name="paymentType">
+                            {(field: AnyField) => (
+                              <div className="space-y-1.5">
+                                <Label>Тип оплаты</Label>
+                                <Select
+                                  value={field.state.value as string}
+                                  onValueChange={(v) => field.handleChange(v)}
+                                  disabled={!canEditPaymentType}
+                                >
+                                  <SelectTrigger
+                                    className="h-9 text-sm"
+                                    data-testid="project-payment-type-trigger"
+                                  >
+                                    <SelectValue placeholder="Выберите тип оплаты" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    <SelectItem value="FOP" className="text-sm">
+                                      {PAYMENT_TYPE_LABELS.FOP}
+                                    </SelectItem>
+                                    <SelectItem value="GIG_CONTRACT" className="text-sm">
+                                      {PAYMENT_TYPE_LABELS.GIG_CONTRACT}
+                                    </SelectItem>
+                                    <SelectItem value="USDT" className="text-sm">
+                                      {PAYMENT_TYPE_LABELS.USDT}
+                                    </SelectItem>
+                                  </SelectContent>
+                                </Select>
+                                {!canEditPaymentType && (
+                                  <p className="text-xs text-muted-foreground italic">
+                                    Менять может только ADMIN или ACCOUNTANT.
+                                  </p>
+                                )}
+                              </div>
+                            )}
+                          </createForm.Field>
+                        )
                       }
                       return (
                         <createForm.Field key={fieldName} name={fieldName}>
