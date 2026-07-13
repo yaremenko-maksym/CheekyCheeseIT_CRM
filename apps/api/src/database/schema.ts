@@ -555,17 +555,24 @@ export const transactions = pgTable(
     // additive migration push-friendly and the nullable semantics simple.
     fundingSource: varchar('funding_source', { length: 16 }),
     /**
-     * BIZ-19: client-supplied idempotency key for DIVIDEND_TO_ADMIN.
-     * The caller generates a UUID and passes it on the first request.
-     * Subsequent requests with the same key return the existing row (no-op).
-     * NULL for all non-dividend rows and for dividends without a key
-     * (backward-compat: older callers without the key get fresh rows).
+     * Client-supplied idempotency key. SHARED across two idempotent flows —
+     * one nullable column, one key namespace, guarded by two DISJOINT partial
+     * unique indexes (one per `type`):
+     *   - BIZ-19 (MED-2): DIVIDEND_TO_ADMIN (createDividend).
+     *   - PR #367 (MED-1): ADMIN_INCOME    (declareUsdtProjectIncome).
+     * The caller generates a UUID and passes it on the first request; a
+     * subsequent request with the same key returns the existing row (no-op).
+     * NULL for all other rows and for legacy callers without a key
+     * (backward-compat: keyless rows get fresh rows, unaffected by the indexes).
      *
-     * ADD COLUMN DDL (apply to dev/prod manually before deploy):
+     * ADD COLUMN + INDEX DDL (apply to dev/prod manually before deploy):
      *   ALTER TABLE transactions ADD COLUMN idempotency_key uuid;
      *   CREATE UNIQUE INDEX uq_transactions_dividend_idempotency_key
      *     ON transactions (idempotency_key)
      *     WHERE type = 'DIVIDEND_TO_ADMIN' AND idempotency_key IS NOT NULL;
+     *   CREATE UNIQUE INDEX uq_transactions_admin_income_idempotency_key
+     *     ON transactions (idempotency_key)
+     *     WHERE type = 'ADMIN_INCOME' AND idempotency_key IS NOT NULL;
      */
     idempotencyKey: uuid('idempotency_key'),
     // Accountant/admin validation fields (for SENIOR_INCOME)
@@ -616,6 +623,16 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_dividend_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'DIVIDEND_TO_ADMIN' AND ${t.idempotencyKey} IS NOT NULL`),
+    // PR #367 (MED-1): idempotency key for ADMIN_INCOME (declareUsdtProjectIncome).
+    // Last-line-of-defence backstop for a double-submitted admin-USDT income —
+    // the service's early-SELECT short-circuits the common replay; two truly
+    // concurrent submits that both miss it collide here (23505) instead of
+    // creating two incomes + two obligation sets. Partial + type-scoped so it is
+    // DISJOINT from the dividend index above (same column, different type) and
+    // leaves every other transaction type and keyless row untouched.
+    uniqueIndex('uq_transactions_admin_income_idempotency_key')
+      .on(t.idempotencyKey)
+      .where(sql`${t.type} = 'ADMIN_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
   ],
 )
 

@@ -368,6 +368,14 @@ export const createUsdtIncomeSchema = z.object({
   amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
   currency: z.literal('USDT'),
   receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]),
+  // Security-review PR #367 (MED-1) — idempotencyKey: REQUIRED client-generated
+  // UUID, mirroring the dividend BIZ-19 (MED-2) contract 1:1. The frontend
+  // generates a fresh UUID at dialog OPEN (not per render) and sends it on
+  // submit. A double-submit (double click / network retry) with the SAME key
+  // returns the EXISTING ADMIN_INCOME row — NO second income and NO duplicated
+  // company obligations (senior/drop shares). Zod rejects a missing / non-uuid
+  // key with 400 (the server never falls back to a fresh row for this flow).
+  idempotencyKey: z.string().uuid(),
   notes: z.string().max(1000).optional().nullable(),
   txDate: z
     .string()
