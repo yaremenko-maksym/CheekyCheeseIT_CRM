@@ -16,3 +16,4 @@
 2026-06-02 [P1] (#task-size) Task > 10 AC — просить split (несколько task/PR); иначе wip-коммиты без visual verify проскакивают мимо PM.
 2026-06-03 [P1] (#ecc #tdd) Новая фича → ECC `tdd-guide` ПЕРЕД разработкой; bugfix → `superpowers:systematic-debugging`. TS/TSX → `typescript-reviewer` self-review ПЕРЕД push (≠ code-reviewer на PR). См. coder.md §1.5/§2.5.
 2026-05-23 [P1] (#recovery) Intent markers (`scripts/coder/coder-intent.sh`) перед длинной операцией (test>30с / milestone / rebase / migration) — semantic-контекст для PM-recovery, НЕ на каждый Edit. См. coder.md §8.1.1.
+2026-07-12 [P1] (#e2e-gate #fix-round) Fix-раунд ревью — тоже код: полный локальный `pnpm --filter @crm/e2e test` обязателен и на нём, не только на исходной фиче (пропуск на PR #359 → CI поймал устаревший E2E-ассерт после RBAC-маски → лишний цикл фикса).
