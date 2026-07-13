@@ -608,7 +608,7 @@ describe('ProjectsService.create dropId validation — real DB integration', () 
     expect(body.message, "SENIOR 403 body must contain 'Forbidden'").toContain('Forbidden')
   })
 
-  it('DROP-CRT-7b. JUNIOR POST {dropId: validDrop} → 403', async () => {
+  it('DROP-CRT-7b. JUNIOR POST {dropId: validDrop} → 403 Forbidden', async () => {
     if (!dbAvailable) return
 
     const res = await app.inject({
@@ -620,9 +620,14 @@ describe('ProjectsService.create dropId validation — real DB integration', () 
     expect(res.statusCode, 'JUNIOR must be denied (403) when trying to create with dropId').toBe(
       403,
     )
+    // Same outer role gate as DROP-CRT-7a (`role !== 'ADMIN' && role !== 'HR'`) —
+    // pin the body so a 403 from a *different* layer (e.g. a future per-field
+    // check with its own message) cannot silently satisfy this assertion.
+    const body = res.json() as { message?: string }
+    expect(body.message, "JUNIOR 403 body must contain 'Forbidden'").toContain('Forbidden')
   })
 
-  it('DROP-CRT-7c. DROP POST {dropId: validDrop} → 403', async () => {
+  it('DROP-CRT-7c. DROP POST {dropId: validDrop} → 403 Forbidden', async () => {
     if (!dbAvailable) return
 
     const res = await app.inject({
@@ -634,9 +639,11 @@ describe('ProjectsService.create dropId validation — real DB integration', () 
     expect(res.statusCode, 'DROP role must be denied (403) when trying to create with dropId').toBe(
       403,
     )
+    const body = res.json() as { message?: string }
+    expect(body.message, "DROP 403 body must contain 'Forbidden'").toContain('Forbidden')
   })
 
-  it('DROP-CRT-7d. ACCOUNTANT POST {dropId: validDrop} → 403', async () => {
+  it('DROP-CRT-7d. ACCOUNTANT POST {dropId: validDrop} → 403 Forbidden', async () => {
     if (!dbAvailable) return
 
     const res = await app.inject({
@@ -649,6 +656,8 @@ describe('ProjectsService.create dropId validation — real DB integration', () 
       res.statusCode,
       'ACCOUNTANT must be denied (403) when trying to create with dropId',
     ).toBe(403)
+    const body = res.json() as { message?: string }
+    expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
   })
 
   // ── DROP-CRT-8: RBAC positive — HR scoping via assertHrCanManageProject ─────
@@ -692,5 +701,14 @@ describe('ProjectsService.create dropId validation — real DB integration', () 
       res.statusCode,
       'HR of a foreign team must be denied (403) — target senior not in their teams',
     ).toBe(403)
+    // Distinct from the DROP-CRT-7a-d outer role gate: this 403 comes from
+    // `assertHrCanManageProject`'s own message, NOT the bare ForbiddenException()
+    // default. Pinning it proves the rejection is really the HR-scoping branch
+    // and not a false-positive from some other 403 path with the same status.
+    const body = res.json() as { message?: string }
+    expect(
+      body.message,
+      "HR-foreign 403 body must contain 'Проект не в ваших командах' (assertHrCanManageProject)",
+    ).toContain('Проект не в ваших командах')
   })
 })
