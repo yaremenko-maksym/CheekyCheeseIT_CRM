@@ -602,3 +602,295 @@ const availableToAdd = (allUsers ?? []).filter((u) => {
 Кодер строит по этому spec, используя **существующие shadcn/ui компоненты и Tailwind-токены**.
 Не копировать HTML из внешних источников. Не вводить новые зависимости.
 Единственный изменяемый файл фронтенда: `apps/web/app/routes/_authenticated/projects/$projectId.tsx`.
+
+---
+
+## 20. Addendum: 2026-07-13 — page padding + drop row in Обзор team card
+
+> **design-gate:** degraded (headless, text-only conformance — Chrome MCP / Claude Design недоступен)
+> **Tier:** 3 (точечная косметика — паддинг обёртки + одна строка в карточке)
+> **Дефекты:** репорт владельца со скриншота прода (GamingTec, ADMIN, desktop)
+
+---
+
+### 20.1 Дефект 1 — паддинг страницы проекта
+
+#### Диагностика
+
+Обёртка страницы (строка ~705 `$projectId.tsx`):
+
+```tsx
+<div className="flex flex-col h-full min-h-0 overflow-y-auto px-0 pb-6">
+  <div className="space-y-5">
+    {/* ── Hero banner ── */}
+    <motion.div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card" ...>
+      {/* хиро-контент: лого + название + кнопки + stat-chips */}
+    </motion.div>
+
+    {/* SegmentedToggle (табы) */}
+    {/* Контент активного таба */}
+  </div>
+</div>
+```
+
+`px-0` появился в PR #231 для edge-to-edge хиро-баннера. Побочный эффект: табы и все
+карточки контента прилипли к краям вьюпорта без отступов.
+
+Для сравнения — сестра `projects/index.tsx` строка ~466–468 использует `px-6 pt-4 pb-6`
+на scrollable-обёртке, а `foundation.md` §3 предписывает `p-4 md:p-6 lg:p-8` для
+page padding.
+
+#### Решение: **Вариант Б** — хиро остаётся full-bleed, паддинг получают секции ниже
+
+**Обоснование выбора Б:**
+
+- Хиро-баннер с `rounded-2xl` и ambient glow blob — намеренно визуально выделен; обрезание
+  `rounded-2xl` краями вьюпорта или сужение до `px-4/px-6` превратит его в обычную карточку
+  и потеряет visual density-интент (фон страницы виден только по бокам хиро).
+- Вариант А (единый паддинг на всю обёртку) = хиро теряет full-bleed. Потеря memorable detail.
+- Вариант Б = хиро остаётся edge-to-edge, всё ниже (табы + карточки контента) получает
+  собственный горизонтальный паддинг. Консистентно с паттерном других страниц CRM (dashboard,
+  finance), где sticky хедер / hero занимает всю ширину, а контент — с отступом.
+
+#### Точные классы (mobile-first, Tailwind v4)
+
+**Обёртка страницы** (строка ~705) — убрать `px-0`, паддинг остаётся `0` на уровне обёртки:
+
+```tsx
+// ДО:
+<div className="flex flex-col h-full min-h-0 overflow-y-auto px-0 pb-6">
+
+// ПОСЛЕ (px-0 просто убрать — default padding уже 0, явный px-0 избыточен и маркирует намерение):
+<div className="flex flex-col h-full min-h-0 overflow-y-auto pb-6">
+```
+
+Хиро `<motion.div>` (строка ~708) — остаётся без изменений: `rounded-2xl border border-border/40 bg-card`.
+Он сохраняет full-bleed за счёт отсутствия паддинга на обёртке.
+
+**`<div className="space-y-5">` внутри обёртки** — добавить горизонтальный паддинг,
+но **исключить** хиро-блок. Достигается через `px-` на индивидуальных дочерних элементах
+ниже хиро. Схема:
+
+```
+обёртка: pb-6 (без px)
+  └── space-y-5
+        ├── [хиро motion.div]          ← НЕТ px (full-bleed)
+        ├── [SegmentedToggle]          ← px-4 sm:px-6
+        ├── [ProjectEffectiveTeamCard] ← px-4 sm:px-6
+        ├── [motion.div overview grid] ← px-4 sm:px-6
+        ├── [ProjectLegendSection]     ← px-4 sm:px-6
+        ├── [ProjectCredentialsSection]← px-4 sm:px-6
+        └── [finance motion.div]       ← px-4 sm:px-6
+```
+
+Реализация: добавить `className="px-4 sm:px-6"` (или обёрточный `<div>`) к каждому
+дочернему блоку внутри `space-y-5`, кроме хиро. Альтернатива проще в коде — обернуть
+всё ниже хиро в один контейнер:
+
+```tsx
+<div className="flex flex-col h-full min-h-0 overflow-y-auto pb-6">
+  <div className="space-y-5">
+    {/* ── Hero banner — full-bleed, NO padding ── */}
+    <motion.div className="relative overflow-hidden rounded-2xl border border-border/40 bg-card" ...>
+      ...
+    </motion.div>
+
+    {/* ── Post-hero content — получает горизонтальный паддинг ── */}
+    <div className="space-y-5 px-4 sm:px-6">
+      {/* SegmentedToggle */}
+      {/* Контент таба: overview / members / finance */}
+      {/* ProjectLegendSection */}
+      {/* ProjectCredentialsSection */}
+    </div>
+  </div>
+</div>
+```
+
+Это самый DRY вариант: один `px-4 sm:px-6` на одном контейнере, а не на каждом дочернем
+элементе по отдельности.
+
+#### Per-breakpoint specification
+
+| Ширина           | `px-` класс         | Визуальный отступ | Обоснование                                                        |
+| ---------------- | ------------------- | ----------------- | ------------------------------------------------------------------ |
+| 320–639 (мобайл) | `px-4` (base)       | 16px              | Foundation §3: `p-4` для мобайла; тач-контент не прилипает к краям |
+| 640–1023 (sm)    | `sm:px-6`           | 24px              | Foundation §3: `md:p-6`; аналог `projects/index.tsx px-6`          |
+| 1024+ (lg/xl)    | наследует `sm:px-6` | 24px              | Достаточно; карточки сами имеют внутренний `p-4/p-5/p-6`           |
+
+`px-4 sm:px-6` — минимальный responsive паддинг, консистентный с `foundation.md` §3 и
+существующим `projects/index.tsx` (который использует фиксированный `px-6`). Для данной
+страницы с хиро выбираем чуть меньший мобильный шаг (`px-4`) чтобы карточки на 320px
+не оказались слишком сжатыми.
+
+#### A11y / overflow
+
+- Нет горизонтального overflow при добавлении `px-4 sm:px-6` — карточки flex/grid уже
+  используют `min-w-0` и `truncate` на длинных строках.
+- Хиро на 320px остаётся full-bleed (0 px по бокам от обёртки), `rounded-2xl` может
+  «схлопнуться» визуально на узком экране — приемлемо, паттерн намеренный (card-edge).
+
+---
+
+### 20.2 Дефект 2 — строка дропа в карточке «Команда» (вкладка «Обзор»)
+
+#### Диагностика
+
+Карточка «Команда» (строки ~1006–1142 `$projectId.tsx`) рендерит:
+синьор → HR → бухгалтеры → джуны → «Покинули проект».
+
+Данные о дропе: `project.dropId` (UUID | null) на самом объекте проекта; `project.effectiveTeam.drop`
+(объект с `id`, `displayName`, `avatarUrl`, `avatarDocumentId`, `role: 'DROP'`, `dropSharePercent`)
+доступен из того же запроса `GET /projects/:id`. Строка дропа **не рендерится** в «Команде» —
+только на вкладке «Состав» через `ProjectEffectiveTeamCard`.
+
+#### Решение: display-only строка дропа в Team card
+
+**Размещение:** сразу после блока синьора (строки ~1043–1072), перед HR-блоком (~1074–1090).
+Обоснование: дроп — финансовый посредник между клиентом и синьором; логично разместить его
+рядом с синьором в цепочке «клиент → дроп → синьор → джун».
+
+**Условие рендера:**
+
+```tsx
+{project.effectiveTeam?.drop != null &&
+  (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'ACCOUNTANT') && (
+    /* строка дропа */
+)}
+```
+
+- `project.effectiveTeam?.drop != null` — рендерим только когда дроп реально привязан
+  (API вернул объект). Для обычных проектов без дропа строка отсутствует — нет пустого
+  слота «Дроп не назначен».
+- RBAC: `ADMIN | HR | ACCOUNTANT` видят. `SENIOR | JUNIOR` — API уже отдаёт
+  `effectiveTeam.drop = null` (маска, PR #363), UI просто не рендерит (условие провалится).
+- Переменная: `const dropMember = project.effectiveTeam?.drop ?? null` — объявить рядом
+  с `const senior = ...` (~строка 643) для ясности.
+
+**Структура строки** (копирует паттерн строки синьора ~1043–1072 и паттерн DROP-строки из
+`ProjectEffectiveTeamCard` ~1763–1769):
+
+```tsx
+{
+  dropMember != null &&
+    (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'ACCOUNTANT') && (
+      <div className="pb-3">
+        <ProfileNameLink
+          userId={dropMember.id}
+          viewerRole={user?.role ?? 'JUNIOR'}
+          className="flex items-center gap-2.5 hover:opacity-80 transition-opacity min-w-0"
+        >
+          <Avatar className="h-8 w-8 shrink-0">
+            {dropMember.avatarUrl && (
+              <AvatarImage src={dropMember.avatarUrl} alt={dropMember.displayName} />
+            )}
+            <AvatarFallback className="text-[11px] font-semibold">
+              {getInitials(dropMember.displayName)}
+            </AvatarFallback>
+          </Avatar>
+          <span className="text-sm font-medium truncate text-primary">
+            {dropMember.displayName}
+          </span>
+          <Badge
+            variant="outline"
+            className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px] ml-auto"
+          >
+            Дроп
+          </Badge>
+        </ProfileNameLink>
+      </div>
+    )
+}
+```
+
+**Ключевые решения:**
+
+- `ProfileNameLink` с `userId={dropMember.id}` — навигабельна для ADMIN/HR/ACCOUNTANT (те же
+  роли что видят строку). Паттерн из строки синьора.
+- Нет `ring-2 ring-[#6366f1]/30` на аватаре — это специфичный стиль синьора (визуальный акцент
+  для главного субъекта), дроп получает стандартный аватар без ring.
+- `ml-auto` на Badge — прижимает бейдж вправо как у синьора (`ml-auto` на Badge ~1067).
+- Бейдж `border-blue-500/30 bg-blue-500/10 text-blue-400` — идентичный паттерн из
+  `ProjectEffectiveTeamCard` строка ~1764–1768 и из хедера проекта строка ~770–775.
+  Единый визуальный язык «дроп = синий info-бейдж» по всему приложению.
+- Display-only: нет кнопки снятия (управление дропом — вкладка «Состав», spec §6–8).
+
+**Вставка в DOM между синьором и HR** (строки ~1072–1075):
+
+```tsx
+{/* Senior row — строки ~1043–1072 (без изменений) */}
+{senior != null && ( ... )}
+
+{/* Drop row — НОВОЕ, после синьора, до HR */}
+{dropMember != null &&
+  (user?.role === 'ADMIN' || user?.role === 'HR' || user?.role === 'ACCOUNTANT') && (
+  <div className="pb-3">
+    {/* строка дропа как выше */}
+  </div>
+)}
+
+{/* HR */}
+<div className="pt-3 pb-3">
+  ...
+</div>
+```
+
+Разделитель `divide-y divide-border/30` на `CardContent` (~строка 1039) автоматически
+проведёт линию между синьором и дропом и между дропом и HR — дополнительных разделителей
+не нужно.
+
+#### Token map строки дропа
+
+| Элемент       | Tailwind class                                           | Токен                                                                                    |
+| ------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| Имя дропа     | `text-sm font-medium truncate text-primary`              | `--color-primary`                                                                        |
+| Бейдж «Дроп»  | `border-blue-500/30 bg-blue-500/10 text-blue-400`        | raw Tailwind (нет токена для синего — используем существующий паттерн из хедера/состава) |
+| Аватар фолбек | AvatarFallback дефолт (`bg-muted text-muted-foreground`) | `--color-muted`                                                                          |
+| Hover строки  | `hover:opacity-80 transition-opacity`                    | compositor-friendly motion                                                               |
+| Разделитель   | `divide-y divide-border/30` (наследуется от CardContent) | `--color-border`                                                                         |
+
+**Примечание по синему:** `text-blue-400`, `bg-blue-500/10`, `border-blue-500/30` — не
+токенизированные цвета, но это осознанное исключение: синий info-цвет дропа уже используется
+как устойчивый паттерн в трёх местах файла (хедер ~770, эффективный состав ~1764, форма создания)
+и должен быть консистентным. Новых цветов не вводится — переиспользуем существующий паттерн.
+
+#### A11y строки дропа
+
+- `ProfileNameLink` с `userId` → рендерит `<a>` или `<Link>` с нативным focus-ring — SC 2.4.11 PASS.
+- Аватар с `alt={dropMember.displayName}` — SC 1.1.1 PASS.
+- Target size строки: высота ~40px (аватар h-8=32px + pb-3 паддинг) — SC 2.5.8 PASS (>24px).
+- Бейдж содержит текст «Дроп» — не icon-only, aria-label не нужен.
+
+#### Edge cases строки дропа
+
+| Кейс                                                               | Поведение                                                                                  |
+| ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `project.effectiveTeam?.drop == null` (нет дропа / обычный проект) | Строка не рендерится — нет пустого слота                                                   |
+| Viewer = SENIOR / JUNIOR                                           | API возвращает `effectiveTeam.drop = null` (PR #363 маска) → условие false → строка скрыта |
+| Viewer = DROP (сам дроп)                                           | `user?.role === 'DROP'` — не входит в RBAC-условие → строка скрыта                         |
+| `project.archivedAt !== null`                                      | Строка read-only отображается (архивный проект: «кто был в команде» — полезно)             |
+| `dropMember.avatarUrl == null`                                     | `AvatarImage` не рендерится; `AvatarFallback` показывает инициалы                          |
+| Длинное имя дропа                                                  | `truncate flex-1` — имя усекается, бейдж `shrink-0 ml-auto` не вытесняется                 |
+| `effectiveTeam` отсутствует в ответе API (деградация)              | `project.effectiveTeam?.drop` = undefined → строка не рендерится                           |
+
+---
+
+### 20.3 Затронутые строки кода (для Coder)
+
+| Изменение                                              | Файл             | Строки (ориентир)          |
+| ------------------------------------------------------ | ---------------- | -------------------------- |
+| Убрать `px-0` из обёртки, добавить post-hero контейнер | `$projectId.tsx` | ~705–706                   |
+| Добавить `const dropMember = ...`                      | `$projectId.tsx` | ~643 (рядом с senior/drop) |
+| Вставить строку дропа между синьором и HR              | `$projectId.tsx` | ~1072–1074                 |
+
+---
+
+### 20.4 Handoff-чеклист для Coder
+
+- [ ] Убрать `px-0` из обёртки страницы (~705); обернуть post-hero блоки в `<div className="space-y-5 px-4 sm:px-6">`.
+- [ ] Объявить `const dropMember = project.effectiveTeam?.drop ?? null` рядом с `senior`.
+- [ ] Вставить строку дропа в Team card после строки синьора (~1072), перед HR (~1074).
+- [ ] RBAC-гейт: `dropMember != null && (ADMIN || HR || ACCOUNTANT)`.
+- [ ] Использовать `ProfileNameLink` с `userId={dropMember.id}` и `viewerRole={user?.role}`.
+- [ ] Бейдж: `variant="outline" className="border-blue-500/30 bg-blue-500/10 text-blue-400 shrink-0 text-[9px] ml-auto"`.
+- [ ] Нет кнопки снятия в этой карточке — display-only.
+- [ ] Playwright screenshot: вкладка «Обзор» с drop-проектом на 375px и 1280px — строка дропа видна.
