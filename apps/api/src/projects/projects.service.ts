@@ -116,11 +116,10 @@ export class ProjectsService {
 
   private mapProject(
     project: ProjectWithRelations,
-    teamOverridesBySeniorId?: Map<
-      string,
-      { id: string; seniorSharePercentOverride: number | null }[]
-    >,
-    viewerRole?: string,
+    teamOverridesBySeniorId:
+      | Map<string, { id: string; seniorSharePercentOverride: number | null }[]>
+      | undefined,
+    viewerRole: SessionUser['role'],
   ) {
     // task-team-senior-share-override. Compute effective share + source for
     // the UI. The resolver mirrors the snapshot logic in
@@ -190,13 +189,20 @@ export class ProjectsService {
       seniorName: isJuniorViewer ? (legend?.fullName ?? null) : (project.senior?.displayName ?? ''),
       // Legend persona role — JUNIOR only. Non-JUNIOR viewers get null (unused by their UI).
       seniorPresentedRole,
-      // Drop identity masking: JUNIOR must not know the drop exists or who it is.
+      // Drop identity masking:
+      //   JUNIOR  — must not know the drop exists or who it is (full mask).
+      //   SENIOR  — must not receive drop identity (displayName/email/avatarUrl) per
+      //             RBAC rule #2 (legend: subject = drop ?? senior). Only opaque
+      //             dropId and financial dropSharePercent are kept so the FE can
+      //             mount the ProjectDropDistribution widget and perform the
+      //             subject-check (user?.id === project?.dropId).
       // Drop role - phase 1: surfaced on the wire so FE can render drop-aware
       // hints/badges. NULL = legacy senior-project OR JUNIOR viewer.
       dropId: isJuniorViewer ? null : (project.dropId ?? null),
-      // Drop role - phase 2: snapshot of the DROP user's display name and
-      // share % at read time. Both null for senior-only projects or JUNIOR viewer.
-      dropName: isJuniorViewer ? null : (project.drop?.displayName ?? null),
+      // Drop role - phase 2: snapshot of the DROP user's display name.
+      // Masked for JUNIOR (no identity) AND SENIOR (identity hidden, opaque dropId kept).
+      dropName:
+        isJuniorViewer || viewerRole === 'SENIOR' ? null : (project.drop?.displayName ?? null),
       dropSharePercent: isJuniorViewer ? null : (project.drop?.dropSharePercent ?? null),
       // Finance masking (RBAC A01): JUNIOR members must not receive rate,
       // currency, or share breakdown — these are emitted as null so the
@@ -487,7 +493,7 @@ export class ProjectsService {
    */
   private async computeEffectiveTeam(
     project: ProjectWithRelations,
-    viewerRole?: string,
+    viewerRole: SessionUser['role'],
   ): Promise<EffectiveTeam> {
     // task-admin-as-senior: when the project's senior is an ADMIN user,
     // non-privileged viewers (SENIOR/HR/DROP) must not receive PII (email)
@@ -586,17 +592,28 @@ export class ProjectsService {
     // so FE can render «Дроп» row in the effective-team section without an
     // extra fetch. dropSharePercent is duplicated here for the distribution
     // breakdown widget (Phase 2 AC3).
-    const drop: EffectiveTeam['drop'] = project.drop
-      ? {
-          id: project.drop.id,
-          displayName: project.drop.displayName,
-          email: project.drop.email,
-          avatarUrl: project.drop.avatarUrl ?? null,
-          avatarDocumentId: project.drop.avatarDocumentId ?? null,
-          role: 'DROP' as const,
-          dropSharePercent: project.drop.dropSharePercent ?? 5,
-        }
-      : null
+    //
+    // RBAC rule #2 (mirror of JUNIOR masking above): SENIOR must not receive
+    // drop identity — the legend subject is "drop ?? senior", so the drop's
+    // name/email/avatar would reveal which of the two personas is the real
+    // senior. We return null for the entire effectiveTeam.drop object when the
+    // viewer is SENIOR (same treatment as JUNIOR identity redaction above).
+    // UI: SENIOR does not render the «Дроп» row in effective-team (PR #359).
+    // Detach dialog is canManage-only (ADMIN/HR) — nothing breaks.
+    const drop: EffectiveTeam['drop'] =
+      viewerRole === 'SENIOR'
+        ? null
+        : project.drop
+          ? {
+              id: project.drop.id,
+              displayName: project.drop.displayName,
+              email: project.drop.email,
+              avatarUrl: project.drop.avatarUrl ?? null,
+              avatarDocumentId: project.drop.avatarDocumentId ?? null,
+              role: 'DROP' as const,
+              dropSharePercent: project.drop.dropSharePercent ?? 5,
+            }
+          : null
 
     return { senior, drop, hrs, accountants, juniors }
   }
@@ -694,7 +711,10 @@ export class ProjectsService {
     })) as ProjectWithRelations
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([created])
-    return this.mapProject(created, teamOverridesBySeniorId)
+    // Pass currentUser.role so mapProject can apply SENIOR dropName masking
+    // (defense-in-depth: callers of create are ADMIN/HR whose role never triggers
+    // the mask, but the contract is explicit and mirrors findOne/findAll).
+    return this.mapProject(created, teamOverridesBySeniorId, currentUser.role)
   }
 
   /**
@@ -876,7 +896,10 @@ export class ProjectsService {
     })) as ProjectWithRelations
 
     const teamOverridesBySeniorId = await this.loadTeamOverridesBySenior([updated])
-    return this.mapProject(updated, teamOverridesBySeniorId)
+    // Pass currentUser.role so mapProject can apply SENIOR dropName masking
+    // (defense-in-depth: callers of update are ADMIN/HR/ACCOUNTANT whose role
+    // never triggers the mask, but the contract is explicit and mirrors findOne/findAll).
+    return this.mapProject(updated, teamOverridesBySeniorId, currentUser.role)
   }
 
   /**
