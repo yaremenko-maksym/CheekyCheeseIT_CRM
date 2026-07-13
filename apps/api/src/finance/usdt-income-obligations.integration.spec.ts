@@ -2,6 +2,7 @@ import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
+import { randomUUID } from 'crypto'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -201,6 +202,18 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   let svc: TransactionsService
   let settleSvc: PendingSettlementService
   let dbSvc: DatabaseService
+
+  // PR #367 (MED-1): declareUsdtProjectIncome now REQUIRES a client idempotency
+  // key. Every declaration in THIS spec is a distinct income, so each gets a
+  // fresh UUID (idempotency semantics — replay / race / no double-book — are
+  // proven separately in usdt-income-idempotency.integration.spec.ts). The
+  // helper keeps these obligation/settle/ledger tests focused on their behavior.
+  function declare(
+    body: Omit<Parameters<TransactionsService['declareUsdtProjectIncome']>[0], 'idempotencyKey'>,
+    user: SessionUser,
+  ) {
+    return svc.declareUsdtProjectIncome({ ...body, idempotencyKey: randomUUID() }, user)
+  }
 
   // Surgical cleanup — scope by THIS spec's creditors (SENIOR/DROP only, never
   // the canonical admins), this spec's project ids, and the unique deposit
@@ -441,13 +454,13 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
       receiverId: COMPANY_ACCOUNT_RECEIVER,
     }
     for (const nonAdmin of [ACCOUNTANT, SENIOR, DROP, JUNIOR]) {
-      await expect(svc.declareUsdtProjectIncome(body, nonAdmin)).rejects.toThrow()
+      await expect(declare(body, nonAdmin)).rejects.toThrow()
     }
   })
 
   it('AC10: receiver=COMPANY_ACCOUNT → ADMIN_INCOME(COMPANY_ACCOUNT); non-USDT project rejected', async () => {
     if (!dbAvailable) return
-    const income = await svc.declareUsdtProjectIncome(
+    const income = await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -459,7 +472,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
     // A FOP project cannot receive an admin-USDT declaration.
     await expect(
-      svc.declareUsdtProjectIncome(
+      declare(
         { projectId: FOP_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
       ),
@@ -468,7 +481,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   it('AC10: receiver=ADMIN X → ADMIN_INCOME(funding=null, receiverId=X)', async () => {
     if (!dbAvailable) return
-    const income = await svc.declareUsdtProjectIncome(
+    const income = await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: KOSTYA_ID },
       ADMIN_MAKSYM,
     )
@@ -481,7 +494,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // ── AC11: atomic obligations (senior IOU + drop IOU) ───────────────────────
   it('AC11: booking is atomic — senior IOU (I×26%) + drop IOU (I×5%) with pending_obligations', async () => {
     if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -499,7 +512,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   it('AC11: senior-only USDT project → senior IOU only, no drop IOU', async () => {
     if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_SENIOR_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -509,7 +522,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   it('AC11: drop IOU uses the per-project override (12%, not the 5% user default)', async () => {
     if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_OVERRIDE_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -521,7 +534,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // ── AC12: idempotent settle (anti-BIZ-02 double-settle) ────────────────────
   it('AC12: double settle of one obligation → second call is rejected (no double payout)', async () => {
     if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -537,7 +550,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // ── AC13: settle drop → PAYOUT_DROP credits the drop, no senior invoice ────
   it('AC13: settling a drop IOU inserts PAYOUT_DROP (credits drop balance), no senior invoice', async () => {
     if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -555,7 +568,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   it('AC13: settling a senior IOU inserts SENIOR_INCOME + fires the senior invoice', async () => {
     if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -576,7 +589,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   describe('MED-1: DROP_PENDING_PAYOUT / PAYOUT_DROP RBAC visibility (real DB)', () => {
     it('DROP sees their own DROP_PENDING_PAYOUT; SENIOR does NOT see it (findOne)', async () => {
       if (!dbAvailable) return
-      await svc.declareUsdtProjectIncome(
+      await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
       )
@@ -602,7 +615,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
     it('SENIOR sees their own SENIOR_PENDING_PAYOUT; DROP does NOT see it (findOne)', async () => {
       if (!dbAvailable) return
-      await svc.declareUsdtProjectIncome(
+      await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
       )
@@ -623,7 +636,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
     it('after settle: DROP sees their own PAYOUT_DROP; SENIOR does NOT (findOne)', async () => {
       if (!dbAvailable) return
-      await svc.declareUsdtProjectIncome(
+      await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
       )
@@ -641,7 +654,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
     it('findAll: DROP sees own DROP_PENDING_PAYOUT + PAYOUT_DROP; SENIOR list excludes them; ACCOUNTANT sees both', async () => {
       if (!dbAvailable) return
-      await svc.declareUsdtProjectIncome(
+      await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
       )
@@ -668,7 +681,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   it('AC14: ledger — declare(pool) then settle drop from the pool subtracts the drop slice', async () => {
     if (!dbAvailable) return
     const base = await gateBalance()
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
     )
@@ -683,7 +696,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // ── AC15: C4 — totalIncome counts the gross once ───────────────────────────
   it('AC15: receiver=ADMIN X → declare + settle senior ADMIN_PERSONAL → totalIncome not doubled', async () => {
     if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
+    await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: KOSTYA_ID },
       ADMIN_MAKSYM,
     )

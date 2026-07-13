@@ -1,9 +1,17 @@
 # progress: task-usdt-income-idempotency
 
-current_milestone: 5/7
+current_milestone: 7/7 (DONE — all AC verified)
 branch: feature/drop-share-override-and-receiver (PR #367)
-last_commit: (M4 web+service)
+last_commit: (M5-M7 specs)
 last_push: pending
+
+## AC verification
+
+- AC1 schema requires uuid → 400: covered by usdt-income-obligations RBAC + Zod (createUsdtIncomeSchema).
+- AC2/AC3/AC4/AC4b: usdt-income-idempotency.integration.spec.ts — 4 tests green (crm_qa).
+- AC5: uq_transactions_admin_income_idempotency_key verified via psql pg_indexes (crm_qa); db:push applied; manual .sql shipped.
+- AC6: usdt-income-idempotency.unit.spec.ts — 3 tests green (early-return no insert/book; RBAC-first; miss falls through).
+- AC7: obligations spec updated (helper injects key); full integration 72f/742 green; unit 153f/2347 green; typecheck+eslint clean.
 
 ## Milestones
 
