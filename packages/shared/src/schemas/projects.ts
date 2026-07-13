@@ -56,8 +56,33 @@ export const currencySchema = z.enum(['USDT', 'USD', 'EUR', 'UAH'])
  * ForbiddenException for HR/SENIOR/JUNIOR) — same pattern as
  * seniorSharePercentOverride. Masked to `null` for JUNIOR viewers (Q5).
  */
-export const projectPaymentTypeSchema = z.enum(['FOP', 'GIG_CONTRACT', 'USDT'])
+export const PROJECT_PAYMENT_TYPES = ['FOP', 'GIG_CONTRACT', 'USDT'] as const
+export const projectPaymentTypeSchema = z.enum(PROJECT_PAYMENT_TYPES)
 export type ProjectPaymentType = z.infer<typeof projectPaymentTypeSchema>
+
+/**
+ * Review round 1 (LOW-1): a non-type-predicate `.refine()` — this enforces
+ * EXACT membership in `PROJECT_PAYMENT_TYPES` at RUNTIME (an invalid value
+ * fails Zod parse → 400 via the global ZodExceptionFilter, same guarantee as
+ * `projectPaymentTypeSchema` itself) while the Zod-inferred TYPE stays plain
+ * `string` (Zod only narrows the inferred type when the refine callback is a
+ * type predicate `(v): v is X => ...`; a boolean-returning callback does not).
+ * Used at the create/update WRITE boundary so `createProjectSchema` /
+ * `updateProjectSchema` reject a bad payload at the controller Zod-parse layer
+ * (shift-left vs. the service's `projectPaymentTypeSchema.parse` call) WITHOUT
+ * narrowing the field's TS type to the 3-member union — the current create/
+ * edit project forms in `apps/web` still submit `string` (a Select is a
+ * follow-up frontend task), so narrowing the type here would red the
+ * monorepo typecheck out-of-zone for Coder. Delete this helper (and switch
+ * both fields to `projectPaymentTypeSchema` directly) once the frontend Select
+ * lands.
+ */
+const paymentTypeStringSchema = z
+  .string()
+  .max(100)
+  .refine((v) => (PROJECT_PAYMENT_TYPES as readonly string[]).includes(v), {
+    message: `Payment type must be one of: ${PROJECT_PAYMENT_TYPES.join(', ')}`,
+  })
 
 /**
  * Refinement enforcing XOR between the two logo columns (mirrors the
@@ -385,13 +410,12 @@ export const createProjectSchema = z
     techStack: z.string().max(500).optional().nullable(),
     teamSize: z.string().max(100).optional().nullable(),
     benefits: z.string().max(500).optional().nullable(),
-    // task-drop-share-override-and-receiver (D1). Payment type. Kept as a loose
-    // string at the WRITE boundary (the create form still submits free text; the
-    // frontend Select lands in a follow-up task) — the service validates it
-    // against `projectPaymentTypeSchema` (throws 400 on an unknown value) and
-    // applies field-scoped RBAC (only ADMIN/ACCOUNTANT may send it). Absent →
-    // backend default 'FOP'.
-    paymentType: z.string().max(100).optional().nullable(),
+    // task-drop-share-override-and-receiver (D1, review round 1 LOW-1): runtime-
+    // strict membership check (see `paymentTypeStringSchema`) — rejects an
+    // unknown value at the controller Zod-parse layer (400), without narrowing
+    // the TS type away from `string` (the create form still submits free text
+    // pending the frontend Select task). Absent → backend default 'FOP'.
+    paymentType: paymentTypeStringSchema.optional().nullable(),
     salaryReview: z.string().max(255).optional().nullable(),
     corpTech: z.string().max(255).optional().nullable(),
     notesGeneral: z.string().max(1000).optional().nullable(),
@@ -425,12 +449,10 @@ export const updateProjectSchema = z
     techStack: z.string().max(500).optional().nullable(),
     teamSize: z.string().max(100).optional().nullable(),
     benefits: z.string().max(500).optional().nullable(),
-    // task-drop-share-override-and-receiver (D1). Payment type. Loose string at
-    // the WRITE boundary (the edit form still submits free text; the frontend
-    // Select lands in a follow-up task) — the service validates it against
-    // `projectPaymentTypeSchema` and applies field-scoped RBAC (only ADMIN/
-    // ACCOUNTANT may include it). `undefined` (absent) = leave unchanged.
-    paymentType: z.string().max(100).optional().nullable(),
+    // task-drop-share-override-and-receiver (D1, review round 1 LOW-1): same
+    // runtime-strict / type-loose contract as createProjectSchema above.
+    // `undefined` (absent) = leave unchanged.
+    paymentType: paymentTypeStringSchema.optional().nullable(),
     salaryReview: z.string().max(255).optional().nullable(),
     corpTech: z.string().max(255).optional().nullable(),
     notesGeneral: z.string().max(1000).optional().nullable(),

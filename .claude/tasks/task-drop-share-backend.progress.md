@@ -32,3 +32,27 @@ PR: #367 (base main)
   → deploy.yml Step 2b; run C13 `SELECT DISTINCT payment_type FROM projects` before convert.
 - Frontend task (paymentType Select, drop-share slider, admin-USDT dialog, dialog maps).
 - E2E task (AutoTest) for admin-USDT declare → obligations → settle.
+
+## Review round 1 (PR #367, both APPROVE) — fix-round findings closed
+
+- MED-1 (code-review): 4 new real-DB RBAC visibility tests in
+  `usdt-income-obligations.integration.spec.ts` — DROP sees own DROP_PENDING_PAYOUT/
+  PAYOUT_DROP (findOne + findAll), SENIOR does NOT see the drop's rows, JUNIOR never,
+  ACCOUNTANT/ADMIN see everything. Neither type is blacklisted in `assertReadAccess`/
+  `findAll`'s inline filter (unlike PAYOUT_ADMIN/PAYOUT_CONFIRMED), so this closes
+  ADR C9.
+- LOW-1: `createProjectSchema`/`updateProjectSchema.paymentType` — added
+  `paymentTypeStringSchema` (non-type-predicate `.refine()` against the new
+  `PROJECT_PAYMENT_TYPES` const array): RUNTIME-strict membership (400 via the
+  global ZodExceptionFilter on an unknown value) while the Zod-inferred TS type
+  stays `string | null | undefined` — deliberately NOT narrowed to the 3-member
+  union, because the current create/edit project forms in `apps/web` still submit
+  free text (Select is a follow-up frontend task) and narrowing would red monorepo
+  typecheck for 2 web files outside Coder's zone. New `packages/shared/src/schemas/
+projects.spec.ts` (12 tests) proves both the runtime rejection and the accepted
+  values. `pnpm typecheck` confirmed green after the change.
+- LOW-3 (security): seed.ts USDT DropVault `domain: 'dropvault.io'` → `'Web3 / Crypto'`
+  (valid `IT_DOMAINS` member). Other pre-existing seed rows with non-enum domains
+  are out of scope (not touched by this task).
+- LOW-2 (progress-file in diff): KEPT — `.claude/tasks/<task>.progress.md` is an
+  explicitly allowed Coder zone-of-write path; documents genuine audit trail.

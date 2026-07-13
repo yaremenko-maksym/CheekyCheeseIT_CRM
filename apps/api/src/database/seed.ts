@@ -960,7 +960,10 @@ async function main() {
   await db.insert(schema.projects).values({
     name: 'USDT DropVault',
     companyName: 'DropVault Labs',
-    domain: 'dropvault.io',
+    // task-drop-share-override-and-receiver review round 1 (LOW-3, security):
+    // `domain` must be a valid IT_DOMAINS enum member (itDomainSchema) — the
+    // free-text 'dropvault.io' is not, and would fail Zod parse on the wire.
+    domain: 'Web3 / Crypto',
     startDate: d(2026, 3, 1),
     seniorId: NAZAR_ID,
     dropId: DROP1_ID,

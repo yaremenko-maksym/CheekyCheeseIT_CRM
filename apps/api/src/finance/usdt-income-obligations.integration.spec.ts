@@ -567,6 +567,103 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     expect(seniorInvoiceTriggers).toBe(1)
   })
 
+  // ── MED-1 (review round 1, ADR C9): RBAC visibility of the new IOU/settlement
+  // types through assertReadAccess (findOne) + findAll's inline RBAC filter.
+  // Neither DROP_PENDING_PAYOUT nor PAYOUT_DROP is blacklisted from the
+  // sender/receiver-match rule (unlike PAYOUT_ADMIN/PAYOUT_CONFIRMED), so a
+  // party (DROP/SENIOR) sees their OWN row; a non-party sees neither; ADMIN/
+  // ACCOUNTANT see everything. Proven against the REAL cascade rows, not mocks.
+  describe('MED-1: DROP_PENDING_PAYOUT / PAYOUT_DROP RBAC visibility (real DB)', () => {
+    it('DROP sees their own DROP_PENDING_PAYOUT; SENIOR does NOT see it (findOne)', async () => {
+      if (!dbAvailable) return
+      await svc.declareUsdtProjectIncome(
+        { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+        ADMIN_MAKSYM,
+      )
+      const [dropObl] = await obligationsFor(DROP.id)
+      const dropPendingTxId = (
+        await dbSvc.db.query.pendingObligations.findFirst({
+          where: eq(pendingObligations.id, dropObl!.id),
+        })
+      )?.sourceTransactionId
+      expect(dropPendingTxId).toBeTruthy()
+
+      // DROP sees their own IOU.
+      const seenByDrop = await svc.findOne(dropPendingTxId!, DROP)
+      expect(seenByDrop.type).toBe('DROP_PENDING_PAYOUT')
+      // SENIOR is neither sender nor receiver of the DROP's IOU → 403.
+      await expect(svc.findOne(dropPendingTxId!, SENIOR)).rejects.toThrow()
+      // ACCOUNTANT and ADMIN see everything (RBAC bypass for company-wide roles).
+      await expect(svc.findOne(dropPendingTxId!, ACCOUNTANT)).resolves.not.toThrow()
+      await expect(svc.findOne(dropPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
+      // JUNIOR is never a party to finance rows.
+      await expect(svc.findOne(dropPendingTxId!, JUNIOR)).rejects.toThrow()
+    })
+
+    it('SENIOR sees their own SENIOR_PENDING_PAYOUT; DROP does NOT see it (findOne)', async () => {
+      if (!dbAvailable) return
+      await svc.declareUsdtProjectIncome(
+        { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+        ADMIN_MAKSYM,
+      )
+      const [seniorObl] = await obligationsFor(SENIOR.id)
+      const seniorPendingTxId = (
+        await dbSvc.db.query.pendingObligations.findFirst({
+          where: eq(pendingObligations.id, seniorObl!.id),
+        })
+      )?.sourceTransactionId
+      expect(seniorPendingTxId).toBeTruthy()
+
+      await expect(svc.findOne(seniorPendingTxId!, SENIOR)).resolves.not.toThrow()
+      // DROP is neither sender nor receiver of the SENIOR's IOU → 403.
+      await expect(svc.findOne(seniorPendingTxId!, DROP)).rejects.toThrow()
+      await expect(svc.findOne(seniorPendingTxId!, ACCOUNTANT)).resolves.not.toThrow()
+      await expect(svc.findOne(seniorPendingTxId!, ADMIN_MAKSYM)).resolves.not.toThrow()
+    })
+
+    it('after settle: DROP sees their own PAYOUT_DROP; SENIOR does NOT (findOne)', async () => {
+      if (!dbAvailable) return
+      await svc.declareUsdtProjectIncome(
+        { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+        ADMIN_MAKSYM,
+      )
+      const [dropObl] = await obligationsFor(DROP.id)
+      const res = await settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, {
+        fundingSource: 'COMPANY_ACCOUNT',
+      })
+      const payoutDropId = res.created.find((c) => c.type === 'PAYOUT_DROP')!.id
+
+      await expect(svc.findOne(payoutDropId, DROP)).resolves.not.toThrow()
+      await expect(svc.findOne(payoutDropId, SENIOR)).rejects.toThrow()
+      await expect(svc.findOne(payoutDropId, ACCOUNTANT)).resolves.not.toThrow()
+      await expect(svc.findOne(payoutDropId, ADMIN_MAKSYM)).resolves.not.toThrow()
+    })
+
+    it('findAll: DROP sees own DROP_PENDING_PAYOUT + PAYOUT_DROP; SENIOR list excludes them; ACCOUNTANT sees both', async () => {
+      if (!dbAvailable) return
+      await svc.declareUsdtProjectIncome(
+        { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+        ADMIN_MAKSYM,
+      )
+      const [dropObl] = await obligationsFor(DROP.id)
+      await settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, {
+        fundingSource: 'COMPANY_ACCOUNT',
+      })
+
+      const dropList = await svc.findAll(DROP)
+      expect(dropList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
+      expect(dropList.some((t) => t.type === 'PAYOUT_DROP')).toBe(true)
+
+      const seniorList = await svc.findAll(SENIOR)
+      expect(seniorList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(false)
+      expect(seniorList.some((t) => t.type === 'PAYOUT_DROP')).toBe(false)
+
+      const accountantList = await svc.findAll(ACCOUNTANT)
+      expect(accountantList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
+      expect(accountantList.some((t) => t.type === 'PAYOUT_DROP')).toBe(true)
+    })
+  })
+
   // ── AC14: company-account ledger consistency ───────────────────────────────
   it('AC14: ledger — declare(pool) then settle drop from the pool subtracts the drop slice', async () => {
     if (!dbAvailable) return
