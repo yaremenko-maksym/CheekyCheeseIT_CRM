@@ -163,8 +163,10 @@ const TEST_USER_IDS = [S1.id, J1.id, J2.id, S2.id, HR_X.id, DROP1.id]
 
 /** The real rate stored in DB — JUNIOR must NOT see this */
 const REAL_RATE = 3500
-/** Real paymentType stored in DB — JUNIOR must NOT see this */
-const REAL_PAYMENT_TYPE = 'Crypto USDT'
+/** Real paymentType stored in DB — JUNIOR must NOT see this.
+ *  task-drop-share-override-and-receiver (D1): payment_type is now the
+ *  project_payment_type enum — use a valid enum member ('USDT'). */
+const REAL_PAYMENT_TYPE = 'USDT'
 /** Real salaryReview stored in DB — JUNIOR must NOT see this */
 const REAL_SALARY_REVIEW = 'Every 6 months'
 /** Real notesGeneral stored in DB — JUNIOR must NOT see this */

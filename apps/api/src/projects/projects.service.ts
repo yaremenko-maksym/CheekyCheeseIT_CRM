@@ -16,6 +16,8 @@ import type {
   SessionUser,
   UpdateProjectDto,
 } from '@crm/shared'
+import { projectPaymentTypeSchema } from '@crm/shared'
+import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from '../finance/drop-share-resolver'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -139,6 +141,22 @@ export class ProjectsService {
       effectiveSeniorSharePercent = resolved.value
       effectiveSeniorShareSource = resolved.source
     }
+
+    // task-drop-share-override-and-receiver (Part A / D6). Effective drop share +
+    // source for the UI hint — same resolver the DROP_INCOME snapshot uses, so
+    // the value rendered here equals what would be stamped on the next drop
+    // income. Only meaningful for drop-projects (project.drop present).
+    const drop = project.drop
+    let effectiveDropSharePercent: number | null = null
+    let effectiveDropShareSource: 'PROJECT' | 'USER_DEFAULT' | null = null
+    if (drop) {
+      const resolvedDrop = resolveDropShare(
+        { dropSharePercentOverride: project.dropSharePercentOverride },
+        { dropSharePercent: drop.dropSharePercent },
+      )
+      effectiveDropSharePercent = resolvedDrop.value
+      effectiveDropShareSource = resolvedDrop.source
+    }
     // Allowlist masking for JUNIOR viewers (RBAC A01):
     // JUNIOR must not receive senior identity, drop identity, or any financial
     // data. All sensitive fields are emitted as null so the DTO itself carries
@@ -204,6 +222,18 @@ export class ProjectsService {
       dropName:
         isJuniorViewer || viewerRole === 'SENIOR' ? null : (project.drop?.displayName ?? null),
       dropSharePercent: isJuniorViewer ? null : (project.drop?.dropSharePercent ?? null),
+      // task-drop-share-override-and-receiver (Part A / D6). Per-project DROP
+      // share override + computed default + effective resolution (project
+      // override → user default → 5). Masked for JUNIOR. `null` when there is
+      // no drop on the project.
+      dropSharePercentOverride: isJuniorViewer ? null : (project.dropSharePercentOverride ?? null),
+      dropSharePercentDefault: isJuniorViewer
+        ? null
+        : drop
+          ? (drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT)
+          : null,
+      effectiveDropSharePercent: isJuniorViewer ? null : effectiveDropSharePercent,
+      effectiveDropShareSource: isJuniorViewer ? null : effectiveDropShareSource,
       // Finance masking (RBAC A01): JUNIOR members must not receive rate,
       // currency, or share breakdown — these are emitted as null so the
       // DTO itself carries no sensitive data regardless of UI rendering.
@@ -633,6 +663,17 @@ export class ProjectsService {
         'Only ADMIN or ACCOUNTANT can change senior share percent override',
       )
     }
+    // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
+    // paymentType + dropSharePercentOverride — same contract as the senior
+    // override: only ADMIN/ACCOUNTANT may send these fields.
+    if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
+      throw new ForbiddenException(
+        'Only ADMIN or ACCOUNTANT can change drop share percent override',
+      )
+    }
+    if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
+      throw new ForbiddenException('Only ADMIN or ACCOUNTANT can change project payment type')
+    }
 
     if (role !== 'ADMIN' && role !== 'HR') {
       throw new ForbiddenException()
@@ -650,6 +691,20 @@ export class ProjectsService {
 
     const override =
       data.seniorSharePercentOverride === undefined ? null : data.seniorSharePercentOverride
+
+    // task-drop-share-override-and-receiver (D6). Per-project drop override,
+    // stored raw (mirrors the senior override at create time — implicit-null
+    // reset only applies on update). null = use the drop's global default.
+    const dropOverride =
+      data.dropSharePercentOverride === undefined ? null : data.dropSharePercentOverride
+
+    // task-drop-share-override-and-receiver (D1). Validate the loose write
+    // value against the enum (throws 400 on an unknown value). Undefined/null →
+    // omitted from the insert so the DB default ('FOP') applies.
+    const validatedPaymentType =
+      data.paymentType === undefined || data.paymentType === null
+        ? undefined
+        : projectPaymentTypeSchema.parse(data.paymentType)
 
     // Drop role - phase 2: validate `dropId` references an active DROP user.
     // `undefined`/`null` = regular senior-project (no drop). Reject any other
@@ -686,10 +741,12 @@ export class ProjectsService {
         rate: data.rate,
         currency: data.currency,
         seniorSharePercentOverride: override,
+        dropSharePercentOverride: dropOverride,
         techStack: data.techStack ?? null,
         teamSize: data.teamSize ?? null,
         benefits: data.benefits ?? null,
-        paymentType: data.paymentType ?? null,
+        // Omit when undefined so the NOT NULL column falls back to DEFAULT 'FOP'.
+        ...(validatedPaymentType !== undefined ? { paymentType: validatedPaymentType } : {}),
         salaryReview: data.salaryReview ?? null,
         corpTech: data.corpTech ?? null,
         notesGeneral: data.notesGeneral ?? null,
@@ -765,11 +822,30 @@ export class ProjectsService {
         'Only ADMIN or ACCOUNTANT can change senior share percent override',
       )
     }
+    // task-drop-share-override-and-receiver (D1/D6). Field-scoped RBAC for
+    // paymentType + dropSharePercentOverride (including explicit null) — only
+    // ADMIN/ACCOUNTANT may touch these fields.
+    if (data.dropSharePercentOverride !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
+      throw new ForbiddenException(
+        'Only ADMIN or ACCOUNTANT can change drop share percent override',
+      )
+    }
+    if (data.paymentType !== undefined && role !== 'ADMIN' && role !== 'ACCOUNTANT') {
+      throw new ForbiddenException('Only ADMIN or ACCOUNTANT can change project payment type')
+    }
 
-    // ACCOUNTANT may patch only when the only field touched is the override.
+    // ACCOUNTANT may patch only when EVERY field touched is finance-scoped
+    // (senior/drop override or paymentType) — the fields the field-level RBAC
+    // above already gated to ADMIN/ACCOUNTANT. This extends the original
+    // senior-only `hasOnlyOverride` to the drop override + paymentType.
+    const FINANCE_SCOPED_FIELDS = [
+      'seniorSharePercentOverride',
+      'dropSharePercentOverride',
+      'paymentType',
+    ]
+    const dataKeys = Object.keys(data)
     const hasOnlyOverride =
-      data.seniorSharePercentOverride !== undefined &&
-      Object.keys(data).every((k) => k === 'seniorSharePercentOverride')
+      dataKeys.length > 0 && dataKeys.every((k) => FINANCE_SCOPED_FIELDS.includes(k))
 
     if (role !== 'ADMIN' && role !== 'HR' && !(role === 'ACCOUNTANT' && hasOnlyOverride)) {
       throw new ForbiddenException()
@@ -823,6 +899,19 @@ export class ProjectsService {
             ? null
             : data.seniorSharePercentOverride
 
+    // task-drop-share-override-and-receiver (D6). Implicit-null reset mirrors the
+    // senior override: a value equal to the drop's effective default is stored
+    // as null so the resolver keeps falling back to the user default.
+    const dropDefault = project.drop?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
+    const dropOverrideEffective: number | null | undefined =
+      data.dropSharePercentOverride === undefined
+        ? undefined
+        : data.dropSharePercentOverride === null
+          ? null
+          : data.dropSharePercentOverride === dropDefault
+            ? null
+            : data.dropSharePercentOverride
+
     const updateData: Partial<typeof projects.$inferInsert> = {
       updatedAt: new Date(),
     }
@@ -853,6 +942,12 @@ export class ProjectsService {
     if (overrideEffective !== undefined) {
       updateData.seniorSharePercentOverride = overrideEffective
     }
+    // task-drop-share-override-and-receiver (D6). Write the drop override column
+    // when the caller included it (undefined = unchanged; null / default-equal
+    // → null via implicit reset above).
+    if (dropOverrideEffective !== undefined) {
+      updateData.dropSharePercentOverride = dropOverrideEffective
+    }
     // Drop role - phase 2. Only write the column when caller explicitly
     // included `dropId` (undefined = unchanged). `null` clears.
     if (resolvedDropId !== undefined) {
@@ -861,7 +956,13 @@ export class ProjectsService {
     if (data.techStack !== undefined) updateData.techStack = data.techStack ?? null
     if (data.teamSize !== undefined) updateData.teamSize = data.teamSize ?? null
     if (data.benefits !== undefined) updateData.benefits = data.benefits ?? null
-    if (data.paymentType !== undefined) updateData.paymentType = data.paymentType ?? null
+    // task-drop-share-override-and-receiver (D1). paymentType is a NOT NULL enum
+    // column — validate the loose write value and only apply a real value (null
+    // is ignored: you cannot clear a NOT NULL enum; the frontend Select always
+    // sends a concrete value).
+    if (data.paymentType !== undefined && data.paymentType !== null) {
+      updateData.paymentType = projectPaymentTypeSchema.parse(data.paymentType)
+    }
     if (data.salaryReview !== undefined) updateData.salaryReview = data.salaryReview ?? null
     if (data.corpTech !== undefined) updateData.corpTech = data.corpTech ?? null
     if (data.notesGeneral !== undefined) updateData.notesGeneral = data.notesGeneral ?? null
@@ -888,6 +989,26 @@ export class ProjectsService {
           },
         })
       }
+    }
+
+    // task-drop-share-override-and-receiver (D6). Audit the drop override change
+    // (no project_finance_settings mirror sync — the canonical value lives on
+    // projects.dropSharePercentOverride, which the resolver reads directly).
+    if (
+      dropOverrideEffective !== undefined &&
+      project.dropSharePercentOverride !== dropOverrideEffective
+    ) {
+      await this.projectAuditLogService.record({
+        actorId: currentUser.id,
+        targetId: id,
+        action: 'project_edited',
+        changes: {
+          dropSharePercentOverride: {
+            before: project.dropSharePercentOverride ?? null,
+            after: dropOverrideEffective,
+          },
+        },
+      })
     }
 
     const updated = (await this.db.db.query.projects.findFirst({
@@ -1201,7 +1322,10 @@ export class ProjectsService {
         techStack: interview.notesTechStack ?? null,
         teamSize: interview.notesTeamSize ?? null,
         benefits: interview.notesBenefits ?? null,
-        paymentType: interview.notesPaymentType ?? null,
+        // task-drop-share-override-and-receiver (D1 / C10). `interview.notesPaymentType`
+        // is a free-text interview note — NOT a project_payment_type enum value.
+        // Leave paymentType at the DB default ('FOP'); ADMIN/ACCOUNTANT set the
+        // real enum later via the project edit form.
         salaryReview: interview.notesSalaryReview ?? null,
         corpTech: interview.notesCorpTech ?? null,
         notesGeneral: interview.notesGeneral ?? null,

@@ -46,6 +46,7 @@ import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.serv
 import { convertToBase, type BalanceCurrency } from './balance.service'
 import { EtherscanService } from './etherscan.service'
 import { resolveSeniorShare } from './senior-share-resolver'
+import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
 import {
   computeCompanyAccountBalanceFromLedger,
@@ -100,10 +101,13 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /** Default drop-share percentage when `users.dropSharePercent` is NULL.
- *  Used in both `computeDropDistribution` (write-path) and `getSummary`
- *  (read-path display). Single source of truth — never duplicate the literal 5.
+ *  Used in `computeDropDistribution` (write-path), `getSummary` (read-path
+ *  display), the drop-share resolver and the admin-USDT obligation math.
+ *  Single source of truth — physically defined in `drop-share-resolver.ts`
+ *  (so the resolver can consume it without a circular import) and re-exported
+ *  here for backward compatibility with existing call sites.
  */
-export const DEFAULT_DROP_SHARE_PERCENT = 5
+export { DEFAULT_DROP_SHARE_PERCENT }
 
 /**
  * Default senior share percent when no per-user override is set (DB default 26).
@@ -1159,10 +1163,30 @@ export class TransactionsService {
       throw new ForbiddenException('Это не drop-проект под вами')
     }
 
+    // task-drop-share-override-and-receiver (D2). On a USDT-payment project the
+    // DROP/SENIOR do NOT declare income — only an ADMIN does (via
+    // declareUsdtProjectIncome), and the company books the drop/senior share as
+    // an obligation. FOP/GIG lifecycle is unchanged.
+    if (project.paymentType === 'USDT') {
+      throw new ForbiddenException('На USDT-проекте приход декларирует администратор')
+    }
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
+
+    // task-drop-share-override-and-receiver (Part A). Snapshot the effective drop
+    // share % (project override → drop user default → 5) so the distribution is
+    // deterministic — a later change to users.dropSharePercent does not re-price
+    // this income. Same resolver mapProject exposes as effectiveDropSharePercent.
+    const dropUser = await this.db.db.query.users.findFirst({
+      where: eq(users.id, currentUser.id),
+    })
+    const resolvedDrop = resolveDropShare(
+      { dropSharePercentOverride: project.dropSharePercentOverride },
+      { dropSharePercent: dropUser?.dropSharePercent },
+    )
 
     const [tx] = await this.db.db
       .insert(transactions)
@@ -1176,6 +1200,8 @@ export class TransactionsService {
         receiverId: currentUser.id,
         recipientId: currentUser.id,
         projectId: data.projectId,
+        dropSharePercent: resolvedDrop.value,
+        dropSharePercentSource: resolvedDrop.source,
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
@@ -2074,16 +2100,18 @@ export class TransactionsService {
     const isDrop = currentUser.role === 'DROP'
     const incomeType = isDrop ? 'DROP_INCOME' : 'SENIOR_INCOME'
 
-    // For a DROP caller the company-kept share is `1 - dropSharePercent%`. The
-    // dropSharePercent lives on the user row (not snapshotted per-income like
-    // the senior share), so resolve it once before the batch. SENIOR callers
-    // read the per-income seniorSharePercent snapshot inside the loop below.
-    let dropSharePercent = DEFAULT_DROP_SHARE_PERCENT
+    // For a DROP caller the company-kept share is `1 - dropSharePercent%`.
+    // task-drop-share-override-and-receiver (Part A): DROP_INCOME rows now carry
+    // a per-income `dropSharePercent` snapshot (like the senior share). We read
+    // that snapshot per-income in the loop below; this user-level default is
+    // only the FALLBACK for legacy rows created before the snapshot column
+    // existed. SENIOR callers read the per-income seniorSharePercent snapshot.
+    let dropSharePercentFallback = DEFAULT_DROP_SHARE_PERCENT
     if (isDrop) {
       const dropUser = await this.db.db.query.users.findFirst({
         where: eq(users.id, currentUser.id),
       })
-      dropSharePercent = dropUser?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
+      dropSharePercentFallback = dropUser?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
     }
 
     // Phase 8 v2 — fetch the NBU snapshot ONCE, BEFORE opening the DB
@@ -2188,7 +2216,7 @@ export class TransactionsService {
         // obligation in applyPayoutPaidCascade (so the money is accounted once,
         // on the company account, then re-distributed to the senior on settle).
         const sharePercent = isDrop
-          ? dropSharePercent
+          ? (tx.dropSharePercent ?? dropSharePercentFallback)
           : (tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT)
         // company's share = 1 - keptShare/100; integer arithmetic on the
         // scaled amount avoids per-iteration float drift.
@@ -2579,6 +2607,10 @@ export class TransactionsService {
             id: transactions.id,
             projectId: transactions.projectId,
             type: transactions.type,
+            // task-drop-share-override-and-receiver (Part A). Per-income drop
+            // share snapshot — used below so the distribution matches what was
+            // stamped on the DROP_INCOME at creation time (deterministic).
+            dropSharePercent: transactions.dropSharePercent,
           })
           .from(transactions)
           .where(
@@ -2721,6 +2753,18 @@ export class TransactionsService {
           )
 
           const income = parseFloat(req.incomeAmount)
+          // task-drop-share-override-and-receiver (Part A). Drop share for the
+          // distribution comes from the per-income snapshot (deterministic —
+          // matches what was stamped on the DROP_INCOME), falling back to the
+          // override-aware resolver for legacy rows created before the snapshot
+          // column existed. The "one payout = one project" rule for DROP callers
+          // guarantees a single project/override applies to the whole batch.
+          const dropShareSnapshot =
+            paidIncomeTxs[0]?.dropSharePercent ??
+            resolveDropShare(
+              { dropSharePercentOverride: primaryProject.dropSharePercentOverride },
+              { dropSharePercent: dropUser.dropSharePercent },
+            ).value
           // computeDropDistribution is PURE (no DB) — safe inside the txn. The
           // senior share uses the resolved snapshot value (project/team override
           // aware) rather than the raw user default, so the obligation booked
@@ -2728,7 +2772,7 @@ export class TransactionsService {
           const distribution = this.computeDropDistribution(
             income,
             { id: primaryProject.id, dropId: primaryProject.dropId },
-            { id: dropUser.id, dropSharePercent: dropUser.dropSharePercent },
+            { id: dropUser.id, dropSharePercent: dropShareSnapshot },
             { id: senior.id, seniorSharePercent: seniorShareSnapshot.value },
           )
 
