@@ -196,6 +196,14 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // each resetForm (= dialog close + reopen). Stable within a single open session
   // so a double-click / retry with the same key is idempotent server-side.
   const [dividendIdempotencyKey, setDividendIdempotencyKey] = useState(() => crypto.randomUUID())
+  // MED-1 (security-review PR #367): same per-open-UUID contract for the admin
+  // USDT-income declaration (Surface C). Generated at mount, refreshed on reset —
+  // a double-submit with the SAME key returns the existing ADMIN_INCOME (no
+  // duplicated income / obligations). Separate from the dividend key so each
+  // intent owns its own idempotency namespace.
+  const [usdtIncomeIdempotencyKey, setUsdtIncomeIdempotencyKey] = useState(() =>
+    crypto.randomUUID(),
+  )
   const [txDate, setTxDate] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -421,6 +429,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           amount: amt,
           currency: 'USDT',
           receiverId,
+          // MED-1 (security-review PR #367): stable per-open idempotency key so a
+          // double-click / retry does not create a second income + obligation set.
+          idempotencyKey: usdtIncomeIdempotencyKey,
           notes: notes || null,
           txDate: txDate || null,
         })
@@ -525,6 +536,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     // MED-2 (BIZ-19): generate a fresh idempotency key on each dialog close so
     // the next open session starts with a new key (new dialog = new dividend intent).
     setDividendIdempotencyKey(crypto.randomUUID())
+    // MED-1 (PR #367): likewise refresh the USDT-income key (new open = new intent).
+    setUsdtIncomeIdempotencyKey(crypto.randomUUID())
   }
 
   const error = mutation.error != null ? getApiErrorMessage(mutation.error) : null

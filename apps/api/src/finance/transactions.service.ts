@@ -1081,12 +1081,32 @@ export class TransactionsService {
       projectId: string
       amount: number
       receiverId: string
+      // Security-review PR #367 (MED-1): client-generated UUID, REQUIRED (Zod
+      // enforces it in createUsdtIncomeSchema). Mirrors the dividend BIZ-19
+      // (MED-2) idempotency contract 1:1 — see the early-SELECT / 23505 catch
+      // below and uq_transactions_admin_income_idempotency_key.
+      idempotencyKey: string
       notes?: string | null | undefined
       txDate?: string | null | undefined
     },
     currentUser: SessionUser,
   ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    // PR #367 (MED-1): idempotency replay guard. A double-submit (double click /
+    // network retry) carries the SAME key — return the EXISTING ADMIN_INCOME row
+    // WITHOUT re-declaring income or re-booking company obligations. The RBAC gate
+    // runs FIRST (defense-in-depth): a non-admin replaying a key still gets 403,
+    // never a leaked row. This is a plain SELECT (no lock) — the genuine
+    // concurrent race where two submits both miss it is caught by the partial
+    // unique index (23505) at the tail of this method.
+    const replay = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'ADMIN_INCOME'),
+        eq(transactions.idempotencyKey, data.idempotencyKey),
+      ),
+    })
+    if (replay) return this.findOne(replay.id, currentUser)
 
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, data.projectId),
@@ -1144,39 +1164,63 @@ export class TransactionsService {
         )
       : null
 
-    const txId = await this.db.db.transaction(async (dbtx) => {
-      const [tx] = await dbtx
-        .insert(transactions)
-        .values({
-          type: 'ADMIN_INCOME',
-          status: 'PAID',
-          amount: String(data.amount),
-          currency: 'USDT',
-          senderId: null,
-          senderLabel: project.companyName,
-          receiverId,
+    let txId: string
+    try {
+      txId = await this.db.db.transaction(async (dbtx) => {
+        const [tx] = await dbtx
+          .insert(transactions)
+          .values({
+            type: 'ADMIN_INCOME',
+            status: 'PAID',
+            amount: String(data.amount),
+            currency: 'USDT',
+            senderId: null,
+            senderLabel: project.companyName,
+            receiverId,
+            projectId: data.projectId,
+            fundingSource,
+            // PR #367 (MED-1): persist the key so uq_transactions_admin_income_
+            // idempotency_key enforces single-income-per-key as a DB-level backstop
+            // for concurrent submits that slip past the early-SELECT above.
+            idempotencyKey: data.idempotencyKey,
+            notes: data.notes ?? null,
+            txDate: this.resolveTxDate(data.txDate),
+            createdBy: currentUser.id,
+          })
+          .returning()
+
+        await this.bookCompanyObligations(dbtx, {
+          incomeAmount: data.amount,
           projectId: data.projectId,
-          fundingSource,
-          notes: data.notes ?? null,
-          txDate: this.resolveTxDate(data.txDate),
           createdBy: currentUser.id,
+          senior:
+            senior && seniorSnapshot
+              ? { id: senior.id, role: senior.role, shareSnapshot: seniorSnapshot }
+              : null,
+          drop: drop && dropSnapshot ? { id: drop.id, shareSnapshot: dropSnapshot } : null,
+          notePrefix: 'USDT income',
         })
-        .returning()
 
-      await this.bookCompanyObligations(dbtx, {
-        incomeAmount: data.amount,
-        projectId: data.projectId,
-        createdBy: currentUser.id,
-        senior:
-          senior && seniorSnapshot
-            ? { id: senior.id, role: senior.role, shareSnapshot: seniorSnapshot }
-            : null,
-        drop: drop && dropSnapshot ? { id: drop.id, shareSnapshot: dropSnapshot } : null,
-        notePrefix: 'USDT income',
+        return tx!.id
       })
-
-      return tx!.id
-    })
+    } catch (err) {
+      // PR #367 (MED-1 race): two concurrent submits with the SAME key both miss
+      // the early-SELECT (it runs outside any lock); A commits, B's insert hits
+      // uq_transactions_admin_income_idempotency_key (23505). Drizzle rolls the
+      // whole transaction back — NO partial income and NO orphan obligations —
+      // then rethrows. Re-read the committed winner on a FRESH connection (the
+      // aborted dbtx is unusable) and return it: idempotent response, not a 500.
+      if (isUniqueViolation(err)) {
+        const committed = await this.db.db.query.transactions.findFirst({
+          where: and(
+            eq(transactions.type, 'ADMIN_INCOME'),
+            eq(transactions.idempotencyKey, data.idempotencyKey),
+          ),
+        })
+        if (committed) return this.findOne(committed.id, currentUser)
+      }
+      throw err
+    }
 
     return this.findOne(txId, currentUser)
   }
