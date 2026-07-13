@@ -45,6 +45,21 @@ export const projectMemberSchema = z.object({
 export const currencySchema = z.enum(['USDT', 'USD', 'EUR', 'UAH'])
 
 /**
+ * task-drop-share-override-and-receiver (Part B / D1). Project payment type —
+ * migrated from a free-text `varchar(100)` to a fixed enum. Drives the income
+ * declaration gate: FOP/GIG projects let SENIOR/DROP declare their own income;
+ * USDT projects only let ADMIN declare (with a receiver), and the company books
+ * obligations to senior/drop. UI labels are Ukrainian: FOP→'ФОП',
+ * GIG_CONTRACT→'гіг-контракт', USDT→'USDT'.
+ *
+ * Field-scoped RBAC: only ADMIN/ACCOUNTANT may set it (service throws
+ * ForbiddenException for HR/SENIOR/JUNIOR) — same pattern as
+ * seniorSharePercentOverride. Masked to `null` for JUNIOR viewers (Q5).
+ */
+export const projectPaymentTypeSchema = z.enum(['FOP', 'GIG_CONTRACT', 'USDT'])
+export type ProjectPaymentType = z.infer<typeof projectPaymentTypeSchema>
+
+/**
  * Refinement enforcing XOR between the two logo columns (mirrors the
  * `chk_logo_xor` DB CHECK constraint). Both null is allowed (no logo).
  */
@@ -109,6 +124,30 @@ export const projectSchema = z.object({
    */
   dropSharePercent: z.number().int().min(0).max(100).nullable(),
   /**
+   * task-drop-share-override-and-receiver (Part A). Per-project DROP share %
+   * override (0-100). NULL = use the drop's global default. Editable only by
+   * ADMIN/ACCOUNTANT. Null for senior-only projects / JUNIOR viewers.
+   */
+  dropSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
+  /**
+   * Computed on the backend: the drop's global default
+   * (`users.dropSharePercent` → 5). UI hint when the override is null. Null
+   * for senior-only projects / JUNIOR viewers.
+   */
+  dropSharePercentDefault: z.number().int().min(0).max(100).nullable().optional(),
+  /**
+   * The effective DROP share % that WOULD apply to a new DROP_INCOME on this
+   * project — resolved by the same `resolveDropShare` used by the snapshot
+   * path (project override → user default → 5). Null for senior-only projects
+   * / JUNIOR viewers.
+   */
+  effectiveDropSharePercent: z.number().int().min(0).max(100).nullable().optional(),
+  /**
+   * Where `effectiveDropSharePercent` came from — 'PROJECT' | 'USER_DEFAULT'
+   * (no team level for the drop). Null when the field above is null.
+   */
+  effectiveDropShareSource: z.enum(['PROJECT', 'USER_DEFAULT']).nullable().optional(),
+  /**
    * Masked to `null` for JUNIOR viewers (finance data-hiding, RBAC A01).
    * Non-null for all other roles (ADMIN / SENIOR / HR / ACCOUNTANT).
    */
@@ -144,7 +183,11 @@ export const projectSchema = z.object({
   techStack: z.string().nullable(),
   teamSize: z.string().nullable(),
   benefits: z.string().nullable(),
-  paymentType: z.string().nullable(),
+  /**
+   * task-drop-share-override-and-receiver (D1). Project payment type enum.
+   * Non-null for all roles EXCEPT JUNIOR, who receives `null` (Q5 masking).
+   */
+  paymentType: projectPaymentTypeSchema.nullable(),
   salaryReview: z.string().nullable(),
   corpTech: z.string().nullable(),
   notesGeneral: z.string().nullable(),
@@ -333,9 +376,21 @@ export const createProjectSchema = z
     // Optional at create time; only ADMIN/ACCOUNTANT may pass this — service
     // throws ForbiddenException for HR/SENIOR/JUNIOR.
     seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
+    // task-drop-share-override-and-receiver (Part A). Per-project DROP share %
+    // override. Same field-scoped RBAC as seniorSharePercentOverride (only
+    // ADMIN/ACCOUNTANT — service throws for HR/SENIOR/JUNIOR). Applies only to
+    // drop-projects; ignored (no drop) otherwise. `null`/absent = drop's global
+    // default (`users.dropSharePercent` → 5).
+    dropSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
     techStack: z.string().max(500).optional().nullable(),
     teamSize: z.string().max(100).optional().nullable(),
     benefits: z.string().max(500).optional().nullable(),
+    // task-drop-share-override-and-receiver (D1). Payment type. Kept as a loose
+    // string at the WRITE boundary (the create form still submits free text; the
+    // frontend Select lands in a follow-up task) — the service validates it
+    // against `projectPaymentTypeSchema` (throws 400 on an unknown value) and
+    // applies field-scoped RBAC (only ADMIN/ACCOUNTANT may send it). Absent →
+    // backend default 'FOP'.
     paymentType: z.string().max(100).optional().nullable(),
     salaryReview: z.string().max(255).optional().nullable(),
     corpTech: z.string().max(255).optional().nullable(),
@@ -361,9 +416,20 @@ export const updateProjectSchema = z
     // Only ADMIN/ACCOUNTANT may include this field — service throws
     // ForbiddenException for HR/SENIOR/JUNIOR if it is present (even null).
     seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
+    // task-drop-share-override-and-receiver (Part A). Per-project DROP share %
+    // override. Field-scoped RBAC identical to seniorSharePercentOverride
+    // (ADMIN/ACCOUNTANT only). `null` clears (→ drop's global default),
+    // `number` sets, `undefined` (absent) = leave unchanged. Service applies
+    // implicit-null-reset (value === effective drop default → stored as null).
+    dropSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
     techStack: z.string().max(500).optional().nullable(),
     teamSize: z.string().max(100).optional().nullable(),
     benefits: z.string().max(500).optional().nullable(),
+    // task-drop-share-override-and-receiver (D1). Payment type. Loose string at
+    // the WRITE boundary (the edit form still submits free text; the frontend
+    // Select lands in a follow-up task) — the service validates it against
+    // `projectPaymentTypeSchema` and applies field-scoped RBAC (only ADMIN/
+    // ACCOUNTANT may include it). `undefined` (absent) = leave unchanged.
     paymentType: z.string().max(100).optional().nullable(),
     salaryReview: z.string().max(255).optional().nullable(),
     corpTech: z.string().max(255).optional().nullable(),

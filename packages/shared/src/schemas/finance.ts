@@ -54,6 +54,13 @@ export const transactionTypeSchema = z.enum([
   // reach the threshold AND the recipient matches the company wallet, then PAID.
   // Credits the company account balance once PAID.
   'COMPANY_DEPOSIT',
+  // task-drop-share-override-and-receiver (Part B). The company owes the DROP
+  // their share when a DROP_INCOME's receiver is an ADMIN (money landed on the
+  // admin, not on the drop). Mirror of SENIOR_PENDING_PAYOUT: a visible IOU row
+  // (status=PENDING_PAYMENT) paired with a pending_obligations row
+  // (creditor=DROP, debtor=COMPANY), settled by ACCOUNTANT/ADMIN via
+  // settleByCompany. Kept LAST for a clean additive `ALTER TYPE ... ADD VALUE`.
+  'DROP_PENDING_PAYOUT',
 ])
 export type TransactionType = z.infer<typeof transactionTypeSchema>
 
@@ -97,6 +104,21 @@ export type PayoutRequestStatus = z.infer<typeof payoutRequestStatusSchema>
 export const seniorSharePercentSourceSchema = z.enum(['PROJECT', 'TEAM', 'USER_DEFAULT'])
 export type SeniorSharePercentSource = z.infer<typeof seniorSharePercentSourceSchema>
 
+/**
+ * task-drop-share-override-and-receiver (Part A). Provenance of the DROP share
+ * percent snapshotted on a DROP_INCOME transaction.
+ *
+ * Hierarchy (highest priority first) — NO team level (unlike senior; the drop
+ * is bound to a project via `projects.dropId`, not through team membership):
+ *   - `'PROJECT'`      — `projects.dropSharePercentOverride` was set.
+ *   - `'USER_DEFAULT'` — fell back to `users.dropSharePercent` (or default 5).
+ *
+ * Nullable in the transaction snapshot to keep legacy DROP_INCOME rows
+ * (created before this column existed) renderable as-is.
+ */
+export const dropSharePercentSourceSchema = z.enum(['PROJECT', 'USER_DEFAULT'])
+export type DropSharePercentSource = z.infer<typeof dropSharePercentSourceSchema>
+
 export const transactionSchema = z.object({
   id: z.string().uuid(),
   type: transactionTypeSchema,
@@ -129,6 +151,18 @@ export const transactionSchema = z.object({
    * column existed). See `seniorSharePercentSourceSchema`.
    */
   seniorSharePercentSource: seniorSharePercentSourceSchema.nullable().optional(),
+  /**
+   * task-drop-share-override-and-receiver (Part A). Snapshot of the DROP share
+   * percent stamped on a DROP_INCOME at creation time (and carried onto the
+   * DROP_PENDING_PAYOUT IOU). Nullable — only DROP-flow rows carry it.
+   */
+  dropSharePercent: z.number().nullable().optional(),
+  /**
+   * Snapshot source for `dropSharePercent` — 'PROJECT' | 'USER_DEFAULT'. No
+   * team level (see `dropSharePercentSourceSchema`). Nullable for legacy /
+   * non-drop rows.
+   */
+  dropSharePercentSource: dropSharePercentSourceSchema.nullable().optional(),
   // Receipt: either a documents.id reference (uploaded RECEIPT file) OR an
   // external URL (etherscan, screenshot link). Mutually exclusive — the
   // backend enforces a row-level CHECK constraint. Both null = no receipt.
@@ -308,6 +342,41 @@ export const createAdminIncomeSchema = z
   .superRefine(refineCompanyAccountUsdt)
 export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
 
+// task-drop-share-override-and-receiver (D3). Sentinel value for the "company
+// account" receiver of an admin-declared USDT income — distinguishes crediting
+// the shared USDT pool from crediting a specific ADMIN's personal balance.
+export const COMPANY_ACCOUNT_RECEIVER = 'COMPANY_ACCOUNT'
+
+// task-drop-share-override-and-receiver (D3). Admin-only declaration of USDT
+// project income on a USDT-paymentType project. The gross amount lands on the
+// chosen receiver; the company then atomically books obligations to the
+// project's senior / drop (see bookCompanyObligations). The income row itself is
+// an ADMIN_INCOME transaction (adopt-before-extend — identical money semantics
+// to createAdminIncome, zero churn on ledger/summary/exhaustive maps).
+//
+//   receiverId = <uuid>            → an active ADMIN: gross credits THAT admin's
+//                                    personal balance (fundingSource=null,
+//                                    receiverId=admin).
+//   receiverId = 'COMPANY_ACCOUNT' → gross credits the shared company USDT pool
+//                                    (fundingSource=COMPANY_ACCOUNT,
+//                                    receiverId=caller, excluded from personal).
+//
+// Currency is always USDT (USDT project); the server enforces it too. RBAC:
+// ADMIN only (Q4 — ACCOUNTANT may NOT declare). Created immediately PAID (Q2).
+export const createUsdtIncomeSchema = z.object({
+  projectId: z.string().uuid(),
+  amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+  currency: z.literal('USDT'),
+  receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]),
+  notes: z.string().max(1000).optional().nullable(),
+  txDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .nullable(),
+})
+export type CreateUsdtIncomeDto = z.infer<typeof createUsdtIncomeSchema>
+
 // SENIOR_INCOME — senior registers project income, awaits validation
 export const createSeniorIncomeSchema = z
   .object({
@@ -329,6 +398,13 @@ export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
 // validation. Mirror of createSeniorIncomeSchema field-for-field so the
 // frontend can reuse the same form. Drop role - phase 2.
 // Constraint enforced server-side: project.dropId must equal the caller's id.
+//
+// task-drop-share-override-and-receiver (C14): a DROP declares its OWN income on
+// a FOP/GIG project WITHOUT a receiver selector — the money landed on the drop.
+// The `receiverId` selector belongs to the NEW admin-only USDT declaration flow
+// (`createUsdtIncomeSchema`), NOT here (this reverts the M1 mistake where
+// createDropIncome carried a REQUIRED receiverId). On a USDT project SENIOR/DROP
+// cannot declare at all — the backend gates them (only ADMIN declares USDT).
 export const createDropIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
