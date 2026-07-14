@@ -23,9 +23,7 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
-  SelectGroup,
   SelectItem,
-  SelectLabel,
   SelectSeparator,
   SelectTrigger,
   SelectValue,
@@ -692,8 +690,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             )}
 
           {/* task-drop-share-override-and-receiver (Surface B). Receiver of the
-              admin-USDT income — grouped Select (Admins / Company account). No
-              default pre-selection (ADR — deliberate choice each time). */}
+              admin-USDT income — flat Select (admins + company account), same
+              convention as the DIVIDEND receiver select below. No default
+              pre-selection (ADR — deliberate choice each time). */}
           {type === 'USDT_INCOME' && (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Получатель прихода</Label>
@@ -711,21 +710,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   <SelectValue placeholder="Выберите получателя" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>Админы</SelectLabel>
-                    {adminUsers.map((u) => (
-                      <SelectItem key={u.id} value={u.id} className="text-sm">
-                        {u.displayName}
-                      </SelectItem>
-                    ))}
-                  </SelectGroup>
-                  <SelectSeparator />
-                  <SelectGroup>
-                    <SelectLabel>Счёт компании</SelectLabel>
-                    <SelectItem value="COMPANY_ACCOUNT" className="text-sm">
-                      Счёт компании
+                  {adminUsers.map((u) => (
+                    <SelectItem key={u.id} value={u.id} className="text-sm">
+                      {u.displayName}
                     </SelectItem>
-                  </SelectGroup>
+                  ))}
+                  <SelectSeparator />
+                  <SelectItem value="COMPANY_ACCOUNT" className="text-sm">
+                    Счёт компании
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
