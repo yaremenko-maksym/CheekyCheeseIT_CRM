@@ -795,6 +795,13 @@ export function UserDialog(props: UserDialogProps) {
             accountantId: accountantId || null,
             teamTelegramChannel: normalizedTeamChannel,
           }),
+          // Prod bug fix: DROP's «Доля дропа (%)» edit was silently dropped —
+          // this branch was missing entirely, unlike the isSenior one above.
+          // The field renders and submits fine, but nothing carried the new
+          // value to the PATCH body, so admin edits never persisted.
+          ...(isDrop && {
+            dropSharePercent: value.dropSharePercent,
+          }),
           ...(!isSenior && {
             monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
             salaryCurrency: 'USD',
