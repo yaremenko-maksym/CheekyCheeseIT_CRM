@@ -43,4 +43,5 @@ worktree: .claude/worktrees/agent-a2a607af5fbfc4b7b (ALL edits inside here)
    company-account-debit-race/dividend/ledger/.rbac, dividend-idempotency, pay-salary-invoice,
    pay-salary.rbac, salary-funding-source, senior-settle-owner, usdt-income-idempotency,
    usdt-income-obligations, transactions.create-accountant.rbac.
+
 - Final: shared unit 321/321, api unit 1615/1615, api FULL integration 74 files / 770/770 green.
