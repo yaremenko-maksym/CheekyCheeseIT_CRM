@@ -82,10 +82,20 @@
 | `canAttachReceipt()`                | Новая shared-функция | RBAC+статус-гейт — единая логика для row-иконки, detail-кнопки и самого Sheet (§5.1)                                  |
 | `financeApi.attachReceipt(id, dto)` | Новый API-метод      | `api.patch<TransactionDto>(\`/transactions/${id}/receipt\`, data)`— паттерн 1:1 с`paySalary`/`adminUpdateTransaction` |
 
-**Координация с backend-задачей:** `AttachReceiptDto`-тип, точный `PATCH /transactions/:id/receipt`
-контракт, `EXPLORER_ALLOWLIST`-константа (shared, для FE-hint/валидации И BE-валидации, единый источник)
-— из backend-задачи (§5 брифа). Frontend-задача не стартует раньше готовности контракта (тот же
-sequential-порядок, что уже используется в `drop-share-override-and-receiver.md`).
+**Координация с backend-задачей (§5 брифа) — контракт УЖЕ landed** (`wip(shared): mandatory receipt
+refine + explorer allowlist + attach schema`, `packages/shared/src/schemas/finance.ts`), имена ниже —
+финальные, использовать буквально (НЕ изобретать альтернативные):
+
+- `attachReceiptSchema` / `AttachReceiptDto` — тело `PATCH /transactions/:id/receipt` (XOR, mandatory).
+- `BLOCKCHAIN_EXPLORER_HOSTS: ReadonlySet<string>` — 8 доменов allowlist (те же, что §4.2).
+- `isExplorerUrl(url: string): boolean` — https + allowlist-host + non-empty path.
+- `receiptMandatoryError(receipt, effectiveCurrency): string | null` — **готовая** shared pure-функция,
+  возвращает русское сообщение об ошибке (или `null`) по ЕДИНЫМ правилам (XOR, mandatory,
+  USDT→explorer-only). Frontend `validate()` вызывает её НАПРЯМУЮ — см. §3.1 (не переизобретать
+  проверку из отдельных `isAllowedExplorerUrl`/`hasReceipt`-проверок, как в первом черновике этой
+  спеки — `receiptMandatoryError` уже покрывает всё одним вызовом, DRY с backend).
+- `mandatoryReceiptRefine(getCurrency)` — backend-only superRefine-фабрика (уже применена ко всем 7
+  create/pay-схемам per §4.3 таблице — discriminant-выражения там подтверждены 1:1 с реальным кодом).
 
 ### 2.3 Согласование с существующим `txHash` (важное дизайн-решение)
 
@@ -151,20 +161,24 @@ const isExplorerOnly = effectiveCurrency === 'USDT'
 ```
 
 **`validate()` (:335-372)** — обязательность расширяется с `SENIOR_INCOME || DROP_INCOME` на ВСЕ
-`showReceipt`-типы:
+`showReceipt`-типы. Вызывает **готовую** shared-функцию `receiptMandatoryError` (§2.2) — НЕ
+переизобретает XOR/mandatory/explorer-проверку вручную:
 
 ```tsx
 if (showReceipt) {
-  if (!hasReceipt) errors.receipt = 'Прикрепите чек или укажите ссылку на подтверждение'
-  else if (isExplorerOnly && receipt.mode === 'url' && !isAllowedExplorerUrl(receipt.externalUrl)) {
-    errors.receipt =
-      'Ссылка должна вести на поддерживаемый blockchain-explorer (etherscan.io, tronscan.org и т.п.)'
-  }
+  const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+  const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+  const receiptError = receiptMandatoryError(
+    { receiptDocumentId, receiptExternalUrl },
+    effectiveCurrency,
+  )
+  if (receiptError) errors.receipt = receiptError
 }
 ```
 
-`isAllowedExplorerUrl` — импортируется из shared-константы (backend-контракт, §2.2) для DRY с
-серверной валидацией; НЕ дублировать regex вручную во фронте.
+`receiptMandatoryError` — импорт из `@crm/shared` (`packages/shared/src/schemas/finance.ts`), ТА ЖЕ
+функция, что backend гоняет в `mandatoryReceiptRefine`/сервисе — сообщение об ошибке 1:1 совпадает
+клиент/сервер (никакого дублирования copy/regex во фронте).
 
 **Рендер** (:1087-1106) — только проп-расширение, JSX-структура без изменений:
 
@@ -344,13 +358,16 @@ useEffect(() => {
 {!explorerOnly && state.mode === 'file' && (/* существующий file-режим :229-321, без изменений */)}
 ```
 
-### 4.2 Allowlist — единый источник (координация с backend)
+### 4.2 Allowlist — единый источник (landed, `packages/shared`)
 
 Домены (брифовый §5, верифицировано по `etherscan.service.ts`, USDT ERC-20 + разумное multi-chain
 расширение): `etherscan.io` (каноничный) · `tronscan.org` · `bscscan.com` · `polygonscan.com` ·
-`arbiscan.io` · `basescan.org` · `optimistic.etherscan.io` · `snowtrace.io`. Список — константа в
-`packages/shared` (backend-задача экспортирует; frontend импортирует ту же константу для hint-текста
-и `isAllowedExplorerUrl()` client-side проверки — НЕ хардкодить список отдельно во фронте, drift-риск).
+`arbiscan.io` · `basescan.org` · `optimistic.etherscan.io` · `snowtrace.io`. Экспортированы из
+`packages/shared/src/schemas/finance.ts`: `BLOCKCHAIN_EXPLORER_HOSTS: ReadonlySet<string>` (сами
+домены — для hint-текста, если понадобится динамически перечислить) + `isExplorerUrl(url): boolean`
+(https + allowlist-host + non-empty path). Frontend импортирует ОБА из `@crm/shared` — НЕ хардкодить
+список/regex отдельно (drift-риск). Для итоговой ошибки поля предпочтителен `receiptMandatoryError`
+(§2.2) — он уже вызывает `isExplorerUrl` внутри и возвращает готовое русское сообщение.
 
 ### 4.3 Discriminant per-диалог (сводная таблица)
 
@@ -825,11 +842,14 @@ transition/duration/easing значений не вводится — всё н�
 4. **`canAttachReceipt()`** — вынеси в отдельный файл (§5.1), импортируй ВЕЗДЕ (row/detail/sheet) —
    НЕ копируй тройное выражение в три места (drift-риск, к которому проект уже чувствителен —
    см. `.claude/agents/memory/*/lessons.md` про RBAC-рассинхрон между front-поверхностями).
-5. **Backend-зависимость (frontend НЕ стартует раньше готовности контракта):** `AttachReceiptDto`,
-   `PATCH /transactions/:id/receipt`, allowlist-константа из `packages/shared` — из backend-задачи
-   (opus + security-reviewer). Frontend/дизайн-часть (`ReceiptInput` prop extension, диалоги §3) МОГУТ
-   начинаться параллельно (не зависят от нового эндпоинта), но `AttachReceiptSheet`/`financeApi.attachReceipt`
-   — блокированы контрактом.
+5. **Backend-контракт УЖЕ landed** (`packages/shared/src/schemas/finance.ts`, wip-коммит
+   `wip(shared): mandatory receipt refine + explorer allowlist + attach schema`) — импортируй буквально
+   `attachReceiptSchema`/`AttachReceiptDto`/`isExplorerUrl`/`BLOCKCHAIN_EXPLORER_HOSTS`/
+   `receiptMandatoryError` из `@crm/shared`, НЕ переопределяй локально. `PATCH /transactions/:id/receipt`
+   контроллер/сервис — за backend-задачей (opus + security-reviewer), но shared-контракт для фронта
+   готов — `AttachReceiptSheet`/`financeApi.attachReceipt` можно реализовывать сразу, не дожидаясь
+   контроллера (типы уже есть; сетевой вызов до готовности эндпоинта просто вернёт 404, не блокирует
+   написание UI/типов).
 6. **`txHash` консолидация (§2.3)** — убери UI-инпут «TX Hash» из `PaySalaryDialog`, НЕ трогай
    `PayoutContent`/`PayoutAdminContent`-рендер (вне скоупа, A5). `SalaryContent` — легаси-fallback ряд
    `TxHashLink` условный (только если `tx.txHash && !tx.receiptDocumentId && !tx.receiptExternalUrl`).
