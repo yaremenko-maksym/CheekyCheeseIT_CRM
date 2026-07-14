@@ -410,16 +410,22 @@ const isUsdtLocked =
 
 ### Чек / подтверждение
 
-`showReceipt` (:456-460) расширить на `USDT_INCOME` — опциональный чек, как у `ADMIN_INCOME`
-(НЕ обязательный, в отличие от `SENIOR_INCOME`/`DROP_INCOME`):
+**Обновлено под финальное решение ADR Q1** (`docs/architecture/2026-07-13-payment-type-income-routing.md`,
+раздел «Открытые вопросы владельцу») — владелец выбрал **(а) прямой кредит, без on-chain
+tx-link верификации** для admin-USDT-прихода (не вариант «прямой + опциональная ссылка»,
+который предполагала более ранняя версия этого раздела). Из этого следует: `USDT_INCOME` —
+**без чека/подтверждения вообще**, не «опционально, как у `ADMIN_INCOME`». `showReceipt`
+(:456-460) НЕ расширяется на `USDT_INCOME`; `createUsdtIncomeSchema` (ADR D3) не содержит
+полей `receiptDocumentId`/`receiptExternalUrl`, submit-payload их не отправляет:
 
 ```tsx
 const showReceipt =
   type === 'ADMIN_INCOME' ||
   type === 'SENIOR_INCOME' ||
   type === 'DROP_INCOME' ||
-  type === 'USDT_INCOME' ||
   type === 'EXPENSE'
+// USDT_INCOME сюда НЕ входит (ADR Q1) — доверенный ADMIN, прямой кредит,
+// без receipt-доказательства для этого флоу.
 ```
 
 ### Валидация
