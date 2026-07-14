@@ -263,12 +263,13 @@ test.describe('Projects page', () => {
         await benefitsField.fill('Medical insurance, flexible schedule')
       }
 
-      const paymentTypeField = dialog
-        .getByPlaceholder(/тип оплаты/i)
-        .or(dialog.locator('input[name*="payment"]'))
-      if (await paymentTypeField.isVisible()) {
-        await paymentTypeField.fill('Monthly USDT payments')
-      }
+      // task-drop-share-e2e (Flow 0): paymentType moved from a free-text
+      // Input to a 3-value enum Select (ADR 2026-07-13-payment-type-income-
+      // routing D1) — pick an option via the Select instead of `.fill()`.
+      // The trigger is always present (unlike the other optional metadata
+      // inputs above), so no `isVisible()` guard is needed.
+      await dialog.getByTestId('project-payment-type-trigger').click()
+      await page.getByRole('option', { name: 'USDT', exact: true }).click()
 
       const salaryReviewField = dialog
         .getByPlaceholder(/пересмотр зп/i)
@@ -287,7 +288,9 @@ test.describe('Projects page', () => {
       if (body.techStack) expect(body.techStack).toBe('React, TypeScript, Node.js')
       if (body.teamSize) expect(body.teamSize).toBe('5-7 developers')
       if (body.benefits) expect(body.benefits).toBe('Medical insurance, flexible schedule')
-      if (body.paymentType) expect(body.paymentType).toBe('Monthly USDT payments')
+      // paymentType is always sent now (defaults to 'FOP', explicitly set to
+      // 'USDT' above) — no longer an optional free-text field.
+      expect(body.paymentType).toBe('USDT')
       if (body.salaryReview) expect(body.salaryReview).toBe('Every 6 months')
     })
 
@@ -387,13 +390,17 @@ test.describe('Projects page', () => {
     })
 
     test('metadata fields are displayed in project detail view', async ({ asAdmin: page }) => {
-      // Mock project with filled metadata
+      // Mock project with filled metadata. paymentType is now a 3-value enum
+      // (task-drop-share-e2e Flow 0, ADR 2026-07-13-payment-type-income-
+      // routing D1) — use a real enum member ('GIG_CONTRACT') instead of the
+      // stale free-text value; the page renders its RU label
+      // (PAYMENT_TYPE_LABELS), not the raw enum string.
       const projectWithMetadata = {
         ...PROJECTS[0],
         techStack: 'React, Node.js, PostgreSQL',
         teamSize: '5-8 developers',
         benefits: 'Health insurance, vacation days',
-        paymentType: 'Monthly crypto',
+        paymentType: 'GIG_CONTRACT',
         salaryReview: 'Annual',
         corpTech: 'Microservices, Docker',
         notesGeneral: 'Long-term strategic project',
@@ -416,7 +423,8 @@ test.describe('Projects page', () => {
       await expect(page.getByText('React, Node.js, PostgreSQL')).toBeVisible()
       await expect(page.getByText('5-8 developers')).toBeVisible()
       await expect(page.getByText('Health insurance, vacation days')).toBeVisible()
-      await expect(page.getByText('Monthly crypto')).toBeVisible()
+      // enum 'GIG_CONTRACT' renders as its RU label, not the raw value.
+      await expect(page.getByText('гіг-контракт')).toBeVisible()
       await expect(page.getByText('Annual')).toBeVisible()
       await expect(page.getByText('Microservices, Docker')).toBeVisible()
       await expect(page.getByText('Long-term strategic project')).toBeVisible()
