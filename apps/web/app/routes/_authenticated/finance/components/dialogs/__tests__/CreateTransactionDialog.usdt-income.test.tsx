@@ -239,6 +239,12 @@ describe('CreateTransactionDialog — USDT_INCOME validation + submit', () => {
     fireEvent.click(screen.getByTestId('usdt-income-receiver-trigger'))
     fireEvent.click(await screen.findByText('Admin Two'))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    // task-receipts-frontend: USDT_INCOME is always explorer-only (currency
+    // literal 'USDT') — the receipt is now mandatory, no tab-toggle to
+    // interact with, just the url field.
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xusdt1' },
+    })
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
     await waitFor(() => expect(declareUsdtProjectIncomeMock).toHaveBeenCalledTimes(1))
     const [payload] = declareUsdtProjectIncomeMock.mock.calls[0] as [Record<string, unknown>]
@@ -247,6 +253,7 @@ describe('CreateTransactionDialog — USDT_INCOME validation + submit', () => {
       amount: 500,
       currency: 'USDT',
       receiverId: 'admin-2',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xusdt1',
     })
   })
 
@@ -259,10 +266,27 @@ describe('CreateTransactionDialog — USDT_INCOME validation + submit', () => {
     fireEvent.click(screen.getByTestId('usdt-income-receiver-trigger'))
     fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '250' } })
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xusdt2' },
+    })
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
     await waitFor(() => expect(declareUsdtProjectIncomeMock).toHaveBeenCalledTimes(1))
     const [payload] = declareUsdtProjectIncomeMock.mock.calls[0] as [Record<string, unknown>]
     expect(payload).toMatchObject({ receiverId: 'COMPANY_ACCOUNT' })
+  })
+
+  it('blocks submit and shows the receipt error when no receipt is attached', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-usdt_income')
+    clickTypeCard('create-transaction-type-usdt_income')
+    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
+    fireEvent.click(await screen.findByText('USDT Project One'))
+    fireEvent.click(screen.getByTestId('usdt-income-receiver-trigger'))
+    fireEvent.click(await screen.findByText('Admin Two'))
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-error-receipt')).toBeInTheDocument()
+    expect(declareUsdtProjectIncomeMock).not.toHaveBeenCalled()
   })
 
   it('currency is locked to USDT for USDT_INCOME (currency Select disabled)', async () => {
