@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
-import { COMPANY_REQUISITES_MAX } from '@crm/shared'
+import { COMPANY_REQUISITES_MAX, receiptMandatoryError } from '@crm/shared'
 import type {
   CompanyAccountDto,
   CompanyDepositDto,
@@ -367,7 +367,15 @@ export class CompanyAccountService {
    * company-account debit (closes the TOCTOU vs. concurrent salary/expense).
    */
   async createDividend(
-    input: { amount: number; adminId?: string | undefined; idempotencyKey: string },
+    input: {
+      amount: number
+      adminId?: string | undefined
+      idempotencyKey: string
+      // task-receipts-backend (#9): a dividend is a USDT withdrawal → receipt
+      // MANDATORY and explorer-only. Zod enforces this; re-checked below.
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+    },
     currentUser: SessionUser,
   ): Promise<{ id: string; amount: number; receiverId: string }> {
     if (currentUser.role !== 'ADMIN') {
@@ -376,6 +384,13 @@ export class CompanyAccountService {
     if (!(input.amount > 0)) {
       throw new BadRequestException('Сумма дивидендов должна быть положительной')
     }
+
+    // task-receipts-backend defense-in-depth: USDT → explorer-only, mandatory.
+    const receiptErr = receiptMandatoryError(
+      { receiptDocumentId: input.receiptDocumentId, receiptExternalUrl: input.receiptExternalUrl },
+      'USDT',
+    )
+    if (receiptErr) throw new BadRequestException(receiptErr)
 
     // BIZ-19 (MED-2): idempotency check. Look for an existing DIVIDEND_TO_ADMIN
     // row with that key BEFORE acquiring the advisory lock (the lookup is a plain
@@ -432,6 +447,10 @@ export class CompanyAccountService {
             receiverId,
             recipientId: receiverId,
             createdBy: currentUser.id,
+            // task-receipts-backend (#9): explorer link (USDT → explorer-only, so
+            // receiptDocumentId is always null here).
+            receiptDocumentId: input.receiptDocumentId ?? null,
+            receiptExternalUrl: input.receiptExternalUrl ?? null,
             // BIZ-19: persist the key so the unique index enforces idempotency
             // as a DB-level backstop (concurrent races that bypass the SELECT above).
             idempotencyKey: input.idempotencyKey ?? null,

@@ -1201,6 +1201,34 @@ export const projectAuditLog = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Transaction Audit Log — task-receipts-backend. Records receipt attach/replace
+// mutations made through the generic PATCH /transactions/:id/receipt endpoint.
+//
+// Unlike the other *_audit_log tables, targetId is NOT an FK-cascade to
+// transactions: an audit trail must OUTLIVE the row it describes (deleting a
+// transaction must not erase the record that a receipt was attached/replaced on
+// it). actorId → users with ON DELETE SET NULL (keep the audit if the actor is
+// removed). action is a plain text discriminator ('ATTACH' | 'REPLACE').
+// ---------------------------------------------------------------------------
+
+export const transactionAuditLog = pgTable(
+  'transaction_audit_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    // transactions.id — intentionally NO FK reference (audit survives tx delete).
+    targetId: uuid('target_id').notNull(),
+    action: text('action').notNull(),
+    metadata: jsonb('metadata').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('transaction_audit_log_target_id_idx').on(t.targetId),
+    index('transaction_audit_log_created_at_idx').on(t.createdAt),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
 

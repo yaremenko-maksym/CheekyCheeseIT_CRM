@@ -42,6 +42,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, inArray } from 'drizzle-orm'
+import { receiptMandatoryError } from '@crm/shared'
 import type {
   PendingSettlementItemDto,
   PendingObligationDto,
@@ -62,6 +63,7 @@ import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
 } from './company-account-balance'
+import { assertReceiptDocumentBindable } from './receipt.util'
 
 /**
  * task-senior-settle-owner: the pay-time funding selection for a senior IOU
@@ -76,6 +78,10 @@ export type SettleFunding = {
   fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
   payerAdminId?: string | undefined
   currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+  // task-receipts-backend (#10): mandatory settle proof — currency-aware
+  // (COMPANY_ACCOUNT → USDT → explorer-only; ADMIN_PERSONAL USD → file/url).
+  receiptDocumentId?: string | null | undefined
+  receiptExternalUrl?: string | null | undefined
 }
 
 @Injectable()
@@ -242,6 +248,26 @@ export class PendingSettlementService {
       currency = 'USDT'
     }
 
+    // task-receipts-backend (#10): a settle from the user-facing dialog supplies
+    // `funding` carrying a MANDATORY receipt. Re-validate on the service against
+    // the RESOLVED currency (COMPANY_ACCOUNT → USDT → explorer-only), and verify
+    // the doc binding for an ADMIN_PERSONAL file receipt. The legacy obligation-id
+    // `:id/settle-company` route passes NO funding and keeps its pre-feature
+    // behaviour (no receipt — backward compat; that route has no UI to attach one).
+    if (funding) {
+      const receiptErr = receiptMandatoryError(
+        {
+          receiptDocumentId: funding.receiptDocumentId,
+          receiptExternalUrl: funding.receiptExternalUrl,
+        },
+        currency,
+      )
+      if (receiptErr) throw new BadRequestException(receiptErr)
+      if (funding.receiptDocumentId) {
+        await assertReceiptDocumentBindable(this.db.db, funding.receiptDocumentId, actor)
+      }
+    }
+
     const created: Transaction[] = []
     await this.db.db.transaction(async (dbtx) => {
       // SECURITY (TOCTOU, MED — PR #262): the PENDING→PAID transition is the
@@ -320,6 +346,10 @@ export class PendingSettlementService {
           receiverId: obligation.creditorUserId,
           recipientId: obligation.creditorUserId,
           projectId: project?.id ?? null,
+          // task-receipts-backend (#10): stamp the settle proof (only the
+          // user-facing funding-carrying flow supplies one; legacy → null).
+          receiptDocumentId: funding?.receiptDocumentId ?? null,
+          receiptExternalUrl: funding?.receiptExternalUrl ?? null,
           notes: isDropObligation
             ? `Выплата drop IOU (obligation ${obligation.id})`
             : `Выплата senior IOU (obligation ${obligation.id})`,
