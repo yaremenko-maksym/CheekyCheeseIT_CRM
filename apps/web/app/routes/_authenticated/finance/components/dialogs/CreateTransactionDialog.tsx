@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TransactionType } from '@crm/shared'
-import { SALARY_ELIGIBLE_ROLES } from '@crm/shared'
+import { SALARY_ELIGIBLE_ROLES, receiptMandatoryError } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
@@ -255,6 +255,31 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     type === 'USDT_INCOME' ||
     ((type === 'EXPENSE' || type === 'ADMIN_INCOME') && fundingSource === 'COMPANY_ACCOUNT')
 
+  // task-receipts-frontend. Single discriminant for the receipt explorer-only
+  // mode across all 7 receipt-carrying types in this dialog (design-spec §3.1
+  // / §4.3): DIVIDEND is implicitly USDT (no currency selector at all — a
+  // dividend is a USDT withdrawal), everything else follows `isUsdtLocked`
+  // (which already covers USDT_INCOME always + COMPANY_ACCOUNT funding lock)
+  // OR the freely-chosen `currency` state (SENIOR_INCOME/DROP_INCOME/
+  // ADMIN_TRANSFER — USDT is a valid manual choice there too).
+  const effectiveCurrency: Currency =
+    type === 'DIVIDEND' ? 'USDT' : isUsdtLocked ? 'USDT' : currency
+  const isExplorerOnly = effectiveCurrency === 'USDT'
+
+  // task-receipts-frontend: mandatory-receipt types (design-spec §3.1) — was
+  // ADMIN_INCOME/SENIOR_INCOME/DROP_INCOME/EXPENSE only; now extended to ALL
+  // 7 create flows that carry a receipt. SALARY (create-time reminder) is
+  // deliberately NOT included (A3 — the reminder is neutral; the receipt is
+  // required at PAY time instead, see PaySalaryDialog).
+  const showReceipt =
+    type === 'ADMIN_INCOME' ||
+    type === 'SENIOR_INCOME' ||
+    type === 'DROP_INCOME' ||
+    type === 'EXPENSE' ||
+    type === 'USDT_INCOME' ||
+    type === 'ADMIN_TRANSFER' ||
+    type === 'DIVIDEND'
+
   // Fetch NBU rates when non-USD/USDT currency selected, keyed by date
   const needsRate = needsConversion(currency)
   const rateDateParam = txDate.replace(/-/g, '') // YYYY-MM-DD → YYYYMMDD
@@ -337,7 +362,6 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
-    const hasReceipt = receiptDocumentId || receiptExternalUrl
 
     if (
       type === 'ADMIN_INCOME' ||
@@ -347,8 +371,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     ) {
       if (!projectId) errors.project = 'Выберите проект'
     }
-    if (type === 'SENIOR_INCOME' || type === 'DROP_INCOME') {
-      if (!hasReceipt) errors.receipt = 'Прикрепите чек или укажите ссылку на подтверждение'
+    // task-receipts-frontend: mandatory + currency-aware (USDT → explorer-only)
+    // for ALL showReceipt types now — delegates to the SAME shared pure
+    // function the backend refine calls, so the client/server error text and
+    // rules never drift (design-spec §3.1).
+    if (showReceipt) {
+      const receiptError = receiptMandatoryError(
+        { receiptDocumentId, receiptExternalUrl },
+        effectiveCurrency,
+      )
+      if (receiptError) errors.receipt = receiptError
     }
     // task-drop-share-override-and-receiver (Surface B). Receiver is REQUIRED
     // for the admin-USDT flow — reuses the same `receiver` field-error slot as
@@ -419,14 +451,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       // task-drop-share-override-and-receiver (Surface B, ADR D3). ADMIN-only
       // USDT project-income declaration with an explicit receiver (an ADMIN's
       // uuid or the 'COMPANY_ACCOUNT' sentinel — sent as-is from the Select).
-      // No receipt fields — `createUsdtIncomeSchema` doesn't carry them (unlike
-      // SENIOR_INCOME/DROP_INCOME/ADMIN_INCOME).
+      // task-receipts-frontend: receipt is now MANDATORY here (explorer-only —
+      // `createUsdtIncomeSchema` currency is a `z.literal('USDT')`).
       if (type === 'USDT_INCOME') {
         return financeApi.declareUsdtProjectIncome({
           projectId,
           amount: amt,
           currency: 'USDT',
           receiverId,
+          receiptDocumentId,
+          receiptExternalUrl,
           // MED-1 (security-review PR #367): stable per-open idempotency key so a
           // double-click / retry does not create a second income + obligation set.
           idempotencyKey: usdtIncomeIdempotencyKey,
@@ -461,25 +495,34 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         })
       }
       if (type === 'ADMIN_TRANSFER') {
+        // task-receipts-frontend: receipt now MANDATORY, currency-aware
+        // (`createAdminTransferSchema` defaults currency to USDT → explorer-only
+        // unless the user manually picked a different currency).
         return financeApi.createAdminTransfer({
           senderId: effectiveTransferSenderId,
           receiverId: transferReceiverId,
           amount: amt,
           currency,
+          receiptDocumentId,
+          receiptExternalUrl,
           notes: notes || null,
           txDate: txDate || null,
         })
       }
       if (type === 'DIVIDEND') {
         // Company-account dividend (ADMIN-only). Always USDT; receiver is an
-        // ADMIN partner (adminId). Currency / project / receipt fields are
-        // irrelevant here — the endpoint only needs amount + target admin.
+        // ADMIN partner (adminId). Currency / project fields are irrelevant
+        // here — the endpoint only needs amount + target admin. task-receipts-
+        // frontend: receipt is now MANDATORY + explorer-only (a dividend is a
+        // USDT withdrawal from the company account).
         // MED-2 (BIZ-19): send the stable idempotencyKey (generated at dialog
         // open, refreshed on close). A double-click retry with the same key is
         // idempotent on the backend; reopening the dialog gets a fresh UUID.
         return companyAccountApi.createDividend({
           amount: amt,
           idempotencyKey: dividendIdempotencyKey,
+          receiptDocumentId,
+          receiptExternalUrl,
           ...(dividendReceiverId ? { adminId: dividendReceiverId } : {}),
         })
       }
@@ -539,11 +582,6 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   }
 
   const error = mutation.error != null ? getApiErrorMessage(mutation.error) : null
-  const showReceipt =
-    type === 'ADMIN_INCOME' ||
-    type === 'SENIOR_INCOME' ||
-    type === 'DROP_INCOME' ||
-    type === 'EXPENSE'
   const hasFieldErrors = Object.keys(fieldErrors).length > 0
 
   // Conversion info
@@ -1076,7 +1114,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             </div>
           )}
 
-          {/* Receipt */}
+          {/* Receipt — mandatory for all 7 showReceipt types (task-receipts-frontend);
+              explorer-only (link, no file) when the effective currency is USDT. */}
           {showReceipt && (
             <div className="space-y-1.5">
               <ReceiptInput
@@ -1085,7 +1124,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   setReceipt(s)
                   clearFieldError('receipt')
                 }}
-                label={type === 'SENIOR_INCOME' ? 'Чек / подтверждение *' : 'Чек / подтверждение'}
+                label="Чек / подтверждение *"
+                explorerOnly={isExplorerOnly}
+                error={fieldErrors.receipt}
               />
               {fieldErrors.receipt && (
                 <p

@@ -107,7 +107,7 @@ interface ReceiptInputProps {
    * error TEXT itself (existing `fieldErrors.receipt` pattern); this prop
    * only drives the visual state of the input.
    */
-  error?: string
+  error?: string | undefined
 }
 
 export function ReceiptInput({

@@ -1,5 +1,5 @@
 import { forwardRef } from 'react'
-import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet, BadgeCheck } from 'lucide-react'
+import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet, BadgeCheck, Receipt } from 'lucide-react'
 // NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
@@ -16,6 +16,7 @@ import {
   fmtDate,
   type ExchangeRates,
 } from '../constants'
+import { canAttachReceipt } from './receipt-permissions'
 
 function TypeBadge({ type }: { type: TransactionDto['type'] }) {
   return (
@@ -266,6 +267,15 @@ type TransactionRowProps = {
    * new PAYOUT_CONFIRMED credit row for the chosen admin.
    */
   onConfirmPayout?: (tx: TransactionDto) => void
+  /**
+   * task-receipts-frontend. Opens `AttachReceiptSheet` for this tx (attach
+   * when it has no receipt yet, replace otherwise). Rendered as a compact
+   * icon button visible from ≥768px — RBAC/status-gated via
+   * `canAttachReceipt` (see `receipt-permissions.ts`). On mobile the primary
+   * entry point is the button inside `TransactionDetailDialog` instead (the
+   * row's actions cell is already a tight horizontal-scroll area).
+   */
+  onAttachReceipt?: (tx: TransactionDto) => void
   onClick?: (tx: TransactionDto) => void
 }
 
@@ -291,6 +301,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       onInitiatePayout,
       onOpenPayoutDetail,
       onConfirmPayout,
+      onAttachReceipt,
       onClick,
     },
     ref,
@@ -355,6 +366,14 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // off-platform money and flips the PAYOUT to PAID (see ConfirmPayoutDialog).
     const showConfirmPayout =
       (isAdmin || isAccountant) && tx.type === 'PAYOUT' && tx.status === 'PENDING_PAYMENT'
+    // task-receipts-frontend. Compact row entry for attach/replace-receipt —
+    // visible from ≥768px only (see `onAttachReceipt` doc above). Gated on
+    // BOTH the shared RBAC/status rule AND the handler actually being wired
+    // (mirrors every other row action in this component) — surfaces omitted
+    // read-only consumers (e.g. the dashboard's ActiveTransactionsTable) do
+    // not render an inert button.
+    const hasReceipt = !!(tx.receiptDocumentId || tx.receiptExternalUrl)
+    const showAttachReceipt = !!onAttachReceipt && canAttachReceipt(tx, currentUserId, role)
 
     return (
       <motion.tr
@@ -580,6 +599,39 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
             )}
+            {/* task-receipts-frontend. Attach/replace-receipt affordance —
+                hidden below md (768px), the row's actions cell is already a
+                tight horizontal-scroll strip on mobile; the primary mobile
+                entry is the button inside TransactionDetailDialog instead. */}
+            <div className="hidden md:inline-flex">
+              {showAttachReceipt ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className={cn(
+                    'h-7 w-7 p-0',
+                    hasReceipt
+                      ? 'text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10'
+                      : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
+                  )}
+                  onClick={() => onAttachReceipt?.(tx)}
+                  title={hasReceipt ? 'Заменить чек' : 'Прикрепить чек'}
+                  aria-label={hasReceipt ? 'Заменить чек' : 'Прикрепить чек'}
+                  data-testid={`tx-row-attach-receipt-${tx.id}`}
+                >
+                  <Receipt className="h-3.5 w-3.5" />
+                </Button>
+              ) : hasReceipt ? (
+                <span
+                  className="inline-flex h-7 w-7 items-center justify-center text-emerald-400/60"
+                  title="Чек прикреплён"
+                  aria-label="Чек прикреплён"
+                  data-testid={`tx-row-receipt-indicator-${tx.id}`}
+                >
+                  <Receipt className="h-3.5 w-3.5" />
+                </span>
+              ) : null}
+            </div>
           </div>
         </td>
       </motion.tr>
