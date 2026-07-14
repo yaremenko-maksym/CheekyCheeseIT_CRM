@@ -25,23 +25,85 @@
  * shape without polluting the DB. (Real DB hits would defeat the purpose
  * of testing edge clamping — we just need to confirm the value the
  * frontend *would* send.)
+ *
+ * Submit-button drift (task-drop-share-slider-shard — never run on a real
+ * runner before, per PR #376 MED-1): A3-3 turned CREATE mode into a 3-step
+ * wizard — step 1's button is `wizard-next-btn` ("Далее"), which calls the
+ * same `form.handleSubmit()` and (for DROP) fires the POST immediately, same
+ * as before. `user-dialog-submit` only renders in EDIT mode now (see
+ * `users.spec.ts` A3-3 comment / `UserDialog.tsx` — `!isCreate` branch). This
+ * spec previously targeted the now edit-only `user-dialog-submit`, which
+ * silently never resolved in CREATE mode.
  */
 
 import { test, expect } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
+import type { Locator, Page } from '@playwright/test'
 
 const API = 'http://localhost:3001/api'
 
-/** Fill the minimum required fields for DROP submit (email, name, requisites). */
+/**
+ * Fill the minimum required fields for DROP submit: email, name, USDT
+ * requisites, AND an explicit HR + accountant selection.
+ *
+ * Fixture-gap fix (task-drop-share-slider-shard, follow-up to PR #376 MED-1):
+ * `createDropSchema`/`UserDialog.onSubmit` requires `hrIds.length >= 1` and a
+ * truthy `accountantId` before the POST fires (see `UserDialog.tsx` — the
+ * `hrIds.length === 0` / `!accountantId` guards `return` early with a toast,
+ * so the mocked `/users/drops` POST never happens and `waitForRequest` below
+ * would time out). `UserDialog` auto-selects HR/accountant ONLY when the
+ * dataset has exactly one of each (`hrUsers.length === 1` /
+ * `accountantUsers.length === 1`) — with 2+ HRs (e.g. a `crm_qa`-style
+ * dataset that accumulated more users than the single-HR CI seed) nothing is
+ * pre-selected and the picker ("Добавить HR" / "Выбрать бухгалтера") stays
+ * open instead. We wait for each section to finish loading (GET /users
+ * resolved) and, if the "add" trigger is still showing — i.e. nothing was
+ * auto-selected/locked — explicitly pick the first available option. This is
+ * deterministic across any dataset size, not just the CI single-HR seed.
+ *
+ * Radix `Popover` content portals to `<body>` (see `components/ui/popover.tsx`
+ * — `PopoverPrimitive.Portal`), so the option locators below are page-scoped,
+ * not dialog-scoped (playwright-patterns skill — Radix async-select pattern).
+ *
+ * `legalFullName` is also required for CREATE-mode contract-eligible roles
+ * (SENIOR/HR/JUNIOR/ACCOUNTANT/DROP — see the `legalFullName` field's
+ * `onSubmit` validator in `UserDialog.tsx`, A3-3 AC6/bug#2): without it,
+ * `form.handleSubmit()` fails validation and returns before ever calling our
+ * `onSubmit` — no toast, no network call, dialog stays open. This is the
+ * actual reason the mocked POST never fired; filling it is required for ANY
+ * dataset, same as the HR/accountant selection above.
+ */
 async function fillBaseDropFields(
-  dialog: ReturnType<import('@playwright/test').Page['getByTestId']>,
+  page: Page,
+  dialog: Locator,
   email: string,
   name: string,
 ): Promise<void> {
   await dialog.getByTestId('user-dialog-email').fill(email)
   await dialog.getByTestId('user-dialog-name').fill(name)
+  await dialog.getByTestId('user-dialog-legal-full-name').fill('Testenko Test Testovych')
   await dialog.getByTestId('user-dialog-payment-method-USDT_ERC20').click()
   await dialog.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
+
+  // HR — the multiselect wrapper renders once `hrUsers.length > 0` (data
+  // loaded), regardless of whether anything is auto-selected yet.
+  await expect(dialog.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
+  const hrAddTrigger = dialog.getByTestId('user-dialog-hr-add-trigger')
+  if ((await hrAddTrigger.count()) > 0) {
+    await hrAddTrigger.click()
+    await page.locator('[data-testid^="user-dialog-hr-option-"]').first().click()
+  }
+
+  // Accountant — either the locked chip (single-accountant auto-select) or
+  // the picker trigger (2+ accountants, nothing pre-selected) renders once
+  // data loads; wait for whichever shows up, then pick one if still needed.
+  const accountantChip = dialog.getByTestId('user-dialog-accountant-chip')
+  const accountantTrigger = dialog.getByTestId('user-dialog-accountant-trigger')
+  await expect(accountantChip.or(accountantTrigger)).toBeVisible()
+  if ((await accountantTrigger.count()) > 0) {
+    await accountantTrigger.click()
+    await page.locator('[data-testid^="user-dialog-accountant-option-"]').first().click()
+  }
 }
 
 test.describe('Drop share slider — extreme values (AC4)', () => {
@@ -68,7 +130,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     await page.getByRole('option', { name: 'Дроп' }).click()
 
     const dialog = page.getByTestId('user-dialog')
-    await fillBaseDropFields(dialog, 'drop-zero@example.dev', 'Drop Zero')
+    await fillBaseDropFields(page, dialog, 'drop-zero@example.dev', 'Drop Zero')
 
     // Fill the slider number input — placed *after* the senior share input
     // when present, but for DROP the slider is the only number input in
@@ -80,7 +142,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     const postReq = page.waitForRequest(
       (req) => req.url().endsWith('/api/users/drops') && req.method() === 'POST',
     )
-    await dialog.getByTestId('user-dialog-submit').click()
+    await dialog.getByTestId('wizard-next-btn').click()
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body['dropSharePercent']).toBe(0)
@@ -104,7 +166,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     await page.getByRole('option', { name: 'Дроп' }).click()
 
     const dialog = page.getByTestId('user-dialog')
-    await fillBaseDropFields(dialog, 'drop-max@example.dev', 'Drop Max')
+    await fillBaseDropFields(page, dialog, 'drop-max@example.dev', 'Drop Max')
 
     const sliderNumber = dialog.locator('input[type="number"]').first()
     await sliderNumber.fill('100')
@@ -113,7 +175,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     const postReq = page.waitForRequest(
       (req) => req.url().endsWith('/api/users/drops') && req.method() === 'POST',
     )
-    await dialog.getByTestId('user-dialog-submit').click()
+    await dialog.getByTestId('wizard-next-btn').click()
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body['dropSharePercent']).toBe(100)
@@ -141,7 +203,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     await page.getByRole('option', { name: 'Дроп' }).click()
 
     const dialog = page.getByTestId('user-dialog')
-    await fillBaseDropFields(dialog, 'drop-neg@example.dev', 'Drop Neg')
+    await fillBaseDropFields(page, dialog, 'drop-neg@example.dev', 'Drop Neg')
 
     const sliderNumber = dialog.locator('input[type="number"]').first()
     await sliderNumber.fill('-5')
@@ -156,7 +218,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     const postReq = page.waitForRequest(
       (req) => req.url().endsWith('/api/users/drops') && req.method() === 'POST',
     )
-    await dialog.getByTestId('user-dialog-submit').click()
+    await dialog.getByTestId('wizard-next-btn').click()
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body['dropSharePercent']).toBe(0)
@@ -182,7 +244,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     await page.getByRole('option', { name: 'Дроп' }).click()
 
     const dialog = page.getByTestId('user-dialog')
-    await fillBaseDropFields(dialog, 'drop-ovr@example.dev', 'Drop Ovr')
+    await fillBaseDropFields(page, dialog, 'drop-ovr@example.dev', 'Drop Ovr')
 
     const sliderNumber = dialog.locator('input[type="number"]').first()
     await sliderNumber.fill('150')
@@ -195,7 +257,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     const postReq = page.waitForRequest(
       (req) => req.url().endsWith('/api/users/drops') && req.method() === 'POST',
     )
-    await dialog.getByTestId('user-dialog-submit').click()
+    await dialog.getByTestId('wizard-next-btn').click()
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
     expect(body['dropSharePercent']).toBe(100)

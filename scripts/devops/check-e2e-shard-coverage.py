@@ -72,11 +72,12 @@ KNOWN_UNSHARDED = {
     "tests/drop-route-guards.spec.ts",            # debt: not gated, migrate to drop shard later
     "tests/drop-routing-hub.spec.ts",             # debt: not gated, migrate to drop shard later
     "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
-    "tests/drop-share-slider.spec.ts",            # debt: not gated, migrate to drop shard later
     # --- money-path (FM-5 complete): all 3 specs now gated in drop-finance shard.
     # company-account throttle is env-relaxable via RelaxableThrottle (#275/#277).
     # THROTTLE_RELAXED=true + THROTTLER_LIMIT=2000 set in E2E job env (#276).
     # pending-settlement, drop-role-end-to-end, rbac-matrix-smoke → drop-finance shard.
+    # drop-share-slider.spec.ts: gated in drop-finance shard (task-drop-share-slider-shard,
+    # closes PR #376 MED-1 coverage gap).
     # --- finance extras ---
     "tests/finance-funding-source.spec.ts",       # debt: not gated, migrate to finance shard later
     "tests/finance-payout-simulate.spec.ts",      # debt: not gated, migrate to finance shard later
