@@ -29,6 +29,7 @@ import type {
   CreateDividendDto,
   UpdateWalletDto,
   UpdateRequisitesDto,
+  AttachReceiptDto,
 } from '@crm/shared'
 
 export const financeApi = {
@@ -90,6 +91,13 @@ export const financeApi = {
 
   adminUpdateTransaction: (id: string, data: AdminUpdateTransactionDto) =>
     api.patch<TransactionDto>(`/transactions/${id}/admin-edit`, data).then((r) => r.data),
+
+  // task-receipts-frontend. Generic attach/replace-receipt endpoint — used by
+  // `AttachReceiptSheet` (row icon + detail-dialog entry points). RBAC/status
+  // rules are enforced server-side (see `receipt-permissions.ts` for the
+  // matching UI-level gate).
+  attachReceipt: (id: string, data: AttachReceiptDto) =>
+    api.patch<TransactionDto>(`/transactions/${id}/receipt`, data).then((r) => r.data),
 
   deleteTransaction: (id: string) =>
     api.delete<{ deleted: boolean }>(`/transactions/${id}`).then((r) => r.data),
