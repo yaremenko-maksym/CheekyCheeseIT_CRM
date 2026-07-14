@@ -280,6 +280,141 @@ const receiptXorMessage = {
   path: ['receiptExternalUrl'],
 }
 
+// ---------------------------------------------------------------------------
+// Mandatory receipt + blockchain-explorer allowlist (task-receipts-backend)
+// ---------------------------------------------------------------------------
+
+/**
+ * Blockchain-explorer host allowlist — the SINGLE source of truth for both the
+ * frontend hint and the backend validation (pm-brief §5). A USDT-currency
+ * transaction's receipt MUST be a link to one of these explorers (a file is NOT
+ * accepted); partners often send TRC-20 from Tron because of the cheap fees, so
+ * the list spans the networks where USDT realistically moves. The owner may
+ * widen / narrow this set — it is config, not logic.
+ */
+export const BLOCKCHAIN_EXPLORER_HOSTS: ReadonlySet<string> = new Set([
+  'etherscan.io', // Ethereum ERC-20 (canonical — verified in etherscan.service.ts)
+  'tronscan.org', // Tron TRC-20
+  'bscscan.com', // BNB Chain BEP-20
+  'polygonscan.com', // Polygon
+  'arbiscan.io', // Arbitrum
+  'basescan.org', // Base
+  'optimistic.etherscan.io', // Optimism
+  'snowtrace.io', // Avalanche C-Chain
+])
+
+/**
+ * True iff `url` is an https link to a known blockchain-explorer host with a
+ * non-empty path (a bare host is not a transaction proof). Host match is
+ * case-insensitive with a leading `www.` stripped. Rejects non-https, unknown
+ * hosts, and `javascript:` / `data:` schemes.
+ *
+ * Self-contained parsing (no `URL` global — `@crm/shared` targets a minimal lib
+ * consumed by both Node and the browser) with exact host match, so a look-alike
+ * like `etherscan.io.evil.com`, `evil.com/etherscan.io`, or a userinfo trick
+ * `etherscan.io@evil.com` all fail. Any `@` (userinfo) or `:` (port) is stripped
+ * from the authority before the allowlist check.
+ */
+export function isExplorerUrl(url: string): boolean {
+  // Require https + capture the authority (up to the first / ? or #) and rest.
+  const match = /^https:\/\/([^/?#]+)([/?#].*)?$/i.exec(url)
+  if (!match) return false
+  let authority = match[1]!.toLowerCase()
+  // Strip userinfo (`user:pass@host`) — keep only the segment after the last `@`.
+  const atIdx = authority.lastIndexOf('@')
+  if (atIdx >= 0) authority = authority.slice(atIdx + 1)
+  // Strip the port.
+  const colonIdx = authority.indexOf(':')
+  if (colonIdx >= 0) authority = authority.slice(0, colonIdx)
+  const host = authority.replace(/^www\./, '')
+  if (!BLOCKCHAIN_EXPLORER_HOSTS.has(host)) return false
+  // Require a real (non-empty) path — a bare host / query / fragment is not a
+  // tx proof. Strip any query/fragment, then demand more than a lone `/`.
+  const path = (match[2] ?? '').replace(/[?#].*$/, '')
+  return path.length > 1
+}
+
+type ReceiptShape = {
+  receiptDocumentId?: string | null | undefined
+  receiptExternalUrl?: string | null | undefined
+}
+
+/**
+ * Pure, framework-agnostic receipt validator SHARED by the Zod refine (client +
+ * controller boundary) and the service defense-in-depth re-check. Returns a
+ * russian error message, or `null` when the receipt is valid for the given
+ * EFFECTIVE currency. Rules (pm-brief §4/§6):
+ *   - exactly ONE of receiptDocumentId / receiptExternalUrl (mandatory — neither
+ *     present → error; both present → error);
+ *   - effective currency === 'USDT' → receiptExternalUrl REQUIRED and MUST pass
+ *     isExplorerUrl; receiptDocumentId FORBIDDEN (a file is not accepted);
+ *   - otherwise → a file OR any http(s) url is accepted.
+ */
+export function receiptMandatoryError(
+  receipt: ReceiptShape,
+  effectiveCurrency: string | undefined,
+): string | null {
+  const hasDoc = !!receipt.receiptDocumentId
+  const hasUrl = !!receipt.receiptExternalUrl
+  if (hasDoc && hasUrl) {
+    return 'Чек — либо загруженный файл, либо ссылка, но не оба сразу'
+  }
+  if (!hasDoc && !hasUrl) {
+    return 'Чек обязателен: приложите файл или ссылку на blockchain-explorer'
+  }
+  if (effectiveCurrency === 'USDT') {
+    if (hasDoc) {
+      return 'Для USDT чек принимается только ссылкой на blockchain-explorer, не файлом'
+    }
+    if (!isExplorerUrl(receipt.receiptExternalUrl!)) {
+      return 'Для USDT нужна ссылка на транзакцию в blockchain-explorer (etherscan.io, tronscan.org и т.д.)'
+    }
+  }
+  return null
+}
+
+/**
+ * superRefine factory that makes the receipt MANDATORY + currency-aware on
+ * create/pay schemas. `getCurrency` derives the EFFECTIVE currency from the
+ * parsed data (e.g. `data.currency`, the `USDT` literal, or
+ * `COMPANY_ACCOUNT → 'USDT'` for salary/settle). Delegates the rule set to the
+ * shared `receiptMandatoryError` so the client, the controller and the service
+ * never drift. IMPORTANT: the receipt fields stay optional in the object shape
+ * (so the inferred DTO type keeps them optional and frontend call-sites that
+ * have not yet added the receipt still TYPE-check); the requirement is enforced
+ * at PARSE time (400), not at the type level.
+ */
+function mandatoryReceiptRefine<T extends ReceiptShape>(
+  getCurrency: (data: T) => string | undefined,
+) {
+  return (data: T, ctx: z.RefinementCtx): void => {
+    const message = receiptMandatoryError(data, getCurrency(data))
+    if (message) {
+      ctx.addIssue({
+        code: 'custom',
+        message,
+        path: data.receiptDocumentId ? ['receiptDocumentId'] : ['receiptExternalUrl'],
+      })
+    }
+  }
+}
+
+/**
+ * Body for the generic `PATCH /transactions/:id/receipt` attach/replace endpoint
+ * (pm-brief §6). Exactly one of receiptDocumentId / receiptExternalUrl, mandatory
+ * (a request that clears the receipt is not allowed via this endpoint). The
+ * currency-aware rule (USDT → explorer-only) is applied in the SERVICE because
+ * the effective currency comes from the EXISTING transaction, not the body.
+ */
+export const attachReceiptSchema = z
+  .object({ ...receiptFields })
+  .refine(receiptXor, receiptXorMessage)
+  .refine((d) => !!d.receiptDocumentId || !!d.receiptExternalUrl, {
+    message: 'Чек обязателен: приложите файл или ссылку',
+    path: ['receiptExternalUrl'],
+  })
+export type AttachReceiptDto = z.infer<typeof attachReceiptSchema>
+
 // task-company-account-backend / task-salary-company-account. Where a money
 // movement is funded from:
 //   - COMPANY_ACCOUNT — paid out of (SALARY/EXPENSE) or into (ADMIN_INCOME) the
@@ -338,8 +473,13 @@ export const createAdminIncomeSchema = z
     // (ADMIN_PERSONAL is implicit/legacy when absent). Optional → legacy path.
     fundingSource: salaryFundingSourceSchema.optional(),
   })
-  .refine(receiptXor, receiptXorMessage)
   .superRefine(refineCompanyAccountUsdt)
+  // task-receipts-backend: receipt MANDATORY. Effective currency = USDT when
+  // funded from the company account (USDT-only) → explorer-only; else the input
+  // currency → file/url.
+  .superRefine(
+    mandatoryReceiptRefine((d) => (d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : d.currency)),
+  )
 export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
 
 // task-drop-share-override-and-receiver (D3). Sentinel value for the "company
@@ -363,26 +503,32 @@ export const COMPANY_ACCOUNT_RECEIVER = 'COMPANY_ACCOUNT'
 //
 // Currency is always USDT (USDT project); the server enforces it too. RBAC:
 // ADMIN only (Q4 — ACCOUNTANT may NOT declare). Created immediately PAID (Q2).
-export const createUsdtIncomeSchema = z.object({
-  projectId: z.string().uuid(),
-  amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
-  currency: z.literal('USDT'),
-  receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]),
-  // Security-review PR #367 (MED-1) — idempotencyKey: REQUIRED client-generated
-  // UUID, mirroring the dividend BIZ-19 (MED-2) contract 1:1. The frontend
-  // generates a fresh UUID at dialog OPEN (not per render) and sends it on
-  // submit. A double-submit (double click / network retry) with the SAME key
-  // returns the EXISTING ADMIN_INCOME row — NO second income and NO duplicated
-  // company obligations (senior/drop shares). Zod rejects a missing / non-uuid
-  // key with 400 (the server never falls back to a fresh row for this flow).
-  idempotencyKey: z.string().uuid(),
-  notes: z.string().max(1000).optional().nullable(),
-  txDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional()
-    .nullable(),
-})
+export const createUsdtIncomeSchema = z
+  .object({
+    projectId: z.string().uuid(),
+    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    currency: z.literal('USDT'),
+    receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]),
+    // Security-review PR #367 (MED-1) — idempotencyKey: REQUIRED client-generated
+    // UUID, mirroring the dividend BIZ-19 (MED-2) contract 1:1. The frontend
+    // generates a fresh UUID at dialog OPEN (not per render) and sends it on
+    // submit. A double-submit (double click / network retry) with the SAME key
+    // returns the EXISTING ADMIN_INCOME row — NO second income and NO duplicated
+    // company obligations (senior/drop shares). Zod rejects a missing / non-uuid
+    // key with 400 (the server never falls back to a fresh row for this flow).
+    idempotencyKey: z.string().uuid(),
+    // task-receipts-backend (#4): receipt is now MANDATORY for admin-declared USDT
+    // income (reverses the PR #367 decision to omit it). Currency is the USDT
+    // literal → the mandatory refine below requires a blockchain-explorer link.
+    ...receiptFields,
+    notes: z.string().max(1000).optional().nullable(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .nullable(),
+  })
+  .superRefine(mandatoryReceiptRefine(() => 'USDT'))
 export type CreateUsdtIncomeDto = z.infer<typeof createUsdtIncomeSchema>
 
 // SENIOR_INCOME — senior registers project income, awaits validation
@@ -399,7 +545,8 @@ export const createSeniorIncomeSchema = z
       .optional()
       .nullable(),
   })
-  .refine(receiptXor, receiptXorMessage)
+  // task-receipts-backend: receipt MANDATORY + currency-aware (USDT → explorer-only).
+  .superRefine(mandatoryReceiptRefine((d) => d.currency))
 export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
 
 // DROP_INCOME — drop registers project income on a drop-project, awaits
@@ -426,7 +573,8 @@ export const createDropIncomeSchema = z
       .optional()
       .nullable(),
   })
-  .refine(receiptXor, receiptXorMessage)
+  // task-receipts-backend: receipt MANDATORY + currency-aware (USDT → explorer-only).
+  .superRefine(mandatoryReceiptRefine((d) => d.currency))
 export type CreateDropIncomeDto = z.infer<typeof createDropIncomeSchema>
 
 // Update REJECTED senior income (resets to PENDING)
@@ -472,8 +620,13 @@ export const createExpenseSchema = z
     // Optional → legacy expense (no company routing, no balance impact).
     fundingSource: salaryFundingSourceSchema.optional(),
   })
-  .refine(receiptXor, receiptXorMessage)
   .superRefine(refineCompanyAccountUsdt)
+  // task-receipts-backend: receipt MANDATORY. Effective currency = USDT when
+  // funded from the company account (USDT-only) → explorer-only; else the input
+  // currency → file/url.
+  .superRefine(
+    mandatoryReceiptRefine((d) => (d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : d.currency)),
+  )
 export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 
 // SALARY — admin/accountant creates a salary transaction for eligible roles.
@@ -497,18 +650,24 @@ export const createSalarySchema = z.object({
 export type CreateSalaryDto = z.infer<typeof createSalarySchema>
 
 // ADMIN_TRANSFER — balance equalization between Maksym and Kostya
-export const createAdminTransferSchema = z.object({
-  senderId: z.string().uuid().optional(),
-  receiverId: z.string().uuid(),
-  amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
-  currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
-  notes: z.string().max(1000).optional().nullable(),
-  txDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/)
-    .optional()
-    .nullable(),
-})
+export const createAdminTransferSchema = z
+  .object({
+    senderId: z.string().uuid().optional(),
+    receiverId: z.string().uuid(),
+    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
+    // task-receipts-backend (#8): receipt now MANDATORY + currency-aware (default
+    // USDT → explorer-only). The default is applied before the refine runs, so
+    // an omitted currency is treated as USDT.
+    ...receiptFields,
+    notes: z.string().max(1000).optional().nullable(),
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .optional()
+      .nullable(),
+  })
+  .superRefine(mandatoryReceiptRefine((d) => d.currency))
 export type CreateAdminTransferDto = z.infer<typeof createAdminTransferSchema>
 
 // Validate or reject SENIOR_INCOME
@@ -630,11 +789,18 @@ export const paySalarySchema = z
     payerAdminId: z.string().uuid().optional(),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     txHash: z.string().max(255).optional().nullable(),
+    // task-receipts-backend (#7): pay-time proof is now MANDATORY. Effective
+    // currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only; else the
+    // chosen currency → file/url.
+    ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
   })
   // Reuse the shared COMPANY_ACCOUNT→USDT guard (same rule as create-salary /
   // expense / admin-income): a company-account payout is USDT-only.
   .superRefine(refineCompanyAccountUsdt)
+  .superRefine(
+    mandatoryReceiptRefine((d) => (d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : d.currency)),
+  )
 export type PaySalaryDto = z.infer<typeof paySalarySchema>
 
 // Drop role - phase 3 (spec §8.4). Manual payout confirmation — ACCOUNTANT/ADMIN
@@ -906,10 +1072,17 @@ export const settleSeniorPayoutSchema = z
     // ADMIN (validated server-side). Ignored for COMPANY_ACCOUNT.
     payerAdminId: z.string().uuid().optional(),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    // task-receipts-backend (#10): closing a senior/drop IOU now requires proof.
+    // Effective currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only;
+    // else the chosen currency → file/url.
+    ...receiptFields,
   })
   // Reuse the shared COMPANY_ACCOUNT→USDT guard (same rule as pay-salary /
   // create-salary / expense / admin-income): a company-account payout is USDT-only.
   .superRefine(refineCompanyAccountUsdt)
+  .superRefine(
+    mandatoryReceiptRefine((d) => (d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : d.currency)),
+  )
 export type SettleSeniorPayoutDto = z.infer<typeof settleSeniorPayoutSchema>
 
 // Response after a successful settle: returns the updated obligation snapshot
@@ -1415,10 +1588,15 @@ export type DepositStatusDto = z.infer<typeof depositStatusSchema>
 // frontend generates a fresh UUID at dialog OPEN (not per render) and sends
 // it on submit. A second POST with the same key returns the EXISTING dividend
 // row (no double-debit). Zod rejects requests without the key (400).
-export const createDividendSchema = z.object({
-  amount: z.number().positive(),
-  adminId: z.string().uuid().optional(),
-  idempotencyKey: z.string().uuid(),
-})
+export const createDividendSchema = z
+  .object({
+    amount: z.number().positive(),
+    adminId: z.string().uuid().optional(),
+    idempotencyKey: z.string().uuid(),
+    // task-receipts-backend (#9): a dividend is a USDT withdrawal from the company
+    // account → receipt MANDATORY and explorer-only (no currency field: always USDT).
+    ...receiptFields,
+  })
+  .superRefine(mandatoryReceiptRefine(() => 'USDT'))
 export type CreateDividendDto = z.infer<typeof createDividendSchema>
 export type IncomeComplianceQuery = z.infer<typeof incomeComplianceQuerySchema>
