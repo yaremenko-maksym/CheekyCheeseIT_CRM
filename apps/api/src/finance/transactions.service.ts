@@ -1100,6 +1100,13 @@ export class TransactionsService {
     // never a leaked row. This is a plain SELECT (no lock) — the genuine
     // concurrent race where two submits both miss it is caught by the partial
     // unique index (23505) at the tail of this method.
+    //
+    // Key = INTENT (same contract as dividend BIZ-19): replaying a key with a
+    // DIFFERENT payload (amount/project/receiver) still returns the FIRST
+    // committed row — a silent no-op, not a 409; the new payload is ignored.
+    // Acceptable by design: the endpoint is ADMIN-only and the dialog generates
+    // a fresh UUID per open, so a key/payload mismatch can only come from a
+    // stale client retry, where returning the original row is the safe answer.
     const replay = await this.db.db.query.transactions.findFirst({
       where: and(
         eq(transactions.type, 'ADMIN_INCOME'),
