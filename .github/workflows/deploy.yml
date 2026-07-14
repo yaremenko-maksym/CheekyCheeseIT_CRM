@@ -219,7 +219,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
@@ -228,6 +228,10 @@ jobs:
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
           # apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql
+          # apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql
+          # apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql
           # The deploy step reads from those full paths via /opt/crm.
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
@@ -359,6 +363,73 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$DROP_USR_RECORD_FILE"
             echo "==> usr_record column drop applied successfully"
+
+            # ── Step 2c: payment_type enum + drop-share override + USDT-income idempotency ───
+            # PR #367 (task-drop-share-override-and-receiver, ADR
+            # docs/architecture/2026-07-13-payment-type-income-routing.md):
+            #   1. apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql
+            #      — transaction_type += DROP_PENDING_PAYOUT, projects.payment_type
+            #      varchar → project_payment_type enum, drop-share override + snapshot
+            #      columns. Contains a FAIL-LOUD C13 guard: it RAISEs and aborts the
+            #      deploy if a non-GamingTec project carries a payment_type value that
+            #      looks like USDT/GIG_CONTRACT rather than the blanket FOP default —
+            #      that is expected, intentional behavior (a human must classify the
+            #      value explicitly), NOT a flake to retry or suppress.
+            #   2. apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql
+            #      — security-review MED-1 backstop: partial unique index on
+            #      transactions(idempotency_key) scoped to type = 'ADMIN_INCOME'.
+            # Both scripts are idempotent (IF NOT EXISTS / guarded DO blocks) — safe to
+            # re-run on repeated deploys. Source files were copied by copy-compose to
+            # /opt/crm/apps/api/drizzle/manual/<file>.
+            PAYMENT_TYPE_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql"
+            USDT_IDEMPOTENCY_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql"
+
+            if [ ! -f "$PAYMENT_TYPE_FILE" ]; then
+              echo "ERROR: DDL file not found at $PAYMENT_TYPE_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+            if [ ! -f "$USDT_IDEMPOTENCY_FILE" ]; then
+              echo "ERROR: DDL file not found at $USDT_IDEMPOTENCY_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying payment_type enum + drop-share override DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$PAYMENT_TYPE_FILE"
+            echo "==> payment_type enum + drop-share override DDL applied successfully"
+
+            echo "==> Applying USDT-income idempotency index DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$USDT_IDEMPOTENCY_FILE"
+            echo "==> USDT-income idempotency index DDL applied successfully"
+
+            echo "==> Verifying payment_type distribution and idempotency index"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              <<< "SELECT payment_type, COUNT(*) FROM projects GROUP BY payment_type;"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              <<< "SELECT indexname FROM pg_indexes WHERE tablename='transactions' AND indexname='uq_transactions_admin_income_idempotency_key';"
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
