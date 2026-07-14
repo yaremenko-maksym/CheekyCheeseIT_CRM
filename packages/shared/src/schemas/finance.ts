@@ -328,10 +328,12 @@ export function isExplorerUrl(url: string): boolean {
   if (colonIdx >= 0) authority = authority.slice(0, colonIdx)
   const host = authority.replace(/^www\./, '')
   if (!BLOCKCHAIN_EXPLORER_HOSTS.has(host)) return false
-  // Require a real (non-empty) path — a bare host / query / fragment is not a
-  // tx proof. Strip any query/fragment, then demand more than a lone `/`.
-  const path = (match[2] ?? '').replace(/[?#].*$/, '')
-  return path.length > 1
+  // Require SOMETHING after the host (path, query, OR fragment) — a bare host
+  // ('' or a lone '/') is not a tx proof. Do NOT strip the fragment first:
+  // hash-routed explorers keep the tx id in the fragment, e.g.
+  // tronscan.org/#/transaction/<hash>.
+  const rest = (match[2] ?? '').replace(/^\//, '')
+  return rest.length > 0
 }
 
 type ReceiptShape = {

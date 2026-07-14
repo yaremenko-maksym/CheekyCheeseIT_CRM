@@ -1,6 +1,6 @@
 # task-receipts-backend — progress
 
-current_milestone: 1/6
+current_milestone: 6/6 (all code + tests done; finalizing verification + PR)
 branch: feature/transaction-receipts (local: be, push via HEAD:)
 worktree: .claude/worktrees/agent-a2a607af5fbfc4b7b (ALL edits inside here)
 

@@ -39,6 +39,10 @@ describe('BLOCKCHAIN_EXPLORER_HOSTS + isExplorerUrl', () => {
     expect(isExplorerUrl('https://Etherscan.IO/tx/0xabc123')).toBe(true)
   })
 
+  it('accepts a hash-routed explorer link (tronscan keeps the tx id in the fragment)', () => {
+    expect(isExplorerUrl('https://tronscan.org/#/transaction/abc123def')).toBe(true)
+  })
+
   it('rejects an unknown / random domain', () => {
     expect(isExplorerUrl('https://evil.com/tx/0xabc123')).toBe(false)
   })
