@@ -1,7 +1,12 @@
-import { defineConfig } from 'vitest/config'
+import { configDefaults, defineConfig } from 'vitest/config'
 import path from 'path'
 import { existsSync, readFileSync, statSync } from 'fs'
 import { config as loadDotenv } from 'dotenv'
+
+import {
+  INTEGRATION_SPEC_EXCLUDE_GLOB,
+  isIntegrationRun as detectIntegrationRun,
+} from './src/test/integration-run-mode'
 
 // Detect whether we are running inside a git worktree and, if so, locate
 // the main repo root so that vitest can resolve packages installed there.
@@ -71,8 +76,15 @@ if (existsSync(envTestPath)) {
   const result = loadDotenv({ path: envTestPath, processEnv: envTestVars })
   void result // dotenv returns { parsed, error }; we only need the side-effect into envTestVars
 }
-// Build the effective DATABASE_URL for workers:
-// shell env > .env.test > nothing (unit runs have no DATABASE_URL)
+// Build the effective DATABASE_URL for workers: shell env > .env.test > nothing.
+// NOTE: this is NOT "unit runs have no DATABASE_URL" — a developer's shell may
+// well export DATABASE_URL (e.g. from the repo-root `.env`, used for `pnpm dev`)
+// and Node child processes always inherit it regardless of what we compute here.
+// That is fine: for non-integration runs `workerEnv` below is never injected
+// (see `isIntegrationRun` gate) AND every integration spec file is excluded
+// from test discovery entirely (see INTEGRATION_SPEC_EXCLUDE_GLOB below), so no
+// unit spec ever reads DATABASE_URL / opens a Pool — an ambient crm_db URL is
+// inert on a non-integration run.
 const workerDatabaseUrl = process.env['DATABASE_URL'] ?? envTestVars['DATABASE_URL'] ?? undefined
 const workerEnv: Record<string, string> = {}
 if (workerDatabaseUrl) {
@@ -102,9 +114,7 @@ if (workerDatabaseUrl) {
 //
 // It does NOT affect the unit-test `quality` job: that runs `vitest run` with no
 // filter and no DATABASE_URL, so `isIntegrationRun` is false and unit specs keep
-// running fully parallel. A local FULL run that also includes integration specs
-// (DATABASE_URL set, no filter) is the developer's choice; the authoritative,
-// race-free path is the filtered integration run used by CI and reproduction.
+// running fully parallel.
 //
 // DB isolation guard (see src/test/integration-db-guard.ts):
 // For integration runs we inject a globalSetup that:
@@ -112,7 +122,48 @@ if (workerDatabaseUrl) {
 //   2. Fails fast with an explicit error if DATABASE_URL points to crm_db AND
 //      CI is not set — preventing local residue in the working database.
 //   3. Passes through silently when CI=true (throwaway container DB).
-const isIntegrationRun = process.argv.some((arg) => arg.includes('integration.spec'))
+// This globalSetup guard is a second-line safety net for the FILTERED
+// integration run itself (crm_db vs crm_qa mixup) — it is NOT what protects a
+// non-integration run (see below), because it is only ever registered when
+// `isIntegrationRun` is true.
+//
+// Non-integration-run structural skip (fixes a real incident — found on PR
+// #369 / hardened here): a plain, unfiltered `pnpm --filter @crm/api test`
+// (exactly what `.husky/pre-push` runs) used to have NO protection at all
+// beyond each spec's own DB-reachability probe. If a developer's shell
+// exports an ambient `DATABASE_URL` pointing at the live `crm_db` (normal
+// dev setup — the repo-root `.env` sets this for `pnpm dev`), that ambient
+// value is inherited by the vitest worker pool same as any other env var.
+// Every `*.integration.spec.ts` probes DB reachability, not WHICH database it
+// is pointed at, so a reachable `crm_db` looked exactly like a valid target
+// and the spec would write real residue into it — silently, on every
+// developer's ordinary `pnpm test` run. `fileParallelism` also stayed at its
+// parallel default in that case, so multiple integration specs could race
+// against crm_db concurrently on top of that.
+//
+// Fix: for ANY non-integration run, every integration spec file is excluded
+// from `test.include`/`test.exclude` discovery below (INTEGRATION_SPEC_EXCLUDE_GLOB)
+// — vitest never even parses those files, so it is structurally impossible for
+// them to open a DB connection, no matter what DATABASE_URL is ambient. This
+// closes the crm_db-write bug AND the parallel-race class in one move, without
+// requiring every developer to remember to clear DATABASE_URL first. The
+// filtered integration run (`vitest run … integration.spec`, used by CI and
+// local reproduction) is untouched: the positional `integration.spec` argv
+// filter still narrows execution to integration specs only, applied on top of
+// this (unaffected, since `isIntegrationRun` is true there) `include`/`exclude`.
+const isIntegrationRun = detectIntegrationRun(process.argv)
+
+if (!isIntegrationRun) {
+  // Loud, single-line warning — this fires on EVERY non-integration run
+  // (including the unit-only CI `quality` job and `.husky/pre-push`), by
+  // design: it makes the structural skip visible instead of a silent no-op.
+  console.warn(
+    '[vitest.config] non-integration run — skipping all *.integration.spec.ts files ' +
+      '(they hit a real Postgres and are excluded from test discovery on this run). ' +
+      'Run `pnpm --filter @crm/api exec vitest run integration.spec` against crm_qa ' +
+      'to execute them.',
+  )
+}
 
 export default defineConfig({
   ...(isWorktree && {
@@ -134,6 +185,14 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['src/**/*.{spec,test}.ts'],
+    // Non-integration runs: exclude every DB-backed integration spec file from
+    // discovery entirely (see the "Non-integration-run structural skip" comment
+    // above) — this is what makes the guard unconditional, independent of
+    // DATABASE_URL. Integration runs keep vitest's plain default exclude; the
+    // CLI's positional `integration.spec` filter narrows execution from there.
+    exclude: isIntegrationRun
+      ? configDefaults.exclude
+      : [...configDefaults.exclude, INTEGRATION_SPEC_EXCLUDE_GLOB],
     // Generous per-test budget for CPU-bound tests (contract-pdf ~5s, compression ~60s
     // under load). Pre-push hook now runs packages sequentially so each test worker
     // gets the full CPU, but we keep a 90 s ceiling to catch genuine hangs.
@@ -155,10 +214,13 @@ export default defineConfig({
     // Inject the effective DATABASE_URL into test workers so specs pick up
     // crm_qa without developers having to export it manually in their shell.
     // `workerEnv` is computed above: shell env wins over .env.test default.
-    // This applies to integration runs only; unit runs have no DATABASE_URL.
-    ...(isIntegrationRun && Object.keys(workerEnv).length > 0 && {
-      env: workerEnv,
-    }),
+    // Gated to integration runs only: non-integration runs never load any
+    // integration spec (see `exclude` above), so no worker ever needs — or
+    // should be handed — a DATABASE_URL at all.
+    ...(isIntegrationRun &&
+      Object.keys(workerEnv).length > 0 && {
+        env: workerEnv,
+      }),
     ...(isWorktree && {
       // Extend vitest's server module resolution to include main repo's packages.
       server: {
