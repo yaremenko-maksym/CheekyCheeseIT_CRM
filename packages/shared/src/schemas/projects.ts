@@ -70,12 +70,12 @@ export type ProjectPaymentType = z.infer<typeof projectPaymentTypeSchema>
  * Used at the create/update WRITE boundary so `createProjectSchema` /
  * `updateProjectSchema` reject a bad payload at the controller Zod-parse layer
  * (shift-left vs. the service's `projectPaymentTypeSchema.parse` call) WITHOUT
- * narrowing the field's TS type to the 3-member union — the current create/
- * edit project forms in `apps/web` still submit `string` (a Select is a
- * follow-up frontend task), so narrowing the type here would red the
- * monorepo typecheck out-of-zone for Coder. Delete this helper (and switch
- * both fields to `projectPaymentTypeSchema` directly) once the frontend Select
- * lands.
+ * narrowing the field's TS type to the 3-member union — the frontend Select
+ * landed (PR #367, Surface C), but the create/edit form values and DTO fields
+ * in `apps/web` still flow as plain `string`, so narrowing the type here would
+ * red the monorepo typecheck. Delete this helper (and switch both fields to
+ * `projectPaymentTypeSchema` directly) once the web form/DTO types are
+ * narrowed to the union end-to-end.
  */
 const paymentTypeStringSchema = z
   .string()
@@ -413,8 +413,9 @@ export const createProjectSchema = z
     // task-drop-share-override-and-receiver (D1, review round 1 LOW-1): runtime-
     // strict membership check (see `paymentTypeStringSchema`) — rejects an
     // unknown value at the controller Zod-parse layer (400), without narrowing
-    // the TS type away from `string` (the create form still submits free text
-    // pending the frontend Select task). Absent → backend default 'FOP'.
+    // the TS type away from `string` (the create form renders a 3-value Select
+    // since PR #367, but its value still flows as plain `string`). Absent →
+    // backend default 'FOP'.
     paymentType: paymentTypeStringSchema.optional().nullable(),
     salaryReview: z.string().max(255).optional().nullable(),
     corpTech: z.string().max(255).optional().nullable(),

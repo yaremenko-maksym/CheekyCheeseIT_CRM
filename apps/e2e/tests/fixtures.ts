@@ -2563,14 +2563,15 @@ export async function declareUsdtIncomeViaAPI(
 /**
  * Settle a company obligation (SENIOR_PENDING_PAYOUT or DROP_PENDING_PAYOUT)
  * via POST /pending-settlements/by-source-transaction/:id/settle-company —
- * the SAME generic endpoint the finance-page «Выплатить синьору» button calls
+ * the SAME generic endpoint the finance-page «Выплатить» button calls
  * (`SettleSeniorPayoutDialog` → `financeApi.settleSeniorPayoutFromTransaction`).
- * Routes server-side by the source-transaction's `type` (ADR D5) — works
- * identically for a DROP_PENDING_PAYOUT source row, even though (at the time
- * of writing) `TransactionRow.tsx` only renders the «Выплатить» action for
- * SENIOR_PENDING_PAYOUT rows (see task-drop-share-e2e report — flagged as a
- * frontend gap, not a backend limitation). Used directly by API here for the
- * drop-obligation leg until that UI action exists.
+ * Routes server-side by the source-transaction's `type` (ADR D5).
+ * `TransactionRow.tsx` renders the «Выплатить» action for BOTH obligation
+ * types since PR #367 (the earlier frontend gap flagged in the
+ * task-drop-share-e2e report is closed). Settling via API here (instead of
+ * clicking that button) is deliberate and mirrors the pre-existing
+ * SENIOR_PENDING_PAYOUT pattern: these specs assert the money flow; the
+ * button/dialog UI behaviour is covered by its own unit tests.
  */
 export async function settleObligationBySourceTransactionViaAPI(
   page: Page,
