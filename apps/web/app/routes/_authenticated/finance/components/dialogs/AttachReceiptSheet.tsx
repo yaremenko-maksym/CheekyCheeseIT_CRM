@@ -76,6 +76,11 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
 
   const hasExisting = !!(tx?.receiptDocumentId || tx?.receiptExternalUrl)
   const isExplorerOnly = tx?.currency === 'USDT'
+  // task-receipts-frontend (interaction AC): submit stays disabled until a
+  // valid receipt is present — not just gated post-click by an error banner.
+  const hasNewReceipt =
+    (receipt.mode === 'file' && !!receipt.documentId) ||
+    (receipt.mode === 'url' && !!receipt.externalUrl)
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -94,10 +99,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
   })
 
   function handleSubmit() {
-    const hasNew =
-      (receipt.mode === 'file' && !!receipt.documentId) ||
-      (receipt.mode === 'url' && !!receipt.externalUrl)
-    if (!hasNew) {
+    if (!hasNewReceipt) {
       setError('Прикрепите чек или укажите ссылку на подтверждение')
       return
     }
@@ -176,7 +178,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
             <Button
               className="h-11 sm:h-9"
               onClick={handleSubmit}
-              disabled={mutation.isPending}
+              disabled={mutation.isPending || !hasNewReceipt}
               data-testid="attach-receipt-sheet-submit"
             >
               {hasExisting ? 'Заменить' : 'Прикрепить'}
