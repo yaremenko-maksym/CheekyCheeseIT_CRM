@@ -220,16 +220,26 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       expect(row, 'plant step must yield an obligation for our senior').toBeTruthy()
       const obligationAmount = parseFloat(row!.amount)
       const obligationId = row!.obligationId
+      const sourceTransactionId = row!.sourceTransactionId
 
-      // Settle via old obligation-id endpoint (still valid, PR #265 only adds
-      // the by-source-transaction variant alongside it).
+      // task-receipts-backend (review round 1, MED-1): the legacy 2-segment
+      // `POST /pending-settlements/:id/settle-company` (obligation-id) route was
+      // REMOVED — it silently ignored its body (no funding selection, no
+      // mandatory receipt), a privileged bypass of the mandatory-receipt
+      // invariant. Only the 3-segment `by-source-transaction` route remains
+      // (see pending-settlement.controller.ts header comment); the /company DTO
+      // already carries `sourceTransactionId`, so we settle through that
+      // instead. `settleSeniorPayoutSchema` also now requires a mandatory,
+      // currency-aware receipt (task-receipts-backend #10) — USDT ⇒ explorer
+      // link only.
       const settleRes = await page.request.post(
-        `${REAL_API}/pending-settlements/${obligationId}/settle-company`,
+        `${REAL_API}/pending-settlements/by-source-transaction/${sourceTransactionId}/settle-company`,
         {
           data: {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: MAKSYM_ID,
             currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xsettlecompany000001',
           },
         },
       )
@@ -297,7 +307,9 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       )
       expect(seniorAttempt.status()).toBe(403)
 
-      // ADMIN settles via the source-transaction endpoint.
+      // ADMIN settles via the source-transaction endpoint. task-receipts-backend
+      // (#10): settleSeniorPayoutSchema now requires a mandatory, currency-aware
+      // receipt — USDT ⇒ explorer link only.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const settleRes = await page.request.post(
         `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
@@ -306,6 +318,7 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: MAKSYM_ID,
             currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xsourcesettle000001',
           },
         },
       )
@@ -330,7 +343,10 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       expect(settled, `expected a SENIOR_INCOME row at ${obligationAmount}`).toBeTruthy()
 
       // Idempotent: a second settle of the SAME source tx pays nothing more
-      // (no open obligation left → 4xx, never a second SENIOR_INCOME).
+      // (no open obligation left → 4xx, never a second SENIOR_INCOME). Keep a
+      // VALID receipt here too — the point is to prove the idempotency/no-open-
+      // obligation gate rejects it, not to accidentally reject on the (now
+      // unrelated) mandatory-receipt check.
       const secondAttempt = await page.request.post(
         `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
         {
@@ -338,6 +354,7 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: MAKSYM_ID,
             currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xsourcesettle000002',
           },
         },
       )

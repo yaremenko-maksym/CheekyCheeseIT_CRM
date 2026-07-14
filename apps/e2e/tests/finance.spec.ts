@@ -627,14 +627,20 @@ test.describe('Finance — выплата зарплаты (ADMIN)', () => {
     await expect(asAdmin.getByRole('heading', { name: 'Выплатить зарплату' })).toBeVisible()
   })
 
-  test('ADMIN: выплачивает зарплату с TX hash', async ({ asAdmin }) => {
+  // task-receipts-frontend: PaySalaryDialog defaults to «Счёт компании»
+  // (COMPANY_ACCOUNT, currency locked USDT) → ReceiptInput renders explorer-only
+  // (no file tab, see ReceiptInput.tsx explorerOnly). The old free-text "TX Hash"
+  // input is gone — proof of payment is now the mandatory receipt field, and for
+  // USDT it must be a blockchain-explorer link (not a raw hash string).
+  test('ADMIN: выплачивает зарплату с чеком (explorer-ссылка)', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_SALARY_PENDING])
     await asAdmin.goto('/finance')
     await asAdmin.getByRole('button', { name: 'Выплатить' }).click()
     await expect(asAdmin.getByRole('dialog')).toBeVisible()
 
-    const hashInput = asAdmin.getByPlaceholder('0x...')
-    await hashInput.fill('0xabc123def456')
+    const receiptUrlInput = asAdmin.getByTestId('receipt-input-url-field')
+    await expect(receiptUrlInput).toBeVisible()
+    await receiptUrlInput.fill('https://etherscan.io/tx/0xabc123def456')
 
     await asAdmin.getByRole('button', { name: 'Отметить как оплачено' }).click()
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
