@@ -187,6 +187,20 @@ function FromTo({ tx }: { tx: TransactionDto }) {
         </div>
       )
 
+    // Manual QA #367 fix: mirror of SENIOR_PENDING_PAYOUT above — the company
+    // owes a drop their USDT-project share (booked by bookCompanyObligations,
+    // same row shape: senderLabel='COMPANY', receiverId = the drop). Without
+    // this case the row fell through to `default` and rendered a bare "—"
+    // (no participant at all), unlike the senior row right above it.
+    case 'DROP_PENDING_PAYOUT':
+      return (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Party id={null} name={null} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
+          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
+        </div>
+      )
+
     // Drop registers project income: client company → drop. The row is booked
     // with senderLabel = client company name (no senderId) and receiverId = the
     // drop, so the sender renders as the non-clickable client alias and the

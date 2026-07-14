@@ -35,8 +35,16 @@ const badgeVariants = cva(
 interface BadgeProps
   extends React.HTMLAttributes<HTMLDivElement>, VariantProps<typeof badgeVariants> {}
 
-function Badge({ className, variant, ...props }: BadgeProps) {
-  return <div className={cn(badgeVariants({ variant }), className)} {...props} />
-}
+// forwardRef is required here: Radix `TooltipTrigger asChild` / `Slot` clones
+// this element and attaches a ref to it for positioning. A plain function
+// component would fail that (`Function components cannot be given refs.`)
+// whenever a Badge is used as a Tooltip/Popover trigger (see
+// ProjectDropShareInfo / ProjectSeniorShareInfo "Override" badges).
+const Badge = React.forwardRef<HTMLDivElement, BadgeProps>(function Badge(
+  { className, variant, ...props },
+  ref,
+) {
+  return <div ref={ref} className={cn(badgeVariants({ variant }), className)} {...props} />
+})
 
 export { Badge, badgeVariants }
