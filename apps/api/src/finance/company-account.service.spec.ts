@@ -412,25 +412,34 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
       },
     })
     const svc = makeService(db)
-    await expect(svc.createDividend({ amount: 100, adminId: 'x' }, ADMIN)).rejects.toBeInstanceOf(
-      BadRequestException,
-    )
+    await expect(
+      svc.createDividend(
+        { amount: 100, adminId: 'x', receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
+        ADMIN,
+      ),
+    ).rejects.toBeInstanceOf(BadRequestException)
   })
 
   it('amount exceeds company balance → 400 (overdraw gate)', async () => {
     // balance = deposits(100) = 100; dividend of 1234 must be refused.
     const db = makeDividendDb({ ledgerTotals: ['100', '0', '0', '0', '0', '0', '0'] })
     const svc = makeService(db)
-    await expect(svc.createDividend({ amount: 1234 }, ADMIN)).rejects.toThrowError(
-      /Недостаточно средств/,
-    )
+    await expect(
+      svc.createDividend(
+        { amount: 1234, receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
+        ADMIN,
+      ),
+    ).rejects.toThrowError(/Недостаточно средств/)
   })
 
   it('ADMIN, amount within balance → PAID DIVIDEND_TO_ADMIN crediting an admin', async () => {
     // balance = deposits(5000) = 5000; dividend of 1234 fits.
     const db = makeDividendDb({ inserted: { id: 'div-1' } })
     const svc = makeService(db)
-    const res = await svc.createDividend({ amount: 1234 }, ADMIN)
+    const res = await svc.createDividend(
+      { amount: 1234, receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
+      ADMIN,
+    )
     expect(res.amount).toBe(1234)
     expect(res.receiverId).toBe(ADMIN.id)
     expect(res.id).toBe('div-1')
@@ -439,7 +448,10 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
   it('acquires the advisory lock before reading balance (TOCTOU serialization)', async () => {
     const db = makeDividendDb({})
     const svc = makeService(db)
-    await svc.createDividend({ amount: 100 }, ADMIN)
+    await svc.createDividend(
+      { amount: 100, receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
+      ADMIN,
+    )
     // The transaction callback ran, and the advisory lock (dbtx.execute) was
     // invoked — proving the debit is serialized under the shared lock.
     const txMock = db.transaction as ReturnType<typeof vi.fn>

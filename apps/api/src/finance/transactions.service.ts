@@ -1087,15 +1087,6 @@ export class TransactionsService {
   ) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
-    // task-receipts-backend defense-in-depth: re-validate the mandatory receipt
-    // (USDT → explorer-only) on the service, not only in Zod. A file receipt is
-    // rejected for USDT before it can be bound.
-    const receiptErr = receiptMandatoryError(
-      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
-      'USDT',
-    )
-    if (receiptErr) throw new BadRequestException(receiptErr)
-
     // PR #367 (MED-1): idempotency replay guard. A double-submit (double click /
     // network retry) carries the SAME key — return the EXISTING ADMIN_INCOME row
     // WITHOUT re-declaring income or re-booking company obligations. The RBAC gate
@@ -1117,6 +1108,17 @@ export class TransactionsService {
       ),
     })
     if (replay) return this.findOne(replay.id, currentUser)
+
+    // task-receipts-backend (#4) defense-in-depth: re-validate the mandatory
+    // receipt (USDT → explorer-only) on the service, not only in Zod. Runs AFTER
+    // the idempotency short-circuit so a genuine retry still returns the existing
+    // row; a NEW declaration must carry a valid explorer link. A file receipt is
+    // rejected for USDT before it can be bound.
+    const receiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      'USDT',
+    )
+    if (receiptErr) throw new BadRequestException(receiptErr)
 
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, data.projectId),

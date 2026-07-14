@@ -344,6 +344,8 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     fundingSource: 'ADMIN_PERSONAL' as const,
     payerAdminId: 'admin-1',
     currency: 'USD' as const,
+    // task-receipts-backend: pay-time proof mandatory (USD → file/url).
+    receiptExternalUrl: 'https://drive.google.com/f/receipt',
   }
 
   it('winner (1 row flipped) → fires exactly one invoice', async () => {
