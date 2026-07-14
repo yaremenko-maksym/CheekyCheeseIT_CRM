@@ -162,7 +162,10 @@ export function SettleSeniorPayoutDialog({
             </div>
           </div>
 
-          {/* Shared funding-source picker — identical UI to PaySalaryDialog. */}
+          {/* Shared funding-source picker — same UI as PaySalaryDialog, but the
+              currency options are narrowed to USDT/USD: the backend rejects
+              closing a USDT obligation in EUR/UAH without conversion (see
+              pending-settlement.service.ts). */}
           <FundingSourceFields
             account={account}
             currency={currency}
@@ -170,6 +173,7 @@ export function SettleSeniorPayoutDialog({
             onSelectCurrency={setCurrency}
             enabled={!!tx}
             testIdPrefix="settle-senior"
+            allowedCurrencies={['USDT', 'USD']}
           />
 
           {error && (
