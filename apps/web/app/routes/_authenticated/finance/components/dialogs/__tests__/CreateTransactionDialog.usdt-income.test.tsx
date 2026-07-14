@@ -7,8 +7,9 @@
  *    Q4).
  * 2. Project pool for `USDT_INCOME` is ANY active USDT-payment project (ADR
  *    D3) — not gated by seniorId/dropId.
- * 3. Receiver Select is grouped («Админы» + «Счёт компании»); opening/
- *    selecting an option commits the value; no default pre-selection.
+ * 3. Receiver Select is a FLAT list (admins + «Счёт компании», no group
+ *    headers — fix/usdt-receiver-flat-select); opening/selecting an option
+ *    commits the value; no default pre-selection.
  * 4. Submit without a receiver blocks (`usdt-income-error-receiver`), submit
  *    without a project blocks too (`create-transaction-error-project`);
  *    submitting with both calls `financeApi.declareUsdtProjectIncome` with
@@ -157,20 +158,20 @@ describe('CreateTransactionDialog — USDT_INCOME project pool (ADR D3)', () => 
   })
 })
 
-describe('CreateTransactionDialog — USDT_INCOME receiver Select (grouped)', () => {
+describe('CreateTransactionDialog — USDT_INCOME receiver Select (flat)', () => {
   beforeEach(() => {
     currentRole = 'ADMIN'
     currentUserId = 'admin-1'
   })
 
-  it('groups «Админы» + «Счёт компании», selecting an admin commits the value', async () => {
+  it('flat list of admins + «Счёт компании» (no group headers), selecting an admin commits the value', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-usdt_income')
     clickTypeCard('create-transaction-type-usdt_income')
     fireEvent.click(await screen.findByTestId('usdt-income-receiver-trigger'))
     const listbox = screen.getByRole('listbox')
-    expect(await within(listbox).findByText('Админы')).toBeInTheDocument()
-    expect(within(listbox).getByText('Admin One')).toBeInTheDocument()
+    expect(within(listbox).queryByText('Админы')).not.toBeInTheDocument()
+    expect(await within(listbox).findByText('Admin One')).toBeInTheDocument()
     expect(within(listbox).getByText('Admin Two')).toBeInTheDocument()
     expect(within(listbox).getByRole('option', { name: 'Счёт компании' })).toBeInTheDocument()
 

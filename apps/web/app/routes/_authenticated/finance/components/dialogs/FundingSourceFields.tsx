@@ -45,6 +45,7 @@ export function FundingSourceFields({
   onSelectCurrency,
   enabled = true,
   testIdPrefix,
+  allowedCurrencies = CURRENCIES,
 }: {
   /** COMPANY_ACCOUNT_VALUE (Счёт компании) OR an ADMIN partner id. */
   account: string
@@ -55,6 +56,15 @@ export function FundingSourceFields({
   /** Gate the read-only queries (only fetch while the dialog is open). */
   enabled?: boolean
   testIdPrefix: string
+  /**
+   * Restricts the currency options shown for the ADMIN_PERSONAL branch (the
+   * COMPANY_ACCOUNT branch is always forced/locked to USDT regardless of this
+   * prop). Defaults to all four currencies (PaySalaryDialog — any currency is a
+   * legitimate salary payout). SettleSeniorPayoutDialog narrows this to
+   * `['USDT', 'USD']` — the backend rejects closing a USDT obligation in
+   * EUR/UAH without conversion (see pending-settlement.service.ts).
+   */
+  allowedCurrencies?: Currency[]
 }) {
   const isCompany = account === COMPANY_ACCOUNT_VALUE
 
@@ -153,7 +163,7 @@ export function FundingSourceFields({
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            {CURRENCIES.map((c) => (
+            {allowedCurrencies.map((c) => (
               <SelectItem
                 key={c}
                 value={c}

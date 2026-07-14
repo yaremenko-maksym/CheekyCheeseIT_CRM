@@ -11,6 +11,10 @@
  *    { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' } (no payerAdminId).
  * 5. Submitting with a partner calls it with
  *    { fundingSource: 'ADMIN_PERSONAL', payerAdminId: <partner>, currency }.
+ * 6. fix/usdt-receiver-flat-select: the currency Select is narrowed to
+ *    USDT/USD only (EUR/UAH options are NOT rendered) — the backend rejects
+ *    closing a USDT obligation in EUR/UAH without conversion. PaySalaryDialog
+ *    is unaffected — it still offers all 4 currencies (own test file).
  *
  * Strategy mirrors PaySalaryDialog.test.tsx — mock axios / TanStack hooks /
  * sonner so the dialog mounts without a network call, and assert the real
@@ -168,6 +172,18 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
     expect(payload.payerAdminId).toBe('kostya-id')
+  })
+
+  it('currency Select offers only USDT/USD — no EUR/UAH (backend contract)', () => {
+    renderDialog()
+    // Switch to a partner so the currency Select is enabled/interactable, then
+    // open the dropdown (Radix only mounts SelectContent while open).
+    fireEvent.click(screen.getByTestId('settle-senior-account-admin-maksym-id'))
+    fireEvent.click(screen.getByTestId('settle-senior-currency-trigger'))
+    expect(screen.getByTestId('settle-senior-currency-USDT')).toBeInTheDocument()
+    expect(screen.getByTestId('settle-senior-currency-USD')).toBeInTheDocument()
+    expect(screen.queryByTestId('settle-senior-currency-EUR')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('settle-senior-currency-UAH')).not.toBeInTheDocument()
   })
 })
 
