@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import {
@@ -15,10 +16,12 @@ import {
   RefreshCw,
   Lock,
   Wallet,
+  Receipt,
 } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { api } from '@/lib/axios'
+import { useAuth } from '@/context/auth'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -44,6 +47,8 @@ import {
 } from '../../constants'
 import { financeApi } from '../../api'
 import { ReceiptPanel } from './receipt-panel'
+import { AttachReceiptSheet } from './AttachReceiptSheet'
+import { canAttachReceipt } from '../receipt-permissions'
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -254,7 +259,12 @@ function SalaryContent({ tx }: { tx: TransactionDto }) {
           <ProjectLink id={tx.projectId} name={tx.projectName} />
         </Row>
       )}
-      {tx.txHash && (
+      {/* task-receipts-frontend (design-spec §2.3): TxHashLink is a legacy
+          fallback now — it only surfaces when there is NO new-style receipt
+          (old PAID rows created before this feature). New payments carry a
+          mandatory ReceiptInput → ReceiptPanel (rendered by the split-view
+          above), so the two never show simultaneously. */}
+      {tx.txHash && !tx.receiptDocumentId && !tx.receiptExternalUrl && (
         <Row icon={<Hash className="h-4 w-4" />} label="TX Hash">
           <TxHashLink hash={tx.txHash} />
         </Row>
@@ -382,6 +392,23 @@ function DetailSkeleton() {
   )
 }
 
+// task-receipts-frontend (design-spec §5.6): types eligible for the
+// split-view receipt panel. Extends the pre-existing set with SALARY /
+// ADMIN_TRANSFER / DIVIDEND_TO_ADMIN (now mandatory-receipt flows) and fixes
+// a pre-existing gap — DROP_INCOME could already carry a receipt (mandatory
+// since day one, same as SENIOR_INCOME) but never got the split-view
+// preview. PAYOUT / PAYOUT_ADMIN are deliberately NOT added — out of scope
+// (A5 — they use the on-chain txHash mechanism via payout-requests instead).
+const RECEIPT_ELIGIBLE_TYPES = new Set<TransactionDto['type']>([
+  'ADMIN_INCOME',
+  'SENIOR_INCOME',
+  'DROP_INCOME',
+  'EXPENSE',
+  'SALARY',
+  'ADMIN_TRANSFER',
+  'DIVIDEND_TO_ADMIN',
+])
+
 // ── Main dialog ────────────────────────────────────────────────────────────────
 
 export function TransactionDetailDialog({
@@ -400,6 +427,12 @@ export function TransactionDetailDialog({
   canQuickPayout?: boolean
   onQuickPayout?: (tx: TransactionDto) => void
 }) {
+  const { user } = useAuth()
+  // task-receipts-frontend: attach/replace-receipt Sheet, opened from the
+  // button below ReceiptPanel (primary entry point on mobile — the row icon
+  // in TransactionRow is hidden below md).
+  const [attachOpen, setAttachOpen] = useState(false)
+
   // Fetch fresh single transaction (includes payoutRequest details)
   const { data: detail, isLoading } = useQuery({
     queryKey: ['transaction', tx?.id],
@@ -418,45 +451,75 @@ export function TransactionDetailDialog({
   const t = detail ?? tx
 
   // Transactions that can carry a receipt — split view applies only when a
-  // receipt is meaningful (income, expense). For purely on-chain transactions
-  // (PAYOUT, SALARY, ADMIN_TRANSFER, PAYOUT_ADMIN) the receipt panel becomes
-  // an «Open in Etherscan» surface via TX hash links inline.
-  const showReceiptPanel = t
-    ? t.type === 'ADMIN_INCOME' || t.type === 'SENIOR_INCOME' || t.type === 'EXPENSE'
-    : false
+  // receipt is meaningful. For purely on-chain transactions (PAYOUT,
+  // PAYOUT_ADMIN) the receipt panel becomes an «Open in Etherscan» surface
+  // via TX hash links inline instead.
+  const showReceiptPanel = t ? RECEIPT_ELIGIBLE_TYPES.has(t.type) : false
+  const hasExistingReceipt = !!(t?.receiptDocumentId || t?.receiptExternalUrl)
+  const showAttachButton = t ? canAttachReceipt(t, user?.id, user?.role ?? '') : false
 
   return (
-    <Dialog open={!!tx} onOpenChange={(o) => !o && onClose()}>
-      <CrmDialogContent maxWidth={showReceiptPanel ? 'sm:max-w-5xl' : 'sm:max-w-lg'}>
-        <CrmDialogHeader>
-          <DialogTitle className="flex items-center gap-2.5 text-base">
-            {t && (
-              <span
-                className={cn(
-                  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
-                  TYPE_COLORS[t.type],
-                )}
-              >
-                {TYPE_LABELS[t.type]}
-              </span>
-            )}
-            Детали транзакции
-          </DialogTitle>
-          <DialogDescription className="sr-only">
-            Полная информация о финансовой транзакции, статус и прикреплённый чек.
-          </DialogDescription>
-        </CrmDialogHeader>
+    <>
+      <Dialog open={!!tx} onOpenChange={(o) => !o && onClose()}>
+        <CrmDialogContent maxWidth={showReceiptPanel ? 'sm:max-w-5xl' : 'sm:max-w-lg'}>
+          <CrmDialogHeader>
+            <DialogTitle className="flex items-center gap-2.5 text-base">
+              {t && (
+                <span
+                  className={cn(
+                    'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                    TYPE_COLORS[t.type],
+                  )}
+                >
+                  {TYPE_LABELS[t.type]}
+                </span>
+              )}
+              Детали транзакции
+            </DialogTitle>
+            <DialogDescription className="sr-only">
+              Полная информация о финансовой транзакции, статус и прикреплённый чек.
+            </DialogDescription>
+          </CrmDialogHeader>
 
-        <CrmDialogBody className="pb-4">
-          {!t ? (
-            <DetailSkeleton />
-          ) : showReceiptPanel ? (
-            // Split view: info (≈40%) left, large receipt preview (≈60%) right.
-            // On mobile (< md) the grid collapses to a single column with the
-            // info section on top — receipt slides below to keep the form-like
-            // reading order natural on narrow screens.
-            <div className="grid grid-cols-1 md:grid-cols-[40%_1fr] gap-6">
-              <div className="space-y-0 min-w-0">
+          <CrmDialogBody className="pb-4">
+            {!t ? (
+              <DetailSkeleton />
+            ) : showReceiptPanel ? (
+              // Split view: info (≈40%) left, large receipt preview (≈60%) right.
+              // On mobile (< md) the grid collapses to a single column with the
+              // info section on top — receipt slides below to keep the form-like
+              // reading order natural on narrow screens.
+              <div className="grid grid-cols-1 md:grid-cols-[40%_1fr] gap-6">
+                <div className="space-y-0 min-w-0">
+                  <TransactionInfoBlock
+                    t={t}
+                    rates={rates}
+                    isLoading={isLoading}
+                    detailReady={!!detail}
+                  />
+                </div>
+                <div className="min-w-0 space-y-2">
+                  <ReceiptPanel tx={t} />
+                  {/* task-receipts-frontend: primary attach/replace entry point —
+                    full-width 44px on mobile (hard responsive-design.md gate),
+                    compact secondary button from sm+ (row icon already covers
+                    the quick path there). */}
+                  {showAttachButton && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="w-full sm:w-auto h-11 sm:h-9"
+                      onClick={() => setAttachOpen(true)}
+                      data-testid="detail-attach-receipt"
+                    >
+                      <Receipt className="h-3.5 w-3.5 mr-1.5" />
+                      {hasExistingReceipt ? 'Заменить чек' : 'Прикрепить чек'}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-0">
                 <TransactionInfoBlock
                   t={t}
                   rates={rates}
@@ -464,38 +527,31 @@ export function TransactionDetailDialog({
                   detailReady={!!detail}
                 />
               </div>
-              <div className="min-w-0">
-                <ReceiptPanel tx={t} />
-              </div>
-            </div>
-          ) : (
-            <div className="space-y-0">
-              <TransactionInfoBlock
-                t={t}
-                rates={rates}
-                isLoading={isLoading}
-                detailReady={!!detail}
-              />
-            </div>
-          )}
-        </CrmDialogBody>
+            )}
+          </CrmDialogBody>
 
-        {/* Footer surfaces the quick payout shortcut alongside the implicit
+          {/* Footer surfaces the quick payout shortcut alongside the implicit
             close button (Esc / backdrop). Only rendered when the parent
             signals eligibility — RBAC + status checks live there. */}
-        {t && canQuickPayout && onQuickPayout && (
-          <CrmDialogFooter>
-            <Button variant="outline" size="sm" onClick={onClose}>
-              Закрыть
-            </Button>
-            <Button size="sm" onClick={() => onQuickPayout(t)} data-testid="detail-quick-payout">
-              <Wallet className="h-3.5 w-3.5 mr-1" />
-              Выплатить
-            </Button>
-          </CrmDialogFooter>
-        )}
-      </CrmDialogContent>
-    </Dialog>
+          {t && canQuickPayout && onQuickPayout && (
+            <CrmDialogFooter>
+              <Button variant="outline" size="sm" onClick={onClose}>
+                Закрыть
+              </Button>
+              <Button size="sm" onClick={() => onQuickPayout(t)} data-testid="detail-quick-payout">
+                <Wallet className="h-3.5 w-3.5 mr-1" />
+                Выплатить
+              </Button>
+            </CrmDialogFooter>
+          )}
+        </CrmDialogContent>
+      </Dialog>
+      {/* task-receipts-frontend: Sheet + Dialog are independent Radix portals
+          (Sheet is ALSO a Dialog.Root under the hood — sibling, not nested,
+          avoids stacking two Radix dialog roots which can fight over
+          Escape/focus-trap). */}
+      <AttachReceiptSheet tx={attachOpen ? t : null} onClose={() => setAttachOpen(false)} />
+    </>
   )
 }
 
