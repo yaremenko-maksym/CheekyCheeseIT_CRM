@@ -208,11 +208,44 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // fresh UUID (idempotency semantics — replay / race / no double-book — are
   // proven separately in usdt-income-idempotency.integration.spec.ts). The
   // helper keeps these obligation/settle/ledger tests focused on their behavior.
+  // task-receipts-backend (review round 1): declareUsdtProjectIncome now
+  // REQUIRES a mandatory explorer-link receipt (USDT → explorer-only). None of
+  // this spec's declare() calls exercise the receipt itself (that is covered by
+  // finance.receipts.spec.ts + transaction-receipt-attach.integration.spec.ts),
+  // so the helper injects a fixed, valid explorer url by default — every
+  // existing call site keeps testing obligation/settle/ledger behavior
+  // unchanged. A caller MAY still override receiptExternalUrl explicitly.
   function declare(
     body: Omit<Parameters<TransactionsService['declareUsdtProjectIncome']>[0], 'idempotencyKey'>,
     user: SessionUser,
   ) {
-    return svc.declareUsdtProjectIncome({ ...body, idempotencyKey: randomUUID() }, user)
+    return svc.declareUsdtProjectIncome(
+      {
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeobligationsspec',
+        ...body,
+        idempotencyKey: randomUUID(),
+      },
+      user,
+    )
+  }
+
+  // task-receipts-backend (review round 1): settleByCompany now requires a
+  // mandatory receipt whenever a `funding` object is supplied — every funding
+  // shape this spec exercises (COMPANY_ACCOUNT, or ADMIN_PERSONAL with
+  // currency USDT) resolves to an EFFECTIVE currency of USDT → explorer-only.
+  // Wrap the service call so every settle() call site keeps testing
+  // obligation/ledger/invoice/RBAC behavior, not the receipt gate itself
+  // (covered by finance.receipts.spec.ts + transaction-receipt-attach
+  // .integration.spec.ts).
+  function settle(
+    obligationId: string,
+    user: SessionUser,
+    funding: NonNullable<Parameters<PendingSettlementService['settleByCompany']>[2]>,
+  ) {
+    return settleSvc.settleByCompany(obligationId, user, {
+      receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeobligationsspec',
+      ...funding,
+    })
   }
 
   // Surgical cleanup — scope by THIS spec's creditors (SENIOR/DROP only, never
@@ -438,8 +471,15 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     ).rejects.toThrow(/USDT-проекте/)
 
     // FOP project: DROP declares fine (returns the created income).
+    // task-receipts-backend (review round 1): currency='USDT' now requires a
+    // mandatory explorer-link receipt (defense-in-depth service check, MED-2).
     const created = await svc.createDropIncome(
-      { projectId: FOP_DROP_PROJECT, amount: 500, currency: 'USDT' },
+      {
+        projectId: FOP_DROP_PROJECT,
+        amount: 500,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeobligationsspecac9',
+      },
       DROP,
     )
     expect(created.type).toBe('DROP_INCOME')
@@ -539,9 +579,9 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
       ADMIN_MAKSYM,
     )
     const [dropObl] = await obligationsFor(DROP.id)
-    await settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
+    await settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
     await expect(
-      settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' }),
+      settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' }),
     ).rejects.toThrow(/закрыт/)
     // Exactly one PAYOUT_DROP settlement row.
     expect(await txsOfType('PAYOUT_DROP')).toHaveLength(1)
@@ -556,7 +596,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     )
     const before = (await svc.getDropSelfSummary(DROP)).balance
     const [dropObl] = await obligationsFor(DROP.id)
-    const res = await settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, {
+    const res = await settle(dropObl!.id, ADMIN_MAKSYM, {
       fundingSource: 'COMPANY_ACCOUNT',
     })
     expect(res.created.some((c) => c.type === 'PAYOUT_DROP')).toBe(true)
@@ -573,7 +613,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
       ADMIN_MAKSYM,
     )
     const [seniorObl] = await obligationsFor(SENIOR.id)
-    const res = await settleSvc.settleByCompany(seniorObl!.id, ADMIN_MAKSYM, {
+    const res = await settle(seniorObl!.id, ADMIN_MAKSYM, {
       fundingSource: 'COMPANY_ACCOUNT',
     })
     expect(res.created.some((c) => c.type === 'SENIOR_INCOME')).toBe(true)
@@ -641,7 +681,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
         ADMIN_MAKSYM,
       )
       const [dropObl] = await obligationsFor(DROP.id)
-      const res = await settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, {
+      const res = await settle(dropObl!.id, ADMIN_MAKSYM, {
         fundingSource: 'COMPANY_ACCOUNT',
       })
       const payoutDropId = res.created.find((c) => c.type === 'PAYOUT_DROP')!.id
@@ -659,7 +699,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
         ADMIN_MAKSYM,
       )
       const [dropObl] = await obligationsFor(DROP.id)
-      await settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, {
+      await settle(dropObl!.id, ADMIN_MAKSYM, {
         fundingSource: 'COMPANY_ACCOUNT',
       })
 
@@ -688,7 +728,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     // +1000 gross into the pool (ADMIN_INCOME COMPANY_ACCOUNT).
     expect(await gateBalance()).toBeCloseTo(base + 1000, 6)
     const [dropObl] = await obligationsFor(DROP.id)
-    await settleSvc.settleByCompany(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
+    await settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
     // − drop slice (50) from the pool via the new PAYOUT_DROP(COMPANY_ACCOUNT) term.
     expect(await gateBalance()).toBeCloseTo(base + 1000 - (1000 * DROP_SHARE) / 100, 6)
   })
@@ -702,7 +742,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     )
     const before = (await svc.getSummary(ADMIN_MAKSYM)).totalIncome
     const [seniorObl] = await obligationsFor(SENIOR.id)
-    await settleSvc.settleByCompany(seniorObl!.id, ADMIN_MAKSYM, {
+    await settle(seniorObl!.id, ADMIN_MAKSYM, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: KOSTYA_ID,
       currency: 'USDT',

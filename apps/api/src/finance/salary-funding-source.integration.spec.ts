@@ -271,9 +271,15 @@ describe('salary funding source: create → pay (real DB, no mocks) — task-sal
       ADMIN,
     )
     // Pay it from the company account. A non-USDT currency is overridden to USDT.
+    // task-receipts-backend (review round 1): pay-time proof now MANDATORY
+    // (COMPANY_ACCOUNT → USDT → explorer-only).
     const paid = await svc.paySalary(
       pending.id,
-      { fundingSource: 'COMPANY_ACCOUNT', currency: 'UAH' },
+      {
+        fundingSource: 'COMPANY_ACCOUNT',
+        currency: 'UAH',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xsalaryfundingsourcespec1',
+      },
       ADMIN,
     )
     expect(paid.status).toBe('PAID')
@@ -301,7 +307,15 @@ describe('salary funding source: create → pay (real DB, no mocks) — task-sal
       ADMIN,
     )
     await expect(
-      svc.paySalary(pending.id, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+      svc.paySalary(
+        pending.id,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xsalaryfundingsourcespec2',
+        },
+        ADMIN,
+      ),
     ).rejects.toThrowError(/Недостаточно средств/)
     const row = await dbSvc.db.query.transactions.findFirst({
       where: eq(transactions.id, pending.id),
@@ -320,9 +334,15 @@ describe('salary funding source: create → pay (real DB, no mocks) — task-sal
       { receiverId: SENIOR.id, amount: 100, currency: 'USD', salaryMonth: '2026-06' },
       ADMIN,
     )
+    // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
     const paid = await svc.paySalary(
       pending.id,
-      { fundingSource: 'ADMIN_PERSONAL', payerAdminId: ADMIN2.id, currency: 'UAH' },
+      {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN2.id,
+        currency: 'UAH',
+        receiptExternalUrl: 'https://drive.google.com/file/salaryfundingsourcespec3',
+      },
       ADMIN,
     )
     expect(paid.status).toBe('PAID')
@@ -347,7 +367,12 @@ describe('salary funding source: create → pay (real DB, no mocks) — task-sal
     await expect(
       svc.paySalary(
         pending.id,
-        { fundingSource: 'ADMIN_PERSONAL', payerAdminId: JUNIOR.id, currency: 'USD' },
+        {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: JUNIOR.id,
+          currency: 'USD',
+          receiptExternalUrl: 'https://drive.google.com/file/salaryfundingsourcespec4',
+        },
         ADMIN,
       ),
     ).rejects.toThrowError(/ADMIN/)

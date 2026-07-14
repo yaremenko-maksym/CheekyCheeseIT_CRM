@@ -384,11 +384,16 @@ describe('company-account — real backend RBAC integration (real DB, no mocks)'
   // (which would mask the 403 we're asserting). Use a stable UUID per test so
   // ADMIN-201 succeeds cleanly and non-ADMIN callers still hit the RolesGuard
   // (403) before the service even sees the body.
+  // task-receipts-backend (review round 1): a dividend now also requires a
+  // mandatory explorer-link receipt (USDT-only withdrawal) — the ADMIN-success
+  // case needs one to reach 200/201; the 403 cases are rejected by RolesGuard
+  // before Zod ever runs, so they are unaffected.
   it('POST dividends — ADMIN → 201/200', async () => {
     if (!dbAvailable) return
     const code = await status('POST', '/api/company-account/dividends', ADMIN, {
       amount: 100,
       idempotencyKey: 'ca000000-0000-4000-aa00-000000000099',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xcompanyaccountrbacspec',
     })
     expect([200, 201]).toContain(code)
   })

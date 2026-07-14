@@ -1,6 +1,6 @@
 # task-receipts-backend — progress
 
-current_milestone: 6/6 (all code + tests done; finalizing verification + PR)
+current_milestone: 7/7 (review round 1 fixes done; full unit+integration suite green)
 branch: feature/transaction-receipts (local: be, push via HEAD:)
 worktree: .claude/worktrees/agent-a2a607af5fbfc4b7b (ALL edits inside here)
 
@@ -24,3 +24,23 @@ worktree: .claude/worktrees/agent-a2a607af5fbfc4b7b (ALL edits inside here)
 
 - Migration = schema.ts (db:push source) + manual prod DDL (repo has NO migrations journal; db:generate absent, only db:push).
 - Mandatory enforced via superRefine (NOT required-type) -> monorepo typecheck green until frontend catches up.
+
+## Review round 1 (code+security APPROVE, fix-round mandated)
+
+1. MED-1: legacy `POST /pending-settlements/:id/settle-company` (obligation-id) removed —
+   ignored its body entirely (privileged mandatory-receipt bypass); zero apps/web callers
+   (grep confirmed only by-source-transaction is wired). apps/e2e (pending-settlement.spec.ts,
+   rbac-matrix-smoke.spec.ts) directly HTTP-probes the removed route — FLAGGED for AutoTest's
+   next commit on this branch (out of my zone per task file).
+2. MED-2: added receiptMandatoryError service-side defense-in-depth re-check to
+   createSeniorIncome/createDropIncome/createAdminIncome/createExpense (parity with the other
+   5 flows).
+3. LOW: ParseUUIDPipe on PATCH :id/receipt.
+4. LOW: unit tests for userinfo look-alike vectors in isExplorerUrl (code was already correct).
+5. Full-suite verification (mandated by receiving-code-review discipline) surfaced 12 MORE
+   pre-existing integration spec files broken by my OWN original mandatory-receipt change
+   (never run in the original round) — all fixed with receipt fields added to call sites:
+   company-account-debit-race/dividend/ledger/.rbac, dividend-idempotency, pay-salary-invoice,
+   pay-salary.rbac, salary-funding-source, senior-settle-owner, usdt-income-idempotency,
+   usdt-income-obligations, transactions.create-accountant.rbac.
+- Final: shared unit 321/321, api unit 1615/1615, api FULL integration 74 files / 770/770 green.

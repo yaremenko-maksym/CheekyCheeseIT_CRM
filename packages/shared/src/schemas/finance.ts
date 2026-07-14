@@ -1030,13 +1030,11 @@ export type PendingSettlementItemDto = z.infer<typeof pendingSettlementItemSchem
 export const pendingSettlementListResponseSchema = z.array(pendingSettlementItemSchema)
 export type PendingSettlementListResponseDto = z.infer<typeof pendingSettlementListResponseSchema>
 
-// settle-drop endpoint takes an empty body — the obligation id is in the URL.
-// The route param `:id` is validated as UUID-like (same permissive shape as
-// payment-channel ids) since seeded users carry version-nibble 0 in their UUIDs.
-export const settleObligationParamSchema = z.object({
-  id: z.string().regex(UUID_LIKE_REGEX, 'Invalid UUID'),
-})
-export type SettleObligationParamDto = z.infer<typeof settleObligationParamSchema>
+// task-receipts-backend (review round 1, MED-1): `settleObligationParamSchema`
+// backed the now-REMOVED legacy `POST /pending-settlements/:id/settle-company`
+// route (obligation-id, no funding/receipt) — a privileged bypass of the
+// mandatory-receipt invariant with zero apps/web callers. See the removal note
+// in pending-settlement.controller.ts.
 
 // task-senior-settle-in-tx-row: alternative settle entry point keyed on the
 // SOURCE transaction (the SENIOR_PENDING_PAYOUT row) instead of the obligation

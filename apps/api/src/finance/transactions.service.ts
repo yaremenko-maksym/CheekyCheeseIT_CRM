@@ -1010,6 +1010,16 @@ export class TransactionsService {
       receiverId = owner.id
     }
 
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller
+    // boundary. Effective currency = USDT for a company-account income (USDT-only
+    // pool) → explorer-only; else the supplied currency → file/url.
+    const adminIncomeReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
+    )
+    if (adminIncomeReceiptErr) throw new BadRequestException(adminIncomeReceiptErr)
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
@@ -1296,6 +1306,14 @@ export class TransactionsService {
       applicableTeams,
     )
 
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller boundary.
+    const seniorIncomeReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.currency,
+    )
+    if (seniorIncomeReceiptErr) throw new BadRequestException(seniorIncomeReceiptErr)
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
@@ -1362,6 +1380,14 @@ export class TransactionsService {
     if (project.paymentType === 'USDT') {
       throw new ForbiddenException('На USDT-проекте приход декларирует администратор')
     }
+
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller boundary.
+    const dropIncomeReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.currency,
+    )
+    if (dropIncomeReceiptErr) throw new BadRequestException(dropIncomeReceiptErr)
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
@@ -2105,6 +2131,16 @@ export class TransactionsService {
     // расходы, …»). senderId = currentUser.id records who booked the expense.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
+
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller
+    // boundary. Effective currency = USDT for a company-account expense
+    // (USDT-only pool) → explorer-only; else the supplied currency → file/url.
+    const expenseReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
+    )
+    if (expenseReceiptErr) throw new BadRequestException(expenseReceiptErr)
 
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {

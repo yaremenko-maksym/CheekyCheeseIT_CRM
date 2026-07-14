@@ -51,6 +51,20 @@ describe('BLOCKCHAIN_EXPLORER_HOSTS + isExplorerUrl', () => {
     expect(isExplorerUrl('https://etherscan.io.evil.com/tx/0xabc123')).toBe(false)
   })
 
+  // LOW (review round 1, security-reviewer): userinfo look-alike — the browser
+  // treats everything before the LAST '@' as userinfo and 'evil.com' as the
+  // REAL host; a naive substring/prefix check on the url could be fooled into
+  // thinking 'etherscan.io' is the host. isExplorerUrl strips the userinfo
+  // segment before the allowlist check, so this must resolve to the real host
+  // (evil.com, not allowlisted) and be rejected.
+  it('rejects a userinfo look-alike (https://etherscan.io@evil.com/...)', () => {
+    expect(isExplorerUrl('https://etherscan.io@evil.com/tx/0xabc123')).toBe(false)
+  })
+
+  it('rejects a userinfo-with-password look-alike (https://etherscan.io:x@evil.com/...)', () => {
+    expect(isExplorerUrl('https://etherscan.io:x@evil.com/tx/0xabc123')).toBe(false)
+  })
+
   it('rejects an http (non-https) explorer link', () => {
     expect(isExplorerUrl('http://etherscan.io/tx/0xabc123')).toBe(false)
   })

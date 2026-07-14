@@ -281,8 +281,26 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     const salaryB = await seedPendingSalary(JUNIOR_B.id, amount)
 
     const results = await Promise.allSettled([
-      svc.paySalary(salaryA, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
-      svc.paySalary(salaryB, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+      svc.paySalary(
+        salaryA,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          // task-receipts-backend (review round 1): mandatory explorer receipt.
+          receiptExternalUrl: 'https://etherscan.io/tx/0xcompanydebitracespec',
+        },
+        ADMIN,
+      ),
+      svc.paySalary(
+        salaryB,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          // task-receipts-backend (review round 1): mandatory explorer receipt.
+          receiptExternalUrl: 'https://etherscan.io/tx/0xcompanydebitracespec',
+        },
+        ADMIN,
+      ),
     ])
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -319,13 +337,31 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     const salaryB = await seedPendingSalary(JUNIOR_B.id, amount)
 
     // First debit succeeds (one fits).
-    await svc.paySalary(salaryA, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN)
+    await svc.paySalary(
+      salaryA,
+      {
+        fundingSource: 'COMPANY_ACCOUNT',
+        currency: 'USDT',
+        // task-receipts-backend (review round 1): mandatory explorer receipt.
+        receiptExternalUrl: 'https://etherscan.io/tx/0xcompanydebitracespec',
+      },
+      ADMIN,
+    )
     expect(await myContribution()).toBe(myBefore - amount)
 
     // Second debit of `amount` now exceeds the reduced balance → rejected (the
     // gate re-reads the already-reduced balance).
     await expect(
-      svc.paySalary(salaryB, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+      svc.paySalary(
+        salaryB,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          // task-receipts-backend (review round 1): mandatory explorer receipt.
+          receiptExternalUrl: 'https://etherscan.io/tx/0xcompanydebitracespec',
+        },
+        ADMIN,
+      ),
     ).rejects.toThrowError(/Недостаточно средств/)
     // Only the first debit applied — our contribution did not drop further.
     expect(await myContribution()).toBe(myBefore - amount)
@@ -340,8 +376,26 @@ describe('company-account debits — serialized via advisory lock (MED-1, real D
     const salary = await seedPendingSalary(JUNIOR_A.id, 100)
 
     const [first, second] = await Promise.allSettled([
-      svc.paySalary(salary, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
-      svc.paySalary(salary, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+      svc.paySalary(
+        salary,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          // task-receipts-backend (review round 1): mandatory explorer receipt.
+          receiptExternalUrl: 'https://etherscan.io/tx/0xcompanydebitracespec',
+        },
+        ADMIN,
+      ),
+      svc.paySalary(
+        salary,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          // task-receipts-backend (review round 1): mandatory explorer receipt.
+          receiptExternalUrl: 'https://etherscan.io/tx/0xcompanydebitracespec',
+        },
+        ADMIN,
+      ),
     ])
 
     const fulfilled = [first, second].filter((r) => r.status === 'fulfilled')

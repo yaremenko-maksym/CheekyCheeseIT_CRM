@@ -6,6 +6,7 @@ import {
   HttpCode,
   Inject,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -222,8 +223,15 @@ export class TransactionsController {
   // only ADMIN/ACCOUNTANT). Body validated via attachReceiptSchema (XOR, one of
   // doc/url mandatory); the USDT explorer-only rule is applied in the service
   // (the effective currency comes from the existing transaction).
+  // LOW (review round 1): ParseUUIDPipe on `:id` — a malformed id (non-uuid)
+  // now 400s at the pipe instead of reaching the service and blowing up as a
+  // 500 on the underlying Postgres uuid-cast error.
   @Patch(':id/receipt')
-  attachReceipt(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+  attachReceipt(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
     return this.svc.attachOrReplaceReceipt(id, attachReceiptSchema.parse(body), user)
   }
 

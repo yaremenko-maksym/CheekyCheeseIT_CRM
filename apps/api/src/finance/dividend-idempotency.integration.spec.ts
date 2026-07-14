@@ -58,6 +58,10 @@ const TEST_USER_IDS = ALL.map((u) => u.id)
 const DEPOSIT_ID = 'f4a5b6c7-0d1e-4f4a-ac00-000000000001'
 const IDEM_KEY_1 = 'f4a5b6c7-0d1e-4f4a-8d00-000000000001'
 const IDEM_KEY_2 = 'f4a5b6c7-0d1e-4f4a-8d00-000000000002'
+// task-receipts-backend (review round 1): createDividend now requires a
+// mandatory explorer-link receipt (USDT-only withdrawal) — orthogonal to the
+// idempotency-key behavior this spec exercises.
+const DIV_RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xdividendidempotencyspec' }
 
 const stubEtherscan = {} as unknown as EtherscanService
 
@@ -208,12 +212,18 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     if (!dbAvailable) return
     await seedDeposit(100_000)
 
-    const res1 = await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_1 }, ADMIN)
+    const res1 = await svc.createDividend(
+      { amount: 100, idempotencyKey: IDEM_KEY_1, ...DIV_RECEIPT },
+      ADMIN,
+    )
     expect(res1.id).toBeTruthy()
     expect(await countDividends()).toBe(1)
 
     // Second call with the SAME key — must be a no-op at the DB level
-    const res2 = await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_1 }, ADMIN)
+    const res2 = await svc.createDividend(
+      { amount: 100, idempotencyKey: IDEM_KEY_1, ...DIV_RECEIPT },
+      ADMIN,
+    )
     expect(res2.id).toBe(res1.id)
     expect(await countDividends()).toBe(1)
   }, 30_000)
@@ -222,8 +232,8 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     if (!dbAvailable) return
     await seedDeposit(100_000)
 
-    await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_1 }, ADMIN)
-    await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_2 }, ADMIN)
+    await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_1, ...DIV_RECEIPT }, ADMIN)
+    await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_2, ...DIV_RECEIPT }, ADMIN)
 
     expect(await countDividends()).toBe(2)
   }, 30_000)
@@ -235,7 +245,7 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     expect(() => createDividendSchema.parse({ amount: 50, idempotencyKey: 'not-a-uuid' })).toThrow()
     // Valid UUID passes schema validation
     expect(() =>
-      createDividendSchema.parse({ amount: 50, idempotencyKey: IDEM_KEY_1 }),
+      createDividendSchema.parse({ amount: 50, idempotencyKey: IDEM_KEY_1, ...DIV_RECEIPT }),
     ).not.toThrow()
   })
 
@@ -243,9 +253,15 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     if (!dbAvailable) return
     await seedDeposit(100_000)
 
-    const res1 = await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_1 }, ADMIN)
+    const res1 = await svc.createDividend(
+      { amount: 100, idempotencyKey: IDEM_KEY_1, ...DIV_RECEIPT },
+      ADMIN,
+    )
     // Same key, different amount → idempotent return of original
-    const res2 = await svc.createDividend({ amount: 999, idempotencyKey: IDEM_KEY_1 }, ADMIN)
+    const res2 = await svc.createDividend(
+      { amount: 999, idempotencyKey: IDEM_KEY_1, ...DIV_RECEIPT },
+      ADMIN,
+    )
 
     expect(res2.id).toBe(res1.id)
     expect(res2.amount).toBe(100) // original amount preserved
@@ -264,8 +280,8 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     const RACE_KEY = 'f4a5b6c7-0d1e-4f4a-ae00-000000000001'
 
     const results = await Promise.allSettled([
-      svc.createDividend({ amount: 100, idempotencyKey: RACE_KEY }, ADMIN),
-      svc.createDividend({ amount: 100, idempotencyKey: RACE_KEY }, ADMIN),
+      svc.createDividend({ amount: 100, idempotencyKey: RACE_KEY, ...DIV_RECEIPT }, ADMIN),
+      svc.createDividend({ amount: 100, idempotencyKey: RACE_KEY, ...DIV_RECEIPT }, ADMIN),
     ])
 
     // Both must resolve successfully (no 500, no rejection)

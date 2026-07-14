@@ -280,6 +280,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
         amount: 1000,
         receiverId: COMPANY_ACCOUNT_RECEIVER,
         idempotencyKey: key,
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
       },
       ADMIN_MAKSYM,
     )
@@ -289,6 +290,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
         amount: 1000,
         receiverId: COMPANY_ACCOUNT_RECEIVER,
         idempotencyKey: key,
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
       },
       ADMIN_MAKSYM,
     )
@@ -311,6 +313,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
         amount: 1000,
         receiverId: COMPANY_ACCOUNT_RECEIVER,
         idempotencyKey: randomUUID(),
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
       },
       ADMIN_MAKSYM,
     )
@@ -320,6 +323,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
         amount: 1000,
         receiverId: COMPANY_ACCOUNT_RECEIVER,
         idempotencyKey: randomUUID(),
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
       },
       ADMIN_MAKSYM,
     )
@@ -344,6 +348,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
           amount: 1000,
           receiverId: COMPANY_ACCOUNT_RECEIVER,
           idempotencyKey: key,
+          receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
         },
         ADMIN_MAKSYM,
       ),
@@ -353,6 +358,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
           amount: 1000,
           receiverId: COMPANY_ACCOUNT_RECEIVER,
           idempotencyKey: key,
+          receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
         },
         ADMIN_MAKSYM,
       ),
@@ -389,6 +395,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
         projectId: USDT_DROP_PROJECT,
         fundingSource: 'COMPANY_ACCOUNT',
         idempotencyKey: key,
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
         createdBy: MAKSYM_ID,
       })
       .returning()
@@ -399,6 +406,7 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
         amount: 1000,
         receiverId: COMPANY_ACCOUNT_RECEIVER,
         idempotencyKey: key,
+        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
       },
       ADMIN_MAKSYM,
     )

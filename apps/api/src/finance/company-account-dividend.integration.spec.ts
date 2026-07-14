@@ -110,6 +110,13 @@ class TestDatabaseModule {}
 })
 class DividendTestModule {}
 
+// task-receipts-backend (review round 1): createDividend now requires a
+// mandatory explorer-link receipt (USDT-only withdrawal). This spec is about
+// the balance gate + advisory lock, not the receipt — a fixed valid explorer
+// url keeps every call site deterministic and unrelated to the receipt gate
+// itself (covered by finance.receipts.spec.ts).
+const DIVIDEND_RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xcompanydividendspec' }
+
 describe('createDividend — balance gate + advisory lock (MED, real DB)', () => {
   let svc: CompanyAccountService
   let dbSvc: DatabaseService
@@ -236,7 +243,7 @@ describe('createDividend — balance gate + advisory lock (MED, real DB)', () =>
     await seedDeposit(1000)
     const before = await myContribution()
 
-    const res = await svc.createDividend({ amount: 400 }, ADMIN)
+    const res = await svc.createDividend({ amount: 400, ...DIVIDEND_RECEIPT }, ADMIN)
     expect(res.amount).toBe(400)
     expect(res.receiverId).toBe(ADMIN.id)
 
@@ -258,9 +265,9 @@ describe('createDividend — balance gate + advisory lock (MED, real DB)', () =>
     // Ask for far more than the GLOBAL balance so the gate trips even under
     // concurrent deposits from a parallel spec.
     const tooMuch = (await liveBalance()) + 1_000_000
-    await expect(svc.createDividend({ amount: tooMuch }, ADMIN)).rejects.toThrowError(
-      /Недостаточно средств/,
-    )
+    await expect(
+      svc.createDividend({ amount: tooMuch, ...DIVIDEND_RECEIPT }, ADMIN),
+    ).rejects.toThrowError(/Недостаточно средств/)
 
     // The rejected dividend left NO row and did NOT move our contribution.
     expect(await countDividends()).toBe(dividendsBefore)
@@ -281,8 +288,8 @@ describe('createDividend — balance gate + advisory lock (MED, real DB)', () =>
     const myBefore = await myContribution()
 
     const results = await Promise.allSettled([
-      svc.createDividend({ amount, adminId: ADMIN.id }, ADMIN),
-      svc.createDividend({ amount, adminId: ADMIN_B.id }, ADMIN),
+      svc.createDividend({ amount, adminId: ADMIN.id, ...DIVIDEND_RECEIPT }, ADMIN),
+      svc.createDividend({ amount, adminId: ADMIN_B.id, ...DIVIDEND_RECEIPT }, ADMIN),
     ])
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
@@ -305,11 +312,13 @@ describe('createDividend — balance gate + advisory lock (MED, real DB)', () =>
     const myBefore = await myContribution()
 
     // First dividend succeeds (one fits).
-    await svc.createDividend({ amount }, ADMIN)
+    await svc.createDividend({ amount, ...DIVIDEND_RECEIPT }, ADMIN)
     expect(await myContribution()).toBe(myBefore - amount)
 
     // Second dividend of `amount` now exceeds the reduced balance → rejected.
-    await expect(svc.createDividend({ amount }, ADMIN)).rejects.toThrowError(/Недостаточно средств/)
+    await expect(svc.createDividend({ amount, ...DIVIDEND_RECEIPT }, ADMIN)).rejects.toThrowError(
+      /Недостаточно средств/,
+    )
     expect(await myContribution()).toBe(myBefore - amount)
   }, 30_000)
 })
