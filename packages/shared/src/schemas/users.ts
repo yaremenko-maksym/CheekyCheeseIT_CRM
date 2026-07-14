@@ -314,9 +314,14 @@ export const adminUpdateUserSchema = z
      */
     avatarDocumentId: z.string().uuid().nullable().optional(),
     techStack: techStackSchema.nullable().optional(),
+    /**
+     * Service persists it only when the effective role is SENIOR
+     * (role-scoped write).
+     */
     seniorSharePercent: z.number().int().min(0).max(100).optional(),
     /**
-     * DROP-only override on edit. Service ignores for non-DROP targets.
+     * DROP-only override on edit. Service persists it only when the
+     * effective role is DROP (role-scoped write).
      */
     dropSharePercent: z.number().int().min(0).max(100).optional(),
     monthlySalary: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14

@@ -802,10 +802,15 @@ export function UserDialog(props: UserDialogProps) {
           ...(isDrop && {
             dropSharePercent: value.dropSharePercent,
           }),
-          ...(!isSenior && {
-            monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
-            salaryCurrency: 'USD',
-          }),
+          // DROP has no salary field in the finance section (Section 4 renders
+          // SENIOR-slider / DROP-slider / salary-field, mutually exclusive) —
+          // exclude it here so the payload doesn't re-send/clamp salaryCurrency
+          // for a role that never had a salary to begin with.
+          ...(!isSenior &&
+            value.role !== 'DROP' && {
+              monthlySalary: value.monthlySalary ? computeMonthlySalaryUsd() : null,
+              salaryCurrency: 'USD',
+            }),
           // Contract data — legal full name for MSA contract. Empty string → omit
           // (backend treats absence as "no change").
           ...(value.legalFullName.trim() && {
@@ -1361,6 +1366,7 @@ export function UserDialog(props: UserDialogProps) {
                                 onChange={(v) => field.handleChange(v)}
                                 onBlur={field.handleBlur}
                                 error={!!err}
+                                min={0}
                                 role="DROP"
                               />
                               <p className="text-[11px] text-muted-foreground mt-1 inline-flex items-center gap-1">
