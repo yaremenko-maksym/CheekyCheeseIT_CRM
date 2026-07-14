@@ -10,6 +10,10 @@
  *   - The button is gated to SENIOR_PENDING_PAYOUT + PENDING_PAYMENT only
  *     (not other types / other statuses).
  *
+ * settle-drop-btn: also pins the mirror for DROP_PENDING_PAYOUT rows (same
+ * shape, same generic settle-company endpoint — see the second describe block
+ * below). The RBAC condition is asserted to be IDENTICAL to the senior branch.
+ *
  * The row is a <motion.tr> rendered inside <AnimatePresence>; we mock
  * framer-motion to plain DOM and @tanstack/react-router's <Link> to an anchor
  * so the component renders without a router. SENIOR_PENDING_PAYOUT rows hit the
@@ -182,5 +186,82 @@ describe('TransactionRow — settle senior payout button', () => {
   it('not shown when the onSettleSeniorPayout handler is absent', () => {
     renderRow({ tx: makeTx(), role: 'ADMIN' })
     expect(screen.queryByTestId(SETTLE_TESTID)).not.toBeInTheDocument()
+  })
+})
+
+// settle-drop-btn: mirror of the SENIOR_PENDING_PAYOUT suite above for
+// DROP_PENDING_PAYOUT rows (the company's IOU to a drop from their own
+// USDT-project income — same row shape, same generic settle-company endpoint,
+// see TransactionRow.tsx canSettleSeniorPayout). The RBAC condition MUST stay
+// identical to the senior branch — no additional restriction for the mirror.
+const DROP_ID = '33333333-3333-4333-8333-333333333333'
+const DROP_TX_ID = '44444444-4444-4444-8444-444444444444'
+
+function makeDropTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
+  return makeTx({
+    id: DROP_TX_ID,
+    type: 'DROP_PENDING_PAYOUT',
+    receiverId: DROP_ID,
+    recipientId: DROP_ID,
+    createdBy: DROP_ID,
+    ...overrides,
+  })
+}
+
+const DROP_SETTLE_TESTID = `tx-row-settle-senior-payout-${DROP_TX_ID}`
+
+describe('TransactionRow — settle drop payout button (mirror of settle senior)', () => {
+  it('ADMIN sees «Выплатить» on a DROP_PENDING_PAYOUT / PENDING_PAYMENT row', () => {
+    renderRow({ tx: makeDropTx(), role: 'ADMIN', onSettleSeniorPayout: () => {} })
+    expect(screen.getByTestId(DROP_SETTLE_TESTID)).toBeInTheDocument()
+    expect(screen.getByTestId(DROP_SETTLE_TESTID)).toHaveTextContent('Выплатить')
+  })
+
+  it('ACCOUNTANT sees «Выплатить» on a DROP_PENDING_PAYOUT row', () => {
+    renderRow({ tx: makeDropTx(), role: 'ACCOUNTANT', onSettleSeniorPayout: () => {} })
+    expect(screen.getByTestId(DROP_SETTLE_TESTID)).toBeInTheDocument()
+  })
+
+  it('clicking «Выплатить» on a DROP row calls onSettleSeniorPayout with the tx', async () => {
+    const onSettle = vi.fn()
+    renderRow({ tx: makeDropTx(), role: 'ADMIN', onSettleSeniorPayout: onSettle })
+    await userEvent.click(screen.getByTestId(DROP_SETTLE_TESTID))
+    expect(onSettle).toHaveBeenCalledTimes(1)
+    expect(onSettle.mock.calls[0]?.[0]?.id).toBe(DROP_TX_ID)
+    expect(onSettle.mock.calls[0]?.[0]?.type).toBe('DROP_PENDING_PAYOUT')
+  })
+
+  it('SENIOR does NOT see the settle button on a DROP row (privileged action)', () => {
+    renderRow({ tx: makeDropTx(), role: 'SENIOR', onSettleSeniorPayout: () => {} })
+    expect(screen.queryByTestId(DROP_SETTLE_TESTID)).not.toBeInTheDocument()
+  })
+
+  it('DROP does NOT see the settle button on its own DROP_PENDING_PAYOUT row', () => {
+    renderRow({ tx: makeDropTx(), role: 'DROP', onSettleSeniorPayout: () => {} })
+    expect(screen.queryByTestId(DROP_SETTLE_TESTID)).not.toBeInTheDocument()
+  })
+
+  it('JUNIOR does NOT see the settle button on a DROP row', () => {
+    renderRow({ tx: makeDropTx(), role: 'JUNIOR', onSettleSeniorPayout: () => {} })
+    expect(screen.queryByTestId(DROP_SETTLE_TESTID)).not.toBeInTheDocument()
+  })
+
+  it('HR does NOT see the settle button on a DROP row', () => {
+    renderRow({ tx: makeDropTx(), role: 'HR', onSettleSeniorPayout: () => {} })
+    expect(screen.queryByTestId(DROP_SETTLE_TESTID)).not.toBeInTheDocument()
+  })
+
+  it('not shown when the DROP row is already PAID (ADMIN)', () => {
+    renderRow({
+      tx: makeDropTx({ status: 'PAID' }),
+      role: 'ADMIN',
+      onSettleSeniorPayout: () => {},
+    })
+    expect(screen.queryByTestId(DROP_SETTLE_TESTID)).not.toBeInTheDocument()
+  })
+
+  it('not shown when the onSettleSeniorPayout handler is absent (DROP row)', () => {
+    renderRow({ tx: makeDropTx(), role: 'ADMIN' })
+    expect(screen.queryByTestId(DROP_SETTLE_TESTID)).not.toBeInTheDocument()
   })
 })

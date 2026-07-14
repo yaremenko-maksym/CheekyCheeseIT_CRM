@@ -101,9 +101,26 @@ export const transactionTypeEnum = pgEnum('transaction_type', [
   // task-company-account-backend. SENIOR/DROP-submitted USDT deposit onto the
   // shared company wallet, Etherscan-verified. PENDING until confirmations reach
   // the threshold AND the on-chain recipient matches the company wallet, then
-  // PAID (credits the company-account balance). Must stay LAST for a clean
-  // additive ALTER TYPE ... ADD VALUE.
+  // PAID (credits the company-account balance).
   'COMPANY_DEPOSIT',
+  // task-drop-share-override-and-receiver (D4). The company owes the DROP their
+  // share after an ADMIN declares USDT income on a USDT-payment project. Mirror
+  // of SENIOR_PENDING_PAYOUT: a visible IOU row (status=PENDING_PAYMENT,
+  // receiverId=drop, senderLabel='COMPANY') paired with a pending_obligations
+  // row (creditor=drop, debtorType='COMPANY'), settled by ACCOUNTANT/ADMIN via
+  // settleByCompany → PAYOUT_DROP. Must stay LAST for a clean additive
+  // ALTER TYPE ... ADD VALUE.
+  'DROP_PENDING_PAYOUT',
+])
+
+// task-drop-share-override-and-receiver (D1). Project payment type — migrated
+// from a free-text varchar(100) to a fixed enum. Drives the income declaration
+// gate (FOP/GIG → senior/drop declare; USDT → admin-only). Existing prod rows
+// are normalized to 'FOP' (GamingTec → 'USDT') by the manual production DDL.
+export const projectPaymentTypeEnum = pgEnum('project_payment_type', [
+  'FOP',
+  'GIG_CONTRACT',
+  'USDT',
 ])
 
 // Phase 4-A: pending senior obligations live in their own table so the
@@ -296,7 +313,11 @@ export const projects = pgTable('projects', {
   techStack: varchar('tech_stack', { length: 500 }),
   teamSize: varchar('team_size', { length: 100 }),
   benefits: varchar('benefits', { length: 500 }),
-  paymentType: varchar('payment_type', { length: 100 }),
+  // task-drop-share-override-and-receiver (D1). Migrated from free-text
+  // varchar(100) to the project_payment_type enum. NOT NULL DEFAULT 'FOP' —
+  // the manual production DDL normalizes existing free-text values before the
+  // type conversion (all → 'FOP', GamingTec → 'USDT').
+  paymentType: projectPaymentTypeEnum('payment_type').notNull().default('FOP'),
   salaryReview: varchar('salary_review', { length: 255 }),
   corpTech: varchar('corp_tech', { length: 255 }),
   notesGeneral: varchar('notes_general', { length: 1000 }),
@@ -307,6 +328,12 @@ export const projects = pgTable('projects', {
   // existing transactions.service.ts finance flow keeps reading the same
   // effective value.
   seniorSharePercentOverride: integer('senior_share_percent_override'),
+  // task-drop-share-override-and-receiver (Part A). Per-project override for the
+  // DROP's share percent (0-100). NULL = use users.dropSharePercent (→ 5).
+  // Editable only by ADMIN/ACCOUNTANT. Resolved by resolveDropShare and
+  // snapshotted onto DROP_INCOME / obligation rows. Mirror column below in
+  // project_finance_settings for symmetry with the senior override.
+  dropSharePercentOverride: integer('drop_share_percent_override'),
   // Soft delete (archived projects hidden from main UI, restorable). The
   // project lifecycle is binary: ACTIVE (archivedAt = null) vs ARCHIVED
   // (archivedAt = timestamp of when the project ended).
@@ -324,6 +351,11 @@ export const projectFinanceSettings = pgTable('project_finance_settings', {
     .references(() => projects.id, { onDelete: 'cascade' }),
   // Override senior share percent for this project; null = use users.seniorSharePercent
   seniorSharePercentOverride: integer('senior_share_percent_override'),
+  // task-drop-share-override-and-receiver (Part A). Legacy mirror of
+  // projects.dropSharePercentOverride (kept for symmetry with the senior
+  // override); null = use users.dropSharePercent (→ 5). The service writes the
+  // canonical value to projects.dropSharePercentOverride.
+  dropSharePercentOverride: integer('drop_share_percent_override'),
   // Override junior monthly salary for this project; null = use users.monthlySalary
   juniorSalaryOverride: numeric('junior_salary_override', { precision: 10, scale: 2 }),
   updatedBy: uuid('updated_by').references(() => users.id, { onDelete: 'set null' }),
@@ -484,6 +516,15 @@ export const transactions = pgTable(
     // Nullable to keep legacy rows (pre-task) renderable as-is. The hierarchy
     // resolved here is: project override → team override → user default.
     seniorSharePercentSource: varchar('senior_share_percent_source', { length: 16 }),
+    // task-drop-share-override-and-receiver (Part A). Snapshot of the DROP share
+    // percent at DROP_INCOME / DROP_PENDING_PAYOUT creation time — makes the
+    // distribution deterministic (changing users.dropSharePercent later does not
+    // retroactively re-price existing rows). Nullable — only drop-flow rows
+    // carry it; legacy DROP_INCOME rows (pre-task) fall back to the resolver.
+    dropSharePercent: integer('drop_share_percent'),
+    // Snapshot source for the percent above — 'PROJECT' | 'USER_DEFAULT' (no
+    // team level for the drop). Nullable for legacy / non-drop rows.
+    dropSharePercentSource: varchar('drop_share_percent_source', { length: 16 }),
     // Receipt — uploaded file (FK to documents.id, category=RECEIPT) OR an
     // external URL (etherscan link, screenshot). Mutually exclusive — enforced
     // by a row-level CHECK constraint, see migration 0013. Both NULL = no
@@ -514,17 +555,24 @@ export const transactions = pgTable(
     // additive migration push-friendly and the nullable semantics simple.
     fundingSource: varchar('funding_source', { length: 16 }),
     /**
-     * BIZ-19: client-supplied idempotency key for DIVIDEND_TO_ADMIN.
-     * The caller generates a UUID and passes it on the first request.
-     * Subsequent requests with the same key return the existing row (no-op).
-     * NULL for all non-dividend rows and for dividends without a key
-     * (backward-compat: older callers without the key get fresh rows).
+     * Client-supplied idempotency key. SHARED across two idempotent flows —
+     * one nullable column, one key namespace, guarded by two DISJOINT partial
+     * unique indexes (one per `type`):
+     *   - BIZ-19 (MED-2): DIVIDEND_TO_ADMIN (createDividend).
+     *   - PR #367 (MED-1): ADMIN_INCOME    (declareUsdtProjectIncome).
+     * The caller generates a UUID and passes it on the first request; a
+     * subsequent request with the same key returns the existing row (no-op).
+     * NULL for all other rows and for legacy callers without a key
+     * (backward-compat: keyless rows get fresh rows, unaffected by the indexes).
      *
-     * ADD COLUMN DDL (apply to dev/prod manually before deploy):
+     * ADD COLUMN + INDEX DDL (apply to dev/prod manually before deploy):
      *   ALTER TABLE transactions ADD COLUMN idempotency_key uuid;
      *   CREATE UNIQUE INDEX uq_transactions_dividend_idempotency_key
      *     ON transactions (idempotency_key)
      *     WHERE type = 'DIVIDEND_TO_ADMIN' AND idempotency_key IS NOT NULL;
+     *   CREATE UNIQUE INDEX uq_transactions_admin_income_idempotency_key
+     *     ON transactions (idempotency_key)
+     *     WHERE type = 'ADMIN_INCOME' AND idempotency_key IS NOT NULL;
      */
     idempotencyKey: uuid('idempotency_key'),
     // Accountant/admin validation fields (for SENIOR_INCOME)
@@ -575,6 +623,16 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_dividend_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'DIVIDEND_TO_ADMIN' AND ${t.idempotencyKey} IS NOT NULL`),
+    // PR #367 (MED-1): idempotency key for ADMIN_INCOME (declareUsdtProjectIncome).
+    // Last-line-of-defence backstop for a double-submitted admin-USDT income —
+    // the service's early-SELECT short-circuits the common replay; two truly
+    // concurrent submits that both miss it collide here (23505) instead of
+    // creating two incomes + two obligation sets. Partial + type-scoped so it is
+    // DISJOINT from the dividend index above (same column, different type) and
+    // leaves every other transaction type and keyless row untouched.
+    uniqueIndex('uq_transactions_admin_income_idempotency_key')
+      .on(t.idempotencyKey)
+      .where(sql`${t.type} = 'ADMIN_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
   ],
 )
 

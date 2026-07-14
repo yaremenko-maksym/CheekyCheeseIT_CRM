@@ -16,7 +16,7 @@
  * sonner so the dialog mounts without a network call, and assert the real
  * mutationFn body by capturing the settle args.
  */
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 
 vi.mock('@/lib/axios', () => ({
@@ -69,19 +69,29 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
     useQueryClient: vi
       .fn()
       .mockReturnValue({ invalidateQueries: vi.fn().mockResolvedValue(undefined) }),
-    useMutation: vi.fn().mockImplementation((opts: { mutationFn: () => unknown }) => {
-      capturedMutationFn = opts.mutationFn
-      return {
-        mutate: () => {
-          capturedMutationFn?.()
+    useMutation: vi
+      .fn()
+      .mockImplementation(
+        (opts: { mutationFn: () => unknown; onSuccess?: () => void; onError?: () => void }) => {
+          capturedMutationFn = opts.mutationFn
+          return {
+            mutate: () => {
+              // Mirrors real useMutation: run mutationFn, then onSuccess once its
+              // (possibly-async) result settles — needed so the settle-drop-btn
+              // toast-copy tests can await the success toast below.
+              Promise.resolve(capturedMutationFn?.())
+                .then(() => opts.onSuccess?.())
+                .catch(() => opts.onError?.())
+            },
+            isPending: false,
+            error: null,
+          }
         },
-        isPending: false,
-        error: null,
-      }
-    }),
+      ),
   }
 })
 
+import { toast } from 'sonner'
 import { SettleSeniorPayoutDialog } from '../SettleSeniorPayoutDialog'
 
 const TX = {
@@ -95,8 +105,22 @@ const TX = {
   createdAt: '2026-06-01T00:00:00.000Z',
 } as never
 
-function renderDialog() {
-  return render(<SettleSeniorPayoutDialog tx={TX} onClose={() => {}} />)
+// settle-drop-btn: SAME shape as TX above, only type flips to DROP_PENDING_PAYOUT
+// (mirrors the company-IOU-to-a-drop row). Used to pin that the dialog is
+// REUSED as-is for the drop mirror — only the recipient-facing copy adapts.
+const DROP_TX = {
+  id: 'drop-pending-1',
+  type: 'DROP_PENDING_PAYOUT',
+  status: 'PENDING_PAYMENT',
+  amount: '420',
+  currency: 'USDT',
+  receiverName: 'Drop Person',
+  projectName: 'USDT Project',
+  createdAt: '2026-06-01T00:00:00.000Z',
+} as never
+
+function renderDialog(tx: unknown = TX) {
+  return render(<SettleSeniorPayoutDialog tx={tx as never} onClose={() => {}} />)
 }
 
 describe('SettleSeniorPayoutDialog — account + currency selectors (salary-style)', () => {
@@ -144,5 +168,54 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
     expect(payload.payerAdminId).toBe('kostya-id')
+  })
+})
+
+// settle-drop-btn: pins that the dialog is REUSED as-is for DROP_PENDING_PAYOUT
+// rows — same funding picker + same generic settle-company mutation as the
+// senior branch above, only the recipient-facing copy (title / toast) adapts.
+describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-drop-btn mirror)', () => {
+  beforeEach(() => {
+    settleMock.mockClear()
+    capturedMutationFn = null
+    vi.mocked(toast.success).mockClear()
+  })
+
+  it('shows «Выплатить синьору» title for a SENIOR_PENDING_PAYOUT tx', () => {
+    renderDialog(TX)
+    expect(screen.getByText('Выплатить синьору')).toBeInTheDocument()
+  })
+
+  it('shows «Выплатить дропу» title for a DROP_PENDING_PAYOUT tx', () => {
+    renderDialog(DROP_TX)
+    expect(screen.getByText('Выплатить дропу')).toBeInTheDocument()
+    expect(screen.queryByText('Выплатить синьору')).not.toBeInTheDocument()
+  })
+
+  it('still surfaces the recipient name (drop) via the shared «Получатель» row', () => {
+    renderDialog(DROP_TX)
+    expect(screen.getByText('Drop Person')).toBeInTheDocument()
+  })
+
+  it('submitting a DROP_PENDING_PAYOUT settle still calls the SAME generic endpoint', () => {
+    renderDialog(DROP_TX)
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    expect(settleMock).toHaveBeenCalledTimes(1)
+    const [id, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(id).toBe('drop-pending-1')
+    expect(payload.fundingSource).toBe('COMPANY_ACCOUNT')
+    expect(payload.currency).toBe('USDT')
+  })
+
+  it('submitting a DROP settle shows the drop-specific success toast', async () => {
+    renderDialog(DROP_TX)
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Выплата дропу проведена'))
+  })
+
+  it('submitting a SENIOR settle still shows the original success toast', async () => {
+    renderDialog(TX)
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Выплата синьору проведена'))
   })
 })

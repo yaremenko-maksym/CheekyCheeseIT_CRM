@@ -1515,8 +1515,15 @@ export async function dismissDialog(page: Page) {
 // request context shares cookies with the browser, so a subsequent
 // `page.goto('/...')` is authenticated.
 
-/** Backend HTTP origin used by the real-API helpers. */
-const REAL_API_BASE = 'http://localhost:3001'
+/**
+ * Backend HTTP origin used by the real-API helpers. Overridable via
+ * `E2E_REAL_API_BASE` (task-drop-share-e2e) so a local run can point at a
+ * throwaway API instance on a non-default port (e.g. when 3001 is already
+ * occupied by a concurrent worktree's dev stack) without touching every
+ * call-site. Defaults to the standard dev/CI port — existing specs are
+ * unaffected.
+ */
+const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'
 
 /**
  * Seed ADMIN email used by the dev seed. Hardcoded here to keep the
@@ -1846,6 +1853,14 @@ export async function createDropProjectViaAPI(
     domain?: string
     startDate?: string
     seniorSharePercentOverride?: number | null
+    /**
+     * task-drop-share-e2e. Optional project payment-type (ADR
+     * 2026-07-13-payment-type-income-routing D1). Absent → backend default
+     * 'FOP'. Pass 'USDT' to provision an admin-USDT-declaration fixture
+     * (paired with `dropSharePercentOverride` below for Flow 4 assertions).
+     */
+    paymentType?: 'FOP' | 'GIG_CONTRACT' | 'USDT'
+    dropSharePercentOverride?: number | null
   },
 ): Promise<{ projectId: string; dropId: string; seniorId: string }> {
   const seniorEmail = opts.seniorEmail ?? SEED_EMAILS.seniorA
@@ -1863,6 +1878,10 @@ export async function createDropProjectViaAPI(
     startDate: opts.startDate ?? new Date().toISOString(),
     ...(opts.seniorSharePercentOverride !== undefined && {
       seniorSharePercentOverride: opts.seniorSharePercentOverride,
+    }),
+    ...(opts.paymentType !== undefined && { paymentType: opts.paymentType }),
+    ...(opts.dropSharePercentOverride !== undefined && {
+      dropSharePercentOverride: opts.dropSharePercentOverride,
     }),
   }
 
@@ -2493,4 +2512,121 @@ export async function onboardDropViaAPI(
 
   // Restore ADMIN session so subsequent calls use ADMIN credentials
   await loginViaApi(page, SEED_ADMIN_EMAIL)
+}
+
+// ---------------------------------------------------------------------------
+// task-drop-share-e2e — admin-USDT income declaration + obligation settle
+// ---------------------------------------------------------------------------
+//
+// ADR docs/architecture/2026-07-13-payment-type-income-routing.md (D3/D4/D5).
+// `declareUsdtIncomeViaAPI` hits the NEW ADMIN-only endpoint directly (used by
+// gate/regression specs that don't need the full dialog UI). The happy-path
+// spec drives the dialog through the UI instead (purpose statement: E2E
+// proves the user path, not just the endpoint contract already covered by
+// backend integration tests AC9-AC16).
+
+/**
+ * Declare USDT project income via POST /api/finance/usdt-income.
+ * Caller must be ADMIN-authenticated (`loginViaApi(page, SEED_ADMIN_EMAIL)` or
+ * another seed ADMIN). `receiverId` is either an ADMIN uuid (personal credit)
+ * or the `'COMPANY_ACCOUNT'` sentinel (shared pool credit).
+ */
+export async function declareUsdtIncomeViaAPI(
+  page: Page,
+  opts: {
+    projectId: string
+    amount: number
+    receiverId: string
+    idempotencyKey?: string
+    notes?: string | null
+    txDate?: string | null
+  },
+): Promise<{ id: string; status: string; amount: string; receiverId: string | null }> {
+  const payload = {
+    projectId: opts.projectId,
+    amount: opts.amount,
+    currency: 'USDT' as const,
+    receiverId: opts.receiverId,
+    idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    ...(opts.notes !== undefined && { notes: opts.notes }),
+    ...(opts.txDate !== undefined && { txDate: opts.txDate }),
+  }
+  const res = await page.request.post(`${REAL_API_BASE}/api/finance/usdt-income`, {
+    data: payload,
+  })
+  if (res.status() !== 201 && res.status() !== 200) {
+    throw new Error(`declareUsdtIncomeViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
+  }
+  return (await res.json()) as Awaited<ReturnType<typeof declareUsdtIncomeViaAPI>>
+}
+
+/**
+ * Settle a company obligation (SENIOR_PENDING_PAYOUT or DROP_PENDING_PAYOUT)
+ * via POST /pending-settlements/by-source-transaction/:id/settle-company —
+ * the SAME generic endpoint the finance-page «Выплатить синьору» button calls
+ * (`SettleSeniorPayoutDialog` → `financeApi.settleSeniorPayoutFromTransaction`).
+ * Routes server-side by the source-transaction's `type` (ADR D5) — works
+ * identically for a DROP_PENDING_PAYOUT source row, even though (at the time
+ * of writing) `TransactionRow.tsx` only renders the «Выплатить» action for
+ * SENIOR_PENDING_PAYOUT rows (see task-drop-share-e2e report — flagged as a
+ * frontend gap, not a backend limitation). Used directly by API here for the
+ * drop-obligation leg until that UI action exists.
+ */
+export async function settleObligationBySourceTransactionViaAPI(
+  page: Page,
+  sourceTransactionId: string,
+  opts: {
+    fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
+    payerAdminId?: string
+    currency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
+  },
+): Promise<{ status: number; body: unknown }> {
+  const res = await page.request.post(
+    `${REAL_API_BASE}/api/pending-settlements/by-source-transaction/${sourceTransactionId}/settle-company`,
+    {
+      data: {
+        fundingSource: opts.fundingSource,
+        ...(opts.payerAdminId !== undefined && { payerAdminId: opts.payerAdminId }),
+        currency: opts.currency ?? 'USDT',
+      },
+    },
+  )
+  let body: unknown
+  try {
+    body = await res.json()
+  } catch {
+    body = await res.text()
+  }
+  if (res.status() >= 400) {
+    throw new Error(
+      `settleObligationBySourceTransactionViaAPI failed: HTTP ${res.status()} — ${JSON.stringify(body)}`,
+    )
+  }
+  return { status: res.status(), body }
+}
+
+/** Fetch the shared company-account balance via GET /api/company-account. */
+export async function getCompanyAccountBalanceViaAPI(page: Page): Promise<number> {
+  const res = await page.request.get(`${REAL_API_BASE}/api/company-account`)
+  if (res.status() !== 200) {
+    throw new Error(`getCompanyAccountBalanceViaAPI failed: HTTP ${res.status()}`)
+  }
+  const body = (await res.json()) as { balance: number | string }
+  return typeof body.balance === 'string' ? parseFloat(body.balance) : body.balance
+}
+
+/**
+ * Self-summary for a DROP via GET /api/finance/drop/me/summary (DROP-only).
+ * Used to confirm the drop's aggregate `balance` moves after a
+ * DROP_PENDING_PAYOUT settle (PAYOUT_DROP credit — `computeDropAggregate`).
+ * Caller must already be logged in as the DROP (`loginViaApi(page, dropEmail)`).
+ */
+export async function getDropSelfSummaryViaAPI(
+  page: Page,
+): Promise<{ balance: number; debtToCompany: number; pendingIncomesCount: number }> {
+  const res = await page.request.get(`${REAL_API_BASE}/api/finance/drop/me/summary`)
+  if (res.status() !== 200) {
+    throw new Error(`getDropSelfSummaryViaAPI failed: HTTP ${res.status()} — ${await res.text()}`)
+  }
+  return (await res.json()) as Awaited<ReturnType<typeof getDropSelfSummaryViaAPI>>
 }

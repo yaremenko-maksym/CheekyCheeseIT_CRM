@@ -23,7 +23,10 @@ import { Label } from '@/components/ui/label'
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
+  SelectSeparator,
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
@@ -39,15 +42,27 @@ import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptIn
 // dedicated company-account endpoint, which books a DIVIDEND_TO_ADMIN row
 // server-side). Keeping it dialog-local avoids churning the shared enum / every
 // exhaustive `Record<TransactionType, …>` in the app.
-type DialogTxType = TransactionType | 'DIVIDEND'
+//
+// task-drop-share-override-and-receiver (Surface B). `USDT_INCOME` is the same
+// kind of synthetic option — an ADMIN declares USDT project income through a
+// dedicated endpoint (`declareUsdtProjectIncome`) that books a real
+// `ADMIN_INCOME` row server-side (see ADR D3). It is NOT a `TransactionType`.
+type DialogTxType = TransactionType | 'DIVIDEND' | 'USDT_INCOME'
 
 // Label / description for the synthetic DIVIDEND option (TYPE_LABELS is keyed by
 // the real enum and stays untouched).
 const DIVIDEND_LABEL = 'Дивиденд'
 const DIVIDEND_DESCRIPTION = 'Вывод дивидендов с баланса счёта компании'
 
+// task-drop-share-override-and-receiver (Surface B). Same synthetic-option
+// convention as DIVIDEND above.
+const USDT_INCOME_LABEL = 'USDT-приход'
+const USDT_INCOME_DESCRIPTION = 'Приход по USDT-проекту — получатель + авто-обязательства'
+
 function typeLabel(t: DialogTxType): string {
-  return t === 'DIVIDEND' ? DIVIDEND_LABEL : TYPE_LABELS[t]
+  if (t === 'DIVIDEND') return DIVIDEND_LABEL
+  if (t === 'USDT_INCOME') return USDT_INCOME_LABEL
+  return TYPE_LABELS[t]
 }
 
 function fmtUsdt(n: number): string {
@@ -62,7 +77,17 @@ type FundingSourceUI = 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | 'legacy'
 // Drop role - phase 2. Extended with `dropId` so the DROP_INCOME path can
 // filter projects by `project.dropId === user.id`. Backward compatible —
 // `dropId` is optional + null for legacy senior-projects.
-type ProjectOption = { id: string; name: string; seniorId: string; dropId?: string | null }
+// task-drop-share-override-and-receiver (Surface B). Extended with
+// `paymentType` so USDT-payment projects can be filtered/gated. Optional +
+// nullable — the backend already returns it on `GET /projects` (never
+// affects the pre-existing seniorId/dropId filters when absent).
+type ProjectOption = {
+  id: string
+  name: string
+  seniorId: string
+  dropId?: string | null
+  paymentType?: string | null
+}
 type UserOption = { id: string; displayName: string; role: string }
 type ExchangeRate = { usdUah: string; usdtUah: string; eurUah: string; date: string }
 
@@ -78,6 +103,9 @@ const TYPE_ICONS: Record<string, React.ReactNode> = {
   SALARY: <Wallet className="h-4 w-4" />,
   ADMIN_TRANSFER: <ArrowLeftRight className="h-4 w-4" />,
   DIVIDEND: <Coins className="h-4 w-4" />,
+  // task-drop-share-override-and-receiver (Surface B). Income semantics, same
+  // icon family as the other income types.
+  USDT_INCOME: <TrendingUp className="h-4 w-4" />,
 }
 
 const TYPE_DESCRIPTIONS: Record<string, string> = {
@@ -88,6 +116,7 @@ const TYPE_DESCRIPTIONS: Record<string, string> = {
   SALARY: 'Выплата зарплаты сотруднику',
   ADMIN_TRANSFER: 'Перевод между партнёрами',
   DIVIDEND: DIVIDEND_DESCRIPTION,
+  USDT_INCOME: USDT_INCOME_DESCRIPTION,
 }
 
 function needsConversion(currency: Currency) {
@@ -123,8 +152,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // DIVIDEND (synthetic option) is ADMIN-only — dividends are withdrawn by an
   // ADMIN partner, never by the ACCOUNTANT. So the accountant keeps the plain
   // admin set while ADMIN additionally gets DIVIDEND.
+  // task-drop-share-override-and-receiver (Surface B, ADR Q4). USDT_INCOME is
+  // ALSO ADMIN-only — ACCOUNTANT may not declare USDT project income.
   const availableTypes: DialogTxType[] = isAdmin
-    ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER', 'DIVIDEND']
+    ? ['ADMIN_INCOME', 'USDT_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER', 'DIVIDEND']
     : isAccountant
       ? ['ADMIN_INCOME', 'EXPENSE', 'SALARY', 'ADMIN_TRANSFER']
       : isSenior
@@ -165,6 +196,14 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // each resetForm (= dialog close + reopen). Stable within a single open session
   // so a double-click / retry with the same key is idempotent server-side.
   const [dividendIdempotencyKey, setDividendIdempotencyKey] = useState(() => crypto.randomUUID())
+  // MED-1 (security-review PR #367): same per-open-UUID contract for the admin
+  // USDT-income declaration (Surface C). Generated at mount, refreshed on reset —
+  // a double-submit with the SAME key returns the existing ADMIN_INCOME (no
+  // duplicated income / obligations). Separate from the dividend key so each
+  // intent owns its own idempotency namespace.
+  const [usdtIncomeIdempotencyKey, setUsdtIncomeIdempotencyKey] = useState(() =>
+    crypto.randomUUID(),
+  )
   const [txDate, setTxDate] = useState(() => {
     const now = new Date()
     return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
@@ -211,8 +250,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // Derived: is the currency selector locked to USDT?
   // True when a COMPANY_ACCOUNT funding source is selected for EXPENSE/ADMIN_INCOME.
   // (SALARY no longer carries a funding source here — chosen at pay time.)
+  // task-drop-share-override-and-receiver (Surface B). USDT_INCOME is ALWAYS
+  // locked to USDT (unconditionally — the project itself is USDT-payment),
+  // unlike EXPENSE/ADMIN_INCOME which only lock when COMPANY_ACCOUNT is chosen.
   const isUsdtLocked =
-    (type === 'EXPENSE' || type === 'ADMIN_INCOME') && fundingSource === 'COMPANY_ACCOUNT'
+    type === 'USDT_INCOME' ||
+    ((type === 'EXPENSE' || type === 'ADMIN_INCOME') && fundingSource === 'COMPANY_ACCOUNT')
 
   // Fetch NBU rates when non-USD/USDT currency selected, keyed by date
   const needsRate = needsConversion(currency)
@@ -225,7 +268,14 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     staleTime: 1000 * 60 * 60 * 24, // 24h — historical rates don't change
   })
 
-  const myProjects = isSenior ? projects.filter((p) => p.seniorId === user?.id) : projects
+  // task-drop-share-override-and-receiver (Surface B, ADR D2). USDT-payment
+  // projects are excluded from the SENIOR/DROP self-declare pools — on a USDT
+  // project only an ADMIN declares income (via USDT_INCOME below). ADMIN's own
+  // `myProjects` (unused in practice — ADMIN never reaches type='SENIOR_INCOME')
+  // is left unfiltered for backward-compat.
+  const myProjects = isSenior
+    ? projects.filter((p) => p.seniorId === user?.id && p.paymentType !== 'USDT')
+    : projects
   const adminUsers = allUsers.filter((u) => u.role === 'ADMIN')
   const adminUserIds = new Set(adminUsers.map((u) => u.id))
   // ADMIN_INCOME pool. ADMIN sees income for projects they own (seniorId===self).
@@ -240,7 +290,14 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       : []
   // Drop role - phase 2. DROP user can only declare income on drop-projects
   // routed through them. Backend enforces this too — UI mirrors the rule.
-  const dropProjects = isDrop ? projects.filter((p) => p.dropId === user?.id) : []
+  // task-drop-share-override-and-receiver (Surface B, ADR D2): USDT-payment
+  // drop-projects are excluded — the drop's income there is declared by ADMIN.
+  const dropProjects = isDrop
+    ? projects.filter((p) => p.dropId === user?.id && p.paymentType !== 'USDT')
+    : []
+  // task-drop-share-override-and-receiver (Surface B, ADR D3). ANY USDT-payment
+  // project — not just the ADMIN's own — is eligible for the admin-USDT flow.
+  const usdtProjects = isAdmin ? projects.filter((p) => p.paymentType === 'USDT') : []
   // task-salary-no-admin-receiver: mirror backend allow-list via shared constant —
   // ADMIN excluded (income via shares); all salaried roles eligible.
   // SALARY_ELIGIBLE_ROLES is the single source of truth (packages/shared).
@@ -284,11 +341,22 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
     const hasReceipt = receiptDocumentId || receiptExternalUrl
 
-    if (type === 'ADMIN_INCOME' || type === 'SENIOR_INCOME' || type === 'DROP_INCOME') {
+    if (
+      type === 'ADMIN_INCOME' ||
+      type === 'SENIOR_INCOME' ||
+      type === 'DROP_INCOME' ||
+      type === 'USDT_INCOME'
+    ) {
       if (!projectId) errors.project = 'Выберите проект'
     }
     if (type === 'SENIOR_INCOME' || type === 'DROP_INCOME') {
       if (!hasReceipt) errors.receipt = 'Прикрепите чек или укажите ссылку на подтверждение'
+    }
+    // task-drop-share-override-and-receiver (Surface B). Receiver is REQUIRED
+    // for the admin-USDT flow — reuses the same `receiver` field-error slot as
+    // SALARY/ADMIN_TRANSFER/DIVIDEND below.
+    if (type === 'USDT_INCOME') {
+      if (!receiverId) errors.receiver = 'Выберите получателя'
     }
     if (type === 'SALARY') {
       if (!receiverId) errors.receiver = 'Выберите сотрудника'
@@ -346,6 +414,24 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           currency,
           receiptDocumentId,
           receiptExternalUrl,
+          notes: notes || null,
+          txDate: txDate || null,
+        })
+      }
+      // task-drop-share-override-and-receiver (Surface B, ADR D3). ADMIN-only
+      // USDT project-income declaration with an explicit receiver (an ADMIN's
+      // uuid or the 'COMPANY_ACCOUNT' sentinel — sent as-is from the Select).
+      // No receipt fields — `createUsdtIncomeSchema` doesn't carry them (unlike
+      // SENIOR_INCOME/DROP_INCOME/ADMIN_INCOME).
+      if (type === 'USDT_INCOME') {
+        return financeApi.declareUsdtProjectIncome({
+          projectId,
+          amount: amt,
+          currency: 'USDT',
+          receiverId,
+          // MED-1 (security-review PR #367): stable per-open idempotency key so a
+          // double-click / retry does not create a second income + obligation set.
+          idempotencyKey: usdtIncomeIdempotencyKey,
           notes: notes || null,
           txDate: txDate || null,
         })
@@ -450,6 +536,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     // MED-2 (BIZ-19): generate a fresh idempotency key on each dialog close so
     // the next open session starts with a new key (new dialog = new dividend intent).
     setDividendIdempotencyKey(crypto.randomUUID())
+    // MED-1 (PR #367): likewise refresh the USDT-income key (new open = new intent).
+    setUsdtIncomeIdempotencyKey(crypto.randomUUID())
   }
 
   const error = mutation.error != null ? getApiErrorMessage(mutation.error) : null
@@ -529,7 +617,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           <div className="h-px bg-border/60" />
 
           {/* Project selector */}
-          {(type === 'SENIOR_INCOME' || type === 'ADMIN_INCOME' || type === 'DROP_INCOME') && (
+          {(type === 'SENIOR_INCOME' ||
+            type === 'ADMIN_INCOME' ||
+            type === 'DROP_INCOME' ||
+            type === 'USDT_INCOME') && (
             <div className="space-y-1.5">
               <Label className="text-xs text-muted-foreground">Проект</Label>
               <Select
@@ -550,7 +641,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     ? adminProjects
                     : type === 'DROP_INCOME'
                       ? dropProjects
-                      : myProjects
+                      : type === 'USDT_INCOME'
+                        ? usdtProjects
+                        : myProjects
                   ).map((p) => (
                     <SelectItem key={p.id} value={p.id} className="text-sm">
                       {p.name}
@@ -564,6 +657,87 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   data-testid="create-transaction-error-project"
                 >
                   {fieldErrors.project}
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* task-drop-share-override-and-receiver (Surface B, ADR D2). Gate
+              hints — shown only when the SENIOR/DROP genuinely has projects but
+              ALL of them are USDT-payment (the filtered pool is empty despite a
+              non-empty underlying list). A senior/drop with a mix of FOP/GIG +
+              USDT projects sees no hint — the USDT ones are just silently
+              absent from the Select above. */}
+          {type === 'SENIOR_INCOME' &&
+            projects.some((p) => p.seniorId === user?.id) &&
+            myProjects.length === 0 && (
+              <p
+                className="text-xs text-muted-foreground italic"
+                data-testid="senior-income-usdt-gate-hint"
+              >
+                На всех ваших проектах приход декларирует администратор (USDT). Обратитесь к
+                администратору.
+              </p>
+            )}
+          {type === 'DROP_INCOME' &&
+            projects.some((p) => p.dropId === user?.id) &&
+            dropProjects.length === 0 && (
+              <p
+                className="text-xs text-muted-foreground italic"
+                data-testid="drop-income-usdt-gate-hint"
+              >
+                На всех ваших проектах приход декларирует администратор (USDT). Обратитесь к
+                администратору.
+              </p>
+            )}
+
+          {/* task-drop-share-override-and-receiver (Surface B). Receiver of the
+              admin-USDT income — grouped Select (Admins / Company account). No
+              default pre-selection (ADR — deliberate choice each time). */}
+          {type === 'USDT_INCOME' && (
+            <div className="space-y-1.5">
+              <Label className="text-xs text-muted-foreground">Получатель прихода</Label>
+              <Select
+                value={receiverId}
+                onValueChange={(v) => {
+                  setReceiverId(v)
+                  clearFieldError('receiver')
+                }}
+              >
+                <SelectTrigger
+                  className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
+                  data-testid="usdt-income-receiver-trigger"
+                >
+                  <SelectValue placeholder="Выберите получателя" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectGroup>
+                    <SelectLabel>Админы</SelectLabel>
+                    {adminUsers.map((u) => (
+                      <SelectItem key={u.id} value={u.id} className="text-sm">
+                        {u.displayName}
+                      </SelectItem>
+                    ))}
+                  </SelectGroup>
+                  <SelectSeparator />
+                  <SelectGroup>
+                    <SelectLabel>Счёт компании</SelectLabel>
+                    <SelectItem value="COMPANY_ACCOUNT" className="text-sm">
+                      Счёт компании
+                    </SelectItem>
+                  </SelectGroup>
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                Весь приход (gross) уйдёт выбранному получателю. Компания автоматически создаст
+                обязательства выплатить синьору и дропу их доли.
+              </p>
+              {fieldErrors.receiver && (
+                <p
+                  className="text-[11px] text-destructive"
+                  data-testid="usdt-income-error-receiver"
+                >
+                  {fieldErrors.receiver}
                 </p>
               )}
             </div>

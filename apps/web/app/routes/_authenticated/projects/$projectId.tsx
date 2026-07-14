@@ -59,8 +59,16 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { ImageUploadField } from '@/components/ui/image-upload-field'
 import { ShareSlider } from '@/components/ui/share-slider'
+import { PAYMENT_TYPE_LABELS } from './constants'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip'
 import { ArchiveConfirmDialog } from '@/components/archive/ArchiveConfirmDialog'
@@ -148,11 +156,17 @@ type AnyField = FieldApi<
 type AnyForm = ReactFormExtendedApi<any, any, any, any, any, any, any, any, any, any, any, any>
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-function ProjectEditFields({
+// Exported (in addition to the default route `Route`) so
+// task-drop-share-override-and-receiver unit tests can mount this subcomponent
+// directly (Surface A/C interaction tests) without rendering the entire
+// 2000-line route page. Purely additive — no behavior change.
+export function ProjectEditFields({
   form,
   mode,
   canEditOverride,
   defaultSharePercent,
+  defaultDropSharePercent,
+  dropId,
   viewerRole,
   projectId,
 }: {
@@ -160,6 +174,13 @@ function ProjectEditFields({
   mode: 'info' | 'members'
   canEditOverride: boolean
   defaultSharePercent: number
+  // task-drop-share-override-and-receiver (Surface A). Analog of
+  // defaultSharePercent for the DROP share slider — the drop's global default
+  // (`project.dropSharePercentDefault ?? 5`), shown as the "reset" hint.
+  defaultDropSharePercent: number
+  // Surface A visibility gate — the drop-share section only renders for
+  // drop-projects (`project.dropId != null`).
+  dropId: string | null
   // ut-fix-round2: HR теряет видимость секции с долей синьора целиком (не disabled).
   viewerRole: string | undefined
   projectId?: string | undefined
@@ -284,6 +305,49 @@ function ProjectEditFields({
               salaryReview: 'Пересмотр ЗП',
               corpTech: 'Корп. технологии',
             }
+            // task-drop-share-override-and-receiver (Surface C). paymentType
+            // moves from free-text Input to a 3-value Select. Field-scoped RBAC
+            // reuses `canEditOverride` (ADMIN/ACCOUNTANT edit; everyone else who
+            // can reach this dialog — i.e. HR — sees it disabled/read).
+            if (fieldName === 'paymentType') {
+              return (
+                <form.Field key="paymentType" name="paymentType">
+                  {(field: AnyField) => (
+                    <div className="space-y-1.5">
+                      <Label>Тип оплаты</Label>
+                      <Select
+                        value={field.state.value as string}
+                        onValueChange={(v) => field.handleChange(v)}
+                        disabled={!canEditOverride}
+                      >
+                        <SelectTrigger
+                          className="h-9 text-sm"
+                          data-testid="project-payment-type-trigger"
+                        >
+                          <SelectValue placeholder="Выберите тип оплаты" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="FOP" className="text-sm">
+                            {PAYMENT_TYPE_LABELS.FOP}
+                          </SelectItem>
+                          <SelectItem value="GIG_CONTRACT" className="text-sm">
+                            {PAYMENT_TYPE_LABELS.GIG_CONTRACT}
+                          </SelectItem>
+                          <SelectItem value="USDT" className="text-sm">
+                            {PAYMENT_TYPE_LABELS.USDT}
+                          </SelectItem>
+                        </SelectContent>
+                      </Select>
+                      {!canEditOverride && (
+                        <p className="text-xs text-muted-foreground italic">
+                          Менять может только ADMIN или ACCOUNTANT.
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </form.Field>
+              )
+            }
             return (
               <form.Field key={fieldName} name={fieldName}>
                 {(field: AnyField) => (
@@ -392,6 +456,63 @@ function ProjectEditFields({
             }}
           </form.Field>
         )}
+
+        {/* Per-project DROP share — task-drop-share-override-and-receiver
+            (Surface A). Full analog of seniorSharePercentOverride above:
+            differs only in field name / label / role / visibility gate
+            (drop-projects only, `project.dropId != null`). Same RBAC —
+            HR/JUNIOR never see the section; non-ADMIN/ACCOUNTANT see it
+            disabled. */}
+        {viewerRole !== 'HR' && viewerRole !== 'JUNIOR' && dropId != null && (
+          <form.Field
+            name="dropSharePercentOverride"
+            validators={{
+              onBlur: ({ value }: { value: number | null }) => {
+                if (value === null || value === undefined || (value as unknown as string) === '')
+                  return undefined
+                const num = Number(value)
+                if (!Number.isInteger(num) || num < 0 || num > 100) {
+                  return 'Введите целое число от 0 до 100'
+                }
+                return undefined
+              },
+            }}
+          >
+            {(field: AnyField) => {
+              const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
+              const raw = field.state.value as number | null
+              const hasOverride = raw !== null && raw !== undefined
+              // Initial / current slider value — effective % (override OR default).
+              const sliderValue = hasOverride ? (raw as number) : defaultDropSharePercent
+              return (
+                <div className="space-y-2" data-testid="project-edit-drop-share-section">
+                  <Label className={cn(err && 'text-destructive')}>Доля дропа (%)</Label>
+                  <ShareSlider
+                    value={sliderValue}
+                    min={0}
+                    max={100}
+                    disabled={!canEditOverride}
+                    onChange={(v) => field.handleChange(v)}
+                    onBlur={field.handleBlur}
+                    error={!!err}
+                    inputTestId="project-edit-drop-share-override"
+                    role="DROP"
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    По умолчанию: {defaultDropSharePercent}%. Установите то же значение, чтобы
+                    сбросить переопределение.
+                  </p>
+                  {!canEditOverride && (
+                    <p className="text-xs text-muted-foreground italic">
+                      Менять может только ADMIN или ACCOUNTANT.
+                    </p>
+                  )}
+                  {err && <p className="text-xs text-destructive">{err}</p>}
+                </div>
+              )
+            }}
+          </form.Field>
+        )}
       </div>
     )
   }
@@ -458,6 +579,49 @@ function ProjectShareInfo({
           </TooltipTrigger>
           <TooltipContent>
             Установлено для этого проекта; глобальная доля синьора: {fallback}%
+          </TooltipContent>
+        </Tooltip>
+      ) : (
+        <span className="text-xs text-muted-foreground">(по умолчанию)</span>
+      )}
+    </span>
+  )
+}
+
+/**
+ * task-drop-share-override-and-receiver (Surface A). Read-only "Доля дропа"
+ * widget — twin of `ProjectShareInfo` above for the drop's per-project share.
+ * Shows the backend-resolved effective % (override → user default → 5) and an
+ * «Override» badge when a project-level override is set.
+ */
+function ProjectDropShareInfo({
+  project,
+}: {
+  project: Pick<
+    ProjectDetailDto,
+    'dropSharePercentOverride' | 'dropSharePercentDefault' | 'effectiveDropSharePercent'
+  >
+}) {
+  const overrideRaw = project.dropSharePercentOverride
+  const hasOverride = overrideRaw !== null && overrideRaw !== undefined
+  const fallback = project.dropSharePercentDefault ?? 5
+  const effective = project.effectiveDropSharePercent ?? (hasOverride ? overrideRaw : fallback)
+  return (
+    <span className="inline-flex items-center gap-2" data-testid="project-drop-share">
+      <span className="font-medium tabular-nums">{effective}%</span>
+      {hasOverride ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              variant="secondary"
+              className="text-[10px]"
+              data-testid="project-drop-share-override-badge"
+            >
+              Override
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            Установлено для этого проекта; глобальная доля дропа: {fallback}%
           </TooltipContent>
         </Tooltip>
       ) : (
@@ -541,10 +705,17 @@ function ProjectDetailPage() {
       rate: (project?.rate ?? '') as unknown as number,
       currency: (project?.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
       seniorSharePercentOverride: project?.seniorSharePercentOverride ?? null,
+      // task-drop-share-override-and-receiver (Surface A). Same null-default
+      // convention as seniorSharePercentOverride above.
+      dropSharePercentOverride: project?.dropSharePercentOverride ?? null,
       techStack: project?.techStack ?? '',
       teamSize: project?.teamSize ?? '',
       benefits: project?.benefits ?? '',
-      paymentType: project?.paymentType ?? '',
+      // task-drop-share-override-and-receiver (Surface C). paymentType is now a
+      // 3-value enum Select — default to the backend's own default ('FOP') so a
+      // legacy/never-set project still shows a valid, disabled-for-non-editors
+      // selection instead of an empty Select.
+      paymentType: project?.paymentType ?? 'FOP',
       salaryReview: project?.salaryReview ?? '',
       corpTech: project?.corpTech ?? '',
       notesGeneral: project?.notesGeneral ?? '',
@@ -559,6 +730,11 @@ function ProjectDetailPage() {
       const overrideChanged =
         canEditOverride &&
         (value.seniorSharePercentOverride ?? null) !== (project?.seniorSharePercentOverride ?? null)
+      // task-drop-share-override-and-receiver (Surface A). Same "only send when
+      // actually changed AND caller is allowed to edit" convention as senior.
+      const dropOverrideChanged =
+        canEditOverride &&
+        (value.dropSharePercentOverride ?? null) !== (project?.dropSharePercentOverride ?? null)
       editMutation.mutate({
         name: value.name.trim() || undefined,
         companyName: value.companyName.trim() || undefined,
@@ -570,10 +746,19 @@ function ProjectDetailPage() {
         ...(overrideChanged
           ? { seniorSharePercentOverride: value.seniorSharePercentOverride ?? null }
           : {}),
+        ...(dropOverrideChanged
+          ? { dropSharePercentOverride: value.dropSharePercentOverride ?? null }
+          : {}),
         techStack: value.techStack.trim() || null,
         teamSize: value.teamSize.trim() || null,
         benefits: value.benefits.trim() || null,
-        paymentType: value.paymentType.trim() || null,
+        // task-drop-share-override-and-receiver (Surface C). Field-scoped RBAC —
+        // backend throws ForbiddenException for non-ADMIN/ACCOUNTANT if this key
+        // is present AT ALL (even unchanged/null), mirroring
+        // seniorSharePercentOverride/dropSharePercentOverride above. Only ADMIN/
+        // ACCOUNTANT (canEditOverride) ever include it; HR's disabled Select
+        // never reaches the wire.
+        ...(canEditOverride ? { paymentType: value.paymentType } : {}),
         salaryReview: value.salaryReview.trim() || null,
         corpTech: value.corpTech.trim() || null,
         notesGeneral: value.notesGeneral.trim() || null,
@@ -669,10 +854,11 @@ function ProjectDetailPage() {
     editForm.setFieldValue('rate', project.rate as unknown as number)
     editForm.setFieldValue('currency', project.currency as 'USDT' | 'USD' | 'EUR' | 'UAH')
     editForm.setFieldValue('seniorSharePercentOverride', project.seniorSharePercentOverride ?? null)
+    editForm.setFieldValue('dropSharePercentOverride', project.dropSharePercentOverride ?? null)
     editForm.setFieldValue('techStack', project.techStack ?? '')
     editForm.setFieldValue('teamSize', project.teamSize ?? '')
     editForm.setFieldValue('benefits', project.benefits ?? '')
-    editForm.setFieldValue('paymentType', project.paymentType ?? '')
+    editForm.setFieldValue('paymentType', project.paymentType ?? 'FOP')
     editForm.setFieldValue('salaryReview', project.salaryReview ?? '')
     editForm.setFieldValue('corpTech', project.corpTech ?? '')
     editForm.setFieldValue('notesGeneral', project.notesGeneral ?? '')
@@ -990,13 +1176,22 @@ function ProjectDetailPage() {
                       <span className="text-muted-foreground/40 italic">—</span>
                     )}
                   </InfoRow>
-                  <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
-                    {project.paymentType ? (
-                      <span className="font-medium">{project.paymentType}</span>
-                    ) : (
-                      <span className="text-muted-foreground/40 italic">—</span>
-                    )}
-                  </InfoRow>
+                  {/* task-drop-share-override-and-receiver (Surface C, Q5). Backend
+                  masks paymentType to `null` for JUNIOR — the row is ALSO
+                  explicitly hidden client-side (defense-in-depth per the design
+                  spec, not relying solely on the null value). HR still sees it
+                  (read value), only JUNIOR loses the row entirely. */}
+                  {user?.role !== 'JUNIOR' && (
+                    <InfoRow icon={<CreditCard className="h-3.5 w-3.5" />} label="Тип оплаты">
+                      {project.paymentType ? (
+                        <span className="font-medium">
+                          {PAYMENT_TYPE_LABELS[project.paymentType]}
+                        </span>
+                      ) : (
+                        <span className="text-muted-foreground/40 italic">—</span>
+                      )}
+                    </InfoRow>
+                  )}
                   <InfoRow icon={<RefreshCw className="h-3.5 w-3.5" />} label="Пересмотр ЗП">
                     {project.salaryReview ? (
                       <span className="font-medium">{project.salaryReview}</span>
@@ -1031,6 +1226,13 @@ function ProjectDetailPage() {
                   {canSeeProjectFinance && (
                     <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля синьора">
                       <ProjectShareInfo project={project} />
+                    </InfoRow>
+                  )}
+                  {/* task-drop-share-override-and-receiver (Surface A). Same
+                  read-only pattern as «Доля синьора» above, drop-projects only. */}
+                  {canSeeProjectFinance && project.dropId != null && (
+                    <InfoRow icon={<Percent className="h-3.5 w-3.5" />} label="Доля дропа">
+                      <ProjectDropShareInfo project={project} />
                     </InfoRow>
                   )}
                 </CardContent>
@@ -1252,6 +1454,8 @@ function ProjectDetailPage() {
                     mode="info"
                     canEditOverride={canEditOverride}
                     defaultSharePercent={project.seniorSharePercentDefault}
+                    defaultDropSharePercent={project.dropSharePercentDefault ?? 5}
+                    dropId={project.dropId}
                     viewerRole={user?.role}
                     projectId={projectId}
                   />
@@ -1557,7 +1761,10 @@ function ProjectDropDistribution({ project }: { project: ProjectDetailDto }) {
   // Use $1000 as the canonical example. Numbers shown without currency
   // suffix to keep the formula abstract — actual amounts vary per income.
   const seniorPct = project.seniorSharePercentOverride ?? project.seniorSharePercentDefault ?? 26
-  const dropPct = project.dropSharePercent ?? 5
+  // task-drop-share-override-and-receiver (Surface A). Override-aware: prefer
+  // the backend-resolved effective % (override → user default → 5) over the
+  // legacy read-time snapshot so a project-level override is reflected here too.
+  const dropPct = project.effectiveDropSharePercent ?? project.dropSharePercent ?? 5
   const exampleIncome = 1000
   const seniorShare = (exampleIncome * seniorPct) / 100
   const dropShare = (exampleIncome * dropPct) / 100

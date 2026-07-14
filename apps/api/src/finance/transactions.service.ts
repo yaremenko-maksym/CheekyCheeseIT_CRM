@@ -9,7 +9,7 @@ import {
   Inject,
 } from '@nestjs/common'
 
-import { and, desc, eq, inArray, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
 import type {
   SessionUser,
   DropIncomeDto,
@@ -25,7 +25,7 @@ import type {
   ManualPayoutMethod,
   CurrencyEnum,
 } from '@crm/shared'
-import { SALARY_ELIGIBLE_ROLES } from '@crm/shared'
+import { SALARY_ELIGIBLE_ROLES, COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
@@ -46,6 +46,7 @@ import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.serv
 import { convertToBase, type BalanceCurrency } from './balance.service'
 import { EtherscanService } from './etherscan.service'
 import { resolveSeniorShare } from './senior-share-resolver'
+import { resolveDropShare, DEFAULT_DROP_SHARE_PERCENT } from './drop-share-resolver'
 import { getOwnSalaryStatus } from './salary-status.helper'
 import {
   computeCompanyAccountBalanceFromLedger,
@@ -100,10 +101,13 @@ function isUniqueViolation(err: unknown): boolean {
 }
 
 /** Default drop-share percentage when `users.dropSharePercent` is NULL.
- *  Used in both `computeDropDistribution` (write-path) and `getSummary`
- *  (read-path display). Single source of truth — never duplicate the literal 5.
+ *  Used in `computeDropDistribution` (write-path), `getSummary` (read-path
+ *  display), the drop-share resolver and the admin-USDT obligation math.
+ *  Single source of truth — physically defined in `drop-share-resolver.ts`
+ *  (so the resolver can consume it without a circular import) and re-exported
+ *  here for backward compatibility with existing call sites.
  */
-export const DEFAULT_DROP_SHARE_PERCENT = 5
+export { DEFAULT_DROP_SHARE_PERCENT }
 
 /**
  * Default senior share percent when no per-user override is set (DB default 26).
@@ -119,6 +123,19 @@ export const DEFAULT_SENIOR_SHARE_PERCENT = 26
  * per-drop aggregate helper and `getSummary` agree.
  */
 export const MONEY_SCALE = 1_000_000
+
+/**
+ * Decimal-safe `income × percent / 100` at the numeric(18,6) precision the
+ * amount column persists. Scale to integer minor units, round once, divide back
+ * and fix to 6 decimals — avoids IEEE-754 drift so two shares of the same income
+ * reconcile against the gross. Shared by `computeDropDistribution` (drop payout)
+ * and `bookCompanyObligations` (admin-USDT) so both price shares identically.
+ */
+export function roundShareAmount(income: number, percent: number): number {
+  const incomeMinor = Math.round(income * MONEY_SCALE)
+  const shareMinor = Math.round((incomeMinor * percent) / 100)
+  return Number((shareMinor / MONEY_SCALE).toFixed(6))
+}
 
 type TxWithRelations = Transaction & {
   sender: { displayName: string } | null
@@ -493,20 +510,11 @@ export class TransactionsService {
       throw new BadRequestException('Sum of senior+drop shares exceeds 100%')
     }
 
-    // Audit 2026-06-27 (LOW): decimal-safe share math. `(income * percent) / 100`
-    // accumulates IEEE-754 float drift (e.g. 0.1 + 0.2 ≠ 0.3), so two shares of
-    // the same income could fail to reconcile against the gross at the 6th
-    // decimal. Mirror createPayoutRequest: scale to integer minor units
-    // (MONEY_SCALE = 1e6), round once, then divide back and fix to 6 decimals —
-    // the same precision the `numeric(18,6)` amount column persists. Pure-number
-    // result is unchanged for clean inputs; only the lossy tail is removed.
-    const roundShare = (percent: number): number => {
-      const incomeMinor = Math.round(income * MONEY_SCALE)
-      const shareMinor = Math.round((incomeMinor * percent) / 100)
-      return Number((shareMinor / MONEY_SCALE).toFixed(6))
-    }
-    const seniorAmount = roundShare(seniorPercent)
-    const dropAmount = roundShare(dropPercent)
+    // Decimal-safe share math (see roundShareAmount) — scale to integer minor
+    // units, round once, divide back. Shared with bookCompanyObligations so the
+    // admin-USDT obligation amounts match this drop-payout path exactly.
+    const seniorAmount = roundShareAmount(income, seniorPercent)
+    const dropAmount = roundShareAmount(income, dropPercent)
 
     // task-drop-payout-company-account: `partnerShares` (the old 50/50
     // remainder split into PAYOUT_ADMIN) is removed. The remainder
@@ -1052,6 +1060,171 @@ export class TransactionsService {
     return this.findOne(tx!.id, currentUser)
   }
 
+  // ── Declare admin USDT project income (D3) ───────────────────────────────
+
+  /**
+   * task-drop-share-override-and-receiver (D3). An ADMIN declares USDT project
+   * income on a USDT-payment project. The gross amount lands on the chosen
+   * receiver (an ADMIN's personal balance, or the shared company USDT pool); the
+   * company then books obligations to the project's senior (unless the senior is
+   * an ADMIN) and drop (if bound). The income row itself is an ADMIN_INCOME
+   * (adopt-before-extend — identical money semantics), created immediately PAID.
+   *
+   * Income row + both obligation blocks commit in ONE db.transaction so an
+   * income can never exist without its obligations (anti-BIZ-02).
+   *
+   * RBAC: ADMIN only (Q4 — ACCOUNTANT may NOT declare, enforced by the controller
+   * @Roles and re-checked here).
+   */
+  async declareUsdtProjectIncome(
+    data: {
+      projectId: string
+      amount: number
+      receiverId: string
+      // Security-review PR #367 (MED-1): client-generated UUID, REQUIRED (Zod
+      // enforces it in createUsdtIncomeSchema). Mirrors the dividend BIZ-19
+      // (MED-2) idempotency contract 1:1 — see the early-SELECT / 23505 catch
+      // below and uq_transactions_admin_income_idempotency_key.
+      idempotencyKey: string
+      notes?: string | null | undefined
+      txDate?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    // PR #367 (MED-1): idempotency replay guard. A double-submit (double click /
+    // network retry) carries the SAME key — return the EXISTING ADMIN_INCOME row
+    // WITHOUT re-declaring income or re-booking company obligations. The RBAC gate
+    // runs FIRST (defense-in-depth): a non-admin replaying a key still gets 403,
+    // never a leaked row. This is a plain SELECT (no lock) — the genuine
+    // concurrent race where two submits both miss it is caught by the partial
+    // unique index (23505) at the tail of this method.
+    const replay = await this.db.db.query.transactions.findFirst({
+      where: and(
+        eq(transactions.type, 'ADMIN_INCOME'),
+        eq(transactions.idempotencyKey, data.idempotencyKey),
+      ),
+    })
+    if (replay) return this.findOne(replay.id, currentUser)
+
+    const project = await this.db.db.query.projects.findFirst({
+      where: eq(projects.id, data.projectId),
+    })
+    if (!project) throw new NotFoundException('Project not found')
+    // Gate: this flow is ONLY for USDT-payment projects (D2). FOP/GIG income is
+    // declared by the SENIOR/DROP themselves via createSeniorIncome/DropIncome.
+    if (project.paymentType !== 'USDT') {
+      throw new BadRequestException('Приход в USDT можно декларировать только на USDT-проекте')
+    }
+
+    // Resolve the receiver: the COMPANY_ACCOUNT marker credits the shared USDT
+    // pool (fundingSource=COMPANY_ACCOUNT, receiverId=caller, excluded from the
+    // caller's personal balance in getSummary — mirror of createAdminIncome);
+    // otherwise the receiver must be an active ADMIN whose personal balance is
+    // credited (fundingSource=null).
+    const toCompanyPool = data.receiverId === COMPANY_ACCOUNT_RECEIVER
+    let receiverId: string
+    let fundingSource: 'COMPANY_ACCOUNT' | null
+    if (toCompanyPool) {
+      receiverId = currentUser.id
+      fundingSource = 'COMPANY_ACCOUNT'
+    } else {
+      const receiver = await this.db.db.query.users.findFirst({
+        where: eq(users.id, data.receiverId),
+      })
+      if (!receiver || receiver.role !== 'ADMIN' || receiver.archivedAt) {
+        throw new BadRequestException('Получатель должен быть активным администратором')
+      }
+      receiverId = receiver.id
+      fundingSource = null
+    }
+
+    // Load senior + drop and resolve their effective shares BEFORE opening the
+    // transaction (resolveSeniorShareSnapshot reads team memberships on the base
+    // connection — committed data, safe pre-txn). Snapshots are stamped onto the
+    // IOU rows so the obligation is deterministic.
+    const senior = project.seniorId
+      ? await this.db.db.query.users.findFirst({ where: eq(users.id, project.seniorId) })
+      : null
+    const drop = project.dropId
+      ? await this.db.db.query.users.findFirst({ where: eq(users.id, project.dropId) })
+      : null
+
+    const seniorSnapshot = senior
+      ? await this.resolveSeniorShareSnapshot(
+          { seniorSharePercentOverride: project.seniorSharePercentOverride },
+          { id: senior.id, seniorSharePercent: senior.seniorSharePercent },
+        )
+      : null
+    const dropSnapshot = drop
+      ? resolveDropShare(
+          { dropSharePercentOverride: project.dropSharePercentOverride },
+          { dropSharePercent: drop.dropSharePercent },
+        )
+      : null
+
+    let txId: string
+    try {
+      txId = await this.db.db.transaction(async (dbtx) => {
+        const [tx] = await dbtx
+          .insert(transactions)
+          .values({
+            type: 'ADMIN_INCOME',
+            status: 'PAID',
+            amount: String(data.amount),
+            currency: 'USDT',
+            senderId: null,
+            senderLabel: project.companyName,
+            receiverId,
+            projectId: data.projectId,
+            fundingSource,
+            // PR #367 (MED-1): persist the key so uq_transactions_admin_income_
+            // idempotency_key enforces single-income-per-key as a DB-level backstop
+            // for concurrent submits that slip past the early-SELECT above.
+            idempotencyKey: data.idempotencyKey,
+            notes: data.notes ?? null,
+            txDate: this.resolveTxDate(data.txDate),
+            createdBy: currentUser.id,
+          })
+          .returning()
+
+        await this.bookCompanyObligations(dbtx, {
+          incomeAmount: data.amount,
+          projectId: data.projectId,
+          createdBy: currentUser.id,
+          senior:
+            senior && seniorSnapshot
+              ? { id: senior.id, role: senior.role, shareSnapshot: seniorSnapshot }
+              : null,
+          drop: drop && dropSnapshot ? { id: drop.id, shareSnapshot: dropSnapshot } : null,
+          notePrefix: 'USDT income',
+        })
+
+        return tx!.id
+      })
+    } catch (err) {
+      // PR #367 (MED-1 race): two concurrent submits with the SAME key both miss
+      // the early-SELECT (it runs outside any lock); A commits, B's insert hits
+      // uq_transactions_admin_income_idempotency_key (23505). Drizzle rolls the
+      // whole transaction back — NO partial income and NO orphan obligations —
+      // then rethrows. Re-read the committed winner on a FRESH connection (the
+      // aborted dbtx is unusable) and return it: idempotent response, not a 500.
+      if (isUniqueViolation(err)) {
+        const committed = await this.db.db.query.transactions.findFirst({
+          where: and(
+            eq(transactions.type, 'ADMIN_INCOME'),
+            eq(transactions.idempotencyKey, data.idempotencyKey),
+          ),
+        })
+        if (committed) return this.findOne(committed.id, currentUser)
+      }
+      throw err
+    }
+
+    return this.findOne(txId, currentUser)
+  }
+
   // ── Create SENIOR_INCOME ─────────────────────────────────────────────────
 
   async createSeniorIncome(
@@ -1075,6 +1248,13 @@ export class TransactionsService {
     if (!project) throw new NotFoundException('Project not found')
     if (project.seniorId !== currentUser.id) {
       throw new ForbiddenException('You can only add income for your own projects')
+    }
+    // task-drop-share-override-and-receiver (D2). On a USDT-payment project the
+    // SENIOR does NOT declare income — only an ADMIN does (via
+    // declareUsdtProjectIncome), and the company books the senior share as an
+    // obligation. FOP/GIG lifecycle is unchanged.
+    if (project.paymentType === 'USDT') {
+      throw new ForbiddenException('На USDT-проекте приход декларирует администратор')
     }
 
     const senior = await this.db.db.query.users.findFirst({
@@ -1159,10 +1339,30 @@ export class TransactionsService {
       throw new ForbiddenException('Это не drop-проект под вами')
     }
 
+    // task-drop-share-override-and-receiver (D2). On a USDT-payment project the
+    // DROP/SENIOR do NOT declare income — only an ADMIN does (via
+    // declareUsdtProjectIncome), and the company books the drop/senior share as
+    // an obligation. FOP/GIG lifecycle is unchanged.
+    if (project.paymentType === 'USDT') {
+      throw new ForbiddenException('На USDT-проекте приход декларирует администратор')
+    }
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
+
+    // task-drop-share-override-and-receiver (Part A). Snapshot the effective drop
+    // share % (project override → drop user default → 5) so the distribution is
+    // deterministic — a later change to users.dropSharePercent does not re-price
+    // this income. Same resolver mapProject exposes as effectiveDropSharePercent.
+    const dropUser = await this.db.db.query.users.findFirst({
+      where: eq(users.id, currentUser.id),
+    })
+    const resolvedDrop = resolveDropShare(
+      { dropSharePercentOverride: project.dropSharePercentOverride },
+      { dropSharePercent: dropUser?.dropSharePercent },
+    )
 
     const [tx] = await this.db.db
       .insert(transactions)
@@ -1176,6 +1376,8 @@ export class TransactionsService {
         receiverId: currentUser.id,
         recipientId: currentUser.id,
         projectId: data.projectId,
+        dropSharePercent: resolvedDrop.value,
+        dropSharePercentSource: resolvedDrop.source,
         receiptDocumentId: data.receiptDocumentId ?? null,
         receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
@@ -2074,16 +2276,18 @@ export class TransactionsService {
     const isDrop = currentUser.role === 'DROP'
     const incomeType = isDrop ? 'DROP_INCOME' : 'SENIOR_INCOME'
 
-    // For a DROP caller the company-kept share is `1 - dropSharePercent%`. The
-    // dropSharePercent lives on the user row (not snapshotted per-income like
-    // the senior share), so resolve it once before the batch. SENIOR callers
-    // read the per-income seniorSharePercent snapshot inside the loop below.
-    let dropSharePercent = DEFAULT_DROP_SHARE_PERCENT
+    // For a DROP caller the company-kept share is `1 - dropSharePercent%`.
+    // task-drop-share-override-and-receiver (Part A): DROP_INCOME rows now carry
+    // a per-income `dropSharePercent` snapshot (like the senior share). We read
+    // that snapshot per-income in the loop below; this user-level default is
+    // only the FALLBACK for legacy rows created before the snapshot column
+    // existed. SENIOR callers read the per-income seniorSharePercent snapshot.
+    let dropSharePercentFallback = DEFAULT_DROP_SHARE_PERCENT
     if (isDrop) {
       const dropUser = await this.db.db.query.users.findFirst({
         where: eq(users.id, currentUser.id),
       })
-      dropSharePercent = dropUser?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
+      dropSharePercentFallback = dropUser?.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT
     }
 
     // Phase 8 v2 — fetch the NBU snapshot ONCE, BEFORE opening the DB
@@ -2188,7 +2392,7 @@ export class TransactionsService {
         // obligation in applyPayoutPaidCascade (so the money is accounted once,
         // on the company account, then re-distributed to the senior on settle).
         const sharePercent = isDrop
-          ? dropSharePercent
+          ? (tx.dropSharePercent ?? dropSharePercentFallback)
           : (tx.seniorSharePercent ?? DEFAULT_SENIOR_SHARE_PERCENT)
         // company's share = 1 - keptShare/100; integer arithmetic on the
         // scaled amount avoids per-iteration float drift.
@@ -2468,6 +2672,122 @@ export class TransactionsService {
   }
 
   /**
+   * task-drop-share-override-and-receiver (D4). Book the company's obligations to
+   * the project's senior and/or drop after project income lands somewhere other
+   * than their own balance (admin-declared USDT income, or the senior slice of a
+   * drop payout). Each obligation is a visible PENDING_PAYMENT IOU row PLUS a
+   * pending_obligations row (creditor=<senior|drop>, debtorType='COMPANY',
+   * sourceTransactionId=IOU), later closed via settleByCompany.
+   *
+   * Shared by BOTH the drop-payout cascade (senior IOU only — the drop is paid
+   * directly via PAYOUT_DROP there, so `drop` is omitted) and
+   * declareUsdtProjectIncome (both IOUs), so the IOU row shape never drifts.
+   *
+   *   - Senior IOU: booked only when a senior is supplied AND `senior.role !==
+   *     'ADMIN'` (an admin partner is never owed via a company IOU).
+   *   - Drop IOU:   booked only when a drop is supplied (project.dropId != null).
+   *
+   * Amounts are gross × effective share, rounded via `roundShareAmount` so they
+   * match `computeDropDistribution` exactly. MUST run inside the caller's
+   * `db.transaction` (dbtx) so income + obligations commit atomically
+   * (anti-BIZ-02: never an income row without its obligations).
+   */
+  private async bookCompanyObligations(
+    dbtx: DrizzleTx,
+    params: {
+      incomeAmount: number
+      projectId: string
+      createdBy: string
+      payoutRequestId?: string | null
+      senior?: {
+        id: string
+        role: string
+        shareSnapshot: { value: number; source: 'PROJECT' | 'TEAM' | 'USER_DEFAULT' }
+      } | null
+      drop?: {
+        id: string
+        shareSnapshot: { value: number; source: 'PROJECT' | 'USER_DEFAULT' }
+      } | null
+      notePrefix?: string
+    },
+  ): Promise<{ seniorAmount: number | null; dropAmount: number | null }> {
+    const { incomeAmount, projectId, createdBy, payoutRequestId, senior, drop } = params
+    const notePrefix = params.notePrefix ?? 'Company owes'
+    let seniorAmount: number | null = null
+    let dropAmount: number | null = null
+
+    // Senior IOU — never for an ADMIN partner.
+    if (senior && senior.role !== 'ADMIN') {
+      seniorAmount = roundShareAmount(incomeAmount, senior.shareSnapshot.value)
+      const [pendingRow] = await dbtx
+        .insert(transactions)
+        .values({
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: String(seniorAmount),
+          currency: 'USDT',
+          senderLabel: 'COMPANY',
+          receiverId: senior.id,
+          recipientId: senior.id,
+          projectId,
+          payoutRequestId: payoutRequestId ?? null,
+          seniorSharePercent: senior.shareSnapshot.value,
+          seniorSharePercentSource: senior.shareSnapshot.source,
+          notes: `${notePrefix} — senior IOU (debtor=COMPANY)`,
+          createdBy,
+        })
+        .returning()
+      if (pendingRow) {
+        await dbtx.insert(pendingObligations).values({
+          creditorUserId: senior.id,
+          debtorType: 'COMPANY',
+          debtorUserId: null,
+          sourceTransactionId: pendingRow.id,
+          amount: String(seniorAmount),
+          currency: 'USDT',
+          status: 'PENDING',
+        })
+      }
+    }
+
+    // Drop IOU — only when the project has a drop bound.
+    if (drop) {
+      dropAmount = roundShareAmount(incomeAmount, drop.shareSnapshot.value)
+      const [pendingRow] = await dbtx
+        .insert(transactions)
+        .values({
+          type: 'DROP_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: String(dropAmount),
+          currency: 'USDT',
+          senderLabel: 'COMPANY',
+          receiverId: drop.id,
+          recipientId: drop.id,
+          projectId,
+          payoutRequestId: payoutRequestId ?? null,
+          dropSharePercent: drop.shareSnapshot.value,
+          dropSharePercentSource: drop.shareSnapshot.source,
+          notes: `${notePrefix} — drop IOU (debtor=COMPANY)`,
+          createdBy,
+        })
+        .returning()
+      if (pendingRow) {
+        await dbtx.insert(pendingObligations).values({
+          creditorUserId: drop.id,
+          debtorType: 'COMPANY',
+          debtorUserId: null,
+          sourceTransactionId: pendingRow.id,
+          amount: String(dropAmount),
+          currency: 'USDT',
+          status: 'PENDING',
+        })
+      }
+    }
+
+    return { seniorAmount, dropAmount }
+  }
+
+  /**
    * Phase 8 v2 — shared "mark payout PAID + cascade" used by BOTH
    * payPayoutRequest (on-chain) and manualConfirmPayout (off-chain). Flips the
    * payout_request + linked incomes + PAYOUT row to PAID, stamps the PAYOUT
@@ -2579,6 +2899,10 @@ export class TransactionsService {
             id: transactions.id,
             projectId: transactions.projectId,
             type: transactions.type,
+            // task-drop-share-override-and-receiver (Part A). Per-income drop
+            // share snapshot — used below so the distribution matches what was
+            // stamped on the DROP_INCOME at creation time (deterministic).
+            dropSharePercent: transactions.dropSharePercent,
           })
           .from(transactions)
           .where(
@@ -2721,6 +3045,18 @@ export class TransactionsService {
           )
 
           const income = parseFloat(req.incomeAmount)
+          // task-drop-share-override-and-receiver (Part A). Drop share for the
+          // distribution comes from the per-income snapshot (deterministic —
+          // matches what was stamped on the DROP_INCOME), falling back to the
+          // override-aware resolver for legacy rows created before the snapshot
+          // column existed. The "one payout = one project" rule for DROP callers
+          // guarantees a single project/override applies to the whole batch.
+          const dropShareSnapshot =
+            paidIncomeTxs[0]?.dropSharePercent ??
+            resolveDropShare(
+              { dropSharePercentOverride: primaryProject.dropSharePercentOverride },
+              { dropSharePercent: dropUser.dropSharePercent },
+            ).value
           // computeDropDistribution is PURE (no DB) — safe inside the txn. The
           // senior share uses the resolved snapshot value (project/team override
           // aware) rather than the raw user default, so the obligation booked
@@ -2728,7 +3064,7 @@ export class TransactionsService {
           const distribution = this.computeDropDistribution(
             income,
             { id: primaryProject.id, dropId: primaryProject.dropId },
-            { id: dropUser.id, dropSharePercent: dropUser.dropSharePercent },
+            { id: dropUser.id, dropSharePercent: dropShareSnapshot },
             { id: senior.id, seniorSharePercent: seniorShareSnapshot.value },
           )
 
@@ -2762,46 +3098,22 @@ export class TransactionsService {
           // income is owed by the COMPANY (not by the drop). The full `payable`
           // already landed on the company account via the PAYOUT row's
           // fundingSource='COMPANY_ACCOUNT' marker; the company now owes the
-          // senior their slice. We book it as:
-          //   1) SENIOR_PENDING_PAYOUT (PENDING_PAYMENT) — a visible IOU row with
-          //      the senior-share snapshot, mirroring the (now-removed) payment-
-          //      channel cascade so reporting/feeds are unchanged.
-          //   2) pending_obligations (creditor=senior, debtorType=COMPANY) — the
-          //      settle-able debt that ADMIN/ACCOUNTANT later closes via
-          //      settleByCompany (→ SENIOR_INCOME, debits the company account).
-          // No PAYOUT_ADMIN is ever emitted (the legacy auto 50/50 partner split
-          // was removed in fix/payout-credits-company-account; admin income is a
-          // deliberate manual DIVIDEND_TO_ADMIN flow). The historical PAYOUT_ADMIN
-          // enum value is retained only for legacy rows — we never create new ones.
-          const [pendingRow] = await dbtx
-            .insert(transactions)
-            .values({
-              type: 'SENIOR_PENDING_PAYOUT',
-              status: 'PENDING_PAYMENT',
-              amount: String(distribution.seniorShare.amount),
-              currency: 'USDT',
-              senderLabel: 'COMPANY',
-              receiverId: senior.id,
-              recipientId: senior.id,
-              projectId: primaryProject.id,
-              payoutRequestId: requestId,
-              seniorSharePercent: seniorShareSnapshot.value,
-              seniorSharePercentSource: seniorShareSnapshot.source,
-              notes: 'Drop payout — senior IOU (debtor=COMPANY)',
-              createdBy: currentUser.id,
-            })
-            .returning()
-          if (pendingRow) {
-            await dbtx.insert(pendingObligations).values({
-              creditorUserId: senior.id,
-              debtorType: 'COMPANY',
-              debtorUserId: null,
-              sourceTransactionId: pendingRow.id,
-              amount: String(distribution.seniorShare.amount),
-              currency: 'USDT',
-              status: 'PENDING',
-            })
-          }
+          // senior their slice. Booked as a SENIOR_PENDING_PAYOUT IOU +
+          // pending_obligations (creditor=senior, debtorType=COMPANY) via the
+          // shared bookCompanyObligations helper (identical row shape to the
+          // admin-USDT flow — no ledger drift). The drop is NOT passed here (its
+          // slice is the direct PAYOUT_DROP inserted above, not a company IOU).
+          // Senior IOU is skipped when the senior is an ADMIN (never owed via a
+          // company IOU — task-drop-share-override-and-receiver D4).
+          await this.bookCompanyObligations(dbtx, {
+            incomeAmount: income,
+            projectId: primaryProject.id,
+            createdBy: currentUser.id,
+            payoutRequestId: requestId,
+            senior: { id: senior.id, role: senior.role, shareSnapshot: seniorShareSnapshot },
+            drop: null,
+            notePrefix: 'Drop payout',
+          })
         }
         // Senior-project branch: nothing else to write. The PAYOUT row (flipped
         // PAID + fundingSource credit marker above) is the entire settlement —
@@ -2985,6 +3297,24 @@ export class TransactionsService {
 
     const paid = allTxs.filter((tx) => tx.status === 'PAID')
 
+    // task-drop-share-override-and-receiver (C4). A settlement SENIOR_INCOME (the
+    // row settleByCompany inserts to close a senior IOU) is a slice of money whose
+    // GROSS was already counted in totalIncome — as the linked DROP_INCOME (drop
+    // payout) or the admin-USDT ADMIN_INCOME. Counting the settlement slice too
+    // double-counts, REGARDLESS of funding: the previous fix only excluded
+    // company-funded settlements, missing the ADMIN_PERSONAL case (funding=null).
+    // Discriminator: a SENIOR_INCOME whose id closes a pending_obligation. Only a
+    // "real" external SENIOR_INCOME (never a settlement) counts toward income.
+    const closingTxRows = await this.db.db
+      .select({ id: pendingObligations.closingTransactionId })
+      .from(pendingObligations)
+      .where(isNotNull(pendingObligations.closingTransactionId))
+    const settlementTxIds = new Set(
+      closingTxRows
+        .map((r) => r.id)
+        .filter((id): id is string => typeof id === 'string' && id.length > 0),
+    )
+
     // Drop role - phase 2: DROP_INCOME counts toward total income for
     // reporting purposes (gross money that came in through DROPs).
     // Scaled-integer reduce to avoid float accumulation (MED-5).
@@ -2994,13 +3324,11 @@ export class TransactionsService {
           .filter(
             (tx) =>
               tx.type === 'ADMIN_INCOME' ||
-              // Audit 2026-06-28 (#1): a company-funded SENIOR_INCOME is the
-              // internal company→senior settlement of a drop IOU — the gross of
-              // that money already counts here as the linked DROP_INCOME. Counting
-              // the company-funded slice too double-counts. Mirrors adminBalances,
-              // which already excludes company-funded ADMIN_INCOME. NON-company-
-              // funded SENIOR_INCOME (real external income) is still counted.
-              (tx.type === 'SENIOR_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
+              // C4: count a SENIOR_INCOME only when it is NOT a settlement of a
+              // company/admin IOU (its gross was already counted as the linked
+              // DROP_INCOME / admin-USDT ADMIN_INCOME). Real external income
+              // (not a closing transaction) still counts, at any funding.
+              (tx.type === 'SENIOR_INCOME' && !settlementTxIds.has(tx.id)) ||
               tx.type === 'DROP_INCOME',
           )
           .reduce((sum, tx) => sum + Math.round(toBase(tx) * SCALE), 0),
@@ -3127,9 +3455,11 @@ export class TransactionsService {
 
       if (
         tx.type === 'ADMIN_INCOME' ||
-        // Audit 2026-06-28 (#1): exclude company-funded SENIOR_INCOME from the
-        // monthly income series too — keep it consistent with totalIncome above.
-        (tx.type === 'SENIOR_INCOME' && tx.fundingSource !== 'COMPANY_ACCOUNT') ||
+        // task-drop-share-override-and-receiver (C4): exclude settlement
+        // SENIOR_INCOME (closing an IOU) from the monthly income series too —
+        // same closing-tx discriminator as totalIncome above (regardless of
+        // funding, so ADMIN_PERSONAL settlements are excluded as well).
+        (tx.type === 'SENIOR_INCOME' && !settlementTxIds.has(tx.id)) ||
         tx.type === 'DROP_INCOME'
       ) {
         entry.incomeScaled += amtScaled

@@ -21,6 +21,7 @@ import {
   createExpenseSchema,
   createPayoutRequestSchema,
   createSeniorIncomeSchema,
+  createUsdtIncomeSchema,
   createSalarySchema,
   dropIncomesQuerySchema,
   incomeComplianceQuerySchema,
@@ -299,6 +300,25 @@ export class FinanceSummaryController {
   @Get('summary')
   getSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getSummary(user)
+  }
+
+  // task-drop-share-override-and-receiver (D3). ADMIN declares USDT project income
+  // on a USDT-payment project. POST /api/finance/usdt-income — ADMIN ONLY (Q4:
+  // ACCOUNTANT may NOT declare). The @Roles('ADMIN') gate runs BEFORE the handler
+  // (RolesGuard via class-level @UseGuards) — 403 for SENIOR/DROP/HR/JUNIOR/
+  // ACCOUNTANT at the guard layer — in ADDITION to the service-side role check.
+  // Body validated via createUsdtIncomeSchema (receiverId = an ADMIN uuid OR the
+  // 'COMPANY_ACCOUNT' marker). The gross lands on the receiver; the company books
+  // atomic obligations to the senior (unless ADMIN) and drop (if bound).
+  @Post('usdt-income')
+  @Roles('ADMIN')
+  declareUsdtProjectIncome(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    return this.svc.declareUsdtProjectIncome(
+      createUsdtIncomeSchema.parse(body) as Parameters<
+        TransactionsService['declareUsdtProjectIncome']
+      >[0],
+      user,
+    )
   }
 
   // ACCOUNTANT Sprint 1. KPI snapshot for the accountant финансовый хаб

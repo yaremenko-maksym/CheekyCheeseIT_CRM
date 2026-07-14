@@ -36,6 +36,11 @@ export const TYPE_LABELS: Record<TransactionType, string> = {
   // FRONTEND task owns the real UI (deposit progress bar, balance card). This
   // backend phase only adds the enum value; no current web flow renders it.
   COMPANY_DEPOSIT: 'Пополнение счёта компании',
+  // task-drop-share-override-and-receiver (D4). Minimal label to satisfy the
+  // exhaustive Record<TransactionType, string> contract — mirror of
+  // SENIOR_PENDING_PAYOUT. The company owes the drop their share after an admin
+  // declares USDT income; the full dialog/list UI lands in the frontend task.
+  DROP_PENDING_PAYOUT: 'Ожидаемая выплата дропу',
 }
 
 export const STATUS_LABELS: Record<TransactionStatus, string> = {
@@ -95,6 +100,10 @@ export const TYPE_COLORS: Record<TransactionType, string> = {
   // task-company-account-backend. Placeholder palette (USDT-green tone) until
   // the company-account frontend task finalizes the UI. See TYPE_LABELS note.
   COMPANY_DEPOSIT: 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30',
+  // task-drop-share-override-and-receiver (D4). Teal drop palette (matches
+  // DROP_INCOME) so drop-obligation rows are visually grouped with other drop
+  // flows. Placeholder until the frontend task polishes the UI.
+  DROP_PENDING_PAYOUT: 'bg-teal-500/15 text-teal-300 border-teal-500/30',
 }
 
 export const EXPENSE_CATEGORIES = ['Оплата сервиса', 'Комиссия', 'Прочее']

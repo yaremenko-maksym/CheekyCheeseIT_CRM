@@ -46,6 +46,12 @@ function extractErrorMessage(err: unknown): string {
  * Mirrors PaySalaryDialog (shares FundingSourceFields). The settle body is just
  * the funding choice — the obligation/amount live server-side, resolved by the
  * source (SENIOR_PENDING_PAYOUT) transaction id.
+ *
+ * settle-drop-btn: this dialog is REUSED as-is for DROP_PENDING_PAYOUT rows —
+ * the backend settle-company cascade is generic (ADR D5, branches on the source
+ * transaction's type), so only the recipient-facing copy (title / description /
+ * success toast) adapts to «дропу» below. Everything else (funding picker,
+ * mutation, invalidations) is identical for both row types.
  */
 export function SettleSeniorPayoutDialog({
   tx,
@@ -60,6 +66,13 @@ export function SettleSeniorPayoutDialog({
   const [currency, setCurrency] = useState<Currency>('USDT')
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
+  // settle-drop-btn: only the copy below depends on this — the mutation body /
+  // funding logic is identical for both SENIOR_PENDING_PAYOUT and
+  // DROP_PENDING_PAYOUT source rows.
+  const isDropPayout = tx?.type === 'DROP_PENDING_PAYOUT'
+  const dialogTitle = isDropPayout ? 'Выплатить дропу' : 'Выплатить синьору'
+  const dialogDescription = isDropPayout ? 'Выплата дропу его доли' : 'Выплата синьору его доли'
+  const successMessage = isDropPayout ? 'Выплата дропу проведена' : 'Выплата синьору проведена'
 
   function resetState() {
     setAccount(COMPANY_ACCOUNT_VALUE)
@@ -79,7 +92,7 @@ export function SettleSeniorPayoutDialog({
         currency: isCompany ? 'USDT' : currency,
       }),
     onSuccess: () => {
-      toast.success('Выплата синьору проведена')
+      toast.success(successMessage)
       // Invalidate everything the settlement touches: the transactions list (the
       // row flips + a new SENIOR_INCOME appears), profile feeds, the
       // company-account balance / summary, and the auto-generated invoice list.
@@ -121,8 +134,8 @@ export function SettleSeniorPayoutDialog({
     >
       <CrmDialogContent maxWidth="sm:max-w-md" data-testid="settle-senior-dialog">
         <CrmDialogHeader>
-          <DialogTitle>Выплатить синьору</DialogTitle>
-          <DialogDescription className="sr-only">Выплата синьору его доли</DialogDescription>
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <DialogDescription className="sr-only">{dialogDescription}</DialogDescription>
         </CrmDialogHeader>
 
         <CrmDialogBody className="space-y-4 pb-4">

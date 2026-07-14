@@ -951,7 +951,33 @@ async function main() {
     createdAt: d(2026, 4, 1),
   })
 
-  console.log('  ✓ 10 projects (incl. 2 admin-as-senior) + members + legends inserted')
+  // Project 11: USDT DropVault — a USDT-payment project with a NON-admin senior
+  // (Nazar) + a bound DROP (Viktor / DROP1). task-drop-share-override-and-receiver
+  // (C10): gives dev/E2E a fixture to exercise the admin-USDT declaration flow
+  // (POST /api/finance/usdt-income → SENIOR_PENDING_PAYOUT + DROP_PENDING_PAYOUT
+  // obligations → settleByCompany). GamingTec is intentionally NOT seeded (it is a
+  // prod-only project handled by the manual migration).
+  await db.insert(schema.projects).values({
+    name: 'USDT DropVault',
+    companyName: 'DropVault Labs',
+    // task-drop-share-override-and-receiver review round 1 (LOW-3, security):
+    // `domain` must be a valid IT_DOMAINS enum member (itDomainSchema) — the
+    // free-text 'dropvault.io' is not, and would fail Zod parse on the wire.
+    domain: 'Web3 / Crypto',
+    startDate: d(2026, 3, 1),
+    seniorId: NAZAR_ID,
+    dropId: DROP1_ID,
+    rate: 6000,
+    currency: 'USDT',
+    paymentType: 'USDT',
+    techStack: 'Node.js, Solidity, ethers.js',
+    createdAt: d(2026, 3, 1),
+    updatedAt: d(2026, 3, 1),
+  })
+
+  console.log(
+    '  ✓ 11 projects (incl. 2 admin-as-senior + 1 USDT drop-project) + members + legends inserted',
+  )
 
   // ---- 5. Interviews (~12) ----
   console.log('\n[5/8] Inserting interviews...')

@@ -7,6 +7,7 @@ import type {
   CreateAdminIncomeDto,
   CreateSeniorIncomeDto,
   CreateDropIncomeDto,
+  CreateUsdtIncomeDto,
   CreateExpenseDto,
   CreateSalaryDto,
   CreateAdminTransferDto,
@@ -49,6 +50,13 @@ export const financeApi = {
   // `project.dropId === caller.id` invariant.
   createDropIncome: (data: CreateDropIncomeDto) =>
     api.post<TransactionDto>('/transactions/drop-income', data).then((r) => r.data),
+
+  // task-drop-share-override-and-receiver (Surface B / D3). ADMIN-only
+  // declaration of USDT project income on a USDT-payment project; the gross
+  // lands on the chosen receiver (an ADMIN or the shared company pool) and the
+  // company atomically books obligations to the project's senior/drop.
+  declareUsdtProjectIncome: (data: CreateUsdtIncomeDto) =>
+    api.post<TransactionDto>('/finance/usdt-income', data).then((r) => r.data),
 
   updateSeniorIncome: (id: string, data: UpdateSeniorIncomeDto) =>
     api.patch<TransactionDto>(`/transactions/senior-income/${id}`, data).then((r) => r.data),

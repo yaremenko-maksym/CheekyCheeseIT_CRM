@@ -11,16 +11,17 @@ import { computeCompanyAccountBalanceFromLedger } from './company-account-balanc
  * USDT balance. This is defence-in-depth.
  *
  * We verify:
- *   1. The function executes 7 queries (all ledger terms include a 7th SENIOR_INCOME term).
+ *   1. The function executes 8 queries (7th SENIOR_INCOME + 8th PAYOUT_DROP term —
+ *      task-drop-share-override-and-receiver C7).
  *   2. Each WHERE predicate carries an eq(transactions.currency, 'USDT') condition.
  *      We use util.inspect() to stringify the Drizzle SQL AST (avoids JSON.stringify
  *      circular-reference error) and check that 'USDT' appears as a SQL parameter value.
  */
 
 describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on all sumAmount calls', () => {
-  it('queries 7 ledger terms (including SENIOR_INCOME — task-drop-payout-company-account)', async () => {
+  it('queries 8 ledger terms (SENIOR_INCOME + PAYOUT_DROP — company-funded settlements)', async () => {
     let callCount = 0
-    const totals = ['1000', '500', '300', '200', '400', '150', '80']
+    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60']
 
     const select = vi.fn(() => ({
       from: () => ({
@@ -31,15 +32,15 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
 
     await computeCompanyAccountBalanceFromLedger(db)
 
-    // 7 terms: deposits, payouts(COMPANY), adminIncome(COMPANY), dividends,
-    // salary(COMPANY), expense(COMPANY), seniorPayout(COMPANY)
-    expect(callCount).toBe(7)
+    // 8 terms: deposits, payouts(COMPANY), adminIncome(COMPANY), dividends,
+    // salary(COMPANY), expense(COMPANY), seniorPayout(COMPANY), dropPayout(COMPANY)
+    expect(callCount).toBe(8)
   })
 
   it('each WHERE clause includes the USDT currency predicate', async () => {
     const capturedClauses: unknown[] = []
     let callCount = 0
-    const totals = ['1000', '500', '300', '200', '400', '150', '80']
+    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60']
 
     const select = vi.fn(() => ({
       from: () => ({
@@ -64,11 +65,12 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
     }
   })
 
-  it('arithmetic is correct with 7-term formula', async () => {
+  it('arithmetic is correct with 8-term formula', async () => {
     let call = 0
-    // deposits=1000, payouts=500, adminIncome=300, dividends=200, salary=400, expense=150, seniorPayout=80
-    // balance = 1000 + 500 + 300 − 200 − 400 − 150 − 80 = 970
-    const totals = ['1000', '500', '300', '200', '400', '150', '80']
+    // deposits=1000, payouts=500, adminIncome=300, dividends=200, salary=400,
+    // expense=150, seniorPayout=80, dropPayout=60
+    // balance = 1000 + 500 + 300 − 200 − 400 − 150 − 80 − 60 = 910
+    const totals = ['1000', '500', '300', '200', '400', '150', '80', '60']
 
     const select = vi.fn(() => ({
       from: () => ({
@@ -78,6 +80,6 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
     const db = { select } as unknown as DatabaseService['db']
 
     const balance = await computeCompanyAccountBalanceFromLedger(db)
-    expect(balance).toBeCloseTo(970, 2)
+    expect(balance).toBeCloseTo(910, 2)
   })
 })

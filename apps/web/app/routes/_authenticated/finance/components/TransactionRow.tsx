@@ -187,6 +187,20 @@ function FromTo({ tx }: { tx: TransactionDto }) {
         </div>
       )
 
+    // Manual QA #367 fix: mirror of SENIOR_PENDING_PAYOUT above — the company
+    // owes a drop their USDT-project share (booked by bookCompanyObligations,
+    // same row shape: senderLabel='COMPANY', receiverId = the drop). Without
+    // this case the row fell through to `default` and rendered a bare "—"
+    // (no participant at all), unlike the senior row right above it.
+    case 'DROP_PENDING_PAYOUT':
+      return (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Party id={null} name={null} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
+          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
+        </div>
+      )
+
     // Drop registers project income: client company → drop. The row is booked
     // with senderLabel = client company name (no senderId) and receiverId = the
     // drop, so the sender renders as the non-clickable client alias and the
@@ -226,6 +240,11 @@ type TransactionRowProps = {
    * SENIOR_PENDING_PAYOUT row (PENDING_PAYMENT) to pay the senior their
    * drop-project share from the company account. Mirrors the salary pay flow:
    * an auto-created PENDING row is settled manually from the transactions list.
+   *
+   * settle-drop-btn: also fired for DROP_PENDING_PAYOUT rows (same shape, same
+   * generic settle-company endpoint — see canSettleSeniorPayout above). The
+   * name stays as-is to keep the prop threaded through TransactionsTable /
+   * ActiveTransactionsTable / finance index.tsx / admin dashboard unchanged.
    */
   onSettleSeniorPayout?: (tx: TransactionDto) => void
   /**
@@ -300,9 +319,17 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // from the company account (the senior's auto-created SENIOR_INCOME + invoice
     // cascade). Hidden for SENIOR/DROP/JUNIOR/HR — settlement is a privileged
     // money action, enforced again server-side.
+    //
+    // Mirror fix (settle-drop-btn): DROP_PENDING_PAYOUT is the SAME company-IOU
+    // shape (senderLabel='COMPANY', receiverId=the drop) as SENIOR_PENDING_PAYOUT
+    // — the backend already routes both through the SAME generic
+    // /pending-settlements/by-source-transaction/:id/settle-company endpoint,
+    // branching on the source transaction's type (ADR D5). The RBAC condition
+    // below is intentionally IDENTICAL to the senior branch — no additional
+    // restriction is introduced for the drop mirror.
     const canSettleSeniorPayout =
       (isAdmin || isAccountant) &&
-      tx.type === 'SENIOR_PENDING_PAYOUT' &&
+      (tx.type === 'SENIOR_PENDING_PAYOUT' || tx.type === 'DROP_PENDING_PAYOUT') &&
       tx.status === 'PENDING_PAYMENT'
     const canAdminEdit =
       isAdmin &&

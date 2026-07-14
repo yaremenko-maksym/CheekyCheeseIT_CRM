@@ -173,7 +173,17 @@ export class PendingSettlementService {
       throw new BadRequestException('Долг уже закрыт или отменён')
     }
 
-    const project = await this.resolveSourceProject(obligation.sourceTransactionId)
+    const { project, sourceType } = await this.resolveSource(obligation.sourceTransactionId)
+
+    // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
+    //   - DROP_PENDING_PAYOUT → a NEW branch: settle by inserting a PAYOUT_DROP
+    //     (PAID) that credits the drop's balance (computeDropAggregate.received).
+    //     NO senior invoice (Q6 — a drop settlement is an internal payout).
+    //   - anything else (SENIOR_PENDING_PAYOUT / legacy) → existing SENIOR_INCOME
+    //     branch + autoCreateForSeniorPayout. UNCHANGED.
+    // pending_obligations does not store the creditor role, so the source
+    // transaction type is the discriminator (mirrors the docstring contract).
+    const isDropObligation = sourceType === 'DROP_PENDING_PAYOUT'
 
     // task-senior-settle-owner: the senior IOU is now paid via the SAME funding
     // selection as a SALARY — the ADMIN/ACCOUNTANT picks AT PAY TIME whether the
@@ -280,13 +290,17 @@ export class PendingSettlementService {
         }
       }
 
-      // task-drop-company-debt-and-invoices. Use SENIOR_INCOME (status=PAID)
-      // so InvoicesService.autoCreateForSeniorPayout picks it up — the
-      // existing invoice trigger gates on `tx.type === 'SENIOR_INCOME'`.
+      // task-drop-company-debt-and-invoices / task-drop-share-override-and-receiver
+      // (D5). A senior IOU settles as SENIOR_INCOME (status=PAID) so
+      // InvoicesService.autoCreateForSeniorPayout picks it up (gate:
+      // `tx.type === 'SENIOR_INCOME'`). A DROP IOU settles as PAYOUT_DROP
+      // (status=PAID) — it credits the drop's balance via computeDropAggregate
+      // (receiverId=drop, senderId≠drop so it is NOT double-counted as `sent` —
+      // C6) and does NOT trigger any invoice (Q6).
       const [paidRow] = await dbtx
         .insert(transactions)
         .values({
-          type: 'SENIOR_INCOME',
+          type: isDropObligation ? 'PAYOUT_DROP' : 'SENIOR_INCOME',
           status: 'PAID',
           amount: obligation.amount,
           // task-senior-settle-owner: currency follows the funding choice
@@ -297,17 +311,23 @@ export class PendingSettlementService {
           // legacy → no personal sender, label 'COMPANY'.
           senderId,
           senderLabel,
-          // Company-account debit marker — counted by the ledger SSOT. Only set
-          // for a company-funded settlement; an ADMIN_PERSONAL payout carries no
+          // Company-account debit marker — counted by the ledger SSOT (the C7
+          // PAYOUT_DROP(COMPANY_ACCOUNT) term for a drop settle, the existing
+          // SENIOR_INCOME(COMPANY_ACCOUNT) term for a senior settle). Only set for
+          // a company-funded settlement; an ADMIN_PERSONAL payout carries no
           // marker (the shared balance must not move).
           fundingSource: debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null,
           receiverId: obligation.creditorUserId,
           recipientId: obligation.creditorUserId,
           projectId: project?.id ?? null,
-          notes: `Выплата senior IOU (obligation ${obligation.id})`,
+          notes: isDropObligation
+            ? `Выплата drop IOU (obligation ${obligation.id})`
+            : `Выплата senior IOU (obligation ${obligation.id})`,
           createdBy: actor.id,
-          validatedBy: actor.id,
-          validatedAt: new Date(),
+          // Income rows carry validation provenance; a PAYOUT_DROP is a payout,
+          // not a validated income, so it leaves these null (mirrors the cascade
+          // PAYOUT_DROP shape).
+          ...(isDropObligation ? {} : { validatedBy: actor.id, validatedAt: new Date() }),
         })
         .returning()
       if (paidRow) created.push(paidRow)
@@ -404,17 +424,21 @@ export class PendingSettlementService {
    * project pointer for audit. Failures are non-fatal: a missing source or
    * missing project just yields `null`.
    */
-  private async resolveSourceProject(
-    sourceTransactionId: string,
-  ): Promise<{ id: string; name: string } | null> {
+  private async resolveSource(sourceTransactionId: string): Promise<{
+    project: { id: string; name: string } | null
+    sourceType: string | null
+  }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
     })
-    if (!source?.projectId) return null
-    const project = await this.db.db.query.projects.findFirst({
-      where: eq(projects.id, source.projectId),
-    })
-    return project ? { id: project.id, name: project.name } : null
+    if (!source) return { project: null, sourceType: null }
+    const project = source.projectId
+      ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
+      : null
+    return {
+      project: project ? { id: project.id, name: project.name } : null,
+      sourceType: source.type,
+    }
   }
 
   /**
