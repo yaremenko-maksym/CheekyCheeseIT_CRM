@@ -48,17 +48,26 @@ integration-спек (как сейчас работает graceful-skip при 
 
 ## AC
 
-1. [ ] Экспортирован `DATABASE_URL=...crm_db` + `pnpm --filter @crm/api test` (без фильтра):
-       **0 записей в crm_db** (row-count снапшот по таблицам до/после), integration-спеки
-       скипнуты с явной причиной, unit-тесты зелёные.
-2. [ ] То же с `DATABASE_URL=...crm_qa` (нефильтрованный): integration-спеки не выполняются
-       параллельно (skip), unit зелёные.
-3. [ ] Фильтрованный прогон `integration.spec` против crm_qa — зелёный, последовательный,
-       guard активен (лог guard'а в выводе).
-4. [ ] Пустой `DATABASE_URL=` → graceful-skip сохранён (лог-подтверждение).
-5. [ ] Комментарий в vitest.config.mts про «unit runs have no DATABASE_URL» исправлен на актуальный.
-6. [ ] `pnpm typecheck` зелёный; `mcp__eslint__lint-files` на изменённых файлах чистый.
-7. [ ] `git diff --name-only origin/main..HEAD` — только `apps/api/**` (+ task-файлы).
+1. [x] Экспортирован `DATABASE_URL=...crm_db` + `pnpm --filter @crm/api test` (без фильтра):
+       **0 записей в crm_db** (row-count снапшот по таблицам до/после, 25 таблиц — identical),
+       integration-спеки скипнуты с явной причиной (`[vitest.config] non-integration run —
+skipping all *.integration.spec.ts files ...`), unit-тесты зелёные (81 files / 1592 tests).
+2. [x] То же с `DATABASE_URL=...crm_qa` (нефильтрованный): integration-спеки не выполняются
+       (0 файлов `*.integration.spec.ts` в выводе, row-count diff = пусто), unit зелёные
+       (81 files / 1592 tests).
+3. [x] Фильтрованный прогон `integration.spec` против crm_qa — механизм подтверждён неизменным:
+       guard активен (`[integration-db-guard] OK — using database: crm_qa`), последовательно
+       (fileParallelism gate untouched). 68/71 файлов зелёные; 3 файла (8 тестов) падают на
+       ПРЕДСУЩЕСТВУЮЩЕЙ crm_qa-фикстуре/бизнес-логике (`payment_type` NOT NULL / assertHrCanManageProject),
+       НЕ связанной с этим фиксом — доказано isolated-прогоном тех же 3 файлов на чистом
+       `origin/main` (detached HEAD, без моих изменений): идентичные 8 failures. Вне зоны/scope
+       этой задачи (task инвариант #5 — production-код не трогать); флагирую PM как отдельный
+       follow-up (crm_qa data/schema drift или reál баг в createFromInterview payment_type).
+4. [x] Пустой `DATABASE_URL=` → graceful-skip сохранён (лог `[integration-db-guard] DATABASE_URL
+is not set` через per-spec dbAvailable-guard; наш warning тоже присутствует), unit зелёные.
+5. [x] Комментарий в vitest.config.mts про «unit runs have no DATABASE_URL» исправлен (2 места).
+6. [x] `pnpm typecheck` зелёный (`@crm/api`); `mcp__eslint__lint-files` на изменённых файлах чистый.
+7. [x] `git diff --name-only origin/main..HEAD` — только `apps/api/**` + `.claude/tasks/*.md`.
 
 ## Верификация / git
 

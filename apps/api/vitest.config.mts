@@ -217,9 +217,10 @@ export default defineConfig({
     // Gated to integration runs only: non-integration runs never load any
     // integration spec (see `exclude` above), so no worker ever needs — or
     // should be handed — a DATABASE_URL at all.
-    ...(isIntegrationRun && Object.keys(workerEnv).length > 0 && {
-      env: workerEnv,
-    }),
+    ...(isIntegrationRun &&
+      Object.keys(workerEnv).length > 0 && {
+        env: workerEnv,
+      }),
     ...(isWorktree && {
       // Extend vitest's server module resolution to include main repo's packages.
       server: {
