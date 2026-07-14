@@ -1,24 +1,24 @@
 /**
  * drop-share-slider.spec.ts — task-expand-drop-e2e-coverage (AC4).
+ * Updated: task-drop-share-low-findings (LOW-2 from PR #373 review).
  *
  * Verifies extreme-value handling for the drop-share slider in the unified
  * UserDialog. The backend allows `dropSharePercent ∈ [0, 100]` (see
- * `createDropSchema` in `packages/shared/src/schemas/users.ts`), but the
- * slider's number input clamps client-side so out-of-range values can't be
- * submitted.
+ * `createDropSchema` in `packages/shared/src/schemas/users.ts`), and the
+ * slider's number input clamps client-side to the same range so
+ * out-of-range values can't be submitted.
  *
- * Implementation note (DROP slider min):
- *   `ShareSlider` defaults `min={1}`, and `UserDialog` does *not* pass an
- *   explicit `min={0}` for the DROP variant. So the UI floor is **1**, not
- *   0 — even though the backend allows 0. The 0-value test below documents
- *   this discrepancy: typing `0` into the number input gets clamped to 1.
- *   If you want to relax the UI floor to 0 (matching the backend), update
- *   `UserDialog.tsx` to pass `min={0}` on the DROP `<ShareSlider />`.
+ * Implementation note (DROP slider min — UPDATED):
+ *   `ShareSlider` defaults `min={1}`, but `UserDialog` now passes an
+ *   explicit `min={0}` for the DROP variant (LOW-2 fix), so the UI floor
+ *   matches the backend's `[0, 100]` range. Previously the UI floor was 1
+ *   even though the backend allowed 0 — that discrepancy is what LOW-2
+ *   closed.
  *
  * Cases covered:
- *  - 0 → frontend clamps to 1 (current UI behavior — documents the floor).
+ *  - 0 → stays 0 and submits successfully (floor now matches the backend).
  *  - 100 → submitted as 100.
- *  - -5 → clamped to the min (1) — submit succeeds with the clamped value.
+ *  - -5 → clamped to the min (0) — submit succeeds with the clamped value.
  *  - 150 → clamped to 100.
  *
  * The actual backend POST is intercepted so we can assert the payload
@@ -45,13 +45,12 @@ async function fillBaseDropFields(
 }
 
 test.describe('Drop share slider — extreme values (AC4)', () => {
-  test('slider value 0 is clamped to the UI floor (1) and submits successfully', async ({
+  test('slider value 0 stays 0 (UI floor matches backend) and submits successfully', async ({
     asAdmin: page,
   }) => {
-    // UI floor for DROP slider is 1 (see header comment). Submitting `0` in
-    // the number input clamps client-side and posts the floor value. This
-    // documents the current behavior — if backend semantics change, the
-    // test must change too.
+    // LOW-2 fix: the DROP slider now passes min={0}, matching the backend's
+    // [0, 100] range. Submitting `0` in the number input no longer clamps
+    // up to 1 — it stays 0 and is posted as-is.
     await page.route(new RegExp(`${API}/users/drops$`), (r) =>
       r.fulfill({
         status: 201,
@@ -84,9 +83,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     await dialog.getByTestId('user-dialog-submit').click()
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
-    const sent = body['dropSharePercent'] as number
-    expect(sent).toBeGreaterThanOrEqual(1)
-    expect(sent).toBeLessThanOrEqual(100)
+    expect(body['dropSharePercent']).toBe(0)
   })
 
   test('slider value 100 submits 100 to the backend', async ({ asAdmin: page }) => {
@@ -122,7 +119,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     expect(body['dropSharePercent']).toBe(100)
   })
 
-  test('-5 is clamped to the minimum (1) — backend never receives a negative', async ({
+  test('-5 is clamped to the minimum (0) — backend never receives a negative', async ({
     asAdmin: page,
   }) => {
     // No backend hit — we only verify the clamping. Mock returns 201 so the
@@ -150,11 +147,10 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     await sliderNumber.fill('-5')
     await sliderNumber.blur()
 
-    // Slider clamp logic (share-slider.tsx) snaps to `min` (default 1) when
-    // negative. Confirm the displayed value after blur.
+    // Slider clamp logic (share-slider.tsx) snaps to `min` (0, since LOW-2)
+    // when negative. Confirm the displayed value after blur.
     const val = await sliderNumber.inputValue()
-    expect(Number(val)).toBeGreaterThanOrEqual(1)
-    expect(Number(val)).toBeLessThanOrEqual(100)
+    expect(Number(val)).toBe(0)
 
     // Submit and verify the payload uses the clamped value (never < 0).
     const postReq = page.waitForRequest(
@@ -163,9 +159,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     await dialog.getByTestId('user-dialog-submit').click()
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
-    const sent = body['dropSharePercent'] as number
-    expect(sent).toBeGreaterThanOrEqual(0)
-    expect(sent).toBeLessThanOrEqual(100)
+    expect(body['dropSharePercent']).toBe(0)
   })
 
   test('150 is clamped to 100 — backend never receives an out-of-range value', async ({

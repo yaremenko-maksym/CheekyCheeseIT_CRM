@@ -84,6 +84,16 @@ const makeHr = (overrides: Record<string, unknown> = {}) =>
     ...overrides,
   })
 
+const makeDrop = (overrides: Record<string, unknown> = {}) =>
+  makeUser({
+    id: 'drop-1',
+    email: 'drop@example.com',
+    displayName: 'Drop Person',
+    role: 'DROP',
+    dropSharePercent: 5,
+    ...overrides,
+  })
+
 // ---------------------------------------------------------------------------
 // DB mock factory
 // ---------------------------------------------------------------------------
@@ -694,6 +704,74 @@ describe('UsersService.adminUpdateUser', () => {
     const service = makeUsersService(db)
     const result = await service.adminUpdateUser('senior-1', { seniorSharePercent: 80 })
     expect(result.seniorSharePercent).toBe(80)
+  })
+
+  // ─── LOW findings from PR #373: role-scoped share-percent writes ───────
+  // seniorSharePercent is only meaningful for SENIOR, dropSharePercent only
+  // for DROP — adminUpdateUser now gates each write on effectiveRole so a
+  // value assigned under the wrong role can't surface later if the user is
+  // promoted into that role.
+
+  it('writes dropSharePercent when target is already DROP', async () => {
+    const existing = makeDrop()
+    const updated = makeDrop({ dropSharePercent: 30 })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    const result = await service.adminUpdateUser('drop-1', { dropSharePercent: 30 })
+    expect(result.dropSharePercent).toBe(30)
+
+    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
+    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
+    expect(setCalls?.length).toBeGreaterThan(0)
+    const setArg = setCalls[0][0] as Record<string, unknown>
+    expect(setArg).toHaveProperty('dropSharePercent', 30)
+  })
+
+  it('ignores dropSharePercent for a non-DROP target', async () => {
+    const existing = makeHr()
+    const updated = makeHr()
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('hr-1', { dropSharePercent: 30 })
+
+    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
+    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
+    expect(setCalls?.length).toBeGreaterThan(0)
+    const setArg = setCalls[0][0] as Record<string, unknown>
+    expect(setArg).not.toHaveProperty('dropSharePercent')
+  })
+
+  it('writes dropSharePercent when promoting to DROP in the same operation', async () => {
+    const existing = makeHr()
+    const updated = makeDrop({ dropSharePercent: 40 })
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('hr-1', { role: 'DROP', dropSharePercent: 40 })
+
+    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
+    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
+    expect(setCalls?.length).toBeGreaterThan(0)
+    const setArg = setCalls[0][0] as Record<string, unknown>
+    expect(setArg).toHaveProperty('dropSharePercent', 40)
+    expect(setArg).toHaveProperty('role', 'DROP')
+  })
+
+  it('ignores seniorSharePercent for a non-SENIOR target', async () => {
+    const existing = makeHr()
+    const updated = makeHr()
+    const db = makeDb({ existingUser: existing, updatedUser: updated })
+    const service = makeUsersService(db)
+
+    await service.adminUpdateUser('hr-1', { seniorSharePercent: 80 })
+
+    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
+    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
+    expect(setCalls?.length).toBeGreaterThan(0)
+    const setArg = setCalls[0][0] as Record<string, unknown>
+    expect(setArg).not.toHaveProperty('seniorSharePercent')
   })
 
   it('updates monthlySalary for non-SENIOR', async () => {
