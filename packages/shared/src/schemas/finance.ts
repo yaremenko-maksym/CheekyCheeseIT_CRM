@@ -439,7 +439,10 @@ export type SalaryFundingSource = z.infer<typeof salaryFundingSourceSchema>
 // Extracted so SALARY / EXPENSE / ADMIN_INCOME schemas stay byte-for-byte
 // consistent (DRY — single rule, no drift).
 function refineCompanyAccountUsdt(
-  data: { fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined; currency?: string },
+  data: {
+    fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
+    currency?: string | undefined
+  },
   ctx: z.RefinementCtx,
 ): void {
   if (
