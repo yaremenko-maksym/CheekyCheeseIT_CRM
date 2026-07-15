@@ -66,11 +66,13 @@ function toTransactionDto(t: AdminActiveTransaction): TransactionDto {
     salaryMonth: null,
     txDate: t.txDate,
     recipientId: null,
-    // `TransactionDto.createdBy` is a non-nullable string (creator user id) — it
-    // is NOT part of the slim `AdminActiveTransaction` payload and `TransactionRow`
-    // never reads it for these read-only dashboard rows. Nil-UUID placeholder is
-    // a valid uuid-shaped value (unlike empty string which fails uuid format); the
-    // row never renders or routes on createdBy so the value is opaque.
+    // `TransactionDto.createdBy` (and `validatedBy` above) are nullable
+    // identity-masked audit UUIDs (security review PR #384/#385) — NEITHER is
+    // part of the slim `AdminActiveTransaction` payload and `TransactionRow`
+    // never reads them for these read-only dashboard rows. `validatedBy` is set
+    // to null above; `createdBy` uses a nil-UUID placeholder — a valid
+    // uuid-shaped value (unlike empty string which fails uuid format); the row
+    // never renders or routes on createdBy so the value is opaque.
     createdBy: '00000000-0000-0000-0000-000000000000',
     createdAt: t.txDate,
     updatedAt: t.txDate,

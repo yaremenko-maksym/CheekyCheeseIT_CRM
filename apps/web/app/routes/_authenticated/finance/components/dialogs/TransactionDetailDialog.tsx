@@ -206,7 +206,7 @@ function SeniorIncomeContent({ tx }: { tx: TransactionDto }) {
           </span>
         </Row>
       )}
-      {tx.validatedBy && (
+      {tx.validatedAt && (
         <Row icon={<CheckCircle2 className="h-4 w-4" />} label="Проверил">
           <span className="text-muted-foreground text-xs">
             {tx.validatedAt ? fmtDate(tx.validatedAt) : ''}

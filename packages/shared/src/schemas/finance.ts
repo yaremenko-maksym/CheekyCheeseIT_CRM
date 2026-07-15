@@ -180,6 +180,16 @@ export const transactionSchema = z.object({
     })
     .nullable(),
   txHash: z.string().nullable(),
+  /**
+   * Audit field — the ADMIN/ACCOUNTANT who validated (approved) the row.
+   *
+   * RBAC identity-masking (follow-up to createdBy masking, security review PR
+   * #385): the raw validator UUID is disclosed only to ADMIN/ACCOUNTANT. For
+   * every other viewer `mapTx` nulls it (validation is ADMIN/ACCOUNTANT-only, so
+   * a non-privileged viewer is never the validator — the raw admin UUID would
+   * otherwise leak on their own VALIDATED rows). Nullable so the masked DTO is
+   * representable and typed honestly on the client.
+   */
   validatedBy: z.string().uuid().nullable(),
   validatedAt: z.string().datetime().nullable(),
   rejectionReason: z.string().nullable(),

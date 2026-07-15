@@ -382,7 +382,19 @@ export class TransactionsService {
       receiptDocumentId: tx.receiptDocumentId,
       receiptExternalUrl: tx.receiptExternalUrl,
       txHash: tx.txHash,
-      validatedBy: tx.validatedBy,
+      // RBAC identity-masking (follow-up to createdBy masking, security review
+      // PR #385; same class as counterparty masking, PR #384). `validatedBy` is
+      // the audit UUID of the validator — validation is ADMIN/ACCOUNTANT-only
+      // (`PATCH /transactions/:id/validate` is @Roles('ADMIN','ACCOUNTANT')), so
+      // a non-privileged viewer is NEVER the validator and the raw admin UUID
+      // would otherwise leak on their own VALIDATED rows (e.g. a SENIOR seeing
+      // which admin approved their SENIOR_INCOME). Disclose the real id ONLY to
+      // ADMIN/ACCOUNTANT; for every other viewer strip it. Mirrors the
+      // `createdBy` self-preserve form below for consistency (the
+      // `=== viewer.id` branch never fires for validatedBy in practice — kept so
+      // the two audit fields stay structurally identical and no future
+      // self-validation path can silently leak).
+      validatedBy: privileged || tx.validatedBy === viewer.id ? tx.validatedBy : null,
       validatedAt: tx.validatedAt ? tx.validatedAt.toISOString() : null,
       rejectionReason: tx.rejectionReason,
       notes: tx.notes,
