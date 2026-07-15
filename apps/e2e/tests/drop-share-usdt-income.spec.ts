@@ -136,6 +136,11 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
 
       await dialog.getByPlaceholder('0.00').fill('1000')
 
+      // task-receipts-e2e: USDT_INCOME is a mandatory, explorer-only receipt
+      // type (design-spec §3.1/§4.3) — the dialog blocks submit without a
+      // blockchain-explorer link (no file mode for USDT).
+      await dialog.getByTestId('receipt-input-url-field').fill('https://etherscan.io/tx/0xabc123')
+
       const declareRes = page.waitForResponse(
         (r) => r.url().includes('/finance/usdt-income') && r.request().method() === 'POST',
       )
@@ -183,6 +188,12 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       const settleDialog = page.getByTestId('settle-senior-dialog')
       await expect(settleDialog).toBeVisible()
       await settleDialog.getByTestId(`settle-senior-account-admin-${KOSTYA_ID}`).click()
+      // task-receipts-e2e: SettleSeniorPayoutDialog now requires a mandatory
+      // receipt too (design-spec §3.3); currency defaults/stays USDT after
+      // picking the ADMIN_PERSONAL account → explorer-only.
+      await settleDialog
+        .getByTestId('receipt-input-url-field')
+        .fill('https://etherscan.io/tx/0xsettle123')
       await settleDialog.getByTestId('settle-senior-submit').click()
       await expect(settleDialog).not.toBeVisible()
       await expect(page.getByText('Выплата синьору проведена')).toBeVisible({ timeout: 10_000 })
@@ -246,6 +257,10 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       await page.getByRole('option', { name: 'Счёт компании', exact: true }).click()
 
       await dialog.getByPlaceholder('0.00').fill('1000')
+
+      // task-receipts-e2e: mandatory explorer-only receipt (same as the other
+      // USDT_INCOME test above).
+      await dialog.getByTestId('receipt-input-url-field').fill('https://etherscan.io/tx/0xdef456')
 
       const declareRes = page.waitForResponse(
         (r) => r.url().includes('/finance/usdt-income') && r.request().method() === 'POST',

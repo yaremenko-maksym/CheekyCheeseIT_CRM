@@ -357,7 +357,13 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
 
     // Attempt: ADMIN_A passes senderId=ADMIN_B (tries to debit partner)
     await svc.createAdminTransfer(
-      { senderId: ADMIN_B_ID, receiverId: ADMIN_B_ID, amount: 100, currency: 'USDT' },
+      {
+        senderId: ADMIN_B_ID,
+        receiverId: ADMIN_B_ID,
+        amount: 100,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+      },
       caller,
     )
     // The INSERT must use ADMIN_A's id, not ADMIN_B's
@@ -369,7 +375,15 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
     const svc = makeAdminTransferService(userMap, captured)
     const caller = makeViewer('ADMIN', ADMIN_A_ID)
 
-    await svc.createAdminTransfer({ receiverId: ADMIN_B_ID, amount: 100, currency: 'USDT' }, caller)
+    await svc.createAdminTransfer(
+      {
+        receiverId: ADMIN_B_ID,
+        amount: 100,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+      },
+      caller,
+    )
     expect(captured[0]!.senderId).toBe(ADMIN_A_ID)
   })
 
@@ -379,7 +393,13 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
     const accountant = makeViewer('ACCOUNTANT', 'acct-0000-0000-0000-000000000003')
 
     await svc.createAdminTransfer(
-      { senderId: ADMIN_A_ID, receiverId: ADMIN_B_ID, amount: 100, currency: 'USDT' },
+      {
+        senderId: ADMIN_A_ID,
+        receiverId: ADMIN_B_ID,
+        amount: 100,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+      },
       accountant,
     )
     expect(captured[0]!.senderId).toBe(ADMIN_A_ID)

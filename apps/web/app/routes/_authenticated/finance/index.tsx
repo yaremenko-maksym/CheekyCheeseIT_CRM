@@ -58,6 +58,7 @@ import { PayoutDialog } from './components/dialogs/PayoutDialog'
 import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
+import { AttachReceiptSheet } from './components/dialogs/AttachReceiptSheet'
 import { DropFinancePage } from './components/DropFinancePage'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
 
@@ -232,6 +233,7 @@ function TransactionsTable({
   onOpenPayoutDetail,
   onInitiatePayout,
   onConfirmPayout,
+  onAttachReceipt,
   onDetail,
 }: {
   transactions: TransactionDto[]
@@ -272,6 +274,12 @@ function TransactionsTable({
    * ADMIN/ACCOUNTANT on PAYOUT rows in PENDING_PAYMENT.
    */
   onConfirmPayout: (tx: TransactionDto) => void
+  /**
+   * task-receipts-frontend. Opens `AttachReceiptSheet` for the row's tx
+   * (attach/replace). Passed straight to `TransactionRow` — RBAC/status
+   * gate is `canAttachReceipt`, applied inside the row.
+   */
+  onAttachReceipt?: (tx: TransactionDto) => void
   onDetail: (tx: TransactionDto) => void
 }) {
   const [search, setSearch] = useState('')
@@ -433,6 +441,7 @@ function TransactionsTable({
                     onOpenPayoutDetail={onOpenPayoutDetail}
                     {...(onInitiatePayout ? { onInitiatePayout } : {})}
                     onConfirmPayout={onConfirmPayout}
+                    {...(onAttachReceipt ? { onAttachReceipt } : {})}
                     onClick={onDetail}
                   />
                 ))}
@@ -504,6 +513,9 @@ function FinancePage() {
   // button itself is hidden for other roles — see TransactionRow).
   const [confirmPayoutTx, setConfirmPayoutTx] = useState<TransactionDto | null>(null)
   const [detailTx, setDetailTx] = useState<TransactionDto | null>(null)
+  // task-receipts-frontend. Row-icon entry point — opens AttachReceiptSheet
+  // for the clicked tx (attach if it has no receipt yet, replace otherwise).
+  const [attachReceiptTx, setAttachReceiptTx] = useState<TransactionDto | null>(null)
 
   const openPayoutDetail = useCallback((payoutRequestId: string) => {
     setPayoutDetailId(payoutRequestId)
@@ -847,6 +859,7 @@ function FinancePage() {
                 onOpenPayoutDetail={openPayoutDetail}
                 {...(isSenior ? { onInitiatePayout: openPayoutDialogForTx } : {})}
                 onConfirmPayout={setConfirmPayoutTx}
+                onAttachReceipt={setAttachReceiptTx}
                 onDetail={setDetailTx}
               />
             </CardContent>
@@ -883,6 +896,8 @@ function FinancePage() {
           />
           <ConfirmPayoutDialog tx={confirmPayoutTx} onClose={() => setConfirmPayoutTx(null)} />
           <TransactionDetailDialog tx={detailTx} onClose={() => setDetailTx(null)} />
+          {/* task-receipts-frontend: row-icon attach/replace entry point. */}
+          <AttachReceiptSheet tx={attachReceiptTx} onClose={() => setAttachReceiptTx(null)} />
 
           {/* Delete confirmation */}
           <Dialog open={!!deleteTx} onOpenChange={(o) => !o && setDeleteTx(null)}>

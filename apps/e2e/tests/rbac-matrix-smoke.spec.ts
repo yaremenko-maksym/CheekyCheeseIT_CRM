@@ -6,11 +6,21 @@
  *
  *   GET  /api/balances/admin/:id                         — ADMIN / ACCOUNTANT 200, others 403.
  *   GET  /api/pending-settlements/company                — ADMIN / ACCOUNTANT 200, others 403.
- *   POST /api/pending-settlements/:id/settle-company     — ADMIN / ACCOUNTANT only.
  *   POST /api/pending-settlements/by-source-transaction/:id/settle-company — ADMIN / ACCOUNTANT only.
  *
  * Note (PR #262): POST /api/payments/confirm-cash and POST /api/payments/initiate-crypto
  * were deleted in PR #262. Their RBAC smoke tests have been removed accordingly.
+ *
+ * Removed (task-receipts-e2e, following task-receipts-backend review round 1
+ * MED-1): the legacy 2-segment `POST /api/pending-settlements/:id/settle-company`
+ * (obligation-id) route was deleted from the backend — it silently ignored its
+ * body (no funding selection, no mandatory receipt), a privileged bypass of the
+ * mandatory-receipt invariant this feature introduces. Verified dead from the
+ * product surface (zero `apps/web` callers — only the 3-segment
+ * `by-source-transaction` route is wired to the finance page); its RBAC smoke
+ * block below was removed rather than pointed at a route that no longer exists.
+ * The `by-source-transaction` RBAC test below is the sole remaining coverage of
+ * this action and is unaffected (it already used the 3-segment route).
  *
  * Real-API. Each test logs in as a role via dev-login and probes the endpoint
  * with a bare-bones body sufficient to reach the RBAC branch (which runs BEFORE
@@ -39,7 +49,6 @@ import {
   createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
-  findPendingPayoutsForProjectViaAPI,
   ensureCompanyWalletViaAPI,
   onboardDropViaAPI,
 } from './fixtures'
@@ -62,6 +71,12 @@ function rbacPassed(status: number): boolean {
  * Plant a COMPANY-debt obligation using the new drop-income cascade.
  * Requires DROP to be onboarded and company wallet set.
  * Caller receives ADMIN session back.
+ *
+ * task-receipts-e2e: this used to also resolve `obligationId` (via
+ * `GET /pending-settlements/company`) for the now-removed legacy 2-segment
+ * `:id/settle-company` RBAC test (dead route, MED-1 — see file header). The
+ * only remaining caller settles by `sourceTxId`, so the obligation-id lookup
+ * was dropped.
  */
 async function plantObligationForRbac(
   page: import('@playwright/test').Page,
@@ -70,7 +85,7 @@ async function plantObligationForRbac(
     dropEmail: string
     projectId: string
   },
-): Promise<{ sourceTxId: string; obligationId: string | null }> {
+): Promise<{ sourceTxId: string }> {
   const { dropId, dropEmail, projectId } = opts
 
   // Onboard DROP (idempotent — safe if already onboarded)
@@ -111,13 +126,7 @@ async function plantObligationForRbac(
   )
   const sourceTxId = pendingPayout?.id ?? ''
 
-  // Also grab the obligation id from /pending-settlements/company
-  // Response shape: { obligationId, seniorId, sourceTransactionId, ... }
-  const listRes = await page.request.get(`${REAL_API}/pending-settlements/company`)
-  const list = (await listRes.json()) as Array<{ obligationId: string }>
-  const obligationId = list[0]?.obligationId ?? null
-
-  return { sourceTxId, obligationId }
+  return { sourceTxId }
 }
 
 test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
@@ -157,96 +166,11 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
     }
   })
 
-  test('POST /api/pending-settlements/:id/settle-company — ADMIN / ACCOUNTANT only', async ({
-    page,
-  }) => {
-    const suffix = uniqueSuffix()
-    const dropEmail = `rbac-settle-${suffix}@cheekycheese.dev`
-
-    await loginViaApi(page, SEED_ADMIN_EMAIL)
-    const { dropId } = await createDropViaAPI(page, {
-      email: dropEmail,
-      displayName: `RBAC Settle ${suffix}`,
-    })
-
-    try {
-      const { projectId } = await createDropProjectViaAPI(page, {
-        dropId,
-        seniorEmail: SEED_EMAILS.seniorA,
-      })
-
-      // Plant obligation using new drop-income cascade
-      const { obligationId } = await plantObligationForRbac(page, {
-        dropId,
-        dropEmail,
-        projectId,
-      })
-
-      if (!obligationId) {
-        // No obligation surfaced — probe forbidden roles using a synthetic UUID
-        // to still assert the RBAC gate.
-        for (const email of [
-          dropEmail,
-          SEED_EMAILS.seniorA,
-          SEED_EMAILS.juniorA,
-          SEED_EMAILS.hrA,
-        ]) {
-          await loginViaApi(page, email)
-          const ghostId = '11111111-1111-1111-1111-111111111111'
-          const r = await page.request.post(
-            `${REAL_API}/pending-settlements/${ghostId}/settle-company`,
-            {
-              data: {
-                fundingSource: 'ADMIN_PERSONAL',
-                payerAdminId: MAKSYM_ID,
-                currency: 'USDT',
-              },
-            },
-          )
-          expect(r.status(), `Expected 403 for ${email}`).toBe(403)
-        }
-        return
-      }
-
-      // Forbidden roles — DROP / SENIOR / JUNIOR / HR.
-      for (const email of [dropEmail, SEED_EMAILS.seniorA, SEED_EMAILS.juniorA, SEED_EMAILS.hrA]) {
-        await loginViaApi(page, email)
-        const r = await page.request.post(
-          `${REAL_API}/pending-settlements/${obligationId}/settle-company`,
-          {
-            data: {
-              fundingSource: 'ADMIN_PERSONAL',
-              payerAdminId: MAKSYM_ID,
-              currency: 'USDT',
-            },
-          },
-        )
-        expect(r.status(), `Expected 403 for ${email} on settle-company`).toBe(403)
-      }
-
-      // Allowed: ADMIN actually closes the obligation.
-      await loginViaApi(page, SEED_ADMIN_EMAIL)
-      const okRes = await page.request.post(
-        `${REAL_API}/pending-settlements/${obligationId}/settle-company`,
-        {
-          data: {
-            fundingSource: 'ADMIN_PERSONAL',
-            payerAdminId: MAKSYM_ID,
-            currency: 'USDT',
-          },
-        },
-      )
-      expect(rbacPassed(okRes.status())).toBe(true)
-
-      // Sanity: pending-payout helper still available and returns an array.
-      const pending = await findPendingPayoutsForProjectViaAPI(page, projectId)
-      expect(Array.isArray(pending)).toBe(true)
-    } finally {
-      await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
-      await cleanupDropViaAPI(page, dropId)
-    }
-  })
-
+  // task-receipts-e2e: the legacy 2-segment `POST
+  // /pending-settlements/:id/settle-company` (obligation-id) RBAC block that
+  // used to live here was REMOVED along with the backend route (dead route,
+  // MED-1 — see file header). The by-source-transaction test below is the
+  // sole remaining coverage of this action.
   test('POST /api/pending-settlements/by-source-transaction/:id/settle-company — ADMIN / ACCOUNTANT only; SENIOR / DROP 403', async ({
     page,
   }) => {
@@ -273,11 +197,16 @@ test.describe('RBAC matrix smoke — Phase 4 endpoints', () => {
 
       const ghostId = sourceTxId || '11111111-1111-1111-1111-111111111111'
       const endpointUrl = `${REAL_API}/pending-settlements/by-source-transaction/${ghostId}/settle-company`
+      // task-receipts-backend (#10): settleSeniorPayoutSchema now requires a
+      // mandatory, currency-aware receipt — USDT ⇒ explorer link. Using a
+      // VALID receipt here means the ACCOUNTANT probe below proves a genuine
+      // 200 happy path, not just "didn't get blocked by the RBAC gate".
       const settleBody = {
         data: {
           fundingSource: 'ADMIN_PERSONAL',
           payerAdminId: MAKSYM_ID,
           currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xrbacsrcsettle00001',
         },
       }
 

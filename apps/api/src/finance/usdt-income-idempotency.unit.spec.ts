@@ -128,6 +128,9 @@ describe('declareUsdtProjectIncome idempotency branch (unit, PR #367 MED-1)', ()
           amount: 1000,
           receiverId: COMPANY_ACCOUNT_RECEIVER,
           idempotencyKey: KEY,
+          // task-receipts-backend: USDT income now requires an explorer receipt;
+          // supply one so the flow reaches the project-load (NotFound) assertion.
+          receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
         },
         ADMIN,
       ),

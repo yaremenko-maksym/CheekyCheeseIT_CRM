@@ -79,6 +79,11 @@ const ACCOUNT_ID = `${PREFIX}-cc00-000000000001`
 const SOURCE_TX_ID = `${PREFIX}-ee00-000000000001`
 const OBLIGATION_ID = `${PREFIX}-ff00-000000000001`
 const DEPOSIT_ID = `${PREFIX}-aa00-000000000001`
+// task-receipts-backend (review round 1): settleByCompany now requires a
+// mandatory receipt whenever `funding` is supplied — orthogonal to the
+// owner/funding-selection behavior this spec exercises.
+const EXPLORER_RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xseniorsettleownerspec' }
+const FILE_RECEIPT = { receiptExternalUrl: 'https://drive.google.com/file/seniorsettleownerspec' }
 
 const SENIOR_SHARE = '260'
 
@@ -295,6 +300,7 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
     const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
       fundingSource: 'COMPANY_ACCOUNT',
       currency: 'USDT',
+      ...EXPLORER_RECEIPT,
     })
     expect(result.obligation.status).toBe('PAID')
 
@@ -318,6 +324,7 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN.id,
       currency: 'USD',
+      ...FILE_RECEIPT,
     })
     expect(result.obligation.status).toBe('PAID')
 
@@ -351,11 +358,13 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
     await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
       fundingSource: 'COMPANY_ACCOUNT',
       currency: 'USDT',
+      ...EXPLORER_RECEIPT,
     })
     await expect(
       settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
         fundingSource: 'COMPANY_ACCOUNT',
         currency: 'USDT',
+        ...EXPLORER_RECEIPT,
       }),
     ).rejects.toThrow()
 

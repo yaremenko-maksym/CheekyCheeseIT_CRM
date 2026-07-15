@@ -687,13 +687,21 @@ describe('PendingSettlementService.settleByCompanySourceTransaction', () => {
 // is NOT touched). Proven on BOTH settle entry points (obligation-id +
 // source-transaction-id) so neither path drifts.
 describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSONAL)', () => {
-  const COMPANY_FUNDING = { fundingSource: 'COMPANY_ACCOUNT' as const, currency: 'USDT' as const }
+  // task-receipts-backend: settle now requires proof; COMPANY_ACCOUNT → USDT →
+  // explorer link.
+  const COMPANY_FUNDING = {
+    fundingSource: 'COMPANY_ACCOUNT' as const,
+    currency: 'USDT' as const,
+    receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+  }
   // BIZ-03 fix: ADMIN_PERSONAL currency must match obligation.currency (USDT).
   // Using USD here would trigger the new currency-guard → BadRequestException.
   const ADMIN_FUNDING = {
     fundingSource: 'ADMIN_PERSONAL' as const,
     payerAdminId: ADMIN_PAYER_2_ID,
     currency: 'USDT' as const,
+    // task-receipts-backend: settle proof (USDT → explorer link).
+    receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
   }
 
   // ── COMPANY_ACCOUNT (explicit) ──────────────────────────────────────────────
@@ -766,6 +774,7 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
     await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, adminUser, {
       fundingSource: 'ADMIN_PERSONAL',
       currency: 'USDT',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
     })
     const row = getInsertsFor(transactions)[0]!
     // adminUser.id === ADMIN_PAYER_ID; resolves to an ADMIN → sender = caller.

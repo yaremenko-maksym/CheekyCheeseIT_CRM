@@ -304,7 +304,14 @@ describe('pay-salary route — real backend RBAC integration (real DB, no mocks)
       cookies: { jwt: tokenFor(user) },
       // paySalarySchema requires fundingSource + currency (both mandatory).
       // ADMIN_PERSONAL path: payerAdminId must be a valid ADMIN in the DB.
-      payload: { fundingSource: 'ADMIN_PERSONAL', payerAdminId: ADMIN.id, currency: 'USDT' },
+      // task-receipts-backend (review round 1): pay-time proof now MANDATORY
+      // too (USDT → explorer-only).
+      payload: {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN.id,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xpaysalaryrbacspec',
+      },
     })
     return res.statusCode
   }

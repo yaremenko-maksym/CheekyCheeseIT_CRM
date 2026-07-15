@@ -374,16 +374,25 @@ describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mock
     return { status: res.statusCode, json }
   }
 
+  // task-receipts-backend (review round 1): receipt is now MANDATORY on these
+  // create endpoints (currency='USDT' → explorer-only, MED-2 defense-in-depth).
+  // This spec is pure RBAC (who can call the endpoint) — a fixed valid explorer
+  // receipt keeps every role assertion (201/403) deterministic and unrelated to
+  // the receipt gate itself (covered by finance.receipts.spec.ts).
+  const RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xcreateacctrbacspec' }
+
   // Payload builders — minimal valid bodies per endpoint.
   const adminIncomePayload = () => ({
     projectId: ADMIN_PROJECT_ID,
     amount: 1000,
     currency: 'USDT',
+    ...RECEIPT,
   })
   const expensePayload = () => ({
     amount: 50,
     currency: 'USDT',
     category: 'Прочее',
+    ...RECEIPT,
   })
   // task-salary-pay-flow: this spec is pure RBAC (who can call the endpoint).
   // createSalary now creates a NEUTRAL PENDING reminder — no funding source, no
@@ -408,6 +417,7 @@ describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mock
     receiverId: ADMIN2.id,
     amount: 200,
     currency: 'USDT',
+    ...RECEIPT,
   })
 
   // ── admin-income ────────────────────────────────────────────────────────────

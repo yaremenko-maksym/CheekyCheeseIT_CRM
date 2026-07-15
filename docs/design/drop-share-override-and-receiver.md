@@ -37,6 +37,18 @@ Coder реализует по разделам ниже (единственны�
 
 ---
 
+## ⚠️ ADDENDUM 2 (2026-07-14) — Чек для `USDT_INCOME` снова обязателен
+
+Раздел «Чек / подтверждение» внутри **Surface B** ниже описывал решение ADR Q1 («прямой кредит, без
+чека вообще» для admin-USDT-прихода). **Владелец это решение отменил** — `USDT_INCOME` теперь несёт
+**обязательный чек explorer-ссылкой**, наравне со всеми остальными create/pay-флоу транзакций. Полный
+контракт (allowlist доменов, `explorerOnly`-механизм `ReceiptInput`, unified `showReceipt`) —
+`docs/design/transaction-receipts.md` (задача `task-receipts-design`, ветка
+`feature/transaction-receipts`). Раздел «Чек / подтверждение» ниже — обновлён inline, старый текст
+ADR Q1 сохранён под `<details>` только для истории.
+
+---
+
 ## Контекст и UX-принцип
 
 Все три поверхности — **conformance к уже существующим паттернам**, не новый визуальный язык:
@@ -410,13 +422,26 @@ const isUsdtLocked =
 
 ### Чек / подтверждение
 
-**Обновлено под финальное решение ADR Q1** (`docs/architecture/2026-07-13-payment-type-income-routing.md`,
-раздел «Открытые вопросы владельцу») — владелец выбрал **(а) прямой кредит, без on-chain
-tx-link верификации** для admin-USDT-прихода (не вариант «прямой + опциональная ссылка»,
-который предполагала более ранняя версия этого раздела). Из этого следует: `USDT_INCOME` —
-**без чека/подтверждения вообще**, не «опционально, как у `ADMIN_INCOME`». `showReceipt`
-(:456-460) НЕ расширяется на `USDT_INCOME`; `createUsdtIncomeSchema` (ADR D3) не содержит
-полей `receiptDocumentId`/`receiptExternalUrl`, submit-payload их не отправляет:
+> **⚠️ ADDENDUM 2 (2026-07-14) — читать поверх текста ниже.** Владелец **отменил** решение ADR Q1
+> «прямой кредит без tx-link верификации» для admin-USDT-прихода. Актуальное решение (зафиксировано
+> задачей `task-receipts-design`, `docs/design/transaction-receipts.md`): **`USDT_INCOME` ТЕПЕРЬ несёт
+> ОБЯЗАТЕЛЬНЫЙ чек — explorer-ссылкой** (allowlist доменов, файл НЕ принимается), как и все остальные
+> create/pay-флоу транзакций. Текст раздела ниже (описывающий «без чека вообще») — **устарел**,
+> сохранён только для истории решения ADR Q1 (git blame/контекст, ЕСЛИ понадобится). Coder реализует
+> `USDT_INCOME`-чек по `docs/design/transaction-receipts.md` §3.1/§4 (единый `showReceipt`/
+> `effectiveCurrency`/`explorerOnly`-механизм для ВСЕХ 7 receipt-типов `CreateTransactionDialog`,
+> `USDT_INCOME` — один из них, ВСЕГДА `explorerOnly=true` поскольку currency у него `z.literal('USDT')`).
+> `createUsdtIncomeSchema` (ADR D3) **добавляет** `receiptFields`+`receiptXor` (было: сознательно без
+> них) — backend-контракт координируется в той же задаче.
+
+<details>
+<summary>Устаревший текст (ADR Q1, отменено владельцем 2026-07-14) — сохранён для истории</summary>
+
+Ранее: владелец выбрал **(а) прямой кредит, без on-chain tx-link верификации** для admin-USDT-прихода
+(не вариант «прямой + опциональная ссылка»). Из этого следовало: `USDT_INCOME` — без чека/подтверждения
+вообще, не «опционально, как у `ADMIN_INCOME`». `showReceipt` (:456-460) НЕ расширялся на `USDT_INCOME`;
+`createUsdtIncomeSchema` (ADR D3) не содержал полей `receiptDocumentId`/`receiptExternalUrl`,
+submit-payload их не отправлял:
 
 ```tsx
 const showReceipt =
@@ -424,13 +449,16 @@ const showReceipt =
   type === 'SENIOR_INCOME' ||
   type === 'DROP_INCOME' ||
   type === 'EXPENSE'
-// USDT_INCOME сюда НЕ входит (ADR Q1) — доверенный ADMIN, прямой кредит,
-// без receipt-доказательства для этого флоу.
+// USDT_INCOME сюда НЕ входил (ADR Q1) — доверенный ADMIN, прямой кредит,
+// без receipt-доказательства для этого флоу. ОТМЕНЕНО 2026-07-14, см. addendum выше.
 ```
+
+</details>
 
 ### Валидация
 
-Расширить `validate()` (:278-306):
+Расширить `validate()` (:278-306). **Обновлено addendum 2** — `hasReceipt`-проверка для `USDT_INCOME`
+теперь идёт через ЕДИНЫЙ `showReceipt`-механизм `transaction-receipts.md` §3.1 (не отдельная ветка):
 
 ```tsx
 if (
@@ -444,13 +472,16 @@ if (
 if (type === 'USDT_INCOME') {
   if (!receiverId) errors.receiver = 'Выберите получателя'
 }
+// Чек — единый showReceipt-гейт (transaction-receipts.md §3.1), USDT_INCOME включён:
+// if (showReceipt) { if (!hasReceipt) errors.receipt = '...'; else if (isExplorerOnly && ...) ... }
 ```
 
 ### Submit
 
 Новый ветвь в `mutation.mutationFn` (рядом с `ADMIN_INCOME`/`DROP_INCOME`, :315-352), вызывает
 **новый** `financeApi`-метод (frontend-задача добавляет функцию + импортирует DTO-тип из
-`@crm/shared` после backend-контракта):
+`@crm/shared` после backend-контракта). **Обновлено addendum 2** — `receiptDocumentId`/
+`receiptExternalUrl` ТЕПЕРЬ отправляются (были явно исключены до отмены ADR Q1):
 
 ```tsx
 if (type === 'USDT_INCOME') {
@@ -459,8 +490,8 @@ if (type === 'USDT_INCOME') {
     amount: amt,
     currency: 'USDT',
     receiverId, // uuid ИЛИ 'COMPANY_ACCOUNT' — как есть из Select
-    receiptDocumentId,
-    receiptExternalUrl,
+    receiptDocumentId, // ОБЯЗАТЕЛЕН (addendum 2) — explorer-ссылкой, currency='USDT' форсит explorerOnly
+    receiptExternalUrl, // XOR с receiptDocumentId; для USDT_INCOME фактически всегда этот путь заполнен (файл не принимается)
     notes: notes || null,
     txDate: txDate || null,
   })
@@ -469,7 +500,8 @@ if (type === 'USDT_INCOME') {
 
 Точный путь эндпоинта (`POST /api/finance/usdt-income` по ADR D3 vs существующая конвенция
 `/transactions/*`) — контракт backend-задачи; фронт вызывает через `financeApi.declareUsdtProjectIncome`
-независимо от итогового пути.
+независимо от итогового пути. Receipt-контракт (обязательность, explorer-only allowlist) —
+`docs/design/transaction-receipts.md` §2.2/§4.2.
 
 ### Гейт-скрытие для SENIOR/DROP на USDT-проектах (ADR D2)
 

@@ -174,6 +174,8 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_ID,
         currency: 'USDT',
+        // task-receipts-backend: settle now requires proof (USDT → explorer link).
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
       }),
     ).resolves.toBeDefined()
   })
@@ -187,6 +189,8 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         fundingSource: 'ADMIN_PERSONAL',
         payerAdminId: ADMIN_ID,
         currency: 'USD',
+        // task-receipts-backend: settle now requires proof (USD → file/url).
+        receiptExternalUrl: 'https://drive.google.com/f/receipt',
       }),
     ).resolves.toBeDefined()
   })

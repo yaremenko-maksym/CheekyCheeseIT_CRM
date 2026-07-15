@@ -36,6 +36,7 @@ import {
   projects,
   teamMembers,
   transactions,
+  transactionAuditLog,
   users,
   type Transaction,
 } from '../database/schema'
@@ -52,6 +53,8 @@ import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
 } from './company-account-balance'
+import { assertReceiptDocumentBindable } from './receipt.util'
+import { receiptMandatoryError } from '@crm/shared'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -236,29 +239,15 @@ export class TransactionsService {
    *   victim B's document.  The partial unique index only catches already-bound
    *   docs; orphan RECEIPTs are free to be stolen.
    */
-  private async assertReceiptDocumentBindable(
+  private assertReceiptDocumentBindable(
     docId: string,
     currentUser: SessionUser,
     opts: { expectedOwnerId?: string } = {},
   ): Promise<void> {
-    const doc = await this.db.db.query.documents.findFirst({
-      where: eq(documents.id, docId),
-    })
-
-    if (!doc) throw new NotFoundException('Receipt document not found')
-    if (doc.category !== 'RECEIPT') {
-      throw new BadRequestException('Document must be a RECEIPT to be attached to a transaction')
-    }
-
-    // Ownership check:
-    //  - Non-ADMIN callers must own the document themselves.
-    //  - ADMIN callers may bind a RECEIPT owned by a specific other user
-    //    (the transaction receiver).  If expectedOwnerId is not provided for an
-    //    ADMIN call we fall back to self-ownership.
-    const expectedOwner = opts.expectedOwnerId ?? currentUser.id
-    if (doc.ownerId !== expectedOwner) {
-      throw new ForbiddenException('You do not have permission to attach this receipt document')
-    }
+    // Delegates to the shared guard (receipt.util) — the SINGLE implementation
+    // reused by PendingSettlementService's ADMIN_PERSONAL file-receipt settle so
+    // the ownership + RECEIPT-category check never drifts.
+    return assertReceiptDocumentBindable(this.db.db, docId, currentUser, opts)
   }
 
   /**
@@ -1021,6 +1010,16 @@ export class TransactionsService {
       receiverId = owner.id
     }
 
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller
+    // boundary. Effective currency = USDT for a company-account income (USDT-only
+    // pool) → explorer-only; else the supplied currency → file/url.
+    const adminIncomeReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
+    )
+    if (adminIncomeReceiptErr) throw new BadRequestException(adminIncomeReceiptErr)
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
@@ -1086,6 +1085,11 @@ export class TransactionsService {
       // (MED-2) idempotency contract 1:1 — see the early-SELECT / 23505 catch
       // below and uq_transactions_admin_income_idempotency_key.
       idempotencyKey: string
+      // task-receipts-backend (#4): receipt is MANDATORY and (USDT income)
+      // explorer-only. Zod enforces this at the controller; re-checked below for
+      // defense-in-depth.
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
     },
@@ -1114,6 +1118,17 @@ export class TransactionsService {
       ),
     })
     if (replay) return this.findOne(replay.id, currentUser)
+
+    // task-receipts-backend (#4) defense-in-depth: re-validate the mandatory
+    // receipt (USDT → explorer-only) on the service, not only in Zod. Runs AFTER
+    // the idempotency short-circuit so a genuine retry still returns the existing
+    // row; a NEW declaration must carry a valid explorer link. A file receipt is
+    // rejected for USDT before it can be bound.
+    const receiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      'USDT',
+    )
+    if (receiptErr) throw new BadRequestException(receiptErr)
 
     const project = await this.db.db.query.projects.findFirst({
       where: eq(projects.id, data.projectId),
@@ -1190,6 +1205,10 @@ export class TransactionsService {
             // idempotency_key enforces single-income-per-key as a DB-level backstop
             // for concurrent submits that slip past the early-SELECT above.
             idempotencyKey: data.idempotencyKey,
+            // task-receipts-backend (#4): explorer link (USDT). USDT is
+            // explorer-only, so receiptDocumentId is always null here.
+            receiptDocumentId: data.receiptDocumentId ?? null,
+            receiptExternalUrl: data.receiptExternalUrl ?? null,
             notes: data.notes ?? null,
             txDate: this.resolveTxDate(data.txDate),
             createdBy: currentUser.id,
@@ -1287,6 +1306,14 @@ export class TransactionsService {
       applicableTeams,
     )
 
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller boundary.
+    const seniorIncomeReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.currency,
+    )
+    if (seniorIncomeReceiptErr) throw new BadRequestException(seniorIncomeReceiptErr)
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
@@ -1354,6 +1381,14 @@ export class TransactionsService {
       throw new ForbiddenException('На USDT-проекте приход декларирует администратор')
     }
 
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller boundary.
+    const dropIncomeReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.currency,
+    )
+    if (dropIncomeReceiptErr) throw new BadRequestException(dropIncomeReceiptErr)
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
@@ -1394,6 +1429,61 @@ export class TransactionsService {
       .returning()
 
     return this.findOne(tx!.id, currentUser)
+  }
+
+  /**
+   * task-receipts-backend. Shared 1:1 receipt replace-with-delete + best-effort
+   * post-commit S3 cleanup. Extracted from updateSeniorIncome (PR-3) so
+   * updateSeniorIncome / updateDropIncome / attachOrReplaceReceipt never
+   * copy-paste the ordering-sensitive logic (DRY).
+   *
+   * Ordering (an S3 failure must never corrupt DB state):
+   *   STEP A (inside db.transaction): UPDATE the tx row (`set` MUST already carry
+   *     the new receipt columns + updatedAt), re-pointing the FK; then DELETE the
+   *     OLD documents row (safe — the FK no longer points at it). `runInTx` runs
+   *     here too (e.g. the audit-log write) so it commits atomically.
+   *   STEP B (post-commit): best-effort S3 delete of the old key. On failure →
+   *     warn-log only; a dangling S3 object is acceptable, an orphan FK is not.
+   *
+   * We DELETE the old documents row inline via `dbtx` (NOT documentsService)
+   * because hardDeleteInternal uses the pool connection — calling it inside a
+   * transaction would deadlock on a second connection.
+   */
+  private async replaceReceiptAtomic(
+    txId: string,
+    oldDocId: string | null,
+    nextDocId: string | null,
+    set: Partial<typeof transactions.$inferInsert>,
+    runInTx?: (dbtx: DrizzleTx) => Promise<void>,
+  ): Promise<void> {
+    // Fetch the old document's S3 keys BEFORE the transaction (post-commit
+    // cleanup needs them without another DB read).
+    let oldS3Key: string | null = null
+    let oldThumbKey: string | null = null
+    if (oldDocId && oldDocId !== nextDocId) {
+      const oldDoc = await this.db.db.query.documents.findFirst({
+        where: eq(documents.id, oldDocId),
+      })
+      if (oldDoc) {
+        oldS3Key = oldDoc.s3Key
+        oldThumbKey = oldDoc.thumbnailS3Key ?? null
+      }
+    }
+
+    await this.db.db.transaction(async (dbtx) => {
+      await dbtx.update(transactions).set(set).where(eq(transactions.id, txId))
+      if (oldDocId && oldDocId !== nextDocId) {
+        await dbtx.delete(documents).where(eq(documents.id, oldDocId))
+      }
+      if (runInTx) await runInTx(dbtx)
+    })
+
+    if (oldS3Key) {
+      await this.documentsService.deleteS3Keys(oldS3Key, oldThumbKey)
+      this.logger.debug(
+        `receipt replace: old S3 key="${oldS3Key}" scheduled for cleanup (post-commit)`,
+      )
+    }
   }
 
   // ── Update REJECTED SENIOR_INCOME ────────────────────────────────────────
@@ -1445,94 +1535,23 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(nextDocId, currentUser)
     }
 
-    // ── 1:1 receipt replace-with-delete (PR-3) ──────────────────────────────
-    //
-    // Invariant: one SENIOR_INCOME ↔ exactly one RECEIPT document.
-    //
-    // When a SENIOR resubmits after rejection, the old receipt document must
-    // be hard-deleted (S3 + DB row) atomically with the transaction update.
-    //
-    // ORDERING — chosen so S3 failure never corrupts DB state:
-    //   STEP A (inside db.transaction): UPDATE transactions (FK → nextDocId,
-    //          status PENDING, clear validation). Then DELETE old documents row
-    //          (safe: FK no longer points at it).
-    //   STEP B (after db.transaction commits): best-effort s3.delete(oldS3Key).
-    //          On failure → warn-log only. A dangling S3 object is acceptable
-    //          (costs pennies, ADMIN can clean up); a dangling orphan FK or a
-    //          lost new-receipt pointer would be data corruption.
-    //
-    // Why DB-delete inside the transaction:
-    //   If we deleted the documents row BEFORE the tx UPDATE committed, a crash
-    //   between the two would leave the FK pointing at a ghost. Doing it after
-    //   the UPDATE (but within the same tx) means the FK is already re-pointed
-    //   to nextDocId — the old row is safely orphaned from the FK perspective
-    //   and can be removed.
-    //
-    // hardDeleteInternal is called on documents row only (no RBAC). S3 cleanup
-    // is split out below (post-commit, best-effort) so a MinIO hiccup never
-    // rolls back the financial state update.
-    const oldDocId = tx.receiptDocumentId
-
-    // Fetch the old document's S3 key now (before the transaction) so we can
-    // run S3 cleanup post-commit without another DB read.
-    let oldS3Key: string | null = null
-    let oldThumbKey: string | null = null
-    if (oldDocId && oldDocId !== nextDocId) {
-      const oldDoc = await this.db.db.query.documents.findFirst({
-        where: eq(documents.id, oldDocId),
-      })
-      if (oldDoc) {
-        oldS3Key = oldDoc.s3Key
-        oldThumbKey = oldDoc.thumbnailS3Key ?? null
-      }
-    }
-
-    // STEP A: atomic DB transaction — update tx row + delete old documents row.
-    //
-    // WHY we use dbtx.delete() directly instead of hardDeleteInternal():
-    //   hardDeleteInternal() uses `this.db.db` (the connection pool) for both
-    //   its SELECT and DELETE. Calling it from inside a Drizzle db.transaction()
-    //   callback would attempt to acquire a second pool connection while the outer
-    //   transaction already holds one → PostgreSQL deadlock / pool exhaustion.
-    //   Solution: perform the DB-delete inline via `dbtx` (same connection);
-    //   move the S3 cleanup to STEP B (post-commit, best-effort).
-    await this.db.db.transaction(async (dbtx) => {
-      // A1. Update the transaction row: re-point FK, reset status, clear validation.
-      await dbtx
-        .update(transactions)
-        .set({
-          amount: data.amount !== undefined ? String(data.amount) : tx.amount,
-          currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
-          receiptDocumentId: nextDocId,
-          receiptExternalUrl: nextExtUrl,
-          notes: data.notes !== undefined ? data.notes : tx.notes,
-          status: 'PENDING',
-          rejectionReason: null,
-          validatedBy: null,
-          validatedAt: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(transactions.id, id))
-
-      // A2. Delete old documents DB row inside the same tx (FK already re-pointed
-      //     to nextDocId above — safe to remove the old row now).
-      //     S3 cleanup is deferred to STEP B (post-commit) to keep this tx fast
-      //     and to ensure an S3 hiccup cannot roll back the financial state.
-      if (oldDocId && oldDocId !== nextDocId) {
-        await dbtx.delete(documents).where(eq(documents.id, oldDocId))
-      }
+    // ── 1:1 receipt replace-with-delete (PR-3) — via shared helper ──────────
+    // Invariant: one SENIOR_INCOME ↔ exactly one RECEIPT document. On resubmit
+    // the old receipt document is hard-deleted (S3 + DB row) atomically with the
+    // tx update. The ordering-sensitive logic lives in replaceReceiptAtomic (DRY;
+    // reused by updateDropIncome + attachOrReplaceReceipt).
+    await this.replaceReceiptAtomic(id, tx.receiptDocumentId, nextDocId, {
+      amount: data.amount !== undefined ? String(data.amount) : tx.amount,
+      currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
+      receiptDocumentId: nextDocId,
+      receiptExternalUrl: nextExtUrl,
+      notes: data.notes !== undefined ? data.notes : tx.notes,
+      status: 'PENDING',
+      rejectionReason: null,
+      validatedBy: null,
+      validatedAt: null,
+      updatedAt: new Date(),
     })
-
-    // STEP B: best-effort S3 cleanup post-commit.
-    // The DB is fully consistent at this point (new receipt linked, old row
-    // gone). A failure here leaves at most a dangling S3 object — never an
-    // orphan FK or a missing new receipt pointer.
-    if (oldS3Key) {
-      await this.documentsService.deleteS3Keys(oldS3Key, oldThumbKey)
-      this.logger.debug(
-        `receipt replace: old S3 key="${oldS3Key}" scheduled for cleanup (post-commit)`,
-      )
-    }
 
     return this.findOne(id, currentUser)
   }
@@ -1591,23 +1610,112 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(nextDocId, currentUser)
     }
 
-    await this.db.db.transaction(async (dbtx) => {
-      await dbtx
-        .update(transactions)
-        .set({
-          amount: data.amount !== undefined ? String(data.amount) : tx.amount,
-          currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
-          receiptDocumentId: nextDocId,
-          receiptExternalUrl: nextExtUrl,
-          notes: data.notes !== undefined ? data.notes : tx.notes,
-          status: 'PENDING',
-          rejectionReason: null,
-          validatedBy: null,
-          validatedAt: null,
-          updatedAt: new Date(),
-        })
-        .where(eq(transactions.id, id))
+    // task-receipts-backend: adopt the shared 1:1 replace-with-delete helper so a
+    // DROP resubmit that swaps its receipt hard-deletes the old file too (matches
+    // updateSeniorIncome's invariant — previously the old DROP receipt leaked).
+    await this.replaceReceiptAtomic(id, tx.receiptDocumentId, nextDocId, {
+      amount: data.amount !== undefined ? String(data.amount) : tx.amount,
+      currency: (data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined) ?? tx.currency,
+      receiptDocumentId: nextDocId,
+      receiptExternalUrl: nextExtUrl,
+      notes: data.notes !== undefined ? data.notes : tx.notes,
+      status: 'PENDING',
+      rejectionReason: null,
+      validatedBy: null,
+      validatedAt: null,
+      updatedAt: new Date(),
     })
+
+    return this.findOne(id, currentUser)
+  }
+
+  // ── Generic attach / replace receipt (task-receipts-backend §6) ─────────────
+
+  /**
+   * PATCH /transactions/:id/receipt — attach or replace the receipt on an
+   * EXISTING transaction. Contract (pm-brief §6):
+   *
+   * RBAC (defense-in-depth over the controller; NO @Roles on the route):
+   *   - ADMIN / ACCOUNTANT → ANY transaction;
+   *   - author (tx.createdBy === currentUser.id) → own transaction;
+   *   - REPLACE (a receipt already exists) when tx.status === 'PAID' → ONLY
+   *     ADMIN / ACCOUNTANT (the author may NOT replace a PAID receipt);
+   *   - everyone else → 403.
+   *
+   * Currency-aware: a USDT transaction accepts ONLY a blockchain-explorer link
+   * (a file → 400); otherwise a file OR any http(s) url. The receipt document (if
+   * any) must be a RECEIPT owned by the caller (assertReceiptDocumentBindable).
+   *
+   * On a file replace the old receipt document is 1:1 hard-deleted (S3 + DB row)
+   * via replaceReceiptAtomic. Each mutation writes a transaction_audit_log row
+   * (ATTACH when there was no prior receipt, REPLACE otherwise) atomically with
+   * the receipt swap.
+   */
+  async attachOrReplaceReceipt(
+    id: string,
+    data: {
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
+    },
+    currentUser: SessionUser,
+  ) {
+    const tx = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, id),
+    })
+    if (!tx) throw new NotFoundException('Transaction not found')
+
+    const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const isAuthor = tx.createdBy === currentUser.id
+    if (!isPrivileged && !isAuthor) {
+      throw new ForbiddenException('Нет прав прикреплять чек к этой транзакции')
+    }
+
+    const hadReceipt = !!tx.receiptDocumentId || !!tx.receiptExternalUrl
+    // Replace after PAID → only ADMIN / ACCOUNTANT (the author cannot).
+    if (hadReceipt && tx.status === 'PAID' && !isPrivileged) {
+      throw new ForbiddenException('Заменить чек после оплаты может только ADMIN или ACCOUNTANT')
+    }
+
+    // XOR — exactly one of doc / url (attachReceiptSchema enforces this at the
+    // boundary; re-derive for the write).
+    const nextDocId = data.receiptDocumentId ?? null
+    const nextExtUrl = data.receiptExternalUrl ?? null
+
+    // Currency-aware validation against the EXISTING transaction currency.
+    const receiptErr = receiptMandatoryError(
+      { receiptDocumentId: nextDocId, receiptExternalUrl: nextExtUrl },
+      tx.currency,
+    )
+    if (receiptErr) throw new BadRequestException(receiptErr)
+
+    // The receipt document must be a RECEIPT owned by the caller — you can only
+    // attach a document you uploaded (self-ownership, no cross-owner binding).
+    if (nextDocId && nextDocId !== tx.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(nextDocId, currentUser)
+    }
+
+    const action: 'ATTACH' | 'REPLACE' = hadReceipt ? 'REPLACE' : 'ATTACH'
+    await this.replaceReceiptAtomic(
+      id,
+      tx.receiptDocumentId,
+      nextDocId,
+      { receiptDocumentId: nextDocId, receiptExternalUrl: nextExtUrl, updatedAt: new Date() },
+      async (dbtx) => {
+        // Audit atomically with the receipt swap.
+        await dbtx.insert(transactionAuditLog).values({
+          actorId: currentUser.id,
+          targetId: id,
+          action,
+          metadata: {
+            oldDocId: tx.receiptDocumentId,
+            oldExtUrl: tx.receiptExternalUrl,
+            newDocId: nextDocId,
+            newExtUrl: nextExtUrl,
+            receiptKind: nextDocId ? 'document' : 'url',
+          },
+        })
+      },
+    )
 
     return this.findOne(id, currentUser)
   }
@@ -2024,6 +2132,16 @@ export class TransactionsService {
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
 
+    // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
+    // receipt re-check on the service, not only in Zod at the controller
+    // boundary. Effective currency = USDT for a company-account expense
+    // (USDT-only pool) → explorer-only; else the supplied currency → file/url.
+    const expenseReceiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      data.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
+    )
+    if (expenseReceiptErr) throw new BadRequestException(expenseReceiptErr)
+
     // HIGH-1: validate receipt ownership + category before writing FK
     if (data.receiptDocumentId) {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
@@ -2201,6 +2319,10 @@ export class TransactionsService {
       receiverId: string
       amount: number
       currency?: string | undefined
+      // task-receipts-backend (#8): receipt MANDATORY, currency-aware (default
+      // USDT → explorer-only). Zod enforces at the boundary; re-checked below.
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
     },
@@ -2247,15 +2369,30 @@ export class TransactionsService {
     if (receiver.id === effectiveSenderId)
       throw new BadRequestException('Cannot transfer to yourself')
 
+    // task-receipts-backend (#8): mandatory receipt, currency-aware (default
+    // USDT → explorer-only). Defense-in-depth over Zod; validate the doc binding
+    // for a non-USDT file receipt.
+    const transferCurrency = data.currency ?? 'USDT'
+    const receiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      transferCurrency,
+    )
+    if (receiptErr) throw new BadRequestException(receiptErr)
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
+
     const [tx] = await this.db.db
       .insert(transactions)
       .values({
         type: 'ADMIN_TRANSFER',
         status: 'PAID',
         amount: String(data.amount),
-        currency: (data.currency ?? 'USDT') as 'USDT' | 'USD' | 'EUR' | 'UAH',
+        currency: transferCurrency as 'USDT' | 'USD' | 'EUR' | 'UAH',
         senderId: effectiveSenderId,
         receiverId: data.receiverId,
+        receiptDocumentId: data.receiptDocumentId ?? null,
+        receiptExternalUrl: data.receiptExternalUrl ?? null,
         notes: data.notes ?? null,
         txDate: this.resolveTxDate(data.txDate),
         createdBy: currentUser.id,
@@ -4120,6 +4257,10 @@ export class TransactionsService {
       payerAdminId?: string | undefined
       currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
       txHash?: string | null | undefined
+      // task-receipts-backend (#7): pay-time proof MANDATORY, currency-aware
+      // (COMPANY_ACCOUNT → USDT → explorer-only). Zod enforces at the boundary.
+      receiptDocumentId?: string | null | undefined
+      receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
     },
     currentUser: SessionUser,
@@ -4134,6 +4275,20 @@ export class TransactionsService {
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
     const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
+
+    // task-receipts-backend (#7): defense-in-depth mandatory-receipt re-check.
+    // Effective currency = USDT for a company-account payout (USDT-only account)
+    // → explorer-only; else the chosen currency → file/url. Validate the doc
+    // binding for a non-USDT file receipt.
+    const effectiveReceiptCurrency = isCompanyFunded ? 'USDT' : data.currency
+    const receiptErr = receiptMandatoryError(
+      { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
+      effectiveReceiptCurrency,
+    )
+    if (receiptErr) throw new BadRequestException(receiptErr)
+    if (data.receiptDocumentId) {
+      await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
+    }
 
     // Resolve sender + currency from the pay-time funding choice. The AMOUNT is
     // never converted — only the currency LABEL changes.
@@ -4179,6 +4334,9 @@ export class TransactionsService {
       senderId,
       senderLabel,
       txHash: data.txHash ?? null,
+      // task-receipts-backend (#7): stamp the pay-time proof on the row.
+      receiptDocumentId: data.receiptDocumentId ?? null,
+      receiptExternalUrl: data.receiptExternalUrl ?? null,
       notes: data.notes ?? tx.notes,
       txDate: new Date(),
       updatedAt: new Date(),

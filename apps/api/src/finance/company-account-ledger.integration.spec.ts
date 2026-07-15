@@ -134,6 +134,13 @@ class TestDatabaseModule {}
 })
 class LedgerTestModule {}
 
+// task-receipts-backend (review round 1): createExpense/createAdminIncome/
+// paySalary now require a mandatory receipt (USDT/COMPANY_ACCOUNT →
+// explorer-only). This spec is about the ledger reconciliation, not the
+// receipt gate itself (covered by finance.receipts.spec.ts) — a fixed valid
+// explorer url keeps every call site deterministic.
+const RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xcompanyledgerspec' }
+
 describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
   let txSvc: TransactionsService
   let caSvc: CompanyAccountService
@@ -315,7 +322,13 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       await seedDeposit(1000) // ensure the gate passes regardless of baseline
       const before = await myContribution()
       const tx = await txSvc.createExpense(
-        { amount: 300, currency: 'UAH', category: 'Office', fundingSource: 'COMPANY_ACCOUNT' },
+        {
+          amount: 300,
+          currency: 'UAH',
+          category: 'Office',
+          fundingSource: 'COMPANY_ACCOUNT',
+          ...RECEIPT,
+        },
         ADMIN,
       )
       expect(tx.currency).toBe('USDT')
@@ -332,7 +345,13 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       const tooMuch = (await gateBalance()) + 1_000_000
       await expect(
         txSvc.createExpense(
-          { amount: tooMuch, currency: 'USDT', category: 'X', fundingSource: 'COMPANY_ACCOUNT' },
+          {
+            amount: tooMuch,
+            currency: 'USDT',
+            category: 'X',
+            fundingSource: 'COMPANY_ACCOUNT',
+            ...RECEIPT,
+          },
           ADMIN,
         ),
       ).rejects.toThrowError(/Недостаточно средств/)
@@ -342,7 +361,7 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       if (!dbAvailable) return
       const before = await myContribution()
       const tx = await txSvc.createExpense(
-        { amount: 500, currency: 'USD', category: 'Legacy' },
+        { amount: 500, currency: 'USD', category: 'Legacy', ...RECEIPT },
         ADMIN,
       )
       const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, tx.id) })
@@ -362,7 +381,13 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
         summaryBefore.adminBalances.find((b) => b.userId === ADMIN.id)?.balance ?? 0
 
       const tx = await txSvc.createAdminIncome(
-        { projectId: PROJECT_ID, amount: 700, currency: 'UAH', fundingSource: 'COMPANY_ACCOUNT' },
+        {
+          projectId: PROJECT_ID,
+          amount: 700,
+          currency: 'UAH',
+          fundingSource: 'COMPANY_ACCOUNT',
+          ...RECEIPT,
+        },
         ADMIN,
       )
       expect(tx.currency).toBe('USDT')
@@ -388,7 +413,10 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       const adminBalBefore =
         summaryBefore.adminBalances.find((b) => b.userId === ADMIN.id)?.balance ?? 0
 
-      await txSvc.createAdminIncome({ projectId: PROJECT_ID, amount: 250, currency: 'USDT' }, ADMIN)
+      await txSvc.createAdminIncome(
+        { projectId: PROJECT_ID, amount: 250, currency: 'USDT', ...RECEIPT },
+        ADMIN,
+      )
 
       expect(await myContribution()).toBe(companyBefore) // pool unaffected
       const summaryAfter = await txSvc.getSummary(ADMIN)
@@ -429,7 +457,11 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       const tooMuch = (await gateBalance()) + 1_000_000
       const id = await seedPendingCompanySalary(tooMuch)
       await expect(
-        txSvc.paySalary(id, { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' }, ADMIN),
+        txSvc.paySalary(
+          id,
+          { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT', ...RECEIPT },
+          ADMIN,
+        ),
       ).rejects.toThrowError(/Недостаточно средств/)
     })
 
@@ -444,7 +476,7 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
 
       const paid = await txSvc.paySalary(
         id,
-        { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' },
+        { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT', ...RECEIPT },
         ADMIN,
       )
       expect(paid.status).toBe('PAID')

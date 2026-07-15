@@ -4,35 +4,44 @@ import tsconfigPaths from 'vite-tsconfig-paths'
 import path from 'path'
 import { existsSync, readFileSync, statSync } from 'fs'
 
-// Detect git worktree and resolve the main repo root.
-// .git is a file (not a dir) when inside a worktree; its content is:
+// Detect git worktree (vs. the primary checkout). `.git` is a FILE (not a
+// dir) when inside a worktree; its content is:
 //   "gitdir: <mainRepo>/.git/worktrees/<name>"
-// Strip 3 trailing path segments to reach <mainRepo>.
-function resolveMainRepoRoot(): string | null {
+// We only use this to confirm we're really in a worktree (so the sibling
+// primary checkout — needed for `existsSync` sanity below — actually
+// exists); the alias itself resolves to THIS worktree's own source (see
+// note below), not the primary checkout's.
+function isGitWorktree(): boolean {
   const worktreeRoot = path.resolve(__dirname, '../..')
   const gitEntry = path.join(worktreeRoot, '.git')
-  if (!existsSync(gitEntry)) return null
-  if (statSync(gitEntry).isDirectory()) return null // main repo, no indirection
+  if (!existsSync(gitEntry)) return false
+  if (statSync(gitEntry).isDirectory()) return false // primary checkout, no indirection
 
   const firstLine = readFileSync(gitEntry, 'utf8').split('\n')[0] ?? ''
   const match = firstLine.match(/^gitdir:\s*(.+)$/)
-  if (!match) return null
-  // gitdirPath = <mainRepo>/.git/worktrees/<name>
-  // 3× dirname → <mainRepo>
+  if (!match) return false
+  // gitdirPath = <mainRepo>/.git/worktrees/<name> — 3× dirname → <mainRepo>.
   const mainRepo = path.dirname(path.dirname(path.dirname(match[1].trim())))
-  return existsSync(path.join(mainRepo, 'node_modules')) ? mainRepo : null
+  return existsSync(path.join(mainRepo, 'node_modules'))
 }
 
-const mainRepoRoot = resolveMainRepoRoot()
-const worktree = mainRepoRoot !== null
+const worktreeRoot = path.resolve(__dirname, '../..')
+const worktree = isGitWorktree()
 
 export default defineConfig({
   plugins: [react(), tsconfigPaths()],
   ...(worktree && {
     resolve: {
       alias: {
-        // @crm/shared has no dist/ in a fresh worktree — point directly to TS source.
-        '@crm/shared': path.resolve(mainRepoRoot!, 'packages/shared/src/index.ts'),
+        // @crm/shared has no dist/ in a fresh worktree — point directly to TS
+        // source. IMPORTANT: resolve against THIS worktree's own
+        // packages/shared, NOT the primary checkout's — a task branch that
+        // edits packages/shared (e.g. new shared schemas/exports) must see
+        // its OWN changes, not whatever branch the primary checkout happens
+        // to have checked out (previously aliased there — silently resolved
+        // to a stale/unrelated shared source and broke tests that exercised
+        // freshly-added shared exports).
+        '@crm/shared': path.resolve(worktreeRoot, 'packages/shared/src/index.ts'),
       },
     },
   }),

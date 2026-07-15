@@ -91,15 +91,57 @@ interface ReceiptInputProps {
    * ADMIN-uploads-on-behalf flows).
    */
   ownerId?: string
+  /**
+   * task-receipts-frontend. When true the component shows ONLY the url-mode
+   * (no tab-toggle, no «Файл» option) with an explorer-specific hint below
+   * the input. Used for USDT-currency transactions, which require a
+   * blockchain-explorer link (not a file). If `state.mode === 'file'` at the
+   * moment this flips to true, the component auto-resets to an empty
+   * url-mode state (see the effect below) — it never leaves an invalid
+   * file-chosen state hidden behind a currency switch.
+   */
+  explorerOnly?: boolean
+  /**
+   * task-receipts-frontend. External validation error (e.g. a non-allowlist
+   * domain) — renders a red ring on the url-input. The caller renders the
+   * error TEXT itself (existing `fieldErrors.receipt` pattern); this prop
+   * only drives the visual state of the input.
+   */
+  error?: string | undefined
 }
 
 export function ReceiptInput({
   state,
   onChange,
   label = 'Чек / подтверждение',
+  explorerOnly = false,
+  error,
 }: ReceiptInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadMutation = useUploadDocument()
+
+  // task-receipts-frontend: when explorerOnly flips true while the user has
+  // a file selected, auto-normalize to an empty url-mode state — a file
+  // chosen under a non-USDT currency is never left silently attached once
+  // the currency switches to USDT. Narrow trigger (only `explorerOnly`, not
+  // the whole `state`) mirrors the existing resolvedUrl effect above.
+  useEffect(() => {
+    if (explorerOnly && state.mode === 'file') {
+      if (state.previewUrl && state.previewUrl.startsWith('blob:')) {
+        URL.revokeObjectURL(state.previewUrl)
+      }
+      onChange({
+        mode: 'url',
+        documentId: null,
+        externalUrl: '',
+        fileName: '',
+        previewUrl: null,
+        mimeType: '',
+      })
+    }
+    // Trigger by explorerOnly only (pattern mirrors the resolvedUrl effect below —
+    // `state`/`onChange` are read but intentionally not in the dep array).
+  }, [explorerOnly])
 
   // For existing receipt docs (edit flow), fetch the presigned URL so we
   // can show the preview. Enabled only when we have a documentId but no
@@ -196,37 +238,45 @@ export function ReceiptInput({
     <div className="space-y-2">
       <Label className="text-xs text-muted-foreground">{label}</Label>
 
-      {/* Tab toggle — sliding pill */}
-      <div className="relative flex rounded-md border border-border bg-muted/20 text-xs h-8 p-0.5 overflow-hidden">
-        {/* Pill: always 50% wide, slides via x transform — no size glitch */}
-        <motion.div
-          className="absolute top-0.5 bottom-0.5 w-[calc(50%-1px)] rounded-[5px] bg-primary/15 border border-primary/30 pointer-events-none"
-          animate={{ x: state.mode === 'file' ? 0 : '100%' }}
-          transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.8 }}
-        />
-        {(['file', 'url'] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            onClick={mode === 'file' ? switchToFile : switchToUrl}
-            disabled={uploading}
-            data-testid={`receipt-input-mode-${mode}`}
-            className={cn(
-              'relative flex-1 flex items-center justify-center gap-1.5 z-10 transition-colors duration-150',
-              state.mode === mode
-                ? 'text-primary font-medium'
-                : 'text-muted-foreground hover:text-foreground',
-              uploading && 'opacity-50 cursor-not-allowed',
-            )}
-          >
-            {mode === 'file' ? <Paperclip className="h-3 w-3" /> : <LinkIcon className="h-3 w-3" />}
-            {mode === 'file' ? 'Файл' : 'Ссылка'}
-          </button>
-        ))}
-      </div>
+      {/* Tab toggle — sliding pill. Hidden entirely in explorerOnly mode: a
+          single remaining tab in a 2-way toggle reads as broken, so the
+          whole toggle disappears and only the url-input below renders. */}
+      {!explorerOnly && (
+        <div className="relative flex rounded-md border border-border bg-muted/20 text-xs h-8 p-0.5 overflow-hidden">
+          {/* Pill: always 50% wide, slides via x transform — no size glitch */}
+          <motion.div
+            className="absolute top-0.5 bottom-0.5 w-[calc(50%-1px)] rounded-[5px] bg-primary/15 border border-primary/30 pointer-events-none"
+            animate={{ x: state.mode === 'file' ? 0 : '100%' }}
+            transition={{ type: 'spring', stiffness: 500, damping: 40, mass: 0.8 }}
+          />
+          {(['file', 'url'] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={mode === 'file' ? switchToFile : switchToUrl}
+              disabled={uploading}
+              data-testid={`receipt-input-mode-${mode}`}
+              className={cn(
+                'relative flex-1 flex items-center justify-center gap-1.5 z-10 transition-colors duration-150',
+                state.mode === mode
+                  ? 'text-primary font-medium'
+                  : 'text-muted-foreground hover:text-foreground',
+                uploading && 'opacity-50 cursor-not-allowed',
+              )}
+            >
+              {mode === 'file' ? (
+                <Paperclip className="h-3 w-3" />
+              ) : (
+                <LinkIcon className="h-3 w-3" />
+              )}
+              {mode === 'file' ? 'Файл' : 'Ссылка'}
+            </button>
+          ))}
+        </div>
+      )}
 
       {/* File mode */}
-      {state.mode === 'file' && (
+      {!explorerOnly && state.mode === 'file' && (
         <div>
           <input
             ref={fileInputRef}
@@ -320,15 +370,28 @@ export function ReceiptInput({
         </div>
       )}
 
-      {/* URL mode */}
-      {state.mode === 'url' && (
-        <Input
-          value={state.externalUrl}
-          onChange={(e) => onChange({ ...state, externalUrl: e.target.value })}
-          placeholder="https://..."
-          className="h-9 text-sm"
-          data-testid="receipt-input-url-field"
-        />
+      {/* URL mode — also the ONLY mode rendered when explorerOnly is set,
+          regardless of state.mode (the effect above normalizes state.mode to
+          'url' as soon as explorerOnly flips true, but we don't gate the
+          render on that timing — explorerOnly alone is enough to show it). */}
+      {(explorerOnly || state.mode === 'url') && (
+        <div>
+          <Input
+            value={state.externalUrl}
+            onChange={(e) => onChange({ ...state, mode: 'url', externalUrl: e.target.value })}
+            placeholder={explorerOnly ? 'https://etherscan.io/tx/0x...' : 'https://...'}
+            className={cn('h-9 text-sm', error && 'border-destructive ring-1 ring-destructive/40')}
+            data-testid="receipt-input-url-field"
+          />
+          {explorerOnly && (
+            <p
+              className="text-[11px] text-muted-foreground mt-1"
+              data-testid="receipt-input-explorer-hint"
+            >
+              Ссылка на blockchain-explorer (etherscan.io, tronscan.org, bscscan.com и др.)
+            </p>
+          )}
+        </div>
       )}
     </div>
   )

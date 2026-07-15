@@ -7,9 +7,6 @@
  *                                                     IOUs visible to the caller.
  *   GET  /api/pending-settlements/company           — pending COMPANY debts
  *                                                     (ADMIN / ACCOUNTANT only).
- *   POST /api/pending-settlements/:id/settle-company
- *                                                   — close a COMPANY debt by
- *                                                     obligation id; body {}.
  *   POST /api/pending-settlements/by-source-transaction/:sourceTransactionId/settle-company
  *                                                   — close a COMPANY debt by
  *                                                     its source (SENIOR_PENDING_PAYOUT)
@@ -22,13 +19,28 @@
  * `POST /api/pending-settlements/:id/settle-drop`. The DROP role no longer
  * holds debts to seniors — the senior share is owed by the company itself
  * and closed by ADMIN/ACCOUNTANT only.
+ *
+ * task-receipts-backend (review round 1, MED-1): the legacy 2-segment
+ * `POST /api/pending-settlements/:id/settle-company` (obligation-id) route was
+ * REMOVED. It ignored its request body entirely (`@Body() _body: unknown`),
+ * so it settled a COMPANY debt with NO funding selection and NO mandatory
+ * receipt — a privileged (ADMIN/ACCOUNTANT-only) bypass of the mandatory-
+ * receipt invariant this feature introduces everywhere else. Verified dead
+ * from the product surface: `apps/web` has ZERO callers of this route (only
+ * the 3-segment by-source-transaction variant below is wired to the finance
+ * page). The underlying `PendingSettlementService.settleByCompany` method is
+ * UNCHANGED and still used internally by `settleByCompanySourceTransaction`
+ * plus every existing unit/integration spec (all of which call the service
+ * method directly, never this HTTP route — grep confirmed apps/api has no
+ * supertest-style HTTP-level spec for it). KNOWN FOLLOW-UP: apps/e2e/tests/
+ * pending-settlement.spec.ts (`ADMIN settles COMPANY debt …` test) and
+ * apps/e2e/tests/rbac-matrix-smoke.spec.ts (the `:id/settle-company` RBAC
+ * block) call this route directly via raw HTTP and will 404 until AutoTest
+ * removes/updates them in the next commit on this branch (frontend/e2e are
+ * already sequenced as follow-up commits per the task's own plan).
  */
 import { Body, Controller, Get, Inject, Param, Post, UseGuards } from '@nestjs/common'
-import {
-  settleObligationParamSchema,
-  settleBySourceTransactionParamSchema,
-  settleSeniorPayoutSchema,
-} from '@crm/shared'
+import { settleBySourceTransactionParamSchema, settleSeniorPayoutSchema } from '@crm/shared'
 import type { SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
@@ -66,15 +78,6 @@ export class PendingSettlementController {
   @Roles('ADMIN', 'ACCOUNTANT')
   listCompany(@CurrentUser() user: SessionUser) {
     return this.svc.listCompanyObligations(user)
-  }
-
-  // Settle a COMPANY debt by obligation id: ADMIN/ACCOUNTANT only (this is a
-  // money write). Matches settleByCompany's service-side check.
-  @Post(':id/settle-company')
-  @Roles('ADMIN', 'ACCOUNTANT')
-  settleCompany(@Param('id') id: string, @Body() _body: unknown, @CurrentUser() user: SessionUser) {
-    const data = settleObligationParamSchema.parse({ id })
-    return this.svc.settleByCompany(data.id, user)
   }
 
   // task-senior-settle-in-tx-row / task-senior-settle-owner: settle from the

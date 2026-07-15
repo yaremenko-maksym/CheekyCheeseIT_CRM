@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { TransactionDto } from '@crm/shared'
+import { receiptMandatoryError } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -15,6 +16,7 @@ import {
 import { financeApi } from '../../api'
 import { fmtAmount, fmtDate } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
+import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
 // Local copy of the finance-page error extractor (same shape used in
 // finance/index.tsx + PayoutDetailDialog — the repo keeps per-file copies; no
@@ -64,6 +66,11 @@ export function SettleSeniorPayoutDialog({
   // account = COMPANY_ACCOUNT_VALUE (Счёт компании, default) OR an ADMIN partner id.
   const [account, setAccount] = useState<string>(COMPANY_ACCOUNT_VALUE)
   const [currency, setCurrency] = useState<Currency>('USDT')
+  // task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
+  // this dialog had NO receipt/hash field at all before; explorer-only when
+  // the effective currency is USDT (COMPANY_ACCOUNT always forces it).
+  const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
+  const [receiptError, setReceiptError] = useState<string | null>(null)
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
   // settle-drop-btn: only the copy below depends on this — the mutation body /
@@ -77,20 +84,27 @@ export function SettleSeniorPayoutDialog({
   function resetState() {
     setAccount(COMPANY_ACCOUNT_VALUE)
     setCurrency('USDT')
+    setReceipt(emptyReceiptState())
+    setReceiptError(null)
   }
 
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: () => {
+      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
       // The funding source + currency are chosen HERE (mirrors PaySalaryDialog):
       //   - «Счёт компании» → COMPANY_ACCOUNT, currency forced USDT (the account
       //     is USDT-only; the backend re-forces it and gates the balance).
       //   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner, the
       //     chosen currency (any) is used; the company account is untouched.
-      financeApi.settleSeniorPayoutFromTransaction(tx!.id, {
+      return financeApi.settleSeniorPayoutFromTransaction(tx!.id, {
         fundingSource: isCompany ? 'COMPANY_ACCOUNT' : 'ADMIN_PERSONAL',
         ...(isCompany ? {} : { payerAdminId: account }),
         currency: isCompany ? 'USDT' : currency,
-      }),
+        receiptDocumentId,
+        receiptExternalUrl,
+      })
+    },
     onSuccess: () => {
       toast.success(successMessage)
       // Invalidate everything the settlement touches: the transactions list (the
@@ -119,6 +133,21 @@ export function SettleSeniorPayoutDialog({
   function selectAccount(value: string) {
     setAccount(value)
     if (value === COMPANY_ACCOUNT_VALUE) setCurrency('USDT')
+  }
+
+  // task-receipts-frontend: client-side gate (mirrors PaySalaryDialog) —
+  // blocks mutation.mutate() when the receipt is missing/invalid, delegating
+  // the rule to the SAME shared function the backend refine uses.
+  function handleSubmit() {
+    const effectiveCurrency = isCompany ? 'USDT' : currency
+    const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+    const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+    const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, effectiveCurrency)
+    if (err) {
+      setReceiptError(err)
+      return
+    }
+    mutation.mutate()
   }
 
   const error = mutation.error instanceof Error ? mutation.error.message : null
@@ -176,6 +205,27 @@ export function SettleSeniorPayoutDialog({
             allowedCurrencies={['USDT', 'USD']}
           />
 
+          {/* task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
+              this dialog had no receipt/hash field before. Explorer-only when the
+              effective currency is USDT (COMPANY_ACCOUNT always forces it). */}
+          <div className="space-y-1.5">
+            <ReceiptInput
+              state={receipt}
+              onChange={(s) => {
+                setReceipt(s)
+                setReceiptError(null)
+              }}
+              label="Чек / подтверждение *"
+              explorerOnly={currency === 'USDT'}
+              error={receiptError ?? undefined}
+            />
+            {receiptError && (
+              <p className="text-[11px] text-destructive" data-testid="settle-senior-error-receipt">
+                {receiptError}
+              </p>
+            )}
+          </div>
+
           {error && (
             <p className="text-xs text-destructive" data-testid="settle-senior-error">
               {error}
@@ -188,7 +238,7 @@ export function SettleSeniorPayoutDialog({
             Отмена
           </Button>
           <Button
-            onClick={() => mutation.mutate()}
+            onClick={handleSubmit}
             disabled={mutation.isPending}
             data-testid="settle-senior-submit"
           >

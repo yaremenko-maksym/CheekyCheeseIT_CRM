@@ -1947,8 +1947,12 @@ export async function createSeniorProjectViaAPI(
  * Defaults:
  *   - amount: 1000
  *   - currency: 'USDT'
- *   - receiptExternalUrl: 'https://drive.example.com/drop-receipt.pdf'
- *     (DROP_INCOME requires a receipt — same XOR rule as SENIOR_INCOME).
+ *   - receiptExternalUrl: 'https://etherscan.io/tx/0xdrop00...' (task-receipts-e2e:
+ *     the default currency is USDT, and mandatory-receipt now requires the
+ *     receipt to be a blockchain-explorer link for USDT — a file is rejected
+ *     and a non-explorer URL is rejected. An explorer link is also a valid
+ *     plain http(s) URL, so this same default stays valid for callers that
+ *     override `currency` to a non-USDT value too).
  */
 export async function createDropIncomeViaAPI(
   page: Page,
@@ -1970,7 +1974,7 @@ export async function createDropIncomeViaAPI(
       ? { receiptDocumentId: opts.receiptDocumentId }
       : {
           receiptExternalUrl:
-            opts.receiptExternalUrl ?? 'https://drive.example.com/drop-receipt.pdf',
+            opts.receiptExternalUrl ?? 'https://etherscan.io/tx/0xdrop000000000000income',
         }),
     ...(opts.notes !== undefined && { notes: opts.notes }),
     ...(opts.txDate !== undefined && { txDate: opts.txDate }),
@@ -1991,6 +1995,11 @@ export async function createDropIncomeViaAPI(
  * Mirror of `createDropIncomeViaAPI` for the senior path. Required by
  * the regression spec which exercises the legacy senior distribution
  * branch end-to-end and asserts NO PAYOUT_DROP rows are produced.
+ *
+ * task-receipts-e2e: same explorer-link default fix as `createDropIncomeViaAPI`
+ * — the default currency is USDT, so the default receipt must be an
+ * allowlisted blockchain-explorer link (a `drive.example.com` URL is rejected
+ * by the mandatory currency-aware receipt refine).
  */
 export async function createSeniorIncomeViaAPI(
   page: Page,
@@ -2012,7 +2021,7 @@ export async function createSeniorIncomeViaAPI(
       ? { receiptDocumentId: opts.receiptDocumentId }
       : {
           receiptExternalUrl:
-            opts.receiptExternalUrl ?? 'https://drive.example.com/senior-receipt.pdf',
+            opts.receiptExternalUrl ?? 'https://etherscan.io/tx/0xsenior0000000000income',
         }),
     ...(opts.notes !== undefined && { notes: opts.notes }),
     ...(opts.txDate !== undefined && { txDate: opts.txDate }),
@@ -2530,6 +2539,11 @@ export async function onboardDropViaAPI(
  * Caller must be ADMIN-authenticated (`loginViaApi(page, SEED_ADMIN_EMAIL)` or
  * another seed ADMIN). `receiverId` is either an ADMIN uuid (personal credit)
  * or the `'COMPANY_ACCOUNT'` sentinel (shared pool credit).
+ *
+ * task-receipts-e2e: `createUsdtIncomeSchema` now requires a mandatory,
+ * explorer-only receipt (currency is always the `'USDT'` literal for this
+ * flow) — defaults to a valid etherscan.io link so existing/future callers
+ * that don't care about the receipt don't need to know about this invariant.
  */
 export async function declareUsdtIncomeViaAPI(
   page: Page,
@@ -2540,6 +2554,7 @@ export async function declareUsdtIncomeViaAPI(
     idempotencyKey?: string
     notes?: string | null
     txDate?: string | null
+    receiptExternalUrl?: string
   },
 ): Promise<{ id: string; status: string; amount: string; receiverId: string | null }> {
   const payload = {
@@ -2548,6 +2563,7 @@ export async function declareUsdtIncomeViaAPI(
     currency: 'USDT' as const,
     receiverId: opts.receiverId,
     idempotencyKey: opts.idempotencyKey ?? crypto.randomUUID(),
+    receiptExternalUrl: opts.receiptExternalUrl ?? 'https://etherscan.io/tx/0xusdtincome0000001',
     ...(opts.notes !== undefined && { notes: opts.notes }),
     ...(opts.txDate !== undefined && { txDate: opts.txDate }),
   }
@@ -2572,6 +2588,12 @@ export async function declareUsdtIncomeViaAPI(
  * clicking that button) is deliberate and mirrors the pre-existing
  * SENIOR_PENDING_PAYOUT pattern: these specs assert the money flow; the
  * button/dialog UI behaviour is covered by its own unit tests.
+ *
+ * task-receipts-e2e: `settleSeniorPayoutSchema` now requires a mandatory,
+ * currency-aware receipt (task-receipts-backend #10) — defaults to a valid
+ * etherscan.io link for the (also-defaulted) USDT currency so existing
+ * callers keep working; pass `receiptExternalUrl`/`receiptDocumentId` to
+ * override for a non-USDT currency.
  */
 export async function settleObligationBySourceTransactionViaAPI(
   page: Page,
@@ -2580,6 +2602,8 @@ export async function settleObligationBySourceTransactionViaAPI(
     fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
     payerAdminId?: string
     currency?: 'USDT' | 'USD' | 'EUR' | 'UAH'
+    receiptExternalUrl?: string
+    receiptDocumentId?: string
   },
 ): Promise<{ status: number; body: unknown }> {
   const res = await page.request.post(
@@ -2589,6 +2613,12 @@ export async function settleObligationBySourceTransactionViaAPI(
         fundingSource: opts.fundingSource,
         ...(opts.payerAdminId !== undefined && { payerAdminId: opts.payerAdminId }),
         currency: opts.currency ?? 'USDT',
+        ...(opts.receiptDocumentId
+          ? { receiptDocumentId: opts.receiptDocumentId }
+          : {
+              receiptExternalUrl:
+                opts.receiptExternalUrl ?? 'https://etherscan.io/tx/0xsettleobligation00001',
+            }),
       },
     },
   )

@@ -126,6 +126,8 @@ test.describe('DROP role — end-to-end journey', () => {
       expect(senior).toBeTruthy()
 
       const sourceTxId = pendingPayout!.id
+      // task-receipts-backend (#10): settleSeniorPayoutSchema now requires a
+      // mandatory, currency-aware receipt — USDT ⇒ explorer link only.
       const settleRes = await page.request.post(
         `${REAL_API}/pending-settlements/by-source-transaction/${sourceTxId}/settle-company`,
         {
@@ -133,6 +135,7 @@ test.describe('DROP role — end-to-end journey', () => {
             fundingSource: 'ADMIN_PERSONAL',
             payerAdminId: MAKSYM_ID,
             currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xdroproleend2end0001',
           },
         },
       )

@@ -261,7 +261,17 @@ describe('paySalary invoice auto-create — both funding paths (real DB, spy on 
       ADMIN,
     )
 
-    const paid = await svc.paySalary(pending.id, { fundingSource: 'COMPANY_ACCOUNT' }, ADMIN)
+    // task-receipts-backend (review round 1): pay-time proof now MANDATORY
+    // (COMPANY_ACCOUNT → USDT → explorer-only).
+    const paid = await svc.paySalary(
+      pending.id,
+      {
+        fundingSource: 'COMPANY_ACCOUNT',
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xpaysalaryinvoicespec',
+      },
+      ADMIN,
+    )
 
     expect(paid.status).toBe('PAID')
     // safeAutoCreateInvoice('SALARY', id) must have forwarded to autoCreateForSalary.
@@ -281,9 +291,15 @@ describe('paySalary invoice auto-create — both funding paths (real DB, spy on 
     )
 
     // ADMIN_PERSONAL: payer = ADMIN2 (a valid ADMIN user in the DB).
+    // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
     const paid = await svc.paySalary(
       pending.id,
-      { fundingSource: 'ADMIN_PERSONAL', payerAdminId: ADMIN2.id, currency: 'USD' },
+      {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN2.id,
+        currency: 'USD',
+        receiptExternalUrl: 'https://drive.google.com/file/paysalaryinvoicespec',
+      },
       ADMIN,
     )
 
@@ -307,9 +323,15 @@ describe('paySalary invoice auto-create — both funding paths (real DB, spy on 
       { receiverId: JUNIOR.id, amount: 200, currency: 'USD', salaryMonth: '2026-06' },
       ADMIN,
     )
+    // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
     const paid = await svc.paySalary(
       pending.id,
-      { fundingSource: 'ADMIN_PERSONAL', payerAdminId: ADMIN2.id, currency: 'USD' },
+      {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN2.id,
+        currency: 'USD',
+        receiptExternalUrl: 'https://drive.google.com/file/paysalaryinvoicespec2',
+      },
       ADMIN,
     )
     // paySalary must succeed despite the invoice error (safeAutoCreateInvoice swallows).

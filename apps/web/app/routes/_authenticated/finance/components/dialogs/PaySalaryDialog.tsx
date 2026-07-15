@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
+import { receiptMandatoryError } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -11,12 +12,12 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
-import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { financeApi } from '../../api'
 import { fmtAmount, fmtDate } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
+import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
 export function PaySalaryDialog({
   tx,
@@ -29,7 +30,11 @@ export function PaySalaryDialog({
   // account = COMPANY_ACCOUNT_VALUE (Счёт компании, default) OR an ADMIN partner id.
   const [account, setAccount] = useState<string>(COMPANY_ACCOUNT_VALUE)
   const [currency, setCurrency] = useState<Currency>('USDT')
-  const [txHash, setTxHash] = useState('')
+  // task-receipts-frontend: replaces the old optional "TX Hash" text input
+  // (design-spec §2.3) — proof of payment is now the mandatory ReceiptInput,
+  // explorer-only when the effective currency is USDT.
+  const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
+  const [receiptError, setReceiptError] = useState<string | null>(null)
   const [notes, setNotes] = useState('')
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
@@ -37,24 +42,29 @@ export function PaySalaryDialog({
   function resetState() {
     setAccount(COMPANY_ACCOUNT_VALUE)
     setCurrency('USDT')
-    setTxHash('')
+    setReceipt(emptyReceiptState())
+    setReceiptError(null)
     setNotes('')
   }
 
   const mutation = useMutation({
-    mutationFn: () =>
+    mutationFn: () => {
+      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
       // task-salary-pay-flow: the funding source + currency are chosen HERE.
       //   - «Счёт компании» → COMPANY_ACCOUNT, currency forced USDT (the account
       //     is USDT-only; the backend re-forces it and gates the balance).
       //   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner, the
       //     chosen currency (any) is used.
-      financeApi.paySalary(tx!.id, {
+      return financeApi.paySalary(tx!.id, {
         fundingSource: isCompany ? 'COMPANY_ACCOUNT' : 'ADMIN_PERSONAL',
         ...(isCompany ? {} : { payerAdminId: account }),
         currency: isCompany ? 'USDT' : currency,
-        txHash: txHash || null,
+        receiptDocumentId,
+        receiptExternalUrl,
         notes: notes || null,
-      }),
+      })
+    },
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
@@ -75,6 +85,21 @@ export function PaySalaryDialog({
   function selectAccount(value: string) {
     setAccount(value)
     if (value === COMPANY_ACCOUNT_VALUE) setCurrency('USDT')
+  }
+
+  // task-receipts-frontend: client-side gate (mirrors CreateTransactionDialog) —
+  // blocks mutation.mutate() when the receipt is missing/invalid, delegating
+  // the rule to the SAME shared function the backend refine uses.
+  function handleSubmit() {
+    const effectiveCurrency = isCompany ? 'USDT' : currency
+    const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
+    const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+    const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, effectiveCurrency)
+    if (err) {
+      setReceiptError(err)
+      return
+    }
+    mutation.mutate()
   }
 
   const error = mutation.error instanceof Error ? mutation.error.message : null
@@ -131,15 +156,26 @@ export function PaySalaryDialog({
             testIdPrefix="pay-salary"
           />
 
-          <div className="space-y-1">
-            <Label className="text-xs">TX Hash (необязательно)</Label>
-            <Input
-              value={txHash}
-              onChange={(e) => setTxHash(e.target.value)}
-              placeholder="0x..."
-              className="h-8 text-sm font-mono"
-              data-testid="pay-salary-tx-hash"
+          {/* task-receipts-frontend: mandatory proof of payment (design-spec §3.2),
+              replaces the old optional TX Hash text field. Explorer-only when
+              the effective currency is USDT (COMPANY_ACCOUNT always forces it;
+              ADMIN_PERSONAL defaults to USDT until the currency is switched). */}
+          <div className="space-y-1.5">
+            <ReceiptInput
+              state={receipt}
+              onChange={(s) => {
+                setReceipt(s)
+                setReceiptError(null)
+              }}
+              label="Чек / подтверждение *"
+              explorerOnly={currency === 'USDT'}
+              error={receiptError ?? undefined}
             />
+            {receiptError && (
+              <p className="text-[11px] text-destructive" data-testid="pay-salary-error-receipt">
+                {receiptError}
+              </p>
+            )}
           </div>
 
           <div className="space-y-1">
@@ -166,7 +202,7 @@ export function PaySalaryDialog({
             Отмена
           </Button>
           <Button
-            onClick={() => mutation.mutate()}
+            onClick={handleSubmit}
             disabled={mutation.isPending}
             data-testid="pay-salary-submit"
           >
