@@ -56,6 +56,12 @@
  *   CB-4  Security whole-payload grep: DROP findAll never carries the admin
  *         registrar's UUID via createdBy (the CB-1 row's admin has no other
  *         id vector — company-funded, senderId=null — isolating createdBy).
+ *   CB-5  findPayoutRequest path (third mapTx call site): a linked, company-
+ *         funded PAYOUT_DROP booked AND validated by the admin
+ *         (createdBy=admin, validatedBy=admin) — the owning DROP sees BOTH
+ *         audit UUIDs = null; ADMIN/ACCOUNTANT see the real admin UUID. Proves
+ *         the validatedBy mask (follow-up to createdBy) on the payout-request
+ *         path, mirroring CM-6 for the counterparty.
  *
  * DB-SKIP-GUARD:
  *   dbAvailable = false when DATABASE_URL is unreachable (CI unit job without
@@ -154,6 +160,15 @@ const TX_DROP_DELETED_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000005'
  * `createdBy` audit field, isolating createdBy masking from counterparty masking.
  */
 const TX_CB_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000006'
+/**
+ * CB-5 (validatedBy masking on the findPayoutRequest path): a company-funded
+ * PAYOUT_DROP LINKED to the drop's payout request, BOOKED and VALIDATED by the
+ * ADMIN (createdBy=admin, validatedBy=admin). Counterparty = company pool
+ * (senderId=null, senderLabel='COMPANY'), so the ONLY vectors for the admin's
+ * UUID are the `createdBy` + `validatedBy` audit fields — isolating audit-field
+ * masking from counterparty masking on the third mapTx call site.
+ */
+const TX_CB_PR_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000007'
 
 /** Payout request owned by the DROP (seniorId column reused as owner). */
 const PR_1_ID = 'ca5f0002-0000-4000-c000-000000000001'
@@ -169,6 +184,7 @@ const ALL_TX_IDS = [
   TX_PR_ADMIN_ID,
   TX_DROP_DELETED_ADMIN_ID,
   TX_CB_ADMIN_ID,
+  TX_CB_PR_ADMIN_ID,
 ]
 const ALL_USER_IDS = [ADMIN_MAKSYM.id, ACCOUNTANT_1.id, SENIOR_1.id, DROP_1.id]
 
@@ -360,6 +376,32 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
         receiverId: DROP_1.id,
         recipientId: DROP_1.id,
         createdBy: ADMIN_MAKSYM.id,
+      })
+      .onConflictDoNothing()
+
+    // ── CB-5: company-funded PAYOUT_DROP LINKED to the drop's payout request, ──
+    // BOOKED + VALIDATED by the admin. Counterparty = company pool
+    // (senderId=null, senderLabel='COMPANY') so neither audit UUID has a
+    // counterparty vector — createdBy=admin AND validatedBy=admin are the only
+    // ways the admin's id can surface, proving both audit-field masks on the
+    // findPayoutRequest (third mapTx) call site.
+    await db
+      .insert(transactions)
+      .values({
+        id: TX_CB_PR_ADMIN_ID,
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '260',
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: 'COMPANY',
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiverId: DROP_1.id,
+        recipientId: DROP_1.id,
+        payoutRequestId: PR_1_ID,
+        createdBy: ADMIN_MAKSYM.id,
+        validatedBy: ADMIN_MAKSYM.id,
+        validatedAt: new Date('2026-01-15T10:00:00Z'),
       })
       .onConflictDoNothing()
   })
@@ -576,5 +618,32 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
     // the DROP payload it can ONLY be an un-masked createdBy leak.
     const dropPayload = JSON.stringify(await svc.findAll(DROP_1))
     expect(dropPayload).not.toContain(ADMIN_MAKSYM.id)
+  })
+
+  // ── CB-5: createdBy + validatedBy masking on the findPayoutRequest path ────
+
+  it('CB-5 — findPayoutRequest masks createdBy AND validatedBy for the owning DROP, discloses both for ADMIN/ACCOUNTANT', async () => {
+    if (!dbAvailable) return
+
+    // The owning DROP views their own payout request. The linked, company-funded
+    // row was booked AND validated by the admin — but the admin is NEITHER the
+    // counterparty (company pool) NOR the viewer, so both audit UUIDs must be
+    // stripped. Mirrors CM-6 (counterparty on the same third mapTx call site).
+    const dropReq = await svc.findPayoutRequest(PR_1_ID, DROP_1)
+    const dropTx = dropReq.transactions.find((t) => t.id === TX_CB_PR_ADMIN_ID)
+    expect(dropTx, 'linked CB-5 tx must be present for the owner').toBeDefined()
+    expect(dropTx!.createdBy).toBeNull()
+    expect(dropTx!.validatedBy).toBeNull()
+
+    // Privileged viewers see the real admin UUID on BOTH audit fields.
+    const acctReq = await svc.findPayoutRequest(PR_1_ID, ACCOUNTANT_1)
+    const acctTx = acctReq.transactions.find((t) => t.id === TX_CB_PR_ADMIN_ID)
+    expect(acctTx!.createdBy).toBe(ADMIN_MAKSYM.id)
+    expect(acctTx!.validatedBy).toBe(ADMIN_MAKSYM.id)
+
+    const adminReq = await svc.findPayoutRequest(PR_1_ID, ADMIN_MAKSYM)
+    const adminTx = adminReq.transactions.find((t) => t.id === TX_CB_PR_ADMIN_ID)
+    expect(adminTx!.createdBy).toBe(ADMIN_MAKSYM.id)
+    expect(adminTx!.validatedBy).toBe(ADMIN_MAKSYM.id)
   })
 })
