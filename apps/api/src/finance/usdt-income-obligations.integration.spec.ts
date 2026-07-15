@@ -714,6 +714,55 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     expect(dropTxs.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(false)
   })
 
+  // ── Defense-in-depth negative control (review round 1, code-review MED) ────
+  // Real-DB proof (not just the mocked unit test) that the flip's OWN status
+  // guard (`UPDATE transactions … WHERE id=sourceTx AND status='PENDING_PAYMENT'`)
+  // is a genuine transactional backstop: we corrupt the source IOU's status OUT
+  // OF BAND (bypassing settleByCompany entirely, as if some other process
+  // mutated it) while the obligation stays PENDING — so the obligation-level
+  // TOCTOU claim WOULD win. settleByCompany must still refuse, and — because
+  // this is Postgres, not a mock — the whole `db.transaction` must ROLL BACK,
+  // undoing the obligation claim too. We assert the obligation is STILL PENDING
+  // afterward (not left half-closed with no closing row).
+  it('settle-in-place defense-in-depth: source IOU status corrupted out of band aborts the WHOLE transaction (real rollback)', async () => {
+    if (!dbAvailable) return
+    await declare(
+      { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+      ADMIN_MAKSYM,
+    )
+    const [seniorObl] = await obligationsFor(SENIOR.id)
+    const srcId = (await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, seniorObl!.id),
+    }))!.sourceTransactionId
+
+    // Corrupt the invariant directly (NOT via settleByCompany): the source IOU is
+    // no longer PENDING_PAYMENT, but the obligation is untouched (still PENDING).
+    await dbSvc.db
+      .update(transactions)
+      .set({ status: 'REJECTED' })
+      .where(eq(transactions.id, srcId))
+
+    await expect(
+      settle(seniorObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' }),
+    ).rejects.toThrow(/не в статусе ожидания выплаты/)
+
+    // The whole transaction rolled back — the obligation claim is UNDONE, not
+    // left half-closed. If this were only a mock we could not observe this; on
+    // real Postgres a throw inside db.transaction(cb) rolls back every write the
+    // callback made, including the earlier conditional UPDATE.
+    const obl = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, seniorObl!.id),
+    })
+    expect(obl!.status).toBe('PENDING')
+    expect(obl!.closingTransactionId).toBeNull()
+    // The corrupted source row is untouched (no flip attempted/applied).
+    const src = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, srcId) })
+    expect(src!.status).toBe('REJECTED')
+    expect(src!.type).toBe('SENIOR_PENDING_PAYOUT')
+    // No invoice fired — the settle never actually completed.
+    expect(seniorInvoiceTriggers).toBe(0)
+  })
+
   // ── MED-1 (review round 1, ADR C9): RBAC visibility of the new IOU/settlement
   // types through assertReadAccess (findOne) + findAll's inline RBAC filter.
   // Neither DROP_PENDING_PAYOUT nor PAYOUT_DROP is blacklisted from the

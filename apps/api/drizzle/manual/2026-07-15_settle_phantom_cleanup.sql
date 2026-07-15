@@ -38,6 +38,16 @@
 -- source_transaction_id = closing_transaction_id and are skipped, so a re-run is
 -- a safe no-op.
 --
+-- Security-review fix (round 1, MED): STEP 2b's DELETE now additionally requires
+-- `EXISTS (SELECT 1 FROM _settle_phantom_backup_20260715 b WHERE b.id = t.id)` —
+-- i.e. it deletes ONLY rows STEP 1 actually backed up. Previously 2b's guard
+-- ("nothing references this row") was broader than STEP 1's backup scope
+-- ("rows belonging to a PAID obligation with closing≠source"): a hypothetical
+-- orphan IOU matching 2b's predicate but NOT part of a hung-settle pair could
+-- have been deleted with no recoverable copy. Verified on crm_qa: a synthetic
+-- orphan row (no obligation ever pointed at it) is correctly left untouched —
+-- only the true hung-pair phantom (present in the backup) is deleted.
+--
 -- How to apply (manual, from the VPS with Docker access to the prod stack)
 -- -----------------------------------------------------------------------
 --   docker compose -f docker-compose.prod.yml exec -T postgres psql \
@@ -105,13 +115,22 @@ WHERE src.id = o.source_transaction_id
 
 -- 2b) Delete the now-orphaned phantom IOU. Guarded: only when NOTHING references
 --     it (source_transaction_id was repointed above; closing_transaction_id never
---     pointed at a phantom; a PENDING IOU has no invoice signature).
+--     pointed at a phantom; a PENDING IOU has no invoice signature) AND — the
+--     security-review fix (round 1, MED) — only when the row was ACTUALLY backed
+--     up in STEP 1. Without this last guard, a hypothetical orphan IOU that
+--     matches the "nothing references it" predicate but was NOT one of the
+--     hung-settle pairs STEP 1 targeted (e.g. some other unforeseen orphan) could
+--     be deleted with no backup to recover from. STEP 1's INSERT and this
+--     DELETE now share the EXACT SAME row set by construction (STEP 1 backs up
+--     precisely the hung-pair phantoms; this only deletes rows present in that
+--     backup), so nothing is ever deleted without a recoverable copy.
 DELETE FROM transactions t
 WHERE t.type IN ('SENIOR_PENDING_PAYOUT', 'DROP_PENDING_PAYOUT')
   AND t.status = 'PENDING_PAYMENT'
   AND NOT EXISTS (SELECT 1 FROM pending_obligations o WHERE o.source_transaction_id = t.id)
   AND NOT EXISTS (SELECT 1 FROM pending_obligations o WHERE o.closing_transaction_id = t.id)
-  AND NOT EXISTS (SELECT 1 FROM invoice_signatures s WHERE s.transaction_id = t.id);
+  AND NOT EXISTS (SELECT 1 FROM invoice_signatures s WHERE s.transaction_id = t.id)
+  AND EXISTS (SELECT 1 FROM _settle_phantom_backup_20260715 b WHERE b.id = t.id);
 
 -- 2c) VERIFY before COMMIT — must be 0. If not, ROLLBACK and investigate.
 SELECT count(*) AS remaining_phantoms

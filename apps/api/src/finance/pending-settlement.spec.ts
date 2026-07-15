@@ -575,6 +575,42 @@ describe('PendingSettlementService.settleByCompany', () => {
     expect(getInsertsFor(transactions)).toHaveLength(0)
   })
 
+  // ── Defense-in-depth negative control (review round 1, code-review MED) ────
+  // Distinct from the TOCTOU test above: THERE the obligation-level claim itself
+  // loses (pending_obligations UPDATE matches zero rows). HERE the obligation
+  // claim WINS (obligation.status is genuinely 'PENDING') but the SOURCE IOU row
+  // is somehow not 'PENDING_PAYMENT' anymore — a corrupted invariant (e.g. the
+  // source tx was mutated out of band). The flip's own
+  // `WHERE id=sourceTx AND status='PENDING_PAYMENT'` guard (pending-settlement
+  // .service.ts, the `if (!paidRow)` branch right after the UPDATE) must catch
+  // this independently and abort — a backstop beyond the obligation-level claim,
+  // proven here directly (not just inferred from the obligation-claim test).
+  it('defense-in-depth: source IOU not in PENDING_PAYMENT at flip time aborts the settle (corrupted invariant)', async () => {
+    const { svc, getFlips, getInsertsFor, getUpdatesFor } = makeService({
+      // The obligation is genuinely PENDING (the claim WILL win) …
+      sourceTxs: new Map([
+        // … but its source IOU row is already 'PAID' — as if some out-of-band
+        // process flipped it without going through settleByCompany.
+        [SOURCE_TX_ID, makeSourceTx({ status: 'PAID', type: 'SENIOR_INCOME' })],
+      ]),
+    })
+
+    await expect(svc.settleByCompany(OBLIGATION_COMPANY, accountantUser)).rejects.toThrow(
+      BadRequestException,
+    )
+    // The flip's own status-guarded UPDATE matched zero rows → no flip recorded,
+    // no second transaction inserted.
+    expect(getFlips()).toHaveLength(0)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+    // The obligation-level claim DID win (this test's whole point — it is a
+    // DIFFERENT guard catching it), but the mock has no real transactional
+    // ROLLBACK semantics; the real-DB proof that the obligation claim is undone
+    // together with the failed flip lives in the companion integration test
+    // (usdt-income-obligations.integration.spec.ts).
+    const paidClaims = getUpdatesFor(pendingObligations).filter((u) => u['status'] === 'PAID')
+    expect(paidClaims).toHaveLength(1)
+  })
+
   it('rejects when company balance is insufficient for the obligation', async () => {
     // task-drop-payout-company-account: the company-account debit gate refuses to
     // drive the balance negative. Obligation is 560; balance only 100.

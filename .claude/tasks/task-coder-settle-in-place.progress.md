@@ -1,13 +1,24 @@
 # Progress: task-coder-settle-in-place
 
-current_milestone: 5/5
-last_commit: (data-fix committing wip)
-last_push: (blocked — pre-push runs vitest; pushing once full gate green)
+current_milestone: 6/6 (review round 1 done)
+last_commit: fix(finance): review round 1 — defense-in-depth test + data-fix backup guard
+last_push: DONE
 milestone_1_done: settleByCompany flips source IOU in place; eslint clean; api typecheck green
 milestone_2_done: unit spec rewritten (flip mock, 44 pass) + share-snapshot reset (money bug caught beyond ADR)
 milestone_3_done: integration specs adapted; full integration suite 772 pass (crm_qa); +2 dedicated in-place tests
 milestone_4_done: data-fix SQL validated on real Postgres (repoint+delete+idempotency, rollback-verified)
-money_catch: getSeniorBalance uses seniorSharePercent as GROSS/NET discriminator → flip MUST null share snapshots (else NET×26% undercount). ADR consumer table missed this.
+milestone_6_done: review round 1 (PR #379, both APPROVE, 2 MED fix-round):
+
+- code-review MED: defense-in-depth throw (:414-422) now covered by dedicated unit test
+  (mock: source tx status≠PENDING_PAYMENT while obligation claim wins) + integration test
+  (real Postgres: out-of-band corrupted source status → whole db.transaction rolls back,
+  obligation claim undone, proven via re-read after the throw).
+- security MED: data-fix SQL 2b DELETE now guarded by
+  `EXISTS (SELECT 1 FROM _settle_phantom_backup_20260715 b WHERE b.id=t.id)` — only deletes
+  rows STEP 1 actually backed up. Verified on crm_qa with a synthetic orphan-IOU row
+  (no obligation ever pointed at it): backup skips it, 2b delete leaves it untouched;
+  real hung-pair phantom still correctly collapsed; idempotent re-run = 0 additional.
+  money_catch: getSeniorBalance uses seniorSharePercent as GROSS/NET discriminator → flip MUST null share snapshots (else NET×26% undercount). ADR consumer table missed this.
 
 ## Milestones
 
