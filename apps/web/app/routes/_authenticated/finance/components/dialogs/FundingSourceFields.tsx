@@ -46,13 +46,15 @@ export function FundingSourceFields({
   enabled = true,
   testIdPrefix,
   allowedCurrencies = CURRENCIES,
+  hideCurrency = false,
 }: {
   /** COMPANY_ACCOUNT_VALUE (Счёт компании) OR an ADMIN partner id. */
   account: string
-  currency: Currency
+  /** Omit entirely when `hideCurrency` is true. */
+  currency?: Currency
   /** Called with the new account value. Parent locks currency → USDT for company. */
   onSelectAccount: (value: string) => void
-  onSelectCurrency: (value: Currency) => void
+  onSelectCurrency?: (value: Currency) => void
   /** Gate the read-only queries (only fetch while the dialog is open). */
   enabled?: boolean
   testIdPrefix: string
@@ -60,11 +62,17 @@ export function FundingSourceFields({
    * Restricts the currency options shown for the ADMIN_PERSONAL branch (the
    * COMPANY_ACCOUNT branch is always forced/locked to USDT regardless of this
    * prop). Defaults to all four currencies (PaySalaryDialog — any currency is a
-   * legitimate salary payout). SettleSeniorPayoutDialog narrows this to
-   * `['USDT', 'USD']` — the backend rejects closing a USDT obligation in
-   * EUR/UAH without conversion (see pending-settlement.service.ts).
+   * legitimate salary payout). Irrelevant when `hideCurrency` is set.
    */
   allowedCurrencies?: Currency[]
+  /**
+   * task-remove-settle-currency: hides the currency Select entirely.
+   * SettleSeniorPayoutDialog sets this — a settle obligation is always
+   * denominated in USDT (the picker was purely cosmetic; see
+   * pending-settlement.service.ts), so there is nothing to pick. PaySalaryDialog
+   * leaves this false — salary IS legitimately paid in different currencies.
+   */
+  hideCurrency?: boolean
 }) {
   const isCompany = account === COMPANY_ACCOUNT_VALUE
 
@@ -151,34 +159,38 @@ export function FundingSourceFields({
         )}
       </div>
 
-      {/* Currency selector — locked to USDT for the company account */}
-      <div className="space-y-1.5">
-        <Label className="text-xs text-muted-foreground">Валюта</Label>
-        <Select
-          value={currency}
-          onValueChange={(v) => onSelectCurrency(v as Currency)}
-          disabled={isCompany}
-        >
-          <SelectTrigger className="h-9 text-sm" data-testid={`${testIdPrefix}-currency-trigger`}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {allowedCurrencies.map((c) => (
-              <SelectItem
-                key={c}
-                value={c}
-                className="text-sm"
-                data-testid={`${testIdPrefix}-currency-${c}`}
-              >
-                {c}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        {isCompany && (
-          <p className="text-[11px] text-muted-foreground">Спишется со счёта компании в USDT</p>
-        )}
-      </div>
+      {/* Currency selector — locked to USDT for the company account. Hidden
+          entirely for settle dialogs (task-remove-settle-currency): the
+          obligation currency is always USDT, so there is nothing to pick. */}
+      {!hideCurrency && (
+        <div className="space-y-1.5">
+          <Label className="text-xs text-muted-foreground">Валюта</Label>
+          <Select
+            value={currency}
+            onValueChange={(v) => onSelectCurrency?.(v as Currency)}
+            disabled={isCompany}
+          >
+            <SelectTrigger className="h-9 text-sm" data-testid={`${testIdPrefix}-currency-trigger`}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {allowedCurrencies.map((c) => (
+                <SelectItem
+                  key={c}
+                  value={c}
+                  className="text-sm"
+                  data-testid={`${testIdPrefix}-currency-${c}`}
+                >
+                  {c}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          {isCompany && (
+            <p className="text-[11px] text-muted-foreground">Спишется со счёта компании в USDT</p>
+          )}
+        </div>
+      )}
     </>
   )
 }
