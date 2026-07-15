@@ -365,7 +365,7 @@ jobs:
           - name: misc
             files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/crm
           - name: drop-finance
-            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/transaction-receipts.spec.ts
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts
     services:
       postgres:
         image: postgres:16-alpine

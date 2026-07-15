@@ -465,8 +465,14 @@ export class UsersService {
       set.avatarDocumentId = data.avatarDocumentId ?? null
     }
     if ('techStack' in data) set.techStack = data.techStack ?? null
-    if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
-    if (data.dropSharePercent !== undefined) set.dropSharePercent = data.dropSharePercent
+    // Share-percent fields — role-scoped writes: only persist when the
+    // effective role actually uses the field, so an "orphaned" value can't
+    // surface later if the user is promoted into that role. Mirrors the
+    // UserDialog finance section (SENIOR-slider / DROP-slider / salary-field).
+    if (data.seniorSharePercent !== undefined && effectiveRole === 'SENIOR')
+      set.seniorSharePercent = data.seniorSharePercent
+    if (data.dropSharePercent !== undefined && effectiveRole === 'DROP')
+      set.dropSharePercent = data.dropSharePercent
     if ('monthlySalary' in data)
       set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
