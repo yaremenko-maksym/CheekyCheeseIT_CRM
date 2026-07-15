@@ -219,7 +219,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup_auto.sql'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
@@ -234,6 +234,8 @@ jobs:
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql
           # apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql
+          # apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup_auto.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup_auto.sql
           # The deploy step reads from those full paths via /opt/crm.
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
@@ -458,6 +460,43 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$TRANSACTION_AUDIT_LOG_FILE"
             echo "==> transaction_audit_log DDL applied successfully"
+
+            # ── Step 2e: settle phantom-cleanup data-fix (idempotent, owner-authorized) ──────
+            # Owner explicitly authorized (2026-07-15) unattended apply of the retro-fit for
+            # hung SENIOR_PENDING_PAYOUT/DROP_PENDING_PAYOUT «Ожидает выплаты» phantom rows
+            # left behind by settleByCompany BEFORE the settle-in-place fix (#379, ADR
+            # docs/architecture/2026-07-14-settle-transition-in-place.md). Cosmetic/UX-only —
+            # a phantom row is not part of any money term, a repeat settle is already blocked
+            # (obligation is PAID → 404). Expected ≈28 hung pairs (21 senior + 7 drop).
+            #
+            # This is the auto-wired sibling of the (intentionally NOT wired)
+            # 2026-07-15_settle_phantom_cleanup.sql: same predicates/guards, but the
+            # pre-COMMIT verification is a FAIL-LOUD assert (RAISE EXCEPTION) instead of an
+            # interactive eyeball, so it is safe to run unattended here. If the assert trips,
+            # the transaction is rolled back and this psql invocation exits non-zero — this
+            # deploy step (and the job) goes red instead of silently leaving a half-applied
+            # state. Idempotent: re-running on an already-clean DB is a no-op (0 backed up,
+            # 0 repointed, 0 deleted, assert passes). Backs up deleted rows into
+            # `_settle_phantom_backup_20260715` before deleting — recoverable, never dropped
+            # by this script.
+            # Source: apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup_auto.sql
+            PHANTOM_CLEANUP_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-15_settle_phantom_cleanup_auto.sql"
+
+            if [ ! -f "$PHANTOM_CLEANUP_FILE" ]; then
+              echo "ERROR: DDL file not found at $PHANTOM_CLEANUP_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying settle phantom-cleanup (idempotent data-fix) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$PHANTOM_CLEANUP_FILE"
+            echo "==> phantom-cleanup applied successfully"
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
