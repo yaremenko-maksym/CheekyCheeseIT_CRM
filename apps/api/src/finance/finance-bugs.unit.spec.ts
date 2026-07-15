@@ -194,6 +194,23 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
       }),
     ).resolves.toBeDefined()
   })
+
+  // task-remove-settle-currency (2026-07): the settle dialog no longer sends a
+  // currency at all — the BIZ-03 guard only re-validates it when EXPLICITLY
+  // present (see AC2-a/b above). Proves the omitted-currency path never trips
+  // the "не поддерживается без конверсии" guard (it must default to
+  // obligation.currency = USDT, not fall through unvalidated).
+  it('AC2-e: ADMIN_PERSONAL with NO currency field → succeeds (defaults to obligation.currency)', async () => {
+    const { svc } = makeSettlementService()
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, adminUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_ID,
+        // task-receipts-backend: settle now requires proof (defaults to USDT → explorer link).
+        receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+      }),
+    ).resolves.toBeDefined()
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

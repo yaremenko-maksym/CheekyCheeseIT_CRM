@@ -341,6 +341,51 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
     expect(await gateBalance()).toBeCloseTo(before, 6)
   })
 
+  // task-remove-settle-currency (2026-07): the settle dialog no longer sends a
+  // `currency` field at all — the backend must default it to the obligation's
+  // own currency (always USDT for a senior/drop IOU). Proves the REAL default
+  // path (as opposed to the tests above, which pass an explicit currency
+  // through the still-supported BIZ-03 safety net) AND that the
+  // task-settle-in-place (#379) single-row-flip invariant holds: exactly one
+  // SENIOR_INCOME row exists after settle, no phantom second row.
+  it('ADMIN_PERSONAL with NO currency in the payload → defaults to USDT; single-row flip preserved (#379)', async () => {
+    if (!dbAvailable) return
+    const before = await gateBalance()
+
+    const result = await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      // No `currency` field — defaults to obligation.currency (USDT), so the
+      // mandatory-receipt rule requires an EXPLORER link (not a generic file
+      // URL like FILE_RECEIPT, which is only valid for a non-USDT currency).
+      ...EXPLORER_RECEIPT,
+    })
+    expect(result.obligation.status).toBe('PAID')
+
+    const row = await seniorIncomeRow()
+    expect(row).toBeTruthy()
+    expect(row!.status).toBe('PAID')
+    expect(row!.fundingSource).toBeNull()
+    expect(row!.senderId).toBe(ADMIN.id)
+    // task-remove-settle-currency default — no currency was sent, so it falls
+    // back to obligation.currency (USDT), NOT the old ADMIN_PERSONAL "any
+    // currency" behaviour.
+    expect(row!.currency).toBe('USDT')
+
+    // ADMIN_PERSONAL never touches the shared company account.
+    expect(await gateBalance()).toBeCloseTo(before, 6)
+
+    // #379 invariant: the source IOU was flipped IN PLACE — exactly one
+    // SENIOR_INCOME row for this settlement, keyed on the SAME id as the
+    // source transaction (no second/phantom row inserted).
+    const rows = await dbSvc.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.receiverId, SENIOR.id)))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.id).toBe(SOURCE_TX_ID)
+  })
+
   it('ADMIN_PERSONAL with a non-ADMIN payer → 400, nothing booked', async () => {
     if (!dbAvailable) return
     await expect(
