@@ -9,10 +9,12 @@
  *   debtorType='COMPANY': both crypto + cash channels create a
  *   SENIOR_PENDING_PAYOUT (debtor=COMPANY) immediately after the
  *   drop→company payment is recorded. The senior balance only moves once
- *   ACCOUNTANT/ADMIN closes the obligation via `settleByCompany`, which:
- *     - inserts a SENIOR_INCOME row (status=PAID, the legal invoice type),
- *     - marks the obligation PAID,
- *     - triggers `safeAutoCreateInvoice('SENIOR_INCOME', ...)` so the
+ *   ACCOUNTANT/ADMIN closes the obligation via `settleByCompany`, which
+ *   (task-settle-in-place, ADR 2026-07-14):
+ *     - flips the source IOU row (SENIOR_PENDING_PAYOUT) → SENIOR_INCOME
+ *       (status=PAID, the legal invoice type) IN PLACE — no second row,
+ *     - marks the obligation PAID (closingTransactionId = the flipped row),
+ *     - triggers `autoCreateForSeniorPayout(<flipped id>)` so the
  *       senior receives a signable invoice mirroring the existing
  *       payPayoutRequest cascade.
  *
@@ -146,13 +148,24 @@ export class PendingSettlementService {
    * Close a COMPANY-debt obligation. RBAC: ACCOUNTANT / ADMIN only. DROP is
    * explicitly forbidden — they no longer hold or close senior debts.
    *
+   * task-settle-in-place (ADR 2026-07-14): the settlement transitions the source
+   * IOU row (`*_PENDING_PAYOUT`) PENDING_PAYMENT → PAID **in place** — it does NOT
+   * insert a second transaction. The row flips to its final type
+   * (SENIOR_PENDING_PAYOUT → SENIOR_INCOME, DROP_PENDING_PAYOUT → PAYOUT_DROP),
+   * so there is no lingering "Ожидает выплаты" phantom.
+   *
    * Atomic cascade:
-   *   - Insert SENIOR_INCOME transaction (senderLabel='COMPANY',
-   *     receiverId=senior) with status=PAID. This is the legally signable
-   *     invoice type per InvoicesService.autoCreateForSeniorPayout.
-   *   - Patch obligation → status=PAID, closingTransactionId=<paid row id>.
-   *   - Trigger `safeAutoCreateInvoice('SENIOR_INCOME', <id>)` outside the
-   *     transaction so a failing PDF/S3 step doesn't roll back the closure.
+   *   - Conditional UPDATE `pending_obligations` PENDING → PAID (TOCTOU money
+   *     gate; the loser of a double-settle rolls back with no money write).
+   *   - For a company-funded settle: advisory-lock the company account + refuse
+   *     to drive the balance negative.
+   *   - UPDATE the SOURCE IOU row in place → final type + status=PAID + funding
+   *     fields (fundingSource marker, sender, currency, receipt); reset
+   *     payoutRequestId; SENIOR_INCOME is the legally signable invoice type per
+   *     InvoicesService.autoCreateForSeniorPayout.
+   *   - Patch obligation → closingTransactionId = sourceTransactionId (self).
+   *   - Trigger `autoCreateForSeniorPayout(<flipped SENIOR_INCOME id>)` outside
+   *     the transaction so a failing PDF/S3 step doesn't roll back the closure.
    */
   async settleByCompany(
     obligationId: string,
@@ -179,7 +192,9 @@ export class PendingSettlementService {
       throw new BadRequestException('Долг уже закрыт или отменён')
     }
 
-    const { project, sourceType } = await this.resolveSource(obligation.sourceTransactionId)
+    // We only need the source IOU's TYPE (the drop-vs-senior discriminator).
+    // The flipped row keeps its own projectId booked on the IOU — no re-stamp.
+    const { sourceType } = await this.resolveSource(obligation.sourceTransactionId)
 
     // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
     //   - DROP_PENDING_PAYOUT → a NEW branch: settle by inserting a PAYOUT_DROP
@@ -316,25 +331,34 @@ export class PendingSettlementService {
         }
       }
 
-      // task-drop-company-debt-and-invoices / task-drop-share-override-and-receiver
-      // (D5). A senior IOU settles as SENIOR_INCOME (status=PAID) so
-      // InvoicesService.autoCreateForSeniorPayout picks it up (gate:
-      // `tx.type === 'SENIOR_INCOME'`). A DROP IOU settles as PAYOUT_DROP
-      // (status=PAID) — it credits the drop's balance via computeDropAggregate
-      // (receiverId=drop, senderId≠drop so it is NOT double-counted as `sent` —
-      // C6) and does NOT trigger any invoice (Q6).
+      // task-settle-in-place (ADR 2026-07-14). The obligation transitions
+      // PENDING_PAYMENT → PAID **in place**: instead of inserting a SECOND
+      // transaction (the phantom bug — a lingering `*_PENDING_PAYOUT` row plus a
+      // separate settle row), we UPDATE the SOURCE IOU row itself. It flips type
+      // to its final form and stamps the same funding fields the old "second row"
+      // carried, becoming byte-for-byte equivalent to yesterday's settle row —
+      // only reusing the IOU's id instead of allocating a new one. Every ledger /
+      // drop-aggregate / invoice / C4 consumer keys on that FINAL form
+      // (type + status=PAID + funding markers), so none of them change:
+      //   - senior IOU → type=SENIOR_INCOME (status=PAID): InvoicesService
+      //     .autoCreateForSeniorPayout picks it up (gate `tx.type==='SENIOR_INCOME'`).
+      //   - drop IOU → type=PAYOUT_DROP (status=PAID): credits the drop's balance
+      //     via computeDropAggregate (receiverId=drop, senderId≠drop so NOT
+      //     double-counted as `sent` — C6); no invoice (Q6).
+      // The flip runs AFTER the winning conditional claim above, so it executes
+      // exactly once. Defense-in-depth: scope the UPDATE to the still-PENDING_PAYMENT
+      // source row so a corrupted / already-flipped state can never be re-settled.
       const [paidRow] = await dbtx
-        .insert(transactions)
-        .values({
+        .update(transactions)
+        .set({
           type: isDropObligation ? 'PAYOUT_DROP' : 'SENIOR_INCOME',
           status: 'PAID',
-          amount: obligation.amount,
           // task-senior-settle-owner: currency follows the funding choice
           // (COMPANY_ACCOUNT → USDT; ADMIN_PERSONAL → chosen; legacy default →
-          // obligation currency).
+          // obligation currency). The IOU was booked USDT; this may re-stamp it.
           currency,
           // ADMIN_PERSONAL → the paying partner is the sender; COMPANY_ACCOUNT /
-          // legacy → no personal sender, label 'COMPANY'.
+          // legacy → no personal sender, label 'COMPANY' (the IOU's booked label).
           senderId,
           senderLabel,
           // Company-account debit marker — counted by the ledger SSOT (the C7
@@ -343,31 +367,68 @@ export class PendingSettlementService {
           // a company-funded settlement; an ADMIN_PERSONAL payout carries no
           // marker (the shared balance must not move).
           fundingSource: debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null,
-          receiverId: obligation.creditorUserId,
-          recipientId: obligation.creditorUserId,
-          projectId: project?.id ?? null,
           // task-receipts-backend (#10): stamp the settle proof (only the
           // user-facing funding-carrying flow supplies one; legacy → null).
           receiptDocumentId: funding?.receiptDocumentId ?? null,
           receiptExternalUrl: funding?.receiptExternalUrl ?? null,
+          // CRITICAL (ADR): a cascade-sourced IOU (applyPayoutPaidCascade) carries
+          // `payoutRequestId`. Keeping it on a flipped SENIOR_INCOME would bleed the
+          // row into autoCreateForPayout's payoutRequestId aggregation AND the
+          // findOne SENIOR_INCOME-by-payoutRequestId enrichment. Yesterday's settle
+          // SENIOR_INCOME had payoutRequestId=null; reset preserves byte-identity.
+          // Audit link is retained via pending_obligations + notes + projectId.
+          payoutRequestId: null,
+          // CRITICAL (money, beyond ADR's consumer table): the IOU was booked with
+          // `amount` = the ALREADY-NET share (income × share%) AND a non-null
+          // seniorSharePercent/dropSharePercent snapshot. But getSeniorBalance /
+          // getTotalEarned / getSeniorSummary use seniorSharePercent as a GROSS↔NET
+          // discriminator on SENIOR_INCOME: non-null ⇒ treat amount as GROSS and
+          // multiply by share% (→ NET × 26% = a ~26× UNDER-count of the senior).
+          // Yesterday's settle-INSERTED SENIOR_INCOME left these null, so the amount
+          // was used as-is (NET). We MUST null them to stay byte-identical and avoid
+          // the double-application. (The drop side is safe today — computeDropAggregate
+          // reads PAYOUT_DROP.amount directly — but we null it too for parity, since
+          // yesterday's settle PAYOUT_DROP carried no share snapshot either.)
+          seniorSharePercent: null,
+          seniorSharePercentSource: null,
+          dropSharePercent: null,
+          dropSharePercentSource: null,
           notes: isDropObligation
             ? `Выплата drop IOU (obligation ${obligation.id})`
             : `Выплата senior IOU (obligation ${obligation.id})`,
-          createdBy: actor.id,
+          updatedAt: new Date(),
           // Income rows carry validation provenance; a PAYOUT_DROP is a payout,
-          // not a validated income, so it leaves these null (mirrors the cascade
-          // PAYOUT_DROP shape).
+          // not a validated income, so it leaves these untouched (mirrors the
+          // cascade PAYOUT_DROP shape). `createdBy` intentionally stays the
+          // booking author — the settler is captured in `validatedBy` (senior) and
+          // the notes (per ADR §Consequences: minor audit delta, deliberate).
           ...(isDropObligation ? {} : { validatedBy: actor.id, validatedAt: new Date() }),
         })
+        .where(
+          and(
+            eq(transactions.id, obligation.sourceTransactionId),
+            eq(transactions.status, 'PENDING_PAYMENT'),
+          ),
+        )
         .returning()
-      if (paidRow) created.push(paidRow)
-      // Backfill the closing transaction pointer now that the SENIOR_INCOME row
-      // exists. The status flip already happened atomically above; this only adds
-      // the audit FK and is safe — we still scope it to the row we just claimed.
+      if (!paidRow) {
+        // The claim already won (obligation was PENDING) so the source IOU MUST
+        // have been PENDING_PAYMENT. Zero rows here means a corrupted invariant
+        // (source flipped / deleted out of band) — abort so we never leave the
+        // obligation PAID with no closing row (rolls back the claim too).
+        throw new BadRequestException(
+          'Не удалось закрыть долг: исходная транзакция обязательства не в статусе ожидания выплаты',
+        )
+      }
+      created.push(paidRow)
+      // Point closingTransactionId at the SAME row we just flipped (self-
+      // reference). This keeps the C4 discriminator working: the flipped
+      // SENIOR_INCOME id ∈ settlementTxIds so it is excluded from totalIncome
+      // (its gross was already counted as the ADMIN_INCOME / DROP_INCOME).
       await dbtx
         .update(pendingObligations)
         .set({
-          closingTransactionId: paidRow?.id ?? null,
+          closingTransactionId: obligation.sourceTransactionId,
           updatedAt: new Date(),
         })
         .where(eq(pendingObligations.id, obligation.id))

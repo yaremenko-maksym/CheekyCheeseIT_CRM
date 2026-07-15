@@ -40,7 +40,9 @@ import { test, expect } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
 import type { Locator, Page } from '@playwright/test'
 
-const API = 'http://localhost:3001/api'
+// task-settle-in-place-e2e: env-aware (was hardcoded to localhost:3001) —
+// mirrors fixtures.ts so this file is portable to an isolated scratch stand.
+const API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
 
 /**
  * Fill the minimum required fields for DROP submit: email, name, USDT
