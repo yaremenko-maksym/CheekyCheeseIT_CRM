@@ -35,6 +35,12 @@
  *         ACCOUNTANT.
  *   CM-7  The recipient (drop) is never masked — DROP sees their own id/name as
  *         the receiver on their own rows.
+ *   CM-8  MED-1 (security review PR #384): admin-personal PAYOUT_DROP whose
+ *         payer admin was DELETED (senderId=null via ON DELETE SET NULL,
+ *         senderLabel=snapshot name, fundingSource='ADMIN_PERSONAL') — DROP
+ *         still gets 'CheekyCheeseIT' (name does NOT leak just because the id
+ *         is already gone); ADMIN sees the real snapshot label. Receiver (the
+ *         drop) is confirmed NOT masked by the same new condition.
  *
  * DB-SKIP-GUARD:
  *   dbAvailable = false when DATABASE_URL is unreachable (CI unit job without
@@ -117,13 +123,30 @@ const TX_DROP_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000002'
 const TX_SENIOR_CLIENT_ID = 'ca5f0001-0000-4000-b000-000000000003'
 /** Admin-personal PAYOUT_DROP linked to a payout request (findPayoutRequest). */
 const TX_PR_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000004'
+/**
+ * MED-1 (security review PR #384): admin-personal PAYOUT_DROP whose payer
+ * admin was SUBSEQUENTLY DELETED. Simulated directly at the row level —
+ * senderId=null (as the `ON DELETE SET NULL` FK would leave it) while
+ * senderLabel still carries the deleted admin's SNAPSHOT displayName (exactly
+ * what `paySalary`/`PendingSettlementService` stamp at pay time, which the FK
+ * cascade never touches).
+ */
+const TX_DROP_DELETED_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000005'
 
 /** Payout request owned by the DROP (seniorId column reused as owner). */
 const PR_1_ID = 'ca5f0002-0000-4000-c000-000000000001'
 
 const EXTERNAL_CLIENT_LABEL = 'Acme Client LLC'
+/** Snapshot displayName of the (simulated) deleted admin — see MED-1 above. */
+const DELETED_ADMIN_LABEL = 'Константин Удалённый'
 
-const ALL_TX_IDS = [TX_DROP_COMPANY_ID, TX_DROP_ADMIN_ID, TX_SENIOR_CLIENT_ID, TX_PR_ADMIN_ID]
+const ALL_TX_IDS = [
+  TX_DROP_COMPANY_ID,
+  TX_DROP_ADMIN_ID,
+  TX_SENIOR_CLIENT_ID,
+  TX_PR_ADMIN_ID,
+  TX_DROP_DELETED_ADMIN_ID,
+]
 const ALL_USER_IDS = [ADMIN_MAKSYM.id, ACCOUNTANT_1.id, SENIOR_1.id, DROP_1.id]
 
 // ---------------------------------------------------------------------------
@@ -270,6 +293,31 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
         createdBy: DROP_1.id,
       })
       .onConflictDoNothing()
+
+    // ── CM-8 (MED-1): admin-personal PAYOUT_DROP, payer admin DELETED ─────────
+    // senderId=null (as ON DELETE SET NULL would leave it) but senderLabel still
+    // carries the deleted admin's snapshot name + fundingSource='ADMIN_PERSONAL'
+    // — the exact shape `isAdminPartner` (which requires a live sideId) misses,
+    // and which `isOrphanedAdminPersonalPayer` must catch instead.
+    await db
+      .insert(transactions)
+      .values({
+        id: TX_DROP_DELETED_ADMIN_ID,
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '260',
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: DELETED_ADMIN_LABEL,
+        fundingSource: 'ADMIN_PERSONAL',
+        receiverId: DROP_1.id,
+        recipientId: DROP_1.id,
+        // `createdBy` is an audit field (who booked the row), NOT the
+        // counterparty — deliberately anchored to a NON-masked user so CM-4's
+        // whole-payload grep isolates a genuine *counterparty* identity leak.
+        createdBy: DROP_1.id,
+      })
+      .onConflictDoNothing()
   })
 
   afterAll(async () => {
@@ -354,6 +402,9 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
     const dropPayload = JSON.stringify(await svc.findAll(DROP_1))
     expect(dropPayload).not.toContain(ADMIN_MAKSYM.displayName)
     expect(dropPayload).not.toContain(ADMIN_MAKSYM.id)
+    // MED-1: the deleted admin's snapshot label must not leak either — its id
+    // is already gone (senderId=null), so ONLY the label check is meaningful.
+    expect(dropPayload).not.toContain(DELETED_ADMIN_LABEL)
   })
 
   // ── CM-5: findOne path masks admin-personal for DROP, discloses for ACCOUNTANT
@@ -387,5 +438,35 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
     const acctTx = acctReq.transactions.find((t) => t.id === TX_PR_ADMIN_ID)
     expect(acctTx!.senderId).toBe(ADMIN_MAKSYM.id)
     expect(acctTx!.senderName).toBe(ADMIN_MAKSYM.displayName)
+  })
+
+  // ── CM-8 (MED-1): deleted admin-personal payer — orphaned senderId=null ────
+
+  it('CM-8 — admin-personal payer DELETED (senderId=null, fundingSource=ADMIN_PERSONAL): DROP still gets CheekyCheeseIT, ADMIN sees the snapshot label', async () => {
+    if (!dbAvailable) return
+
+    const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_DROP_DELETED_ADMIN_ID)
+    expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
+    // Before the MED-1 fix, isAdminPartner required a live sideId and this
+    // branch never fired once senderId went null — the snapshot label leaked
+    // straight through. It must now be masked exactly like a live admin.
+    expect(dropRow!.senderLabel).toBe('CheekyCheeseIT')
+    expect(dropRow!.senderId).toBeNull()
+    expect(dropRow!.senderName).toBeNull()
+
+    const acctRow = (await svc.findAll(ACCOUNTANT_1)).find((t) => t.id === TX_DROP_DELETED_ADMIN_ID)
+    expect(acctRow, 'accountant sees the row').toBeDefined()
+    // Privileged viewer still sees the raw snapshot label (the id is gone
+    // regardless of viewer — that part of the FK cascade is unaffected by RBAC).
+    expect(acctRow!.senderLabel).toBe(DELETED_ADMIN_LABEL)
+    expect(acctRow!.senderId).toBeNull()
+
+    // Receiver-safety (no over-masking): the recipient (the drop) on THIS same
+    // fundingSource='ADMIN_PERSONAL' row must NOT be affected by the new
+    // condition — they have a real, non-null id and are not the payer.
+    expect(dropRow!.receiverId).toBe(DROP_1.id)
+    expect(dropRow!.receiverName).toBe(DROP_1.displayName)
+    expect(acctRow!.receiverId).toBe(DROP_1.id)
+    expect(acctRow!.receiverName).toBe(DROP_1.displayName)
   })
 })

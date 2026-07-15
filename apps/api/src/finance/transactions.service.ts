@@ -318,7 +318,23 @@ export class TransactionsService {
       sideLabel === 'Счёт компании' ||
       (fundingSource === 'COMPANY_ACCOUNT' && (sideId === null || sideId === undefined))
     const isAdminPartner = !!sideId && sideRole === 'ADMIN'
-    return isCompanyAccount || isAdminPartner
+    // MED-1 (security review PR #384): `transactions.senderId → users.id` is
+    // ON DELETE SET NULL. If an ADMIN partner who personally funded a payout
+    // (fundingSource='ADMIN_PERSONAL') is later deleted, `senderId` flips to
+    // NULL but `senderLabel` still carries the SNAPSHOT of their displayName
+    // (stamped at pay/settle time — see `paySalary` / `PendingSettlementService`
+    // settle-in-place). Without this branch, `isAdminPartner` above (which
+    // requires a LIVE `sideId`) no longer fires and the deleted admin's name
+    // leaks through unmasked to non-privileged viewers. Every current
+    // ADMIN_PERSONAL write path always stamps a real, non-null RECEIVER (the
+    // employee/senior/drop being paid) — only the SENDER side can ever be null
+    // under this funding marker — so this condition is safe for the receiver
+    // side too; it is intentionally NOT scoped to sender-only so a future
+    // write path can never silently reuse the marker asymmetrically and bypass
+    // masking.
+    const isOrphanedAdminPersonalPayer =
+      fundingSource === 'ADMIN_PERSONAL' && (sideId === null || sideId === undefined)
+    return isCompanyAccount || isAdminPartner || isOrphanedAdminPersonalPayer
   }
 
   private mapTx(tx: TxWithRelations, viewer: SessionUser) {
