@@ -221,6 +221,52 @@ describe('TeamsService.createDropTeam', () => {
       BadRequestException,
     )
   })
+
+  // Bug-fix: accountant is OPTIONAL. A drop-team must be creatable with a null
+  // accountant — no accountant role-assertion, and no accountant team member.
+  it('creates a drop-team WITHOUT an accountant (accountantId=null)', async () => {
+    const { svc, db } = service({
+      users: [],
+      teams: [],
+      teamMembers: [],
+      projects: [],
+    })
+    // The fake DB can't resolve select() by id, so feed the exact rows the
+    // service looks up, in call order: assertUserRole(drop), assertUserRole(hr),
+    // then the dropUser fetch. Note there is NO accountant lookup — if the fix
+    // regressed and the accountant assertion fired, it would consume a 4th
+    // select that returns [] and throw «не найден», failing this test.
+    const drop = { id: 'drop-1', role: 'DROP', displayName: 'Drop One' }
+    const hr = { id: 'hr-1', role: 'HR' }
+    const sequence: unknown[][] = [[drop], [hr], [drop]]
+    let call = 0
+    db.select = vi.fn().mockImplementation(() => ({
+      from: () => ({
+        where: () => ({
+          then: (fn: (rows: unknown[]) => unknown) => Promise.resolve(fn(sequence[call++] ?? [])),
+        }),
+      }),
+    }))
+    // Capture team-member inserts by payload shape (member rows carry `userId`),
+    // independent of drizzle table-name resolution.
+    const insertedMembers: string[] = []
+    db.insert = vi.fn().mockImplementation(() => ({
+      values: vi.fn().mockImplementation((vals: Record<string, unknown>) => {
+        if ('userId' in vals) insertedMembers.push(vals.userId as string)
+        return {
+          returning: vi
+            .fn()
+            .mockResolvedValue([{ id: 'team-1', name: 'Команда Drop One', type: 'DROP' }]),
+        }
+      }),
+    }))
+
+    const team = await svc.createDropTeam('drop-1', ['hr-1'], null, null)
+
+    expect(team).toBeDefined()
+    // Members = drop + hr only; the accountant is absent.
+    expect(insertedMembers.sort()).toEqual(['drop-1', 'hr-1'])
+  })
 })
 
 // ---------------------------------------------------------------------------

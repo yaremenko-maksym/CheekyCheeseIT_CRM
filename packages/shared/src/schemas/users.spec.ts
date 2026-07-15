@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { updateProfileSchema, adminUpdateUserSchema, createUserSchema } from './users'
+import {
+  updateProfileSchema,
+  adminUpdateUserSchema,
+  createUserSchema,
+  createDropSchema,
+} from './users'
 
 /**
  * Avatar storage now lives in the documents table; the profile schemas accept
@@ -164,6 +169,56 @@ describe('createUserSchema — legalFullName superRefine (A3-3 / A2c)', () => {
       const legalIssue = result.error.issues.find((i) => i.path[0] === 'legalFullName')
       expect(legalIssue).toBeDefined()
       expect(legalIssue?.path).toEqual(['legalFullName'])
+    }
+  })
+})
+
+// ─── Bug-fix: accountant is OPTIONAL for drop creation ───────────────────────
+
+/**
+ * Owner report: a workspace may have 0 accountants, which made drop creation
+ * impossible because `accountantId` was a required UUID. The field is now
+ * nullable/optional (same shape as `createTeamSchema`). HR stays required (≥1).
+ */
+describe('createDropSchema — accountant optional', () => {
+  const validUuid = '123e4567-e89b-42d3-a456-426614174000'
+
+  /** Minimal valid DROP payload (USDT requisites; no accountant). */
+  const dropBase = {
+    email: 'drop@example.com',
+    displayName: 'Дроп Дропенко',
+    paymentMethod: 'USDT_ERC20' as const,
+    walletUsdtErc20: '0xAbCd1234567890aBcDeF1234567890AbCdEf1234',
+    hrIds: [validUuid],
+  }
+
+  it('passes when accountantId is omitted', () => {
+    expect(createDropSchema.safeParse(dropBase).success).toBe(true)
+  })
+
+  it('passes when accountantId is null', () => {
+    expect(createDropSchema.safeParse({ ...dropBase, accountantId: null }).success).toBe(true)
+  })
+
+  it('passes when a valid accountantId UUID is supplied', () => {
+    expect(createDropSchema.safeParse({ ...dropBase, accountantId: validUuid }).success).toBe(true)
+  })
+
+  it('still requires at least one HR (empty hrIds fails on the hrIds path)', () => {
+    const result = createDropSchema.safeParse({ ...dropBase, hrIds: [] })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('hrIds')
+    }
+  })
+
+  it('rejects a non-UUID accountantId when supplied', () => {
+    const result = createDropSchema.safeParse({ ...dropBase, accountantId: 'not-a-uuid' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('accountantId')
     }
   })
 })

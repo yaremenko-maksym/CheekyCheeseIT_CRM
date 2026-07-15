@@ -1646,7 +1646,7 @@ export class UsersService {
       bankUahRnokpp?: string | null
       bankUahBankName?: string | null
       hrIds: string[]
-      accountantId: string
+      accountantId?: string | null
       telegramChannel?: string | null
     },
     actor: SessionUser,
@@ -1706,7 +1706,7 @@ export class UsersService {
       const team = await this.teamsService.createDropTeam(
         created.id,
         data.hrIds,
-        data.accountantId,
+        data.accountantId ?? null,
         data.telegramChannel ?? null,
         tx,
       )

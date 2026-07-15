@@ -230,10 +230,12 @@ export const createUserSchema = z
 
 /**
  * Create-drop payload. Mirrors `createUserSchema` for SENIOR but adds the
- * `dropSharePercent` (default 5) and locks the role to DROP. The team
- * section (`hrIds` + `accountantId` + `telegramChannel`) is mandatory —
- * drops are always paired with their drop-team at creation time
- * (spec §5.1). HR is required (≥1) per owner decision.
+ * `dropSharePercent` (default 5) and locks the role to DROP. The drop is
+ * always paired with its drop-team at creation time (spec §5.1). HR is
+ * required (≥1) per owner decision; `accountantId` is OPTIONAL (nullable) —
+ * an accountant may not exist yet (e.g. 0 accountants in the workspace) and
+ * a drop-team is a valid state without one, identical to `createTeamSchema`.
+ * `telegramChannel` is optional.
  */
 export const createDropSchema = z
   .object({
@@ -255,7 +257,7 @@ export const createDropSchema = z
     bankUahBankName: z.string().nullable().optional(),
     // Team section — identical shape to senior-team creation.
     hrIds: z.array(z.string().uuid()).min(1, 'HR обязателен (минимум 1)'),
-    accountantId: z.string().uuid(),
+    accountantId: z.string().uuid().nullable().optional(),
     /**
      * Telegram channel of the drop-team (`teams.telegram_channel`).
      * Identical regex to user-level telegram for consistency.

@@ -561,23 +561,15 @@ export function UserDialog(props: UserDialogProps) {
 
       if (isCreate && isDrop) {
         // DROP creation hits the dedicated endpoint which atomically
-        // provisions both the user and the drop-team. HR + accountant
-        // pickers are mandatory (same UI contract as senior CREATE_NEW).
-        //
-        // Drop role - phase 1 fix (AC6/AC7): inline error under the HR
-        // multiselect AND a single «Заполните обязательные поля» toast.
-        // Previously submit failed silently — dialog stayed open without
-        // any feedback. We now both call out the broken field inline (so
-        // the user can see *which* field) and surface a compact toast (so
-        // they're aware submit didn't go through if their eyes are off
-        // the form).
+        // provisions both the user and the drop-team. HR is mandatory (≥1);
+        // the accountant picker is OPTIONAL (a workspace may have 0
+        // accountants — a drop-team is valid without one, same as a senior
+        // team). We surface an inline error under the HR multiselect AND a
+        // field-specific toast so the user sees *which* field blocked submit
+        // even if their eyes are off the form.
         if (hrIds.length === 0) {
           setHrError('Выберите минимум одного HR')
-          toast.error('Заполните обязательные поля')
-          return
-        }
-        if (!accountantId) {
-          toast.error('Заполните обязательные поля')
+          toast.error('Выберите минимум одного HR')
           return
         }
         const trimmedChannel = value.teamTelegramChannelDrop.trim()
@@ -610,7 +602,7 @@ export function UserDialog(props: UserDialogProps) {
             }),
           }),
           hrIds,
-          accountantId,
+          accountantId: accountantId || null,
           telegramChannel: normalizedChannel,
         }
         const result = createDropSchema.safeParse(payload)
@@ -679,12 +671,13 @@ export function UserDialog(props: UserDialogProps) {
         const isJoinDropTeam = isSenior && value.teamMode === 'JOIN_DROP_TEAM'
         if (isSenior && !isJoinDropTeam && hrIds.length === 0) {
           // Same inline + toast pair as the DROP branch — see comment above.
+          // Toast names the field so the user knows what blocked submit.
           setHrError('Выберите минимум одного HR')
-          toast.error('Заполните обязательные поля')
+          toast.error('Выберите минимум одного HR')
           return
         }
         if (isJoinDropTeam && !value.dropTeamId) {
-          toast.error('Заполните обязательные поля')
+          toast.error('Выберите команду дропа')
           return
         }
 
@@ -1186,7 +1179,7 @@ export function UserDialog(props: UserDialogProps) {
                               hint="Используется в MSA-контракте вместо display name. Формат: Фамилия Имя Отчество."
                             >
                               <Input
-                                placeholder="Іваненко Іван Іванович"
+                                placeholder="Иваненко Иван Иванович"
                                 value={field.state.value}
                                 onChange={(e) => field.handleChange(e.target.value)}
                                 onBlur={field.handleBlur}
@@ -1202,15 +1195,15 @@ export function UserDialog(props: UserDialogProps) {
                         }}
                       </form.Field>
 
-                      {/* ── Адреса реєстрації (ФОП) ──────────────────────── */}
+                      {/* ── Адрес регистрации (ФОП) ──────────────────────── */}
                       <form.Field name="registrationAddress">
                         {(field) => (
                           <Field
-                            label="Адреса реєстрації (ФОП)"
-                            hint="Використовується в контракті як {{registrationAddress}}"
+                            label="Адрес регистрации (ФОП)"
+                            hint="Используется в контракте как {{registrationAddress}}"
                           >
                             <Input
-                              placeholder="м. Київ, вул. Хрещатик, 1"
+                              placeholder="г. Киев, ул. Крещатик, 1"
                               value={field.state.value}
                               onChange={(e) => field.handleChange(e.target.value)}
                               onBlur={field.handleBlur}
