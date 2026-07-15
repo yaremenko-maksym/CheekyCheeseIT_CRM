@@ -39,11 +39,14 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
   // created DROP row. Guard tests (403/400/409) short-circuit before the
   // transaction, so this is only exercised by the happy-path cases.
   const createdUser = { id: 'drop-new', displayName: 'New Drop', role: 'DROP' }
+  // `insertValues` spy — captures the object passed to `tx.insert(users).values()`
+  // so tests can assert what actually gets persisted (contract fields, etc.).
+  const insertValuesSpy = vi.fn().mockReturnValue({
+    returning: vi.fn().mockResolvedValue([createdUser]),
+  })
   const txHandle = {
     insert: vi.fn().mockReturnValue({
-      values: vi.fn().mockReturnValue({
-        returning: vi.fn().mockResolvedValue([createdUser]),
-      }),
+      values: insertValuesSpy,
     }),
   }
   const db = {
@@ -74,7 +77,7 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
     makeAuditLogService(),
     teamsService,
   )
-  return { service, createDropTeam, insertMock: txHandle.insert }
+  return { service, createDropTeam, insertMock: txHandle.insert, insertValuesSpy }
 }
 
 // ---------------------------------------------------------------------------
@@ -232,6 +235,77 @@ describe('UsersService.createDrop — validation/RBAC', () => {
       .values
     const insertedValues = valuesMock.mock.calls[0]?.[0] as { avatarUrl: unknown }
     expect(insertedValues.avatarUrl).toBe('https://example.com/drop.png')
+  })
+
+  // Bug-fix (manual-QA on #387): legalFullName / registrationAddress typed in
+  // the «Данные для контракта» section were never persisted for DROP →
+  // legal_full_name=null → the MSA contract rendered with the display name.
+  // Owner decision: keep the data (drop needs a contract) + keep ФИО required.
+  it('persists legalFullName + registrationAddress into the inserted user row', async () => {
+    const { service, insertValuesSpy } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+        legalFullName: 'Дропенко Дроп Дропович',
+        registrationAddress: 'м. Київ, вул. Хрещатик, 1',
+      },
+      adminUser,
+    )
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        role: 'DROP',
+        legalFullName: 'Дропенко Дроп Дропович',
+        registrationAddress: 'м. Київ, вул. Хрещатик, 1',
+      }),
+    )
+  })
+
+  it('trims legalFullName / registrationAddress before persisting', async () => {
+    const { service, insertValuesSpy } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+        legalFullName: '  Дропенко Дроп Дропович  ',
+        registrationAddress: '  м. Київ, вул. Хрещатик, 1  ',
+      },
+      adminUser,
+    )
+    expect(insertValuesSpy).toHaveBeenCalledWith(
+      expect.objectContaining({
+        legalFullName: 'Дропенко Дроп Дропович',
+        registrationAddress: 'м. Київ, вул. Хрещатик, 1',
+      }),
+    )
+  })
+
+  it('omits registrationAddress when not supplied (optional field)', async () => {
+    const { service, insertValuesSpy } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+        legalFullName: 'Дропенко Дроп Дропович',
+        // registrationAddress omitted — a workspace may not have it.
+      },
+      adminUser,
+    )
+    const insertedRow = insertValuesSpy.mock.calls[0]?.[0] as Record<string, unknown>
+    expect(insertedRow.legalFullName).toBe('Дропенко Дроп Дропович')
+    expect(insertedRow).not.toHaveProperty('registrationAddress')
   })
 })
 
