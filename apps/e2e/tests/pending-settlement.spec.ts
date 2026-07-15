@@ -7,16 +7,25 @@
  *   GET  /api/pending-settlements/senior   — senior sees own; admin/accountant sees all.
  *   GET  /api/pending-settlements/company  — admin / accountant only.
  *   POST /api/pending-settlements/:id/settle-company
- *                                         — closes the COMPANY debt, inserts SENIOR_INCOME.
+ *                                         — closes the COMPANY debt IN PLACE.
  *   POST /api/pending-settlements/by-source-transaction/:sourceTransactionId/settle-company
  *                                         — same cascade, resolved via SENIOR_PENDING_PAYOUT tx.
  *
- * Real-API. Backend must be running at http://localhost:3001.
+ * Real-API. Backend must be running at http://localhost:3001 (override via
+ * E2E_REAL_API_BASE for an isolated scratch stand — mirrors fixtures.ts).
  *
  * Reworked (PR #262 + #265): plantCompanyDebt now uses the new DROP-income cascade
  * (createDropIncome → validate → createPayoutRequest → pay) instead of the
  * deleted confirm-cash endpoint. Settle body updated to include fundingSource +
  * payerAdminId + currency as required by settleSeniorPayoutSchema.
+ *
+ * task-settle-in-place (ADR 2026-07-14, PR #379): `settleByCompany` no longer
+ * INSERTS a second SENIOR_INCOME/PAYOUT_DROP row — it UPDATEs the SOURCE IOU
+ * row (`*_PENDING_PAYOUT`) in place: same id, flipped type + status=PAID. The
+ * settle assertions below were reworked from "a NEW matching row appeared" to
+ * "the SAME row (by id) flipped, and the project's transaction COUNT did not
+ * grow" — the previous insert-based assertions only checked amount/type, which
+ * would still pass even if the fix regressed back to a phantom second row.
  *
  * /company response shape (from DTO):
  *   { obligationId, sourceTransactionId, debtorType, seniorId, amount, currency, ... }
@@ -41,7 +50,13 @@ import {
   onboardDropViaAPI,
 } from './fixtures'
 
-const REAL_API = 'http://localhost:3001/api'
+// task-settle-in-place-e2e: was hardcoded to localhost:3001 — broke any
+// isolated scratch stand (own DB + own ports, per lessons memory
+// project_e2e_flaky_and_automerge / session_ops_lessons_2026_07_14). Mirrors
+// the same env override fixtures.ts already uses for every typed helper in
+// this file (loginViaApi, listTransactionsByProjectViaAPI, ...) so the WHOLE
+// spec — not just the typed-helper calls — is portable to a throwaway API.
+const REAL_API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
@@ -206,7 +221,7 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
     }
   })
 
-  test('ADMIN settles COMPANY debt → SENIOR_INCOME inserted + obligation drops from /company', async ({
+  test('ADMIN settles COMPANY debt → SOURCE row flips in place (no second transaction) + obligation drops from /company', async ({
     page,
   }) => {
     const { dropId, projectId, seniorId } = await plantCompanyDebt(page)
@@ -221,6 +236,10 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       const obligationAmount = parseFloat(row!.amount)
       const obligationId = row!.obligationId
       const sourceTransactionId = row!.sourceTransactionId
+
+      // task-settle-in-place: capture the project's transaction COUNT before
+      // settling — the in-place flip must NOT change it (no second row).
+      const txsBefore = await listTransactionsByProjectViaAPI(page, projectId)
 
       // task-receipts-backend (review round 1, MED-1): the legacy 2-segment
       // `POST /pending-settlements/:id/settle-company` (obligation-id) route was
@@ -244,25 +263,34 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
         },
       )
       expect(settleRes.status()).toBeLessThan(400)
+      const settleBody = (await settleRes.json()) as { created: Array<{ id: string }> }
+      // task-settle-in-place: the settle response's `created` row REUSES the
+      // source transaction id — proof the backend flipped the row in place
+      // instead of allocating a new one.
+      expect(settleBody.created).toHaveLength(1)
+      expect(settleBody.created[0]!.id).toBe(sourceTransactionId)
 
       // /company no longer contains our row.
       const afterRes = await page.request.get(`${REAL_API}/pending-settlements/company`)
       const afterList = (await afterRes.json()) as CompanyObligationDto[]
       expect(afterList.find((o) => o.obligationId === obligationId)).toBeFalsy()
 
-      // SENIOR_INCOME row was inserted on the project.
-      const txs = await listTransactionsByProjectViaAPI(page, projectId)
-      const seniorIncomes = txs.filter(
-        (t) => t.type === 'SENIOR_INCOME' && t.status === 'PAID' && t.receiverId === seniorId,
+      // task-settle-in-place: NO second transaction — the project's row COUNT
+      // is unchanged, and the SOURCE row (same id) is now the PAID SENIOR_INCOME.
+      const txsAfter = await listTransactionsByProjectViaAPI(page, projectId)
+      expect(txsAfter.length, 'settling in place must NOT create a second transaction row').toBe(
+        txsBefore.length,
       )
-      expect(seniorIncomes.length).toBeGreaterThanOrEqual(1)
-      const settled = seniorIncomes.find(
-        (t) => Math.abs(parseFloat(t.amount) - obligationAmount) < 0.01,
-      )
+      const settled = txsAfter.find((t) => t.id === sourceTransactionId)
+      expect(settled, 'the SOURCE IOU row must still exist under the SAME id').toBeTruthy()
+      expect(settled!.type).toBe('SENIOR_INCOME')
+      expect(settled!.status).toBe('PAID')
+      expect(settled!.receiverId).toBe(seniorId)
+      expect(Math.abs(parseFloat(settled!.amount) - obligationAmount)).toBeLessThan(0.01)
+      // No lingering «Ожидает выплаты» phantom for this source id.
       expect(
-        settled,
-        `expected a SENIOR_INCOME row at ${obligationAmount} after settle-company`,
-      ).toBeTruthy()
+        txsAfter.some((t) => t.id === sourceTransactionId && t.type === 'SENIOR_PENDING_PAYOUT'),
+      ).toBe(false)
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)
@@ -273,14 +301,15 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
   // senior directly from the SENIOR_PENDING_PAYOUT row, which knows the SOURCE
   // transaction id (not the obligation id). The new endpoint resolves the linked
   // obligation and runs the SAME settleByCompany cascade.
-  test('ADMIN settles by SOURCE transaction id → SENIOR_INCOME inserted; idempotent; SENIOR 403', async ({
+  test('ADMIN settles by SOURCE transaction id → SAME row flips in place; idempotent; SENIOR 403', async ({
     page,
   }) => {
     const { dropId, projectId, seniorId } = await plantCompanyDebt(page)
 
     try {
       // Find the SENIOR_PENDING_PAYOUT row (the source tx the finance-page row
-      // carries) for our senior on this project.
+      // carries) for our senior on this project. `txs` also doubles as the
+      // BEFORE snapshot for the task-settle-in-place count-stability check below.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
       const pendingRow = txs.find(
@@ -323,6 +352,11 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
         },
       )
       expect(settleRes.status()).toBeLessThan(400)
+      const settleBody = (await settleRes.json()) as { created: Array<{ id: string }> }
+      // task-settle-in-place: the settle response reuses the SOURCE transaction
+      // id — no second row was allocated.
+      expect(settleBody.created).toHaveLength(1)
+      expect(settleBody.created[0]!.id).toBe(sourceTxId)
 
       // The specific obligation (identified by sourceTransactionId) is gone from /company.
       // Note: seniorId alone is too broad — other tests may have left obligations
@@ -331,16 +365,18 @@ test.describe('Pending settlement — debtor=COMPANY (Phase 4-C)', () => {
       const afterList = (await afterRes.json()) as CompanyObligationDto[]
       expect(afterList.find((o) => o.sourceTransactionId === sourceTxId)).toBeFalsy()
 
-      // A matching PAID SENIOR_INCOME was inserted for the senior.
+      // task-settle-in-place: the project's transaction COUNT is unchanged
+      // (the SAME row flipped — no second SENIOR_INCOME was inserted).
       const txsAfter = await listTransactionsByProjectViaAPI(page, projectId)
-      const settled = txsAfter.find(
-        (t) =>
-          t.type === 'SENIOR_INCOME' &&
-          t.status === 'PAID' &&
-          t.receiverId === seniorId &&
-          Math.abs(parseFloat(t.amount) - obligationAmount) < 0.01,
+      expect(txsAfter.length, 'settling in place must NOT create a second transaction row').toBe(
+        txs.length,
       )
-      expect(settled, `expected a SENIOR_INCOME row at ${obligationAmount}`).toBeTruthy()
+      const settled = txsAfter.find((t) => t.id === sourceTxId)
+      expect(settled, 'the SOURCE IOU row must still exist under the SAME id').toBeTruthy()
+      expect(settled!.type).toBe('SENIOR_INCOME')
+      expect(settled!.status).toBe('PAID')
+      expect(settled!.receiverId).toBe(seniorId)
+      expect(Math.abs(parseFloat(settled!.amount) - obligationAmount)).toBeLessThan(0.01)
 
       // Idempotent: a second settle of the SAME source tx pays nothing more
       // (no open obligation left → 4xx, never a second SENIOR_INCOME). Keep a

@@ -2,7 +2,7 @@
  * drop-share-usdt-income.spec.ts — task-drop-share-e2e (Flow 1, AC1).
  *
  * ADR `docs/architecture/2026-07-13-payment-type-income-routing.md` (D0/D3/D4/D5).
- * Real-API + real-UI coverage of the NEW admin-USDT income declaration flow:
+ * Real-API + real-UI coverage of the admin-USDT income declaration flow:
  *
  *   1. ADMIN opens the finance «Новая транзакция» dialog, picks the new
  *      «USDT-приход» type, selects a USDT-payment drop-project, picks a
@@ -11,26 +11,30 @@
  *      obligations: SENIOR_PENDING_PAYOUT (company owes the project's
  *      senior) and DROP_PENDING_PAYOUT (company owes the bound drop) —
  *      both visible on /finance.
- *   3. ADMIN/ACCOUNTANT settles the senior obligation via the EXISTING
- *      «Выплатить» UI action (SettleSeniorPayoutDialog) → SENIOR_INCOME
- *      appears, obligation row disappears.
+ *   3. ADMIN/ACCOUNTANT settles EACH obligation via the «Выплатить» UI
+ *      action (SettleSeniorPayoutDialog — reused verbatim for both row
+ *      types since `settle-drop-btn`, a fix that landed on `main` before
+ *      this PR: the earlier `task-drop-share-e2e` gap where a
+ *      DROP_PENDING_PAYOUT row had no settle button is CLOSED).
  *
- * NOTE (documented gap — see task-drop-share-e2e report to PM): at the time
- * of writing, `TransactionRow.tsx` only wires the «Выплатить» action for
- * `SENIOR_PENDING_PAYOUT` rows (`task-senior-settle-in-tx-row` scope) — a
- * `DROP_PENDING_PAYOUT` row renders (label «Ожидаемая выплата дропу») but has
- * NO settle button, even though the backend's `settleByCompany` generic
- * endpoint (ADR D5) already routes a DROP_PENDING_PAYOUT source-transaction
- * to the new `PAYOUT_DROP` branch identically to the senior one. This spec
- * settles the drop leg directly via that endpoint
- * (`settleObligationBySourceTransactionViaAPI`) and asserts the backend
- * outcome (drop balance moves) — it is NOT a stand-in for a UI test, it
- * documents a real product gap pending a frontend follow-up.
+ * task-settle-in-place (ADR 2026-07-14, PR #379): settling used to INSERT a
+ * second transaction (SENIOR_INCOME / PAYOUT_DROP), leaving the original
+ * `*_PENDING_PAYOUT` row as a permanent «Ожидает выплаты» phantom with a
+ * live «Выплатить» button. The fix flips the SOURCE row in place — same id,
+ * final type + status=PAID — so there is exactly ONE row per obligation
+ * before and after settle. The happy-path test below settles BOTH legs
+ * (senior + drop) through the real UI dialog and proves the in-place
+ * contract three ways per leg: (a) the settled row keeps the SOURCE id,
+ * (b) the project's transaction COUNT does not grow, (c) the «Выплатить»
+ * button is gone from the (now PAID) row — a repeat settle is impossible
+ * through the UI. The «Счёт компании» test below additionally proves the
+ * company-account balance debits by exactly the settled amounts.
  *
  * Per the purpose statement (feedback_mocked_e2e_guards lesson): RBAC 403 +
  * money invariants are already covered by backend integration tests
- * (task-drop-share-backend AC9-AC16 — real-DB, not mocked). This spec proves
- * the USER PATH through the real UI, not the endpoint contract in isolation.
+ * (task-drop-share-backend AC9-AC16, task-settle-in-place — real-DB, not
+ * mocked). This spec proves the USER PATH through the real UI, not the
+ * endpoint contract in isolation.
  */
 
 import { test, expect } from './fixtures'
@@ -103,7 +107,7 @@ async function provisionUsdtDropProject(page: import('@playwright/test').Page): 
 }
 
 test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () => {
-  test('ADMIN declares USDT income via UI (receiver = ADMIN partner) → both obligations booked → senior settle via UI → drop settle moves drop balance', async ({
+  test('ADMIN declares USDT income via UI (receiver = ADMIN partner) → both obligations booked → senior + drop settle via UI flip the SAME row in place (no second transaction, no repeat settle)', async ({
     page,
   }) => {
     const { dropId, dropEmail, projectId, projectName, seniorId } =
@@ -168,6 +172,10 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       expect(dropPending!.receiverId).toBe(dropId)
       expect(parseFloat(seniorPending!.amount)).toBeCloseTo(200, 2) // 1000 × 20%
       expect(parseFloat(dropPending!.amount)).toBeCloseTo(100, 2) // 1000 × 10%
+      // task-settle-in-place: snapshot the project's row COUNT before any
+      // settle — both settles below must leave it unchanged (in-place flip,
+      // no second transaction per leg).
+      const txCountBeforeSettle = txsAfterDeclare.length
 
       // ── Obligations are visible in the finance table (UI) ───────────────
       await page.goto('/finance')
@@ -198,32 +206,93 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       await expect(settleDialog).not.toBeVisible()
       await expect(page.getByText('Выплата синьору проведена')).toBeVisible({ timeout: 10_000 })
 
-      // The IOU (SENIOR_PENDING_PAYOUT) transaction row itself is a historical
-      // marker and keeps its original PENDING_PAYMENT status forever — the
-      // closed/open state lives on the linked `pending_obligations` row, not
-      // here (verified against a real DB read during spec authoring). The
-      // authoritative proof of settlement is the new SENIOR_INCOME row below.
+      // task-settle-in-place (PR #379): the settle FLIPS the SOURCE
+      // SENIOR_PENDING_PAYOUT row in place — same id, no second row. Proven
+      // three ways: (a) the SAME row id now reads as a PAID SENIOR_INCOME,
+      // (b) the project's transaction COUNT did not grow, (c) no lingering
+      // SENIOR_PENDING_PAYOUT row remains.
       const txsAfterSeniorSettle = await listTransactionsByProjectViaAPI(page, projectId)
-      const seniorIncome = txsAfterSeniorSettle.find(
-        (t) => t.type === 'SENIOR_INCOME' && t.status === 'PAID' && t.receiverId === seniorId,
-      )
-      expect(seniorIncome, 'settling the IOU must create a PAID SENIOR_INCOME row').toBeTruthy()
+      expect(
+        txsAfterSeniorSettle.length,
+        'settling the senior leg in place must NOT create a second transaction row',
+      ).toBe(txCountBeforeSettle)
+      const seniorIncome = txsAfterSeniorSettle.find((t) => t.id === seniorPending!.id)
+      expect(seniorIncome, 'the SOURCE IOU row must still exist under the SAME id').toBeTruthy()
+      expect(seniorIncome!.type).toBe('SENIOR_INCOME')
+      expect(seniorIncome!.status).toBe('PAID')
       expect(parseFloat(seniorIncome!.amount)).toBeCloseTo(200, 2)
+      expect(
+        txsAfterSeniorSettle.some((t) => t.type === 'SENIOR_PENDING_PAYOUT'),
+        'no lingering «Ожидает выплаты» phantom for the senior leg',
+      ).toBe(false)
 
-      // ── Settle the DROP obligation via the generic settle endpoint ──────
-      // (documented UI gap — see header comment). Same funding as senior.
-      await settleObligationBySourceTransactionViaAPI(page, dropPending!.id, {
-        fundingSource: 'ADMIN_PERSONAL',
-        payerAdminId: KOSTYA_ID,
-        currency: 'USDT',
-      })
+      // The row (SAME testid, same id) now reads PAID and the «Выплатить»
+      // action is gone — a repeat settle is impossible through the UI.
+      await expect(seniorRow).toContainText('Оплачено')
+      await expect(
+        page.getByTestId(`tx-row-settle-senior-payout-${seniorPending!.id}`),
+      ).not.toBeAttached()
+
+      // ── Settle the DROP obligation via the SAME UI action ───────────────
+      // settle-drop-btn (already on `main` before this PR): TransactionRow
+      // renders «Выплатить» for DROP_PENDING_PAYOUT rows too — settle through
+      // the real UI (not just the API) to prove the in-place flip end-to-end
+      // for the drop leg exactly like the senior leg above.
+      const settleDropBtn = page.getByTestId(`tx-row-settle-senior-payout-${dropPending!.id}`)
+      await expect(settleDropBtn).toBeVisible()
+      await settleDropBtn.click()
+
+      const settleDropDialog = page.getByTestId('settle-senior-dialog')
+      await expect(settleDropDialog).toBeVisible()
+      await expect(settleDropDialog.getByText('Выплатить дропу')).toBeVisible()
+      await settleDropDialog.getByTestId(`settle-senior-account-admin-${KOSTYA_ID}`).click()
+      await settleDropDialog
+        .getByTestId('receipt-input-url-field')
+        .fill('https://etherscan.io/tx/0xsettledrop123')
+      await settleDropDialog.getByTestId('settle-senior-submit').click()
+      await expect(settleDropDialog).not.toBeVisible()
+      await expect(page.getByText('Выплата дропу проведена')).toBeVisible({ timeout: 10_000 })
 
       const txsAfterDropSettle = await listTransactionsByProjectViaAPI(page, projectId)
-      const payoutDrop = txsAfterDropSettle.find(
-        (t) => t.type === 'PAYOUT_DROP' && t.status === 'PAID' && t.receiverId === dropId,
-      )
-      expect(payoutDrop, 'settling the drop IOU must create a PAID PAYOUT_DROP row').toBeTruthy()
+      expect(
+        txsAfterDropSettle.length,
+        'settling the drop leg in place must NOT create a second transaction row either',
+      ).toBe(txCountBeforeSettle)
+      const payoutDrop = txsAfterDropSettle.find((t) => t.id === dropPending!.id)
+      expect(payoutDrop, 'the SOURCE drop IOU row must still exist under the SAME id').toBeTruthy()
+      expect(payoutDrop!.type).toBe('PAYOUT_DROP')
+      expect(payoutDrop!.status).toBe('PAID')
       expect(parseFloat(payoutDrop!.amount)).toBeCloseTo(100, 2)
+      expect(
+        txsAfterDropSettle.some((t) => t.type === 'DROP_PENDING_PAYOUT'),
+        'no lingering «Ожидает выплаты» phantom for the drop leg',
+      ).toBe(false)
+
+      await expect(dropRow).toContainText('Оплачено')
+      await expect(
+        page.getByTestId(`tx-row-settle-senior-payout-${dropPending!.id}`),
+      ).not.toBeAttached()
+
+      // ── Repeat settle is impossible (idempotency, direct-API defense) ───
+      // The UI button is already gone for both rows (asserted above); confirm
+      // the backend also rejects a second settle call on either flipped
+      // source row (the reused helper throws on a non-2xx response).
+      await expect(
+        settleObligationBySourceTransactionViaAPI(page, seniorPending!.id, {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: KOSTYA_ID,
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xsettleretry0001',
+        }),
+      ).rejects.toThrow()
+      await expect(
+        settleObligationBySourceTransactionViaAPI(page, dropPending!.id, {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: KOSTYA_ID,
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xsettleretry0002',
+        }),
+      ).rejects.toThrow()
 
       // The drop's own aggregate balance moved by exactly the settled amount.
       await loginViaApi(page, dropEmail)
@@ -235,10 +304,11 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
     }
   })
 
-  test('ADMIN declares USDT income via UI (receiver = «Счёт компании») → gross credits the shared pool', async ({
+  test('ADMIN declares USDT income via UI (receiver = «Счёт компании») → gross credits the shared pool; settling BOTH obligations from the company account debits it in place', async ({
     page,
   }) => {
-    const { dropId, projectId, projectName } = await provisionUsdtDropProject(page)
+    const { dropId, dropEmail, projectId, projectName, seniorId } =
+      await provisionUsdtDropProject(page)
 
     try {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
@@ -281,8 +351,71 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       // Obligations still booked identically (receiver choice doesn't affect
       // the obligation math — only where the gross lands).
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
-      expect(txs.find((t) => t.type === 'SENIOR_PENDING_PAYOUT')).toBeTruthy()
-      expect(txs.find((t) => t.type === 'DROP_PENDING_PAYOUT')).toBeTruthy()
+      const seniorPending = txs.find((t) => t.type === 'SENIOR_PENDING_PAYOUT')
+      const dropPending = txs.find((t) => t.type === 'DROP_PENDING_PAYOUT')
+      expect(seniorPending).toBeTruthy()
+      expect(dropPending).toBeTruthy()
+      expect(seniorPending!.receiverId).toBe(seniorId)
+      expect(dropPending!.receiverId).toBe(dropId)
+      const txCountBeforeSettle = txs.length
+
+      // ── task-settle-in-place: settle BOTH obligations from the shared
+      // COMPANY_ACCOUNT (the dialog's default funding choice — no account
+      // click needed) and prove the debit is exact. The +$1000 gross just
+      // credited above comfortably covers the $200 senior + $100 drop legs.
+      await page.goto('/finance')
+      const settleSeniorBtn = page.getByTestId(`tx-row-settle-senior-payout-${seniorPending!.id}`)
+      await expect(settleSeniorBtn).toBeVisible()
+      await settleSeniorBtn.click()
+      const settleSeniorDialog = page.getByTestId('settle-senior-dialog')
+      await expect(settleSeniorDialog).toBeVisible()
+      // Default account is already «Счёт компании» — just supply the
+      // mandatory receipt and submit.
+      await settleSeniorDialog
+        .getByTestId('receipt-input-url-field')
+        .fill('https://etherscan.io/tx/0xcompanysettlesr1')
+      await settleSeniorDialog.getByTestId('settle-senior-submit').click()
+      await expect(settleSeniorDialog).not.toBeVisible()
+      await expect(page.getByText('Выплата синьору проведена')).toBeVisible({ timeout: 10_000 })
+
+      const balanceAfterSeniorSettle = await getCompanyAccountBalanceViaAPI(page)
+      expect(balanceAfterSeniorSettle).toBeCloseTo(balanceAfter - 200, 2)
+
+      const settleDropBtn = page.getByTestId(`tx-row-settle-senior-payout-${dropPending!.id}`)
+      await expect(settleDropBtn).toBeVisible()
+      await settleDropBtn.click()
+      const settleDropDialog = page.getByTestId('settle-senior-dialog')
+      await expect(settleDropDialog).toBeVisible()
+      await settleDropDialog
+        .getByTestId('receipt-input-url-field')
+        .fill('https://etherscan.io/tx/0xcompanysettledrop1')
+      await settleDropDialog.getByTestId('settle-senior-submit').click()
+      await expect(settleDropDialog).not.toBeVisible()
+      await expect(page.getByText('Выплата дропу проведена')).toBeVisible({ timeout: 10_000 })
+
+      // Company account debited by BOTH legs, in total by exactly $300 —
+      // fundingSource=COMPANY_ACCOUNT is stamped on both flipped rows.
+      const balanceAfterBothSettles = await getCompanyAccountBalanceViaAPI(page)
+      expect(balanceAfterBothSettles).toBeCloseTo(balanceAfter - 300, 2)
+
+      // In-place proof: still exactly the same 3 rows for this project (no
+      // second transaction per leg), both flipped rows keep their SOURCE id.
+      const txsAfterSettles = await listTransactionsByProjectViaAPI(page, projectId)
+      expect(
+        txsAfterSettles.length,
+        'settling both legs in place must NOT grow the project transaction count',
+      ).toBe(txCountBeforeSettle)
+      const seniorIncome = txsAfterSettles.find((t) => t.id === seniorPending!.id)
+      const payoutDrop = txsAfterSettles.find((t) => t.id === dropPending!.id)
+      expect(seniorIncome!.type).toBe('SENIOR_INCOME')
+      expect(seniorIncome!.status).toBe('PAID')
+      expect(payoutDrop!.type).toBe('PAYOUT_DROP')
+      expect(payoutDrop!.status).toBe('PAID')
+
+      // The drop's own aggregate balance moved by exactly the settled amount.
+      await loginViaApi(page, dropEmail)
+      const dropBalanceAfter = await getDropSelfSummaryViaAPI(page)
+      expect(dropBalanceAfter.balance).toBeCloseTo(100, 2)
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)

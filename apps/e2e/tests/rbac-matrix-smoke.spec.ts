@@ -53,7 +53,10 @@ import {
   onboardDropViaAPI,
 } from './fixtures'
 
-const REAL_API = 'http://localhost:3001/api'
+// task-settle-in-place-e2e: env-aware (was hardcoded to localhost:3001) —
+// mirrors fixtures.ts / pending-settlement.spec.ts so this file is portable
+// to an isolated scratch stand.
+const REAL_API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
