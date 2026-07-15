@@ -219,7 +219,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
@@ -232,6 +232,8 @@ jobs:
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql
           # apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql
+          # apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql
           # The deploy step reads from those full paths via /opt/crm.
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
@@ -430,6 +432,32 @@ jobs:
               exec -T postgres \
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               <<< "SELECT indexname FROM pg_indexes WHERE tablename='transactions' AND indexname='uq_transactions_admin_income_idempotency_key';"
+
+            # ── Step 2d: transaction_audit_log table (idempotent) ────────────────────────────
+            # task-receipts-backend (PR #374): the generic PATCH /api/transactions/:id/receipt
+            # attach/replace endpoint records every receipt mutation (ATTACH | REPLACE) into a
+            # new audit table. Mirrors the existing *_audit_log tables (user/team/project) but
+            # target_id has NO FK (audit must outlive the transaction it describes) and carries
+            # a jsonb metadata column instead of changes.
+            # Source: apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql
+            # Idempotent: CREATE TABLE / INDEX IF NOT EXISTS — safe to re-run on repeated deploys.
+            TRANSACTION_AUDIT_LOG_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql"
+
+            if [ ! -f "$TRANSACTION_AUDIT_LOG_FILE" ]; then
+              echo "ERROR: DDL file not found at $TRANSACTION_AUDIT_LOG_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying transaction_audit_log DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$TRANSACTION_AUDIT_LOG_FILE"
+            echo "==> transaction_audit_log DDL applied successfully"
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
