@@ -15,7 +15,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { financeApi } from '../../api'
 import { fmtAmount, fmtDate } from '../../constants'
-import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
+import { FundingSourceFields, COMPANY_ACCOUNT_VALUE } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
 // Local copy of the finance-page error extractor (same shape used in
@@ -37,17 +37,26 @@ function extractErrorMessage(err: unknown): string {
  * task-senior-settle-owner: pay a senior IOU (SENIOR_PENDING_PAYOUT row) using
  * the SAME funding selection as a SALARY. ADMIN/ACCOUNTANT opens this from the
  * row «Выплатить» button and chooses which account funds the payout (the shared
- * company account vs an admin partner's personal account) + the currency.
+ * company account vs an admin partner's personal account).
  *
- *   - «Счёт компании» (default) → COMPANY_ACCOUNT, currency forced USDT. The
- *     backend debits the company account (advisory lock + balance gate) and the
- *     closing SENIOR_INCOME carries fundingSource=COMPANY_ACCOUNT.
- *   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner; any
- *     currency. The company account is NOT touched.
+ *   - «Счёт компании» (default) → COMPANY_ACCOUNT. The backend debits the
+ *     company account (advisory lock + balance gate) and the closing
+ *     SENIOR_INCOME carries fundingSource=COMPANY_ACCOUNT.
+ *   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner. The
+ *     company account is NOT touched.
  *
- * Mirrors PaySalaryDialog (shares FundingSourceFields). The settle body is just
- * the funding choice — the obligation/amount live server-side, resolved by the
- * source (SENIOR_PENDING_PAYOUT) transaction id.
+ * task-remove-settle-currency (2026-07): there is no currency choice — every
+ * senior/drop obligation is denominated in USDT (see transactions.service.ts
+ * createIous) and the label was purely cosmetic (USD/USDT are treated 1:1
+ * downstream). The backend now defaults the funding currency to the
+ * obligation's own currency when the payload omits one (see
+ * pending-settlement.service.ts), so this dialog simply never sends it.
+ *
+ * Mirrors PaySalaryDialog (shares FundingSourceFields, with `hideCurrency` —
+ * PaySalaryDialog still lets the caller pick a currency, that IS legitimate
+ * for a salary payout). The settle body is just the funding choice — the
+ * obligation/amount live server-side, resolved by the source
+ * (SENIOR_PENDING_PAYOUT) transaction id.
  *
  * settle-drop-btn: this dialog is REUSED as-is for DROP_PENDING_PAYOUT rows —
  * the backend settle-company cascade is generic (ADR D5, branches on the source
@@ -65,10 +74,9 @@ export function SettleSeniorPayoutDialog({
   const qc = useQueryClient()
   // account = COMPANY_ACCOUNT_VALUE (Счёт компании, default) OR an ADMIN partner id.
   const [account, setAccount] = useState<string>(COMPANY_ACCOUNT_VALUE)
-  const [currency, setCurrency] = useState<Currency>('USDT')
   // task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
-  // this dialog had NO receipt/hash field at all before; explorer-only when
-  // the effective currency is USDT (COMPANY_ACCOUNT always forces it).
+  // this dialog had NO receipt/hash field at all before; explorer-only since
+  // a settle obligation is always denominated in USDT (task-remove-settle-currency).
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [receiptError, setReceiptError] = useState<string | null>(null)
 
@@ -83,7 +91,6 @@ export function SettleSeniorPayoutDialog({
 
   function resetState() {
     setAccount(COMPANY_ACCOUNT_VALUE)
-    setCurrency('USDT')
     setReceipt(emptyReceiptState())
     setReceiptError(null)
   }
@@ -92,15 +99,16 @@ export function SettleSeniorPayoutDialog({
     mutationFn: () => {
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
       const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
-      // The funding source + currency are chosen HERE (mirrors PaySalaryDialog):
-      //   - «Счёт компании» → COMPANY_ACCOUNT, currency forced USDT (the account
-      //     is USDT-only; the backend re-forces it and gates the balance).
-      //   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner, the
-      //     chosen currency (any) is used; the company account is untouched.
+      // The funding source is chosen HERE (mirrors PaySalaryDialog):
+      //   - «Счёт компании» → COMPANY_ACCOUNT (the account is USDT-only; the
+      //     backend forces it and gates the balance).
+      //   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner; the
+      //     company account is untouched.
+      // task-remove-settle-currency: no `currency` field — the backend
+      // defaults it to the obligation's own currency (always USDT).
       return financeApi.settleSeniorPayoutFromTransaction(tx!.id, {
         fundingSource: isCompany ? 'COMPANY_ACCOUNT' : 'ADMIN_PERSONAL',
         ...(isCompany ? {} : { payerAdminId: account }),
-        currency: isCompany ? 'USDT' : currency,
         receiptDocumentId,
         receiptExternalUrl,
       })
@@ -128,21 +136,16 @@ export function SettleSeniorPayoutDialog({
     resetState()
   }
 
-  // Select the account: when switching to «Счёт компании» the currency is locked
-  // to USDT; switching to a partner restores an editable currency.
-  function selectAccount(value: string) {
-    setAccount(value)
-    if (value === COMPANY_ACCOUNT_VALUE) setCurrency('USDT')
-  }
-
   // task-receipts-frontend: client-side gate (mirrors PaySalaryDialog) —
   // blocks mutation.mutate() when the receipt is missing/invalid, delegating
   // the rule to the SAME shared function the backend refine uses.
+  // task-remove-settle-currency: the effective currency is always USDT — a
+  // settle obligation is never denominated in anything else (matches the
+  // backend default in pending-settlement.service.ts).
   function handleSubmit() {
-    const effectiveCurrency = isCompany ? 'USDT' : currency
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
-    const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, effectiveCurrency)
+    const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, 'USDT')
     if (err) {
       setReceiptError(err)
       return
@@ -191,23 +194,21 @@ export function SettleSeniorPayoutDialog({
             </div>
           </div>
 
-          {/* Shared funding-source picker — same UI as PaySalaryDialog, but the
-              currency options are narrowed to USDT/USD: the backend rejects
-              closing a USDT obligation in EUR/UAH without conversion (see
-              pending-settlement.service.ts). */}
+          {/* Shared funding-source picker — same UI as PaySalaryDialog, minus the
+              currency Select (task-remove-settle-currency: a settle obligation
+              is always USDT — see pending-settlement.service.ts). */}
           <FundingSourceFields
             account={account}
-            currency={currency}
-            onSelectAccount={selectAccount}
-            onSelectCurrency={setCurrency}
+            onSelectAccount={setAccount}
             enabled={!!tx}
             testIdPrefix="settle-senior"
-            allowedCurrencies={['USDT', 'USD']}
+            hideCurrency
           />
 
           {/* task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
-              this dialog had no receipt/hash field before. Explorer-only when the
-              effective currency is USDT (COMPANY_ACCOUNT always forces it). */}
+              this dialog had no receipt/hash field before. Always explorer-only —
+              a settle obligation is always denominated in USDT
+              (task-remove-settle-currency). */}
           <div className="space-y-1.5">
             <ReceiptInput
               state={receipt}
@@ -216,7 +217,7 @@ export function SettleSeniorPayoutDialog({
                 setReceiptError(null)
               }}
               label="Чек / подтверждение *"
-              explorerOnly={currency === 'USDT'}
+              explorerOnly
               error={receiptError ?? undefined}
             />
             {receiptError && (

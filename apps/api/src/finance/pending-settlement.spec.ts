@@ -892,6 +892,34 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
     expect(row['fundingSource']).toBeNull()
   })
 
+  // ── task-remove-settle-currency: `currency` omitted → defaults to the ────────
+  // obligation's own currency (always USDT). The settle dialog no longer sends
+  // this field at all — proves the DEFAULT path (as opposed to the tests above,
+  // which all pass an explicit currency through the still-supported safety net).
+  it('ADMIN_PERSONAL with NO currency in the payload → defaults to obligation.currency (USDT)', async () => {
+    const { svc, settledTx } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_2_ID,
+      receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+    })
+    const row = settledTx()!
+    expect(row['currency']).toBe('USDT')
+    expect(row['senderId']).toBe(ADMIN_PAYER_2_ID)
+    expect(row['fundingSource']).toBeNull()
+  })
+
+  it('COMPANY_ACCOUNT with NO currency in the payload → still USDT (forced regardless of default)', async () => {
+    const { svc, settledTx } = makeService()
+    await svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, {
+      fundingSource: 'COMPANY_ACCOUNT',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+    })
+    const row = settledTx()!
+    expect(row['currency']).toBe('USDT')
+    expect(row['fundingSource']).toBe('COMPANY_ACCOUNT')
+  })
+
   // ── idempotency under funding selection ─────────────────────────────────────
   it('repeated ADMIN_PERSONAL settle of one source tx pays the senior exactly once', async () => {
     const { svc, getInsertsFor, getFlips } = makeService()

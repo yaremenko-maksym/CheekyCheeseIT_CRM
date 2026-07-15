@@ -8,16 +8,16 @@
  * 3. Selecting a partner switches to ADMIN_PERSONAL → the company balance hint
  *    disappears (the company account is not touched).
  * 4. Submitting with «Счёт компании» calls settleSeniorPayoutFromTransaction with
- *    { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT' } (no payerAdminId).
+ *    { fundingSource: 'COMPANY_ACCOUNT' } (no payerAdminId, no currency).
  * 5. Submitting with a partner calls it with
- *    { fundingSource: 'ADMIN_PERSONAL', payerAdminId: <partner>, currency }.
- * 6. fix/usdt-receiver-flat-select: the currency Select is narrowed to
- *    USDT/USD only (EUR/UAH options are NOT rendered) — the backend rejects
- *    closing a USDT obligation in EUR/UAH without conversion. PaySalaryDialog
- *    is unaffected — it still offers all 4 currencies (own test file).
+ *    { fundingSource: 'ADMIN_PERSONAL', payerAdminId: <partner> } (no currency).
+ * 6. task-remove-settle-currency: the currency Select is NOT rendered at all —
+ *    a settle obligation is always denominated in USDT, so there is nothing to
+ *    pick (see pending-settlement.service.ts). PaySalaryDialog is unaffected —
+ *    it still offers a currency Select (own test file).
  * 7. task-receipts-frontend: the receipt is now MANDATORY (this dialog had NO
  *    receipt/hash field before) — submit is blocked without it; tests fill in
- *    an explorer URL first (currency stays USDT throughout, so ReceiptInput
+ *    an explorer URL first (settle is always effectively USDT, so ReceiptInput
  *    renders explorer-only — no tab-toggle to interact with).
  *
  * Strategy: keep the REAL `@tanstack/react-query` hooks (wrapped in a fresh
@@ -133,7 +133,7 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     expect(screen.queryByTestId('settle-senior-company-balance-hint')).not.toBeInTheDocument()
   })
 
-  it('submitting with «Счёт компании» → settle(COMPANY_ACCOUNT, USDT, no payerAdminId)', async () => {
+  it('submitting with «Счёт компании» → settle(COMPANY_ACCOUNT, no payerAdminId, no currency)', async () => {
     renderDialog()
     await fillReceipt()
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
@@ -141,7 +141,9 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     const [id, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('senior-pending-1')
     expect(payload.fundingSource).toBe('COMPANY_ACCOUNT')
-    expect(payload.currency).toBe('USDT')
+    // task-remove-settle-currency: the payload never carries a currency field —
+    // the backend defaults it to the obligation's own currency (USDT).
+    expect(payload.currency).toBeUndefined()
     expect(payload.payerAdminId).toBeUndefined()
     expect(payload.receiptExternalUrl).toBe('https://etherscan.io/tx/0xabc123')
   })
@@ -154,7 +156,7 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     expect(screen.getByTestId('settle-senior-error-receipt')).toBeInTheDocument()
   })
 
-  it('submitting with a partner → settle(ADMIN_PERSONAL, payerAdminId set)', async () => {
+  it('submitting with a partner → settle(ADMIN_PERSONAL, payerAdminId set, no currency)', async () => {
     renderDialog()
     fireEvent.click(await screen.findByTestId('settle-senior-account-admin-kostya-id'))
     await fillReceipt()
@@ -163,18 +165,19 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
     expect(payload.payerAdminId).toBe('kostya-id')
+    expect(payload.currency).toBeUndefined()
   })
 
-  it('currency Select offers only USDT/USD — no EUR/UAH (backend contract)', async () => {
+  // task-remove-settle-currency: the currency Select is gone entirely — a
+  // settle obligation is always denominated in USDT, so there is nothing to
+  // pick. Checked both for «Счёт компании» (default) and for an ADMIN partner
+  // (previously the only branch where the Select was enabled/interactable).
+  it('does not render a currency Select at all', async () => {
     renderDialog()
-    // Switch to a partner so the currency Select is enabled/interactable, then
-    // open the dropdown (Radix only mounts SelectContent while open).
+    await screen.findByTestId('settle-senior-account-company')
+    expect(screen.queryByTestId('settle-senior-currency-trigger')).not.toBeInTheDocument()
     fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
-    fireEvent.click(screen.getByTestId('settle-senior-currency-trigger'))
-    expect(screen.getByTestId('settle-senior-currency-USDT')).toBeInTheDocument()
-    expect(screen.getByTestId('settle-senior-currency-USD')).toBeInTheDocument()
-    expect(screen.queryByTestId('settle-senior-currency-EUR')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('settle-senior-currency-UAH')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('settle-senior-currency-trigger')).not.toBeInTheDocument()
   })
 })
 
@@ -211,7 +214,7 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     const [id, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('drop-pending-1')
     expect(payload.fundingSource).toBe('COMPANY_ACCOUNT')
-    expect(payload.currency).toBe('USDT')
+    expect(payload.currency).toBeUndefined()
   })
 
   it('submitting a DROP settle shows the drop-specific success toast', async () => {
