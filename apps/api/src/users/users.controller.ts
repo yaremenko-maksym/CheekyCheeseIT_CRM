@@ -162,7 +162,7 @@ export class UsersController {
         bankUahRnokpp: dto.bankUahRnokpp ?? null,
         bankUahBankName: dto.bankUahBankName ?? null,
         hrIds: dto.hrIds,
-        accountantId: dto.accountantId,
+        accountantId: dto.accountantId ?? null,
         telegramChannel: dto.telegramChannel ?? null,
       },
       currentUser,

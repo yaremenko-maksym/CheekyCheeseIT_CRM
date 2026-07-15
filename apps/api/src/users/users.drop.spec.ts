@@ -35,6 +35,17 @@ function makeAuditLogService() {
 
 function makeService(opts: { existingEmail?: boolean } = {}) {
   const existingRow = opts.existingEmail ? [{ id: 'x' }] : []
+  // Transaction handle used by the createDrop happy-path: insert(users) → the
+  // created DROP row. Guard tests (403/400/409) short-circuit before the
+  // transaction, so this is only exercised by the happy-path cases.
+  const createdUser = { id: 'drop-new', displayName: 'New Drop', role: 'DROP' }
+  const txHandle = {
+    insert: vi.fn().mockReturnValue({
+      values: vi.fn().mockReturnValue({
+        returning: vi.fn().mockResolvedValue([createdUser]),
+      }),
+    }),
+  }
   const db = {
     select: vi.fn().mockReturnValue({
       from: vi.fn().mockReturnValue({
@@ -43,14 +54,18 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
         }),
       }),
     }),
+    transaction: vi
+      .fn()
+      .mockImplementation((fn: (tx: unknown) => unknown) => Promise.resolve(fn(txHandle))),
   }
+  const createDropTeam = vi.fn().mockResolvedValue({ id: 'team-1', name: 'Команда New Drop' })
   const teamsService = {
-    createDropTeam: vi.fn(),
+    createDropTeam,
     archiveDropTeam: vi.fn(),
     addSeniorToDropTeam: vi.fn(),
   } as never
   const tosService = { getLatestAcceptanceForUser: vi.fn().mockResolvedValue(null) } as never
-  return new UsersService(
+  const service = new UsersService(
     { db } as never,
     {} as never,
     makeAuditLogService(),
@@ -59,6 +74,7 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
     makeAuditLogService(),
     teamsService,
   )
+  return { service, createDropTeam }
 }
 
 // ---------------------------------------------------------------------------
@@ -67,7 +83,7 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
 
 describe('UsersService.createDrop — validation/RBAC', () => {
   it('rejects HR actor with 403', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(
       service.createDrop(
         {
@@ -84,7 +100,7 @@ describe('UsersService.createDrop — validation/RBAC', () => {
   })
 
   it('rejects SENIOR actor with 403', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(
       service.createDrop(
         {
@@ -101,7 +117,7 @@ describe('UsersService.createDrop — validation/RBAC', () => {
   })
 
   it('rejects empty hrIds with 400', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(
       service.createDrop(
         {
@@ -118,7 +134,7 @@ describe('UsersService.createDrop — validation/RBAC', () => {
   })
 
   it('rejects on email collision with 409', async () => {
-    const service = makeService({ existingEmail: true })
+    const { service } = makeService({ existingEmail: true })
     await expect(
       service.createDrop(
         {
@@ -133,6 +149,49 @@ describe('UsersService.createDrop — validation/RBAC', () => {
       ),
     ).rejects.toBeInstanceOf(ConflictException)
   })
+
+  // Bug-fix: accountant is OPTIONAL for drop creation. A workspace with 0
+  // accountants must still be able to create a drop.
+  it('creates a drop without an accountant — passes null to createDropTeam', async () => {
+    const { service, createDropTeam } = makeService()
+    const result = await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        // accountantId omitted — no accountant in the workspace.
+      },
+      adminUser,
+    )
+    expect(result.teamId).toBe('team-1')
+    // 3rd arg (accountantId) must be null, not undefined, so the drop-team is
+    // provisioned WITHOUT an accountant member (see createDropTeam).
+    expect(createDropTeam).toHaveBeenCalledWith('drop-new', ['hr-1'], null, null, expect.anything())
+  })
+
+  it('creates a drop WITH an accountant — passes the id through to createDropTeam', async () => {
+    const { service, createDropTeam } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+      },
+      adminUser,
+    )
+    expect(createDropTeam).toHaveBeenCalledWith(
+      'drop-new',
+      ['hr-1'],
+      'acc-1',
+      null,
+      expect.anything(),
+    )
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -141,12 +200,12 @@ describe('UsersService.createDrop — validation/RBAC', () => {
 
 describe('UsersService.archiveDrop — RBAC', () => {
   it('rejects HR actor with 403', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(service.archiveDrop('drop-1', hrActor)).rejects.toBeInstanceOf(ForbiddenException)
   })
 
   it('rejects SENIOR actor with 403', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(service.archiveDrop('drop-1', seniorActor)).rejects.toBeInstanceOf(
       ForbiddenException,
     )
@@ -159,7 +218,7 @@ describe('UsersService.archiveDrop — RBAC', () => {
 
 describe('UsersService.createUser — teamMode handling', () => {
   it('rejects teamMode=JOIN_DROP_TEAM for non-SENIOR role with 400', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(
       service.createUser({
         email: 'hr@cc.com',
@@ -172,7 +231,7 @@ describe('UsersService.createUser — teamMode handling', () => {
   })
 
   it('rejects teamMode=JOIN_DROP_TEAM without dropTeamId with 400', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(
       service.createUser({
         email: 'senior@cc.com',
@@ -184,7 +243,7 @@ describe('UsersService.createUser — teamMode handling', () => {
   })
 
   it('rejects DROP role on legacy createUser endpoint with 400', async () => {
-    const service = makeService()
+    const { service } = makeService()
     await expect(
       service.createUser({
         email: 'drop@cc.com',

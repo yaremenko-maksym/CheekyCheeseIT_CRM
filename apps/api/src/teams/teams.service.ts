@@ -823,7 +823,8 @@ export class TeamsService {
    * Validations:
    *  - `dropId.role === 'DROP'`
    *  - `hrIds.length >= 1` and every hrId has `role === 'HR'`
-   *  - `accountantId.role === 'ACCOUNTANT'`
+   *  - `accountantId` is OPTIONAL (nullable); when supplied it must have
+   *    `role === 'ACCOUNTANT'`. A drop-team without an accountant is valid.
    *
    * Telegram channel is stored on `teams.telegram_channel` (column already
    * exists from 0007). No standalone `telegram` field on the drop-team —
@@ -832,7 +833,7 @@ export class TeamsService {
   async createDropTeam(
     dropId: string,
     hrIds: string[],
-    accountantId: string,
+    accountantId: string | null,
     telegramChannel: string | null,
     tx?: DrizzleTx,
   ): Promise<typeof teams.$inferSelect> {
@@ -842,7 +843,11 @@ export class TeamsService {
     const handle = tx ?? this.db.db
     await this.assertUserRole(dropId, 'DROP', tx)
     for (const hrId of hrIds) await this.assertUserRole(hrId, 'HR', tx)
-    await this.assertUserRole(accountantId, 'ACCOUNTANT', tx)
+    // Accountant is OPTIONAL for a drop-team (mirrors the senior `create`
+    // path). Only validate the role when one was actually supplied.
+    if (accountantId !== null) {
+      await this.assertUserRole(accountantId, 'ACCOUNTANT', tx)
+    }
 
     const dropUser = await handle
       .select()
@@ -862,7 +867,7 @@ export class TeamsService {
     const team = inserted[0]
     if (!team) throw new Error('Failed to create drop team')
 
-    const memberIds = [dropId, ...hrIds, accountantId]
+    const memberIds = [dropId, ...hrIds, ...(accountantId ? [accountantId] : [])]
     for (const userId of memberIds) {
       await handle.insert(teamMembers).values({ teamId: team.id, userId })
     }
