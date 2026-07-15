@@ -1179,7 +1179,7 @@ export function UserDialog(props: UserDialogProps) {
                               hint="Используется в MSA-контракте вместо display name. Формат: Фамилия Имя Отчество."
                             >
                               <Input
-                                placeholder="Іваненко Іван Іванович"
+                                placeholder="Иваненко Иван Иванович"
                                 value={field.state.value}
                                 onChange={(e) => field.handleChange(e.target.value)}
                                 onBlur={field.handleBlur}
@@ -1195,15 +1195,15 @@ export function UserDialog(props: UserDialogProps) {
                         }}
                       </form.Field>
 
-                      {/* ── Адреса реєстрації (ФОП) ──────────────────────── */}
+                      {/* ── Адрес регистрации (ФОП) ──────────────────────── */}
                       <form.Field name="registrationAddress">
                         {(field) => (
                           <Field
-                            label="Адреса реєстрації (ФОП)"
-                            hint="Використовується в контракті як {{registrationAddress}}"
+                            label="Адрес регистрации (ФОП)"
+                            hint="Используется в контракте как {{registrationAddress}}"
                           >
                             <Input
-                              placeholder="м. Київ, вул. Хрещатик, 1"
+                              placeholder="г. Киев, ул. Крещатик, 1"
                               value={field.state.value}
                               onChange={(e) => field.handleChange(e.target.value)}
                               onBlur={field.handleBlur}
