@@ -166,7 +166,7 @@ export function FundingSourceFields({
         <div className="space-y-1.5">
           <Label className="text-xs text-muted-foreground">Валюта</Label>
           <Select
-            value={currency}
+            value={currency ?? 'USDT'}
             onValueChange={(v) => onSelectCurrency?.(v as Currency)}
             disabled={isCompany}
           >
