@@ -332,6 +332,40 @@ describe('settleSeniorPayoutSchema — effective currency (COMPANY_ACCOUNT → U
       }).success,
     ).toBe(true)
   })
+
+  // task-remove-settle-currency / code-review PR #381 (MED — no schema-level
+  // test for the `d.currency ?? 'USDT'` defaulting ternary): the settle dialog
+  // no longer sends a `currency` field at all, so this ternary (inside the
+  // mandatoryReceiptRefine call above) is what decides the EFFECTIVE currency
+  // for receipt validation on every real omitted-currency settle. All prior
+  // "no currency" coverage exercised the SERVICE (pending-settlement.spec.ts /
+  // finance-bugs.unit.spec.ts AC2-e), never `.safeParse()` directly.
+  it('ADMIN_PERSONAL with NO currency field defaults the effective currency to USDT (explorer-only) — rejects a file receipt', () => {
+    expect(
+      settleSeniorPayoutSchema.safeParse({
+        fundingSource: 'ADMIN_PERSONAL',
+        receiptDocumentId: UUID,
+      }).success,
+    ).toBe(false)
+  })
+
+  it('ADMIN_PERSONAL with NO currency field defaults the effective currency to USDT (explorer-only) — accepts an explorer url', () => {
+    const result = settleSeniorPayoutSchema.safeParse({
+      fundingSource: 'ADMIN_PERSONAL',
+      receiptExternalUrl: EXPLORER_URL,
+    })
+    expect(result.success).toBe(true)
+    // NOTE: the schema itself does NOT stamp a default onto the parsed output
+    // — `currency` stays `undefined` here. The ternary above only drives the
+    // receipt-validation refine; the ACTUAL currency default (→
+    // obligation.currency, USDT in practice) is applied by the SERVICE at
+    // settle time (pending-settlement.service.ts), which now also re-asserts
+    // the BIZ-03 whitelist against that resolved value (security-review
+    // PR #381, MED fix).
+    if (result.success) {
+      expect(result.data.currency).toBeUndefined()
+    }
+  })
 })
 
 // ── attachReceiptSchema (attach/replace body) ────────────────────────────────

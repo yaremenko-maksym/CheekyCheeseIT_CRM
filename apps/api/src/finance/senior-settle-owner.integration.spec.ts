@@ -79,6 +79,12 @@ const ACCOUNT_ID = `${PREFIX}-cc00-000000000001`
 const SOURCE_TX_ID = `${PREFIX}-ee00-000000000001`
 const OBLIGATION_ID = `${PREFIX}-ff00-000000000001`
 const DEPOSIT_ID = `${PREFIX}-aa00-000000000001`
+// code-review PR #381 (MED — omitted-currency defaulting tested for SENIOR
+// only, not DROP): a second source IOU + obligation pair, this time a
+// DROP_PENDING_PAYOUT owed to DROP (mirrors bookCompanyObligations' drop
+// branch in transactions.service.ts).
+const DROP_SOURCE_TX_ID = `${PREFIX}-ee00-000000000002`
+const DROP_OBLIGATION_ID = `${PREFIX}-ff00-000000000002`
 // task-receipts-backend (review round 1): settleByCompany now requires a
 // mandatory receipt whenever `funding` is supplied — orthogonal to the
 // owner/funding-selection behavior this spec exercises.
@@ -86,6 +92,7 @@ const EXPLORER_RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xsenior
 const FILE_RECEIPT = { receiptExternalUrl: 'https://drive.google.com/file/seniorsettleownerspec' }
 
 const SENIOR_SHARE = '260'
+const DROP_SHARE = '140'
 
 const stubInvoices = {
   autoCreateForSeniorPayout: () => Promise.resolve(),
@@ -180,6 +187,45 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
     })
   }
 
+  // Mirror of seedPendingIou for the DROP side (code-review PR #381) — a
+  // DROP_PENDING_PAYOUT source tx + PENDING COMPANY obligation owed to DROP,
+  // shaped exactly like bookCompanyObligations' drop branch
+  // (transactions.service.ts): receiverId/recipientId = drop,
+  // dropSharePercent snapshot instead of seniorSharePercent.
+  async function seedPendingDropIou(): Promise<void> {
+    await dbSvc.db.delete(pendingObligations).where(eq(pendingObligations.creditorUserId, DROP.id))
+    await dbSvc.db.delete(transactions).where(inArray(transactions.id, [DROP_SOURCE_TX_ID]))
+    await dbSvc.db
+      .delete(transactions)
+      .where(and(eq(transactions.type, 'PAYOUT_DROP'), eq(transactions.receiverId, DROP.id)))
+
+    await dbSvc.db.insert(transactions).values({
+      id: DROP_SOURCE_TX_ID,
+      type: 'DROP_PENDING_PAYOUT',
+      status: 'PENDING_PAYMENT',
+      amount: DROP_SHARE,
+      currency: 'USDT',
+      senderId: null,
+      senderLabel: 'COMPANY',
+      receiverId: DROP.id,
+      recipientId: DROP.id,
+      projectId: PROJECT_ID,
+      dropSharePercent: 10,
+      dropSharePercentSource: 'USER_DEFAULT',
+      createdBy: ADMIN.id,
+    })
+    await dbSvc.db.insert(pendingObligations).values({
+      id: DROP_OBLIGATION_ID,
+      creditorUserId: DROP.id,
+      debtorType: 'COMPANY',
+      debtorUserId: null,
+      sourceTransactionId: DROP_SOURCE_TX_ID,
+      amount: DROP_SHARE,
+      currency: 'USDT',
+      status: 'PENDING',
+    })
+  }
+
   beforeAll(async () => {
     try {
       const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -205,10 +251,14 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
     dbSvc = moduleRef.get(DatabaseService)
 
     const db = dbSvc.db
-    await db.delete(pendingObligations).where(eq(pendingObligations.creditorUserId, SENIOR.id))
+    await db
+      .delete(pendingObligations)
+      .where(inArray(pendingObligations.creditorUserId, [SENIOR.id, DROP.id]))
     await db.delete(transactions).where(inArray(transactions.createdBy, ALL_USER_IDS))
     await db.delete(transactions).where(inArray(transactions.receiverId, ALL_USER_IDS))
-    await db.delete(transactions).where(inArray(transactions.id, [SOURCE_TX_ID, DEPOSIT_ID]))
+    await db
+      .delete(transactions)
+      .where(inArray(transactions.id, [SOURCE_TX_ID, DROP_SOURCE_TX_ID, DEPOSIT_ID]))
     await db.delete(projects).where(eq(projects.id, PROJECT_ID))
     await db.delete(users).where(inArray(users.id, ALL_USER_IDS))
 
@@ -273,12 +323,12 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
     try {
       await dbSvc.db
         .delete(pendingObligations)
-        .where(eq(pendingObligations.creditorUserId, SENIOR.id))
+        .where(inArray(pendingObligations.creditorUserId, [SENIOR.id, DROP.id]))
       await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, ALL_USER_IDS))
       await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, ALL_USER_IDS))
       await dbSvc.db
         .delete(transactions)
-        .where(inArray(transactions.id, [SOURCE_TX_ID, DEPOSIT_ID]))
+        .where(inArray(transactions.id, [SOURCE_TX_ID, DROP_SOURCE_TX_ID, DEPOSIT_ID]))
       await dbSvc.db.delete(projects).where(eq(projects.id, PROJECT_ID))
       await dbSvc.db.delete(users).where(inArray(users.id, ALL_USER_IDS))
     } catch {
@@ -384,6 +434,51 @@ describe('senior IOU settle — owner / funding selection (real DB)', () => {
       .where(and(eq(transactions.type, 'SENIOR_INCOME'), eq(transactions.receiverId, SENIOR.id)))
     expect(rows).toHaveLength(1)
     expect(rows[0]?.id).toBe(SOURCE_TX_ID)
+  })
+
+  // code-review PR #381 (MED — omitted-currency defaulting tested for SENIOR
+  // only, not DROP): mirrors the senior test directly above, but settles a
+  // DROP_PENDING_PAYOUT obligation instead. Proves the same default path
+  // (obligation.currency → USDT), the drop-specific flip target (PAYOUT_DROP,
+  // not SENIOR_INCOME — settleByCompany branches on the source IOU type), and
+  // the #379 single-row-flip invariant on the DROP side too.
+  it('DROP obligation, ADMIN_PERSONAL with NO currency in the payload → PAYOUT_DROP defaults to USDT; single-row flip preserved (#379)', async () => {
+    if (!dbAvailable) return
+    await seedPendingDropIou()
+    const before = await gateBalance()
+
+    const result = await settleSvc.settleByCompanySourceTransaction(DROP_SOURCE_TX_ID, ACCOUNTANT, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      // No `currency` field — defaults to obligation.currency (USDT), so the
+      // mandatory-receipt rule requires an EXPLORER link.
+      ...EXPLORER_RECEIPT,
+    })
+    expect(result.obligation.status).toBe('PAID')
+
+    const row = await dbSvc.db.query.transactions.findFirst({
+      where: and(eq(transactions.type, 'PAYOUT_DROP'), eq(transactions.receiverId, DROP.id)),
+    })
+    expect(row).toBeTruthy()
+    expect(row!.status).toBe('PAID')
+    expect(row!.fundingSource).toBeNull()
+    expect(row!.senderId).toBe(ADMIN.id)
+    // Same default as the senior path — no currency was sent, so it falls
+    // back to obligation.currency (USDT).
+    expect(row!.currency).toBe('USDT')
+
+    // ADMIN_PERSONAL never touches the shared company account.
+    expect(await gateBalance()).toBeCloseTo(before, 6)
+
+    // #379 invariant on the drop side: the source IOU was flipped IN PLACE —
+    // exactly one PAYOUT_DROP row for this settlement, keyed on the SAME id
+    // as the source transaction.
+    const rows = await dbSvc.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(eq(transactions.type, 'PAYOUT_DROP'), eq(transactions.receiverId, DROP.id)))
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.id).toBe(DROP_SOURCE_TX_ID)
   })
 
   it('ADMIN_PERSONAL with a non-ADMIN payer → 400, nothing booked', async () => {

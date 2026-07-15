@@ -94,6 +94,31 @@ export type SettleFunding = {
   receiptExternalUrl?: string | null | undefined
 }
 
+/**
+ * BIZ-03 (HIGH) — canonical whitelist of currencies a senior/drop IOU may be
+ * settled in. Every IOU is booked in USDT (see `bookCompanyObligations` /
+ * `createIous` in transactions.service.ts); the downstream balance readers
+ * (getSeniorBalance / getTotalEarned / getSummary) convert the RESOLVED
+ * currency LABEL via `convertToBase`, which is only value-preserving for
+ * USD/USDT (1:1 short-circuit) — UAH/EUR triangulate through NBU rates and
+ * would silently UNDER-count the payout by ~40×.
+ *
+ * SINGLE SOURCE OF TRUTH — reused by BOTH the explicit-currency
+ * re-validation (an `ADMIN_PERSONAL` caller that still supplies `currency`)
+ * AND the defense-in-depth assert on the fully-resolved currency
+ * (security-review PR #381, task-remove-settle-currency) below, so the two
+ * checks can never drift into two different lists.
+ */
+const SETTLE_ALLOWED_CURRENCIES: ReadonlySet<string> = new Set(['USDT', 'USD'])
+
+function assertSettleCurrencyAllowed(currency: string): void {
+  if (!SETTLE_ALLOWED_CURRENCIES.has(currency)) {
+    throw new BadRequestException(
+      `Закрытие USDT-обязательства в ${currency} не поддерживается без конверсии суммы. Используйте USD или USDT.`,
+    )
+  }
+}
+
 @Injectable()
 export class PendingSettlementService {
   constructor(
@@ -269,11 +294,7 @@ export class PendingSettlementService {
       // UAH/EUR are rejected with a clear message; if multi-currency settlement
       // is ever needed the amount must be converted to USDT before recording.
       if (funding.currency !== undefined) {
-        if (funding.currency !== 'USD' && funding.currency !== 'USDT') {
-          throw new BadRequestException(
-            `Закрытие USDT-обязательства в ${funding.currency} не поддерживается без конверсии суммы. Используйте USD или USDT.`,
-          )
-        }
+        assertSettleCurrencyAllowed(funding.currency)
         currency = funding.currency
       }
     } else if (debitsCompanyAccount) {
@@ -281,6 +302,23 @@ export class PendingSettlementService {
       // the currency label consistent with the ledger).
       currency = 'USDT'
     }
+
+    // SECURITY (defense-in-depth, security-review PR #381 — BIZ-03 guard bypass
+    // on the omitted-currency path): the branches above can leave `currency` at
+    // its DEFAULT (`obligation.currency`, declared above and always USDT in
+    // practice — see the module-level obligation-creation code) WITHOUT ever
+    // going through the explicit-currency re-validation, because
+    // task-remove-settle-currency made `funding.currency` optional and the
+    // settle dialog no longer sends one. That default path currently relies
+    // entirely on the invariant "every pending_obligations row is USDT" — this
+    // re-asserts the SAME whitelist against the FULLY-RESOLVED currency so a
+    // corrupted/legacy obligation currency can never silently bypass BIZ-03.
+    // Covers BOTH funding sources (COMPANY_ACCOUNT is forced to USDT just
+    // above — trivially passes) and BOTH source-IOU types: this code path is
+    // shared by SENIOR_PENDING_PAYOUT and DROP_PENDING_PAYOUT settlements
+    // (`isDropObligation` only changes the flipped row's TYPE below, not the
+    // currency resolution above).
+    assertSettleCurrencyAllowed(currency)
 
     // task-receipts-backend (#10): a settle from the user-facing dialog supplies
     // `funding` carrying a MANDATORY receipt. Re-validate on the service against
