@@ -94,6 +94,19 @@ function Party({
   )
 }
 
+// fix/payout-drop-from-to (UX polish): the backend books company-funded
+// sender rows with the raw literal senderLabel='COMPANY' (see
+// PendingSettlementService.settleByCompany §D5) — an English token that reads
+// oddly inside an otherwise-Russian row. Display-only normalization to the
+// Russian alias so PAYOUT_DROP / SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT
+// read consistently with the rest of the UI. Any other label (e.g. an
+// admin's displayName on an ADMIN_PERSONAL-funded row) passes through
+// unchanged; a missing label falls back to the existing company alias.
+function displaySenderLabel(label: string | null | undefined): string {
+  if (label === 'COMPANY') return 'Счёт компании'
+  return label ?? 'CheekyCheeseIT'
+}
+
 function FromTo({ tx }: { tx: TransactionDto }) {
   switch (tx.type) {
     case 'ADMIN_INCOME':
@@ -182,7 +195,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'SENIOR_PENDING_PAYOUT':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
+          <Party id={null} name={null} label={displaySenderLabel(tx.senderLabel)} type="user" />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -196,7 +209,7 @@ function FromTo({ tx }: { tx: TransactionDto }) {
     case 'DROP_PENDING_PAYOUT':
       return (
         <div className="flex items-center gap-1.5 min-w-0">
-          <Party id={null} name={null} label={tx.senderLabel ?? 'CheekyCheeseIT'} type="user" />
+          <Party id={null} name={null} label={displaySenderLabel(tx.senderLabel)} type="user" />
           <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
           <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
         </div>
@@ -215,6 +228,64 @@ function FromTo({ tx }: { tx: TransactionDto }) {
         </div>
       )
 
+    // fix/payout-drop-from-to: the auto-created drop share credited after
+    // payPayoutRequest on a drop-project settles (see
+    // PendingSettlementService.settleByCompany). Sender mirrors the funding
+    // source: COMPANY_ACCOUNT/legacy rows carry senderId=null +
+    // senderLabel='COMPANY' (non-clickable alias), ADMIN_PERSONAL rows carry
+    // a real senderId/senderName (the admin who personally funded it) —
+    // Party handles both via the same id-presence check. Receiver is always
+    // the drop. Without this case the row fell through to `default` and
+    // rendered a bare «—», same class of bug as DROP_PENDING_PAYOUT above.
+    case 'PAYOUT_DROP':
+      return (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Party
+            id={tx.senderId}
+            name={tx.senderName}
+            label={displaySenderLabel(tx.senderLabel)}
+            type="user"
+          />
+          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
+        </div>
+      )
+
+    // fix/payout-drop-from-to (audit pass, AC2): two more LIVE money types
+    // that insert real rows into `transactions` (CompanyAccountService) and
+    // are visible to ADMIN/ACCOUNTANT in the unfiltered findAll() list, yet
+    // had no FromTo case — same bare-«—» bug as PAYOUT_DROP above.
+    //
+    // COMPANY_DEPOSIT: a SENIOR/DROP submits a verified USDT deposit onto the
+    // shared company wallet (submitDeposit). senderId/senderName = the
+    // submitter (clickable), receiverId=null + receiverLabel='Счёт компании'.
+    case 'COMPANY_DEPOSIT':
+      return (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Party id={tx.senderId} name={tx.senderName} label={tx.senderLabel} type="user" />
+          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          <Party id={null} name={null} label={tx.receiverLabel ?? 'Счёт компании'} type="user" />
+        </div>
+      )
+
+    // DIVIDEND_TO_ADMIN: ADMIN withdraws dividends from the company account
+    // (createDividend). senderId=null + senderLabel='Счёт компании' (company
+    // alias, non-clickable), receiverId = the admin (clickable).
+    case 'DIVIDEND_TO_ADMIN':
+      return (
+        <div className="flex items-center gap-1.5 min-w-0">
+          <Party id={null} name={null} label={tx.senderLabel ?? 'Счёт компании'} type="user" />
+          <ArrowRight className="h-3 w-3 shrink-0 text-muted-foreground/60" />
+          <Party id={tx.receiverId} name={tx.receiverName} label={tx.receiverLabel} type="user" />
+        </div>
+      )
+
+    // Intentionally «—»: Phase 4-B placeholder types (TOV_INCOME, SENIOR_PAID,
+    // ADMIN_INCOME_CASH, ADMIN_INCOME_CRYPTO, SENIOR_INCOME_CRYPTO,
+    // DIVIDEND_TAX) exist only to satisfy the exhaustive TYPE_LABELS/
+    // TYPE_COLORS Record<> contracts — no current flow ever inserts a row
+    // with these types (verified against every `.insert(transactions)` call
+    // site), so falling through to the dash here is correct, not a bug.
     default:
       return <span className="text-muted-foreground">—</span>
   }
