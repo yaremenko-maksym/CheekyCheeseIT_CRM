@@ -193,7 +193,18 @@ export const transactionSchema = z.object({
   // alongside receiverId only for the new PAYOUT_DROP path. Adding it as
   // optional + nullable keeps the existing client contract compatible.
   recipientId: z.string().uuid().nullable().optional(),
-  createdBy: z.string().uuid(),
+  /**
+   * Audit field — the ADMIN/ACCOUNTANT (or, for self-declared income, the
+   * SENIOR/DROP) who booked the row.
+   *
+   * RBAC identity-masking (follow-up to counterparty masking, security review
+   * PR #384): the raw creator UUID is disclosed only to ADMIN/ACCOUNTANT. For
+   * every other viewer `mapTx` nulls it UNLESS it is the viewer's own id (their
+   * own self-declared income — needed by `canAttachReceipt`'s author gate and a
+   * non-leak since they already know their own id). Nullable so the masked DTO
+   * is representable and typed honestly on the client.
+   */
+  createdBy: z.string().uuid().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })

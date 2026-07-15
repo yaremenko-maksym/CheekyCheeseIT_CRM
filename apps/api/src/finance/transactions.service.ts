@@ -392,7 +392,20 @@ export class TransactionsService {
       // PAYOUT_DROP today; null on every legacy row. Exposing on the DTO so
       // the frontend list/detail views can distinguish drop payouts cleanly.
       recipientId: (tx as Transaction & { recipientId?: string | null }).recipientId ?? null,
-      createdBy: tx.createdBy,
+      // RBAC identity-masking (follow-up to counterparty masking, security
+      // review PR #384). `createdBy` is the audit UUID of the registrar — an
+      // ADMIN/ACCOUNTANT on virtually every row, or the SENIOR/DROP themselves
+      // on self-declared income (createSeniorIncome / createDropIncome stamp
+      // createdBy = receiverId = self). Disclose the real id ONLY to
+      // ADMIN/ACCOUNTANT; for every other viewer strip it so a
+      // SENIOR/JUNIOR/DROP/HR can never harvest which admin booked a payout.
+      //
+      // Exception — the viewer's OWN id is preserved: it leaks nothing (they
+      // already know it) and it keeps the frontend author gate working
+      // (`canAttachReceipt` treats `createdBy === currentUserId` as the author,
+      // who may attach/replace a receipt on their own self-declared income).
+      // A blank null here would silently remove that affordance for SENIOR/DROP.
+      createdBy: privileged || tx.createdBy === viewer.id ? tx.createdBy : null,
       createdAt: tx.createdAt.toISOString(),
       updatedAt: tx.updatedAt.toISOString(),
     }

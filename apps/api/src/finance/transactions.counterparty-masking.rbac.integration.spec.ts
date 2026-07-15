@@ -42,6 +42,21 @@
  *         is already gone); ADMIN sees the real snapshot label. Receiver (the
  *         drop) is confirmed NOT masked by the same new condition.
  *
+ * CB — createdBy (registrar audit UUID) masking (follow-up hardening, same
+ *      defense-in-depth class as the counterparty masking above):
+ *   CB-1  findAll: a company-funded PAYOUT_DROP BOOKED BY an ADMIN
+ *         (createdBy=admin) — DROP sees createdBy=null; ACCOUNTANT sees the
+ *         real admin UUID.
+ *   CB-2  findOne (second mapTx call site): same mask for DROP / disclose for
+ *         ACCOUNTANT.
+ *   CB-3  Self-preserve (non-regression): a row the viewer AUTHORED themselves
+ *         (createdBy === viewer.id, e.g. self-declared income) keeps createdBy
+ *         = their own id — nulling it would silently break the frontend author
+ *         gate `canAttachReceipt` (receipt attach/replace on own income).
+ *   CB-4  Security whole-payload grep: DROP findAll never carries the admin
+ *         registrar's UUID via createdBy (the CB-1 row's admin has no other
+ *         id vector — company-funded, senderId=null — isolating createdBy).
+ *
  * DB-SKIP-GUARD:
  *   dbAvailable = false when DATABASE_URL is unreachable (CI unit job without
  *   Postgres). Each test early-returns — stays green in no-DB environments.
@@ -132,6 +147,13 @@ const TX_PR_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000004'
  * cascade never touches).
  */
 const TX_DROP_DELETED_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000005'
+/**
+ * CB (createdBy masking): a company-funded PAYOUT_DROP to the drop, but BOOKED
+ * BY the ADMIN (createdBy=admin). The counterparty (sender) is the company pool
+ * — NOT the admin — so the ONLY vector for the admin's UUID in this row is the
+ * `createdBy` audit field, isolating createdBy masking from counterparty masking.
+ */
+const TX_CB_ADMIN_ID = 'ca5f0001-0000-4000-b000-000000000006'
 
 /** Payout request owned by the DROP (seniorId column reused as owner). */
 const PR_1_ID = 'ca5f0002-0000-4000-c000-000000000001'
@@ -146,6 +168,7 @@ const ALL_TX_IDS = [
   TX_SENIOR_CLIENT_ID,
   TX_PR_ADMIN_ID,
   TX_DROP_DELETED_ADMIN_ID,
+  TX_CB_ADMIN_ID,
 ]
 const ALL_USER_IDS = [ADMIN_MAKSYM.id, ACCOUNTANT_1.id, SENIOR_1.id, DROP_1.id]
 
@@ -318,6 +341,27 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
         createdBy: DROP_1.id,
       })
       .onConflictDoNothing()
+
+    // ── CB: company-funded PAYOUT_DROP to the drop, BOOKED BY the ADMIN ────────
+    // Counterparty = company pool (senderId=null, senderLabel='COMPANY') so the
+    // sender masking has nothing admin-shaped to hide. `createdBy=admin` is the
+    // ONLY vector for the admin's UUID — proving createdBy masking on its own.
+    await db
+      .insert(transactions)
+      .values({
+        id: TX_CB_ADMIN_ID,
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '260',
+        currency: 'USDT',
+        senderId: null,
+        senderLabel: 'COMPANY',
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiverId: DROP_1.id,
+        recipientId: DROP_1.id,
+        createdBy: ADMIN_MAKSYM.id,
+      })
+      .onConflictDoNothing()
   })
 
   afterAll(async () => {
@@ -468,5 +512,69 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
     expect(dropRow!.receiverName).toBe(DROP_1.displayName)
     expect(acctRow!.receiverId).toBe(DROP_1.id)
     expect(acctRow!.receiverName).toBe(DROP_1.displayName)
+  })
+
+  // ── CB-1: createdBy (registrar) masking on findAll ────────────────────────
+
+  it('CB-1 — admin-booked row: DROP sees createdBy=null, ACCOUNTANT sees the real admin UUID', async () => {
+    if (!dbAvailable) return
+
+    const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_CB_ADMIN_ID)
+    expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
+    // The registrar audit UUID (an ADMIN) is stripped for the non-privileged
+    // viewer — same defense-in-depth as the counterparty masking.
+    expect(dropRow!.createdBy).toBeNull()
+
+    const acctRow = (await svc.findAll(ACCOUNTANT_1)).find((t) => t.id === TX_CB_ADMIN_ID)
+    expect(acctRow, 'accountant sees the row').toBeDefined()
+    expect(acctRow!.createdBy).toBe(ADMIN_MAKSYM.id)
+
+    const adminRow = (await svc.findAll(ADMIN_MAKSYM)).find((t) => t.id === TX_CB_ADMIN_ID)
+    expect(adminRow!.createdBy).toBe(ADMIN_MAKSYM.id)
+  })
+
+  // ── CB-2: same masking on the findOne call site ───────────────────────────
+
+  it('CB-2 — findOne masks createdBy for DROP, discloses it for ACCOUNTANT', async () => {
+    if (!dbAvailable) return
+
+    const dropOne = await svc.findOne(TX_CB_ADMIN_ID, DROP_1)
+    expect(dropOne.createdBy).toBeNull()
+
+    const acctOne = await svc.findOne(TX_CB_ADMIN_ID, ACCOUNTANT_1)
+    expect(acctOne.createdBy).toBe(ADMIN_MAKSYM.id)
+  })
+
+  // ── CB-3: self-preserve (non-regression for canAttachReceipt author gate) ──
+
+  it('CB-3 — a viewer sees their OWN createdBy on rows they authored (not nulled)', async () => {
+    if (!dbAvailable) return
+
+    // TX_DROP_COMPANY_ID is seeded with createdBy=DROP_1.id (the drop authored
+    // it). Masking must NOT strip the viewer's own id — otherwise the frontend
+    // `canAttachReceipt` author gate (`createdBy === currentUserId`) would drop
+    // the receipt attach/replace affordance on self-declared income. The own id
+    // is not a leak (the viewer already knows it).
+    const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_DROP_COMPANY_ID)
+    expect(dropRow, 'drop must see their own row').toBeDefined()
+    expect(dropRow!.createdBy).toBe(DROP_1.id)
+
+    // Foreign creator (a DIFFERENT non-privileged user) is still masked: SENIOR
+    // views the external-client income whose createdBy is DROP_1.id → nulled.
+    const seniorRow = (await svc.findAll(SENIOR_1)).find((t) => t.id === TX_SENIOR_CLIENT_ID)
+    expect(seniorRow, 'senior sees their own income row').toBeDefined()
+    expect(seniorRow!.createdBy).toBeNull()
+  })
+
+  // ── CB-4: whole-payload security grep — no admin registrar UUID for DROP ───
+
+  it('CB-4 — DROP findAll payload never carries the admin registrar UUID via createdBy', async () => {
+    if (!dbAvailable) return
+
+    // The CB seed row (TX_CB_ADMIN_ID) is company-funded with senderId=null, so
+    // the admin's UUID has no counterparty vector — if it appears anywhere in
+    // the DROP payload it can ONLY be an un-masked createdBy leak.
+    const dropPayload = JSON.stringify(await svc.findAll(DROP_1))
+    expect(dropPayload).not.toContain(ADMIN_MAKSYM.id)
   })
 })
