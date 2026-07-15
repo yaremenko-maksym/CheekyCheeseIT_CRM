@@ -141,8 +141,12 @@ export function roundShareAmount(income: number, percent: number): number {
 }
 
 type TxWithRelations = Transaction & {
-  sender: { displayName: string } | null
-  receiver: { displayName: string } | null
+  // task-counterparty-role-masking: `role` is joined so mapTx can tell whether
+  // a party is an ADMIN partner (Максим/Константин) and mask their identity for
+  // non-privileged viewers. Nullable to stay resilient if a legacy row points
+  // at a since-deleted user (the relation resolves to null).
+  sender: { displayName: string; role: string } | null
+  receiver: { displayName: string; role: string } | null
   project: { name: string } | null
   payoutRequest?: {
     seniorId: string
@@ -282,19 +286,70 @@ export class TransactionsService {
     }
   }
 
-  private mapTx(tx: TxWithRelations) {
+  /**
+   * task-counterparty-role-masking (RBAC identity-masking, security-critical).
+   *
+   * A transaction "side" (sender or receiver) is an **internal company party**
+   * — either the company account pool itself, or a specific ADMIN partner
+   * (Максим/Константин) — whose real identity is disclosed ONLY to
+   * ADMIN/ACCOUNTANT. For every other role the side is rebranded to
+   * «CheekyCheeseIT» with the user id + displayName stripped (see the
+   * `senderMasked`/`receiverMasked` branches in `mapTx`), so a
+   * SENIOR/JUNIOR/DROP/HR can never learn which admin funded a payout nor
+   * enumerate the admin profile via a leaked id.
+   *
+   * The account pool is recognised by its label literals (`'COMPANY'` raw, or
+   * the Russian «Счёт компании» alias booked by CompanyAccountService) or, as a
+   * defensive fallback for legacy rows, a company-account-funded row whose side
+   * carries no user id. An ADMIN partner is recognised by the joined role.
+   *
+   * NOTE: the actual recipient of a company payout (the drop/senior — a
+   * non-ADMIN user with their own id) is never an internal party, so viewers
+   * still see themselves on their own rows.
+   */
+  private isInternalCompanySide(
+    sideId: string | null | undefined,
+    sideLabel: string | null | undefined,
+    sideRole: string | null | undefined,
+    fundingSource: string | null | undefined,
+  ): boolean {
+    const isCompanyAccount =
+      sideLabel === 'COMPANY' ||
+      sideLabel === 'Счёт компании' ||
+      (fundingSource === 'COMPANY_ACCOUNT' && (sideId === null || sideId === undefined))
+    const isAdminPartner = !!sideId && sideRole === 'ADMIN'
+    return isCompanyAccount || isAdminPartner
+  }
+
+  private mapTx(tx: TxWithRelations, viewer: SessionUser) {
+    // Only ADMIN/ACCOUNTANT may see the real identity of an internal company
+    // party. All other roles get the brand + null id (RBAC, not CSS-hiding).
+    const privileged = viewer.role === 'ADMIN' || viewer.role === 'ACCOUNTANT'
+
+    const senderMasked =
+      !privileged &&
+      this.isInternalCompanySide(tx.senderId, tx.senderLabel, tx.sender?.role, tx.fundingSource)
+    const receiverMasked =
+      !privileged &&
+      this.isInternalCompanySide(
+        tx.receiverId,
+        tx.receiverLabel,
+        tx.receiver?.role,
+        tx.fundingSource,
+      )
+
     return {
       id: tx.id,
       type: tx.type,
       status: tx.status,
       amount: tx.amount,
       currency: tx.currency,
-      senderId: tx.senderId,
-      senderLabel: tx.senderLabel,
-      senderName: tx.sender?.displayName ?? null,
-      receiverId: tx.receiverId,
-      receiverLabel: tx.receiverLabel,
-      receiverName: tx.receiver?.displayName ?? null,
+      senderId: senderMasked ? null : tx.senderId,
+      senderLabel: senderMasked ? 'CheekyCheeseIT' : tx.senderLabel,
+      senderName: senderMasked ? null : (tx.sender?.displayName ?? null),
+      receiverId: receiverMasked ? null : tx.receiverId,
+      receiverLabel: receiverMasked ? 'CheekyCheeseIT' : tx.receiverLabel,
+      receiverName: receiverMasked ? null : (tx.receiver?.displayName ?? null),
       projectId: tx.projectId,
       projectName: tx.project?.name ?? null,
       payoutRequestId: tx.payoutRequestId,
@@ -845,8 +900,9 @@ export class TransactionsService {
     const allTxs = (await this.db.db.query.transactions.findMany({
       orderBy: [desc(transactions.createdAt)],
       with: {
-        sender: { columns: { displayName: true } },
-        receiver: { columns: { displayName: true } },
+        // task-counterparty-role-masking: `role` drives ADMIN-party masking in mapTx.
+        sender: { columns: { displayName: true, role: true } },
+        receiver: { columns: { displayName: true, role: true } },
         project: { columns: { name: true } },
       },
     })) as TxWithRelations[]
@@ -903,15 +959,16 @@ export class TransactionsService {
     }
     if (filters?.month) result = result.filter((tx) => tx.salaryMonth === filters.month)
 
-    return result.map((tx) => this.mapTx(tx))
+    return result.map((tx) => this.mapTx(tx, currentUser))
   }
 
   async findOne(id: string, currentUser: SessionUser) {
     const tx = (await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
       with: {
-        sender: { columns: { displayName: true } },
-        receiver: { columns: { displayName: true } },
+        // task-counterparty-role-masking: `role` drives ADMIN-party masking in mapTx.
+        sender: { columns: { displayName: true, role: true } },
+        receiver: { columns: { displayName: true, role: true } },
         project: { columns: { name: true } },
         payoutRequest: {
           columns: { seniorId: true, incomeAmount: true, payableAmount: true },
@@ -921,6 +978,7 @@ export class TransactionsService {
 
     if (!tx) throw new NotFoundException('Transaction not found')
     this.assertReadAccess(tx, currentUser)
+    // (masking of the internal counterparty happens in mapTx below via `currentUser`)
 
     // Enrich payoutRequest with seniorSharePercent snapshot from first linked income tx
     if (tx.payoutRequest && tx.payoutRequestId) {
@@ -950,7 +1008,7 @@ export class TransactionsService {
       }
     }
 
-    return this.mapTx(tx)
+    return this.mapTx(tx, currentUser)
   }
 
   // ── Create ADMIN_INCOME ──────────────────────────────────────────────────
@@ -3344,8 +3402,9 @@ export class TransactionsService {
         senior: { columns: { displayName: true } },
         transactions: {
           with: {
-            sender: { columns: { displayName: true } },
-            receiver: { columns: { displayName: true } },
+            // task-counterparty-role-masking: `role` drives ADMIN-party masking in mapTx.
+            sender: { columns: { displayName: true, role: true } },
+            receiver: { columns: { displayName: true, role: true } },
             project: { columns: { name: true } },
           },
         },
@@ -3381,7 +3440,7 @@ export class TransactionsService {
       txHash: req.txHash,
       status: req.status,
       transactions: (req as typeof req & { transactions: TxWithRelations[] }).transactions.map(
-        (tx) => this.mapTx(tx),
+        (tx) => this.mapTx(tx, currentUser),
       ),
       createdAt: req.createdAt.toISOString(),
       updatedAt: req.updatedAt.toISOString(),

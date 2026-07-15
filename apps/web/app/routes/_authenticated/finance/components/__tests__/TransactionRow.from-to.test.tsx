@@ -185,3 +185,55 @@ describe('TransactionRow — FromTo (fix/payout-drop-from-to)', () => {
     expect(screen.getByText('—')).toBeInTheDocument()
   })
 })
+
+/**
+ * task-counterparty-role-masking — frontend composition guard.
+ *
+ * The identity decision lives on the BACKEND (mapTx): a non-privileged viewer
+ * (SENIOR/JUNIOR/DROP/HR) already receives senderLabel='CheekyCheeseIT',
+ * senderId=null, senderName=null for an internal company counterparty — the
+ * admin's identity never reaches the browser. These tests pin that the row
+ * renders that already-masked DTO as the neutral brand (non-clickable, no admin
+ * name, not a bare «—»), i.e. the clean back↔front composition holds without
+ * re-implementing any masking in the component.
+ */
+describe('TransactionRow — FromTo masking composition (non-privileged DTO)', () => {
+  it('masked company-funded PAYOUT_DROP renders «CheekyCheeseIT», not the admin, not «—»', () => {
+    // Shape a DROP receives after backend masking of an admin-personal payout.
+    renderRow(
+      makeTx({
+        senderId: null,
+        senderLabel: 'CheekyCheeseIT',
+        senderName: null,
+      }),
+      'DROP',
+    )
+
+    const brand = screen.getByText('CheekyCheeseIT')
+    expect(brand).toBeInTheDocument()
+    // Non-clickable: Party() emits a <span> (not <Link>) when id is null.
+    expect(brand.tagName).toBe('SPAN')
+    // The recipient (the drop themselves) is unaffected and still shown.
+    expect(screen.getByText(DROP_NAME)).toBeInTheDocument()
+    // No admin identity leaked into the render, and no bare dash.
+    expect(screen.queryByText(ADMIN_NAME)).not.toBeInTheDocument()
+    expect(screen.queryByText('—')).not.toBeInTheDocument()
+  })
+
+  it('displaySenderLabel passes «CheekyCheeseIT» through unchanged (only raw «COMPANY» maps to «Счёт компании»)', () => {
+    // A privileged viewer would get raw 'COMPANY' → «Счёт компании» (covered by
+    // the suite above); the non-privileged viewer already gets the final brand,
+    // so «Счёт компании» must NOT appear for them.
+    renderRow(
+      makeTx({
+        senderId: null,
+        senderLabel: 'CheekyCheeseIT',
+        senderName: null,
+      }),
+      'SENIOR',
+    )
+
+    expect(screen.getByText('CheekyCheeseIT')).toBeInTheDocument()
+    expect(screen.queryByText('Счёт компании')).not.toBeInTheDocument()
+  })
+})
