@@ -588,7 +588,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   // ── AC13: settle drop → PAYOUT_DROP credits the drop, no senior invoice ────
-  it('AC13: settling a drop IOU inserts PAYOUT_DROP (credits drop balance), no senior invoice', async () => {
+  it('AC13: settling a drop IOU settles to PAYOUT_DROP (credits drop balance), no senior invoice', async () => {
     if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
@@ -606,7 +606,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     expect(after - before).toBeCloseTo((1000 * DROP_SHARE) / 100, 6)
   })
 
-  it('AC13: settling a senior IOU inserts SENIOR_INCOME + fires the senior invoice', async () => {
+  it('AC13: settling a senior IOU settles to SENIOR_INCOME + fires the senior invoice', async () => {
     if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
@@ -618,6 +618,100 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     })
     expect(res.created.some((c) => c.type === 'SENIOR_INCOME')).toBe(true)
     expect(seniorInvoiceTriggers).toBe(1)
+  })
+
+  // ── task-settle-in-place (ADR 2026-07-14): the fix ─────────────────────────
+  // The obligation must transition PENDING_PAYMENT → PAID **in place** on the
+  // SOURCE IOU row — NO second transaction, NO lingering «Ожидает выплаты»
+  // phantom. The `created` settle row reuses the source id (self-reference), and
+  // the closingTransactionId points at that same row.
+  it('settle-in-place: senior IOU flips SENIOR_PENDING_PAYOUT → SENIOR_INCOME on the SAME row (no second tx)', async () => {
+    if (!dbAvailable) return
+    await declare(
+      { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+      ADMIN_MAKSYM,
+    )
+    const [seniorObl] = await obligationsFor(SENIOR.id)
+    const srcId = (await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, seniorObl!.id),
+    }))!.sourceTransactionId
+
+    const before = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, srcId),
+    })
+    expect(before!.type).toBe('SENIOR_PENDING_PAYOUT')
+    expect(before!.status).toBe('PENDING_PAYMENT')
+    // Booking stamped a share snapshot on the IOU (amount is already the net share).
+    expect(before!.seniorSharePercent).not.toBeNull()
+
+    const res = await settle(seniorObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
+
+    // Same row, flipped in place → SENIOR_INCOME / PAID.
+    const after = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, srcId),
+    })
+    expect(after!.type).toBe('SENIOR_INCOME')
+    expect(after!.status).toBe('PAID')
+    // MONEY-CRITICAL: the share snapshot is nulled so getSeniorBalance treats the
+    // amount as NET (no ×26% re-application) — byte-identical to the old settle row.
+    expect(after!.seniorSharePercent).toBeNull()
+    // The settle response carries the flipped row — reusing the SOURCE id (proof
+    // that NO second transaction was inserted).
+    expect(res.created).toHaveLength(1)
+    expect(res.created[0]!.id).toBe(srcId)
+    expect(res.created[0]!.type).toBe('SENIOR_INCOME')
+    // Obligation closed, pointing at itself (self-reference).
+    const obl = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, seniorObl!.id),
+    })
+    expect(obl!.status).toBe('PAID')
+    expect(obl!.closingTransactionId).toBe(srcId)
+    // The phantom is gone — no SENIOR_PENDING_PAYOUT remains for this senior.
+    const seniorTxs = await dbSvc.db
+      .select({ type: transactions.type })
+      .from(transactions)
+      .where(eq(transactions.receiverId, SENIOR.id))
+    expect(seniorTxs.some((t) => t.type === 'SENIOR_PENDING_PAYOUT')).toBe(false)
+  })
+
+  it('settle-in-place: drop IOU flips DROP_PENDING_PAYOUT → PAYOUT_DROP on the SAME row (no second tx)', async () => {
+    if (!dbAvailable) return
+    await declare(
+      { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+      ADMIN_MAKSYM,
+    )
+    const [dropObl] = await obligationsFor(DROP.id)
+    const srcId = (await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, dropObl!.id),
+    }))!.sourceTransactionId
+
+    const before = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, srcId),
+    })
+    expect(before!.type).toBe('DROP_PENDING_PAYOUT')
+    expect(before!.status).toBe('PENDING_PAYMENT')
+
+    const res = await settle(dropObl!.id, ADMIN_MAKSYM, { fundingSource: 'COMPANY_ACCOUNT' })
+
+    const after = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, srcId),
+    })
+    expect(after!.type).toBe('PAYOUT_DROP')
+    expect(after!.status).toBe('PAID')
+    expect(res.created).toHaveLength(1)
+    expect(res.created[0]!.id).toBe(srcId)
+    expect(res.created[0]!.type).toBe('PAYOUT_DROP')
+    const obl = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, dropObl!.id),
+    })
+    expect(obl!.closingTransactionId).toBe(srcId)
+    // No PAYOUT_DROP invoice (Q6) and the phantom DROP_PENDING_PAYOUT is gone.
+    expect(seniorInvoiceTriggers).toBe(0)
+    const dropTxs = await dbSvc.db
+      .select({ type: transactions.type })
+      .from(transactions)
+      .where(eq(transactions.receiverId, DROP.id))
+    expect(dropTxs.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(false)
   })
 
   // ── MED-1 (review round 1, ADR C9): RBAC visibility of the new IOU/settlement
@@ -694,6 +788,11 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
     it('findAll: DROP sees own DROP_PENDING_PAYOUT + PAYOUT_DROP; SENIOR list excludes them; ACCOUNTANT sees both', async () => {
       if (!dbAvailable) return
+      // task-settle-in-place: a settle FLIPS the drop IOU (DROP_PENDING_PAYOUT →
+      // PAYOUT_DROP) in place, so a single declare+settle leaves NO lingering
+      // DROP_PENDING_PAYOUT. To exercise BOTH types' RBAC visibility at once we
+      // (a) declare + settle one drop IOU → PAYOUT_DROP, then (b) declare a SECOND
+      // income WITHOUT settling → a fresh, still-PENDING DROP_PENDING_PAYOUT.
       await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
@@ -702,6 +801,11 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
       await settle(dropObl!.id, ADMIN_MAKSYM, {
         fundingSource: 'COMPANY_ACCOUNT',
       })
+      // Second (unsettled) declaration → a lingering DROP_PENDING_PAYOUT.
+      await declare(
+        { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+        ADMIN_MAKSYM,
+      )
 
       const dropList = await svc.findAll(DROP)
       expect(dropList.some((t) => t.type === 'DROP_PENDING_PAYOUT')).toBe(true)
