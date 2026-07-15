@@ -71,15 +71,23 @@ import { assertReceiptDocumentBindable } from './receipt.util'
  * task-senior-settle-owner: the pay-time funding selection for a senior IOU
  * settlement. Identical contract to paySalary — the ADMIN/ACCOUNTANT picks the
  * source (shared company account vs an admin partner's personal account) and,
- * for ADMIN_PERSONAL, which admin paid + in which currency.
+ * for ADMIN_PERSONAL, which admin paid.
  *   - COMPANY_ACCOUNT → currency forced USDT, debits the shared account.
- *   - ADMIN_PERSONAL  → payerAdminId (validated ADMIN) is the sender; any
- *     currency; the company account is untouched.
+ *   - ADMIN_PERSONAL  → payerAdminId (validated ADMIN) is the sender; the
+ *     company account is untouched.
+ *
+ * task-remove-settle-currency (2026-07): `currency` is now OPTIONAL — the
+ * settle dialog no longer lets the caller pick one (every senior/drop
+ * obligation is denominated in USDT; see transactions.service.ts createIous).
+ * When omitted, `settleByCompany` defaults it to `obligation.currency`
+ * (always USDT in practice). It stays on the type (not removed) so a
+ * defensive/legacy caller that still passes an explicit currency keeps
+ * working — the BIZ-03 guard below still validates it when present.
  */
 export type SettleFunding = {
   fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
   payerAdminId?: string | undefined
-  currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+  currency?: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
   // task-receipts-backend (#10): mandatory settle proof — currency-aware
   // (COMPANY_ACCOUNT → USDT → explorer-only; ADMIN_PERSONAL USD → file/url).
   receiptDocumentId?: string | null | undefined
@@ -226,12 +234,17 @@ export class PendingSettlementService {
 
     let senderId: string | null = null
     let senderLabel = 'COMPANY'
+    // task-remove-settle-currency: default is the OBLIGATION's own currency
+    // (always USDT for a senior/drop IOU — see transactions.service.ts
+    // createIous). The settle dialog no longer sends a currency at all; this
+    // is the value that ends up on the flipped row for both funding sources
+    // unless a caller explicitly overrides it below (defensive/legacy path).
     let currency = obligation.currency
     if (funding && funding.fundingSource === 'ADMIN_PERSONAL') {
       // ADMIN_PERSONAL: paid from an admin partner's personal account. The payer
       // defaults to the calling (ADMIN/ACCOUNTANT) user only when they are an
       // ADMIN; an explicit payerAdminId must resolve to an ADMIN. The company
-      // account is NOT touched; currency is the chosen one (any). Mirrors paySalary.
+      // account is NOT touched. Mirrors paySalary.
       const payerAdminId = funding.payerAdminId ?? actor.id
       const payer = await this.db.db.query.users.findFirst({
         where: eq(users.id, payerAdminId),
@@ -241,22 +254,28 @@ export class PendingSettlementService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
-      // BIZ-03 (HIGH): ADMIN_PERSONAL settles a USDT obligation from the admin's
-      // personal account. The SENIOR_INCOME row carries the chosen currency, and
-      // downstream (getSeniorBalance / getTotalEarned / summary) converts it via
-      // convertToBase using the currency LABEL — not a fixed USDT amount. So:
+      // BIZ-03 (HIGH), kept as a safety net (task-remove-settle-currency): the
+      // frontend no longer sends a currency, so `funding.currency` is normally
+      // undefined here and `currency` stays `obligation.currency` (USDT) from
+      // the declaration above. IF a caller still supplies one explicitly
+      // (legacy/defensive), re-validate it — the SENIOR_INCOME row carries the
+      // chosen currency, and downstream (getSeniorBalance / getTotalEarned /
+      // summary) converts it via convertToBase using the currency LABEL — not a
+      // fixed USDT amount. So:
       //   • USD/USDT → convertToBase short-circuits 1:1 → correct $-amount ✅
       //   • UAH      → convertToBase divides by usdUah (~40) → ~40× undercount ✗
       //   • EUR      → further triangulation → similar distortion ✗
       // Allow only USD and USDT (equivalent to the USDT obligation value 1:1).
       // UAH/EUR are rejected with a clear message; if multi-currency settlement
       // is ever needed the amount must be converted to USDT before recording.
-      if (funding.currency !== 'USD' && funding.currency !== 'USDT') {
-        throw new BadRequestException(
-          `Закрытие USDT-обязательства в ${funding.currency} не поддерживается без конверсии суммы. Используйте USD или USDT.`,
-        )
+      if (funding.currency !== undefined) {
+        if (funding.currency !== 'USD' && funding.currency !== 'USDT') {
+          throw new BadRequestException(
+            `Закрытие USDT-обязательства в ${funding.currency} не поддерживается без конверсии суммы. Используйте USD или USDT.`,
+          )
+        }
+        currency = funding.currency
       }
-      currency = funding.currency
     } else if (debitsCompanyAccount) {
       // COMPANY_ACCOUNT: USDT-only account (the schema refine + this force keep
       // the currency label consistent with the ledger).

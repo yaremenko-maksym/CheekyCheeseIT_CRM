@@ -1063,6 +1063,15 @@ export type SettleBySourceTransactionParamDto = z.infer<typeof settleBySourceTra
 //     (validated server-side: must be an ADMIN); currency may be any of the enum.
 //     The company account is NOT touched; the closing SENIOR_INCOME carries
 //     senderId=payer + fundingSource=ADMIN_PERSONAL.
+//
+// task-remove-settle-currency (2026-07): the UI no longer lets the caller pick a
+// currency — every senior/drop obligation is denominated in USDT (see
+// transactions.service.ts createIous), and USD/USDT are treated 1:1 downstream
+// (convertToBase), so the choice was purely cosmetic. `currency` is now OPTIONAL:
+// when omitted the service defaults it to the obligation's own currency (always
+// USDT in practice). It stays in the schema (not removed) so legacy/defensive
+// callers (e2e fixtures, the BIZ-03 unit specs) that still send an explicit
+// currency keep working byte-for-byte — see pending-settlement.service.ts.
 export const settleSeniorPayoutSchema = z
   .object({
     // Reuse salaryFundingSourceSchema — the SAME COMPANY_ACCOUNT | ADMIN_PERSONAL
@@ -1071,17 +1080,21 @@ export const settleSeniorPayoutSchema = z
     // For ADMIN_PERSONAL — whose personal account funds this payout. Must be an
     // ADMIN (validated server-side). Ignored for COMPANY_ACCOUNT.
     payerAdminId: z.string().uuid().optional(),
-    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    // Optional (task-remove-settle-currency) — see comment above.
+    currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     // task-receipts-backend (#10): closing a senior/drop IOU now requires proof.
-    // Effective currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only;
-    // else the chosen currency → file/url.
+    // Effective currency = USDT for COMPANY_ACCOUNT (USDT-only) or when `currency`
+    // is omitted (task-remove-settle-currency default) → explorer-only; else the
+    // explicitly chosen currency → file/url.
     ...receiptFields,
   })
   // Reuse the shared COMPANY_ACCOUNT→USDT guard (same rule as pay-salary /
   // create-salary / expense / admin-income): a company-account payout is USDT-only.
   .superRefine(refineCompanyAccountUsdt)
   .superRefine(
-    mandatoryReceiptRefine((d) => (d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : d.currency)),
+    mandatoryReceiptRefine((d) =>
+      d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : (d.currency ?? 'USDT'),
+    ),
   )
 export type SettleSeniorPayoutDto = z.infer<typeof settleSeniorPayoutSchema>
 
