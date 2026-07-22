@@ -161,6 +161,10 @@ export class UsersController {
         bankUahIban: dto.bankUahIban ?? null,
         bankUahRnokpp: dto.bankUahRnokpp ?? null,
         bankUahBankName: dto.bankUahBankName ?? null,
+        // Contract data — persist so the drop's MSA contract renders the legal
+        // ФИО / registration address the admin typed (previously dropped).
+        legalFullName: dto.legalFullName ?? null,
+        registrationAddress: dto.registrationAddress ?? null,
         hrIds: dto.hrIds,
         accountantId: dto.accountantId ?? null,
         telegramChannel: dto.telegramChannel ?? null,

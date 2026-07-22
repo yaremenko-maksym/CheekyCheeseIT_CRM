@@ -604,6 +604,16 @@ export function UserDialog(props: UserDialogProps) {
           hrIds,
           accountantId: accountantId || null,
           telegramChannel: normalizedChannel,
+          // Данные для контракта — DROP still gets an MSA contract (owner
+          // decision). legalFullName is REQUIRED (schema + UI validator);
+          // registrationAddress is optional. Previously omitted from this
+          // branch → the admin's input was silently lost (legal_full_name=null).
+          ...(value.legalFullName.trim() && {
+            legalFullName: value.legalFullName.trim(),
+          }),
+          ...(value.registrationAddress.trim() && {
+            registrationAddress: value.registrationAddress.trim(),
+          }),
         }
         const result = createDropSchema.safeParse(payload)
         if (!result.success) {

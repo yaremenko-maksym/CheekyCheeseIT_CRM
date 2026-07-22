@@ -29,7 +29,10 @@
 import { test, expect, USERS } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
 
-const API = 'http://localhost:3001/api'
+// task-settle-in-place-e2e convention (env-aware, mirrors fixtures.ts /
+// drop-share-slider.spec.ts) — was hardcoded to localhost:3001, which broke
+// any isolated scratch-stand run pointed at a different API port.
+const API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
 
 test.describe('Drop create — UI regressions', () => {
   test('slider for DROP role exposes aria-label «Доля дропа в процентах»', async ({
@@ -110,6 +113,13 @@ test.describe('Drop create — UI regressions', () => {
     const dialog = page.getByTestId('user-dialog')
     await dialog.getByTestId('user-dialog-email').fill('drop-nohr@example.dev')
     await dialog.getByTestId('user-dialog-name').fill('Drop NoHR')
+    // legalFullName is REQUIRED for CREATE-mode contract-eligible roles
+    // (createDropSchema superRefine, fix/drop-legal-name-persist). TanStack
+    // Form's field-level onSubmit validators run BEFORE the top-level
+    // onSubmit callback (which holds the HR check below) — leaving this
+    // blank would surface the legalFullName error instead of the HR one and
+    // this test would assert on the wrong message.
+    await dialog.getByTestId('user-dialog-legal-full-name').fill('NoHR Legalenko')
     await dialog.getByTestId('user-dialog-payment-method-USDT_ERC20').click()
     await dialog.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
@@ -117,7 +127,10 @@ test.describe('Drop create — UI regressions', () => {
     // assertion a passing test would be misleading if HR somehow leaked.
     await expect(dialog.getByText(/Нет доступных HR/i)).toBeVisible({ timeout: 5_000 })
 
-    await dialog.getByTestId('user-dialog-submit').click()
+    // A3-3 (#119) 3-step wizard — CREATE mode's step-1 button is
+    // `wizard-next-btn`, not the edit-only `user-dialog-submit` (pre-existing
+    // drift, predates fix/drop-legal-name-persist; see drop-share-slider.spec.ts).
+    await dialog.getByTestId('wizard-next-btn').click()
 
     // Inline validation surfaces the exact wording from UserDialog.tsx:473/532.
     // Use a broader locator (page, not dialog) — the error renders as a
@@ -161,11 +174,18 @@ test.describe('Drop create — UI regressions', () => {
     const dialog = page.getByTestId('user-dialog')
     await dialog.getByTestId('user-dialog-email').fill('drop-happy@example.dev')
     await dialog.getByTestId('user-dialog-name').fill('Drop Happy Path')
+    // legalFullName is REQUIRED for CREATE-mode contract-eligible roles
+    // (createDropSchema superRefine, fix/drop-legal-name-persist) — without
+    // it the onSubmit validator blocks before createDropSchema.safeParse()
+    // ever runs, so no POST fires and no toast appears.
+    await dialog.getByTestId('user-dialog-legal-full-name').fill('Happy Path Legalenko')
     await dialog.getByTestId('user-dialog-payment-method-USDT_ERC20').click()
     await dialog.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
 
     // HR chip auto-selected (single-HR fixture). Submit.
-    await dialog.getByTestId('user-dialog-submit').click()
+    // A3-3 (#119) 3-step wizard — CREATE mode's step-1 button is
+    // `wizard-next-btn`, not the edit-only `user-dialog-submit`.
+    await dialog.getByTestId('wizard-next-btn').click()
 
     // Toast «Дроп создан» surfaces immediately. Sonner renders the toast in
     // a region attached to body — scope is the page, not the dialog.

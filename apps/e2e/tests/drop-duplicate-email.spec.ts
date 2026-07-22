@@ -62,9 +62,28 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
       await dialog.getByTestId('user-dialog-email').fill(dupEmail)
       await dialog.getByTestId('user-dialog-name').fill('Different Display Name')
 
+      // legalFullName is REQUIRED for CREATE-mode contract-eligible roles
+      // (createDropSchema superRefine, fix/drop-legal-name-persist) — without
+      // it form.handleSubmit() blocks before the POST ever fires and the
+      // `conflictResp` wait below times out. Persists across the retry below
+      // (only the email field is refilled).
+      await dialog.getByTestId('user-dialog-legal-full-name').fill('AC3 Legal Dropenko')
+
       // Required requisites — USDT wallet to satisfy refineRequisitePresence.
       await dialog.getByTestId('user-dialog-payment-method-USDT_ERC20').click()
       await dialog.getByTestId('user-dialog-wallet').fill(VALID_USDT_WALLET)
+
+      // HR is mandatory (`hrIds.length >= 1`, see UserDialog.tsx onSubmit)
+      // and only auto-selects when the dataset has exactly one HR user
+      // (see drop-share-slider.spec.ts `fillBaseDropFields`). This spec runs
+      // against the real backend/seed, which can have 2+ HR users — pick one
+      // explicitly so the submit isn't silently blocked by an empty hrIds.
+      await expect(dialog.getByTestId('user-dialog-hr-multiselect')).toBeVisible()
+      const hrAddTrigger = dialog.getByTestId('user-dialog-hr-add-trigger')
+      if ((await hrAddTrigger.count()) > 0) {
+        await hrAddTrigger.click()
+        await page.locator('[data-testid^="user-dialog-hr-option-"]').first().click()
+      }
 
       // Wait for the 409 response from /api/users/drops so we know the
       // backend rejected the request.
@@ -74,7 +93,10 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
           resp.request().method() === 'POST' &&
           resp.status() === 409,
       )
-      await dialog.getByTestId('user-dialog-submit').click()
+      // A3-3 (#119) 3-step wizard — CREATE mode's step-1 button is
+      // `wizard-next-btn`, not the edit-only `user-dialog-submit` (DROP
+      // submits immediately from step 1, no wizard advance).
+      await dialog.getByTestId('wizard-next-btn').click()
       await conflictResp
 
       // Toast surfaces the tailored 409 message — `sonner` renders a region
@@ -99,7 +121,10 @@ test.describe('Drop create — duplicate email UI flow (AC3)', () => {
           resp.status() >= 200 &&
           resp.status() < 300,
       )
-      await dialog.getByTestId('user-dialog-submit').click()
+      // A3-3 (#119) 3-step wizard — CREATE mode's step-1 button is
+      // `wizard-next-btn`, not the edit-only `user-dialog-submit` (DROP
+      // submits immediately from step 1, no wizard advance).
+      await dialog.getByTestId('wizard-next-btn').click()
       const successBody = (await (await successResp).json()) as { user: { id: string } } | undefined
       if (successBody?.user?.id) secondDropId = successBody.user.id
 

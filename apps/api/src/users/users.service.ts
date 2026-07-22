@@ -1646,6 +1646,13 @@ export class UsersService {
       bankUahIban?: string | null
       bankUahRnokpp?: string | null
       bankUahBankName?: string | null
+      /**
+       * Legal full name (Cyrillic ФИО) for the drop's MSA contract. Required
+       * at the schema/UI boundary; persisted here so it isn't lost.
+       */
+      legalFullName?: string | null
+      /** Ukrainian registration address (ФОП) — optional; persisted when set. */
+      registrationAddress?: string | null
       hrIds: string[]
       accountantId?: string | null
       telegramChannel?: string | null
@@ -1673,6 +1680,12 @@ export class UsersService {
         techStack: data.techStack ?? null,
         dropSharePercent: data.dropSharePercent ?? 5,
       }
+      // Contract data — persist the legal ФИО / registration address so the
+      // drop's MSA contract renders them (buildContractVariableMap reads both).
+      // Trim + only set when non-blank, mirroring createUser.
+      if (data.legalFullName?.trim()) insertValues.legalFullName = data.legalFullName.trim()
+      if (data.registrationAddress?.trim())
+        insertValues.registrationAddress = data.registrationAddress.trim()
       if (data.paymentMethod) {
         insertValues.paymentMethod = data.paymentMethod
         if (data.paymentMethod === 'USDT_ERC20') {

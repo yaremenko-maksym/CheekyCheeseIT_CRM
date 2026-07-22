@@ -190,6 +190,8 @@ describe('createDropSchema — accountant optional', () => {
     paymentMethod: 'USDT_ERC20' as const,
     walletUsdtErc20: '0xAbCd1234567890aBcDeF1234567890AbCdEf1234',
     hrIds: [validUuid],
+    // legalFullName is REQUIRED for DROP (contract-eligible role).
+    legalFullName: 'Дропенко Дроп Дропович',
   }
 
   it('passes when accountantId is omitted', () => {
@@ -220,5 +222,74 @@ describe('createDropSchema — accountant optional', () => {
       const paths = result.error.issues.map((i) => i.path.join('.'))
       expect(paths).toContain('accountantId')
     }
+  })
+})
+
+// ─── Bug-fix: legalFullName/registrationAddress persisted on drop creation ────
+
+/**
+ * Owner report (manual-QA on #387): the «Юридическое ФИО» field is required in
+ * the DROP dialog, but createDropSchema never carried `legalFullName` /
+ * `registrationAddress`, so the admin's input was silently dropped
+ * (legal_full_name=null) and the MSA contract rendered with the display name.
+ * Owner decision: keep the data (drop needs a contract) and keep ФИО required.
+ */
+describe('createDropSchema — legalFullName/registrationAddress persistence', () => {
+  const validUuid = '123e4567-e89b-42d3-a456-426614174000'
+
+  /** Valid DROP payload WITHOUT the contract fields — used to prove ФИО is required. */
+  const dropNoContract = {
+    email: 'drop@example.com',
+    displayName: 'Дроп Дропенко',
+    paymentMethod: 'USDT_ERC20' as const,
+    walletUsdtErc20: '0xAbCd1234567890aBcDeF1234567890AbCdEf1234',
+    hrIds: [validUuid],
+  }
+
+  it('fails when legalFullName is missing (required for contract)', () => {
+    const result = createDropSchema.safeParse(dropNoContract)
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('legalFullName')
+    }
+  })
+
+  it('fails when legalFullName is blank/whitespace', () => {
+    const result = createDropSchema.safeParse({ ...dropNoContract, legalFullName: '   ' })
+    expect(result.success).toBe(false)
+    if (!result.success) {
+      const paths = result.error.issues.map((i) => i.path.join('.'))
+      expect(paths).toContain('legalFullName')
+    }
+  })
+
+  it('passes with a valid legalFullName', () => {
+    const result = createDropSchema.safeParse({
+      ...dropNoContract,
+      legalFullName: 'Дропенко Дроп Дропович',
+    })
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts an optional registrationAddress alongside legalFullName', () => {
+    const result = createDropSchema.safeParse({
+      ...dropNoContract,
+      legalFullName: 'Дропенко Дроп Дропович',
+      registrationAddress: 'м. Київ, вул. Хрещатик, 1',
+    })
+    expect(result.success).toBe(true)
+    if (result.success) {
+      expect(result.data.registrationAddress).toBe('м. Київ, вул. Хрещатик, 1')
+      expect(result.data.legalFullName).toBe('Дропенко Дроп Дропович')
+    }
+  })
+
+  it('registrationAddress stays optional (payload valid without it)', () => {
+    const result = createDropSchema.safeParse({
+      ...dropNoContract,
+      legalFullName: 'Дропенко Дроп Дропович',
+    })
+    expect(result.success).toBe(true)
   })
 })

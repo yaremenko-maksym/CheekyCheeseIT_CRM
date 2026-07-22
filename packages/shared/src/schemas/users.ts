@@ -255,6 +255,21 @@ export const createDropSchema = z
     bankUahIban: bankUahIbanField.optional(),
     bankUahRnokpp: bankUahRnokppField.optional(),
     bankUahBankName: z.string().nullable().optional(),
+    /**
+     * Legal full name (Cyrillic, order: Surname First Patronymic).
+     * REQUIRED at DROP creation — the drop still gets an MSA contract (owner
+     * decision) and the UI blocks submit without it. Enforced via the
+     * superRefine below so the payload can never silently drop it (the exact
+     * data-loss bug this schema field closes). Same validators as
+     * `createUserSchema` for consistency.
+     */
+    legalFullName: z.string().min(5, 'ФИО минимум 5 символов').max(200).optional(),
+    /**
+     * Ukrainian registration address (ФОП). Used in the DROP contract template
+     * as {{registrationAddress}}. Optional — matches the UI (no required
+     * validator on the field). Persisted when provided so it is not lost.
+     */
+    registrationAddress: z.string().max(500).nullable().optional(),
     // Team section — identical shape to senior-team creation.
     hrIds: z.array(z.string().uuid()).min(1, 'HR обязателен (минимум 1)'),
     accountantId: z.string().uuid().nullable().optional(),
@@ -270,6 +285,18 @@ export const createDropSchema = z
   })
   .superRefine((data, ctx) => {
     refineRequisitePresence({ ...data, role: 'DROP' as const }, ctx)
+
+    // DROP is a contract-eligible role (CONTRACT_ROLES) — legalFullName is
+    // mandatory at creation, mirroring `createUserSchema`. Without this the
+    // ФИО typed by the admin was never persisted (legal_full_name=null) and
+    // the MSA contract rendered with the platform display name instead.
+    if (!data.legalFullName?.trim()) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'ФИО обязательно для контракта',
+        path: ['legalFullName'],
+      })
+    }
   })
 
 /**
