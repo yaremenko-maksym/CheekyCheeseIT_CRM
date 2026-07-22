@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 
 /**
  * Renders the official Cloudflare Turnstile widget into `containerRef` and
@@ -38,7 +38,7 @@ const POLL_TIMEOUT_MS = 15_000
 
 export interface UseTurnstileResult {
   /** Attach to the `<div>` the widget renders into. */
-  containerRef: React.RefObject<HTMLDivElement | null>
+  containerRef: RefObject<HTMLDivElement>
   /** `null` until the widget completes (or after `reset()`/expiry). */
   token: string | null
   /** Re-runs the challenge — Turnstile tokens are single-use, call after a failed submit. */
@@ -46,7 +46,7 @@ export interface UseTurnstileResult {
 }
 
 export function useTurnstile(): UseTurnstileResult {
-  const containerRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
   const widgetIdRef = useRef<string | null>(null)
   const [token, setToken] = useState<string | null>(null)
 
