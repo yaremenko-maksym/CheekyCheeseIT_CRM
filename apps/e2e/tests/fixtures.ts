@@ -1642,10 +1642,19 @@ export async function createDropViaAPI(
     accountantEmail?: string
     dropSharePercent?: number
     telegramChannel?: string | null
+    /**
+     * Legal full name for the MSA contract — `createDropSchema` made this
+     * mandatory (see superRefine "ФИО обязательно для контракта",
+     * fix/drop-legal-name-persist). Defaults to a deterministic E2E value
+     * derived from `displayName` so existing callers don't need to change;
+     * override when a test asserts on the exact persisted value.
+     */
+    legalFullName?: string
   },
 ): Promise<{ dropId: string; teamId: string; email: string }> {
   const hrEmails = opts.hrEmails ?? [SEED_EMAILS.hrA]
   const accountantEmail = opts.accountantEmail ?? SEED_EMAILS.accountant
+  const legalFullName = opts.legalFullName ?? `E2E Drop Legal ${opts.displayName}`
 
   const hrIds: string[] = []
   for (const e of hrEmails) {
@@ -1661,6 +1670,7 @@ export async function createDropViaAPI(
     displayName: opts.displayName,
     paymentMethod: 'USDT_ERC20' as const,
     walletUsdtErc20: VALID_USDT_WALLET,
+    legalFullName,
     hrIds,
     accountantId: accountant.id,
     ...(opts.dropSharePercent !== undefined && { dropSharePercent: opts.dropSharePercent }),

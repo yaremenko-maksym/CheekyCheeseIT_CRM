@@ -85,6 +85,12 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     await dialog.getByTestId('user-dialog-email').fill('drop-ac1@cheekycheese.dev')
     await dialog.getByTestId('user-dialog-name').fill('AC1 Drop User')
 
+    // legalFullName is REQUIRED for CREATE-mode contract-eligible roles
+    // (createDropSchema superRefine, fix/drop-legal-name-persist) — without
+    // it form.handleSubmit() blocks before the mutation ever fires and
+    // `postReq` below times out.
+    await dialog.getByTestId('user-dialog-legal-full-name').fill('AC1 Legal Dropenko')
+
     // Slider — type a custom share via the number input. Falls back to
     // default 5 if the number input isn't surfaced.
     const sliderNumber = dialog.locator('input[type="number"]').first()
@@ -102,7 +108,14 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
     // HR + Accountant chips auto-select when fixtures expose a single user
     // per role — see UserDialog auto-select effect.
 
-    await dialog.getByTestId('user-dialog-submit').click()
+    // A3-3 (#119) turned CREATE mode into a 3-step wizard — step 1's button
+    // is `wizard-next-btn` ("Далее"), which calls the same form.handleSubmit()
+    // and (for DROP) fires the POST immediately, same as the old submit did.
+    // `user-dialog-submit` only renders in EDIT mode (see UserDialog.tsx
+    // `!isCreate` branch) — this pre-existing drift predates
+    // fix/drop-legal-name-persist (see drop-share-slider.spec.ts for the same
+    // fix applied earlier).
+    await dialog.getByTestId('wizard-next-btn').click()
 
     const req = await postReq
     const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
@@ -112,6 +125,7 @@ test.describe('Drop creation — AC1 (unified UserDialog)', () => {
       displayName: 'AC1 Drop User',
       paymentMethod: 'USDT_ERC20',
       walletUsdtErc20: VALID_USDT_WALLET,
+      legalFullName: 'AC1 Legal Dropenko',
     })
 
     // hrIds + accountantId are required by createDropSchema. With single-HR
