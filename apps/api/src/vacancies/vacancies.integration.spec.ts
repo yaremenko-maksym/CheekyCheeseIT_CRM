@@ -1,6 +1,6 @@
 /**
- * Vacancies — real-backend integration spec (real Postgres + real MinIO +
- * real Cloudflare Turnstile "always passes" test secret).
+ * Vacancies — real-backend integration spec (real Postgres + a STUBBED
+ * S3Service + real Cloudflare Turnstile "always passes" test secret).
  *
  * WHY this test exists (feedback_mocked_e2e_guards lesson): mocked specs
  * cannot prove that the REAL RolesGuard + REAL SQL WHERE clauses (409 dup
@@ -10,11 +10,25 @@
  * (VacanciesService, ApplicationsService, TurnstileService) through a real
  * Fastify HTTP pipeline.
  *
+ * F1 (CI red fix, task-fix-pr-390): the CI `Integration Tests (Postgres)`
+ * job (`.github/workflows/ci.yml`) runs Postgres only — MinIO is only
+ * started for the separate `e2e` job — so this spec CANNOT depend on a real
+ * R2/MinIO endpoint. Established precedent for THIS exact job:
+ * `documents-unified.integration.spec.ts` stubs `S3Service` rather than
+ * hitting a live endpoint. This spec follows the same pattern — an
+ * in-memory key→buffer store stands in for R2/MinIO, so AC6/AC10 assert
+ * "upload really persisted the right key/bytes" and "delete really removes
+ * what getObject can see" without a live object store. Real-R2 behavioral
+ * coverage (actual PutObject/GetObject/DeleteObject against MinIO) is
+ * exercised locally against `docker-compose up -d` MinIO + manual-qa on the
+ * real upload/download flow, not by this CI-run spec.
+ *
  * Covers: AC3 (admin CRUD + status transitions + delete guards +
  * applicationsCount), AC4 (RBAC matrix on every private endpoint), AC5
- * (public visibility + 404s), AC6 (apply happy path — real DB row + real R2
+ * (public visibility + 404s), AC6 (apply happy path — real DB row + stub-S3
  * object + real notifications), AC8 (rate-limit 429 on the real endpoint),
- * AC9 boundary (89/90/91 day retention cron against real timestamps).
+ * AC9 boundary (89/90/91 day retention cron against real timestamps), AC10
+ * (resume-url presigned TTL + object gone from the stub store after delete).
  *
  * Run against the scratch DB:
  *   pnpm --filter @crm/api exec vitest run vacancies.integration
@@ -138,24 +152,61 @@ const TEST_USER_IDS = [HR.id, SENIOR.id, JUNIOR.id, ACCOUNTANT.id, DROP.id]
 const DISALLOWED = [SENIOR, JUNIOR, ACCOUNTANT, DROP]
 
 // ---------------------------------------------------------------------------
-// Fake ConfigService — S3/MinIO (real local docker-compose MinIO) + Turnstile
-// dummy "always passes" secret. Mirrors s3.service.spec.ts's makeConfig()
-// helper; avoids requiring the full app validateEnv() (GOOGLE_CLIENT_ID etc
-// are irrelevant here and not present in the vitest worker env).
+// Fake ConfigService — Turnstile dummy "always passes" secret only (F1: S3
+// config is no longer needed — S3Service itself is stubbed below, not
+// constructed from real S3/MinIO env). Avoids requiring the full app
+// validateEnv() (GOOGLE_CLIENT_ID etc are irrelevant here and not present in
+// the vitest worker env).
 // ---------------------------------------------------------------------------
 
 const fakeEnv: Record<string, unknown> = {
-  S3_ENDPOINT: 'http://localhost:9000',
-  S3_REGION: 'us-east-1',
-  S3_BUCKET: 'crm-documents',
-  S3_FORCE_PATH_STYLE: true,
-  S3_USE_SSE: false,
-  AWS_ACCESS_KEY_ID: 'minioadmin',
-  AWS_SECRET_ACCESS_KEY: 'minioadmin',
   TURNSTILE_SECRET_KEY: DUMMY_TURNSTILE_SECRET,
   NODE_ENV: 'test',
 }
 const fakeConfigService = { get: (key: string) => fakeEnv[key] } as unknown as ConfigService
+
+// ---------------------------------------------------------------------------
+// Stub S3Service (F1 / sec CI-red fix) — see the file-header comment for the
+// full rationale. An in-memory key→buffer Map stands in for R2/MinIO:
+//   - upload()  stores the buffer under its key
+//   - getObject() returns the stored buffer, or rejects if the key is absent
+//     (mirrors S3Service.getObject's real "throws on missing key" contract)
+//   - delete()  removes the key (idempotent — deleting a missing key is a no-op)
+//   - getPresignedDownloadUrl() returns a fake-but-shaped URL + a REAL
+//     TTL-derived expiresAt (same math as S3Service, so the AC10 TTL
+//     assertion still exercises real ApplicationsService/controller wiring,
+//     not just the stub).
+// ---------------------------------------------------------------------------
+
+const s3Store = new Map<string, Buffer>()
+
+const stubS3 = {
+  upload: (key: string, body: Buffer): Promise<void> => {
+    s3Store.set(key, body)
+    return Promise.resolve()
+  },
+  getObject: (key: string): Promise<Buffer> => {
+    const buf = s3Store.get(key)
+    if (!buf) return Promise.reject(new Error(`stub S3: no such key "${key}"`))
+    return Promise.resolve(buf)
+  },
+  delete: (key: string): Promise<void> => {
+    s3Store.delete(key)
+    return Promise.resolve()
+  },
+  getPresignedDownloadUrl: (
+    key: string,
+    ttlSec: number | undefined = 600,
+    _downloadAs?: string,
+    _disposition?: 'inline' | 'attachment',
+  ): Promise<{ url: string; expiresAt: string }> => {
+    const effectiveTtl = ttlSec ?? 600
+    return Promise.resolve({
+      url: `https://stub-s3.local/${encodeURIComponent(key)}`,
+      expiresAt: new Date(Date.now() + effectiveTtl * 1000).toISOString(),
+    })
+  },
+} as unknown as S3Service
 
 // ---------------------------------------------------------------------------
 // TestDatabaseModule — same pattern as legends.rbac.integration.spec.ts, EXCEPT
@@ -210,11 +261,9 @@ class TestDatabaseModule {}
     // (esbuild strips constructor param-type metadata — a bare class binding
     // here would leave `reflector` undefined inside RolesGuard at request time).
     { provide: ConfigService, useValue: fakeConfigService },
-    {
-      provide: S3Service,
-      useFactory: (c: ConfigService) => new S3Service(c),
-      inject: [ConfigService],
-    },
+    // F1: stubbed, in-memory S3Service (see the stub's own comment above) —
+    // the CI `integration` job has Postgres but NOT MinIO.
+    { provide: S3Service, useValue: stubS3 },
     { provide: CompressionService, useFactory: () => new CompressionService() },
     {
       provide: NotificationsService,
@@ -403,8 +452,9 @@ describe('Vacancies — real backend integration', () => {
             createdVacancyIds.map((id) => `/vacancies/${id}`),
           ),
         )
-        // Delete the real R2/MinIO resume objects before dropping the rows
-        // that reference them — the AC6 happy-path test really uploads one.
+        // Delete the stub-S3 resume objects (in-memory Map, F1) before
+        // dropping the rows that reference them — tidy even though the
+        // store is process-local and never persists across test runs.
         const appRows = await db.query.vacancyApplications.findMany({
           where: (a, { inArray: ia }) => ia(a.vacancyId, createdVacancyIds),
         })
@@ -866,10 +916,10 @@ describe('Vacancies — real backend integration', () => {
     })
   })
 
-  // ── AC6: apply happy path (real DB + real MinIO + real notifications) ─────
+  // ── AC6: apply happy path (real DB + stub-S3 object + real notifications) ─
 
   describe('AC6 — apply happy path', () => {
-    it('POST /api/public/vacancies/:slug/apply → 201, DB row, R2 object, ADMIN+HR notified', async () => {
+    it('POST /api/public/vacancies/:slug/apply → 201, DB row, stub-S3 object, ADMIN+HR notified', async () => {
       if (!dbAvailable) return
       const slug = `apply-happy-${Date.now()}`
       const create = await app.inject({
@@ -927,7 +977,9 @@ describe('Vacancies — real backend integration', () => {
       expect(appRow.email).toBe(email)
       expect(appRow.status).toBe('NEW')
 
-      // R2/MinIO object exists — fetch it back via the real S3Service.
+      // Stub-S3 object exists — ApplicationsService really called
+      // S3Service.upload() with the right key/bytes (F1: real R2 behavioral
+      // coverage lives in local/manual-qa, not this CI-run spec).
       const s3 = app.get(S3Service)
       const objectBuf = await s3.getObject(appRow.resumeS3Key)
       expect(objectBuf.length).toBeGreaterThan(0)
@@ -1029,7 +1081,8 @@ describe('Vacancies — real backend integration', () => {
       })
       expect(afterDelete).toBeUndefined()
 
-      // R2 object gone — real GetObject against MinIO now rejects.
+      // Stub-S3 object gone — ApplicationsController's DELETE handler really
+      // called S3Service.delete(), which removed the key from the store.
       await expect(s3.getObject(appRow!.resumeS3Key)).rejects.toThrow()
     })
   })
