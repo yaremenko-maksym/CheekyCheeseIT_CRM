@@ -25,3 +25,10 @@ docs/architecture/ecc-reference/
 
 # Generated routing
 **/routeTree.gen.ts
+
+# Claude Design standalone-export vendor bundles (immutable snapshots, pulled
+# verbatim from claude.ai/design per docs/design/<slug>.md — reformatting would
+# bloat/churn generated minified output for zero benefit; see
+# .claude/skills/claude-design-workflow/SKILL.md)
+docs/design/assets/**/_ds/**
+docs/design/assets/**/support.js
