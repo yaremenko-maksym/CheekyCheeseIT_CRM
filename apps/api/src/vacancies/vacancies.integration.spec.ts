@@ -57,12 +57,13 @@ import { MAKSYM_ID, type SessionUser } from '@crm/shared'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
+import { ZodExceptionFilter } from '../zod-exception.filter'
 import { CompressionService } from '../documents/compression.service'
 import { S3Service } from '../documents/s3.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import { notifications, users, vacancies, vacancyApplications } from '../database/schema'
 import * as schema from '../database/schema'
-import { ApplicationsService } from './applications.service'
+import { ApplicationsService, RESUME_MAX_BYTES } from './applications.service'
 import { PublicVacanciesController } from './public-vacancies.controller'
 import { TurnstileService } from './turnstile.service'
 import { VacanciesController } from './vacancies.controller'
@@ -341,16 +342,40 @@ async function buildApp(): Promise<NestFastifyApplication> {
   await app.register(cookie, { secret: 'vacancies-integration-cookie-secret' })
   await app.register(multipart, { limits: { fileSize: 10 * 1024 * 1024, files: 1 } })
   app.setGlobalPrefix('api')
+  // F2 (task-fix-pr-390-round3 / MED-2): same registration as main.ts + the
+  // established pattern in company-account.rbac.integration.spec.ts. Without
+  // this, a ZodError (e.g. applyVacancyFieldsSchema.parse() rejecting an
+  // over-long coverLetter) falls through to NestJS's generic 500 handler
+  // instead of the real prod contract (400) — that mismatch would have made
+  // the F2 fieldSize test assert a TEST-HARNESS artifact instead of the
+  // actual production behaviour.
+  app.useGlobalFilters(new ZodExceptionFilter())
   await app.init()
   await app.getHttpAdapter().getInstance().ready()
   return app
 }
 
+/** Shape of one file part for buildMultipartBody. */
+interface MultipartFileDescriptor {
+  fieldname: string
+  filename: string
+  contentType: string
+  buffer: Buffer
+}
+
 /** Hand-rolled multipart/form-data body — no precedent for real multipart HTTP
- * tests elsewhere in this repo, so this is a small, self-contained helper. */
+ * tests elsewhere in this repo, so this is a small, self-contained helper.
+ *
+ * `file` accepts either a single descriptor (the common case — AC6/AC10) or
+ * an ARRAY of descriptors (F2 / MED-2: needed to reproduce a request that
+ * sends a second `resume` file part and assert on the per-route `files: 1`
+ * multipart limit). Order matters: fields are appended in Object.entries()
+ * insertion order, THEN files in array order — this lets F2's "extra field
+ * parts" test put the file part LAST, after every bogus field, mirroring a
+ * real attacker maximizing field count before the file. */
 function buildMultipartBody(
   fields: Record<string, string>,
-  file?: { fieldname: string; filename: string; contentType: string; buffer: Buffer },
+  file?: MultipartFileDescriptor | MultipartFileDescriptor[],
 ): { body: Buffer; contentType: string } {
   const boundary = `----VacTestBoundary${Date.now()}`
   const parts: Buffer[] = []
@@ -361,13 +386,14 @@ function buildMultipartBody(
       ),
     )
   }
-  if (file) {
+  const files = file === undefined ? [] : Array.isArray(file) ? file : [file]
+  for (const f of files) {
     parts.push(
       Buffer.from(
-        `--${boundary}\r\nContent-Disposition: form-data; name="${file.fieldname}"; filename="${file.filename}"\r\nContent-Type: ${file.contentType}\r\n\r\n`,
+        `--${boundary}\r\nContent-Disposition: form-data; name="${f.fieldname}"; filename="${f.filename}"\r\nContent-Type: ${f.contentType}\r\n\r\n`,
       ),
     )
-    parts.push(file.buffer)
+    parts.push(f.buffer)
     parts.push(Buffer.from('\r\n'))
   }
   parts.push(Buffer.from(`--${boundary}--\r\n`))
@@ -1295,6 +1321,165 @@ describe('Vacancies — real backend integration', () => {
       const cron = app.get(VacanciesRetentionCronService)
       const deletedSecondRun = await cron.purgeExpiredApplications(NOW)
       expect(deletedSecondRun).toBe(0)
+    })
+  })
+
+  // ── F2 (task-fix-pr-390-round3 / MED-2): per-route multipart limits on the
+  // REAL PublicVacanciesController.apply() pipeline — direct tests were
+  // missing entirely; round-2 review only had indirect coverage via AC6's
+  // happy path. Own dedicated app instance (own throttle store, own Pool) —
+  // same pattern as the AC8 rate-limit block — so these 4 requests never risk
+  // tripping VACANCY_APPLY_LIMIT=5 alongside the AC6/AC10 apply() calls made
+  // against the shared `app` instance above. ─────────────────────────────────
+
+  describe('F2 — per-route multipart limits (MED-2)', () => {
+    let mpApp: NestFastifyApplication
+    let mpSlug: string
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      mpApp = await buildApp()
+      const create = await mpApp.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'Multipart Limits Role',
+          slug: `multipart-limits-${Date.now()}`,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+        },
+      })
+      const created = create.json() as { id: string; slug: string }
+      mpSlug = created.slug
+      trackVacancy(created.id)
+      await mpApp.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${created.id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+    }, 20_000)
+
+    afterAll(async () => {
+      if (!dbAvailable) return
+      if (mpApp) await mpApp.close()
+    })
+
+    it('1. resume file > 5MB → 413 (per-route fileSize cap rejects it via RequestFileTooLargeError before ApplicationsService is ever called)', async () => {
+      if (!dbAvailable) return
+      const oversized = Buffer.alloc(RESUME_MAX_BYTES + 1024, 'a')
+      const { body, contentType } = buildMultipartBody(
+        {
+          fullName: 'Oversized Resume Candidate',
+          email: `oversized-${Date.now()}@example.com`,
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+        },
+        {
+          fieldname: 'resume',
+          filename: 'huge.pdf',
+          contentType: 'application/pdf',
+          buffer: oversized,
+        },
+      )
+      const res = await mpApp.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${mpSlug}/apply`,
+        headers: { 'content-type': contentType },
+        payload: body,
+      })
+      expect(res.statusCode).toBe(413)
+    })
+
+    it('2. a second `resume` file part → 413 — the per-route `files: 1` limit rejects the WHOLE request at the busboy layer (FilesLimitError) before the controller\'s own "drain a duplicate file part" branch is ever reached', async () => {
+      if (!dbAvailable) return
+      const pdf = await makeValidPdfBuffer()
+      const { body, contentType } = buildMultipartBody(
+        {
+          fullName: 'Two Files Candidate',
+          email: `twofiles-${Date.now()}@example.com`,
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+        },
+        [
+          { fieldname: 'resume', filename: 'r1.pdf', contentType: 'application/pdf', buffer: pdf },
+          { fieldname: 'resume', filename: 'r2.pdf', contentType: 'application/pdf', buffer: pdf },
+        ],
+      )
+      const res = await mpApp.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${mpSlug}/apply`,
+        headers: { 'content-type': contentType },
+        payload: body,
+      })
+      // Empirically verified against the real @fastify/multipart@10 + @fastify/busboy@3
+      // pipeline used by this app: with `files: 1`, busboy accepts only the
+      // FIRST file-type part; the second one never reaches onFile()/the
+      // controller's for-await loop at all — busboy emits 'filesLimit' and
+      // skips it internally, which @fastify/multipart turns into a rejected
+      // FilesLimitError (statusCode 413) on the NEXT `await parts()` call.
+      // NestJS's default exception handling (BaseExceptionFilter.isHttpError)
+      // surfaces `.statusCode` from any thrown error with a `.message`, so no
+      // custom filter is needed for this to reach the client as 413.
+      expect(res.statusCode).toBe(413)
+    })
+
+    it('3. field parts beyond the fields:12 cap → the request is aborted — empirically a 500 ("Premature close") via app.inject(), NOT a clean 413: busboy stops consuming the body as soon as the 13th field part hits the limit, and the injected request stream errors on the unread trailing bytes', async () => {
+      if (!dbAvailable) return
+      const pdf = await makeValidPdfBuffer()
+      const fields: Record<string, string> = {
+        fullName: 'Extra Fields Candidate',
+        email: `extrafields-${Date.now()}@example.com`,
+        turnstileToken: 'any-token-accepted-by-dummy-secret',
+      }
+      // 3 legit fields above + 10 bogus = 13 field parts, i.e. one MORE than
+      // the fields:12 cap — the 13th field part is what trips fieldsLimit.
+      // The resume file part is appended LAST (buildMultipartBody array/object
+      // ordering — see its own doc comment) so it never even gets a chance to
+      // be parsed once the field cap is hit.
+      for (let i = 0; i < 10; i++) fields[`bogus${i}`] = 'x'
+      const { body, contentType } = buildMultipartBody(fields, {
+        fieldname: 'resume',
+        filename: 'r.pdf',
+        contentType: 'application/pdf',
+        buffer: pdf,
+      })
+      const res = await mpApp.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${mpSlug}/apply`,
+        headers: { 'content-type': contentType },
+        payload: body,
+      })
+      expect(res.statusCode).toBe(500)
+    })
+
+    it('4. a field value beyond the fieldSize (8 KiB) cap is silently TRUNCATED by @fastify/multipart (no multipart-level rejection — busboy just truncates and sets valueTruncated), then rejected downstream by the real Zod validation (coverLetter max 2000 chars) → 400', async () => {
+      if (!dbAvailable) return
+      const pdf = await makeValidPdfBuffer()
+      const { body, contentType } = buildMultipartBody(
+        {
+          fullName: 'Long Field Candidate',
+          email: `longfield-${Date.now()}@example.com`,
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+          // 9000 bytes: > 8192-byte fieldSize cap (so it gets truncated at the
+          // multipart layer) AND still > 2000-char Zod cap after truncation
+          // (so applyVacancyFieldsSchema.parse() rejects it regardless of the
+          // exact truncated length) — this isolates "field length beyond
+          // limit is ultimately rejected" as the fact under test, without
+          // depending on the precise truncation boundary.
+          coverLetter: 'x'.repeat(9000),
+        },
+        { fieldname: 'resume', filename: 'r.pdf', contentType: 'application/pdf', buffer: pdf },
+      )
+      const res = await mpApp.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${mpSlug}/apply`,
+        headers: { 'content-type': contentType },
+        payload: body,
+      })
+      expect(res.statusCode).toBe(400)
     })
   })
 })
