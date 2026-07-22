@@ -281,9 +281,7 @@ export class UsersService {
       role: data.role,
       telegram: data.telegram ?? null,
       phone: data.phone ?? null,
-      avatarUrl:
-        data.avatarUrl ??
-        `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+      avatarUrl: data.avatarUrl ?? null,
       techStack: data.techStack ?? null,
     }
     if (data.seniorSharePercent !== undefined)
@@ -1667,9 +1665,7 @@ export class UsersService {
         role: 'DROP',
         telegram: data.telegram ?? null,
         phone: data.phone ?? null,
-        avatarUrl:
-          data.avatarUrl ??
-          `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+        avatarUrl: data.avatarUrl ?? null,
         techStack: data.techStack ?? null,
         dropSharePercent: data.dropSharePercent ?? 5,
       }
