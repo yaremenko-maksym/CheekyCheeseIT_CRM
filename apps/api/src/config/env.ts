@@ -138,6 +138,20 @@ const envSchema = z
       path: ['CREDENTIALS_ENC_KEY'],
     },
   )
+  // sec MED-1 / F2: TurnstileService previously only LOGGED an error when the
+  // dev "always passes" default reached production — the app still booted
+  // and the public vacancy-apply endpoint accepted ANY token (fail-open).
+  // Mirrors the AWS_ACCESS_KEY_ID refine() above — fail-fast boot instead.
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      env.TURNSTILE_SECRET_KEY !== '1x0000000000000000000000000000000AA',
+    {
+      message:
+        'TURNSTILE_SECRET_KEY must be overridden in production (the default is Cloudflare\'s "always passes" test secret — leaving it set disables anti-bot protection on the public vacancy-apply endpoint)',
+      path: ['TURNSTILE_SECRET_KEY'],
+    },
+  )
 
 export type Env = z.infer<typeof envSchema>
 

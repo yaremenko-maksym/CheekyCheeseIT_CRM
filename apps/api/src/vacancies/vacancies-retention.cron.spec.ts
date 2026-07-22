@@ -90,10 +90,10 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
     expect(s3.delete).toHaveBeenCalledTimes(2)
   })
 
-  it('an R2 delete failure on one object does NOT stop the batch (remaining objects still deleted)', async () => {
+  it('an R2 delete failure on one candidate leaves its DB row in place; the other candidate is still fully purged (F4 ordering)', async () => {
     const a: Candidate = { id: 'app-a', resumeS3Key: 'k-a' }
     const b: Candidate = { id: 'app-b', resumeS3Key: 'k-b' }
-    const { db } = makeDb({ rejectedRows: [a, b] })
+    const { db, getDeleteCallCount } = makeDb({ rejectedRows: [a, b] })
     const s3 = {
       delete: vi.fn().mockImplementation(async (key: string) => {
         if (key === 'k-a') throw new Error('R2 unreachable')
@@ -102,9 +102,12 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
     const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
 
     const deleted = await svc.purgeExpiredApplications(new Date('2026-07-22'))
-    // DB-row count is unaffected by the R2 failure — the row deletion already
-    // happened as one batched statement before the R2 cleanup loop runs.
-    expect(deleted).toBe(2)
+    // R2 delete now happens BEFORE the DB row delete, per candidate (F4 /
+    // MED-4 fix): app-a's R2 delete failed, so its row is intentionally left
+    // in place (retried on the next daily run) — only app-b (R2 delete
+    // succeeded) is purged from the DB.
+    expect(deleted).toBe(1)
+    expect(getDeleteCallCount()).toBe(1)
     expect(s3.delete).toHaveBeenCalledTimes(2)
     expect(s3.delete).toHaveBeenCalledWith('k-a')
     expect(s3.delete).toHaveBeenCalledWith('k-b')

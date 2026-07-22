@@ -11,14 +11,18 @@
  * try/catch so an unexpected failure is logged, not propagated as an
  * unhandled rejection (which would silently kill the scheduler).
  *
- * R2 deletion is best-effort per row: `S3Service.delete` already swallows its
- * own errors (logs + returns), but the loop here ALSO isolates each call so a
- * changed S3Service contract can never abort the batch — a missed object is
- * naturally retried on the next daily run (delete is idempotent).
+ * Per-row ordering (sec MED-4 / F4): R2 delete happens FIRST, and the DB row
+ * is only removed once that succeeds. The batched "delete DB rows first, R2
+ * cleanup best-effort after" order this originally shipped with meant a
+ * failed R2 delete left an orphan PII resume in R2 with NO remaining
+ * reference to retry it — the DB row (the only thing driving "will retry
+ * next run") was already gone. Inverting the order means a failed R2 delete
+ * simply leaves that row in place; the next daily run picks it up again
+ * (both `S3Service.delete` and this purge are idempotent).
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
-import { and, eq, inArray, lt } from 'drizzle-orm'
+import { and, eq, lt } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
 import { S3Service } from '../documents/s3.service'
 import { vacancies, vacancyApplications } from '../database/schema'
@@ -87,21 +91,25 @@ export class VacanciesRetentionCronService {
 
     if (candidates.size === 0) return 0
 
-    const ids = [...candidates.keys()]
-    // DB delete first, as ONE batched statement — R2 cleanup below is
-    // best-effort and must never block the source-of-truth row removal.
-    await this.db.db.delete(vacancyApplications).where(inArray(vacancyApplications.id, ids))
-
+    // R2 delete FIRST (idempotent), THEN the DB row — per candidate, isolated.
+    // If the R2 delete throws, this row's DB delete is skipped entirely: the
+    // row stays and drives a retry on the next daily run instead of orphaning
+    // an unreferenced PII resume in R2 (sec MED-4 / F4). A failure on one
+    // candidate never blocks the rest of the batch.
+    let deletedCount = 0
     for (const row of candidates.values()) {
       try {
         await this.s3.delete(row.resumeS3Key)
       } catch (err) {
         this.logger.warn(
-          `Retention: R2 delete failed for applicationId=${row.id} — will retry next run: ${(err as Error).message}`,
+          `Retention: R2 delete failed for applicationId=${row.id} — leaving DB row for next run: ${(err as Error).message}`,
         )
+        continue
       }
+      await this.db.db.delete(vacancyApplications).where(eq(vacancyApplications.id, row.id))
+      deletedCount += 1
     }
 
-    return ids.length
+    return deletedCount
   }
 }

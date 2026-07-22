@@ -34,7 +34,7 @@ import {
 import type { FastifyRequest } from 'fastify'
 import { Public } from '../auth/public.decorator'
 import { RelaxableThrottle } from '../config/throttle-decorators'
-import { ApplicationsService, type ApplyResumeFile } from './applications.service'
+import { ApplicationsService, RESUME_MAX_BYTES, type ApplyResumeFile } from './applications.service'
 import { VacanciesService } from './vacancies.service'
 
 /** Minimal shape of a multipart field as returned by @fastify/multipart. */
@@ -53,6 +53,33 @@ interface MultipartField {
  */
 export const VACANCY_APPLY_LIMIT = 5
 const VACANCY_APPLY_TTL_MS = 60 * 60 * 1000 // 1 hour
+
+/**
+ * Per-route multipart limits for the PUBLIC, unauthenticated apply endpoint
+ * (sec MED-2 / F3). Without an explicit override here, `req.parts()`
+ * inherits the GLOBAL config registered in main.ts (`fileSize: 10MB, files:
+ * 1` — no `fields`/`fieldSize`/`parts` cap at all, so @fastify/multipart's
+ * own generous busboy defaults apply: ~1000 parts, ~1MB per field). A single
+ * unauthenticated request could accumulate up to parts×fieldSize of
+ * in-memory field data. Narrow it to what this form actually needs:
+ *   - fields: fullName/email/telegram/linkedinUrl/githubUrl/coverLetter/
+ *     turnstileToken/website(honeypot) = 8 field parts + 1 file part = 9
+ *     parts; `fields: 12` / `parts: 16` leave headroom without reopening the
+ *     DoS surface.
+ *   - fieldSize: coverLetter is capped at 2000 chars by
+ *     `applyVacancyFieldsSchema` — 8 KiB comfortably covers the worst-case
+ *     multi-byte UTF-8 encoding of that many characters.
+ *   - fileSize: RESUME_MAX_BYTES (5 MB) — the SAME cap ApplicationsService
+ *     already enforces post-buffer, applied here up front so an oversized
+ *     part is rejected by busboy instead of being buffered into memory first.
+ */
+const VACANCY_APPLY_MULTIPART_LIMITS = {
+  files: 1,
+  fileSize: RESUME_MAX_BYTES,
+  parts: 16,
+  fields: 12,
+  fieldSize: 8 * 1024,
+}
 
 @Controller('public/vacancies')
 export class PublicVacanciesController {
@@ -88,17 +115,32 @@ export class PublicVacanciesController {
     let file: ApplyResumeFile | null = null
     const fields: Record<string, string> = {}
 
-    for await (const part of req.parts() as AsyncIterable<MultipartField>) {
-      if (part.type === 'file' && part.fieldname === 'resume') {
-        // Only one file per submission — first one wins.
-        if (file) continue
-        const buffer = await (part.toBuffer
-          ? part.toBuffer()
-          : Promise.reject(new Error('Multipart file has no toBuffer()')))
-        file = {
-          buffer,
-          mimetype: part.mimetype ?? 'application/octet-stream',
-          originalname: part.filename ?? 'resume.pdf',
+    for await (const part of req.parts({
+      limits: VACANCY_APPLY_MULTIPART_LIMITS,
+    }) as AsyncIterable<MultipartField>) {
+      if (part.type === 'file') {
+        if (!file && part.fieldname === 'resume') {
+          // Only one file per submission — first one wins.
+          const buffer = await (part.toBuffer
+            ? part.toBuffer()
+            : Promise.reject(new Error('Multipart file has no toBuffer()')))
+          file = {
+            buffer,
+            mimetype: part.mimetype ?? 'application/octet-stream',
+            originalname: part.filename ?? 'resume.pdf',
+          }
+        } else {
+          // Unexpected/duplicate file part (wrong fieldname, or a second
+          // "resume" after we already captured one) — drain its stream
+          // instead of leaving it unread. @fastify/multipart's async
+          // iterator stalls on the next part if a file part's stream is
+          // never consumed (sec LOW — polyglot/DoS via a stuck iterator).
+          try {
+            if (part.toBuffer) await part.toBuffer()
+          } catch {
+            // Draining failed (e.g. the discarded part itself exceeded the
+            // per-route fileSize limit) — irrelevant, we discard it either way.
+          }
         }
       } else if (part.type === 'field') {
         if (typeof part.value === 'string') {
