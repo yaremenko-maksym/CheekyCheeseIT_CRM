@@ -13,9 +13,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
+    <!-- Cloudflare Turnstile — public vacancy-apply form spam guard (VacancyApplyForm).
+         No `integrity=` on purpose: Cloudflare serves this bundle from a rotating CDN
+         and explicitly documents that it must NOT be pinned via SRI (the script content
+         changes without notice as CF updates challenge logic) — https://developers.cloudflare.com/turnstile/troubleshooting/faqs/ -->
+    <script src="https://challenges.cloudflare.com/turnstile/v0/api.js" async defer></script>
   </head>
   <body>
     <div id="root"></div>
