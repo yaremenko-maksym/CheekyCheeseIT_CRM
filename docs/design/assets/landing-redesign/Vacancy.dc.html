@@ -1,0 +1,269 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/_ds_bundle.css">
+  <link rel="stylesheet" href="site.css">
+</helmet>
+<div class="dark" style="background:var(--background);color:var(--foreground);min-height:100vh;display:flex;flex-direction:column;">
+  <dc-import name="Nav" active="careers" hint-size="100%,66px"></dc-import>
+
+  <main style="flex:1;">
+    <div class="cc-wrap" style="padding-block:32px 20px;">
+      <a href="Careers.dc.html" class="cc-textbtn cc-focus-ring" style="color:var(--cc-dim);">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M19 12H5M11 18l-6-6 6-6"/></svg>
+        All roles
+      </a>
+    </div>
+
+    <!-- title block -->
+    <div class="cc-wrap" style="padding-bottom:36px;border-bottom:1px solid var(--cc-line);">
+      <span class="cc-tag cc-tag-ai" style="margin-bottom:18px;">AI / ML</span>
+      <h1 class="cc-display" style="font-size:clamp(2rem,5.5vw,3.4rem);margin-bottom:22px;max-width:18ch;">Senior ML Engineer</h1>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <span class="cc-tag cc-tag-neutral"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>Senior</span>
+        <span class="cc-tag cc-tag-neutral"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="4" y="7" width="16" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>Full-time</span>
+        <span class="cc-tag cc-tag-neutral"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>Remote · EU</span>
+        <span class="cc-tag cc-tag-neutral"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 2v20M2 12h20"/></svg>4+ hrs overlap CET</span>
+      </div>
+    </div>
+
+    <div class="cc-wrap" style="padding-block:48px 96px;">
+      <div class="cc-vac-detail">
+        <!-- body -->
+        <article class="cc-prose">
+          <p style="font-size:1.12rem;color:color-mix(in oklch,var(--foreground) 90%,transparent);">We&rsquo;re looking for a senior ML engineer to own the serving side of our clients&rsquo; AI products — the layer where models meet real traffic. You&rsquo;ll ship inference systems that stay fast and affordable under load, and you&rsquo;ll do it as the senior voice in a small pod.</p>
+
+          <h3>What you&rsquo;ll do</h3>
+          <ul>
+            <li>Design and operate low-latency model serving for vision and language workloads.</li>
+            <li>Own the path from notebook to production: batching, caching, autoscaling, observability.</li>
+            <li>Profile and cut inference cost without trading away accuracy or reliability.</li>
+            <li>Set the technical direction for a pod and mentor through code, not slideware.</li>
+          </ul>
+
+          <h3>What we&rsquo;re looking for</h3>
+          <ul>
+            <li>5+ years building backend or ML systems, with real production ML serving experience.</li>
+            <li>Fluency in Python and one of PyTorch / TensorFlow; comfortable with CUDA basics.</li>
+            <li>Strong instincts for latency, throughput and cost in distributed systems.</li>
+            <li>You&rsquo;ve owned something end to end and can explain the trade-offs you made.</li>
+          </ul>
+
+          <h3>Nice to have</h3>
+          <ul>
+            <li>Experience with Triton, TorchServe, Ray, or a home-grown serving stack.</li>
+            <li>Kubernetes and GPU scheduling in anger.</li>
+            <li>A track record of open-source or writing that shows how you think.</li>
+          </ul>
+
+          <h3>What we offer</h3>
+          <ul>
+            <li>Senior-only pods, no bureaucracy, and genuine ownership of the outcome.</li>
+            <li>Remote-first with 4+ hours of CET overlap; async by default.</li>
+            <li>Competitive compensation, paid learning budget, and real time off.</li>
+          </ul>
+        </article>
+
+        <!-- application form -->
+        <aside>
+          <div class="cc-form-sticky">
+            <div class="cc-card" style="padding:28px;">
+
+              <sc-if value="{{ showForm }}" hint-placeholder-val="{{ true }}">
+                <div>
+                  <h2 class="cc-h3" style="font-size:1.3rem;margin-bottom:6px;">Apply for this role</h2>
+                  <p class="cc-body" style="font-size:0.9rem;margin:0 0 22px;">Takes about 3 minutes. Fields marked <span class="cc-yellow">*</span> are required.</p>
+
+                  <sc-if value="{{ showError }}" hint-placeholder-val="{{ false }}">
+                    <div class="cc-banner cc-banner-err" style="margin-bottom:20px;" role="alert">
+                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex:none;margin-top:1px;" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v4M12 16h.01"/></svg>
+                      <span>Something went wrong sending your application. Please check your details and try again.</span>
+                    </div>
+                  </sc-if>
+
+                  <form onSubmit="{{ onSubmit }}" novalidate="true" style="display:flex;flex-direction:column;gap:18px;">
+                    <div class="cc-form-row">
+                      <div>
+                        <label class="cc-field-label" for="v-name">Full name<span class="req">*</span></label>
+                        <input id="v-name" name="name" class="cc-input" placeholder="Ada Lovelace" required="true" value="{{ vName }}" onChange="{{ onName }}">
+                        <sc-if value="{{ errName }}" hint-placeholder-val="{{ false }}"><div class="cc-hint" style="color:oklch(72% .13 22);">Please enter your name.</div></sc-if>
+                      </div>
+                      <div>
+                        <label class="cc-field-label" for="v-email">Email<span class="req">*</span></label>
+                        <input id="v-email" name="email" type="email" class="cc-input" placeholder="you@domain.com" required="true" value="{{ vEmail }}" onChange="{{ onEmail }}">
+                        <sc-if value="{{ errEmail }}" hint-placeholder-val="{{ false }}"><div class="cc-hint" style="color:oklch(72% .13 22);">Enter a valid email.</div></sc-if>
+                      </div>
+                    </div>
+
+                    <div class="cc-form-row">
+                      <div>
+                        <label class="cc-field-label" for="v-tg">Telegram</label>
+                        <input id="v-tg" name="telegram" class="cc-input" placeholder="@handle">
+                      </div>
+                      <div>
+                        <label class="cc-field-label" for="v-li">LinkedIn URL</label>
+                        <input id="v-li" name="linkedin" type="url" class="cc-input" placeholder="linkedin.com/in/…">
+                      </div>
+                    </div>
+
+                    <div>
+                      <label class="cc-field-label" for="v-gh">GitHub URL</label>
+                      <input id="v-gh" name="github" type="url" class="cc-input" placeholder="github.com/…">
+                    </div>
+
+                    <div>
+                      <label class="cc-field-label" for="v-cover">Cover letter</label>
+                      <textarea id="v-cover" name="cover" class="cc-input" placeholder="Tell us about something hard you shipped and what you'd want to build here."></textarea>
+                    </div>
+
+                    <div>
+                      <label class="cc-field-label">CV / Resume<span class="req">*</span></label>
+                      <input id="v-cv" type="file" accept="application/pdf" style="position:absolute;width:1px;height:1px;opacity:0;overflow:hidden;" onChange="{{ onFile }}">
+                      <label for="v-cv" class="cc-drop {{ dropClass }}" onDragOver="{{ onDragOver }}" onDragLeave="{{ onDragLeave }}" onDrop="{{ onDrop }}" style="display:block;">
+                        <sc-if value="{{ noFile }}" hint-placeholder-val="{{ true }}">
+                          <div>
+                            <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="var(--primary)" stroke-width="1.7" style="margin:0 auto 10px;" aria-hidden="true"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
+                            <div style="font-size:0.94rem;font-weight:500;color:var(--foreground);margin-bottom:4px;">Drop your CV here, or <span class="cc-yellow">browse</span></div>
+                            <div class="cc-hint" style="margin:0;">PDF only · up to 5 MB</div>
+                          </div>
+                        </sc-if>
+                        <sc-if value="{{ hasFile }}" hint-placeholder-val="{{ false }}">
+                          <div style="display:flex;align-items:center;gap:12px;text-align:left;">
+                            <span style="width:40px;height:40px;border-radius:9px;background:color-mix(in oklch,var(--primary) 14%,transparent);color:var(--primary);display:flex;align-items:center;justify-content:center;flex:none;">
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true"><path d="M14 3v5h5"/><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/></svg>
+                            </span>
+                            <div style="min-width:0;flex:1;">
+                              <div style="font-size:0.92rem;font-weight:500;color:var(--foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ fileName }}</div>
+                              <div class="cc-hint" style="margin:0;">{{ fileSize }}</div>
+                            </div>
+                            <button type="button" onClick="{{ clearFile }}" aria-label="Remove file" style="background:transparent;border:0;color:var(--cc-dim);cursor:pointer;padding:6px;flex:none;">
+                              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                            </button>
+                          </div>
+                        </sc-if>
+                      </label>
+                      <sc-if value="{{ errFile }}" hint-placeholder-val="{{ false }}"><div class="cc-hint" style="color:oklch(72% .13 22);">{{ fileError }}</div></sc-if>
+                    </div>
+
+                    <button type="submit" class="cc-btn cc-btn-primary cc-btn-block cc-focus-ring" aria-disabled="{{ submitting }}" style="margin-top:4px;">
+                      <sc-if value="{{ submitting }}" hint-placeholder-val="{{ false }}">
+                        <span style="display:inline-flex;align-items:center;gap:10px;"><span style="width:15px;height:15px;border:2px solid color-mix(in oklch,var(--primary-foreground) 40%,transparent);border-top-color:var(--primary-foreground);border-radius:50%;animation:cc-spin .7s linear infinite;"></span>Sending…</span>
+                      </sc-if>
+                      <sc-if value="{{ idle }}" hint-placeholder-val="{{ true }}"><span>Submit application</span></sc-if>
+                    </button>
+
+                    <div style="display:flex;align-items:center;gap:8px;justify-content:center;color:var(--cc-dim);font-size:0.78rem;margin-top:2px;">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 2 4 6v6c0 5 3.5 8 8 10 4.5-2 8-5 8-10V6z"/></svg>
+                      Protected by invisible captcha — no puzzles, ever.
+                    </div>
+                  </form>
+                </div>
+              </sc-if>
+
+              <sc-if value="{{ showSuccess }}" hint-placeholder-val="{{ false }}">
+                <div style="text-align:center;padding:20px 4px 12px;" role="status">
+                  <div style="width:64px;height:64px;border-radius:50%;background:color-mix(in oklch,var(--primary) 16%,transparent);color:var(--primary);display:inline-flex;align-items:center;justify-content:center;margin-bottom:20px;box-shadow:0 0 40px -8px var(--cc-glow);">
+                    <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" aria-hidden="true"><path d="M20 6 9 17l-5-5"/></svg>
+                  </div>
+                  <h2 class="cc-h3" style="font-size:1.4rem;margin-bottom:10px;">Application received</h2>
+                  <p class="cc-body" style="margin:0 auto 24px;max-width:34ch;">Thanks{{ nameSuffix }} — we&rsquo;ve got your application for <strong style="color:var(--foreground);">Senior ML Engineer</strong>. We review every one and reply within a few business days.</p>
+                  <a href="Careers.dc.html" class="cc-btn cc-btn-ghost cc-focus-ring">Browse more roles</a>
+                </div>
+              </sc-if>
+
+            </div>
+          </div>
+        </aside>
+      </div>
+    </div>
+  </main>
+
+  <dc-import name="Footer" hint-size="100%,320px"></dc-import>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;previewState&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;default&quot;,&quot;submitting&quot;,&quot;success&quot;,&quot;error&quot;],&quot;default&quot;:&quot;default&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Form state (preview)&quot;}}">
+class Component extends DCLogic {
+  state = { status: "default", file: null, dragging: false, name: "", email: "", errName: false, errEmail: false, errFile: "" };
+
+  componentDidMount() {
+    const p = this.props.previewState;
+    if (p && p !== "default") this.setState({ status: p });
+  }
+
+  onName = (e) => this.setState({ name: e.target.value, errName: false });
+  onEmail = (e) => this.setState({ email: e.target.value, errEmail: false });
+
+  validFile(f) {
+    if (!f) return "";
+    if (f.type !== "application/pdf" && !/\.pdf$/i.test(f.name)) return "CV must be a PDF file.";
+    if (f.size > 5 * 1024 * 1024) return "File is larger than 5 MB.";
+    return "";
+  }
+  setFile = (f) => {
+    const err = this.validFile(f);
+    if (err) { this.setState({ errFile: err }); return; }
+    this.setState({ file: { name: f.name, size: f.size }, errFile: "" });
+  };
+  onFile = (e) => { const f = e.target.files && e.target.files[0]; if (f) this.setFile(f); };
+  clearFile = (e) => { e.preventDefault(); e.stopPropagation(); this.setState({ file: null, errFile: "" }); const i = document.getElementById("v-cv"); if (i) i.value = ""; };
+  onDragOver = (e) => { e.preventDefault(); if (!this.state.dragging) this.setState({ dragging: true }); };
+  onDragLeave = (e) => { e.preventDefault(); this.setState({ dragging: false }); };
+  onDrop = (e) => { e.preventDefault(); this.setState({ dragging: false }); const f = e.dataTransfer.files && e.dataTransfer.files[0]; if (f) this.setFile(f); };
+
+  onSubmit = (e) => {
+    e.preventDefault();
+    if (this.state.status === "submitting") return;
+    const fd = new FormData(e.target);
+    const name = (fd.get("name") || "").trim();
+    const email = (fd.get("email") || "").trim();
+    const errName = !name;
+    const errEmail = !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+    const errFile = this.state.file ? "" : "Please attach your CV (PDF).";
+    if (errName || errEmail || errFile) { this.setState({ errName, errEmail, errFile, name, email }); return; }
+    this.setState({ status: "submitting", name, errName, errEmail, errFile: "" });
+    clearTimeout(this._t);
+    this._t = setTimeout(() => {
+      const fail = /error@/i.test(email);
+      this.setState({ status: fail ? "error" : "success" });
+    }, 1500);
+  };
+  componentWillUnmount() { clearTimeout(this._t); }
+
+  renderVals() {
+    const st = this.state.status;
+    const f = this.state.file;
+    const fmt = (b) => b >= 1024 * 1024 ? (b / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(b / 1024)) + " KB";
+    return {
+      showForm: st === "default" || st === "submitting" || st === "error",
+      showSuccess: st === "success",
+      showError: st === "error",
+      submitting: st === "submitting",
+      idle: st !== "submitting",
+      onSubmit: this.onSubmit,
+      vName: this.state.name, vEmail: this.state.email,
+      onName: this.onName, onEmail: this.onEmail,
+      errName: this.state.errName, errEmail: this.state.errEmail,
+      onFile: this.onFile, clearFile: this.clearFile,
+      onDragOver: this.onDragOver, onDragLeave: this.onDragLeave, onDrop: this.onDrop,
+      dropClass: (this.state.dragging ? "is-drag " : "") + (f ? "has-file" : ""),
+      noFile: !f, hasFile: !!f,
+      fileName: f ? f.name : "", fileSize: f ? fmt(f.size) : "",
+      errFile: !!this.state.errFile, fileError: this.state.errFile,
+      nameSuffix: this.state.name ? ", " + this.state.name.split(" ")[0] : "",
+    };
+  }
+}
+</script>
+</body>
+</html>

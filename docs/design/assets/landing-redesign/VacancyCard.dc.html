@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/_ds_bundle.css">
+  <link rel="stylesheet" href="site.css">
+</helmet>
+<a href="{{ href }}" class="cc-card cc-card-hover cc-focus-ring" style="display:flex;flex-direction:column;gap:18px;height:100%;text-decoration:none;">
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;">
+    <span class="cc-tag {{ domainClass }}">{{ domainLabel }}</span>
+    <span class="cc-mono" style="font-size:0.74rem;color:var(--cc-dim);letter-spacing:.04em;">{{ typeLabel }}</span>
+  </div>
+  <div style="display:flex;flex-direction:column;gap:8px;">
+    <h3 class="cc-h3" style="font-size:1.22rem;">{{ title }}</h3>
+    <div style="display:flex;flex-wrap:wrap;gap:8px 16px;color:var(--cc-dim);font-size:0.9rem;">
+      <span style="display:inline-flex;align-items:center;gap:6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20V10M18 20V4M6 20v-4"/></svg>{{ seniority }}
+      </span>
+      <span style="display:inline-flex;align-items:center;gap:6px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 21s-7-5.2-7-11a7 7 0 1 1 14 0c0 5.8-7 11-7 11z"/><circle cx="12" cy="10" r="2.5"/></svg>{{ location }}
+      </span>
+    </div>
+  </div>
+  <div class="cc-mt-a" style="display:flex;align-items:center;justify-content:space-between;padding-top:8px;border-top:1px solid var(--cc-line-soft);">
+    <span class="cc-textbtn" style="pointer-events:none;">View role</span>
+    <span style="width:38px;height:38px;border-radius:50%;border:1px solid var(--cc-line);display:inline-flex;align-items:center;justify-content:center;color:var(--primary);flex:none;">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </span>
+  </div>
+</a>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:380,&quot;height&quot;:230},&quot;title&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Senior ML Engineer&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;domain&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;ai&quot;,&quot;edu&quot;,&quot;ecom&quot;],&quot;default&quot;:&quot;ai&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;domainLabel&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;AI / ML&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;seniority&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Senior&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;type&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Full-time&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;location&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Remote&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;href&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Vacancy.dc.html&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const map = { ai: "cc-tag-ai", edu: "cc-tag-edu", ecom: "cc-tag-ecom" };
+    const labels = { ai: "AI / ML", edu: "EdTech", ecom: "E-Commerce" };
+    const d = this.props.domain || "ai";
+    return {
+      href: this.props.href || "Vacancy.dc.html",
+      title: this.props.title || "Open role",
+      seniority: this.props.seniority || "Senior",
+      location: this.props.location || "Remote",
+      typeLabel: this.props.type || "Full-time",
+      domainClass: map[d] || "cc-tag-neutral",
+      domainLabel: this.props.domainLabel || labels[d] || d,
+    };
+  }
+}
+</script>
+</body>
+</html>

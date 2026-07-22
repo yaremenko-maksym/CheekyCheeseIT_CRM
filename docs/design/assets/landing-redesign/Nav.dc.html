@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;450;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/_ds_bundle.css">
+  <link rel="stylesheet" href="site.css">
+</helmet>
+<header class="dark cc-nav {{ scrolledClass }}">
+  <div class="cc-wrap" style="display:flex;align-items:center;justify-content:space-between;height:66px;">
+    <a href="Home.dc.html" class="cc-logo cc-focus-ring" aria-label="CheekyCheeseIT home">
+      <span class="cc-logo-mark">C</span>
+      <span>CheekyCheese<span class="cc-yellow">IT</span></span>
+    </a>
+
+    <nav class="cc-nav-desktop" style="align-items:center;gap:32px;" aria-label="Primary">
+      <a href="Home.dc.html#services" class="cc-navlink cc-focus-ring" aria-current="{{ curServices }}">Services</a>
+      <a href="Home.dc.html#work" class="cc-navlink cc-focus-ring" aria-current="{{ curWork }}">Work</a>
+      <a href="Careers.dc.html" class="cc-navlink cc-focus-ring" aria-current="{{ curCareers }}">Careers</a>
+      <a href="Home.dc.html#contact" class="cc-navlink cc-focus-ring" aria-current="{{ curContact }}">Contact</a>
+      <a href="Home.dc.html#contact" class="cc-btn cc-btn-primary cc-btn-sm cc-focus-ring">Start a project</a>
+    </nav>
+
+    <button type="button" class="cc-burger cc-focus-ring" aria-label="Toggle menu" aria-expanded="{{ openStr }}" onClick="{{ toggle }}"
+      style="width:44px;height:44px;align-items:center;justify-content:center;background:transparent;border:1px solid var(--cc-line);border-radius:10px;color:var(--foreground);cursor:pointer;">
+      <span style="position:relative;width:18px;height:12px;display:block;">
+        <span style="{{ bar1 }}"></span>
+        <span style="{{ bar2 }}"></span>
+      </span>
+    </button>
+  </div>
+
+  <div class="cc-mobile-menu" style="{{ menuStyle }}">
+    <div class="cc-wrap" style="display:flex;flex-direction:column;gap:4px;padding-block:14px 22px;">
+      <a href="Home.dc.html#services" class="cc-navlink cc-focus-ring" style="padding:13px 4px;font-size:1.05rem;">Services</a>
+      <a href="Home.dc.html#work" class="cc-navlink cc-focus-ring" style="padding:13px 4px;font-size:1.05rem;">Work</a>
+      <a href="Careers.dc.html" class="cc-navlink cc-focus-ring" style="padding:13px 4px;font-size:1.05rem;">Careers</a>
+      <a href="Home.dc.html#contact" class="cc-navlink cc-focus-ring" style="padding:13px 4px;font-size:1.05rem;">Contact</a>
+      <a href="Home.dc.html#contact" class="cc-btn cc-btn-primary cc-btn-block cc-focus-ring" style="margin-top:12px;">Start a project</a>
+    </div>
+  </div>
+</header>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:80},&quot;active&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;&quot;,&quot;services&quot;,&quot;work&quot;,&quot;careers&quot;,&quot;contact&quot;],&quot;default&quot;:&quot;&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  state = { open: false, scrolled: false };
+  componentDidMount() {
+    this.onScroll = () => {
+      const s = window.scrollY > 8;
+      if (s !== this.state.scrolled) this.setState({ scrolled: s });
+    };
+    window.addEventListener("scroll", this.onScroll, { passive: true });
+    this.onScroll();
+  }
+  componentWillUnmount() { window.removeEventListener("scroll", this.onScroll); }
+  toggle = () => this.setState((s) => ({ open: !s.open }));
+
+  renderVals() {
+    const active = this.props.active || "";
+    const cur = (k) => (active === k ? "page" : undefined);
+    const open = this.state.open;
+    const barBase = "position:absolute;left:0;width:18px;height:2px;background:currentColor;border-radius:2px;transition:transform .28s ease, top .28s ease, opacity .2s ease;";
+    return {
+      scrolledClass: this.state.scrolled ? "is-scrolled" : "",
+      curServices: cur("services"), curWork: cur("work"),
+      curCareers: cur("careers"), curContact: cur("contact"),
+      openStr: open ? "true" : "false",
+      toggle: this.toggle,
+      bar1: barBase + (open ? "top:5px;transform:rotate(45deg);" : "top:1px;"),
+      bar2: barBase + (open ? "top:5px;transform:rotate(-45deg);" : "top:9px;"),
+      menuStyle: `max-height:${open ? 340 : 0}px;opacity:${open ? 1 : 0};transition:max-height .35s cubic-bezier(.2,.6,.2,1),opacity .3s ease;`,
+    };
+  }
+}
+</script>
+</body>
+</html>
