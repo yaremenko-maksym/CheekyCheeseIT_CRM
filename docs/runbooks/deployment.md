@@ -159,6 +159,43 @@ firewall-локдаун недостаточен (например, динами
 
 > Без §1.6 real-IP restore (§11) обходится → не считать IP-доказательство достоверным до локдауна.
 
+### 1.7 Cloudflare Turnstile — спам-guard для формы вакансий (task-vacancies-api, PR #390)
+
+> **КРИТИЧНО — порядок действий:** `apps/api/src/config/env.ts` фейлит **прод-бут** API
+> (crash-loop), если `TURNSTILE_SECRET_KEY` не задан или остался дефолтным dev-значением
+> Cloudflare "always passes" (сознательный security-фикс, не баг). **НЕ мержить PR #390**
+> (public vacancy-apply endpoint), пока секрет `TURNSTILE_SECRET_KEY` не заведён в GitHub —
+> иначе первый же деплой после мержа уронит прод-API в crash-loop.
+
+**Шаги владельца в Cloudflare Dashboard:**
+
+1. Cloudflare → **Turnstile** → **Add site**.
+2. Domains: `cheekycheese.tech` **и** `localhost` (второй — чтобы виджет работал в dev/локально).
+3. Widget mode: Managed (рекомендуется).
+4. После создания Cloudflare покажет **Site Key** (публичный) и **Secret Key** (приватный).
+
+**Завести в GitHub → Settings → Secrets and variables → Actions:**
+
+| Secret                    | Значение                  | Куда едет                                                                                         |
+| ------------------------- | ------------------------- | ------------------------------------------------------------------------------------------------- |
+| `TURNSTILE_SECRET_KEY`    | Secret Key из шага 4 выше | `write-env` job → `.env.production` на VPS → читает `apps/api` (`env.ts`)                         |
+| `VITE_TURNSTILE_SITE_KEY` | Site Key из шага 4 выше   | `build` job → build-arg в `nginx/Dockerfile` (landing-builder stage) → запекается в landing-бандл |
+
+- `TURNSTILE_SECRET_KEY` следует тому же пути, что и остальные API-секреты (`JWT_SECRET`,
+  `SESSION_SECRET`, ...): SSH env-канал в `write-env` job → строка в `/opt/crm/.env.production`
+  (mode 600) → читается контейнером `api` через `env_file` в `docker-compose.prod.yml`. `deploy.yml`
+  **fail-loud**: если секрет пуст, `write-env` job падает ДО того, как что-либо задеплоится
+  (явная проверка `if [ -z "$TURNSTILE_SECRET_KEY" ]`), с сообщением-ссылкой на этот раздел.
+- `VITE_TURNSTILE_SITE_KEY` — build-time (не runtime) секрет: попадает в `build` job как
+  Docker build-arg при сборке `nginx/Dockerfile` (та стадия, которая реально собирает
+  `apps/landing` для прода — НЕ `apps/landing/Dockerfile`, который лишь дублирует ARG для
+  автономной локальной сборки). Пустое значение **не роняет билд** — до мержа PR #390 (форма
+  ещё не существует в бандле) это ожидаемо; `build` job печатает `::warning::` в лог, если
+  секрет не задан.
+- Dev/локально: значение по умолчанию — CF-документированный always-pass site key
+  `1x00000000000000000000AA` (см. `apps/landing/.env.example` и корневой `.env.example`).
+  На стороне API — соответствующий always-pass secret key уже в `apps/api/.env.example`.
+
 ---
 
 ## 2. Установка Docker на VPS
@@ -195,23 +232,25 @@ docker compose version   # должно показать Compose plugin v2.x
 Добавить в **GitHub → Settings → Secrets and variables → Actions → Secrets** (уровень Repository).
 Дополнительно создать **Environment "production"** и добавить туда же для дополнительной защиты.
 
-| Secret                  | Значение / как получить                                                                                          |
-| ----------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `VPS_HOST`              | IP-адрес VPS (из §1.1)                                                                                           |
-| `VPS_USER`              | SSH-пользователь (обычно `root` или выделенный deploy-user)                                                      |
-| `VPS_SSH_KEY`           | Содержимое приватного ключа `~/.ssh/crm_deploy_key` (весь файл включая `-----BEGIN...-----`)                     |
-| `POSTGRES_PASSWORD`     | `openssl rand -base64 32` — сильный пароль (≥32 символа)                                                         |
-| `JWT_SECRET`            | `openssl rand -base64 48` — минимум 32 символа                                                                   |
-| `SESSION_SECRET`        | `openssl rand -base64 48` — минимум 32 символа                                                                   |
-| `CREDENTIALS_ENC_KEY`   | `openssl rand -base64 32` — должно быть ровно 32 байта AES-256                                                   |
-| `GOOGLE_CLIENT_ID`      | Из Google Cloud Console → OAuth 2.0 Client (§1.3)                                                                |
-| `GOOGLE_CLIENT_SECRET`  | Оттуда же                                                                                                        |
-| `S3_ENDPOINT`           | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint) |
-| `S3_REGION`             | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                     |
-| `S3_BUCKET`             | `crm-documents-prod`                                                                                             |
-| `S3_FORCE_PATH_STYLE`   | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                             |
-| `AWS_ACCESS_KEY_ID`     | R2 API Token Access Key ID (§1.5) или AWS IAM ключ                                                               |
-| `AWS_SECRET_ACCESS_KEY` | R2 API Token Secret или AWS IAM секрет                                                                           |
+| Secret                    | Значение / как получить                                                                                          |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `VPS_HOST`                | IP-адрес VPS (из §1.1)                                                                                           |
+| `VPS_USER`                | SSH-пользователь (обычно `root` или выделенный deploy-user)                                                      |
+| `VPS_SSH_KEY`             | Содержимое приватного ключа `~/.ssh/crm_deploy_key` (весь файл включая `-----BEGIN...-----`)                     |
+| `POSTGRES_PASSWORD`       | `openssl rand -base64 32` — сильный пароль (≥32 символа)                                                         |
+| `JWT_SECRET`              | `openssl rand -base64 48` — минимум 32 символа                                                                   |
+| `SESSION_SECRET`          | `openssl rand -base64 48` — минимум 32 символа                                                                   |
+| `CREDENTIALS_ENC_KEY`     | `openssl rand -base64 32` — должно быть ровно 32 байта AES-256                                                   |
+| `GOOGLE_CLIENT_ID`        | Из Google Cloud Console → OAuth 2.0 Client (§1.3)                                                                |
+| `GOOGLE_CLIENT_SECRET`    | Оттуда же                                                                                                        |
+| `S3_ENDPOINT`             | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint) |
+| `S3_REGION`               | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                     |
+| `S3_BUCKET`               | `crm-documents-prod`                                                                                             |
+| `S3_FORCE_PATH_STYLE`     | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                             |
+| `AWS_ACCESS_KEY_ID`       | R2 API Token Access Key ID (§1.5) или AWS IAM ключ                                                               |
+| `AWS_SECRET_ACCESS_KEY`   | R2 API Token Secret или AWS IAM секрет                                                                           |
+| `TURNSTILE_SECRET_KEY`    | Cloudflare Turnstile Secret Key (§1.7). **Обязателен ДО мержа PR #390** — иначе прод-API crash-loop на буте.     |
+| `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile Site Key (§1.7). Опционален до #390 — пустое значение не роняет билд лендинга.              |
 
 > `GITHUB_TOKEN` (для GHCR login в deploy) генерируется GHA автоматически — добавлять не нужно.
 >
@@ -526,6 +565,18 @@ IP Cloudflare, а не реального клиента. Nginx настроен
 
 - IPv4: https://www.cloudflare.com/ips-v4
 - IPv6: https://www.cloudflare.com/ips-v6
+
+**X-Forwarded-For: nginx ПЕРЕЗАПИСЫВАЕТ, не аппендит (проверено для `/api/public/*`).**
+Deployment-нота из security-review PR #390 (public vacancy-apply endpoint, `POST
+/api/public/vacancies/:slug/apply`, опирается на `req.ip` для rate-limit): все `location /api/`
+блоки в `nginx/conf.d/crm.conf` **и** `nginx/conf.d/landing.conf` (HTTP и HTTPS server-блоки, оба
+файла) используют `proxy_set_header X-Forwarded-For $remote_addr;` — это **перезаписывает**
+заголовок значением `$remote_addr` (уже восстановленным из `CF-Connecting-IP` через
+`set_real_ip_from`), а не аппендит к входящему клиентскому XFF (как сделал бы
+`$proxy_add_x_forwarded_for`). Это уже корректно настроено — клиент не может подделать XFF,
+который увидит API. Публичный `/api/public/*` эндпоинт вакансий проксируется через тот же
+`location /api/` блок (нет отдельного location для `/api/public/*`), поэтому наследует ту же
+защиту. Изменений в `nginx.conf`/`conf.d/*` для этого не потребовалось — только фиксация факта.
 
 ### VITE_API_URL
 
