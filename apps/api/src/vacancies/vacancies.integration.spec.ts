@@ -945,6 +945,95 @@ describe('Vacancies — real backend integration', () => {
     })
   })
 
+  // ── AC10: resume-url presigned TTL=600s; object gone from R2 after DELETE ─
+
+  describe('AC10 — resume-url + delete removes the R2 object', () => {
+    it('resume-url returns a presigned URL with ~600s TTL; DELETE removes DB row + R2 object', async () => {
+      if (!dbAvailable) return
+      const slug = `resume-url-${Date.now()}`
+      const create = await app.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'Resume URL Role',
+          slug,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+        },
+      })
+      const vacancyId = trackVacancy((create.json() as { id: string }).id)
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${vacancyId}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+
+      const { body, contentType } = buildMultipartBody(
+        {
+          fullName: 'Resume Url Candidate',
+          email: `resume-url-${Date.now()}@example.com`,
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+        },
+        {
+          fieldname: 'resume',
+          filename: 'resume.pdf',
+          contentType: 'application/pdf',
+          buffer: await makeValidPdfBuffer(),
+        },
+      )
+      await app.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${slug}/apply`,
+        headers: { 'content-type': contentType },
+        payload: body,
+      })
+
+      const appRow = await dbSvc.db.query.vacancyApplications.findFirst({
+        where: (a, { eq }) => eq(a.vacancyId, vacancyId),
+      })
+      expect(appRow).toBeDefined()
+
+      const before = Date.now()
+      const resumeUrlRes = await app.inject({
+        method: 'GET',
+        url: `/api/vacancies/${vacancyId}/applications/${appRow!.id}/resume-url`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(resumeUrlRes.statusCode).toBe(200)
+      const { url, expiresAt } = resumeUrlRes.json() as { url: string; expiresAt: string }
+      expect(url).toContain('http')
+      const ttlMs = new Date(expiresAt).getTime() - before
+      // TTL = 600s — allow a small tolerance for test execution time.
+      expect(ttlMs).toBeGreaterThan(590_000)
+      expect(ttlMs).toBeLessThanOrEqual(600_000 + 5_000)
+
+      // Object is really there before delete.
+      const s3 = app.get(S3Service)
+      await expect(s3.getObject(appRow!.resumeS3Key)).resolves.toBeInstanceOf(Buffer)
+
+      const deleteRes = await app.inject({
+        method: 'DELETE',
+        url: `/api/vacancies/${vacancyId}/applications/${appRow!.id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(deleteRes.statusCode).toBe(204)
+
+      // DB row gone.
+      const afterDelete = await dbSvc.db.query.vacancyApplications.findFirst({
+        where: (a, { eq }) => eq(a.id, appRow!.id),
+      })
+      expect(afterDelete).toBeUndefined()
+
+      // R2 object gone — real GetObject against MinIO now rejects.
+      await expect(s3.getObject(appRow!.resumeS3Key)).rejects.toThrow()
+    })
+  })
+
   // ── AC8: rate limit on the REAL apply endpoint (fresh app — clean throttle store) ──
 
   describe('AC8 — rate limit', () => {
