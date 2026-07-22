@@ -93,6 +93,13 @@ services:
         VITE_API_URL: /api
         # Optional: pass git SHA for cache busting (set in CI/deploy script).
         # VITE_BUILD_VERSION: ${VITE_BUILD_VERSION:-}
+        # Cloudflare Turnstile site key baked into the landing bundle.
+        # Empty is a safe default (no widget in the bundle until the
+        # vacancy-apply form, task-vacancies-api PR #390, merges). Only
+        # relevant for manual `docker compose -f docker-compose.prod.yml
+        # build` — the GHA deploy pipeline (deploy.yml) builds nginx/Dockerfile
+        # directly and does not read this file's build args.
+        VITE_TURNSTILE_SITE_KEY: ${VITE_TURNSTILE_SITE_KEY:-}
     restart: unless-stopped
     ports:
       - '80:80'
