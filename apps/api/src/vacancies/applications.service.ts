@@ -63,14 +63,36 @@ type ApplicationRow = typeof vacancyApplications.$inferSelect
 /** Only PDF resumes are accepted (task §5.6). */
 const RESUME_MIME = 'application/pdf'
 
-/** Buffer size hard cap — 5 MB (task: "PDF ≤ 5MB → R2"). */
-const RESUME_MAX_BYTES = 5 * 1024 * 1024
+/**
+ * Buffer size hard cap — 5 MB (task: "PDF ≤ 5MB → R2"). Exported so
+ * `PublicVacanciesController` can pass the SAME number as an explicit
+ * per-route `req.parts({ limits: { fileSize: ... } })` cap (sec MED-2 / F3)
+ * instead of letting the public apply endpoint inherit the more permissive
+ * global multipart config from main.ts — single source of truth, no drift.
+ */
+export const RESUME_MAX_BYTES = 5 * 1024 * 1024
 
 /** Duplicate-submission window — same email + vacancy within 24h → 429. */
 const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000
 
 /** Presigned resume-download TTL — 600s (task §Endpoints). */
 const RESUME_PRESIGN_TTL_SEC = 600
+
+/**
+ * Strips characters that could break out of the ASCII-fallback
+ * `filename="..."` parameter S3Service.getPresignedDownloadUrl() builds for
+ * Content-Disposition (sec MED-5 / F5). `fullName` is candidate-controlled;
+ * an unescaped `"` or `\` can confuse/spoof the quoted filename parameter.
+ * CR/LF are stripped defensively too (S3Service's own asciiFallback already
+ * drops all control chars, but this call site does not rely on that —
+ * `s3.service.ts` is out of scope/blast-radius for this task). The
+ * `filename*=UTF-8''...` companion parameter is unaffected (S3Service
+ * percent-encodes it separately), so this only narrows the legacy ASCII
+ * fallback, never the actual downloaded file content.
+ */
+function sanitizeDownloadFilename(name: string): string {
+  return name.replace(/["\\\r\n]/g, '')
+}
 
 @Injectable()
 export class ApplicationsService {
@@ -260,7 +282,7 @@ export class ApplicationsService {
     return this.s3.getPresignedDownloadUrl(
       row.resumeS3Key,
       RESUME_PRESIGN_TTL_SEC,
-      `${row.fullName}.pdf`,
+      `${sanitizeDownloadFilename(row.fullName)}.pdf`,
       'attachment',
     )
   }
@@ -300,13 +322,30 @@ export class ApplicationsService {
       .from(users)
       .where(inArray(users.role, ['ADMIN', 'HR']))
 
-    for (const recipient of recipients) {
-      await this.notifications.create({
-        userId: recipient.id,
-        type: 'VACANCY_APPLICATION',
-        title: `Новый отклик: ${candidateFullName} — ${vacancyTitle}`,
-        link: `/vacancies/${vacancyId}`,
-      })
+    // Fan out in parallel (code MED / F6) — a sequential await-loop turned N
+    // ADMIN/HR recipients into N sequential round-trips. `Promise.allSettled`
+    // fires every notification concurrently and never rejects itself, so one
+    // recipient's failure (e.g. a transient DB hiccup) cannot roll back
+    // `apply()` — the candidate's submission already succeeded.
+    const results = await Promise.allSettled(
+      recipients.map((recipient) =>
+        this.notifications.create({
+          userId: recipient.id,
+          type: 'VACANCY_APPLICATION',
+          title: `Новый отклик: ${candidateFullName} — ${vacancyTitle}`,
+          link: `/vacancies/${vacancyId}`,
+        }),
+      ),
+    )
+
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        this.logger.warn(
+          `notifyAdminsAndHr(): one notification failed to create (apply() still succeeds): ${
+            result.reason instanceof Error ? result.reason.message : String(result.reason)
+          }`,
+        )
+      }
     }
   }
 

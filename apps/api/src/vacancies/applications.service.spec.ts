@@ -17,6 +17,7 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import type { SessionUser } from '@crm/shared'
 import { ApplicationsService, type ApplyResumeFile } from './applications.service'
 import type { VacanciesService } from './vacancies.service'
 import type { TurnstileService } from './turnstile.service'
@@ -274,5 +275,88 @@ describe('ApplicationsService.apply()', () => {
     expect(call[0].title).toContain('Ivan Petrenko')
     expect(call[0].title).toContain('Senior Frontend Engineer')
     expect(call[0].title).not.toContain(VALID_FIELDS.email)
+  })
+
+  // F6 (code MED) — notifyAdminsAndHr fans out via Promise.allSettled: one
+  // recipient's notification failing must NOT fail apply() (the candidate's
+  // submission already succeeded), and every recipient is still attempted.
+  it('one recipient notification failing does not fail apply(); every recipient is still attempted', async () => {
+    h = makeHarness({ recipients: [{ id: 'admin-1' }, { id: 'hr-1' }] })
+    let callCount = 0
+    h.notifications.create.mockImplementation(() => {
+      callCount += 1
+      return callCount === 1
+        ? Promise.reject(new Error('notif service down'))
+        : Promise.resolve(undefined)
+    })
+
+    const result = await h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
+    expect(result).toEqual({ ok: true })
+    expect(h.notifications.create).toHaveBeenCalledTimes(2)
+  })
+})
+
+// F5 (sec MED-5) — Content-Disposition filename sanitization on the
+// admin/HR resume-download endpoint.
+describe('ApplicationsService.getResumeUrl()', () => {
+  const ADMIN_ACTOR = { role: 'ADMIN' } as unknown as SessionUser
+
+  function makeResumeHarness(fullName: string) {
+    const s3 = {
+      getPresignedDownloadUrl: vi
+        .fn()
+        .mockResolvedValue({ url: 'https://stub/x', expiresAt: '2026-01-01T00:10:00.000Z' }),
+    }
+    const vacanciesService = {
+      getRowOrThrow: vi.fn().mockResolvedValue({ id: 'vac-1' }),
+    }
+    const row = {
+      id: 'app-1',
+      vacancyId: 'vac-1',
+      fullName,
+      resumeS3Key: 'vacancy-applications/vac-1/app-1.pdf',
+    }
+    const db = {
+      db: {
+        query: {
+          vacancyApplications: {
+            findFirst: vi.fn().mockResolvedValue(row),
+          },
+        },
+      },
+    }
+    const svc = new ApplicationsService(
+      db as unknown as DatabaseService,
+      vacanciesService as unknown as VacanciesService,
+      s3 as unknown as S3Service,
+      {} as unknown as CompressionService,
+      {} as unknown as TurnstileService,
+      {} as unknown as NotificationsService,
+    )
+    return { svc, s3 }
+  }
+
+  it('strips ", backslash, CR and LF from the candidate fullName before building the download filename', async () => {
+    const { svc, s3 } = makeResumeHarness('Ev"il\\Name\r\n')
+    await svc.getResumeUrl(ADMIN_ACTOR, 'vac-1', 'app-1')
+    const [, , downloadAs] = s3.getPresignedDownloadUrl.mock.calls[0] as [
+      string,
+      number,
+      string,
+      string,
+    ]
+    expect(downloadAs).toBe('EvilName.pdf')
+  })
+
+  it('leaves an ordinary fullName untouched (no over-stripping of legitimate characters)', async () => {
+    const { svc, s3 } = makeResumeHarness("O'Brien-Petrenko Jr.")
+    await svc.getResumeUrl(ADMIN_ACTOR, 'vac-1', 'app-1')
+    const [, , downloadAs] = s3.getPresignedDownloadUrl.mock.calls[0] as [
+      string,
+      number,
+      string,
+      string,
+    ]
+    expect(downloadAs).toBe("O'Brien-Petrenko Jr..pdf")
   })
 })
