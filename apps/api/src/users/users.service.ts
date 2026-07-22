@@ -281,9 +281,10 @@ export class UsersService {
       role: data.role,
       telegram: data.telegram ?? null,
       phone: data.phone ?? null,
-      avatarUrl:
-        data.avatarUrl ??
-        `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+      // No auto-generated (dicebear) placeholder — new users get null here and
+      // the UI (UserAvatar) falls back to initials until a real photo/upload
+      // is set.
+      avatarUrl: data.avatarUrl ?? null,
       techStack: data.techStack ?? null,
     }
     if (data.seniorSharePercent !== undefined)
@@ -1667,9 +1668,8 @@ export class UsersService {
         role: 'DROP',
         telegram: data.telegram ?? null,
         phone: data.phone ?? null,
-        avatarUrl:
-          data.avatarUrl ??
-          `https://api.dicebear.com/9.x/avataaars/svg?seed=${encodeURIComponent(data.displayName)}`,
+        // Same rationale as UsersService.createUser — no dicebear placeholder.
+        avatarUrl: data.avatarUrl ?? null,
         techStack: data.techStack ?? null,
         dropSharePercent: data.dropSharePercent ?? 5,
       }

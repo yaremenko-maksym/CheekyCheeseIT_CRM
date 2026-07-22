@@ -74,7 +74,7 @@ function makeService(opts: { existingEmail?: boolean } = {}) {
     makeAuditLogService(),
     teamsService,
   )
-  return { service, createDropTeam }
+  return { service, createDropTeam, insertMock: txHandle.insert }
 }
 
 // ---------------------------------------------------------------------------
@@ -191,6 +191,47 @@ describe('UsersService.createDrop — validation/RBAC', () => {
       null,
       expect.anything(),
     )
+  })
+
+  // Owner request: stop auto-generating dicebear avatars for new users — the
+  // UI already renders an initials fallback when avatarUrl is null.
+  it('stores null avatarUrl when omitted — no dicebear auto-generation', async () => {
+    const { service, insertMock } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+      },
+      adminUser,
+    )
+    const valuesMock = (insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> })
+      .values
+    const insertedValues = valuesMock.mock.calls[0]?.[0] as { avatarUrl: unknown }
+    expect(insertedValues.avatarUrl).toBeNull()
+  })
+
+  it('passes through an explicit avatarUrl unchanged', async () => {
+    const { service, insertMock } = makeService()
+    await service.createDrop(
+      {
+        email: 'drop@cc.com',
+        displayName: 'New Drop',
+        avatarUrl: 'https://example.com/drop.png',
+        paymentMethod: 'USDT_ERC20',
+        walletUsdtErc20: '0x1111111111111111111111111111111111111111',
+        hrIds: ['hr-1'],
+        accountantId: 'acc-1',
+      },
+      adminUser,
+    )
+    const valuesMock = (insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> })
+      .values
+    const insertedValues = valuesMock.mock.calls[0]?.[0] as { avatarUrl: unknown }
+    expect(insertedValues.avatarUrl).toBe('https://example.com/drop.png')
   })
 })
 

@@ -661,6 +661,50 @@ describe('UsersService.createUser — profile fields', () => {
 })
 
 // ---------------------------------------------------------------------------
+// createUser — avatarUrl (owner request: stop auto-generating dicebear avatars
+// for new users; UI renders initials fallback instead)
+// ---------------------------------------------------------------------------
+
+describe('UsersService.createUser — avatarUrl', () => {
+  it('stores null when avatarUrl is omitted — no dicebear auto-generation', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      email: junior.email,
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+    })
+
+    const insertMock = db.db.insert as ReturnType<typeof vi.fn>
+    const valuesMock = (insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> })
+      .values
+    const insertedValues = valuesMock.mock.calls[0]?.[0] as { avatarUrl: unknown }
+    expect(insertedValues.avatarUrl).toBeNull()
+  })
+
+  it('passes through an explicit avatarUrl unchanged', async () => {
+    const junior = makeJunior()
+    const db = makeDb({ existingUser: undefined, createdUser: junior })
+    const service = makeUsersService(db)
+
+    await service.createUser({
+      email: junior.email,
+      displayName: junior.displayName,
+      role: 'JUNIOR',
+      avatarUrl: 'https://example.com/me.png',
+    })
+
+    const insertMock = db.db.insert as ReturnType<typeof vi.fn>
+    const valuesMock = (insertMock.mock.results[0]?.value as { values: ReturnType<typeof vi.fn> })
+      .values
+    const insertedValues = valuesMock.mock.calls[0]?.[0] as { avatarUrl: unknown }
+    expect(insertedValues.avatarUrl).toBe('https://example.com/me.png')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // adminUpdateUser
 // ---------------------------------------------------------------------------
 
