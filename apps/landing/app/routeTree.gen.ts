@@ -11,7 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as CareersRouteImport } from './routes/careers'
 import { Route as IndexRouteImport } from './routes/index'
-import { Route as CareersSlugRouteImport } from './routes/careers.$slug'
+import { Route as CareersSlugRouteImport } from './routes/careers_.$slug'
 
 const CareersRoute = CareersRouteImport.update({
   id: '/careers',
@@ -24,38 +24,39 @@ const IndexRoute = IndexRouteImport.update({
   getParentRoute: () => rootRouteImport,
 } as any)
 const CareersSlugRoute = CareersSlugRouteImport.update({
-  id: '/$slug',
-  path: '/$slug',
-  getParentRoute: () => CareersRoute,
+  id: '/careers_/$slug',
+  path: '/careers/$slug',
+  getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
-  '/careers': typeof CareersRouteWithChildren
+  '/careers': typeof CareersRoute
   '/careers/$slug': typeof CareersSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
-  '/careers': typeof CareersRouteWithChildren
+  '/careers': typeof CareersRoute
   '/careers/$slug': typeof CareersSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
-  '/careers': typeof CareersRouteWithChildren
-  '/careers/$slug': typeof CareersSlugRoute
+  '/careers': typeof CareersRoute
+  '/careers_/$slug': typeof CareersSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths: '/' | '/careers' | '/careers/$slug'
   fileRoutesByTo: FileRoutesByTo
   to: '/' | '/careers' | '/careers/$slug'
-  id: '__root__' | '/' | '/careers' | '/careers/$slug'
+  id: '__root__' | '/' | '/careers' | '/careers_/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
-  CareersRoute: typeof CareersRouteWithChildren
+  CareersRoute: typeof CareersRoute
+  CareersSlugRoute: typeof CareersSlugRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -74,30 +75,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/careers/$slug': {
-      id: '/careers/$slug'
-      path: '/$slug'
+    '/careers_/$slug': {
+      id: '/careers_/$slug'
+      path: '/careers/$slug'
       fullPath: '/careers/$slug'
       preLoaderRoute: typeof CareersSlugRouteImport
-      parentRoute: typeof CareersRoute
+      parentRoute: typeof rootRouteImport
     }
   }
 }
 
-interface CareersRouteChildren {
-  CareersSlugRoute: typeof CareersSlugRoute
-}
-
-const CareersRouteChildren: CareersRouteChildren = {
-  CareersSlugRoute: CareersSlugRoute,
-}
-
-const CareersRouteWithChildren =
-  CareersRoute._addFileChildren(CareersRouteChildren)
-
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
-  CareersRoute: CareersRouteWithChildren,
+  CareersRoute: CareersRoute,
+  CareersSlugRoute: CareersSlugRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { motion, useReducedMotion } from 'framer-motion'
-import { ArrowRight, FolderOpen, Mail } from 'lucide-react'
+import { ArrowRight, Mail } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { fetchVacancies } from '@/lib/api'
 import { useDocumentHead } from '@/lib/use-document-head'
@@ -14,13 +14,12 @@ import { CaseStudyCard } from '@/components/marketing/case-study-card'
 import { ServiceCard } from '@/components/marketing/service-card'
 import { ProcessStep } from '@/components/marketing/process-step'
 import { TechStackChips } from '@/components/marketing/tech-stack-chips'
-import { VacancyCard } from '@/components/marketing/vacancy-card'
+import { CareersTeaser } from '@/components/marketing/careers-teaser'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { caseStudies } from '@/content/case-studies'
 import {
   CONTACT_EMAIL,
-  HOME_CAREERS_TEASER_LIMIT,
   aboutBullets,
   processSteps,
   services,
@@ -60,7 +59,6 @@ function Reveal({
 
 function LandingPage() {
   const vacancies = Route.useLoaderData() as PublicVacancy[]
-  const teaserVacancies = vacancies.slice(0, HOME_CAREERS_TEASER_LIMIT)
 
   useDocumentHead({
     title: 'CheekyCheeseIT — Senior engineering studio for AI, EdTech & E-Commerce',
@@ -268,29 +266,9 @@ function LandingPage() {
             </Button>
           </Reveal>
 
-          {teaserVacancies.length > 0 ? (
-            <Reveal className="grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-7">
-              {teaserVacancies.map((vacancy) => (
-                <VacancyCard key={vacancy.slug} vacancy={vacancy} />
-              ))}
-            </Reveal>
-          ) : (
-            <Reveal className="rounded-2xl border border-border bg-card p-7 py-14 text-center">
-              <div className="mx-auto mb-5 flex size-14 items-center justify-center rounded-2xl bg-primary/12 text-primary">
-                <FolderOpen aria-hidden="true" className="size-[26px]" />
-              </div>
-              <h3 className="mb-2.5 text-[clamp(1.25rem,2.4vw,1.6rem)] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground">
-                No open roles right now
-              </h3>
-              <p className="mx-auto mb-6 max-w-[44ch] text-muted-foreground">
-                We hire in waves and we&rsquo;re between them. Send your CV anyway — we keep every
-                strong profile on file.
-              </p>
-              <Button asChild>
-                <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
-              </Button>
-            </Reveal>
-          )}
+          <Reveal>
+            <CareersTeaser vacancies={vacancies} />
+          </Reveal>
         </div>
       </section>
 

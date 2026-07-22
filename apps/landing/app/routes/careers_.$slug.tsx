@@ -18,7 +18,7 @@ import { cn, focusRing } from '@/lib/utils'
  * as a friendly "Role not found" state, never a raw browser 404
  * (docs/design/landing-redesign.md §8).
  */
-export const Route = createFileRoute('/careers/$slug')({
+export const Route = createFileRoute('/careers_/$slug')({
   loader: async ({ params }) => fetchVacancy(params.slug),
   component: VacancyDetailPage,
 })

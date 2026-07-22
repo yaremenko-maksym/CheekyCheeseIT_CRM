@@ -10,7 +10,10 @@ export default defineConfig({
     port: 3002,
     proxy: {
       '/api': {
-        target: 'http://localhost:3001',
+        // Same override pattern as apps/web/vite.config.ts — lets Coder/QA
+        // point dev at a scratch API instance on a non-default port without
+        // editing this file.
+        target: process.env['VITE_PROXY_API_TARGET'] ?? 'http://localhost:3001',
         changeOrigin: true,
       },
     },
