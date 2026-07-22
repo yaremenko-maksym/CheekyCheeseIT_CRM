@@ -61,11 +61,12 @@ export interface SubmitApplicationResult {
  */
 const ERROR_COPY: Record<SubmitApplicationErrorKind, string> = {
   validation:
-    "Something went wrong sending your application. Please check your details and try again.",
+    'Something went wrong sending your application. Please check your details and try again.',
   'too-large': 'Your CV file is larger than 5 MB. Please compress it and try again.',
   'unsupported-media': 'Your CV must be a valid PDF file.',
   duplicate: "You've already applied to this role recently.",
-  network: 'Something went wrong sending your application. Please check your details and try again.',
+  network:
+    'Something went wrong sending your application. Please check your details and try again.',
 }
 
 function errorKindForStatus(status: number): SubmitApplicationErrorKind {
