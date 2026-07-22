@@ -262,7 +262,15 @@ export class ApplicationsService {
     return this.mapApplication(updated)
   }
 
-  /** Deletes the DB row AND the R2 object. S3Service.delete is idempotent/non-throwing. */
+  /**
+   * Deletes the DB row AND the R2 object. S3Service.delete is idempotent/non-throwing.
+   *
+   * Intentionally `delete()` (swallow), NOT `deleteOrThrow` (task-fix-pr-390-round3
+   * / F1): this is an interactive ADMIN/HR action — the caller sees the result
+   * immediately and can re-run delete from the UI if the R2 object somehow
+   * survives, so there is no unattended retry loop to protect (unlike the
+   * retention cron, which needed the reject signal to keep the DB row around).
+   */
   async remove(actor: SessionUser, vacancyId: string, applicationId: string): Promise<void> {
     this.assertAdminOrHr(actor)
     const row = await this.getApplicationOrThrow(vacancyId, applicationId)

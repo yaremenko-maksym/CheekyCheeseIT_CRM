@@ -18,7 +18,16 @@
  * reference to retry it — the DB row (the only thing driving "will retry
  * next run") was already gone. Inverting the order means a failed R2 delete
  * simply leaves that row in place; the next daily run picks it up again
- * (both `S3Service.delete` and this purge are idempotent).
+ * (both `S3Service.deleteOrThrow` and this purge are idempotent).
+ *
+ * sec MED-1 (task-fix-pr-390-round3 / F1): this cron calls
+ * `S3Service.deleteOrThrow`, NOT `S3Service.delete`. `delete()`'s contract is
+ * "log and swallow — never throws" (see its own doc comment), which made the
+ * try/catch below dead code and the F4 ordering fix above a no-op: the catch
+ * branch could never be reached with the real service, so a failed R2 delete
+ * was silently treated as success and the DB row was purged anyway — exactly
+ * the orphan-PII bug F4 was meant to close. `deleteOrThrow` propagates
+ * transport failures for real, so the catch below is now reachable.
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
@@ -96,10 +105,13 @@ export class VacanciesRetentionCronService {
     // row stays and drives a retry on the next daily run instead of orphaning
     // an unreferenced PII resume in R2 (sec MED-4 / F4). A failure on one
     // candidate never blocks the rest of the batch.
+    //
+    // deleteOrThrow (NOT delete — sec MED-1 / F1, see file header): this is
+    // the one call site in the codebase that needs the reject signal.
     let deletedCount = 0
     for (const row of candidates.values()) {
       try {
-        await this.s3.delete(row.resumeS3Key)
+        await this.s3.deleteOrThrow(row.resumeS3Key)
       } catch (err) {
         this.logger.warn(
           `Retention: R2 delete failed for applicationId=${row.id} — leaving DB row for next run: ${(err as Error).message}`,

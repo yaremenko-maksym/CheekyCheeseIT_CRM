@@ -172,6 +172,10 @@ const fakeConfigService = { get: (key: string) => fakeEnv[key] } as unknown as C
 //   - getObject() returns the stored buffer, or rejects if the key is absent
 //     (mirrors S3Service.getObject's real "throws on missing key" contract)
 //   - delete()  removes the key (idempotent — deleting a missing key is a no-op)
+//   - deleteOrThrow() same behaviour as delete() here (the stub has no
+//     transport to fail) — VacanciesRetentionCronService (F1 / MED-1) calls
+//     THIS method, not delete(), so the stub must implement it for AC9 to
+//     exercise the real cron through DI.
 //   - getPresignedDownloadUrl() returns a fake-but-shaped URL + a REAL
 //     TTL-derived expiresAt (same math as S3Service, so the AC10 TTL
 //     assertion still exercises real ApplicationsService/controller wiring,
@@ -191,6 +195,14 @@ const stubS3 = {
     return Promise.resolve(buf)
   },
   delete: (key: string): Promise<void> => {
+    s3Store.delete(key)
+    return Promise.resolve()
+  },
+  // F1 (task-fix-pr-390-round3 / MED-1): VacanciesRetentionCronService calls
+  // deleteOrThrow, not delete — the stub has no transport to fail so both
+  // behave identically here (real-transport-failure coverage is unit-level,
+  // in s3.service.spec.ts + vacancies-retention.cron.spec.ts).
+  deleteOrThrow: (key: string): Promise<void> => {
     s3Store.delete(key)
     return Promise.resolve()
   },

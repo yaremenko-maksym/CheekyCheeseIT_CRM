@@ -205,6 +205,35 @@ describe('S3Service.delete', () => {
 })
 
 // ---------------------------------------------------------------------------
+// F1 (task-fix-pr-390-round3 / MED-1): deleteOrThrow — additive, fail-loud
+// sibling of delete(). Compensated pipelines (VacanciesRetentionCronService)
+// need the reject signal delete() intentionally never gives them.
+// ---------------------------------------------------------------------------
+
+describe('S3Service.deleteOrThrow', () => {
+  it('sends DeleteObjectCommand for the key', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue(undefined)
+    await service.deleteOrThrow('k')
+    const cmd = sendSpy.mock.calls[0]![0] as DeleteObjectCommand
+    expect(cmd).toBeInstanceOf(DeleteObjectCommand)
+    expect(cmd.input.Key).toBe('k')
+  })
+
+  it('resolves when the underlying send() succeeds (missing key is still a 204-style success)', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue(undefined)
+    await expect(service.deleteOrThrow('missing-key')).resolves.toBeUndefined()
+  })
+
+  it('propagates transport errors — the opposite contract of delete() (MED-1 fix)', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockRejectedValue(new Error('R2 unreachable'))
+    await expect(service.deleteOrThrow('k')).rejects.toThrow('R2 unreachable')
+  })
+})
+
+// ---------------------------------------------------------------------------
 // MED-A security hardening: listObjects must be scoped to 'documents/' prefix
 // ---------------------------------------------------------------------------
 

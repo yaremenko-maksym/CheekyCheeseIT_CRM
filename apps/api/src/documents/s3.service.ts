@@ -204,6 +204,14 @@ export class S3Service {
    * Delete an object. Idempotent: S3 returns 204 even when the key is
    * missing, so the only swallowed errors here are network-level. The
    * documents service uses this from the hard-delete endpoint.
+   *
+   * "Best-effort, swallow" contract — use this when the CALLER has no
+   * compensating action to take on a transport failure (the UI-facing
+   * hard-delete flow: the DB row is already gone or about to go regardless,
+   * and re-running hard-delete is always safe/idempotent). If your caller
+   * NEEDS to react to a failed R2 delete (e.g. keep a DB row around so a
+   * retry loop picks it up again), use `deleteOrThrow` instead — this method
+   * will NEVER give you that signal, it always resolves.
    */
   async delete(key: string): Promise<void> {
     try {
@@ -220,6 +228,32 @@ export class S3Service {
       // (row already gone) without retrying S3.
       this.logger.warn(`S3 delete failed for key="${key}": ${(err as Error).message}`)
     }
+  }
+
+  /**
+   * Delete an object, propagating transport-level failures to the caller
+   * (sec MED-1 / task-fix-pr-390-round3 F1). ADDITIVE — `delete()` above and
+   * all of its existing call sites are untouched.
+   *
+   * Use this instead of `delete()` for COMPENSATED pipelines, where the
+   * caller has a real recovery action to take when the R2 delete fails —
+   * e.g. `VacanciesRetentionCronService`: leave the DB row in place so the
+   * next daily run retries the R2 delete, instead of orphaning an
+   * unreferenced PII resume in R2 with nothing left driving a retry.
+   * `delete()`'s "log and swallow" contract can never signal that failure to
+   * a caller, which is exactly the bug this method fixes for that call site.
+   *
+   * Still idempotent for the missing-key case (S3/MinIO return 204/succeed
+   * for a DeleteObject on a key that no longer exists) — only genuine
+   * transport/API errors reject.
+   */
+  async deleteOrThrow(key: string): Promise<void> {
+    await this.client.send(
+      new DeleteObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+      }),
+    )
   }
 
   /**
