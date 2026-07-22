@@ -51,10 +51,13 @@
   5. **How we work** — процесс-таймлайн (discovery → build → ship → support). Новая секция.
   6. **Tech stack** — существующие чипы, полировка.
   7. **Careers-тизер** — до 3 живых PUBLISHED вакансий из API + ссылка на `/careers`.
-     При 0 вакансий секция показывает CTA «write to careers@…» (mailto), не скрывается.
+     При 0 вакансий секция показывает CTA «write to hr@cheekycheese.tech» (mailto), не скрывается.
   8. **Contact / Footer**.
 - **`/careers`** — список PUBLISHED вакансий (title, domain, seniority, location),
-  фильтр по домену. Empty state: «no open roles» + mailto.
+  **без фильтров/табов** (решение владельца 2026-07-23: показываем весь список как есть).
+  Empty state: «no open roles» + mailto.
+- **Контактный имейл везде** (nav CTA, contact, footer, careers empty state):
+  `hr@cheekycheese.tech` — других имейлов на лендинге не остаётся.
 - **`/careers/:slug`** — деталка вакансии (markdown-описание, отрендеренный HTML) +
   форма отклика + success-состояние после отправки.
 
