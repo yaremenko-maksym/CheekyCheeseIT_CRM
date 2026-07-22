@@ -65,7 +65,10 @@ export function MarketingNav({ active }: MarketingNavProps) {
       <div className="mx-auto flex h-[66px] max-w-[1200px] items-center justify-between px-5 md:px-10 lg:px-14">
         <Link
           to="/"
-          className={cn('inline-flex items-center gap-2.5 font-semibold tracking-[-0.02em]', focusRing)}
+          className={cn(
+            'inline-flex items-center gap-2.5 font-semibold tracking-[-0.02em]',
+            focusRing,
+          )}
           aria-label="CheekyCheeseIT home"
         >
           <BrandMark className="h-8 w-8 text-primary" />
@@ -142,7 +145,11 @@ export function MarketingNav({ active }: MarketingNavProps) {
               aria-label="Primary mobile"
               className="mx-auto flex max-w-[1200px] flex-col gap-1 px-5 pt-3.5 pb-5"
             >
-              <Link to="/" hash="services" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+              <Link
+                to="/"
+                hash="services"
+                className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
+              >
                 Services
               </Link>
               <Link to="/" hash="work" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
@@ -159,7 +166,11 @@ export function MarketingNav({ active }: MarketingNavProps) {
               >
                 Careers
               </Link>
-              <Link to="/" hash="contact" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+              <Link
+                to="/"
+                hash="contact"
+                className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
+              >
                 Contact
               </Link>
               <Button asChild block className="mt-3">

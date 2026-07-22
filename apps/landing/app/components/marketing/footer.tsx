@@ -17,7 +17,10 @@ export function MarketingFooter() {
           <div className="col-span-full mb-1 max-w-[340px] lg:col-span-1">
             <Link
               to="/"
-              className={cn('mb-4 inline-flex items-center gap-2.5 font-semibold tracking-[-0.02em]', focusRing)}
+              className={cn(
+                'mb-4 inline-flex items-center gap-2.5 font-semibold tracking-[-0.02em]',
+                focusRing,
+              )}
             >
               <BrandMark variant="flat" className="h-6 w-6 text-primary" />
               <span>
@@ -25,8 +28,8 @@ export function MarketingFooter() {
               </span>
             </Link>
             <p className="m-0 max-w-[32ch] text-[0.92rem] text-muted-foreground">
-              An outsource &amp; outstaffing studio building AI, EdTech and E-Commerce products
-              that scale.
+              An outsource &amp; outstaffing studio building AI, EdTech and E-Commerce products that
+              scale.
             </p>
           </div>
 
@@ -70,7 +73,10 @@ export function MarketingFooter() {
             </div>
             <a
               href={`mailto:${CONTACT_EMAIL}`}
-              className={cn('inline-flex items-center gap-2 text-[0.98rem] font-medium text-primary', focusRing)}
+              className={cn(
+                'inline-flex items-center gap-2 text-[0.98rem] font-medium text-primary',
+                focusRing,
+              )}
             >
               {CONTACT_EMAIL}
             </a>
