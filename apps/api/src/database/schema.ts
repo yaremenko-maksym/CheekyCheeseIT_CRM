@@ -180,6 +180,21 @@ export const invoiceSignatureMethodEnum = pgEnum('invoice_signature_method', [
   'MANUAL_CLICK',
 ])
 
+// task-vacancies-api — public vacancies (landing) + admin CRUD (CRM).
+export const vacancyDomainEnum = pgEnum('vacancy_domain', ['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'])
+export const vacancySeniorityEnum = pgEnum('vacancy_seniority', ['SENIOR', 'LEAD'])
+export const vacancyEmploymentTypeEnum = pgEnum('vacancy_employment_type', [
+  'FULL_TIME',
+  'PART_TIME',
+  'CONTRACT',
+])
+export const vacancyStatusEnum = pgEnum('vacancy_status', ['DRAFT', 'PUBLISHED', 'CLOSED'])
+export const vacancyApplicationStatusEnum = pgEnum('vacancy_application_status', [
+  'NEW',
+  'VIEWED',
+  'REJECTED',
+])
+
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
@@ -1225,6 +1240,66 @@ export const transactionAuditLog = pgTable(
   (t) => [
     index('transaction_audit_log_target_id_idx').on(t.targetId),
     index('transaction_audit_log_created_at_idx').on(t.createdAt),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Vacancies (task-vacancies-api)
+// ---------------------------------------------------------------------------
+//
+// Public hiring channel for new SENIORs — completely separate from the
+// interviews Kanban (that board tracks a candidate a SENIOR is already
+// placing on a project; vacancies are visible on the landing before the
+// applicant is a user at all). No salary fields — never add them here.
+
+export const vacancies = pgTable(
+  'vacancies',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    slug: text('slug').notNull().unique(),
+    title: text('title').notNull(),
+    descriptionMd: text('description_md').notNull(),
+    domain: vacancyDomainEnum('domain').notNull(),
+    seniority: vacancySeniorityEnum('seniority').notNull(),
+    employmentType: vacancyEmploymentTypeEnum('employment_type').notNull(),
+    location: text('location').notNull(),
+    status: vacancyStatusEnum('status').notNull().default('DRAFT'),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    closedAt: timestamp('closed_at', { withTimezone: true }),
+    createdBy: uuid('created_by')
+      .notNull()
+      .references(() => users.id),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [index('idx_vacancies_status').on(t.status)],
+)
+
+export const vacancyApplications = pgTable(
+  'vacancy_applications',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    vacancyId: uuid('vacancy_id')
+      .notNull()
+      .references(() => vacancies.id, { onDelete: 'cascade' }),
+    fullName: text('full_name').notNull(),
+    email: text('email').notNull(),
+    telegram: text('telegram'),
+    linkedinUrl: text('linkedin_url'),
+    githubUrl: text('github_url'),
+    coverLetter: text('cover_letter'),
+    // Immutable R2/S3 object key —
+    // `vacancy-applications/<vacancyId>/<applicationId>.pdf`.
+    resumeS3Key: text('resume_s3_key').notNull(),
+    resumeSizeBytes: integer('resume_size_bytes').notNull(),
+    status: vacancyApplicationStatusEnum('status').notNull().default('NEW'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Admin application list per vacancy, most recent first.
+    index('idx_vacancy_applications_vacancy_created').on(t.vacancyId, t.createdAt.desc()),
+    // Duplicate-submission check: same email + vacancy within 24h.
+    index('idx_vacancy_applications_email_vacancy').on(t.email, t.vacancyId),
   ],
 )
 

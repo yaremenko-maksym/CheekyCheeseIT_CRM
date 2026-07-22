@@ -102,6 +102,13 @@ const envSchema = z
       .default(false),
     AWS_ACCESS_KEY_ID: z.string().min(1).default('minioadmin'),
     AWS_SECRET_ACCESS_KEY: z.string().min(1).default('minioadmin'),
+
+    // task-vacancies-api: Cloudflare Turnstile secret used to verify the
+    // public vacancy-apply endpoint. Default is Cloudflare's documented
+    // "always passes" test secret — safe for dev/CI, never for production
+    // (TurnstileService logs an error if it detects this default in prod;
+    // see EtherscanService for the same pattern with ETHERSCAN_API_KEY).
+    TURNSTILE_SECRET_KEY: z.string().min(1).default('1x0000000000000000000000000000000AA'),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:
@@ -129,6 +136,20 @@ const envSchema = z
       message:
         'CREDENTIALS_ENC_KEY must not use the placeholder value in production (change_me_* prefix detected). Generate: openssl rand -hex 32',
       path: ['CREDENTIALS_ENC_KEY'],
+    },
+  )
+  // sec MED-1 / F2: TurnstileService previously only LOGGED an error when the
+  // dev "always passes" default reached production — the app still booted
+  // and the public vacancy-apply endpoint accepted ANY token (fail-open).
+  // Mirrors the AWS_ACCESS_KEY_ID refine() above — fail-fast boot instead.
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      env.TURNSTILE_SECRET_KEY !== '1x0000000000000000000000000000000AA',
+    {
+      message:
+        'TURNSTILE_SECRET_KEY must be overridden in production (the default is Cloudflare\'s "always passes" test secret — leaving it set disables anti-bot protection on the public vacancy-apply endpoint)',
+      path: ['TURNSTILE_SECRET_KEY'],
     },
   )
 

@@ -16,6 +16,7 @@ import { z } from 'zod'
 export const notificationTypeSchema = z.enum([
   'INVOICE_SIGN_REQUIRED', // counterparty must click "Подписать"
   'INVOICE_SIGNED', // ADMIN tracking — counterparty completed the sign
+  'VACANCY_APPLICATION', // task-vacancies-api — ADMIN/HR: new public vacancy application
 ])
 export type NotificationType = z.infer<typeof notificationTypeSchema>
 

@@ -24,6 +24,7 @@ import { TeamsModule } from './teams/teams.module'
 import { TosModule } from './tos/tos.module'
 import { UsersModule } from './users/users.module'
 import { LegendsModule } from './legends/legends.module'
+import { VacanciesModule } from './vacancies/vacancies.module'
 
 @Module({
   imports: [
@@ -73,6 +74,8 @@ import { LegendsModule } from './legends/legends.module'
     CredentialsModule,
     // ADMIN dashboard «центр действий» — KPI + active-transactions aggregate.
     AdminModule,
+    // task-vacancies-api: public vacancies (landing) + admin CRUD (CRM).
+    VacanciesModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order

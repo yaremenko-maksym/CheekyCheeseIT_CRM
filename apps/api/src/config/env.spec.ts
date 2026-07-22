@@ -81,6 +81,7 @@ describe('validateEnv — CREDENTIALS_ENC_KEY fail-closed', () => {
         AWS_ACCESS_KEY_ID: 'real-access-key-id',
         AWS_SECRET_ACCESS_KEY: 'real-secret-access-key',
         CREDENTIALS_ENC_KEY: VALID_HEX_KEY,
+        TURNSTILE_SECRET_KEY: 'real-cloudflare-turnstile-secret',
       }),
     ).not.toThrow()
   })
@@ -185,6 +186,7 @@ const BASE_PROD_CREDS = {
   AWS_SECRET_ACCESS_KEY: 'real-r2-secret-access-key',
   CREDENTIALS_ENC_KEY: VALID_HEX_KEY,
   FRONTEND_URL: 'https://app.cheekycheese.tech',
+  TURNSTILE_SECRET_KEY: 'real-cloudflare-turnstile-secret',
 }
 
 describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)', () => {
@@ -230,5 +232,47 @@ describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)
   it("S3_FORCE_PATH_STYLE='false' string is parsed as boolean false (R2/AWS prod)", () => {
     const env = validateEnv({ ...BASE_DEV, S3_FORCE_PATH_STYLE: 'false' })
     expect(env.S3_FORCE_PATH_STYLE).toBe(false)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Section F — TURNSTILE_SECRET_KEY fail-closed (sec MED-1 / F2, task-fix-pr-390)
+//   23. dev dummy "always passes" secret in production → throw
+//   24. omitted in production (falls back to the dummy default) → throw
+//   25. dev dummy secret in development → ok (convenience default)
+//   26. a real secret in production → ok
+// ---------------------------------------------------------------------------
+
+const TURNSTILE_DEV_DUMMY = '1x0000000000000000000000000000000AA'
+
+describe('validateEnv — TURNSTILE_SECRET_KEY fail-closed (Section F)', () => {
+  it('throws in production when TURNSTILE_SECRET_KEY is the dev dummy "always passes" secret', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        TURNSTILE_SECRET_KEY: TURNSTILE_DEV_DUMMY,
+      }),
+    ).toThrow(/TURNSTILE_SECRET_KEY/)
+  })
+
+  it('throws in production when TURNSTILE_SECRET_KEY is omitted (falls back to the dummy default)', () => {
+    const { TURNSTILE_SECRET_KEY: _omit, ...withoutTurnstile } = BASE_PROD_CREDS as Record<
+      string,
+      unknown
+    >
+    expect(() => validateEnv(withoutTurnstile)).toThrow(/TURNSTILE_SECRET_KEY/)
+  })
+
+  it('allows the dev dummy secret in development (convenience default)', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_DEV,
+        TURNSTILE_SECRET_KEY: TURNSTILE_DEV_DUMMY,
+      }),
+    ).not.toThrow()
+  })
+
+  it('allows a real TURNSTILE_SECRET_KEY in production', () => {
+    expect(() => validateEnv({ ...BASE_PROD_CREDS })).not.toThrow()
   })
 })
