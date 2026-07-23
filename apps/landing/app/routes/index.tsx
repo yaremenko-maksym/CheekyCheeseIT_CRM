@@ -5,6 +5,7 @@ import { ArrowRight, Mail } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { fetchVacancies } from '@/lib/api'
 import { useDocumentHead } from '@/lib/use-document-head'
+import { buildOrganizationJsonLd, buildWebSiteJsonLd, canonicalUrl } from '@/lib/seo'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { Terminal } from '@/components/marketing/terminal'
@@ -64,6 +65,8 @@ function LandingPage() {
     title: 'CheekyCheeseIT — Senior engineering studio for AI, EdTech & E-Commerce',
     description:
       'A senior-only engineering studio for international product companies. From model to storefront — we ship the hard parts, on your timezone.',
+    canonical: canonicalUrl('/'),
+    jsonLd: [buildOrganizationJsonLd(), buildWebSiteJsonLd()],
   })
 
   return (

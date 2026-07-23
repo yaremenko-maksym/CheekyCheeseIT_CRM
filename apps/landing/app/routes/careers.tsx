@@ -2,6 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import type { PublicVacancy } from '@crm/shared'
 import { fetchVacancies } from '@/lib/api'
 import { useDocumentHead } from '@/lib/use-document-head'
+import { canonicalUrl } from '@/lib/seo'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { SectionEyebrow } from '@/components/marketing/section-eyebrow'
@@ -23,6 +24,7 @@ function CareersPage() {
     title: 'Careers — CheekyCheeseIT',
     description:
       'Open senior engineering roles at CheekyCheeseIT — remote-first, senior-only, real ownership.',
+    canonical: canonicalUrl('/careers'),
   })
 
   return (

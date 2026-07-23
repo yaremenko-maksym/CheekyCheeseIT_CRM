@@ -3,6 +3,7 @@ import { ArrowLeft, Briefcase, BarChart3, MapPin } from 'lucide-react'
 import type { PublicVacancyDetail } from '@crm/shared'
 import { fetchVacancy } from '@/lib/api'
 import { useDocumentHead } from '@/lib/use-document-head'
+import { buildJobPostingJsonLd, canonicalUrl } from '@/lib/seo'
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
@@ -24,9 +25,13 @@ export const Route = createFileRoute('/careers_/$slug')({
 })
 
 function NotFoundState() {
+  const { slug } = Route.useParams()
   useDocumentHead({
     title: 'Role not found — CheekyCheeseIT Careers',
     description: 'This role is no longer available.',
+    canonical: canonicalUrl(`/careers/${slug}`),
+    // Soft-404 (DRAFT/CLOSED/missing slug, see module doc) — never index.
+    noindex: true,
   })
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -65,6 +70,8 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
   useDocumentHead({
     title: `${vacancy.title} — CheekyCheeseIT Careers`,
     description: `${vacancy.title} (${vacancy.seniority}, ${employmentTypeLabel(vacancy.employmentType)}, ${vacancy.location}) — apply at CheekyCheeseIT.`,
+    canonical: canonicalUrl(`/careers/${vacancy.slug}`),
+    jsonLd: buildJobPostingJsonLd(vacancy),
   })
 
   return (
