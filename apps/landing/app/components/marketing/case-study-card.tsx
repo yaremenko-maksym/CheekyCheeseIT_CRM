@@ -37,7 +37,7 @@ export function CaseStudyCard({ study }: { study: CaseStudy }) {
         <div className="grid grid-cols-3 gap-4">
           {study.metrics.map((metric) => (
             <div key={metric.label}>
-              <div className="text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground">
+              <div className="text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground tabular-nums">
                 {metric.value}
                 {metric.suffix && <em className="text-primary not-italic">{metric.suffix}</em>}
               </div>

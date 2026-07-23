@@ -351,8 +351,11 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
           />
         </div>
 
-        {/* Turnstile renders into this container (invisible/managed mode — see useTurnstile). */}
-        <div ref={turnstileRef} />
+        {/* Turnstile renders into this container (invisible/managed mode — see useTurnstile).
+            The widget's default injected markup has no responsive width of its own (fixed
+            ~300px) — constrain + clip so it can't force horizontal overflow on narrow
+            viewports (found via fidelity audit, PR #393: 320px vacancy detail page). */}
+        <div ref={turnstileRef} className="max-w-full overflow-hidden" />
 
         <Button type="submit" block aria-disabled={status === 'submitting'} className="mt-1">
           {status === 'submitting' ? (
