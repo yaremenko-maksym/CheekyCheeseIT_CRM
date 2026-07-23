@@ -1,5 +1,5 @@
 {
-  "$comment": "task-infra-seo-gates — Lighthouse CI gate for apps/landing (cheekycheese.tech). Used by .github/workflows/lighthouse.yml for both the mobile and desktop matrix legs; desktop applies --collect.settings.preset=desktop as a CLI override (see workflow comment). Thresholds: 0.90 on all four categories per owner requirement — a regression below this red-flags the PR, it does not silently pass.",
+  "$comment": "task-infra-seo-gates — Lighthouse CI gate for apps/landing (cheekycheese.tech). Used by .github/workflows/lighthouse.yml for both the mobile and desktop matrix legs; desktop applies --collect.settings.preset=desktop as a CLI override (see workflow comment). Thresholds: 0.90 on all four categories per owner requirement — a regression below this red-flags the PR, it does not silently pass. aggregationMethod MUST stay 'median' (task requirement: '3 прогона, медиана') — @lhci/utils/src/assertions.js defaults minScore assertions to aggregationMethod 'optimistic', which takes the BEST of the N runs (Math.max), not the median; verified empirically (3 local runs scored 85/86/92 on performance — 'optimistic' silently passed a 0.9 threshold on the max value 0.92, 'median' correctly evaluates against 86). Do not remove this key assuming it is redundant with numberOfRuns.",
   "ci": {
     "collect": {
       "staticDistDir": "apps/landing/dist",
@@ -9,6 +9,7 @@
       }
     },
     "assert": {
+      "aggregationMethod": "median",
       "assertions": {
         "categories:performance": ["error", { "minScore": 0.9 }],
         "categories:accessibility": ["error", { "minScore": 0.9 }],

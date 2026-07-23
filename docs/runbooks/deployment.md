@@ -634,8 +634,14 @@ prerender-скриптом можно мержить в любом порядк�
 `nginx/Dockerfile` (если скрипта `build:prerender` ещё нет — обычный `vite build`), затем
 `npx @lhci/cli@0.15.1 autorun` против `scripts/devops/lighthouserc.json` (staticDistDir —
 встроенный статик-сервер lhci, без доп. зависимостей) на **mobile И desktop** пресетах (matrix)
-с ассертами `performance/accessibility/best-practices/seo ≥ 0.90`, 3 прогона, медиана (LHCI default).
-Красный ассерт красит PR-check (`Lighthouse (mobile)` / `Lighthouse (desktop)`) — **это НЕ required
+с ассертами `performance/accessibility/best-practices/seo ≥ 0.90`, 3 прогона, медиана.
+**НЕ LHCI-дефолт** — `@lhci/utils/src/assertions.js` дефолтит `aggregationMethod` на `optimistic`
+(для `minScore`-ассертов это буквально `Math.max` по трём прогонам — берёт ЛУЧШИЙ результат, не
+медианный; проверено эмпирически: 3 локальных прогона дали performance 85/92/86, `optimistic`
+молча пропустил порог 0.9 по лучшему значению 0.92). `scripts/devops/lighthouserc.json` явно
+задаёт `"aggregationMethod": "median"` на уровне `ci.assert` — не убирать, посчитав избыточным
+рядом с `numberOfRuns`. Красный ассерт красит PR-check (`Lighthouse (mobile)` / `Lighthouse
+(desktop)`) — **это НЕ required
 status check** (branch protection без required checks — см. `devops.md` "Branch Protection"), так
 что red flag виден, но не блокирует merge жёстко; PM/reviewer должны требовать зелёный перед
 `merge-approved` на любом PR трогающем `apps/landing/**`.
