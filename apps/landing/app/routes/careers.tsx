@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 import type { PublicVacancy } from '@crm/shared'
 import { fetchVacancies } from '@/lib/api'
 import { useDocumentHead } from '@/lib/use-document-head'
-import { canonicalUrl } from '@/lib/seo'
+import { buildItemListJsonLd, canonicalUrl } from '@/lib/seo'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { SectionEyebrow } from '@/components/marketing/section-eyebrow'
@@ -25,6 +25,9 @@ function CareersPage() {
     description:
       'Open senior engineering roles at CheekyCheeseIT — remote-first, senior-only, real ownership.',
     canonical: canonicalUrl('/careers'),
+    // ItemList only when there's something to list — an empty one has
+    // nothing useful to tell a crawler (owner decision 2026-07-24).
+    jsonLd: vacancies.length > 0 ? buildItemListJsonLd(vacancies) : undefined,
   })
 
   return (
@@ -45,6 +48,13 @@ function CareersPage() {
             <p className="max-w-[52ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
               Remote-first, senior-only, real ownership. We hire slowly and keep teams small — every
               role here is one we genuinely need filled.
+            </p>
+            {/* owner decision 2026-07-24: natural, non-spammy SEO copy in the
+                existing lead block (no new visual section) — "remote IT jobs" /
+                "senior engineering roles" for title-bearing search queries. */}
+            <p className="mt-4 max-w-[52ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
+              Browse our open remote IT jobs below — every senior engineering role here is a real
+              seat on a live product team, not a maybe-someday requisition.
             </p>
           </div>
         </section>

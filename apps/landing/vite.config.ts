@@ -56,9 +56,21 @@ export default defineConfig({
         // Lighthouse budget). Order matters — specific before general.
         manualChunks: (id: string): string | undefined => {
           if (
-            id.includes('node_modules/react/') ||
-            id.includes('node_modules/react-dom/') ||
-            id.includes('node_modules/scheduler/')
+            (id.includes('node_modules/react/') ||
+              id.includes('node_modules/react-dom/') ||
+              id.includes('node_modules/scheduler/')) &&
+            // react-dom/server (`markdownToHtml` in markdown-body.tsx — used
+            // only by `/careers/:slug`'s JobPosting JSON-LD description,
+            // task-landing-seo-prerender.md, owner decision 2026-07-24) is
+            // its own separate, much heavier entry point (server-rendering
+            // machinery) — deliberately EXCLUDED from this shared bucket so
+            // it stays isolated to that one route's own chunk instead of
+            // bloating `/` and `/careers`'s vendor-react with client-side
+            // weight they never execute (confirmed via Lighthouse: sweeping
+            // it in here dropped `/`'s mobile performance score from 93 to
+            // exactly 90 — no margin left for CI/production variance).
+            !id.includes('react-dom/server') &&
+            !id.includes('react-dom-server')
           ) {
             return 'vendor-react'
           }

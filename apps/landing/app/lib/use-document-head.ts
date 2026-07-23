@@ -25,9 +25,9 @@ interface DocumentHeadOptions {
    * Omit on pages with no structured data (careers list, 404) — the tag is
    * removed on navigation so it never lingers from a previously visited page.
    */
-  jsonLd?: object | object[]
+  jsonLd?: object | object[] | undefined
   /** Soft-404 / expired-content pages (e.g. a closed vacancy) should not be indexed. */
-  noindex?: boolean
+  noindex?: boolean | undefined
 }
 
 function upsertMeta(attr: 'name' | 'property', key: string, content: string): void {

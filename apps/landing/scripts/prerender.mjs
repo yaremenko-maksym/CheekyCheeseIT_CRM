@@ -45,7 +45,7 @@ const PORT = Number(process.env['PRERENDER_PORT'] ?? 4173)
 
 /**
  * @typedef {{ slug: string, publishedAt: string }} VacancyListItem
- * @typedef {{ url: string, file: string, requireJsonLd: 'organization+website' | 'job-posting' | null }} PrerenderRoute
+ * @typedef {{ url: string, file: string, requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
  */
 
 function warn(message) {
@@ -82,15 +82,22 @@ async function fetchVacancies() {
  * @returns {PrerenderRoute[]}
  */
 function buildRoutes(vacancies) {
+  // Matches app/routes/careers.tsx's own `vacancies.length > 0 ? buildItemListJsonLd(...) : undefined`
+  // — an ItemList with zero items has nothing useful to tell a crawler.
+  const hasVacancies = (vacancies?.length ?? 0) > 0
   const routes = [
     { url: '/', file: 'index.html', requireJsonLd: 'organization+website' },
-    { url: '/careers', file: 'careers/index.html', requireJsonLd: null },
+    {
+      url: '/careers',
+      file: 'careers/index.html',
+      requireJsonLd: hasVacancies ? 'item-list' : null,
+    },
   ]
   for (const v of vacancies ?? []) {
     routes.push({
       url: `/careers/${v.slug}`,
       file: `careers/${v.slug}/index.html`,
-      requireJsonLd: 'job-posting',
+      requireJsonLd: 'job-posting-breadcrumb',
     })
   }
   return routes
@@ -119,6 +126,44 @@ function extractJsonLd(html) {
 }
 
 /**
+ * `waitForSelector('footer', {state:'visible'})` alone is NOT a sufficient
+ * readiness signal: every route renders a `<footer>`, including BOTH
+ * not-found states (root `notFoundComponent` and the vacancy-slug
+ * `NotFoundState`) — the DOM committing (footer visible) and React's
+ * PASSIVE effects for that same render actually finishing (title/canonical/
+ * robots/JSON-LD — all set inside `useDocumentHead`'s `useEffect`) are two
+ * separate moments. A real CI run captured this exact race: `/` (which
+ * requires index,follow + Organization/WebSite JSON-LD) was written to
+ * `dist/index.html` with valid JSON-LD from a real render (so
+ * `assertJsonLd` below did NOT catch it) alongside `notFoundComponent`'s
+ * "Page not found" body text and a `noindex, nofollow` robots meta — i.e.
+ * `page.content()` was called in the gap between two renders' committed DOM
+ * and settled effects. Not reproduced locally despite testing across
+ * platforms/CPU+network throttling/chrome-headless-shell vs full Chromium/
+ * vacancy counts — this waits for the actual OBSERVABLE symptom (the
+ * robots meta this exact route is supposed to end up with) instead of a
+ * proxy signal, and fails loud with a clear timeout instead of silently
+ * shipping whatever was in the DOM at an arbitrary moment.
+ *
+ * @param {import('playwright').Page} page
+ * @param {boolean} expectNoindex
+ * @returns {Promise<void>}
+ */
+async function waitForDocumentHeadSettled(page, expectNoindex) {
+  await page.waitForSelector('footer', { state: 'visible' })
+  await page.waitForFunction(
+    (expected) => {
+      const meta = document.querySelector('meta[name="robots"]')
+      if (!meta) return false
+      const isNoindex = (meta.getAttribute('content') ?? '').includes('noindex')
+      return isNoindex === expected
+    },
+    expectNoindex,
+    { timeout: 10_000 },
+  )
+}
+
+/**
  * @param {string} html
  * @param {PrerenderRoute} route
  * @returns {void}
@@ -126,6 +171,7 @@ function extractJsonLd(html) {
 function assertJsonLd(html, route) {
   if (route.requireJsonLd === null) return
   const data = extractJsonLd(html)
+
   if (route.requireJsonLd === 'organization+website') {
     if (!Array.isArray(data) || data.length !== 2) {
       throw new Error(`prerender: expected an Organization+WebSite JSON-LD array on ${route.url}`)
@@ -134,19 +180,67 @@ function assertJsonLd(html, route) {
     if (!types.includes('Organization') || !types.includes('WebSite')) {
       throw new Error(`prerender: JSON-LD on ${route.url} is missing Organization/WebSite`)
     }
+    return
   }
-  if (route.requireJsonLd === 'job-posting') {
-    if (!data || data['@type'] !== 'JobPosting') {
-      throw new Error(`prerender: missing/invalid JobPosting JSON-LD on ${route.url}`)
+
+  if (route.requireJsonLd === 'item-list') {
+    if (
+      !data ||
+      data['@type'] !== 'ItemList' ||
+      !Array.isArray(data.itemListElement) ||
+      data.itemListElement.length === 0
+    ) {
+      throw new Error(`prerender: expected a non-empty ItemList JSON-LD on ${route.url}`)
     }
-    if (data.jobLocationType !== 'TELECOMMUTE' || !data.applicantLocationRequirements) {
+    return
+  }
+
+  if (route.requireJsonLd === 'job-posting-breadcrumb') {
+    if (!Array.isArray(data) || data.length !== 2) {
       throw new Error(
-        `prerender: JobPosting on ${route.url} must set jobLocationType=TELECOMMUTE + ` +
-          'applicantLocationRequirements (Google Jobs requirement for remote roles)',
+        `prerender: expected a JobPosting+BreadcrumbList JSON-LD array on ${route.url}`,
       )
     }
-    if (!data.title || !data.datePosted || !data.hiringOrganization?.name) {
+    const jobPosting = data.find((entry) => entry['@type'] === 'JobPosting')
+    const breadcrumb = data.find((entry) => entry['@type'] === 'BreadcrumbList')
+    if (!jobPosting) throw new Error(`prerender: missing JobPosting JSON-LD on ${route.url}`)
+    if (!breadcrumb) throw new Error(`prerender: missing BreadcrumbList JSON-LD on ${route.url}`)
+
+    // jobLocationType is OPTIONAL now (only set for remote roles, see
+    // app/lib/seo.ts parseRemoteLocation) — but Google flags TELECOMMUTE
+    // without applicantLocationRequirements as a Search Console error, so
+    // when it IS present the pairing is still mandatory.
+    if (jobPosting.jobLocationType !== undefined) {
+      if (
+        jobPosting.jobLocationType !== 'TELECOMMUTE' ||
+        !jobPosting.applicantLocationRequirements
+      ) {
+        throw new Error(
+          `prerender: JobPosting on ${route.url} must pair jobLocationType=TELECOMMUTE with ` +
+            'applicantLocationRequirements (Google Jobs requirement for remote roles)',
+        )
+      }
+    }
+    if (!jobPosting.title || !jobPosting.datePosted || !jobPosting.hiringOrganization?.name) {
       throw new Error(`prerender: JobPosting on ${route.url} is missing a required field`)
+    }
+    if (!jobPosting.validThrough) {
+      throw new Error(`prerender: JobPosting on ${route.url} is missing validThrough`)
+    }
+    if (jobPosting.directApply !== true) {
+      throw new Error(`prerender: JobPosting on ${route.url} must set directApply: true`)
+    }
+    // Full HTML description, not a truncated snippet (owner decision
+    // 2026-07-24) — 20 chars is a low floor just to catch "empty/missing",
+    // not a real length policy.
+    if (!jobPosting.description || jobPosting.description.length < 20) {
+      throw new Error(`prerender: JobPosting on ${route.url} description looks too short/missing`)
+    }
+
+    if (!Array.isArray(breadcrumb.itemListElement) || breadcrumb.itemListElement.length !== 3) {
+      throw new Error(
+        `prerender: BreadcrumbList on ${route.url} must have exactly 3 items (Home -> Careers -> title)`,
+      )
     }
   }
 }
@@ -288,13 +382,11 @@ async function main() {
     // page embeds the live Cloudflare Turnstile widget (VacancyApplyForm),
     // which keeps its own background connections going and can make
     // "no network activity for 500ms" never true, timing out the snapshot.
-    // Waiting for `<footer>` (the last element every route mounts, once its
-    // loader data has resolved and rendered — same signal
-    // apps/e2e/tests/landing/responsive.spec.ts's `gotoStable()` uses) is the
-    // real readiness gate here, not the network.
+    // `waitForDocumentHeadSettled` (not just `<footer>` — see its own doc)
+    // is the real readiness gate here, not the network.
     for (const route of routes) {
       await page.goto(`${baseUrl}${route.url}`)
-      await page.waitForSelector('footer', { state: 'visible' })
+      await waitForDocumentHeadSettled(page, false)
       const html = await page.content()
       assertJsonLd(html, route)
 
@@ -305,9 +397,9 @@ async function main() {
     }
 
     // 404.html — a path guaranteed to match no route triggers the root
-    // `notFoundComponent` (see routes/__root.tsx).
+    // `notFoundComponent` (see routes/__root.tsx), which sets `noindex`.
     await page.goto(`${baseUrl}/__prerender-404-marker__`)
-    await page.waitForSelector('footer', { state: 'visible' })
+    await waitForDocumentHeadSettled(page, true)
     const notFoundHtml = await page.content()
     await writeFile(path.join(DIST, '404.html'), notFoundHtml, 'utf8')
     console.log('prerender: wrote 404.html')

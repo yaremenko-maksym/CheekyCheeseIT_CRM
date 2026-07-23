@@ -51,6 +51,22 @@ describe('buildRoutes', () => {
     const routes = buildRoutes(null)
     expect(routes.map((r) => r.url)).toEqual(['/', '/careers'])
   })
+
+  it('marks /careers as requiring ItemList JSON-LD only when there are vacancies to list', () => {
+    const withVacancies = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
+    expect(withVacancies.find((r) => r.url === '/careers')?.requireJsonLd).toBe('item-list')
+
+    const withoutVacancies = buildRoutes([])
+    expect(withoutVacancies.find((r) => r.url === '/careers')?.requireJsonLd).toBeNull()
+
+    const unreachable = buildRoutes(null)
+    expect(unreachable.find((r) => r.url === '/careers')?.requireJsonLd).toBeNull()
+  })
+
+  it('marks every vacancy route as requiring JobPosting+BreadcrumbList JSON-LD', () => {
+    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
+    expect(routes.find((r) => r.url === '/careers/a')?.requireJsonLd).toBe('job-posting-breadcrumb')
+  })
 })
 
 describe('buildSitemapXml', () => {
@@ -105,38 +121,115 @@ describe('extractJsonLd + assertJsonLd', () => {
     ).toThrow(/Organization\+WebSite/)
   })
 
-  it('throws when a JobPosting is missing applicantLocationRequirements', () => {
-    const html = jsonLdHtml({
-      '@type': 'JobPosting',
-      title: 'Senior ML Engineer',
-      datePosted: '2026-07-01T00:00:00.000Z',
-      hiringOrganization: { name: 'CheekyCheeseIT' },
-      jobLocationType: 'TELECOMMUTE',
-    })
-    expect(() =>
-      assertJsonLd(html, {
-        url: '/careers/senior-ml-engineer',
-        file: 'careers/senior-ml-engineer/index.html',
-        requireJsonLd: 'job-posting',
-      }),
-    ).toThrow(/applicantLocationRequirements/)
+  const validJobPosting = {
+    '@type': 'JobPosting',
+    title: 'Senior ML Engineer',
+    description: '<h2>About</h2><p>Build things that matter to real users.</p>',
+    datePosted: '2026-07-01T00:00:00.000Z',
+    validThrough: '2026-08-30T00:00:00.000Z',
+    hiringOrganization: { name: 'CheekyCheeseIT' },
+    directApply: true,
+    jobLocationType: 'TELECOMMUTE',
+    applicantLocationRequirements: { '@type': 'Country', name: 'Worldwide' },
+  }
+  const validBreadcrumb = {
+    '@type': 'BreadcrumbList',
+    itemListElement: [
+      { '@type': 'ListItem', position: 1, name: 'Home', item: 'https://cheekycheese.tech/' },
+      {
+        '@type': 'ListItem',
+        position: 2,
+        name: 'Careers',
+        item: 'https://cheekycheese.tech/careers/',
+      },
+      {
+        '@type': 'ListItem',
+        position: 3,
+        name: 'Senior ML Engineer',
+        item: 'https://cheekycheese.tech/careers/senior-ml-engineer/',
+      },
+    ],
+  }
+  const jobPostingRoute = {
+    url: '/careers/senior-ml-engineer',
+    file: 'careers/senior-ml-engineer/index.html',
+    requireJsonLd: 'job-posting-breadcrumb' as const,
+  }
+
+  it('throws when a TELECOMMUTE JobPosting is missing applicantLocationRequirements', () => {
+    const { applicantLocationRequirements: _drop, ...withoutLocationReq } = validJobPosting
+    const html = jsonLdHtml([withoutLocationReq, validBreadcrumb])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/applicantLocationRequirements/)
   })
 
-  it('passes for a complete, valid JobPosting', () => {
-    const html = jsonLdHtml({
-      '@type': 'JobPosting',
-      title: 'Senior ML Engineer',
-      datePosted: '2026-07-01T00:00:00.000Z',
-      hiringOrganization: { name: 'CheekyCheeseIT' },
-      jobLocationType: 'TELECOMMUTE',
-      applicantLocationRequirements: { '@type': 'Country', name: 'Worldwide' },
-    })
+  it('throws when validThrough is missing', () => {
+    const { validThrough: _drop, ...withoutValidThrough } = validJobPosting
+    const html = jsonLdHtml([withoutValidThrough, validBreadcrumb])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/validThrough/)
+  })
+
+  it('throws when directApply is not true', () => {
+    const html = jsonLdHtml([{ ...validJobPosting, directApply: false }, validBreadcrumb])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/directApply/)
+  })
+
+  it('throws when description is missing/too short', () => {
+    const html = jsonLdHtml([{ ...validJobPosting, description: '' }, validBreadcrumb])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/description/)
+  })
+
+  it('throws when BreadcrumbList is missing', () => {
+    const html = jsonLdHtml([validJobPosting])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/JobPosting\+BreadcrumbList/)
+  })
+
+  it('throws when BreadcrumbList does not have exactly 3 items', () => {
+    const html = jsonLdHtml([
+      validJobPosting,
+      { ...validBreadcrumb, itemListElement: validBreadcrumb.itemListElement.slice(0, 2) },
+    ])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/exactly 3 items/)
+  })
+
+  it('passes for a complete, valid JobPosting+BreadcrumbList pair (remote role)', () => {
+    const html = jsonLdHtml([validJobPosting, validBreadcrumb])
+    expect(() => assertJsonLd(html, jobPostingRoute)).not.toThrow()
+  })
+
+  it('passes for a JobPosting with no jobLocationType at all (on-site role)', () => {
+    const { jobLocationType: _lt, applicantLocationRequirements: _alr, ...onSite } = validJobPosting
+    const html = jsonLdHtml([onSite, validBreadcrumb])
+    expect(() => assertJsonLd(html, jobPostingRoute)).not.toThrow()
+  })
+
+  it('throws when ItemList is missing/empty on a route that requires one', () => {
+    const itemListRoute = {
+      url: '/careers',
+      file: 'careers/index.html',
+      requireJsonLd: 'item-list' as const,
+    }
     expect(() =>
-      assertJsonLd(html, {
-        url: '/careers/senior-ml-engineer',
-        file: 'careers/senior-ml-engineer/index.html',
-        requireJsonLd: 'job-posting',
-      }),
-    ).not.toThrow()
+      assertJsonLd(jsonLdHtml({ '@type': 'ItemList', itemListElement: [] }), itemListRoute),
+    ).toThrow(/non-empty ItemList/)
+  })
+
+  it('passes for a non-empty ItemList', () => {
+    const itemListRoute = {
+      url: '/careers',
+      file: 'careers/index.html',
+      requireJsonLd: 'item-list' as const,
+    }
+    const html = jsonLdHtml({
+      '@type': 'ItemList',
+      itemListElement: [
+        {
+          '@type': 'ListItem',
+          position: 1,
+          url: 'https://cheekycheese.tech/careers/a/',
+          name: 'A',
+        },
+      ],
+    })
+    expect(() => assertJsonLd(html, itemListRoute)).not.toThrow()
   })
 })
