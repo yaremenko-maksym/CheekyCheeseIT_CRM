@@ -227,15 +227,30 @@ async function main() {
   // rendered headlessly, not just the Node-side fetch above.
   process.env['VITE_PROXY_API_TARGET'] = API_ORIGIN
 
-  const server = await preview({
-    root: ROOT,
-    configFile: path.join(ROOT, 'vite.config.ts'),
-    preview: { port: PORT, strictPort: true, host: '127.0.0.1' },
-  })
-  const baseUrl = `http://127.0.0.1:${PORT}`
-
-  const browser = await chromium.launch()
+  // `browser`/`server` are declared here (not `const` inside the try) and
+  // guarded with `?.` in `finally` — PR #398 review HIGH: the previous
+  // version awaited `preview()` and `chromium.launch()` OUTSIDE any
+  // try/finally, so a failure in either (e.g. `chromium.launch()` throwing
+  // because CI never installed browser binaries) skipped the `finally` that
+  // closes the already-listening preview server. That open HTTP handle kept
+  // the event loop alive — `process.exitCode = 1` in the top-level `.catch()`
+  // below is only a *hint*, not a `process.exit()`, so the process never
+  // actually terminated; it hung until the CI job's own 10-minute timeout
+  // force-killed it (~9m40s of pure hang after the error). Browser is
+  // launched FIRST, deliberately: if a browser-binary problem is the failure
+  // (the actual CI root cause), the preview server never even starts, so
+  // there is nothing to clean up.
+  let browser
+  let server
   try {
+    browser = await chromium.launch()
+    server = await preview({
+      root: ROOT,
+      configFile: path.join(ROOT, 'vite.config.ts'),
+      preview: { port: PORT, strictPort: true, host: '127.0.0.1' },
+    })
+    const baseUrl = `http://127.0.0.1:${PORT}`
+
     const page = await browser.newPage()
 
     // `dist/index.html` (the SPA's one build-time HTML template) carries a
@@ -297,12 +312,17 @@ async function main() {
     await writeFile(path.join(DIST, '404.html'), notFoundHtml, 'utf8')
     console.log('prerender: wrote 404.html')
   } finally {
-    await browser.close()
-    await new Promise((resolve, reject) => {
-      const httpServer = server.httpServer
-      if (!httpServer) return resolve(undefined)
-      httpServer.close((err) => (err ? reject(err) : resolve(undefined)))
-    })
+    // Guarded with `?.`/truthiness checks on purpose — this must run (and
+    // succeed) no matter which of `chromium.launch()` / `preview()` / the
+    // render loop threw, including the case where `browser` was never
+    // assigned at all (launch itself failed).
+    await browser?.close()
+    const httpServer = server?.httpServer
+    if (httpServer) {
+      await new Promise((resolve, reject) => {
+        httpServer.close((err) => (err ? reject(err) : resolve(undefined)))
+      })
+    }
   }
 
   const buildTime = new Date().toISOString()
@@ -323,10 +343,23 @@ async function main() {
 // (buildRobotsTxt/buildSitemapXml/...) without booting a browser + preview
 // server as a side effect of the import itself.
 if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((err) => {
-    console.error(err)
-    process.exitCode = 1
-  })
+  main()
+    .catch((err) => {
+      console.error(err)
+      process.exitCode = 1
+    })
+    .finally(() => {
+      // Defense-in-depth (PR #398 review HIGH): `main()`'s own try/finally
+      // now always closes the browser + preview server on every failure
+      // path, so this should be a no-op in practice — but `process.exitCode`
+      // alone only *hints* an exit code once the event loop naturally
+      // drains; it does not force termination. If some future change (or an
+      // untested Playwright/Vite edge case) leaves ANY handle open, this
+      // guarantees the process still exits instead of hanging until a CI
+      // job's timeout-minutes kills it (the actual failure mode that caused
+      // the ~10-minute hang this fixes).
+      process.exit(process.exitCode ?? 0)
+    })
 }
 
 // Re-exported for app/__tests__/prerender-seo.spec.ts (plain Node module —

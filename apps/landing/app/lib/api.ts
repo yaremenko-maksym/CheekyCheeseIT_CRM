@@ -25,14 +25,32 @@ const publicVacancyListSchema = z.array(publicVacancySchema)
  * real visitor either (the Careers section already has a real, designed
  * empty state for "0 vacancies" — see `CareersTeaser`/`CareersList` — so this
  * reuses that path rather than an error boundary).
+ *
+ * PR #398 review MED-1: the 3 failure modes below log a distinct
+ * `console.error` prefix (network / HTTP status / malformed body) instead of
+ * one generic message — a real multi-hour API outage and a one-off schema
+ * regression look identical in the UI ("0 open roles"), but should NOT look
+ * identical to whoever is reading browser-console/error-tracking output
+ * trying to tell them apart.
  */
 export async function fetchVacancies(): Promise<PublicVacancy[]> {
+  let res: Response
   try {
-    const res = await fetch('/api/public/vacancies')
-    if (!res.ok) throw new Error(`Failed to load vacancies (HTTP ${res.status})`)
+    res = await fetch('/api/public/vacancies')
+  } catch (err) {
+    console.error('fetchVacancies: network error — falling back to an empty list', err)
+    return []
+  }
+
+  if (!res.ok) {
+    console.error(`fetchVacancies: API returned HTTP ${res.status} — falling back to an empty list`)
+    return []
+  }
+
+  try {
     return publicVacancyListSchema.parse(await res.json())
   } catch (err) {
-    console.error('fetchVacancies: falling back to an empty list', err)
+    console.error('fetchVacancies: malformed response body — falling back to an empty list', err)
     return []
   }
 }
