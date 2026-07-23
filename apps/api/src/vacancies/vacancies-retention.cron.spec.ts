@@ -21,10 +21,30 @@
  * regardless of R2 outcome. See the dedicated `s3.delete()` NOT used, below.
  */
 import { Logger } from '@nestjs/common'
+import type { ConfigService } from '@nestjs/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { Env } from '../config/env'
 import type { DatabaseService } from '../database/database.service'
 import type { S3Service } from '../documents/s3.service'
+import type { GoogleIndexingService } from './google-indexing.service'
 import { VacanciesRetentionCronService } from './vacancies-retention.cron'
+
+const LANDING_ORIGIN = 'https://cheekycheese.tech'
+
+/** No-op stub — asserted on directly by the dedicated
+ *  `handleWeeklyIndexingRefresh` / `refreshPublishedIndexing` describe block
+ *  below; every OTHER test in this file only needs the constructor
+ *  dependency satisfied. */
+function makeGoogleIndexingStub(): GoogleIndexingService {
+  return {
+    notifyUpdated: vi.fn().mockResolvedValue(undefined),
+    notifyDeleted: vi.fn().mockResolvedValue(undefined),
+  } as unknown as GoogleIndexingService
+}
+
+function makeConfigStub(): ConfigService<Env, true> {
+  return { get: () => LANDING_ORIGIN } as unknown as ConfigService<Env, true>
+}
 
 interface Candidate {
   id: string
@@ -80,7 +100,12 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
   it('returns 0 and issues no DB delete when nothing is expired', async () => {
     const { db, getDeleteCallCount } = makeDb({ rejectedRows: [], closedVacancyRows: [] })
     const s3 = makeS3()
-    const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
 
     const deleted = await svc.purgeExpiredApplications(new Date('2026-07-22'))
     expect(deleted).toBe(0)
@@ -96,7 +121,12 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
       closedVacancyRows: [shared],
     })
     const s3 = makeS3()
-    const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
 
     const deleted = await svc.purgeExpiredApplications(new Date('2026-07-22'))
     expect(deleted).toBe(1)
@@ -110,7 +140,12 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
     const b: Candidate = { id: 'app-b', resumeS3Key: 'k-b' }
     const { db } = makeDb({ rejectedRows: [a], closedVacancyRows: [b] })
     const s3 = makeS3()
-    const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
 
     const deleted = await svc.purgeExpiredApplications(new Date('2026-07-22'))
     expect(deleted).toBe(2)
@@ -124,7 +159,12 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
     const s3 = makeS3(async (key: string) => {
       if (key === 'k-a') throw new Error('R2 unreachable')
     })
-    const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
 
     const deleted = await svc.purgeExpiredApplications(new Date('2026-07-22'))
     // R2 delete now happens BEFORE the DB row delete, per candidate (F4 /
@@ -155,7 +195,12 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
     const s3 = makeS3(async (key: string) => {
       if (key === 'k-a') throw new Error('R2 unreachable')
     })
-    const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
 
     await svc.purgeExpiredApplications(new Date('2026-07-22'))
     expect(s3.deleteOrThrow).toHaveBeenCalled()
@@ -178,7 +223,12 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
     it('resolves (never throws) and logs success when purge completes normally', async () => {
       const { db } = makeDb({ rejectedRows: [], closedVacancyRows: [] })
       const s3 = makeS3()
-      const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
+      const svc = new VacanciesRetentionCronService(
+        db,
+        s3 as unknown as S3Service,
+        makeGoogleIndexingStub(),
+        makeConfigStub(),
+      )
 
       await expect(svc.handleRetention()).resolves.toBeUndefined()
       expect(logSpy).toHaveBeenCalled()
@@ -194,11 +244,128 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
         },
       } as unknown as DatabaseService
       const s3 = makeS3()
-      const svc = new VacanciesRetentionCronService(db, s3 as unknown as S3Service)
+      const svc = new VacanciesRetentionCronService(
+        db,
+        s3 as unknown as S3Service,
+        makeGoogleIndexingStub(),
+        makeConfigStub(),
+      )
 
       await expect(svc.handleRetention()).resolves.toBeUndefined()
       expect(errorSpy).toHaveBeenCalledWith(
         expect.stringContaining('retention cron failed'),
+        expect.anything(),
+      )
+    })
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-google-indexing-api §3 — weekly PUBLISHED refresh
+// ---------------------------------------------------------------------------
+
+/** select({slug}).from(vacancies).where(eq(status,'PUBLISHED')) → `rows`. */
+function makeVacanciesDb(rows: { slug: string }[]): DatabaseService {
+  return {
+    db: {
+      select: (_fields?: unknown) => ({
+        from: (_table: unknown) => ({
+          where: async (_pred: unknown) => rows,
+        }),
+      }),
+    },
+  } as unknown as DatabaseService
+}
+
+describe('VacanciesRetentionCronService — weekly Google Indexing refresh', () => {
+  describe('refreshPublishedIndexing', () => {
+    it('calls notifyUpdated with the careers URL for every PUBLISHED vacancy and returns the count', async () => {
+      const db = makeVacanciesDb([{ slug: 'senior-react-developer' }, { slug: 'lead-backend' }])
+      const s3 = makeS3()
+      const googleIndexing = makeGoogleIndexingStub()
+      const svc = new VacanciesRetentionCronService(
+        db,
+        s3 as unknown as S3Service,
+        googleIndexing,
+        makeConfigStub(),
+      )
+
+      const count = await svc.refreshPublishedIndexing()
+      expect(count).toBe(2)
+      expect(googleIndexing.notifyUpdated).toHaveBeenCalledWith(
+        'https://cheekycheese.tech/careers/senior-react-developer/',
+      )
+      expect(googleIndexing.notifyUpdated).toHaveBeenCalledWith(
+        'https://cheekycheese.tech/careers/lead-backend/',
+      )
+      expect(googleIndexing.notifyUpdated).toHaveBeenCalledTimes(2)
+      expect(googleIndexing.notifyDeleted).not.toHaveBeenCalled()
+    })
+
+    it('returns 0 and calls notifyUpdated zero times when there are no PUBLISHED vacancies', async () => {
+      const db = makeVacanciesDb([])
+      const s3 = makeS3()
+      const googleIndexing = makeGoogleIndexingStub()
+      const svc = new VacanciesRetentionCronService(
+        db,
+        s3 as unknown as S3Service,
+        googleIndexing,
+        makeConfigStub(),
+      )
+
+      const count = await svc.refreshPublishedIndexing()
+      expect(count).toBe(0)
+      expect(googleIndexing.notifyUpdated).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('handleWeeklyIndexingRefresh (the @Cron entrypoint)', () => {
+    let errorSpy: ReturnType<typeof vi.spyOn>
+    let logSpy: ReturnType<typeof vi.spyOn>
+
+    beforeEach(() => {
+      errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+      logSpy = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined)
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+    })
+
+    it('resolves (never throws) and logs success when the refresh completes normally', async () => {
+      const db = makeVacanciesDb([{ slug: 'a' }])
+      const s3 = makeS3()
+      const svc = new VacanciesRetentionCronService(
+        db,
+        s3 as unknown as S3Service,
+        makeGoogleIndexingStub(),
+        makeConfigStub(),
+      )
+
+      await expect(svc.handleWeeklyIndexingRefresh()).resolves.toBeUndefined()
+      expect(logSpy).toHaveBeenCalled()
+      expect(errorSpy).not.toHaveBeenCalled()
+    })
+
+    it('catches an unexpected error from refreshPublishedIndexing, logs it, and does NOT rethrow', async () => {
+      const db = {
+        db: {
+          select: () => {
+            throw new Error('DB connection lost')
+          },
+        },
+      } as unknown as DatabaseService
+      const s3 = makeS3()
+      const svc = new VacanciesRetentionCronService(
+        db,
+        s3 as unknown as S3Service,
+        makeGoogleIndexingStub(),
+        makeConfigStub(),
+      )
+
+      await expect(svc.handleWeeklyIndexingRefresh()).resolves.toBeUndefined()
+      expect(errorSpy).toHaveBeenCalledWith(
+        expect.stringContaining('Weekly Google Indexing refresh failed'),
         expect.anything(),
       )
     })
