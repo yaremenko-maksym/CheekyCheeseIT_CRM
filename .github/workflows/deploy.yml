@@ -1,7 +1,7 @@
 name: Deploy
 
-# ── Trigger model (auto-deploy ENABLED 2026-07-12) ────────────────────────
-# Two complementary channels — no PAT required, no double-trigger:
+# ── Trigger model (auto-deploy ENABLED 2026-07-12, weekly rebuild ADDED 2026-07-24) ─
+# Three complementary channels — no PAT required, no double-trigger:
 #
 # 1. `push: branches: [main]`
 #    Fires on human pushes to main: owner UI-merge, revert, hotfix.
@@ -16,13 +16,32 @@ name: Deploy
 #         because GITHUB_TOKEN-pushes do not create push events for workflows
 #         (workflow_dispatch is the documented exception to this rule).
 #
-# Result: every merge to main triggers exactly one deploy run.
+# 3. `schedule` (weekly rebuild — task-infra-weekly-rebuild)
+#    Rebuilds and redeploys `main` every Sunday even with zero merges that
+#    week. Why: JobPosting `validThrough` on each published vacancy is set to
+#    build-time + 60 days (sliding window, not a fixed date) — see
+#    apps/landing prerender step. Without a periodic rebuild, that window
+#    would only ever refresh on a merge, and JobPosting/sitemap freshness
+#    would silently drift stale between merges. A scheduled run walks the
+#    exact same build+DDL+restart pipeline as a normal deploy (image_tag
+#    defaults to the git SHA of `main` HEAD at trigger time, same as `push`)
+#    — cheap (~15 min/week) and side-effect-free (all DDL is idempotent).
+#    See docs/runbooks/deployment.md "Google Indexing API" for the related
+#    weekly JobPosting refresh on the API side.
+#
+# Result: every merge to main triggers exactly one deploy run, plus one
+# unconditional run every week regardless of merge activity.
 # Double-trigger impossible: auto-merge squash -> push-trigger silent
 # (GITHUB_TOKEN), dispatch fires; human merge -> push fires, no dispatch.
-# Race condition handled by concurrency group `deploy-production` below.
+# Race condition handled by concurrency group `deploy-production` below —
+# if the weekly run happens to overlap a push/dispatch-triggered deploy,
+# `cancel-in-progress` cancels whichever started first (last-trigger-wins,
+# same behavior as any other overlapping deploy; the weekly run is cheap
+# enough to simply fire again next Sunday if it ever gets cancelled).
 #
 # Emergency: to disable auto-deploy, comment out `push:` below AND remove
-# the dispatch step in auto-merge-on-label.yml.
+# the dispatch step in auto-merge-on-label.yml. To disable ONLY the weekly
+# rebuild, comment out `schedule:` below (push/workflow_dispatch unaffected).
 # See docs/runbooks/deployment.md for full details.
 on:
   workflow_dispatch:
@@ -33,6 +52,11 @@ on:
         default: ''
   push:
     branches: [main]
+  schedule:
+    # Sunday ~03:00 UTC — low-traffic window, mirrors the pg-backup.sh cron
+    # (also 03:00 UTC daily, see docs/runbooks/deployment.md §8) so the two
+    # never compete for VPS resources during the same minute.
+    - cron: '0 3 * * 0'
 
 concurrency:
   # One deploy at a time. If a new push arrives while deploying, cancel the
@@ -187,13 +211,21 @@ jobs:
           # as an opaque container crash-loop later. See
           # docs/runbooks/deployment.md "Turnstile secrets".
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          # task-google-indexing-api: all three OPTIONAL, unlike TURNSTILE_SECRET_KEY
+          # above — apps/api reads them via the existing (optional) env schema and
+          # runs the indexing service in no-op mode (one boot warning, no crash) if
+          # unset. No fail-loud check here on purpose. See
+          # docs/runbooks/deployment.md "Google Indexing API".
+          GOOGLE_INDEXING_SA_EMAIL: ${{ secrets.GOOGLE_INDEXING_SA_EMAIL }}
+          GOOGLE_INDEXING_SA_KEY_B64: ${{ secrets.GOOGLE_INDEXING_SA_KEY_B64 }}
+          PUBLIC_LANDING_ORIGIN: ${{ secrets.PUBLIC_LANDING_ORIGIN }}
           GH_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           # Pass env vars declared above into the remote shell.
-          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,GH_ACTOR
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,GH_ACTOR
           script: |
             set -euo pipefail
 
@@ -241,6 +273,27 @@ jobs:
             printf 'AWS_ACCESS_KEY_ID=%s\n'       "$AWS_ACCESS_KEY_ID" >> /opt/crm/.env.production
             printf 'AWS_SECRET_ACCESS_KEY=%s\n'   "$AWS_SECRET_ACCESS_KEY" >> /opt/crm/.env.production
             printf 'TURNSTILE_SECRET_KEY=%s\n'    "$TURNSTILE_SECRET_KEY" >> /opt/crm/.env.production
+
+            # task-google-indexing-api: all three OPTIONAL — the API's env schema
+            # treats them as optional and the indexing service no-ops (one boot
+            # warning) if unset, so unlike TURNSTILE_SECRET_KEY above there is no
+            # fail-loud check here. Deliberately do NOT write empty lines: an
+            # empty `GOOGLE_INDEXING_SA_EMAIL=` (vs the key being absent) could
+            # trip a stricter `.string().optional()` vs `.string().email().optional()`
+            # Zod check depending on how the schema is written on the API side —
+            # skipping the line entirely when the secret is unset sidesteps that
+            # ambiguity and behaves identically to "not configured".
+            # See docs/runbooks/deployment.md "Google Indexing API".
+            if [ -n "$GOOGLE_INDEXING_SA_EMAIL" ]; then
+              printf 'GOOGLE_INDEXING_SA_EMAIL=%s\n' "$GOOGLE_INDEXING_SA_EMAIL" >> /opt/crm/.env.production
+            fi
+            if [ -n "$GOOGLE_INDEXING_SA_KEY_B64" ]; then
+              printf 'GOOGLE_INDEXING_SA_KEY_B64=%s\n' "$GOOGLE_INDEXING_SA_KEY_B64" >> /opt/crm/.env.production
+            fi
+            if [ -n "$PUBLIC_LANDING_ORIGIN" ]; then
+              printf 'PUBLIC_LANDING_ORIGIN=%s\n' "$PUBLIC_LANDING_ORIGIN" >> /opt/crm/.env.production
+            fi
+
             printf 'IMAGE_TAG=%s\n'               "$IMAGE_TAG"         >> /opt/crm/.env.production
             chmod 600 /opt/crm/.env.production
             echo "==> .env.production written (mode 600)"

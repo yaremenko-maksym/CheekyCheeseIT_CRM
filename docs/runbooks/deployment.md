@@ -199,6 +199,81 @@ firewall-локдаун недостаточен (например, динами
   `1x00000000000000000000AA` (см. `apps/landing/.env.example` и корневой `.env.example`).
   На стороне API — соответствующий always-pass secret key уже в `apps/api/.env.example`.
 
+### 1.8 Google Indexing API — мгновенная (пере)индексация вакансий (task-google-indexing-api)
+
+> **Полностью опционально.** Без ключей `apps/api` запускает indexing-сервис в no-op режиме
+> (один warning в логах на буте) — публикация/закрытие вакансий работает как обычно, просто без
+> push-уведомления в Google. Это НЕ блокирует деплой и НЕ похоже на Turnstile (§1.7) — здесь нет
+> fail-loud проверки в `deploy.yml`.
+
+**Зачем.** Google Indexing API официально поддерживает **только JobPosting-страницы**: после
+`publish` уведомление попадает в индекс за минуты (а не недели, как обычное сканирование), после
+`close` — мгновенное удаление устаревшей вакансии из выдачи. Публичный URL вакансии:
+`https://cheekycheese.tech/careers/<slug>/` (обязательный завершающий `/`).
+
+**Шаги владельца в Google Cloud Console:**
+
+1. Открыть/создать GCP-проект (можно переиспользовать существующий, если он уже есть для других
+   Google-интеграций проекта).
+2. **APIs & Services → Library** → найти **Web Search Indexing API** → **Enable**.
+3. **APIs & Services → Credentials → Create Credentials → Service Account** → задать имя/описание
+   (например `crm-indexing`) → **Create and Continue** → роли можно пропустить (права выдаются
+   через Search Console, не через IAM) → **Done**.
+4. Открыть созданный service account → вкладка **Keys** → **Add Key → Create New Key** → формат
+   **JSON** → скачается файл вида `<project-id>-xxxxxxxxxxxx.json`.
+5. Извлечь `client_email` и `private_key` из скачанного JSON и сразу закодировать приватный ключ
+   в base64 одной строкой (важно: `jq -r` разворачивает литеральные `\n` внутри JSON-строки в
+   реальные переводы строк PEM-блока ДО кодирования; `tr -d '\n'` после `base64` убирает
+   построчный wrap — на Linux `base64` без `-w0` заворачивает вывод на 76 символах, на macOS
+   `base64` не заворачивает вовсе, поэтому `tr -d '\n'` даёт одинаковый результат на обеих ОС):
+
+   ```bash
+   # Путь к скачанному в шаге 4 JSON-ключу:
+   KEY_FILE=~/Downloads/<project-id>-xxxxxxxxxxxx.json
+
+   # → значение для секрета GOOGLE_INDEXING_SA_EMAIL:
+   jq -r '.client_email' "$KEY_FILE"
+
+   # → значение для секрета GOOGLE_INDEXING_SA_KEY_B64 (одна строка, без переводов строк):
+   jq -r '.private_key' "$KEY_FILE" | base64 | tr -d '\n'
+   ```
+
+6. **Google Search Console → property `cheekycheese.tech`** (тот же verified property из §11 п.5;
+   индексация запрашивается только для лендинга, поэтому дополнительно верифицировать
+   `app.cheekycheese.tech` не нужно) → **Settings → Users and permissions** → внизу страницы ссылка
+   **Add an owner** (не обычный "Add user" — обычный пользователь получит `403`, нужен именно
+   **Owner**) → вставить `client_email` сервис-аккаунта из шага 5 → подтвердить.
+7. Завести в **GitHub → Settings → Secrets and variables → Actions → Secrets** (Environment
+   "production", тем же каналом что `TURNSTILE_SECRET_KEY` — см. §3 таблицу ниже):
+
+   | Secret                       | Значение                                                                                                                                                                                          |
+   | ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+   | `GOOGLE_INDEXING_SA_EMAIL`   | `client_email` из шага 5                                                                                                                                                                          |
+   | `GOOGLE_INDEXING_SA_KEY_B64` | base64(`private_key`) из шага 5 — одна строка                                                                                                                                                     |
+   | `PUBLIC_LANDING_ORIGIN`      | Опционально — только если базовый URL лендинга когда-либо сменится с `https://cheekycheese.tech` (этот адрес уже зашит как default в коде `apps/api`; секрет НЕ обязателен при первом провижене). |
+
+   Все три читаются `write-env` job'ом `deploy.yml` и пишутся в `/opt/crm/.env.production` **только
+   если непустые** (пустая строка не пишется вовсе — иначе есть риск, что даже пустой
+   `GOOGLE_INDEXING_SA_EMAIL=` собьёт с толку валидатор Zod на стороне `apps/api`, который отличает
+   "переменная отсутствует" от "переменная пустая"). Ничего не заведено → сервис остаётся в no-op.
+
+**Как проверить, что работает:**
+
+- Опубликовать (или закрыть) любую вакансию в CRM → в течение минуты открыть **Search Console →
+  URL Inspection**, вставить `https://cheekycheese.tech/careers/<slug>/` и посмотреть, что статус
+  индексации обновился (или запросить **Request Indexing** вручную, если хочется форсировать).
+- Логи API на VPS: `docker compose ... logs api | grep -i indexing` — успешные уведомления
+  логируются; ошибки Google API логируются, но **никогда** не блокируют публикацию/закрытие
+  вакансии (fail-soft по дизайну, см. task-google-indexing-api).
+- Еженедельный refresh всех `PUBLISHED`-вакансий (API-cron) и еженедельный ребилд деплоя —
+  НЕЗАВИСИМЫЕ механизмы с общей целью «свежесть JobPosting»: cron шлёт URL_UPDATED в Google,
+  ребилд обновляет validThrough/sitemap в статике
+  (см. `schedule:` триггер в `.github/workflows/deploy.yml`, task-infra-weekly-rebuild) — оба
+  привязаны к той же логике "не протухнуть между мержами", что и скользящий `validThrough`
+  (build-time + 60 дней).
+- Квота по умолчанию — 200 запросов/день на онбординге; при текущем объёме вакансий (единичные
+  publish/close + один еженедельный проход по всем `PUBLISHED`) этого с большим запасом хватает.
+
 ---
 
 ## 2. Установка Docker на VPS
@@ -235,25 +310,28 @@ docker compose version   # должно показать Compose plugin v2.x
 Добавить в **GitHub → Settings → Secrets and variables → Actions → Secrets** (уровень Repository).
 Дополнительно создать **Environment "production"** и добавить туда же для дополнительной защиты.
 
-| Secret                    | Значение / как получить                                                                                          |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `VPS_HOST`                | IP-адрес VPS (из §1.1)                                                                                           |
-| `VPS_USER`                | SSH-пользователь (обычно `root` или выделенный deploy-user)                                                      |
-| `VPS_SSH_KEY`             | Содержимое приватного ключа `~/.ssh/crm_deploy_key` (весь файл включая `-----BEGIN...-----`)                     |
-| `POSTGRES_PASSWORD`       | `openssl rand -base64 32` — сильный пароль (≥32 символа)                                                         |
-| `JWT_SECRET`              | `openssl rand -base64 48` — минимум 32 символа                                                                   |
-| `SESSION_SECRET`          | `openssl rand -base64 48` — минимум 32 символа                                                                   |
-| `CREDENTIALS_ENC_KEY`     | `openssl rand -base64 32` — должно быть ровно 32 байта AES-256                                                   |
-| `GOOGLE_CLIENT_ID`        | Из Google Cloud Console → OAuth 2.0 Client (§1.3)                                                                |
-| `GOOGLE_CLIENT_SECRET`    | Оттуда же                                                                                                        |
-| `S3_ENDPOINT`             | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint) |
-| `S3_REGION`               | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                     |
-| `S3_BUCKET`               | `crm-documents-prod`                                                                                             |
-| `S3_FORCE_PATH_STYLE`     | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                             |
-| `AWS_ACCESS_KEY_ID`       | R2 API Token Access Key ID (§1.5) или AWS IAM ключ                                                               |
-| `AWS_SECRET_ACCESS_KEY`   | R2 API Token Secret или AWS IAM секрет                                                                           |
-| `TURNSTILE_SECRET_KEY`    | Cloudflare Turnstile Secret Key (§1.7). **Обязателен ДО мержа PR #390** — иначе прод-API crash-loop на буте.     |
-| `VITE_TURNSTILE_SITE_KEY` | Cloudflare Turnstile Site Key (§1.7). Опционален до #390 — пустое значение не роняет билд лендинга.              |
+| Secret                       | Значение / как получить                                                                                                                       |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VPS_HOST`                   | IP-адрес VPS (из §1.1)                                                                                                                        |
+| `VPS_USER`                   | SSH-пользователь (обычно `root` или выделенный deploy-user)                                                                                   |
+| `VPS_SSH_KEY`                | Содержимое приватного ключа `~/.ssh/crm_deploy_key` (весь файл включая `-----BEGIN...-----`)                                                  |
+| `POSTGRES_PASSWORD`          | `openssl rand -base64 32` — сильный пароль (≥32 символа)                                                                                      |
+| `JWT_SECRET`                 | `openssl rand -base64 48` — минимум 32 символа                                                                                                |
+| `SESSION_SECRET`             | `openssl rand -base64 48` — минимум 32 символа                                                                                                |
+| `CREDENTIALS_ENC_KEY`        | `openssl rand -base64 32` — должно быть ровно 32 байта AES-256                                                                                |
+| `GOOGLE_CLIENT_ID`           | Из Google Cloud Console → OAuth 2.0 Client (§1.3)                                                                                             |
+| `GOOGLE_CLIENT_SECRET`       | Оттуда же                                                                                                                                     |
+| `S3_ENDPOINT`                | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint)                              |
+| `S3_REGION`                  | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                                                  |
+| `S3_BUCKET`                  | `crm-documents-prod`                                                                                                                          |
+| `S3_FORCE_PATH_STYLE`        | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                                                          |
+| `AWS_ACCESS_KEY_ID`          | R2 API Token Access Key ID (§1.5) или AWS IAM ключ                                                                                            |
+| `AWS_SECRET_ACCESS_KEY`      | R2 API Token Secret или AWS IAM секрет                                                                                                        |
+| `TURNSTILE_SECRET_KEY`       | Cloudflare Turnstile Secret Key (§1.7). **Обязателен ДО мержа PR #390** — иначе прод-API crash-loop на буте.                                  |
+| `VITE_TURNSTILE_SITE_KEY`    | Cloudflare Turnstile Site Key (§1.7). Опционален до #390 — пустое значение не роняет билд лендинга.                                           |
+| `GOOGLE_INDEXING_SA_EMAIL`   | Полностью опционален (§1.8). `client_email` из GCP service-account JSON-ключа. Пусто → indexing-сервис в no-op режиме, деплой не блокируется. |
+| `GOOGLE_INDEXING_SA_KEY_B64` | Полностью опционален (§1.8). base64(`private_key` PEM) из того же JSON-ключа, одна строка.                                                    |
+| `PUBLIC_LANDING_ORIGIN`      | Полностью опционален (§1.8). Нужен, только если базовый URL лендинга изменится — в коде уже есть default `https://cheekycheese.tech`.         |
 
 > `GITHUB_TOKEN` (для GHCR login в deploy) генерируется GHA автоматически — добавлять не нужно.
 >
