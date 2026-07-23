@@ -78,6 +78,13 @@
   --input: oklch(0.92 0 0);
   --ring: oklch(0.8 0.183 85.3);
   --radius: 0.625rem;
+  /* task-crm-vacancies-ui (§3.4): domain-tag dot colors — fixed hues (not
+     theme-derived), kept 1:1 with apps/landing's --tag-* tokens (docs/design/
+     landing-redesign.md §3.3) for brand consistency between /careers and the
+     admin vacancies screens. OTHER has no dot — falls back to muted-foreground. */
+  --tag-ai: oklch(0.84 0.12 200);
+  --tag-edtech: oklch(0.82 0.13 145);
+  --tag-ecommerce: oklch(0.8 0.12 320);
 }
 
 /* Dark mode — CheekyCheeseIT brand identity (default via .dark on <html>) */
@@ -119,6 +126,12 @@
   --border: oklch(0.22 0.004 85); /* subtle warm border */
   --input: oklch(0.16 0 0);
   --ring: oklch(0.84 0.183 85.3);
+
+  /* task-crm-vacancies-ui (§3.4): same fixed hues as light mode — decorative
+     dot indicators, not meant to shift with the theme. */
+  --tag-ai: oklch(0.84 0.12 200);
+  --tag-edtech: oklch(0.82 0.13 145);
+  --tag-ecommerce: oklch(0.8 0.12 320);
 }
 
 * {

@@ -288,6 +288,41 @@ describe('SegmentedToggle', () => {
     })
   })
 
+  // task-crm-vacancies-ui (§3.2): per-option `activeVariant: 'destructive'` —
+  // renders a red pill for just that option instead of the container's
+  // normal gold pill, without affecting the other options' active color.
+  describe('activeVariant="destructive"', () => {
+    function StatusLayout({ initial = 'NEW' as 'NEW' | 'REJECTED' }) {
+      const [v, setV] = React.useState(initial)
+      return (
+        <SegmentedToggle
+          value={v}
+          onChange={setV}
+          options={[
+            { value: 'NEW', label: 'Новый' },
+            { value: 'REJECTED', label: 'Отклонено', activeVariant: 'destructive' },
+          ]}
+          ariaLabel="Статус"
+          testId="app-status"
+          size="sm"
+        />
+      )
+    }
+
+    it('renders a red pill when the destructive option is active', () => {
+      render(<StatusLayout initial="REJECTED" />)
+      const activeButton = screen.getByTestId('app-status-REJECTED')
+      expect(activeButton.querySelector('[class*="bg-destructive/20"]')).not.toBeNull()
+    })
+
+    it('does not render the red pill when a non-destructive option is active', () => {
+      render(<StatusLayout initial="NEW" />)
+      const activeButton = screen.getByTestId('app-status-NEW')
+      expect(activeButton.querySelector('[class*="bg-destructive/20"]')).toBeNull()
+      expect(activeButton.querySelector('[class*="bg-primary/15"]')).not.toBeNull()
+    })
+  })
+
   // ut-33: per-option `testId` override — for E2E selectors that predate
   // SegmentedToggle adoption (e.g. legacy `toggle-archived-projects`).
   it('honors per-option testId override independently of the container testId', () => {

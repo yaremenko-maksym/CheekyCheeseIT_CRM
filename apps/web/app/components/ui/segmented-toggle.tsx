@@ -49,6 +49,14 @@ export interface SegmentedToggleOption<V extends string> {
   testId?: string
   /** Per-option disabled state (e.g. role-restricted option) */
   disabled?: boolean
+  /**
+   * Override the active pill color for THIS option only (task-crm-vacancies-ui
+   * §3.2). Omitted keeps the container's normal pill (gold `activePillStyles`).
+   * `'destructive'` renders a red pill instead — used for a single "danger"
+   * option inside an otherwise neutral toggle (e.g. candidate application
+   * status: «Отклонено» reads as a warning, not just another neutral choice).
+   */
+  activeVariant?: 'default' | 'destructive'
 }
 
 export interface SegmentedToggleProps<V extends string> {
@@ -167,7 +175,12 @@ export function SegmentedToggle<V extends string>({
             {active && (
               <motion.div
                 layoutId={pillLayoutId}
-                className={cn('absolute inset-0 rounded-md', activePillStyles)}
+                className={cn(
+                  'absolute inset-0 rounded-md',
+                  option.activeVariant === 'destructive'
+                    ? 'bg-destructive/20 border border-destructive/40 shadow-sm'
+                    : activePillStyles,
+                )}
                 transition={{ type: 'spring', stiffness: 380, damping: 32 }}
                 aria-hidden
               />

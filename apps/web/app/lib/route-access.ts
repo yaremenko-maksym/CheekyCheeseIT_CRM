@@ -76,6 +76,10 @@ const ROUTE_ACCESS: ReadonlyArray<{ prefix: string; roles: readonly Role[] }> = 
   // Документы — все роли включая DROP (DROP видит свою страницу документов, не профиль-таб).
   { prefix: '/documents', roles: ['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'] },
 
+  // Вакансии (task-crm-vacancies-ui) — публичный канал найма новых SENIOR'ов,
+  // управляют ADMIN/HR (backend RolesGuard уже гейтит /api/vacancies так же).
+  { prefix: '/vacancies', roles: ['ADMIN', 'HR'] },
+
   // Профиль (свой + чужой $userId) — все роли (RBAC видимости решается на backend).
   { prefix: '/profile', roles: ALL_ROLES },
 
