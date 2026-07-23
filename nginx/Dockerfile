@@ -17,7 +17,20 @@
 # ============================================================
 
 # ── Landing builder ───────────────────────────────────────────────────────
-FROM node:20-alpine AS landing-builder
+# Base image: mcr.microsoft.com/playwright:v1.59.1-noble (Debian/glibc), NOT
+# node:20-alpine. task-infra-seo-gates: the SEO prerender step below drives
+# headless Chromium (via Playwright) to snapshot each landing route into
+# static HTML for crawlers. Chromium needs glibc + a long list of system libs
+# that Alpine (musl) does not ship, and the official Playwright image bundles
+# a browser build matching this exact Playwright version pre-installed — no
+# extra `playwright install --with-deps` download at build time. Verified to
+# exist: `curl -s https://mcr.microsoft.com/v2/playwright/tags/list`.
+# Pinned to v1.59.1 to match the Playwright version already resolved in
+# pnpm-lock.yaml (@playwright/test, apps/e2e) — bump both together, see
+# .claude/rules/common/version-pins.md. If task-landing-seo-prerender lands
+# with a DIFFERENT pinned Playwright version for apps/landing, bump this tag
+# to match in the same PR (mismatched browser/library versions can crash).
+FROM mcr.microsoft.com/playwright:v1.59.1-noble AS landing-builder
 
 RUN corepack enable && corepack prepare pnpm@7.32.4 --activate
 
@@ -45,6 +58,29 @@ COPY tsconfig.base.json ./
 
 RUN pnpm --filter @crm/shared build
 RUN pnpm --filter @crm/landing build
+
+# ── SEO prerender (forward-compatible guard) ───────────────────────────────
+# task-landing-seo-prerender (Coder, parallel branch feature/landing-seo-prerender)
+# adds a `build:prerender` script to apps/landing/package.json that re-crawls
+# the dist above with Playwright and writes static per-route HTML for
+# crawlers (SEO). That branch may merge before or after this infra PR — the
+# grep guard below makes this step a safe no-op (plain CSR dist from the
+# `vite build` above, unchanged) until the script exists, so this Dockerfile
+# never breaks regardless of merge order.
+#
+# PRERENDER_API_ORIGIN points at the LIVE production API. During a deploy the
+# OLD containers keep serving traffic until the `docker compose up -d`
+# switchover in deploy.yml's deploy job, so hitting the real prod API here for
+# route data (e.g. published vacancy slugs) is safe.
+ARG PRERENDER_API_ORIGIN=https://cheekycheese.tech
+ENV PRERENDER_API_ORIGIN=$PRERENDER_API_ORIGIN
+
+RUN if grep -q '"build:prerender"' apps/landing/package.json; then \
+      echo "==> build:prerender script found — running SEO prerender build"; \
+      pnpm --filter @crm/landing build:prerender; \
+    else \
+      echo "::warning::apps/landing/package.json has no build:prerender script yet (task-landing-seo-prerender not merged) — landing dist is CSR-only, no prerendered HTML in this image."; \
+    fi
 
 # ── CRM builder ───────────────────────────────────────────────────────────
 FROM node:20-alpine AS crm-builder
