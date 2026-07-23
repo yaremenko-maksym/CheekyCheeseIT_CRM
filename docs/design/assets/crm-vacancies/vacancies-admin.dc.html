@@ -1,0 +1,420 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <meta name="design_doc_mode" content="canvas">
+  <link rel="stylesheet" href="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/_ds_bundle.css">
+  <link rel="stylesheet" href="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/styles.css">
+  <script src="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/_ds_bundle.js"></script>
+</helmet>
+<section id="1a" class="dark" style="position:relative;display:flex;flex-direction:column;gap:44px;padding:60px;background:oklch(6% 0 0);font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);width:max-content">
+  <div style="position:absolute;top:22px;left:22px;display:inline-flex;align-items:center;padding:4px 12px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-size:13px;font-weight:800;letter-spacing:.02em">1a</div>
+  <header style="display:flex;flex-direction:column;gap:10px;padding-top:14px;max-width:900px">
+    <div style="display:inline-flex;align-items:center;gap:9px;color:var(--primary);font-size:13px;font-weight:700;letter-spacing:.08em;text-transform:uppercase"><span style="width:22px;height:2px;background:var(--primary)"></span>CheekyCheeseIT CRM</div>
+    <h1 style="margin:0;font-size:34px;font-weight:750;color:#fff;letter-spacing:-.02em">Вакансії — адмін-екрани</h1>
+    <p style="margin:0;font-size:15px;line-height:1.6;color:#9a9a9a;text-wrap:pretty">Керування вакансіями та відгуками кандидатів у CRM. Доступно ролям <strong style="color:#cfcfcf;font-weight:600">ADMIN</strong> та <strong style="color:#cfcfcf;font-weight:600">HR</strong>. Стани: за замовчуванням, порожньо, завантаження, підтвердження видалення. Адаптив: 1440 / 1024 / 768 / 320.</p>
+  </header>
+
+  <div style="display:flex;flex-direction:column;gap:26px">
+    <div style="display:flex;align-items:center;gap:16px"><span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:var(--primary);color:var(--primary-foreground);font-weight:800;font-size:15px">1</span><span style="font-size:21px;font-weight:700;color:#fff">Екран 1 · Вакансії (список)</span><span style="flex:1;height:1px;background:#242424"></span></div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">За замовчуванням</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">1440px</span></div>
+      <div style="width:1440px;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+        <div style="display:flex;min-height:840px;background:var(--background)">
+          <dc-import name="Sidebar" hint-size="248px,840px"></dc-import>
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <dc-import name="TopBar" crumb="Вакансії" hint-size="100%,60px"></dc-import>
+            <div style="padding:28px 30px;display:flex;flex-direction:column;gap:22px;flex:1">
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+                <div style="display:flex;flex-direction:column;gap:6px">
+                  <div style="display:flex;align-items:center;gap:11px"><h2 style="margin:0;font-size:26px;font-weight:700;color:var(--foreground);letter-spacing:-.01em">Вакансії</h2><span style="padding:3px 10px;border-radius:999px;background:var(--secondary);color:var(--muted-foreground);font-size:12px;font-weight:600">8 усього</span></div>
+                  <p style="margin:0;font-size:14px;color:var(--muted-foreground)">Створюйте та публікуйте позиції, керуйте відгуками кандидатів.</p>
+                </div>
+                <x-import component-from-global-scope="CrmWeb.Button" hint-size="auto,40px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:7px"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Створити вакансію</x-import>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap">
+                <div style="display:flex;align-items:center;gap:4px;padding:4px;border-radius:10px;background:var(--muted);width:fit-content">
+                  <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:7px;font-size:13px;font-weight:600;background:var(--card);color:var(--foreground);box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:pointer">Усі<span style="color:var(--muted-foreground);font-weight:600">8</span></span>
+                  <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Опубліковані<span style="opacity:.7">2</span></span>
+                  <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Чернетки<span style="opacity:.7">1</span></span>
+                  <span style="display:inline-flex;align-items:center;gap:7px;padding:7px 13px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Закриті<span style="opacity:.7">1</span></span>
+                </div>
+              </div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+                <dc-import name="VacancyCard" title="Senior ML Engineer" domain="AI" seniority="Senior" employment="Повна зайнятість" location="Київ · Віддалено" slug="senior-ml-engineer" status="published" apps="12" newCount="3" hint-size="100%,220px"></dc-import>
+                <dc-import name="VacancyCard" title="Senior Frontend Engineer" domain="EdTech" seniority="Senior" employment="Повна зайнятість" location="Львів · Гібрид" slug="senior-frontend-engineer" status="draft" apps="0" newCount="0" hint-size="100%,220px"></dc-import>
+                <dc-import name="VacancyCard" title="Lead E-Commerce Engineer" domain="E-Commerce" seniority="Lead" employment="Повна зайнятість" location="Віддалено" slug="lead-ecommerce-engineer" status="published" apps="5" newCount="0" hint-size="100%,220px"></dc-import>
+                <dc-import name="VacancyCard" title="Middle QA Engineer" domain="Other" seniority="Middle" employment="Проектна робота" location="Одеса" slug="middle-qa-engineer" status="closed" apps="9" newCount="0" hint-size="100%,220px"></dc-import>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Створення вакансії · бічна панель (Sheet)</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">1440px</span></div>
+      <div style="position:relative;width:1440px;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+        <div style="display:flex;min-height:840px;background:var(--background)">
+          <dc-import name="Sidebar" hint-size="248px,840px"></dc-import>
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <dc-import name="TopBar" crumb="Вакансії" hint-size="100%,60px"></dc-import>
+            <div style="padding:28px 30px;display:flex;flex-direction:column;gap:22px;flex:1">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:20px"><h2 style="margin:0;font-size:26px;font-weight:700;color:var(--foreground)">Вакансії</h2><x-import component-from-global-scope="CrmWeb.Button" hint-size="auto,40px">Створити вакансію</x-import></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+                <dc-import name="VacancyCard" title="Senior ML Engineer" domain="AI" seniority="Senior" employment="Повна зайнятість" location="Київ · Віддалено" slug="senior-ml-engineer" status="published" apps="12" newCount="3" hint-size="100%,220px"></dc-import>
+                <dc-import name="VacancyCard" title="Lead E-Commerce Engineer" domain="E-Commerce" seniority="Lead" employment="Повна зайнятість" location="Віддалено" slug="lead-ecommerce-engineer" status="published" apps="5" newCount="0" hint-size="100%,220px"></dc-import>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,.55);backdrop-filter:blur(1px)"></div>
+        <div style="position:absolute;top:0;right:0;bottom:0;width:452px;background:var(--card);border-left:1px solid var(--border);box-shadow:-20px 0 60px -20px rgba(0,0,0,.7);display:flex;flex-direction:column">
+          <div style="padding:22px 24px;border-bottom:1px solid var(--border);display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+            <div style="display:flex;flex-direction:column;gap:5px"><h3 style="margin:0;font-size:19px;font-weight:700;color:var(--foreground)">Нова вакансія</h3><p style="margin:0;font-size:13px;color:var(--muted-foreground)">Заповніть деталі позиції. Збережіть як чернетку або опублікуйте одразу.</p></div>
+            <button style="width:32px;height:32px;border-radius:8px;border:1px solid var(--border);background:var(--background);color:var(--muted-foreground);display:flex;align-items:center;justify-content:center;cursor:pointer;flex-shrink:0"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div style="padding:22px 24px;display:flex;flex-direction:column;gap:17px;overflow:auto;flex:1">
+            <div style="display:flex;flex-direction:column">
+              <x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Назва вакансії</x-import>
+              <x-import component-from-global-scope="CrmWeb.Input" defaultValue="Senior ML Engineer" placeholder="Напр. Senior ML Engineer" hint-size="100%,40px"></x-import>
+            </div>
+            <div style="display:flex;flex-direction:column">
+              <x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">URL-слаг</x-import>
+              <div style="display:flex;align-items:center;height:40px;border-radius:9px;border:1px solid var(--border);background:var(--background);overflow:hidden">
+                <span style="padding:0 3px 0 12px;font-size:13px;color:var(--muted-foreground);font-family:ui-monospace,Menlo,monospace;white-space:nowrap">/careers/</span>
+                <input value="senior-ml-engineer" style="flex:1;min-width:0;height:100%;border:0;background:transparent;color:var(--foreground);font-size:13px;font-family:ui-monospace,Menlo,monospace;outline:none;padding:0 12px 0 0" />
+              </div>
+              <span style="margin-top:6px;font-size:12px;color:var(--muted-foreground)">Генерується автоматично з назви. Можна редагувати.</span>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Домен</x-import><div style="height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:14px;cursor:pointer">AI<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="m6 9 6 6 6-6"/></svg></div></div>
+              <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Рівень</x-import><div style="height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:14px;cursor:pointer">Senior<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="m6 9 6 6 6-6"/></svg></div></div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px">
+              <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Тип зайнятості</x-import><div style="height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:14px;cursor:pointer">Повна зайнятість<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="m6 9 6 6 6-6"/></svg></div></div>
+              <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Локація</x-import><x-import component-from-global-scope="CrmWeb.Input" defaultValue="Київ · Віддалено" hint-size="100%,40px"></x-import></div>
+            </div>
+            <div style="display:flex;flex-direction:column">
+              <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground text-[13px] font-semibold" hint-size="auto,18px">Опис (Markdown)</x-import><span style="font-size:11px;color:var(--muted-foreground);display:inline-flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4"/><path d="M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>CodeMirror-редактор</span></div>
+              <textarea rows="5" style="width:100%;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:13px;font-family:ui-monospace,Menlo,monospace;line-height:1.6;padding:11px 12px;outline:none;resize:vertical">## Про роль&#10;Шукаємо Senior ML Engineer для роботи над...&#10;&#10;**Вимоги:**&#10;- Python, PyTorch&#10;- 4+ роки досвіду</textarea>
+            </div>
+          </div>
+          <div style="padding:16px 24px;border-top:1px solid var(--border);display:flex;align-items:center;gap:10px">
+            <x-import component-from-global-scope="CrmWeb.Button" className="flex-1" hint-size="100%,40px">Створити вакансію</x-import>
+            <x-import component-from-global-scope="CrmWeb.Button" variant="outline" hint-size="auto,40px">Скасувати</x-import>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:36px;flex-wrap:wrap;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Порожній стан</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">контент</span></div>
+        <div style="width:720px;border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--background);box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+          <dc-import name="TopBar" crumb="Вакансії" hint-size="100%,60px"></dc-import>
+          <div style="padding:28px 30px;display:flex;flex-direction:column;gap:22px;min-height:520px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:16px"><h2 style="margin:0;font-size:26px;font-weight:700;color:var(--foreground)">Вакансії</h2></div>
+            <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:16px;border:1.5px dashed var(--border);border-radius:14px;padding:48px 32px">
+              <div style="width:72px;height:72px;border-radius:18px;background:var(--secondary);display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)"><svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M3 12h18"/></svg></div>
+              <div style="display:flex;flex-direction:column;gap:7px;max-width:360px"><h3 style="margin:0;font-size:19px;font-weight:700;color:var(--foreground)">Ще немає вакансій</h3><p style="margin:0;font-size:14px;line-height:1.6;color:var(--muted-foreground)">Створіть першу вакансію, щоб почати приймати відгуки кандидатів. Вона з'явиться на сторінці кар'єри після публікації.</p></div>
+              <x-import component-from-global-scope="CrmWeb.Button" hint-size="auto,40px"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:7px"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Створити першу вакансію</x-import>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Завантаження (skeleton)</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">контент</span></div>
+        <div style="width:720px;border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--background);box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+          <dc-import name="TopBar" crumb="Вакансії" hint-size="100%,60px"></dc-import>
+          <div style="padding:28px 30px;display:flex;flex-direction:column;gap:22px;min-height:520px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:16px"><h2 style="margin:0;font-size:26px;font-weight:700;color:var(--foreground)">Вакансії</h2><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-10 w-44 rounded-lg" hint-size="176px,40px"></x-import></div>
+            <x-import component-from-global-scope="CrmWeb.Skeleton" className="h-11 w-80 rounded-xl" hint-size="320px,44px"></x-import>
+            <div style="display:grid;grid-template-columns:1fr;gap:16px">
+              <div style="border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px"><div style="display:flex;justify-content:space-between"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-5 w-52 rounded-md" hint-size="208px,20px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-6 w-28 rounded-full" hint-size="112px,24px"></x-import></div><div style="display:flex;gap:8px"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-6 w-16 rounded-full" hint-size="64px,24px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-6 w-20 rounded-full" hint-size="80px,24px"></x-import></div><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-px w-full" hint-size="100%,1px"></x-import><div style="display:flex;justify-content:space-between"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-5 w-24 rounded-md" hint-size="96px,20px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-8 w-40 rounded-lg" hint-size="160px,32px"></x-import></div></div>
+              <div style="border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px"><div style="display:flex;justify-content:space-between"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-5 w-44 rounded-md" hint-size="176px,20px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-6 w-24 rounded-full" hint-size="96px,24px"></x-import></div><div style="display:flex;gap:8px"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-6 w-16 rounded-full" hint-size="64px,24px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-6 w-20 rounded-full" hint-size="80px,24px"></x-import></div><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-px w-full" hint-size="100%,1px"></x-import><div style="display:flex;justify-content:space-between"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-5 w-24 rounded-md" hint-size="96px,20px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-8 w-40 rounded-lg" hint-size="160px,32px"></x-import></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Підтвердження видалення</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">1440px</span></div>
+      <div style="position:relative;width:1440px;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+        <div style="display:flex;min-height:840px;background:var(--background)">
+          <dc-import name="Sidebar" hint-size="248px,840px"></dc-import>
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <dc-import name="TopBar" crumb="Вакансії" hint-size="100%,60px"></dc-import>
+            <div style="padding:28px 30px;display:flex;flex-direction:column;gap:22px;flex:1">
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:20px"><h2 style="margin:0;font-size:26px;font-weight:700;color:var(--foreground)">Вакансії</h2><x-import component-from-global-scope="CrmWeb.Button" hint-size="auto,40px">Створити вакансію</x-import></div>
+              <div style="display:grid;grid-template-columns:1fr 1fr;gap:18px">
+                <dc-import name="VacancyCard" title="Senior ML Engineer" domain="AI" seniority="Senior" employment="Повна зайнятість" location="Київ · Віддалено" slug="senior-ml-engineer" status="published" apps="12" newCount="3" hint-size="100%,220px"></dc-import>
+                <dc-import name="VacancyCard" title="Middle QA Engineer" domain="Other" seniority="Middle" employment="Проектна робота" location="Одеса" slug="middle-qa-engineer" status="closed" apps="9" newCount="0" hint-size="100%,220px"></dc-import>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:24px">
+          <div style="width:452px;background:var(--popover);border:1px solid var(--border);border-radius:16px;box-shadow:0 30px 80px -20px rgba(0,0,0,.8);padding:26px;display:flex;flex-direction:column;gap:18px">
+            <div style="display:flex;gap:15px;align-items:flex-start">
+              <div style="width:46px;height:46px;border-radius:12px;background:color-mix(in oklab, var(--destructive) 16%, transparent);color:oklch(72% 0.18 22);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div>
+              <div style="display:flex;flex-direction:column;gap:8px"><h3 style="margin:0;font-size:19px;font-weight:700;color:var(--foreground)">Видалити вакансію?</h3><p style="margin:0;font-size:14px;line-height:1.6;color:var(--muted-foreground)">Вакансію <strong style="color:var(--foreground);font-weight:600">«Middle QA Engineer»</strong> буде видалено назавжди разом з <strong style="color:var(--foreground);font-weight:600">9 відгуками</strong> та завантаженими файлами CV. Цю дію неможливо скасувати.</p></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px">
+              <x-import component-from-global-scope="CrmWeb.Button" variant="outline" hint-size="auto,40px">Скасувати</x-import>
+              <x-import component-from-global-scope="CrmWeb.Button" variant="destructive" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>Видалити</x-import>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:15px;font-weight:700;color:#fff">Адаптивність</span><span style="font-size:12px;color:#8a8a8a">Сайдбар згортається на планшеті та зникає на мобільному</span></div>
+      <div style="display:flex;gap:34px;flex-wrap:wrap;align-items:flex-start">
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Ноутбук</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">1024px</span></div>
+          <div style="width:1024px;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+            <div style="display:flex;min-height:660px;background:var(--background)">
+              <dc-import name="Sidebar" hint-size="248px,660px"></dc-import>
+              <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+                <dc-import name="TopBar" crumb="Вакансії" hint-size="100%,60px"></dc-import>
+                <div style="padding:24px;display:flex;flex-direction:column;gap:18px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:16px"><h2 style="margin:0;font-size:23px;font-weight:700;color:var(--foreground)">Вакансії</h2><x-import component-from-global-scope="CrmWeb.Button" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Створити</x-import></div>
+                  <div style="display:grid;grid-template-columns:1fr;gap:16px">
+                    <dc-import name="VacancyCard" title="Senior ML Engineer" domain="AI" seniority="Senior" employment="Повна зайнятість" location="Київ · Віддалено" slug="senior-ml-engineer" status="published" apps="12" newCount="3" hint-size="100%,210px"></dc-import>
+                    <dc-import name="VacancyCard" title="Senior Frontend Engineer" domain="EdTech" seniority="Senior" employment="Повна зайнятість" location="Львів · Гібрид" slug="senior-frontend-engineer" status="draft" apps="0" newCount="0" hint-size="100%,210px"></dc-import>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Планшет</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">768px</span></div>
+          <div style="width:768px;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+            <div style="display:flex;min-height:640px;background:var(--background)">
+              <nav style="width:64px;flex-shrink:0;background:var(--card);border-right:1px solid var(--border);display:flex;flex-direction:column;align-items:center;padding:16px 0;gap:6px">
+                <div style="width:34px;height:34px;border-radius:9px;background:var(--primary);color:var(--primary-foreground);display:flex;align-items:center;justify-content:center;font-weight:800;font-size:16px;margin-bottom:10px">C</div>
+                <div style="width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/></svg></div>
+                <div style="width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><circle cx="17" cy="9" r="2.6"/><path d="M3 20c0-3.2 2.7-5 6-5s6 1.8 6 5"/></svg></div>
+                <div style="width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></div>
+                <div style="width:42px;height:42px;border-radius:10px;background:var(--accent);color:var(--foreground);display:flex;align-items:center;justify-content:center"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></div>
+                <div style="width:42px;height:42px;border-radius:10px;display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"/><path d="M14 3v5h5"/></svg></div>
+                <div style="margin-top:auto;width:36px;height:36px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px">ІК</div>
+              </nav>
+              <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+                <dc-import name="TopBar" crumb="Вакансії" hint-size="100%,60px"></dc-import>
+                <div style="padding:22px;display:flex;flex-direction:column;gap:16px">
+                  <div style="display:flex;align-items:center;justify-content:space-between;gap:14px"><h2 style="margin:0;font-size:22px;font-weight:700;color:var(--foreground)">Вакансії</h2><x-import component-from-global-scope="CrmWeb.Button" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M12 5v14"/><path d="M5 12h14"/></svg>Створити</x-import></div>
+                  <div style="display:grid;grid-template-columns:1fr;gap:14px">
+                    <dc-import name="VacancyCard" title="Senior ML Engineer" domain="AI" seniority="Senior" employment="Повна зайнятість" location="Київ · Віддалено" slug="senior-ml-engineer" status="published" apps="12" newCount="3" hint-size="100%,210px"></dc-import>
+                    <dc-import name="VacancyCard" title="Lead E-Commerce Engineer" domain="E-Commerce" seniority="Lead" employment="Повна зайнятість" location="Віддалено" slug="lead-ecommerce-engineer" status="published" apps="5" newCount="0" hint-size="100%,210px"></dc-import>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Мобільний</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">320px</span></div>
+          <div style="width:320px;border:1px solid var(--border);border-radius:24px;overflow:hidden;background:var(--background);box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+            <div style="height:56px;border-bottom:1px solid var(--border);background:var(--card);display:flex;align-items:center;justify-content:space-between;padding:0 10px 0 6px">
+              <div style="display:flex;align-items:center;gap:4px"><button style="width:44px;height:44px;border:0;background:transparent;color:var(--foreground);display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M3 12h18"/><path d="M3 18h18"/></svg></button><span style="font-size:18px;font-weight:700;color:var(--foreground)">Вакансії</span></div>
+              <x-import component-from-global-scope="CrmWeb.Button" size="icon" className="h-11 w-11" hint-size="44px,44px"><svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></x-import>
+            </div>
+            <div style="padding:14px;display:flex;flex-direction:column;gap:14px">
+              <div style="display:flex;gap:7px;overflow:hidden"><span style="flex-shrink:0;padding:8px 14px;border-radius:999px;background:var(--card);border:1px solid var(--border);color:var(--foreground);font-size:13px;font-weight:600">Усі 8</span><span style="flex-shrink:0;padding:8px 14px;border-radius:999px;color:var(--muted-foreground);font-size:13px;font-weight:600">Опубл. 2</span><span style="flex-shrink:0;padding:8px 14px;border-radius:999px;color:var(--muted-foreground);font-size:13px;font-weight:600">Чернетки</span></div>
+              <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px"><h3 style="margin:0;font-size:16px;font-weight:650;color:var(--foreground);line-height:1.3">Senior ML Engineer</h3><span style="flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:600;background:color-mix(in oklab, oklch(72% 0.16 150) 16%, transparent);color:oklch(80% 0.15 152)"><span style="width:5px;height:5px;border-radius:999px;background:currentColor"></span>Опубл.</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px"><span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid var(--border);font-size:11px;font-weight:600;color:var(--foreground)"><span style="width:6px;height:6px;border-radius:999px;background:oklch(72% 0.17 300)"></span>AI</span><span style="padding:3px 9px;border-radius:999px;background:var(--secondary);font-size:11px;color:var(--muted-foreground)">Senior</span></div>
+                <div style="font-size:12px;color:var(--muted-foreground);display:flex;align-items:center;gap:6px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="2.6"/></svg>Київ · Віддалено</div>
+                <div style="height:1px;background:var(--border)"></div>
+                <div style="display:flex;align-items:center;gap:8px"><span style="font-size:13px;font-weight:500;color:var(--foreground)">12 відгуків</span><span style="padding:2px 8px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-size:10px;font-weight:700">3 нові</span></div>
+                <div style="display:flex;gap:8px"><x-import component-from-global-scope="CrmWeb.Button" className="h-11 flex-1" hint-size="auto,44px">Відгуки</x-import><x-import component-from-global-scope="CrmWeb.Button" variant="outline" size="icon" className="h-11 w-11" hint-size="44px,44px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></x-import><x-import component-from-global-scope="CrmWeb.Button" variant="outline" size="icon" className="h-11 w-11" hint-size="44px,44px"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.4"/><circle cx="12" cy="12" r="1.4"/><circle cx="19" cy="12" r="1.4"/></svg></x-import></div>
+              </div>
+              <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:16px;display:flex;flex-direction:column;gap:12px">
+                <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:10px"><h3 style="margin:0;font-size:16px;font-weight:650;color:var(--foreground);line-height:1.3">Senior Frontend Engineer</h3><span style="flex-shrink:0;display:inline-flex;align-items:center;gap:5px;padding:4px 9px;border-radius:999px;font-size:11px;font-weight:600;background:var(--secondary);color:var(--muted-foreground)">Чернетка</span></div>
+                <div style="display:flex;flex-wrap:wrap;gap:6px"><span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;border:1px solid var(--border);font-size:11px;font-weight:600;color:var(--foreground)"><span style="width:6px;height:6px;border-radius:999px;background:oklch(70% 0.15 250)"></span>EdTech</span><span style="padding:3px 9px;border-radius:999px;background:var(--secondary);font-size:11px;color:var(--muted-foreground)">Senior</span></div>
+                <div style="font-size:12px;color:var(--muted-foreground)">Ще не опубліковано</div>
+                <div style="height:1px;background:var(--border)"></div>
+                <div style="display:flex;gap:8px"><x-import component-from-global-scope="CrmWeb.Button" className="h-11 flex-1" hint-size="auto,44px">Опублікувати</x-import><x-import component-from-global-scope="CrmWeb.Button" variant="outline" size="icon" className="h-11 w-11" hint-size="44px,44px"><svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg></x-import></div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <div style="display:flex;flex-direction:column;gap:26px">
+    <div style="display:flex;align-items:center;gap:16px"><span style="display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:var(--primary);color:var(--primary-foreground);font-weight:800;font-size:15px">2</span><span style="font-size:21px;font-weight:700;color:#fff">Екран 2 · Деталі вакансії</span><span style="flex:1;height:1px;background:#242424"></span></div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Вкладка «Деталі» · редагування</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">1440px</span></div>
+      <div style="width:1440px;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+        <div style="display:flex;min-height:900px;background:var(--background)">
+          <dc-import name="Sidebar" hint-size="248px,900px"></dc-import>
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <dc-import name="TopBar" crumb="Вакансії / Senior ML Engineer" hint-size="100%,60px"></dc-import>
+            <div style="padding:26px 30px;display:flex;flex-direction:column;gap:20px;flex:1">
+              <a href="#1a" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:500;color:var(--muted-foreground);text-decoration:none;width:fit-content"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>Усі вакансії</a>
+              <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:20px;flex-wrap:wrap">
+                <div style="display:flex;flex-direction:column;gap:10px">
+                  <div style="display:flex;align-items:center;gap:12px"><h2 style="margin:0;font-size:27px;font-weight:700;color:var(--foreground);letter-spacing:-.01em">Senior ML Engineer</h2><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600;background:color-mix(in oklab, oklch(72% 0.16 150) 16%, transparent);color:oklch(80% 0.15 152)"><span style="width:6px;height:6px;border-radius:999px;background:currentColor"></span>Опубліковано</span></div>
+                  <div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center"><span style="display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;border:1px solid var(--border);font-size:12px;font-weight:600;color:var(--foreground)"><span style="width:7px;height:7px;border-radius:999px;background:oklch(72% 0.17 300)"></span>AI</span><span style="padding:3px 9px;border-radius:999px;background:var(--secondary);font-size:12px;color:var(--muted-foreground)">Senior</span><span style="padding:3px 9px;border-radius:999px;background:var(--secondary);font-size:12px;color:var(--muted-foreground)">Повна зайнятість</span><span style="font-size:13px;color:var(--muted-foreground);display:inline-flex;align-items:center;gap:5px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="2.6"/></svg>Київ · Віддалено</span></div>
+                </div>
+                <div style="display:flex;align-items:center;gap:9px">
+                  <x-import component-from-global-scope="CrmWeb.Button" variant="outline" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>На сайті</x-import>
+                  <x-import component-from-global-scope="CrmWeb.Button" variant="outline" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>Закрити вакансію</x-import>
+                </div>
+              </div>
+              <div style="display:flex;align-items:center;gap:4px;padding:4px;border-radius:11px;background:var(--muted);width:fit-content">
+                <span style="display:inline-flex;align-items:center;padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;background:var(--card);color:var(--foreground);box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:pointer">Деталі</span>
+                <span style="display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Відгуки<span style="display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;background:var(--secondary);color:var(--foreground);font-size:11px;font-weight:700">12</span><span style="width:7px;height:7px;border-radius:999px;background:var(--primary)"></span></span>
+              </div>
+              <div style="display:flex;gap:22px;align-items:flex-start;flex-wrap:wrap">
+                <div style="flex:1;min-width:420px;background:var(--card);border:1px solid var(--border);border-radius:14px;padding:26px;display:flex;flex-direction:column;gap:18px">
+                  <h3 style="margin:0;font-size:16px;font-weight:700;color:var(--foreground)">Загальна інформація</h3>
+                  <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Назва вакансії</x-import><x-import component-from-global-scope="CrmWeb.Input" defaultValue="Senior ML Engineer" hint-size="100%,40px"></x-import></div>
+                  <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">URL-слаг</x-import><div style="display:flex;align-items:center;height:40px;border-radius:9px;border:1px solid var(--border);background:var(--background);overflow:hidden"><span style="padding:0 3px 0 12px;font-size:13px;color:var(--muted-foreground);font-family:ui-monospace,Menlo,monospace;white-space:nowrap">/careers/</span><input value="senior-ml-engineer" style="flex:1;min-width:0;height:100%;border:0;background:transparent;color:var(--foreground);font-size:13px;font-family:ui-monospace,Menlo,monospace;outline:none;padding:0 12px 0 0" /></div></div>
+                  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+                    <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Домен</x-import><div style="height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:14px;cursor:pointer">AI<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="m6 9 6 6 6-6"/></svg></div></div>
+                    <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Рівень</x-import><div style="height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:14px;cursor:pointer">Senior<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="m6 9 6 6 6-6"/></svg></div></div>
+                    <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Тип зайнятості</x-import><div style="height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:14px;cursor:pointer">Повна зайнятість<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="m6 9 6 6 6-6"/></svg></div></div>
+                    <div style="display:flex;flex-direction:column"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground mb-2 text-[13px] font-semibold" hint-size="auto,18px">Локація</x-import><x-import component-from-global-scope="CrmWeb.Input" defaultValue="Київ · Віддалено" hint-size="100%,40px"></x-import></div>
+                  </div>
+                  <div style="display:flex;flex-direction:column">
+                    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:7px"><x-import component-from-global-scope="CrmWeb.Label" className="text-foreground text-[13px] font-semibold" hint-size="auto,18px">Опис (Markdown)</x-import><span style="font-size:11px;color:var(--muted-foreground);display:inline-flex;align-items:center;gap:5px"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 8v4"/><path d="M12 16h.01"/><circle cx="12" cy="12" r="9"/></svg>CodeMirror-редактор</span></div>
+                    <textarea rows="7" style="width:100%;border-radius:9px;border:1px solid var(--border);background:var(--background);color:var(--foreground);font-size:13px;font-family:ui-monospace,Menlo,monospace;line-height:1.7;padding:12px;outline:none;resize:vertical">## Про роль&#10;Шукаємо Senior ML Engineer у команду AI-платформи.&#10;&#10;**Вимоги:**&#10;- Python, PyTorch / TensorFlow&#10;- 4+ роки в ML&#10;- Досвід з LLM та продакшн-інференсом&#10;&#10;**Ми пропонуємо:**&#10;- Віддалену роботу&#10;- Медичне страхування</textarea>
+                  </div>
+                  <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:4px"><x-import component-from-global-scope="CrmWeb.Button" variant="outline" hint-size="auto,40px">Скасувати</x-import><x-import component-from-global-scope="CrmWeb.Button" hint-size="auto,40px">Зберегти зміни</x-import></div>
+                </div>
+                <aside style="width:308px;flex-shrink:0;display:flex;flex-direction:column;gap:16px">
+                  <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:14px">
+                    <h3 style="margin:0;font-size:14px;font-weight:700;color:var(--foreground)">Статус</h3>
+                    <div style="display:flex;align-items:center;gap:8px;padding:11px 13px;border-radius:10px;background:color-mix(in oklab, oklch(72% 0.16 150) 12%, transparent)"><span style="width:8px;height:8px;border-radius:999px;background:oklch(80% 0.15 152)"></span><span style="font-size:14px;font-weight:600;color:var(--foreground)">Опубліковано</span></div>
+                    <x-import component-from-global-scope="CrmWeb.Button" variant="outline" className="w-full justify-start" hint-size="100%,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>Закрити вакансію</x-import>
+                    <p style="margin:0;font-size:12px;line-height:1.5;color:var(--muted-foreground)">Закрита вакансія зникне зі сторінки кар'єри, але відгуки збережуться.</p>
+                  </div>
+                  <div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:13px">
+                    <h3 style="margin:0;font-size:14px;font-weight:700;color:var(--foreground)">Статистика</h3>
+                    <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--muted-foreground)">Відгуків</span><span style="color:var(--foreground);font-weight:600">12</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--muted-foreground)">Нових</span><span style="display:inline-flex;padding:1px 8px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-weight:700;font-size:11px">3</span></div>
+                    <div style="height:1px;background:var(--border)"></div>
+                    <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--muted-foreground)">Створено</span><span style="color:var(--foreground)">18 лип 2026</span></div>
+                    <div style="display:flex;justify-content:space-between;font-size:13px"><span style="color:var(--muted-foreground)">Опубліковано</span><span style="color:var(--foreground)">20 лип 2026</span></div>
+                  </div>
+                  <div style="background:var(--card);border:1px solid color-mix(in oklab, var(--destructive) 35%, var(--border));border-radius:14px;padding:20px;display:flex;flex-direction:column;gap:12px">
+                    <h3 style="margin:0;font-size:14px;font-weight:700;color:oklch(72% 0.18 22)">Небезпечна зона</h3>
+                    <p style="margin:0;font-size:12px;line-height:1.5;color:var(--muted-foreground)">Видалення вакансії безповоротно прибере її разом з усіма відгуками та файлами CV.</p>
+                    <x-import component-from-global-scope="CrmWeb.Button" variant="outline" className="w-full text-destructive border-destructive/40 hover:bg-destructive/10 hover:text-destructive" hint-size="100%,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:8px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>Видалити вакансію</x-import>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Вкладка «Відгуки» · кандидати</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">1440px</span></div>
+      <div style="width:1440px;border:1px solid var(--border);border-radius:16px;overflow:hidden;box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+        <div style="display:flex;min-height:900px;background:var(--background)">
+          <dc-import name="Sidebar" hint-size="248px,900px"></dc-import>
+          <div style="flex:1;display:flex;flex-direction:column;min-width:0">
+            <dc-import name="TopBar" crumb="Вакансії / Senior ML Engineer" hint-size="100%,60px"></dc-import>
+            <div style="padding:26px 30px;display:flex;flex-direction:column;gap:20px;flex:1">
+              <a href="#1a" style="display:inline-flex;align-items:center;gap:7px;font-size:13px;font-weight:500;color:var(--muted-foreground);text-decoration:none;width:fit-content"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>Усі вакансії</a>
+              <div style="display:flex;align-items:center;gap:12px"><h2 style="margin:0;font-size:27px;font-weight:700;color:var(--foreground)">Senior ML Engineer</h2><span style="display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12px;font-weight:600;background:color-mix(in oklab, oklch(72% 0.16 150) 16%, transparent);color:oklch(80% 0.15 152)"><span style="width:6px;height:6px;border-radius:999px;background:currentColor"></span>Опубліковано</span></div>
+              <div style="display:flex;align-items:center;gap:4px;padding:4px;border-radius:11px;background:var(--muted);width:fit-content">
+                <span style="display:inline-flex;align-items:center;padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Деталі</span>
+                <span style="display:inline-flex;align-items:center;gap:8px;padding:8px 18px;border-radius:8px;font-size:14px;font-weight:600;background:var(--card);color:var(--foreground);box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:pointer">Відгуки<span style="display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;background:var(--secondary);color:var(--foreground);font-size:11px;font-weight:700">12</span></span>
+              </div>
+              <div style="display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;max-width:768px">
+                <div style="display:flex;align-items:center;gap:4px;padding:4px;border-radius:10px;background:var(--muted)">
+                  <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;background:var(--card);color:var(--foreground);box-shadow:0 1px 3px rgba(0,0,0,.5);cursor:pointer">Усі<span style="color:var(--muted-foreground)">12</span></span>
+                  <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Нові<span style="display:inline-flex;padding:0 7px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-weight:700;font-size:11px">3</span></span>
+                  <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Переглянуті</span>
+                  <span style="display:inline-flex;align-items:center;gap:6px;padding:6px 12px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted-foreground);cursor:pointer">Відхилені</span>
+                </div>
+              </div>
+              <div style="display:flex;flex-direction:column;gap:16px;max-width:768px">
+                <dc-import name="CandidateCard" fullname="Олексій Ткаченко" initials="ОТ" email="oleksii.t@gmail.com" telegram="@oleksii_t" github="1" linkedin="1" date="22 лип 2026" status="new" isNew="1" cover="Вітаю! Маю 5 років досвіду в ML — будував рекомендаційні системи та продакшн-пайплайни інференсу LLM. Хотів би долучитись до вашої AI-платформи та підсилити команду. Резюме та приклади проєктів у вкладенні." hint-size="100%,300px"></dc-import>
+                <dc-import name="CandidateCard" fullname="Марія Сидоренко" initials="МС" email="maria.syd@gmail.com" telegram="@maria_s" github="" linkedin="1" date="21 лип 2026" status="reviewed" isNew="" cover="Досвідчена ML-інженерка з фокусом на NLP та комп'ютерному зорі. 6 років у продуктових командах, менторство джунів." hint-size="100%,280px"></dc-import>
+                <dc-import name="CandidateCard" fullname="Дмитро Бондаренко" initials="ДБ" email="d.bondarenko@outlook.com" telegram="@dbond" github="1" linkedin="" date="19 лип 2026" status="rejected" isNew="" cover="Junior ML з бажанням розвиватись. Комерційного досвіду поки немає, але є пет-проєкти." hint-size="100%,280px"></dc-import>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:flex;gap:34px;flex-wrap:wrap;align-items:flex-start">
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Немає відгуків</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">контент</span></div>
+        <div style="width:600px;border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--background);box-shadow:0 30px 70px -30px rgba(0,0,0,.85);padding:26px">
+          <div style="display:flex;align-items:center;gap:4px;padding:4px;border-radius:11px;background:var(--muted);width:fit-content;margin-bottom:22px"><span style="padding:7px 15px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted-foreground)">Деталі</span><span style="padding:7px 15px;border-radius:8px;font-size:13px;font-weight:600;background:var(--card);color:var(--foreground);box-shadow:0 1px 3px rgba(0,0,0,.5)">Відгуки</span></div>
+          <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:15px;border:1.5px dashed var(--border);border-radius:14px;padding:48px 28px">
+            <div style="width:68px;height:68px;border-radius:18px;background:var(--secondary);display:flex;align-items:center;justify-content:center;color:var(--muted-foreground)"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M14 19v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="7.5" cy="7" r="3.5"/><path d="M21 19v-2a4 4 0 0 0-3-3.9"/><path d="M15 3.1a4 4 0 0 1 0 7.8"/></svg></div>
+            <div style="display:flex;flex-direction:column;gap:7px;max-width:320px"><h3 style="margin:0;font-size:18px;font-weight:700;color:var(--foreground)">Ще немає відгуків</h3><p style="margin:0;font-size:14px;line-height:1.6;color:var(--muted-foreground)">Кандидати з'являться тут, щойно надішлють заявку через сторінку кар'єри.</p></div>
+            <x-import component-from-global-scope="CrmWeb.Button" variant="outline" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:7px"><path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z"/><circle cx="12" cy="12" r="3"/></svg>Переглянути на сайті</x-import>
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Завантаження</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">контент</span></div>
+        <div style="width:600px;border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--background);box-shadow:0 30px 70px -30px rgba(0,0,0,.85);padding:26px;display:flex;flex-direction:column;gap:16px">
+          <x-import component-from-global-scope="CrmWeb.Skeleton" className="h-11 w-56 rounded-xl" hint-size="224px,44px"></x-import>
+          <div style="border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px"><div style="display:flex;gap:13px;align-items:center"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-11 w-11 rounded-full" hint-size="44px,44px"></x-import><div style="display:flex;flex-direction:column;gap:7px"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-4 w-40 rounded-md" hint-size="160px,16px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-3 w-52 rounded-md" hint-size="208px,12px"></x-import></div></div><div style="display:flex;gap:8px"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-7 w-24 rounded-lg" hint-size="96px,28px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-7 w-20 rounded-lg" hint-size="80px,28px"></x-import></div><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-10 w-full rounded-lg" hint-size="100%,40px"></x-import></div>
+          <div style="border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px"><div style="display:flex;gap:13px;align-items:center"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-11 w-11 rounded-full" hint-size="44px,44px"></x-import><div style="display:flex;flex-direction:column;gap:7px"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-4 w-36 rounded-md" hint-size="144px,16px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-3 w-48 rounded-md" hint-size="192px,12px"></x-import></div></div><div style="display:flex;gap:8px"><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-7 w-24 rounded-lg" hint-size="96px,28px"></x-import><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-7 w-20 rounded-lg" hint-size="80px,28px"></x-import></div><x-import component-from-global-scope="CrmWeb.Skeleton" className="h-10 w-full rounded-lg" hint-size="100%,40px"></x-import></div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Видалення відгуку · попередження про файл CV</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">контент</span></div>
+      <div style="position:relative;width:600px;border:1px solid var(--border);border-radius:16px;overflow:hidden;background:var(--background);box-shadow:0 30px 70px -30px rgba(0,0,0,.85);padding:26px;min-height:420px">
+        <div style="display:flex;flex-direction:column;gap:14px;opacity:.5">
+          <dc-import name="CandidateCard" fullname="Дмитро Бондаренко" initials="ДБ" email="d.bondarenko@outlook.com" telegram="@dbond" github="1" linkedin="" date="19 лип 2026" status="new" isNew="" cover="Junior ML з бажанням розвиватись." hint-size="100%,260px"></dc-import>
+        </div>
+        <div style="position:absolute;inset:0;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;padding:22px">
+          <div style="width:440px;background:var(--popover);border:1px solid var(--border);border-radius:16px;box-shadow:0 30px 80px -20px rgba(0,0,0,.8);padding:24px;display:flex;flex-direction:column;gap:17px">
+            <div style="display:flex;gap:14px;align-items:flex-start">
+              <div style="width:44px;height:44px;border-radius:12px;background:color-mix(in oklab, var(--destructive) 16%, transparent);color:oklch(72% 0.18 22);display:flex;align-items:center;justify-content:center;flex-shrink:0"><svg width="23" height="23" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"/><path d="M12 9v4"/><path d="M12 17h.01"/></svg></div>
+              <div style="display:flex;flex-direction:column;gap:8px"><h3 style="margin:0;font-size:18px;font-weight:700;color:var(--foreground)">Видалити відгук?</h3><p style="margin:0;font-size:14px;line-height:1.6;color:var(--muted-foreground)">Відгук кандидата <strong style="color:var(--foreground);font-weight:600">Дмитро Бондаренко</strong> буде видалено. Завантажений файл CV <strong style="color:var(--foreground);font-weight:600">dmytro_cv.pdf</strong> також буде видалено з сервера. Цю дію неможливо скасувати.</p></div>
+            </div>
+            <div style="display:flex;justify-content:flex-end;gap:10px"><x-import component-from-global-scope="CrmWeb.Button" variant="outline" hint-size="auto,40px">Скасувати</x-import><x-import component-from-global-scope="CrmWeb.Button" variant="destructive" hint-size="auto,40px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg>Видалити</x-import></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="display:flex;flex-direction:column;gap:12px">
+      <div style="display:flex;align-items:center;gap:10px"><span style="font-size:13px;font-weight:600;color:#e6e6e6">Деталі · мобільний</span><span style="font-size:11px;font-weight:600;color:#8a8a8a;padding:2px 8px;border-radius:999px;border:1px solid #2c2c2c">320px</span></div>
+      <div style="width:320px;border:1px solid var(--border);border-radius:24px;overflow:hidden;background:var(--background);box-shadow:0 30px 70px -30px rgba(0,0,0,.85)">
+        <div style="height:56px;border-bottom:1px solid var(--border);background:var(--card);display:flex;align-items:center;gap:4px;padding:0 8px">
+          <button style="width:44px;height:44px;border:0;background:transparent;color:var(--foreground);display:flex;align-items:center;justify-content:center;cursor:pointer"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg></button>
+          <span style="font-size:16px;font-weight:700;color:var(--foreground);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">Senior ML Engineer</span>
+        </div>
+        <div style="padding:14px;display:flex;flex-direction:column;gap:14px">
+          <div style="display:flex;align-items:center;gap:8px"><span style="display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11px;font-weight:600;background:color-mix(in oklab, oklch(72% 0.16 150) 16%, transparent);color:oklch(80% 0.15 152)"><span style="width:5px;height:5px;border-radius:999px;background:currentColor"></span>Опубліковано</span></div>
+          <div style="display:flex;gap:4px;padding:4px;border-radius:10px;background:var(--muted)"><span style="flex:1;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600;color:var(--muted-foreground)">Деталі</span><span style="flex:1;text-align:center;padding:9px;border-radius:7px;font-size:13px;font-weight:600;background:var(--card);color:var(--foreground);box-shadow:0 1px 3px rgba(0,0,0,.5)">Відгуки · 12</span></div>
+          <dc-import name="CandidateCard" fullname="Олексій Ткаченко" initials="ОТ" email="oleksii.t@gmail.com" telegram="@oleksii_t" github="1" linkedin="1" date="22 лип" status="new" isNew="1" cover="Вітаю! Маю 5 років досвіду в ML — будував рекомендаційні системи та пайплайни інференсу LLM." hint-size="100%,320px"></dc-import>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+</x-dc>
+</body>
+</html>
