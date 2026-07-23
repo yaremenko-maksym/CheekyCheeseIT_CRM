@@ -26,7 +26,10 @@ export const Route = createFileRoute('/_authenticated/vacancies/')({
 
 type StatusFilter = 'ALL' | VacancyStatus
 
-function VacanciesListPage() {
+// Exported (in addition to the default route `Route`) so the RBAC-guard test
+// can mount this page directly without a full router — same convention as
+// `ProjectEditFields` in `projects/$projectId.tsx`.
+export function VacanciesListPage() {
   const { denied } = useRoleGuard(['ADMIN', 'HR'])
   if (denied) return null
 
