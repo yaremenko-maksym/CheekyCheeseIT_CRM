@@ -15,13 +15,26 @@ import {
 
 const publicVacancyListSchema = z.array(publicVacancySchema)
 
-/** GET /api/public/vacancies — only PUBLISHED, mapped to loader data for `/` and `/careers`. */
+/**
+ * GET /api/public/vacancies — only PUBLISHED, mapped to loader data for `/`
+ * and `/careers`. Degrades to `[]` on ANY failure (network error, non-2xx,
+ * malformed response) instead of throwing — task-landing-seo-prerender.md
+ * AC1 requires the build (and `scripts/prerender.mjs`'s headless render of
+ * these same routes) to keep working when the API is unreachable, and a
+ * transient API blip should never take down the whole landing homepage for a
+ * real visitor either (the Careers section already has a real, designed
+ * empty state for "0 vacancies" — see `CareersTeaser`/`CareersList` — so this
+ * reuses that path rather than an error boundary).
+ */
 export async function fetchVacancies(): Promise<PublicVacancy[]> {
-  const res = await fetch('/api/public/vacancies')
-  if (!res.ok) {
-    throw new Error(`Failed to load vacancies (HTTP ${res.status})`)
+  try {
+    const res = await fetch('/api/public/vacancies')
+    if (!res.ok) throw new Error(`Failed to load vacancies (HTTP ${res.status})`)
+    return publicVacancyListSchema.parse(await res.json())
+  } catch (err) {
+    console.error('fetchVacancies: falling back to an empty list', err)
+    return []
   }
-  return publicVacancyListSchema.parse(await res.json())
 }
 
 /**
