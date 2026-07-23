@@ -1,494 +1,315 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { motion, AnimatePresence } from 'framer-motion'
-import { useState, useEffect } from 'react'
-import { ArrowUpRight, Brain, ShoppingCart, GraduationCap } from 'lucide-react'
-import { Badge } from '@/components/ui/badge'
+import type { ReactNode } from 'react'
+import { createFileRoute, Link } from '@tanstack/react-router'
+import { motion, useReducedMotion } from 'framer-motion'
+import { ArrowRight, Mail } from 'lucide-react'
+import type { PublicVacancy } from '@crm/shared'
+import { fetchVacancies } from '@/lib/api'
+import { useDocumentHead } from '@/lib/use-document-head'
+import { MarketingNav } from '@/components/marketing/nav'
+import { MarketingFooter } from '@/components/marketing/footer'
+import { Terminal } from '@/components/marketing/terminal'
+import { SectionEyebrow } from '@/components/marketing/section-eyebrow'
+import { StatStrip } from '@/components/marketing/stat-strip'
+import { CaseStudyCard } from '@/components/marketing/case-study-card'
+import { ServiceCard } from '@/components/marketing/service-card'
+import { ProcessStep } from '@/components/marketing/process-step'
+import { TechStackChips } from '@/components/marketing/tech-stack-chips'
+import { CareersTeaser } from '@/components/marketing/careers-teaser'
 import { Button } from '@/components/ui/button'
-import { BrandMark } from '@/components/brand-mark'
-import { cn } from '@/lib/utils'
+import { Chip } from '@/components/ui/chip'
+import { caseStudies } from '@/content/case-studies'
+import {
+  CONTACT_EMAIL,
+  aboutBullets,
+  processSteps,
+  services,
+  stats,
+  techStack,
+} from '@/content/home'
 
 export const Route = createFileRoute('/')({
+  loader: async () => fetchVacancies(),
   component: LandingPage,
 })
 
-// ─── Data ─────────────────────────────────────────────────────────────────────
-
-type LineType = 'import' | 'code' | 'string' | 'comment' | 'blank'
-
-interface CodeLine {
-  text: string
-  type: LineType
-}
-
-interface Snippet {
-  domain: string
-  color: string
-  ext: string
-  lines: CodeLine[]
-}
-
-const snippets: Snippet[] = [
-  {
-    domain: 'AI / ML',
-    color: '#a78bfa',
-    ext: 'py',
-    lines: [
-      { text: 'from cheeky import LLMPipeline', type: 'import' },
-      { text: '', type: 'blank' },
-      { text: 'model = LLMPipeline.load(', type: 'code' },
-      { text: '  checkpoint="cheese-7b-v2",', type: 'string' },
-      { text: '  device="cuda", quantize=True,', type: 'code' },
-      { text: ')', type: 'code' },
-      { text: '', type: 'blank' },
-      { text: '# 94.2% accuracy · 40B token dataset', type: 'comment' },
-    ],
-  },
-  {
-    domain: 'EdTech',
-    color: '#34d399',
-    ext: 'ts',
-    lines: [
-      { text: 'const lesson = await ai.generate({', type: 'code' },
-      { text: "  topic: 'React Server Components',", type: 'string' },
-      { text: "  level: 'intermediate',", type: 'string' },
-      { text: '  includeExercises: true,', type: 'code' },
-      { text: '})', type: 'code' },
-      { text: '', type: 'blank' },
-      { text: 'await platform.publish(lesson)', type: 'code' },
-      { text: '// 50 000+ active learners', type: 'comment' },
-    ],
-  },
-  {
-    domain: 'E-Commerce',
-    color: '#fb923c',
-    ext: 'ts',
-    lines: [
-      { text: 'const order = await checkout.process({', type: 'code' },
-      { text: '  cart: userCart,', type: 'code' },
-      { text: '  payment: stripe.createIntent(cart),', type: 'code' },
-      { text: '  shipping: dhl.estimate(address),', type: 'code' },
-      { text: '  analytics: track(session),', type: 'code' },
-      { text: '})', type: 'code' },
-      { text: '', type: 'blank' },
-      { text: '// $2M+ GMV · 99.97% uptime', type: 'comment' },
-    ],
-  },
-]
-
-const services = [
-  {
-    Icon: Brain,
-    label: 'AI / ML',
-    color: 'text-violet-400',
-    bg: 'bg-violet-500/10',
-    border: 'border-violet-500/20',
-    desc: 'LLM integrations, custom model fine-tuning, RAG pipelines, and AI-powered product features — shipped to production.',
-  },
-  {
-    Icon: GraduationCap,
-    label: 'EdTech',
-    color: 'text-emerald-400',
-    bg: 'bg-emerald-500/10',
-    border: 'border-emerald-500/20',
-    desc: 'Interactive learning platforms, adaptive curricula, real-time collaboration tools, and progress analytics.',
-  },
-  {
-    Icon: ShoppingCart,
-    label: 'E-Commerce',
-    color: 'text-orange-400',
-    bg: 'bg-orange-500/10',
-    border: 'border-orange-500/20',
-    desc: 'High-performance storefronts, payment integrations, inventory management, and conversion-optimised checkout flows.',
-  },
-]
-
-const stats = [
-  { value: '40+', label: 'Projects delivered' },
-  { value: '15+', label: 'Happy clients' },
-  { value: '3+', label: 'Years on market' },
-  { value: '20+', label: 'Engineers' },
-]
-
-const stack = [
-  'TypeScript',
-  'React',
-  'Next.js',
-  'Node.js',
-  'Python',
-  'FastAPI',
-  'PostgreSQL',
-  'Redis',
-  'Docker',
-  'Kubernetes',
-  'AWS',
-  'GCP',
-]
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function lineColor(type: LineType): string {
-  switch (type) {
-    case 'comment':
-      return '#6e7681'
-    case 'import':
-      return '#ff7b72'
-    case 'string':
-      return '#a5d6ff'
-    default:
-      return '#e6edf3'
-  }
-}
-
-// ─── Terminal ─────────────────────────────────────────────────────────────────
-
-function Terminal() {
-  const [snippetIdx, setSnippetIdx] = useState(0)
-  const [lineIdx, setLineIdx] = useState(0)
-  const [charIdx, setCharIdx] = useState(0)
-  const [visible, setVisible] = useState(true)
-
-  const snippet = snippets[snippetIdx]!
-
-  // Typewriter: advance one character per tick, then one line, then cycle snippet
-  useEffect(() => {
-    const lines = snippets[snippetIdx]!.lines
-    const currentLine = lines[lineIdx]
-    if (!currentLine) return
-
-    if (charIdx < currentLine.text.length) {
-      const t = setTimeout(() => setCharIdx((c) => c + 1), 28)
-      return () => clearTimeout(t)
-    }
-
-    if (lineIdx < lines.length - 1) {
-      const delay = currentLine.type === 'blank' ? 60 : 160
-      const t = setTimeout(() => {
-        setLineIdx((l) => l + 1)
-        setCharIdx(0)
-      }, delay)
-      return () => clearTimeout(t)
-    }
-
-    // All lines done — pause then fade out
-    const t = setTimeout(() => setVisible(false), 2400)
-    return () => clearTimeout(t)
-  }, [snippetIdx, lineIdx, charIdx])
-
-  // After fade-out, advance to next snippet
-  useEffect(() => {
-    if (visible) return
-    const t = setTimeout(() => {
-      setSnippetIdx((i) => (i + 1) % snippets.length)
-      setLineIdx(0)
-      setCharIdx(0)
-      setVisible(true)
-    }, 380)
-    return () => clearTimeout(t)
-  }, [visible])
-
-  const lines = snippet.lines
-  const displayedLines = lines.slice(0, Math.min(lineIdx + 1, lines.length)).map((l, i) => ({
-    ...l,
-    text: i < lineIdx ? l.text : l.text.slice(0, charIdx),
-  }))
-
+/** Scroll-reveal wrapper (landing-redesign.md §5.1) — no-op above the fold; skipped entirely under reduced motion. */
+function Reveal({
+  children,
+  className,
+  delay = 0,
+}: {
+  children: ReactNode
+  className?: string
+  delay?: number
+}) {
+  const reduced = useReducedMotion()
+  if (reduced) return <div className={className}>{children}</div>
   return (
-    <div className="relative w-full max-w-lg">
-      {/* Ambient glow */}
-      <div
-        className="absolute -inset-6 rounded-2xl blur-[70px] transition-colors duration-700"
-        style={{ background: `${snippet.color}18` }}
-      />
-
-      {/* macOS-style window chrome */}
-      <div className="relative flex items-center gap-1.5 rounded-t-xl border border-b-0 border-white/10 bg-[#161b22] px-4 py-3">
-        <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
-        <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
-        <span className="h-3 w-3 rounded-full bg-[#28c840]" />
-        <AnimatePresence mode="wait">
-          <motion.span
-            key={snippetIdx}
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="ml-4 font-mono text-xs text-white/35"
-          >
-            {snippet.domain.toLowerCase().replace(' / ', '_')}_project.{snippet.ext}
-          </motion.span>
-        </AnimatePresence>
-      </div>
-
-      {/* Code body */}
-      <div className="relative min-h-[224px] rounded-b-xl border border-white/10 bg-[#0d1117] p-5 font-mono text-sm leading-6">
-        <AnimatePresence mode="wait">
-          {visible && (
-            <motion.div
-              key={snippetIdx}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              transition={{ duration: 0.25 }}
-            >
-              {displayedLines.map((line, i) => (
-                <div key={i}>
-                  {line.type === 'blank' ? (
-                    <span>&nbsp;</span>
-                  ) : (
-                    <span style={{ color: lineColor(line.type) }}>{line.text}</span>
-                  )}
-                  {i === displayedLines.length - 1 && (
-                    <motion.span
-                      animate={{ opacity: [1, 0] }}
-                      transition={{ repeat: Infinity, duration: 0.75, ease: 'linear' }}
-                      className="ml-px inline-block w-[7px] rounded-sm align-middle"
-                      style={{ height: '0.85em', background: `${snippet.color}cc` }}
-                    />
-                  )}
-                </div>
-              ))}
-            </motion.div>
-          )}
-        </AnimatePresence>
-      </div>
-
-      {/* Domain badge */}
-      <AnimatePresence mode="wait">
-        <motion.div
-          key={snippetIdx}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -6 }}
-          className="absolute -bottom-5 right-0"
-        >
-          <span
-            className="rounded-full border px-3 py-1 text-xs font-medium"
-            style={{
-              color: snippet.color,
-              borderColor: `${snippet.color}40`,
-              background: `${snippet.color}12`,
-            }}
-          >
-            {snippet.domain}
-          </span>
-        </motion.div>
-      </AnimatePresence>
-    </div>
+    <motion.div
+      className={className}
+      initial={{ opacity: 0, y: 22 }}
+      whileInView={{ opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-8% 0px' }}
+      transition={{ duration: 0.7, ease: [0.2, 0.6, 0.2, 1], delay }}
+    >
+      {children}
+    </motion.div>
   )
 }
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
-
 function LandingPage() {
+  const vacancies = Route.useLoaderData() as PublicVacancy[]
+
+  useDocumentHead({
+    title: 'CheekyCheeseIT — Senior engineering studio for AI, EdTech & E-Commerce',
+    description:
+      'A senior-only engineering studio for international product companies. From model to storefront — we ship the hard parts, on your timezone.',
+  })
+
   return (
     <div className="min-h-screen bg-background text-foreground">
-      {/* ── Nav ───────────────────────────────────────────────────────────────── */}
-      <nav className="sticky top-0 z-50 border-b border-border/40 bg-background/80 px-6 py-4 backdrop-blur-md">
-        <div className="mx-auto flex max-w-7xl items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <BrandMark className="h-8 w-8 text-primary" />
-            <span className="font-semibold tracking-tight">CheekyCheeseIT</span>
-          </div>
+      <MarketingNav />
 
-          <div className="hidden items-center gap-8 text-sm text-muted-foreground sm:flex">
-            {['Services', 'Stack', 'Careers'].map((label) => (
-              <a
-                key={label}
-                href={`#${label.toLowerCase()}`}
-                className="transition-colors hover:text-foreground"
-              >
-                {label}
-              </a>
-            ))}
-          </div>
-
-          <Button size="sm" variant="outline" asChild>
-            <a href="mailto:contact@cheekycheeseit.com">
-              Contact Us <ArrowUpRight className="h-3.5 w-3.5" />
-            </a>
-          </Button>
-        </div>
-      </nav>
-
-      {/* ── Hero ──────────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden px-6 pb-28 pt-24 lg:pt-32">
-        <div className="pointer-events-none absolute left-[15%] top-0 h-[550px] w-[600px] -translate-y-1/2 rounded-full bg-primary/10 blur-[130px]" />
-        <div className="pointer-events-none absolute bottom-0 right-[5%] h-[400px] w-[400px] rounded-full bg-violet-500/8 blur-[110px]" />
-
-        <div className="relative mx-auto grid max-w-7xl items-center gap-16 lg:grid-cols-2">
-          {/* Left: copy */}
-          <motion.div
-            initial={{ opacity: 0, x: -24 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.65, ease: [0.25, 0.1, 0.25, 1] as const }}
-          >
-            <Badge variant="outline" className="mb-6 border-primary/30 text-primary">
-              Outsource · Outstaffing
-            </Badge>
-
-            <h1 className="mb-6 text-5xl font-bold leading-[1.1] tracking-tight sm:text-6xl lg:text-7xl">
-              We build <span className="text-primary">products</span>
+      {/* ── Hero — always visible, no scroll-reveal (§5.1) ─────────────────── */}
+      <section id="hero" className="relative overflow-hidden">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_78%_20%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_70%)]"
+        />
+        <div className="relative mx-auto grid max-w-[1200px] grid-cols-1 items-center gap-10 px-5 pt-16 pb-[84px] md:px-10 lg:grid-cols-[1.02fr_1fr] lg:gap-14 lg:px-14">
+          <div>
+            <Chip className="mb-6 py-1.5 text-[0.8rem] font-mono">
+              Outsource &amp; outstaffing · AI · EdTech · E-Commerce
+            </Chip>
+            <h1 className="mb-[22px] text-[clamp(2.35rem,8vw,5rem)] leading-[1.02] font-semibold tracking-[-0.03em] text-balance text-foreground">
+              We build products
               <br />
-              that scale
+              that <span className="text-primary">scale.</span>
             </h1>
-
-            <p className="mb-10 max-w-lg text-lg leading-relaxed text-muted-foreground">
-              AI, EdTech, E-Commerce — full-cycle development with senior engineers who care about
-              your product as much as you do.
+            <p className="mb-[34px] max-w-[46ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
+              A senior-only engineering studio for international product companies. From model to
+              storefront — we ship the hard parts, on your timezone.
             </p>
-
-            <div className="flex flex-wrap gap-3">
-              <Button size="lg" asChild>
-                <a href="mailto:contact@cheekycheeseit.com">
-                  Start a project <ArrowUpRight />
+            <div className="flex flex-col gap-3 min-[460px]:flex-row min-[460px]:flex-wrap">
+              <Button asChild size="lg">
+                <a href={`mailto:${CONTACT_EMAIL}`}>
+                  Start a project
+                  <ArrowRight aria-hidden="true" />
                 </a>
               </Button>
-              <Button size="lg" variant="outline" asChild>
-                <a href="#services">Our services</a>
+              <Button asChild size="lg" variant="outline">
+                <Link to="/careers">See open roles</Link>
               </Button>
             </div>
-          </motion.div>
-
-          {/* Right: animated terminal */}
-          <motion.div
-            initial={{ opacity: 0, x: 24 }}
-            animate={{ opacity: 1, x: 0 }}
-            transition={{ duration: 0.65, delay: 0.15, ease: [0.25, 0.1, 0.25, 1] as const }}
-            className="flex justify-center lg:justify-end"
-          >
+          </div>
+          <div className="min-w-0">
             <Terminal />
-          </motion.div>
+          </div>
         </div>
       </section>
 
-      {/* ── Stats ─────────────────────────────────────────────────────────────── */}
-      <section className="border-y border-border/40 px-6 py-14">
-        <div className="mx-auto grid max-w-3xl grid-cols-2 gap-10 sm:grid-cols-4">
-          {stats.map((s, i) => (
-            <motion.div
-              key={s.label}
-              initial={{ opacity: 0, y: 16 }}
-              whileInView={{ opacity: 1, y: 0 }}
-              viewport={{ once: true }}
-              transition={{ delay: i * 0.08, duration: 0.45 }}
-              className="text-center"
-            >
-              <p className="text-3xl font-bold">{s.value}</p>
-              <p className="mt-1 text-sm text-muted-foreground">{s.label}</p>
-            </motion.div>
-          ))}
+      <hr className="h-px border-0 bg-border" />
+
+      {/* ── About ────────────────────────────────────────────────────────── */}
+      <section id="about" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <div className="mx-auto max-w-[1200px]">
+          <div className="grid grid-cols-1 items-start gap-9 min-[900px]:grid-cols-[0.85fr_1.15fr] min-[900px]:gap-14">
+            <Reveal>
+              <SectionEyebrow className="mb-5">About us</SectionEyebrow>
+              <h2 className="text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
+                Small teams,
+                <br />
+                senior hands.
+              </h2>
+            </Reveal>
+            <Reveal delay={0.08}>
+              <p className="mb-5 text-[1.12rem] leading-[1.65] text-pretty text-muted-foreground">
+                We&rsquo;re an IT studio that plugs into product companies as an extension of their
+                team — or takes a mandate end to end. No layers, no juniors learning on your budget.
+              </p>
+              <p className="mb-8 leading-[1.65] text-pretty text-muted-foreground">
+                Our approach is deliberately narrow: three domains we know cold, senior engineers
+                who own outcomes, and weekly shipping so you always see progress. We stay quietly in
+                the background of great products.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                {aboutBullets.map((bullet) => (
+                  <div key={bullet} className="flex items-start gap-2.5">
+                    <span aria-hidden="true" className="mt-0.5 text-primary">
+                      ●
+                    </span>
+                    <span className="text-[0.98rem] text-foreground">{bullet}</span>
+                  </div>
+                ))}
+              </div>
+            </Reveal>
+          </div>
+          <Reveal className="mt-16 border-t border-border pt-11">
+            <StatStrip stats={stats} />
+          </Reveal>
         </div>
       </section>
 
-      {/* ── Services ──────────────────────────────────────────────────────────── */}
-      <section id="services" className="px-6 py-24">
-        <div className="mx-auto max-w-7xl">
-          <motion.div
-            initial={{ opacity: 0, y: 18 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            viewport={{ once: true }}
-            className="mb-14 text-center"
-          >
-            <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">What we build</h2>
-            <p className="mt-3 text-muted-foreground">
-              Three domains. Senior-led teams. Production-first mindset.
+      <hr className="h-px border-0 bg-border" />
+
+      {/* ── Selected work ────────────────────────────────────────────────── */}
+      <section id="work" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <div className="mx-auto max-w-[1200px]">
+          <Reveal className="mb-[52px] max-w-[640px]">
+            <SectionEyebrow className="mb-5">Selected work</SectionEyebrow>
+            <h2 className="mb-4 text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
+              Anonymised, but real.
+            </h2>
+            <p className="max-w-[52ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
+              Under NDA we can&rsquo;t name names — but the problems, the builds and the numbers are
+              exactly as they happened.
             </p>
-          </motion.div>
-
-          <div className="grid gap-6 sm:grid-cols-3">
-            {services.map((svc, i) => (
-              <motion.div
-                key={svc.label}
-                initial={{ opacity: 0, y: 24 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.1, duration: 0.5 }}
-                className={cn(
-                  'group rounded-2xl border p-8 transition-all duration-300 hover:bg-white/2',
-                  svc.border,
-                )}
-              >
-                <div
-                  className={cn(
-                    'mb-5 flex h-12 w-12 items-center justify-center rounded-xl',
-                    svc.bg,
-                  )}
-                >
-                  <svc.Icon className={cn('h-6 w-6', svc.color)} />
-                </div>
-                <h3 className="mb-3 text-xl font-semibold">{svc.label}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground">{svc.desc}</p>
-              </motion.div>
+          </Reveal>
+          <div className="flex flex-col gap-[22px]">
+            {caseStudies.map((study, i) => (
+              <Reveal key={study.title} delay={i * 0.05}>
+                <CaseStudyCard study={study} />
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Stack ─────────────────────────────────────────────────────────────── */}
-      <section id="stack" className="border-y border-border/40 bg-white/[0.01] px-6 py-20">
-        <div className="mx-auto max-w-5xl">
-          <motion.p
-            initial={{ opacity: 0 }}
-            whileInView={{ opacity: 1 }}
-            viewport={{ once: true }}
-            className="mb-10 text-center text-xs uppercase tracking-widest text-muted-foreground/70"
-          >
-            Our tech stack
-          </motion.p>
-          <div className="flex flex-wrap justify-center gap-3">
-            {stack.map((tech, i) => (
-              <motion.span
-                key={tech}
-                initial={{ opacity: 0, scale: 0.88 }}
-                whileInView={{ opacity: 1, scale: 1 }}
-                viewport={{ once: true }}
-                transition={{ delay: i * 0.035, duration: 0.35 }}
-                className="cursor-default rounded-full border border-border/60 bg-card/50 px-4 py-1.5 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
-              >
-                {tech}
-              </motion.span>
+      <hr className="h-px border-0 bg-border" />
+
+      {/* ── Services ─────────────────────────────────────────────────────── */}
+      <section id="services" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <div className="mx-auto max-w-[1200px]">
+          <Reveal className="mb-[52px] max-w-[640px]">
+            <SectionEyebrow className="mb-5">Services</SectionEyebrow>
+            <h2 className="mb-4 text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
+              Three domains,
+              <br />
+              learned the hard way.
+            </h2>
+            <p className="max-w-[52ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
+              We go deep, not wide. Every engineer here has shipped production systems in the domain
+              they work.
+            </p>
+          </Reveal>
+          <div className="grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-7">
+            {services.map((service, i) => (
+              <Reveal key={service.title} delay={i * 0.1}>
+                <ServiceCard service={service} />
+              </Reveal>
             ))}
           </div>
         </div>
       </section>
 
-      {/* ── Careers ───────────────────────────────────────────────────────────── */}
-      <section id="careers" className="relative overflow-hidden px-6 py-32">
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="h-[500px] w-[800px] rounded-full bg-primary/8 blur-[130px]" />
+      <hr className="h-px border-0 bg-border" />
+
+      {/* ── How we work ──────────────────────────────────────────────────── */}
+      <section id="process" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <div className="mx-auto max-w-[1200px]">
+          <Reveal className="mb-[52px] max-w-[640px]">
+            <SectionEyebrow className="mb-5">How we work</SectionEyebrow>
+            <h2 className="text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
+              Four steps,
+              <br />
+              no surprises.
+            </h2>
+          </Reveal>
+          <Reveal>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-4 md:gap-7">
+              {processSteps.map((step) => (
+                <ProcessStep key={step.stepNum} step={step} />
+              ))}
+            </div>
+          </Reveal>
         </div>
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          whileInView={{ opacity: 1, y: 0 }}
-          viewport={{ once: true }}
-          transition={{ duration: 0.55 }}
-          className="relative mx-auto max-w-2xl text-center"
-        >
-          <Badge variant="outline" className="mb-6 border-primary/30 text-primary">
-            We're hiring
-          </Badge>
-          <h2 className="mb-5 text-4xl font-bold tracking-tight sm:text-5xl">Join the team</h2>
-          <p className="mb-10 text-lg leading-relaxed text-muted-foreground">
-            We work on interesting problems for product companies worldwide. Remote-first,
-            async-friendly, no corporate bureaucracy — just clean code and shipped features.
-          </p>
-          <Button size="lg" asChild>
-            <a href="mailto:careers@cheekycheeseit.com">
-              See open roles <ArrowUpRight />
-            </a>
-          </Button>
-        </motion.div>
       </section>
 
-      {/* ── Footer ────────────────────────────────────────────────────────────── */}
-      <footer className="border-t border-border/40 px-6 py-8">
-        <div className="mx-auto flex max-w-7xl items-center justify-between text-xs text-muted-foreground">
-          <div className="flex items-center gap-2">
-            <BrandMark variant="flat" className="h-6 w-6 text-primary" />
-            <span>© 2026 CheekyCheeseIT. All rights reserved.</span>
-          </div>
-          <span>AI · EdTech · E-Commerce</span>
+      <hr className="h-px border-0 bg-border" />
+
+      {/* ── Tech stack ───────────────────────────────────────────────────── */}
+      <section className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <div className="mx-auto max-w-[1200px]">
+          <Reveal className="mb-10 max-w-[640px]">
+            <SectionEyebrow className="mb-5">Tech stack</SectionEyebrow>
+            <h2 className="text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
+              Tools we reach for.
+            </h2>
+          </Reveal>
+          <Reveal>
+            <TechStackChips stack={techStack} />
+          </Reveal>
         </div>
-      </footer>
+      </section>
+
+      <hr className="h-px border-0 bg-border" />
+
+      {/* ── Careers teaser ───────────────────────────────────────────────── */}
+      <section id="careers" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <div className="mx-auto max-w-[1200px]">
+          <Reveal className="mb-11 flex flex-wrap items-end justify-between gap-5">
+            <div className="max-w-[560px]">
+              <SectionEyebrow className="mb-5">Careers</SectionEyebrow>
+              <h2 className="mb-4 text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
+                We&rsquo;re hiring senior engineers.
+              </h2>
+              <p className="max-w-[48ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
+                Remote-first, senior-only, real ownership. If you&rsquo;ve shipped hard things in
+                AI, EdTech or commerce, we should talk.
+              </p>
+            </div>
+            <Button asChild variant="outline">
+              <Link to="/careers">
+                View all roles
+                <ArrowRight aria-hidden="true" className="size-4" />
+              </Link>
+            </Button>
+          </Reveal>
+
+          <Reveal>
+            <CareersTeaser vacancies={vacancies} />
+          </Reveal>
+        </div>
+      </section>
+
+      <hr className="h-px border-0 bg-border" />
+
+      {/* ── Contact ──────────────────────────────────────────────────────── */}
+      <section id="contact" className="px-5 py-22 md:px-10 md:py-32 lg:px-14">
+        <div className="mx-auto max-w-[1200px]">
+          <Reveal className="relative overflow-hidden rounded-2xl border border-border bg-card p-7 py-16 text-center">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_120%_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_65%)]"
+            />
+            <div className="relative">
+              <h2 className="mx-auto mb-[18px] max-w-[18ch] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
+                Have a hard problem worth shipping?
+              </h2>
+              <p className="mx-auto mb-8 max-w-[46ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
+                Tell us what you&rsquo;re building. We&rsquo;ll reply within one business day with
+                senior people, not a sales deck.
+              </p>
+              <div className="flex flex-col justify-center gap-3 min-[460px]:flex-row min-[460px]:flex-wrap">
+                <Button asChild size="lg">
+                  <a href={`mailto:${CONTACT_EMAIL}`}>
+                    Start a project
+                    <ArrowRight aria-hidden="true" />
+                  </a>
+                </Button>
+                <Button asChild size="lg" variant="outline">
+                  <a href={`mailto:${CONTACT_EMAIL}`}>
+                    <Mail aria-hidden="true" className="size-4" />
+                    {CONTACT_EMAIL}
+                  </a>
+                </Button>
+              </div>
+            </div>
+          </Reveal>
+        </div>
+      </section>
+
+      <MarketingFooter />
     </div>
   )
 }

@@ -33,6 +33,16 @@
   --radius-lg: var(--radius);
   --radius-xl: calc(var(--radius) + 4px);
   --font-sans: 'Inter', system-ui, sans-serif;
+  /* landing-redesign (docs/design/landing-redesign.md §4) — JetBrains Mono is
+     marketing-only (terminal, eyebrow labels, process steps). Not used by the CRM. */
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  /* landing-redesign §3.3 — domain-tag hues (Tag component). The ONLY legitimate
+     palette extension for the marketing surface: 3 fixed hues to differentiate
+     AI/EdTech/E-Commerce, independent of theme (landing is dark-only). Not part
+     of the CRM RBAC palette — do not reuse outside apps/landing marketing. */
+  --color-tag-ai: var(--tag-ai);
+  --color-tag-edtech: var(--tag-edtech);
+  --color-tag-ecommerce: var(--tag-ecommerce);
 }
 
 /* Light mode */
@@ -93,6 +103,72 @@
   --border: oklch(0.22 0.004 85);
   --input: oklch(0.16 0 0);
   --ring: oklch(0.84 0.183 85.3);
+}
+
+/* ─── landing-redesign marketing layer (docs/design/landing-redesign.md §3) ───
+   Everything below is scoped to apps/landing marketing surface only — the CRM
+   (apps/web) never imports this file. Landing is dark-only (no toggle), so
+   these are declared identically under :root and .dark rather than varying
+   by theme. */
+:root,
+.dark {
+  /* §3.2 — computed vars the Claude Design export builds via color-mix() on
+     top of our existing tokens. Named once here instead of repeating
+     color-mix(...) inline at 6-10+ call sites. */
+  --marketing-line: color-mix(in oklch, var(--foreground) 10%, transparent);
+  --marketing-line-soft: color-mix(in oklch, var(--foreground) 6%, transparent);
+  --marketing-glow: color-mix(in oklch, var(--primary) 55%, transparent);
+  --marketing-dim: var(--muted-foreground);
+
+  /* §3.3 — domain-tag hues (Tag component only, nowhere else on the landing). */
+  --tag-ai: oklch(84% 0.12 200);
+  --tag-edtech: oklch(82% 0.13 145);
+  --tag-ecommerce: oklch(80% 0.12 320);
+}
+
+/* §3.4 — Terminal syntax token colors + blinking cursor (marketing/terminal.tsx). */
+.tk-key {
+  color: var(--tag-ecommerce);
+}
+.tk-fn {
+  color: var(--primary);
+}
+.tk-str {
+  color: var(--tag-edtech);
+}
+.tk-num,
+.tk-type {
+  color: var(--tag-ai);
+}
+.tk-com {
+  color: color-mix(in oklch, var(--foreground) 34%, transparent);
+  font-style: italic;
+}
+.tk-var {
+  color: color-mix(in oklch, var(--foreground) 92%, transparent);
+}
+.tk-punc {
+  color: color-mix(in oklch, var(--foreground) 55%, transparent);
+}
+
+.cc-cursor {
+  display: inline-block;
+  width: 8px;
+  height: 1.05em;
+  vertical-align: text-bottom;
+  background: var(--primary);
+  box-shadow: 0 0 8px var(--marketing-glow);
+  animation: cc-blink 1s steps(1) infinite;
+}
+@keyframes cc-blink {
+  50% {
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cc-cursor {
+    animation: none;
+  }
 }
 
 * {

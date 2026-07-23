@@ -36,6 +36,12 @@ KNOWN_UNSHARDED = {
     "tests/cache/media-cache.spec.ts",            # debt: cache tests not in any shard, migrate later
     "tests/cache/no-store.spec.ts",               # debt: cache tests not in any shard, migrate later
     "tests/cache/sw-smoke.spec.ts",               # debt: cache tests not in any shard, migrate later
+    # --- landing/ suite (task-landing-redesign.md AC6) ---
+    "tests/landing/responsive.spec.ts",           # debt: opt-in `landing` Playwright project (same
+                                                   # pattern as cache/ above) — needs an externally
+                                                   # started apps/landing dev server + vacancies-seeded
+                                                   # scratch DB that ci.yml's default shard does not
+                                                   # provision. Run locally: `playwright test --project=landing`.
     # --- accountant ---
     "tests/accountant-dashboard.spec.ts",         # debt: not gated, migrate to accountant shard later
     # --- admin ---

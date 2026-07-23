@@ -6,6 +6,9 @@ export function createRouter() {
     routeTree,
     defaultPreload: 'intent',
     defaultPreloadStaleTime: 0,
+    // Cross-route nav links (e.g. Careers -> "/" hash="contact") rely on this
+    // to scroll to the target section once the route has rendered.
+    scrollRestoration: true,
   })
 }
 
