@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+  <link rel="stylesheet" href="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/_ds_bundle.css">
+  <link rel="stylesheet" href="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/styles.css">
+  <script src="_ds/cheekycheeseit-crm-89317b4c-60ea-4ff5-832a-231b4ad76c23/_ds_bundle.js"></script>
+</helmet>
+<div style="background:var(--card);border:1px solid var(--border);border-radius:14px;padding:18px;display:flex;flex-direction:column;gap:14px;font-family:var(--font-sans,ui-sans-serif,system-ui,sans-serif);min-width:0;{{ ringStyle }}">
+  <div style="display:flex;align-items:flex-start;gap:13px">
+    <div style="width:42px;height:42px;border-radius:999px;background:var(--secondary);color:var(--foreground);display:flex;align-items:center;justify-content:center;font-weight:700;font-size:15px;flex-shrink:0">{{ initials }}</div>
+    <div style="display:flex;flex-direction:column;gap:3px;min-width:0;flex:1">
+      <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+        <span style="font-size:16px;font-weight:650;color:var(--foreground)">{{ fullname }}</span>
+        <sc-if value="{{ isNew }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;padding:1px 8px;border-radius:999px;background:var(--primary);color:var(--primary-foreground);font-size:10px;font-weight:800;letter-spacing:.04em">NEW</span></sc-if>
+      </div>
+      <a href="mailto:{{ email }}" style="font-size:13px;color:var(--muted-foreground);text-decoration:none">{{ email }}</a>
+    </div>
+    <span style="font-size:12px;color:var(--muted-foreground);white-space:nowrap;flex-shrink:0">{{ date }}</span>
+  </div>
+  <div style="display:flex;flex-wrap:wrap;gap:8px">
+    <sc-if value="{{ hasTelegram }}" hint-placeholder-val="{{ true }}"><a href="#" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;background:var(--secondary);color:var(--foreground);font-size:12px;font-weight:500;text-decoration:none" style-hover="color:var(--primary)"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M21.9 4.3 18.6 20c-.2 1.1-.9 1.3-1.8.8l-4.9-3.6-2.4 2.3c-.3.3-.5.5-1 .5l.4-5 9-8.1c.4-.3-.1-.5-.6-.2L6.6 13.9l-4.8-1.5c-1-.3-1-1 .2-1.5L20.6 3c.9-.3 1.6.2 1.3 1.3z"/></svg>{{ telegram }}</a></sc-if>
+    <sc-if value="{{ hasGithub }}" hint-placeholder-val="{{ true }}"><a href="#" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;background:var(--secondary);color:var(--foreground);font-size:12px;font-weight:500;text-decoration:none" style-hover="color:var(--primary)"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2a10 10 0 0 0-3.2 19.5c.5.1.7-.2.7-.5v-1.7c-2.8.6-3.4-1.3-3.4-1.3-.5-1.2-1.1-1.5-1.1-1.5-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.7.3-1.1.6-1.4-2.2-.300-4.6-1.1-4.6-4.9 0-1.1.4-2 1-2.7-.1-.3-.4-1.3.1-2.7 0 0 .8-.3 2.7 1a9.4 9.4 0 0 1 5 0c1.9-1.3 2.7-1 2.7-1 .5 1.4.2 2.4.1 2.7.6.7 1 1.6 1 2.7 0 3.8-2.4 4.6-4.6 4.9.3.3.6.9.6 1.9v2.8c0 .3.2.6.7.5A10 10 0 0 0 12 2z"/></svg>github</a></sc-if>
+    <sc-if value="{{ hasLinkedin }}" hint-placeholder-val="{{ true }}"><a href="#" style="display:inline-flex;align-items:center;gap:6px;padding:5px 10px;border-radius:8px;background:var(--secondary);color:var(--foreground);font-size:12px;font-weight:500;text-decoration:none" style-hover="color:var(--primary)"><svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M4.98 3.5A2.5 2.5 0 1 1 5 8.5a2.5 2.5 0 0 1-.02-5zM3 9h4v12H3zM10 9h3.8v1.7h.05c.53-1 1.83-2.05 3.77-2.05 4 0 4.75 2.6 4.75 6V21H18.5v-5.3c0-1.26-.02-2.9-1.77-2.9s-2.04 1.38-2.04 2.8V21H10z"/></svg>linkedin</a></sc-if>
+  </div>
+  <details style="border:1px solid var(--border);border-radius:10px;background:var(--background);overflow:hidden">
+    <summary style="cursor:pointer;list-style:none;padding:10px 13px;display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:600;color:var(--foreground)"><span style="display:inline-flex;align-items:center;gap:8px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="M4 4h16v12H5.5L4 17.5z"/></svg>Супровідний лист</span><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--muted-foreground)"><path d="m6 9 6 6 6-6"/></svg></summary>
+    <div style="padding:0 13px 13px;font-size:13px;line-height:1.6;color:var(--muted-foreground);text-wrap:pretty">{{ cover }}</div>
+  </details>
+  <div style="height:1px;background:var(--border)"></div>
+  <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap">
+    <div style="display:flex;align-items:center;gap:8px">
+      <x-import component-from-global-scope="CrmWeb.Button" size="sm" variant="outline" hint-size="auto,32px"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" style="margin-right:6px"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M5 21h14"/></svg>Завантажити CV</x-import>
+      <x-import component-from-global-scope="CrmWeb.Button" size="sm" variant="ghost" className="text-destructive hover:text-destructive" hint-size="36px,32px"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><path d="M6 6l1 14a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-14"/></svg></x-import>
+    </div>
+    <div style="display:flex;align-items:center;gap:4px;padding:4px;border-radius:9px;background:var(--muted)">
+      <span style="{{ segNew }}">Новий</span>
+      <span style="{{ segReviewed }}">Переглянуто</span>
+      <span style="{{ segRejected }}">Відхилено</span>
+    </div>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:560,&quot;height&quot;:300},&quot;fullname&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Олексій Ткаченко&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;initials&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;ОТ&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;email&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;oleksii.t@gmail.com&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;telegram&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;@oleksii_t&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;github&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:&quot;1&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;linkedin&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:&quot;1&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;date&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;22 лип 2026&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;status&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;default&quot;:&quot;new&quot;,&quot;options&quot;:[&quot;new&quot;,&quot;reviewed&quot;,&quot;rejected&quot;],&quot;tsType&quot;:&quot;string&quot;},&quot;isNew&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:&quot;1&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;cover&quot;:{&quot;editor&quot;:&quot;text&quot;,&quot;default&quot;:&quot;Вітаю! Маю 5 років досвіду в ML...&quot;,&quot;tsType&quot;:&quot;string&quot;}}">
+class Component extends DCLogic {
+  renderVals() {
+    const s = (this.props.status || 'new').toLowerCase();
+    const isNew = String(this.props.isNew || '') === '1' || String(this.props.isNew) === 'true';
+    const base = 'display:inline-flex;align-items:center;justify-content:center;padding:6px 11px;border-radius:7px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;transition:all .15s;';
+    const act = base + 'background:var(--card);color:var(--foreground);box-shadow:0 1px 3px rgba(0,0,0,.5);';
+    const actRej = base + 'background:color-mix(in oklab, var(--destructive) 22%, transparent);color:oklch(78% 0.16 22);';
+    const ina = base + 'background:transparent;color:var(--muted-foreground);';
+    return {
+      isNew,
+      ringStyle: isNew ? 'box-shadow:0 0 0 1px color-mix(in oklab, var(--primary) 45%, transparent);' : '',
+      hasTelegram: !!this.props.telegram,
+      hasGithub: String(this.props.github || '') === '1' || String(this.props.github) === 'true',
+      hasLinkedin: String(this.props.linkedin || '') === '1' || String(this.props.linkedin) === 'true',
+      segNew: s === 'new' ? act : ina,
+      segReviewed: s === 'reviewed' ? act : ina,
+      segRejected: s === 'rejected' ? actRej : ina,
+    };
+  }
+}
+</script>
+</body>
+</html>
