@@ -60,6 +60,17 @@ export function VacanciesListPage() {
     { value: 'CLOSED', label: `Закрытые ${counts.CLOSED}` },
   ]
 
+  // Mobile macet (design-mobile.png) itself abbreviates these labels
+  // («Усі 8» / «Опубл. 2» / «Чернетки») — 4 full-length labels in one
+  // `grid-cols-4` row wrap and collide at <640px (confirmed live). Same
+  // convention, translated to the RU labels this screen actually uses.
+  const filterOptionsMobile: ReadonlyArray<SegmentedToggleOption<StatusFilter>> = [
+    { value: 'ALL', label: `Все ${counts.ALL}` },
+    { value: 'PUBLISHED', label: `Опубл. ${counts.PUBLISHED}` },
+    { value: 'DRAFT', label: `Черн. ${counts.DRAFT}` },
+    { value: 'CLOSED', label: `Закр. ${counts.CLOSED}` },
+  ]
+
   if (isLoading) {
     return (
       <div className="flex flex-col h-full">
@@ -97,6 +108,20 @@ export function VacanciesListPage() {
           </Button>
         </div>
 
+        {/* Two variants, swapped by breakpoint (not just width) — see
+           filterOptionsMobile comment above for why the labels themselves
+           differ, not just the container width. */}
+        <SegmentedToggle<StatusFilter>
+          value={filter}
+          onChange={setFilter}
+          options={filterOptionsMobile}
+          ariaLabel="Фильтр вакансий по статусу"
+          variant="tabs"
+          size="sm"
+          layoutId="vacancies-status-filter-mobile"
+          className="w-full sm:hidden"
+          testId="vacancies-status-filter-mobile"
+        />
         <SegmentedToggle<StatusFilter>
           value={filter}
           onChange={setFilter}
@@ -105,7 +130,7 @@ export function VacanciesListPage() {
           variant="tabs"
           size="sm"
           layoutId="vacancies-status-filter"
-          className="w-fit"
+          className="hidden w-fit sm:grid"
           testId="vacancies-status-filter"
         />
       </PageHeader>

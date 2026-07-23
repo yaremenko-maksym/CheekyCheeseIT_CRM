@@ -11,12 +11,28 @@
  *   CLOSED    → Восстановить · Редактировать · Удалить (always disabled+Tooltip)
  */
 import { Link } from '@tanstack/react-router'
-import { ArrowUp, Eye, MapPin, Pencil, RotateCcw, Trash2, Users, X } from 'lucide-react'
+import {
+  ArrowUp,
+  Eye,
+  MapPin,
+  MoreVertical,
+  Pencil,
+  RotateCcw,
+  Trash2,
+  Users,
+  X,
+} from 'lucide-react'
 import type { Vacancy } from '@crm/shared'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -64,7 +80,21 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
       data-testid={`vacancy-card-${vacancy.id}`}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="text-sm font-semibold text-pretty leading-snug">{vacancy.title}</h3>
+        {/* Title links to the detail page for ALL statuses — PUBLISHED already
+           has an explicit «Отклики» button that lands there, but DRAFT/CLOSED
+           have no other path to the detail page's «Детали» tab (Danger Zone,
+           stats, inline edit) besides typing the URL directly (confirmed live —
+           there was no way to reach it from the list before this). */}
+        <h3 className="text-sm font-semibold text-pretty leading-snug">
+          <Link
+            to="/vacancies/$vacancyId"
+            params={{ vacancyId: vacancy.id }}
+            className="hover:underline focus-visible:underline focus-visible:outline-none"
+            data-testid={`vacancy-title-link-${vacancy.id}`}
+          >
+            {vacancy.title}
+          </Link>
+        </h3>
         <Badge
           variant={statusBadge.variant}
           className={statusBadge.className ? `${statusBadge.className} shrink-0` : 'shrink-0'}
@@ -98,14 +128,142 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
 
       <Separator className="my-3" />
 
-      <div className="flex items-center justify-between gap-2">
-        {/* §4.1 draws a "N новых" badge here too — but `Vacancy` (mapVacancy(),
-           vacancies.service.ts) does not carry a per-vacancy new-applications
-           count, only the total `applicationsCount`. Computing it accurately
-           on the list would mean an N+1 applications fetch per card; the
-           detail page's «Отклики» tab (fetches the full list once) shows the
-           real per-status breakdown instead — backend contract wins over the
-           static macet (spec §4.1.1's own precedent). */}
+      {/* §4.1 draws a "N новых" badge here too — but `Vacancy` (mapVacancy(),
+         vacancies.service.ts) does not carry a per-vacancy new-applications
+         count, only the total `applicationsCount`. Computing it accurately
+         on the list would mean an N+1 applications fetch per card; the
+         detail page's «Отклики» tab (fetches the full list once) shows the
+         real per-status breakdown instead — backend contract wins over the
+         static macet (spec §4.1.1's own precedent). */}
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:hidden">
+        <Users className="h-3.5 w-3.5" />
+        <span>{vacancy.applicationsCount} откликов</span>
+      </div>
+
+      {/* §4.1.1 Мобильный (<640): откликов на своей строке, ниже — основная
+         кнопка (flex-1, h-11 тач-таргет) + иконка-only «Редактировать» +
+         кебаб-меню (MoreVertical) вместо всего десктопного ряда — на 320px
+         3+ полноразмерные кнопки в один ряд физически не влезают (подтверждено
+         live Playwright-проходом на этом width). */}
+      <div className="mt-2 flex items-center gap-1.5 sm:hidden">
+        {vacancy.status === 'DRAFT' && (
+          <Button
+            className="h-11 flex-1"
+            onClick={() => updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })}
+            disabled={updateMutation.isPending}
+            data-testid={`vacancy-publish-mobile-${vacancy.id}`}
+          >
+            <ArrowUp className="mr-1.5 h-4 w-4" />
+            Опубликовать
+          </Button>
+        )}
+        {vacancy.status === 'PUBLISHED' && (
+          <Button
+            className="h-11 flex-1"
+            asChild
+            data-testid={`vacancy-applications-mobile-${vacancy.id}`}
+          >
+            <Link
+              to="/vacancies/$vacancyId"
+              params={{ vacancyId: vacancy.id }}
+              search={{ tab: 'applications' }}
+            >
+              <Eye className="mr-1.5 h-4 w-4" />
+              Отклики
+            </Link>
+          </Button>
+        )}
+        {vacancy.status === 'CLOSED' && (
+          <Button
+            variant="outline"
+            className="h-11 flex-1"
+            onClick={() => updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })}
+            disabled={updateMutation.isPending}
+            data-testid={`vacancy-reopen-mobile-${vacancy.id}`}
+          >
+            <RotateCcw className="mr-1.5 h-4 w-4" />
+            Восстановить
+          </Button>
+        )}
+
+        <Button
+          variant="outline"
+          size="icon"
+          className="h-11 w-11 shrink-0"
+          onClick={() => onEdit(vacancy)}
+          aria-label="Редактировать вакансию"
+          data-testid={`vacancy-edit-mobile-${vacancy.id}`}
+        >
+          <Pencil className="h-4 w-4" />
+        </Button>
+
+        {/* Kebab only rendered when it holds at least one action — an empty
+           kebab (e.g. CLOSED, where delete is always disabled) is worse UX
+           than no button at all (§4.1.1 "на мобильном компактнее скрыть
+           недоступное действие, чем показать disabled-пункт меню"). */}
+        {(vacancy.status === 'PUBLISHED' || canDelete) && (
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-11 w-11 shrink-0"
+                aria-label="Ещё действия"
+                data-testid={`vacancy-more-mobile-${vacancy.id}`}
+              >
+                <MoreVertical className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              {vacancy.status === 'PUBLISHED' && (
+                <DropdownMenuItem
+                  onClick={() =>
+                    updateMutation.mutate({ id: vacancy.id, dto: { status: 'CLOSED' } })
+                  }
+                  data-testid={`vacancy-close-mobile-${vacancy.id}`}
+                >
+                  Закрыть вакансию
+                </DropdownMenuItem>
+              )}
+              {vacancy.status !== 'PUBLISHED' && canDelete && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <DropdownMenuItem
+                      className="text-destructive focus:text-destructive"
+                      onSelect={(e) => e.preventDefault()}
+                      data-testid={`vacancy-delete-mobile-${vacancy.id}`}
+                    >
+                      Удалить
+                    </DropdownMenuItem>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Удалить вакансию?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Вакансия «{vacancy.title}» будет удалена навсегда. Это действие необратимо.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Отмена</AlertDialogCancel>
+                      <AlertDialogAction
+                        className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        onClick={() => deleteMutation.mutate(vacancy.id)}
+                        disabled={deleteMutation.isPending}
+                        data-testid={`vacancy-delete-confirm-mobile-${vacancy.id}`}
+                      >
+                        Удалить
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+            </DropdownMenuContent>
+          </DropdownMenu>
+        )}
+      </div>
+
+      {/* ≥640px (spec §4.1): full row, откликов + action buttons share one line. */}
+      <div className="hidden items-center justify-between gap-2 sm:flex">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Users className="h-3.5 w-3.5" />
           <span>{vacancy.applicationsCount} откликов</span>
