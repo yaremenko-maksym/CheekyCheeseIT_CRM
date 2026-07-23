@@ -59,6 +59,16 @@ interface VacancyCardProps {
   onEdit: (vacancy: Vacancy) => void
 }
 
+// ru-RU plural helper for the response counter ("1 отклик", "2 отклика", "5 откликов")
+// — same convention as `pluralizeDocuments` in documents.tsx.
+function pluralizeOtklik(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod10 === 1 && mod100 !== 11) return 'отклик'
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return 'отклика'
+  return 'откликов'
+}
+
 /** §4.1: kept a plain `div` (not Card/CardHeader/CardContent) — their p-6
  * padding is too generous for a dense list card, same call as document-card.tsx. */
 export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
@@ -137,7 +147,9 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
          static macet (spec §4.1.1's own precedent). */}
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground sm:hidden">
         <Users className="h-3.5 w-3.5" />
-        <span>{vacancy.applicationsCount} откликов</span>
+        <span>
+          {vacancy.applicationsCount} {pluralizeOtklik(vacancy.applicationsCount)}
+        </span>
       </div>
 
       {/* §4.1.1 Мобильный (<640): откликов на своей строке, ниже — основная
@@ -266,7 +278,9 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
       <div className="hidden items-center justify-between gap-2 sm:flex">
         <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Users className="h-3.5 w-3.5" />
-          <span>{vacancy.applicationsCount} откликов</span>
+          <span>
+            {vacancy.applicationsCount} {pluralizeOtklik(vacancy.applicationsCount)}
+          </span>
         </div>
 
         <div className="flex items-center gap-1.5">

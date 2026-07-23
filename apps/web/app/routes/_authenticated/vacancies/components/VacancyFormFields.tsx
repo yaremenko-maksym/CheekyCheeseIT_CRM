@@ -13,6 +13,7 @@
  * (`ProjectEditFields`, exported `AnyForm`/`AnyField`).
  */
 import type { FieldApi, ReactFormExtendedApi } from '@tanstack/react-form'
+import type { z } from 'zod'
 import { createVacancySchema } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
@@ -71,6 +72,22 @@ export type AnyForm = ReactFormExtendedApi<
 >
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
+// Zod's default `.message` is raw English ("Invalid string: must match
+// pattern /^[a-z0-9]+.../", "Too small: expected string to have >=10
+// characters") — leaking that straight into the UI violates the project's
+// hard "always Russian UI" rule (rules/common/russian-language.md). Map the
+// small set of issue codes these 4 fields can actually produce (regex/min/
+// max on plain strings) to Russian text instead of relying on the schema's
+// message. `patternMsg` lets the slug field give a field-specific hint
+// ("латиница/цифры/дефис") instead of a generic "неверный формат".
+function zodIssueRu(issue: z.core.$ZodIssue | undefined, patternMsg?: string): string | undefined {
+  if (!issue) return undefined
+  if (issue.code === 'too_small' && 'minimum' in issue) return `Минимум ${issue.minimum} символов`
+  if (issue.code === 'too_big' && 'maximum' in issue) return `Максимум ${issue.maximum} символов`
+  if (issue.code === 'invalid_format') return patternMsg ?? 'Недопустимый формат'
+  return 'Недопустимое значение'
+}
+
 const DOMAIN_OPTIONS = ['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'] as const
 const SENIORITY_OPTIONS = ['SENIOR', 'LEAD'] as const
 const EMPLOYMENT_TYPE_OPTIONS = ['FULL_TIME', 'PART_TIME', 'CONTRACT'] as const
@@ -94,7 +111,7 @@ export function VacancyFormFields({
         validators={{
           onBlur: ({ value }: { value: string }) => {
             const r = createVacancySchema.shape.title.safeParse(value.trim())
-            return r.success ? undefined : r.error.issues[0]?.message
+            return r.success ? undefined : zodIssueRu(r.error.issues[0])
           },
         }}
       >
@@ -128,7 +145,9 @@ export function VacancyFormFields({
         validators={{
           onBlur: ({ value }: { value: string }) => {
             const r = createVacancySchema.shape.slug.safeParse(value.trim())
-            return r.success ? undefined : r.error.issues[0]?.message
+            return r.success
+              ? undefined
+              : zodIssueRu(r.error.issues[0], 'Строчные латинские буквы, цифры и дефис')
           },
         }}
       >
@@ -236,7 +255,7 @@ export function VacancyFormFields({
           validators={{
             onBlur: ({ value }: { value: string }) => {
               const r = createVacancySchema.shape.location.safeParse(value.trim())
-              return r.success ? undefined : r.error.issues[0]?.message
+              return r.success ? undefined : zodIssueRu(r.error.issues[0])
             },
           }}
         >
@@ -267,7 +286,7 @@ export function VacancyFormFields({
         validators={{
           onBlur: ({ value }: { value: string }) => {
             const r = createVacancySchema.shape.descriptionMd.safeParse(value)
-            return r.success ? undefined : r.error.issues[0]?.message
+            return r.success ? undefined : zodIssueRu(r.error.issues[0])
           },
         }}
       >
