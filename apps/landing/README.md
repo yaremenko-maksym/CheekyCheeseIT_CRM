@@ -99,31 +99,44 @@ the route's component a `canonical` (via `app/lib/seo.ts`'s `canonicalUrl()`)
 through `useDocumentHead`. Data-driven routes (one page per row from an API,
 like vacancies) follow the same pattern the vacancy loop already does.
 
-## ⚠️ nginx requirement (DevOps — task-infra-seo-gates)
+## URLs are trailing-slash-terminated on purpose
 
 Prerendered pages are written as **`<route>/index.html`** (directory-index
-convention), and the app's own canonical/internal URLs are the **clean form
-without a trailing slash** (`/careers/senior-ml-engineer`, matching
-TanStack Router's route paths exactly — see `app/lib/seo.ts` `canonicalUrl()`).
+convention — `/careers/<slug>` → `dist/careers/<slug>/index.html`). Prod
+nginx (`nginx/conf.d/landing.conf`, `try_files $uri $uri/ /index.html;`)
+resolves a **trailing-slash** directory request straight to that file with a
+200 — but a request WITHOUT the trailing slash first gets an HTTP 301 to the
+slash form (verified empirically: `nginx:alpine` in Docker against this
+repo's actual `dist/` output + `try_files $uri $uri/ /index.html;` returns
+`301` for `/careers/<slug>` and `200` with full content for
+`/careers/<slug>/`— this is standard nginx directory-index behavior, not a
+bug in `landing.conf`).
 
-For a crawler (or Lighthouse, or a shared link) hitting that exact canonical
-URL to actually receive the prerendered content instead of the empty SPA
-shell, the web server MUST resolve extensionless paths to their directory's
-`index.html` **before** falling back to the SPA shell, e.g.:
+To make sure NO real visit — internal `<Link>` navigation, a crawler request,
+or Lighthouse — ever pays that redirect hop, the app is configured to only
+ever produce/expect the trailing-slash form in the first place:
 
-```nginx
-location / {
-  try_files $uri $uri/index.html $uri/ /index.html;
-}
-```
+- `app/router.tsx` sets `trailingSlash: 'always'` on the TanStack Router
+  instance (this is also enforced at the type level — `<Link to="/careers">`
+  without the slash is a **type error**, not just a lint nit).
+- `app/lib/seo.ts` `canonicalUrl()` always appends a trailing slash.
+- `scripts/prerender.mjs`'s `sitemap.xml` URLs match.
 
-Verified locally against a server that does this correctly (see "Local
-Lighthouse verification" below) — `vite preview`'s own built-in static server
-does **NOT** do this (it SPA-falls-back on the very first extensionless-path
-lookup, silently serving the homepage shell instead of the prerendered
-vacancy page — this exact gap is what the trailing-slash / try_files ordering
-above exists to close). Test any prod nginx config against this before
-relying on it.
+So the canonical URL declared on every page is exactly the URL nginx serves
+as a 200 — never one that redirects.
+
+## Local Lighthouse / clean-URL verification vs `vite preview`
+
+`vite preview`'s own built-in static server does **NOT** reproduce either of
+the above (no directory→trailing-slash redirect, no gzip) — running
+Lighthouse or a clean-URL curl check against it directly gives a misleadingly
+low/incorrect score (confirmed while building this pipeline: the exact same
+`dist/` scored Performance 65-70 through `vite preview`'s fallback vs 93+
+through a server that actually gzips and gives every route its own
+`modulepreload` set). Verify locally against something closer to prod, e.g.
+a throwaway nginx container mounting `dist/` + a trimmed copy of
+`landing.conf`'s `location /` block, or `docker build --target
+landing-builder` end to end.
 
 ## Perf (task-landing-seo-prerender.md §3)
 
@@ -167,17 +180,13 @@ relying on it.
   route's lazy chunk actually dynamically imports) populate `<head>` with
   only what that specific route needs.
 
-### Local Lighthouse verification
+### Running Lighthouse locally
 
-`vite preview`'s SPA-fallback does not resolve extension-less clean URLs to
-their directory `index.html` (see the nginx section above) and does not gzip
-responses — running Lighthouse against it directly gives a misleadingly
-pessimistic/incorrect score. Verify locally against a static server that (a)
-tries `<path>/index.html` before SPA-falling-back and (b) gzips text assets,
-e.g. nginx itself, or a small script emulating both — then:
+See "Local Lighthouse / clean-URL verification vs `vite preview`" above for
+why the server matters, then:
 
 ```bash
-npx lighthouse http://localhost:<port>/ \
+npx lighthouse http://localhost:<port>/careers/senior-ml-engineer/ \
   --output=json,html --output-path=./report \
   --chrome-flags="--headless=new" \
   --only-categories=performance,accessibility,best-practices,seo

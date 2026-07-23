@@ -102,7 +102,7 @@ export function MarketingNav({ active }: MarketingNavProps) {
             Work
           </Link>
           <Link
-            to="/careers"
+            to="/careers/"
             aria-current={active === 'careers' ? 'page' : undefined}
             className={cn(NAV_LINK_CLASS, active === 'careers' && 'text-foreground')}
           >
@@ -188,7 +188,7 @@ function MobileNavDisclosure({ active }: { active?: 'careers' | undefined }) {
           Work
         </Link>
         <Link
-          to="/careers"
+          to="/careers/"
           aria-current={active === 'careers' ? 'page' : undefined}
           className={cn(
             NAV_LINK_CLASS,

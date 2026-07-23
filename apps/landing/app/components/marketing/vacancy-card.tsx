@@ -13,7 +13,7 @@ import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacanc
 export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
   return (
     <Link
-      to="/careers/$slug"
+      to="/careers/$slug/"
       params={{ slug: vacancy.slug }}
       className="group flex h-full flex-col gap-[18px] rounded-2xl border border-border bg-card p-6 no-underline transition-[border-color,transform,background] duration-300 hover:-translate-y-[3px] hover:border-[color-mix(in_oklch,var(--primary)_40%,transparent)] focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-[3px] md:p-[30px]"
     >

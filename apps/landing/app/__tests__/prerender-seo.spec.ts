@@ -61,7 +61,7 @@ describe('buildSitemapXml', () => {
     )
     expect(xml).toContain('<loc>https://cheekycheese.tech/</loc>')
     expect(xml).toContain('<lastmod>2026-07-23T00:00:00.000Z</lastmod>')
-    expect(xml).toContain('<loc>https://cheekycheese.tech/careers/senior-ml-engineer</loc>')
+    expect(xml).toContain('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>')
     expect(xml).toContain('<lastmod>2026-07-01T00:00:00.000Z</lastmod>')
   })
 

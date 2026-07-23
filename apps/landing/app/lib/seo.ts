@@ -17,9 +17,17 @@ import { CONTACT_EMAIL } from '@/content/home'
 export const SITE_ORIGIN = 'https://cheekycheese.tech'
 export const SITE_NAME = 'CheekyCheeseIT'
 
-/** Absolute canonical/OG URL for a given site-relative pathname (e.g. `/careers`). */
+/**
+ * Absolute canonical/OG URL for a given site-relative pathname (e.g.
+ * `/careers`). Always trailing-slash-terminated — matches the router's
+ * `trailingSlash: 'always'` (see `router.tsx`) and the directory-per-route
+ * layout `scripts/prerender.mjs` writes (`/careers/<slug>` ->
+ * `dist/careers/<slug>/index.html`), so the canonical URL is exactly what
+ * prod nginx serves as a 200 with no redirect hop in between.
+ */
 export function canonicalUrl(pathname: string): string {
-  return `${SITE_ORIGIN}${pathname}`
+  const withSlash = pathname.endsWith('/') ? pathname : `${pathname}/`
+  return `${SITE_ORIGIN}${withSlash}`
 }
 
 export interface OrganizationJsonLd {

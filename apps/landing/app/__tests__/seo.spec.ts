@@ -20,10 +20,14 @@ describe('canonicalUrl', () => {
     expect(canonicalUrl('/')).toBe(`${SITE_ORIGIN}/`)
   })
 
-  it('builds an absolute URL for a nested path', () => {
+  it('builds a trailing-slash-terminated URL for a nested path (matches router trailingSlash: always + the prerendered directory-per-route layout)', () => {
     expect(canonicalUrl('/careers/senior-ml-engineer')).toBe(
-      `${SITE_ORIGIN}/careers/senior-ml-engineer`,
+      `${SITE_ORIGIN}/careers/senior-ml-engineer/`,
     )
+  })
+
+  it('is idempotent — does not double the trailing slash if already present', () => {
+    expect(canonicalUrl('/careers/')).toBe(`${SITE_ORIGIN}/careers/`)
   })
 })
 

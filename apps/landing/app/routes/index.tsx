@@ -101,7 +101,7 @@ function LandingPage() {
                 </a>
               </Button>
               <Button asChild size="lg" variant="outline">
-                <Link to="/careers">See open roles</Link>
+                <Link to="/careers/">See open roles</Link>
               </Button>
             </div>
           </div>
@@ -262,7 +262,7 @@ function LandingPage() {
               </p>
             </div>
             <Button asChild variant="outline">
-              <Link to="/careers">
+              <Link to="/careers/">
                 View all roles
                 <ArrowRight aria-hidden="true" className="size-4" />
               </Link>

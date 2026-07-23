@@ -45,7 +45,7 @@ function NotFoundState() {
             This role isn&rsquo;t open anymore — but there may be others.
           </p>
           <Link
-            to="/careers"
+            to="/careers/"
             className={cn('inline-flex items-center gap-2 font-medium text-primary', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
@@ -81,7 +81,7 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
       <main className="flex-1">
         <div className="mx-auto max-w-[1200px] px-5 pt-8 pb-5 md:px-10 lg:px-14">
           <Link
-            to="/careers"
+            to="/careers/"
             className={cn('inline-flex items-center gap-2 text-muted-foreground', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />

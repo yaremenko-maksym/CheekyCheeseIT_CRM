@@ -185,11 +185,14 @@ function xmlEscape(value) {
  * @returns {string}
  */
 function buildSitemapXml(vacancies, buildTime) {
+  // Trailing-slash-terminated — matches app/lib/seo.ts canonicalUrl() /
+  // router.tsx trailingSlash: 'always' (see that file's comment for why):
+  // sitemap URLs should be the exact canonical/200 form, not one that 301s.
   const urls = [
     { loc: `${SITE_ORIGIN}/`, lastmod: buildTime },
-    { loc: `${SITE_ORIGIN}/careers`, lastmod: buildTime },
+    { loc: `${SITE_ORIGIN}/careers/`, lastmod: buildTime },
     ...(vacancies ?? []).map((v) => ({
-      loc: `${SITE_ORIGIN}/careers/${v.slug}`,
+      loc: `${SITE_ORIGIN}/careers/${v.slug}/`,
       lastmod: v.publishedAt,
     })),
   ]
