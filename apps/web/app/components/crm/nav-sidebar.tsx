@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   Settings,
   UserCircle,
+  UserPlus,
   Users,
   UsersRound,
 } from 'lucide-react'
@@ -85,6 +86,15 @@ const NAV_ITEMS: NavItem[] = [
     icon: FileText,
     to: '/documents',
     roles: navRolesFor('/documents'),
+  },
+  {
+    // task-crm-vacancies-ui (§8). UserPlus (not Briefcase — already taken by
+    // «Проекты», см. spec §11 п.5) — «добавление нового человека» reads as
+    // a hiring channel at a glance.
+    label: 'Вакансии',
+    icon: UserPlus,
+    to: '/vacancies',
+    roles: navRolesFor('/vacancies'),
   },
   {
     // Профиль last: JUNIOR sees it at position 5 (spec §4.3).
