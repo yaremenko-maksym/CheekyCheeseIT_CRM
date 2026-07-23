@@ -265,7 +265,9 @@ firewall-локдаун недостаточен (например, динами
 - Логи API на VPS: `docker compose ... logs api | grep -i indexing` — успешные уведомления
   логируются; ошибки Google API логируются, но **никогда** не блокируют публикацию/закрытие
   вакансии (fail-soft по дизайну, см. task-google-indexing-api).
-- Еженедельный refresh всех `PUBLISHED`-вакансий синхронизирован с еженедельным ребилдом деплоя
+- Еженедельный refresh всех `PUBLISHED`-вакансий (API-cron) и еженедельный ребилд деплоя —
+  НЕЗАВИСИМЫЕ механизмы с общей целью «свежесть JobPosting»: cron шлёт URL_UPDATED в Google,
+  ребилд обновляет validThrough/sitemap в статике
   (см. `schedule:` триггер в `.github/workflows/deploy.yml`, task-infra-weekly-rebuild) — оба
   привязаны к той же логике "не протухнуть между мержами", что и скользящий `validThrough`
   (build-time + 60 дней).
