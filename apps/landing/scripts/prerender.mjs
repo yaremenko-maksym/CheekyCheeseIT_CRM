@@ -43,6 +43,11 @@ const SITE_ORIGIN = 'https://cheekycheese.tech'
 const API_ORIGIN = process.env['PRERENDER_API_ORIGIN'] ?? SITE_ORIGIN
 const PORT = Number(process.env['PRERENDER_PORT'] ?? 4173)
 
+/**
+ * @typedef {{ slug: string, publishedAt: string }} VacancyListItem
+ * @typedef {{ url: string, file: string, requireJsonLd: 'organization+website' | 'job-posting' | null }} PrerenderRoute
+ */
+
 function warn(message) {
   // `::warning::` — native GHA annotation, matches the convention already
   // used elsewhere in this repo's CI-facing scripts.
@@ -55,6 +60,7 @@ function warn(message) {
 //    explicitly requires the build not to fail when the API is unreachable;
 //    the live SPA still fetches this client-side for real visitors.
 // ---------------------------------------------------------------------------
+/** @returns {Promise<VacancyListItem[] | null>} `null` means the API was unreachable. */
 async function fetchVacancies() {
   try {
     const res = await fetch(`${API_ORIGIN}/api/public/vacancies`)
@@ -71,6 +77,10 @@ async function fetchVacancies() {
   }
 }
 
+/**
+ * @param {VacancyListItem[] | null} vacancies
+ * @returns {PrerenderRoute[]}
+ */
 function buildRoutes(vacancies) {
   const routes = [
     { url: '/', file: 'index.html', requireJsonLd: 'organization+website' },
@@ -94,6 +104,10 @@ function buildRoutes(vacancies) {
 //    really there. Catches a real regression (e.g. useDocumentHead silently
 //    broken) at build time instead of shipping bad structured data.
 // ---------------------------------------------------------------------------
+/**
+ * @param {string} html
+ * @returns {unknown}
+ */
 function extractJsonLd(html) {
   // Matched by `id="seo-json-ld"` (stable, see use-document-head.ts
   // JSON_LD_ELEMENT_ID) rather than by attribute order — the DOM serializer
@@ -104,6 +118,11 @@ function extractJsonLd(html) {
   return JSON.parse(match[1])
 }
 
+/**
+ * @param {string} html
+ * @param {PrerenderRoute} route
+ * @returns {void}
+ */
 function assertJsonLd(html, route) {
   if (route.requireJsonLd === null) return
   const data = extractJsonLd(html)
@@ -146,6 +165,7 @@ const AI_CRAWLERS = [
   'Bytespider',
 ]
 
+/** @returns {string} */
 function buildRobotsTxt() {
   const lines = ['User-agent: *', 'Allow: /', '']
   for (const bot of AI_CRAWLERS) {
@@ -159,6 +179,11 @@ function xmlEscape(value) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/**
+ * @param {VacancyListItem[] | null} vacancies
+ * @param {string} buildTime
+ * @returns {string}
+ */
 function buildSitemapXml(vacancies, buildTime) {
   const urls = [
     { loc: `${SITE_ORIGIN}/`, lastmod: buildTime },

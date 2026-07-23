@@ -34,7 +34,10 @@ describe('buildRobotsTxt', () => {
 
 describe('buildRoutes', () => {
   it('always includes / and /careers, plus one entry per vacancy when the API is reachable', () => {
-    const routes = buildRoutes([{ slug: 'a' }, { slug: 'b' }])
+    const routes = buildRoutes([
+      { slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' },
+      { slug: 'b', publishedAt: '2026-07-02T00:00:00.000Z' },
+    ])
     expect(routes.map((r) => r.url)).toEqual(['/', '/careers', '/careers/a', '/careers/b'])
     expect(routes.map((r) => r.file)).toEqual([
       'index.html',
@@ -70,7 +73,7 @@ describe('buildSitemapXml', () => {
 })
 
 describe('extractJsonLd + assertJsonLd', () => {
-  const jsonLdHtml = (payload) =>
+  const jsonLdHtml = (payload: unknown) =>
     `<html><head><script id="seo-json-ld" type="application/ld+json">${JSON.stringify(payload)}</script></head><body></body></html>`
 
   it('extracts JSON-LD regardless of attribute order in the serialized HTML', () => {
@@ -86,6 +89,7 @@ describe('extractJsonLd + assertJsonLd', () => {
     expect(() =>
       assertJsonLd('<html><head></head><body></body></html>', {
         url: '/careers',
+        file: 'careers/index.html',
         requireJsonLd: null,
       }),
     ).not.toThrow()
@@ -95,6 +99,7 @@ describe('extractJsonLd + assertJsonLd', () => {
     expect(() =>
       assertJsonLd('<html><head></head><body></body></html>', {
         url: '/',
+        file: 'index.html',
         requireJsonLd: 'organization+website',
       }),
     ).toThrow(/Organization\+WebSite/)
@@ -109,7 +114,11 @@ describe('extractJsonLd + assertJsonLd', () => {
       jobLocationType: 'TELECOMMUTE',
     })
     expect(() =>
-      assertJsonLd(html, { url: '/careers/senior-ml-engineer', requireJsonLd: 'job-posting' }),
+      assertJsonLd(html, {
+        url: '/careers/senior-ml-engineer',
+        file: 'careers/senior-ml-engineer/index.html',
+        requireJsonLd: 'job-posting',
+      }),
     ).toThrow(/applicantLocationRequirements/)
   })
 
@@ -123,7 +132,11 @@ describe('extractJsonLd + assertJsonLd', () => {
       applicantLocationRequirements: { '@type': 'Country', name: 'Worldwide' },
     })
     expect(() =>
-      assertJsonLd(html, { url: '/careers/senior-ml-engineer', requireJsonLd: 'job-posting' }),
+      assertJsonLd(html, {
+        url: '/careers/senior-ml-engineer',
+        file: 'careers/senior-ml-engineer/index.html',
+        requireJsonLd: 'job-posting',
+      }),
     ).not.toThrow()
   })
 })
