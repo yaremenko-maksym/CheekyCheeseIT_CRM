@@ -195,6 +195,22 @@ function VacancyDetailPage() {
     { value: 'REJECTED', label: APPLICATION_STATUS_LABELS.REJECTED },
   ]
 
+  // Mobile variant (design-fidelity fix, ui-ux-designer Mode D, PR #396 review):
+  // at 320px the 4 equal grid columns give each option ~66px — «Просмотрено»/
+  // «Отклонено» (9-11 chars) don't fit and, with no wrap/truncate on the label
+  // span, visually overlap the neighbouring column instead of shrinking. Same
+  // fix already applied to the vacancy-list status filter (`filterOptionsMobile`
+  // in `../index.tsx`) — mirror that convention here instead of touching the
+  // shared `SegmentedToggle` primitive (narrower blast radius for a
+  // single-screen fix; see PR #396 fidelity review).
+  const applicationsFilterOptionsMobile: ReadonlyArray<SegmentedToggleOption<ApplicationsFilter>> =
+    [
+      { value: 'ALL', label: `Все ${applications.length}` },
+      { value: 'NEW', label: `Новые ${newCount}` },
+      { value: 'VIEWED', label: 'Просм.' },
+      { value: 'REJECTED', label: 'Откл.' },
+    ]
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto space-y-5 px-6 pt-4 pb-6">
       {/* ── Header ── */}
@@ -207,7 +223,7 @@ function VacancyDetailPage() {
             className="h-8 w-8 shrink-0"
             data-testid="back-button"
           >
-            <Link to="/vacancies">
+            <Link to="/vacancies" aria-label="Все вакансии">
               <ArrowLeft className="h-4 w-4" />
             </Link>
           </Button>
@@ -398,6 +414,20 @@ function VacancyDetailPage() {
 
       {activeTab === 'applications' && (
         <div className="space-y-4">
+          {/* Two variants, swapped by breakpoint — see applicationsFilterOptionsMobile
+             comment above for why the labels themselves differ, not just the
+             container width (mirrors the vacancy-list filter in ../index.tsx). */}
+          <SegmentedToggle<ApplicationsFilter>
+            value={applicationsFilter}
+            onChange={setApplicationsFilter}
+            options={applicationsFilterOptionsMobile}
+            ariaLabel="Фильтр откликов по статусу"
+            variant="tabs"
+            size="sm"
+            layoutId="applications-status-filter-mobile"
+            className="w-full sm:hidden"
+            testId="applications-status-filter-mobile"
+          />
           <SegmentedToggle<ApplicationsFilter>
             value={applicationsFilter}
             onChange={setApplicationsFilter}
@@ -406,7 +436,7 @@ function VacancyDetailPage() {
             variant="tabs"
             size="sm"
             layoutId="applications-status-filter"
-            className="w-fit"
+            className="hidden w-fit sm:grid"
             testId="applications-status-filter"
           />
 

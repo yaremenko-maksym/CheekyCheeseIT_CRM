@@ -108,6 +108,19 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
         side="right"
         className="w-full sm:max-w-md flex flex-col overflow-hidden"
         data-testid="vacancy-sheet"
+        onOpenAutoFocus={(event) => {
+          // task-crm-vacancies-ui §9 (focus order): opening the Sheet should
+          // move focus to the first field («Название вакансии»). Radix's
+          // default autofocus (first tabbable descendant) lands on the [X]
+          // close button instead, since it's rendered before the form.
+          // Query for the input directly rather than forwarding a ref
+          // through `VacancyFormFields` (shared with the detail page's
+          // inline edit form, which must NOT steal focus on mount) — keeps
+          // the fix scoped to the Sheet (PR #396 fidelity review).
+          event.preventDefault()
+          const content = event.currentTarget as HTMLElement | null
+          content?.querySelector<HTMLInputElement>('input')?.focus()
+        }}
       >
         <SheetHeader className="mb-2 shrink-0">
           <SheetTitle>{isEdit ? 'Редактировать вакансию' : 'Создать вакансию'}</SheetTitle>
