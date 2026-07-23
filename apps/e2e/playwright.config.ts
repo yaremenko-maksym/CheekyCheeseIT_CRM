@@ -46,9 +46,13 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      // Exclude cache specs from the default project — they require a
-      // production build with SW enabled (serviceWorkers: 'allow').
-      testIgnore: '**/cache/**',
+      // Exclude cache + landing specs from the default project — cache needs
+      // a production build (see below); landing needs the standalone
+      // apps/landing dev server (:3002) + a vacancies-seeded scratch DB, which
+      // ci.yml's default shard does not provision (task-landing-redesign.md
+      // AC6 — run locally / dedicated shard only, same "opt-in project"
+      // pattern as `cache` below).
+      testIgnore: ['**/cache/**', '**/landing/**'],
       use: { ...devices['Desktop Chrome'] },
     },
     {
@@ -87,6 +91,21 @@ export default defineConfig({
       // A top-level webServer is intentionally NOT added: it would also
       // force-start servers for the mock `chromium` shards (which run in ci.yml
       // without a build) and break them.
+    },
+    {
+      // ── Landing responsive project (task-landing-redesign.md AC6) ────────
+      // Opt-in, same pattern as `cache` above — NOT run by the default
+      // `chromium` project or ci.yml's default shard. Needs an externally
+      // started apps/landing dev server (`vite --port 3002`, or override via
+      // LANDING_BASE_URL) proxying to an API instance with vacancies seeded
+      // (a scratch DB — see task-landing-redesign.md verification notes).
+      // Run locally: `pnpm --filter @crm/e2e exec playwright test --project=landing`.
+      name: 'landing',
+      testMatch: '**/landing/**/*.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: process.env['LANDING_BASE_URL'] ?? 'http://localhost:3002',
+      },
     },
   ],
 })
