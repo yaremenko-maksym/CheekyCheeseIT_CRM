@@ -1,5 +1,5 @@
 /**
- * VacanciesModule — task-vacancies-api.
+ * VacanciesModule — task-vacancies-api (+ task-google-indexing-api).
  *
  * Reuses (does not duplicate):
  *   - `S3Service` + `CompressionService` from DocumentsModule (upload/delete/
@@ -9,12 +9,18 @@
  * `ScheduleModule.forRoot()` is imported here for `VacanciesRetentionCronService`'s
  * `@Cron` — same pattern as FinanceModule (SalaryCronService); NestJS's
  * schedule module is safe to `forRoot()` from multiple feature modules.
+ *
+ * `GoogleIndexingService` (task-google-indexing-api) is provided here and
+ * consumed by both `VacanciesService` (publish/close/slug-change hooks) and
+ * `VacanciesRetentionCronService` (weekly PUBLISHED refresh) — module-scoped
+ * so both get the SAME instance (and its single boot warning fires once).
  */
 import { Module } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
 import { DocumentsModule } from '../documents/documents.module'
 import { NotificationsModule } from '../notifications/notifications.module'
 import { ApplicationsService } from './applications.service'
+import { GoogleIndexingService } from './google-indexing.service'
 import { PublicVacanciesController } from './public-vacancies.controller'
 import { TurnstileService } from './turnstile.service'
 import { VacanciesController } from './vacancies.controller'
@@ -28,6 +34,7 @@ import { VacanciesService } from './vacancies.service'
     VacanciesService,
     ApplicationsService,
     TurnstileService,
+    GoogleIndexingService,
     VacanciesRetentionCronService,
   ],
   exports: [VacanciesService, ApplicationsService],

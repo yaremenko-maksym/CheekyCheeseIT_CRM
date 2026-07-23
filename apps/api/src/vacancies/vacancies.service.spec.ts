@@ -15,10 +15,30 @@
  * branching logic in isolation.
  */
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import type { ConfigService } from '@nestjs/config'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import type { Env } from '../config/env'
 import { vacancies, vacancyApplications } from '../database/schema'
+import type { GoogleIndexingService } from './google-indexing.service'
 import { VacanciesService } from './vacancies.service'
+
+const LANDING_ORIGIN = 'https://cheekycheese.tech'
+
+/** Shared no-op stub — the notification hooks themselves are covered by the
+ *  dedicated `update — Google Indexing hooks` describe block below, which
+ *  builds its own spy-backed instance. Every OTHER test in this file only
+ *  needs the constructor dependency satisfied without asserting on it. */
+function makeGoogleIndexingStub(): GoogleIndexingService {
+  return {
+    notifyUpdated: vi.fn().mockResolvedValue(undefined),
+    notifyDeleted: vi.fn().mockResolvedValue(undefined),
+  } as unknown as GoogleIndexingService
+}
+
+function makeConfigStub(): ConfigService<Env, true> {
+  return { get: () => LANDING_ORIGIN } as unknown as ConfigService<Env, true>
+}
 
 type VacancyRow = typeof vacancies.$inferSelect
 
@@ -165,6 +185,8 @@ function makeHarness(opts: {
 
   return {
     db: db as unknown as ConstructorParameters<typeof VacanciesService>[0],
+    googleIndexing: makeGoogleIndexingStub(),
+    config: makeConfigStub(),
     getDeletedId: () => deletedId,
     getInsertedRow: () => insertedRow,
     getUpdatedRow: () => updatedRow,
@@ -175,7 +197,7 @@ describe('VacanciesService', () => {
   describe('create', () => {
     it('creates a vacancy with applicationsCount=0', async () => {
       const h = makeHarness({ findFirstQueue: [undefined] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.create(ADMIN, {
         title: 'Senior Frontend Engineer',
         slug: 'senior-frontend-engineer',
@@ -192,7 +214,7 @@ describe('VacanciesService', () => {
 
     it('rejects with 409 when the slug already exists', async () => {
       const h = makeHarness({ findFirstQueue: [makeRow()] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(
         svc.create(ADMIN, {
           title: 'Senior Frontend Engineer',
@@ -208,7 +230,7 @@ describe('VacanciesService', () => {
 
     it('rejects with 403 for a non ADMIN/HR actor (defense-in-depth)', async () => {
       const h = makeHarness({})
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(
         svc.create(SENIOR, {
           title: 'Senior Frontend Engineer',
@@ -224,7 +246,7 @@ describe('VacanciesService', () => {
 
     it('HR (not just ADMIN) can create', async () => {
       const h = makeHarness({ findFirstQueue: [undefined] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.create(HR, {
         title: 'Senior Frontend Engineer',
         slug: 'senior-frontend-engineer',
@@ -245,7 +267,7 @@ describe('VacanciesService', () => {
         findFirstQueue: [draftRow],
         applicationCounts: [],
       })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })
       expect(result.status).toBe('PUBLISHED')
       const updated = h.getUpdatedRow()
@@ -259,7 +281,7 @@ describe('VacanciesService', () => {
         publishedAt: new Date('2026-07-01T00:00:00Z'),
       })
       const h = makeHarness({ findFirstQueue: [publishedRow], applicationCounts: [] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.update(ADMIN, publishedRow.id, { status: 'CLOSED' })
       expect(result.status).toBe('CLOSED')
       expect(h.getUpdatedRow()?.closedAt).toBeInstanceOf(Date)
@@ -273,7 +295,7 @@ describe('VacanciesService', () => {
         closedAt: new Date('2026-07-01T00:00:00Z'),
       })
       const h = makeHarness({ findFirstQueue: [closedRow], applicationCounts: [] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.update(ADMIN, closedRow.id, { status: 'PUBLISHED' })
       expect(result.status).toBe('PUBLISHED')
       const updated = h.getUpdatedRow()
@@ -285,7 +307,7 @@ describe('VacanciesService', () => {
     it('rejects an invalid transition (DRAFT → CLOSED) with 409', async () => {
       const draftRow = makeRow({ status: 'DRAFT' })
       const h = makeHarness({ findFirstQueue: [draftRow] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.update(ADMIN, draftRow.id, { status: 'CLOSED' })).rejects.toThrow(
         ConflictException,
       )
@@ -294,7 +316,7 @@ describe('VacanciesService', () => {
     it('rejects an invalid transition (PUBLISHED → DRAFT) with 409', async () => {
       const publishedRow = makeRow({ status: 'PUBLISHED' })
       const h = makeHarness({ findFirstQueue: [publishedRow] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.update(ADMIN, publishedRow.id, { status: 'DRAFT' })).rejects.toThrow(
         ConflictException,
       )
@@ -302,7 +324,7 @@ describe('VacanciesService', () => {
 
     it('404 when the vacancy does not exist', async () => {
       const h = makeHarness({ findFirstQueue: [undefined] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.update(ADMIN, 'missing-id', { title: 'New title' })).rejects.toThrow(
         NotFoundException,
       )
@@ -311,10 +333,103 @@ describe('VacanciesService', () => {
     it('plain field update (no status change) leaves status untouched', async () => {
       const row = makeRow({ status: 'PUBLISHED' })
       const h = makeHarness({ findFirstQueue: [row], applicationCounts: [] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.update(ADMIN, row.id, { title: 'Updated Title' })
       expect(h.getUpdatedRow()?.status).toBe('PUBLISHED')
       expect(result.title).toBeDefined()
+    })
+  })
+
+  describe('update — Google Indexing hooks (task-google-indexing-api §2)', () => {
+    it('DRAFT → PUBLISHED calls notifyUpdated with the careers URL (trailing slash)', async () => {
+      const draftRow = makeRow({ status: 'DRAFT', slug: 'senior-react-developer' })
+      const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })
+
+      expect(h.googleIndexing.notifyUpdated).toHaveBeenCalledWith(
+        'https://cheekycheese.tech/careers/senior-react-developer/',
+      )
+      expect(h.googleIndexing.notifyDeleted).not.toHaveBeenCalled()
+    })
+
+    it('CLOSED → PUBLISHED (re-open) also calls notifyUpdated (freshens the index entry again)', async () => {
+      const closedRow = makeRow({ status: 'CLOSED', slug: 'senior-react-developer' })
+      const h = makeHarness({ findFirstQueue: [closedRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await svc.update(ADMIN, closedRow.id, { status: 'PUBLISHED' })
+
+      expect(h.googleIndexing.notifyUpdated).toHaveBeenCalledWith(
+        'https://cheekycheese.tech/careers/senior-react-developer/',
+      )
+      expect(h.googleIndexing.notifyDeleted).not.toHaveBeenCalled()
+    })
+
+    it('PUBLISHED → CLOSED calls notifyDeleted with the careers URL', async () => {
+      const publishedRow = makeRow({ status: 'PUBLISHED', slug: 'senior-react-developer' })
+      const h = makeHarness({ findFirstQueue: [publishedRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await svc.update(ADMIN, publishedRow.id, { status: 'CLOSED' })
+
+      expect(h.googleIndexing.notifyDeleted).toHaveBeenCalledWith(
+        'https://cheekycheese.tech/careers/senior-react-developer/',
+      )
+      expect(h.googleIndexing.notifyUpdated).not.toHaveBeenCalled()
+    })
+
+    it('slug change while PUBLISHED calls notifyDeleted(old) then notifyUpdated(new)', async () => {
+      const publishedRow = makeRow({ status: 'PUBLISHED', slug: 'old-slug' })
+      // findFirstQueue: [0] getRowOrThrow → publishedRow; [1] assertSlugFree('new-slug') → undefined (free)
+      const h = makeHarness({
+        findFirstQueue: [publishedRow, undefined],
+        applicationCounts: [],
+      })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await svc.update(ADMIN, publishedRow.id, { slug: 'new-slug' })
+
+      expect(h.googleIndexing.notifyDeleted).toHaveBeenCalledWith(
+        'https://cheekycheese.tech/careers/old-slug/',
+      )
+      expect(h.googleIndexing.notifyUpdated).toHaveBeenCalledWith(
+        'https://cheekycheese.tech/careers/new-slug/',
+      )
+      const deletedCallOrder = (h.googleIndexing.notifyDeleted as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0] as number
+      const updatedCallOrder = (h.googleIndexing.notifyUpdated as ReturnType<typeof vi.fn>).mock
+        .invocationCallOrder[0] as number
+      expect(deletedCallOrder).toBeLessThan(updatedCallOrder)
+    })
+
+    it('plain field edit (no status/slug change) does not notify Google at all', async () => {
+      const row = makeRow({ status: 'PUBLISHED' })
+      const h = makeHarness({ findFirstQueue: [row], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await svc.update(ADMIN, row.id, { title: 'Updated Title' })
+
+      expect(h.googleIndexing.notifyUpdated).not.toHaveBeenCalled()
+      expect(h.googleIndexing.notifyDeleted).not.toHaveBeenCalled()
+    })
+
+    it('slug change on a DRAFT vacancy does not notify Google (never indexed)', async () => {
+      const row = makeRow({ status: 'DRAFT', slug: 'old-slug' })
+      const h = makeHarness({ findFirstQueue: [row, undefined], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await svc.update(ADMIN, row.id, { slug: 'new-slug' })
+
+      expect(h.googleIndexing.notifyUpdated).not.toHaveBeenCalled()
+      expect(h.googleIndexing.notifyDeleted).not.toHaveBeenCalled()
+    })
+
+    it('AC4: a GoogleIndexingService failure does NOT break the transition — update() still resolves and returns the new status (defense-in-depth: the real service never rejects, but the call site catches anyway)', async () => {
+      const draftRow = makeRow({ status: 'DRAFT', slug: 'senior-react-developer' })
+      const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
+      ;(h.googleIndexing.notifyUpdated as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+        new Error('Google Indexing API unreachable'),
+      )
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+
+      const result = await svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })
+      expect(result.status).toBe('PUBLISHED')
     })
   })
 
@@ -322,7 +437,7 @@ describe('VacanciesService', () => {
     it('rejects with 409 when the vacancy is not DRAFT', async () => {
       const row = makeRow({ status: 'PUBLISHED' })
       const h = makeHarness({ findFirstQueue: [row] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.remove(ADMIN, row.id)).rejects.toThrow(ConflictException)
     })
 
@@ -332,14 +447,14 @@ describe('VacanciesService', () => {
         findFirstQueue: [row],
         applicationCounts: [{ vacancyId: row.id, count: 2 }],
       })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.remove(ADMIN, row.id)).rejects.toThrow(ConflictException)
     })
 
     it('deletes a DRAFT vacancy with zero applications', async () => {
       const row = makeRow({ status: 'DRAFT' })
       const h = makeHarness({ findFirstQueue: [row], applicationCounts: [] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await svc.remove(ADMIN, row.id)
       expect(h.getDeletedId()).toBe('deleted')
     })
@@ -349,20 +464,20 @@ describe('VacanciesService', () => {
     it('getPublicBySlug throws 404 for a DRAFT vacancy', async () => {
       const row = makeRow({ status: 'DRAFT' })
       const h = makeHarness({ findFirstQueue: [row] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.getPublicBySlug(row.slug)).rejects.toThrow(NotFoundException)
     })
 
     it('getPublicBySlug throws 404 for a missing slug', async () => {
       const h = makeHarness({ findFirstQueue: [undefined] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.getPublicBySlug('does-not-exist')).rejects.toThrow(NotFoundException)
     })
 
     it('getPublicBySlug returns the detail DTO for a PUBLISHED vacancy', async () => {
       const row = makeRow({ status: 'PUBLISHED', publishedAt: new Date('2026-07-01T00:00:00Z') })
       const h = makeHarness({ findFirstQueue: [row] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.getPublicBySlug(row.slug)
       expect(result.slug).toBe(row.slug)
       expect(result.descriptionMd).toBe(row.descriptionMd)
@@ -375,7 +490,7 @@ describe('VacanciesService', () => {
         listRows: [rowA, rowB],
         applicationCounts: [{ vacancyId: 'vac-a', count: 3 }],
       })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.listAdmin(ADMIN)
       const a = result.find((r) => r.id === 'vac-a')
       const b = result.find((r) => r.id === 'vac-b')
@@ -385,7 +500,7 @@ describe('VacanciesService', () => {
 
     it('listAdmin rejects with 403 for a non ADMIN/HR actor', async () => {
       const h = makeHarness({ listRows: [] })
-      const svc = new VacanciesService(h.db)
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await expect(svc.listAdmin(SENIOR)).rejects.toThrow(ForbiddenException)
     })
   })

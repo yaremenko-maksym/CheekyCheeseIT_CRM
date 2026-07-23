@@ -1,5 +1,5 @@
 /**
- * VacanciesRetentionCronService — task-vacancies-api §6.
+ * VacanciesRetentionCronService — task-vacancies-api §6 (+ task-google-indexing-api §3).
  *
  * Daily job that purges (row + R2 object) vacancy applications that are no
  * longer needed:
@@ -28,13 +28,25 @@
  * was silently treated as success and the DB row was purged anyway — exactly
  * the orphan-PII bug F4 was meant to close. `deleteOrThrow` propagates
  * transport failures for real, so the catch below is now reachable.
+ *
+ * task-google-indexing-api §3: this class ALSO owns a second, unrelated
+ * weekly job (`handleWeeklyIndexingRefresh`) that re-notifies Google of
+ * every currently-PUBLISHED vacancy — sharing the class (rather than adding
+ * a new one) mirrors how the task explicitly allows "existing
+ * vacancies-retention.cron.ts (или отдельный cron-метод)"; NestJS supports
+ * multiple `@Cron` methods per class, and both jobs are small/vacancies-
+ * scoped enough that a second file would just be indirection.
  */
 import { Injectable, Logger } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { Cron } from '@nestjs/schedule'
 import { and, eq, lt } from 'drizzle-orm'
+import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { S3Service } from '../documents/s3.service'
 import { vacancies, vacancyApplications } from '../database/schema'
+import { careersUrl } from './careers-url'
+import { GoogleIndexingService } from './google-indexing.service'
 
 /** Retention window — 90 days (task §6). */
 export const RETENTION_DAYS = 90
@@ -48,11 +60,16 @@ interface PurgeCandidate {
 @Injectable()
 export class VacanciesRetentionCronService {
   private readonly logger = new Logger(VacanciesRetentionCronService.name)
+  private readonly landingOrigin: string
 
   constructor(
     private readonly db: DatabaseService,
     private readonly s3: S3Service,
-  ) {}
+    private readonly googleIndexing: GoogleIndexingService,
+    config: ConfigService<Env, true>,
+  ) {
+    this.landingOrigin = config.get('PUBLIC_LANDING_ORIGIN', { infer: true })
+  }
 
   /** Runs daily at 03:00 — off-peak, no user-facing traffic depends on it. */
   @Cron('0 3 * * *')
@@ -68,6 +85,46 @@ export class VacanciesRetentionCronService {
       // Do NOT rethrow — an unhandled rejection in a @Cron handler silently
       // terminates the job scheduler (see SalaryCronService for the same rationale).
     }
+  }
+
+  /**
+   * Runs weekly, Monday 04:00 — re-sends a Google Indexing `notifyUpdated`
+   * for every currently-PUBLISHED vacancy. Keeps JobPosting freshness (Google
+   * treats a stale-looking JobPosting as expiring) up to date even for
+   * vacancies nobody has edited recently, and self-heals any single
+   * publish-time notification that was missed (GoogleIndexingService's
+   * no-retry, fail-soft contract means a transient failure at publish time
+   * is otherwise silently dropped until this job runs).
+   */
+  @Cron('0 4 * * 1')
+  async handleWeeklyIndexingRefresh(): Promise<void> {
+    try {
+      const count = await this.refreshPublishedIndexing()
+      this.logger.log(`Weekly Google Indexing refresh: notified ${count} PUBLISHED vacancy(ies)`)
+    } catch (err: unknown) {
+      this.logger.error(
+        'Weekly Google Indexing refresh failed — will retry next cycle',
+        err instanceof Error ? err.stack : String(err),
+      )
+      // Do NOT rethrow — same rationale as handleRetention above.
+    }
+  }
+
+  /**
+   * Core weekly-refresh logic, exposed directly for unit testing (mirrors
+   * `purgeExpiredApplications` above). Returns the number of PUBLISHED
+   * vacancies notified.
+   */
+  async refreshPublishedIndexing(): Promise<number> {
+    const rows = await this.db.db
+      .select({ slug: vacancies.slug })
+      .from(vacancies)
+      .where(eq(vacancies.status, 'PUBLISHED'))
+
+    for (const row of rows) {
+      await this.googleIndexing.notifyUpdated(careersUrl(this.landingOrigin, row.slug))
+    }
+    return rows.length
   }
 
   /**
