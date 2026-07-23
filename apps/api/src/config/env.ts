@@ -109,6 +109,25 @@ const envSchema = z
     // (TurnstileService logs an error if it detects this default in prod;
     // see EtherscanService for the same pattern with ETHERSCAN_API_KEY).
     TURNSTILE_SECRET_KEY: z.string().min(1).default('1x0000000000000000000000000000000AA'),
+
+    // task-google-indexing-api: Google Indexing API service-account credentials
+    // used to push near-instant PUBLISHED/CLOSED notifications for vacancy
+    // JobPosting pages (Google Jobs freshness). BOTH optional and left unset
+    // in dev/CI on purpose — GoogleIndexingService detects the gap at
+    // construction and runs in a no-op mode with a single boot warning
+    // (never blocks vacancy publish/close). See apps/api/.env.example for the
+    // provisioning runbook pointer.
+    GOOGLE_INDEXING_SA_EMAIL: z.string().optional(),
+    // Base64-encoded PEM private key for the same service account (RS256 JWT
+    // signing, see GoogleIndexingService). Decoded once at construction time
+    // — never logged.
+    GOOGLE_INDEXING_SA_KEY_B64: z.string().optional(),
+
+    // Origin used to build the public vacancy URL sent to the Google
+    // Indexing API: `<origin>/careers/<slug>/` — trailing slash required,
+    // matches how apps/landing canonicalizes the careers route. Defaults to
+    // the production landing domain; override only for non-standard deploys.
+    PUBLIC_LANDING_ORIGIN: z.string().url().default('https://cheekycheese.tech'),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:
