@@ -169,7 +169,10 @@ function buildSitemapXml(vacancies, buildTime) {
     })),
   ]
   const body = urls
-    .map((u) => `  <url>\n    <loc>${xmlEscape(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n  </url>`)
+    .map(
+      (u) =>
+        `  <url>\n    <loc>${xmlEscape(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n  </url>`,
+    )
     .join('\n')
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
