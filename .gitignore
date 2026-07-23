@@ -7,6 +7,10 @@ build/
 .output/
 .vinxi/
 
+# Lighthouse CI report output (task-infra-seo-gates) — CI-generated, per-run
+# artifact directory; uploaded as a GHA artifact on failure, never committed.
+.lighthouseci/
+
 # Git worktrees — agent scratch space (linked worktrees live here, each its own
 # checkout). Ephemeral; must never be committed. Previously only in
 # .git/info/exclude (local-only); a tracked rule here makes it shared.

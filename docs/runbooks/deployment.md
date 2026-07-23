@@ -592,6 +592,66 @@ Deployment-нота из security-review PR #390 (public vacancy-apply endpoint,
 - `db:seed` (`tsx src/database/seed.ts`) — создаёт тестовые данные. **НИКОГДА в продакшене.**
   Только два ADMIN-пользователя вручную (§6).
 
+### SEO: prerender + деиндекс CRM + Lighthouse gate (task-infra-seo-gates)
+
+**Владелец: только `cheekycheese.tech` (лендинг) должен быть индексируем. `app.cheekycheese.tech`
+(CRM) — рабочий инструмент, деиндексирован намеренно.**
+
+**1. Деиндекс CRM.** `nginx/conf.d/crm.conf` (оба server-блока, :80 и :443) отдаёт
+`X-Robots-Tag: noindex, nofollow, noarchive` на **каждый** ответ app-домена — не только HTML, но и
+статику (js/css/шрифты/картинки/sw.js/index.html), т.к. nginx **не наследует** `add_header` в
+location, который сам определяет свой `add_header` (классическая nginx-гоча — см. комментарий в
+самом `crm.conf`). Заголовок продублирован явно в каждом таком location. `location = /robots.txt`
+на app-домене отдаёт inline `User-agent: *\nDisallow: /` — файла в `apps/web/dist` нет и не нужен.
+`apps/web/index.html` НЕ получил meta-тег `noindex` (вне зоны DevOps) — nginx-заголовок покрывает и
+HTML, и ассеты, этого достаточно.
+
+**2. Лендинг остаётся индексируемым.** `nginx/conf.d/landing.conf` НЕ получил X-Robots-Tag и НЕ
+получил отдельный `location` для `/robots.txt`/`/sitemap.xml` — оба файла отдаются напрямую из
+`apps/landing/dist` (Vite копирует `apps/landing/public/*` в корень dist), как только
+task-landing-seo-prerender положит их в `apps/landing/public/`. **Owner-TODO после того как эта
+задача смержена и задеплоена:** проверить `curl https://cheekycheese.tech/sitemap.xml`, что sitemap
+НЕ содержит URL на `app.cheekycheese.tech` (это ответственность Coder-задачи, но именно владелец —
+последняя проверка перед отправкой в Google Search Console, см. пункт 4 ниже).
+
+**3. Prerender в прод-сборке.** `nginx/Dockerfile` (`landing-builder` stage) переведён с
+`node:20-alpine` на `mcr.microsoft.com/playwright:v1.59.1-noble` (Chromium требует glibc — Alpine
+не подходит; версия запинена под `@playwright/test` из `pnpm-lock.yaml`, апгрейдить вместе). После
+обычного `vite build` идёт **forward-compatible guard**: если у `apps/landing/package.json` есть
+скрипт `build:prerender` (добавляет отдельная параллельная задача
+task-landing-seo-prerender/`feature/landing-seo-prerender`) — гоняется он (Playwright обходит роуты
+лендинга и пишет статический HTML для краулеров); если скрипта ещё нет — шаг no-op с
+`::warning::` в логе сборки, используется обычный CSR-дист. Это значит: **инфра-PR и PR с
+prerender-скриптом можно мержить в любом порядке**, ни один не ломает деплой другого.
+`PRERENDER_API_ORIGIN=https://cheekycheese.tech` передаётся build-arg'ом в `deploy.yml` — во время
+сборки образа старый контейнер ещё жив и обслуживает прод-трафик (switchover — позже, на шаге
+`docker compose up -d` в deploy job), так что обращение к реальному прод-API за данными для
+пререндера (например, опубликованные вакансии) безопасно.
+
+**4. Lighthouse CI гейт.** `.github/workflows/lighthouse.yml` — отдельный workflow (НЕ job в
+`ci.yml`, т.к. триггерится только на `apps/landing/**`-диффы через `paths:`, в отличие от всегда
+идущих required-checks `ci.yml`). Собирает лендинг тем же forward-compatible guard'ом, что и
+`nginx/Dockerfile` (если скрипта `build:prerender` ещё нет — обычный `vite build`), затем
+`npx @lhci/cli@0.15.1 autorun` против `scripts/devops/lighthouserc.json` (staticDistDir —
+встроенный статик-сервер lhci, без доп. зависимостей) на **mobile И desktop** пресетах (matrix)
+с ассертами `performance/accessibility/best-practices/seo ≥ 0.90`, 3 прогона, медиана (LHCI default).
+Красный ассерт красит PR-check (`Lighthouse (mobile)` / `Lighthouse (desktop)`) — **это НЕ required
+status check** (branch protection без required checks — см. `devops.md` "Branch Protection"), так
+что red flag виден, но не блокирует merge жёстко; PM/reviewer должны требовать зелёный перед
+`merge-approved` на любом PR трогающем `apps/landing/**`.
+
+**5. Google Search Console — ЕДИНСТВЕННЫЙ шаг, который не автоматизируется (owner-TODO):**
+
+1. https://search.google.com/search-console → "Add property" → `cheekycheese.tech` (Domain
+   property, не URL-prefix — покрывает `www.` и без-`www` разом).
+2. Верифицировать владение через Cloudflare DNS TXT-запись (Search Console покажет значение)
+   ИЛИ HTML-файл (не подходит — SPA без статик-хостинга произвольных файлов через Cloudflare
+   Pages; DNS TXT — самый простой вариант при уже настроенном Cloudflare DNS из §1.2).
+3. После верификации → Sitemaps → отправить `https://cheekycheese.tech/sitemap.xml` (файл появится
+   после того как task-landing-seo-prerender смержена и задеплоена — до этого 404, это нормально).
+4. **НЕ добавлять `app.cheekycheese.tech` как отдельный property** — CRM намеренно деиндексирован,
+   верифицировать его в GSC незачем и создаёт риск случайного "Request indexing" внутренних страниц.
+
 ---
 
 ## 12. Что ещё НЕ протестировано автоматически
@@ -608,3 +668,9 @@ Deployment-нота из security-review PR #390 (public vacancy-apply endpoint,
   убедиться, что кастомный nginx Dockerfile его не выпиливает).
 - `deploy.yml` `permissions:` least-privilege — что job'ы успешно работают с урезанным токеном
   (build: packages:write, deploy: packages:read, остальные: contents:read).
+- **task-infra-seo-gates** (nginx configtest + curl-смоук пройдены локально через docker, см. PR —
+  но НЕ на реальном проде): `curl -I https://app.cheekycheese.tech/` реально содержит
+  `X-Robots-Tag: noindex`; `https://app.cheekycheese.tech/robots.txt` реально отдаёт `Disallow: /`
+  через Cloudflare (не только напрямую на origin); `mcr.microsoft.com/playwright:v1.59.1-noble` как
+  базовый образ `landing-builder` не увеличивает build-время деплоя выше приемлемого (первый
+  реальный прод-деплой после мержа — замерить).

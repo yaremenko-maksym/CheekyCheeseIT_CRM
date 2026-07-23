@@ -122,6 +122,12 @@ jobs:
           fi
 
       # ── Build nginx image (includes Landing + CRM SPA) ──────────────────
+      # task-infra-seo-gates: PRERENDER_API_ORIGIN is consumed by the SEO
+      # prerender step in nginx/Dockerfile's landing-builder stage (no-op
+      # until task-landing-seo-prerender adds the `build:prerender` script —
+      # see the guard comment there). Points at the LIVE prod API — the old
+      # containers are still serving during this build, see the Dockerfile
+      # comment for why that is safe.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -132,6 +138,7 @@ jobs:
             VITE_API_URL=/api
             VITE_BUILD_VERSION=${{ steps.meta.outputs.image_tag }}
             VITE_TURNSTILE_SITE_KEY=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
+            PRERENDER_API_ORIGIN=https://cheekycheese.tech
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
