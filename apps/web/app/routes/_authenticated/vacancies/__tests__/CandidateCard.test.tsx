@@ -103,6 +103,23 @@ describe('CandidateCard — conditional chips + cover letter', () => {
     )
   })
 
+  // security-MED (PR #396 review): `vacancyApplicationSchema` (read DTO) does
+  // NOT re-assert the https:// protocol the write-side schema enforces — a
+  // legacy/malicious row could carry `javascript:...`. React does not block
+  // `javascript:` in a rendered href, so the component itself must guard it.
+  it('renders a non-clickable chip (no <a>) when githubUrl is a javascript: URL', () => {
+    renderCard(makeApplication({ githubUrl: 'javascript:alert(1)' }))
+    const chip = screen.getByText('GitHub')
+    expect(chip.closest('a')).toBeNull()
+    expect(chip.tagName.toLowerCase()).not.toBe('a')
+  })
+
+  it('renders a non-clickable chip when linkedinUrl is a javascript: URL', () => {
+    renderCard(makeApplication({ linkedinUrl: 'javascript:alert(1)' }))
+    const chip = screen.getByText('LinkedIn')
+    expect(chip.closest('a')).toBeNull()
+  })
+
   it('does not render the cover letter <details> when empty', () => {
     renderCard(makeApplication({ coverLetter: null }))
     expect(screen.queryByText('Сопроводительное письмо')).not.toBeInTheDocument()

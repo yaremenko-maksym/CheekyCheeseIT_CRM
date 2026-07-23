@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { slugifyTitle } from '../constants'
+import { safeExternalHref, slugifyTitle } from '../constants'
 import { createVacancySchema } from '@crm/shared'
 
 describe('slugifyTitle (§4.2)', () => {
@@ -35,5 +35,31 @@ describe('slugifyTitle (§4.2)', () => {
       expect(slug).not.toBe('')
       expect(createVacancySchema.shape.slug.safeParse(slug).success).toBe(true)
     }
+  })
+})
+
+describe('safeExternalHref (security-MED, PR #396 review)', () => {
+  it('accepts an https URL unchanged', () => {
+    expect(safeExternalHref('https://github.com/ivan')).toBe('https://github.com/ivan')
+  })
+
+  it('accepts an http URL unchanged', () => {
+    expect(safeExternalHref('http://example.com')).toBe('http://example.com')
+  })
+
+  it('rejects a javascript: URL', () => {
+    expect(safeExternalHref('javascript:alert(1)')).toBeUndefined()
+  })
+
+  it('rejects an empty string', () => {
+    expect(safeExternalHref('')).toBeUndefined()
+  })
+
+  it('rejects a data: URL', () => {
+    expect(safeExternalHref('data:text/html,<script>alert(1)</script>')).toBeUndefined()
+  })
+
+  it('rejects a protocol-relative URL (no explicit http/https)', () => {
+    expect(safeExternalHref('//evil.example.com')).toBeUndefined()
   })
 })

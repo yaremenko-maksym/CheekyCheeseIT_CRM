@@ -39,7 +39,7 @@ import {
   useDeleteVacancyApplication,
   useUpdateVacancyApplication,
 } from '@/hooks/use-vacancies'
-import { APPLICATION_STATUS_LABELS } from '../constants'
+import { APPLICATION_STATUS_LABELS, safeExternalHref } from '../constants'
 
 const STATUS_OPTIONS: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
   { value: 'NEW', label: APPLICATION_STATUS_LABELS.NEW },
@@ -118,26 +118,10 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
             </span>
           )}
           {application.githubUrl && (
-            <a
-              href={application.githubUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <ExternalLink className="h-3 w-3" />
-              GitHub
-            </a>
+            <ExternalContactChip url={application.githubUrl} label="GitHub" />
           )}
           {application.linkedinUrl && (
-            <a
-              href={application.linkedinUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground hover:text-foreground"
-            >
-              <ExternalLink className="h-3 w-3" />
-              LinkedIn
-            </a>
+            <ExternalContactChip url={application.linkedinUrl} label="LinkedIn" />
           )}
         </div>
       )}
@@ -219,5 +203,39 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
         />
       </div>
     </div>
+  )
+}
+
+/**
+ * security-MED (PR #396 review): renders the URL as a real link only when
+ * `safeExternalHref` accepts it (http/https) — otherwise falls back to a
+ * plain, non-clickable chip with the same label so a `javascript:` (or any
+ * other non-http(s)) value from `vacancyApplication.{githubUrl,linkedinUrl}`
+ * never reaches a rendered `href`.
+ */
+function ExternalContactChip({ url, label }: { url: string; label: string }) {
+  const href = safeExternalHref(url)
+  const className =
+    'inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground'
+
+  if (!href) {
+    return (
+      <span className={className} title={url}>
+        <ExternalLink className="h-3 w-3" />
+        {label}
+      </span>
+    )
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(className, 'hover:text-foreground')}
+    >
+      <ExternalLink className="h-3 w-3" />
+      {label}
+    </a>
   )
 }

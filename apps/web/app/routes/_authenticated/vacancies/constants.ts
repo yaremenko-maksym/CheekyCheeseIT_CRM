@@ -113,3 +113,24 @@ export function slugifyTitle(title: string): string {
     .replace(/-+$/g, '')
   return slug
 }
+
+// ---------------------------------------------------------------------------
+// security-MED (PR #396 review) — read-side href guard for candidate-supplied
+// external URLs (linkedinUrl/githubUrl). The WRITE-side schema
+// (`applyVacancyFieldsSchema.linkedinUrl`/`.githubUrl`) already enforces
+// `.url().startsWith('https://')`, but `vacancyApplicationSchema` (the READ
+// DTO `CandidateCard` renders) does not re-assert the protocol — a legacy row
+// or a future write path that skips the strict schema could carry
+// `javascript:...`, and React does not block `javascript:` in a rendered
+// `href`. This is defense-in-depth on the READ side only; the shared Zod
+// schemas are intentionally NOT touched here (per review scope).
+// ---------------------------------------------------------------------------
+
+/**
+ * Returns `url` unchanged when it starts with `http://` or `https://`,
+ * otherwise `undefined` — callers render plain (non-clickable) text instead
+ * of an `<a href>` for anything that fails the check.
+ */
+export function safeExternalHref(url: string): string | undefined {
+  return /^https?:\/\//.test(url) ? url : undefined
+}
