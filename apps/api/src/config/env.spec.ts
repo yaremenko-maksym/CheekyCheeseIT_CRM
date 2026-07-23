@@ -276,3 +276,48 @@ describe('validateEnv — TURNSTILE_SECRET_KEY fail-closed (Section F)', () => {
     expect(() => validateEnv({ ...BASE_PROD_CREDS })).not.toThrow()
   })
 })
+
+// ---------------------------------------------------------------------------
+// Section G — task-google-indexing-api: GOOGLE_INDEXING_SA_* (optional,
+// AC2 no-op) + PUBLIC_LANDING_ORIGIN (defaulted)
+//   27. both GOOGLE_INDEXING_SA_* omitted → ok, both undefined
+//   28. both provided → stored as-is
+//   29. PUBLIC_LANDING_ORIGIN omitted → defaults to the prod landing domain
+//   30. PUBLIC_LANDING_ORIGIN provided → overrides the default
+//   31. PUBLIC_LANDING_ORIGIN — not a valid URL → throw
+// ---------------------------------------------------------------------------
+
+describe('validateEnv — Google Indexing API env (Section G)', () => {
+  it('GOOGLE_INDEXING_SA_EMAIL / GOOGLE_INDEXING_SA_KEY_B64 default to undefined when omitted', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.GOOGLE_INDEXING_SA_EMAIL).toBeUndefined()
+    expect(env.GOOGLE_INDEXING_SA_KEY_B64).toBeUndefined()
+  })
+
+  it('accepts both GOOGLE_INDEXING_SA_* when provided', () => {
+    const env = validateEnv({
+      ...BASE_DEV,
+      GOOGLE_INDEXING_SA_EMAIL: 'sa@my-project.iam.gserviceaccount.com',
+      GOOGLE_INDEXING_SA_KEY_B64: 'ZmFrZS1wZW0tYmFzZTY0',
+    })
+    expect(env.GOOGLE_INDEXING_SA_EMAIL).toBe('sa@my-project.iam.gserviceaccount.com')
+    expect(env.GOOGLE_INDEXING_SA_KEY_B64).toBe('ZmFrZS1wZW0tYmFzZTY0')
+  })
+
+  it('PUBLIC_LANDING_ORIGIN defaults to https://cheekycheese.tech when omitted', () => {
+    const env = validateEnv({ ...BASE_DEV })
+    expect(env.PUBLIC_LANDING_ORIGIN).toBe('https://cheekycheese.tech')
+  })
+
+  it('PUBLIC_LANDING_ORIGIN can be overridden (e.g. a staging deploy)', () => {
+    const env = validateEnv({
+      ...BASE_DEV,
+      PUBLIC_LANDING_ORIGIN: 'https://staging.cheekycheese.tech',
+    })
+    expect(env.PUBLIC_LANDING_ORIGIN).toBe('https://staging.cheekycheese.tech')
+  })
+
+  it('PUBLIC_LANDING_ORIGIN — an invalid URL throws', () => {
+    expect(() => validateEnv({ ...BASE_DEV, PUBLIC_LANDING_ORIGIN: 'not-a-url' })).toThrow()
+  })
+})

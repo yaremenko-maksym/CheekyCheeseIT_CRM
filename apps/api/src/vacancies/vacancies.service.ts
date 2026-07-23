@@ -1,5 +1,5 @@
 /**
- * VacanciesService — task-vacancies-api.
+ * VacanciesService — task-vacancies-api (+ task-google-indexing-api hooks).
  *
  * Public hiring channel for new SENIORs — completely separate from the
  * interviews Kanban. This service owns:
@@ -11,13 +11,30 @@
  * but every admin method here ALSO asserts the role explicitly (defense-in-
  * depth — the guarantee must survive even if the controller decorator is
  * ever dropped; see the #157/#158 lesson referenced across the codebase).
+ *
+ * Google Indexing API hooks (task-google-indexing-api): `update()` notifies
+ * `GoogleIndexingService` after a successful DB commit whenever a status
+ * transition publishes/closes a vacancy, or its slug changes while
+ * PUBLISHED. The call is AWAITED inline rather than detached fire-and-forget
+ * — `GoogleIndexingService`'s public methods are a guaranteed-fail-soft
+ * contract (never reject, 5s internal timeout — see that file's header), so
+ * awaiting adds negligible latency in the common (no-op or fast) case and
+ * keeps this method's control flow simple. On top of that contract, this
+ * call site ALSO wraps it in try/catch (belt-and-suspenders, same pattern as
+ * ApplicationsService.notifyAdminsAndHr around NotificationsService.create):
+ * a Google-side failure can NEVER roll back or fail an already-committed
+ * status transition, even in the hypothetical case where
+ * GoogleIndexingService's no-throw guarantee were ever violated by a future
+ * change to that file.
  */
 import {
   ConflictException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { desc, eq, sql } from 'drizzle-orm'
 import type {
   CreateVacancy,
@@ -28,8 +45,11 @@ import type {
   Vacancy,
   VacancyStatus,
 } from '@crm/shared'
+import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { vacancies, vacancyApplications } from '../database/schema'
+import { careersUrl } from './careers-url'
+import { GoogleIndexingService } from './google-indexing.service'
 
 type VacancyRow = typeof vacancies.$inferSelect
 
@@ -47,7 +67,16 @@ const VALID_TRANSITIONS: Record<VacancyStatus, VacancyStatus[]> = {
 
 @Injectable()
 export class VacanciesService {
-  constructor(private readonly db: DatabaseService) {}
+  private readonly logger = new Logger(VacanciesService.name)
+  private readonly landingOrigin: string
+
+  constructor(
+    private readonly db: DatabaseService,
+    private readonly googleIndexing: GoogleIndexingService,
+    config: ConfigService<Env, true>,
+  ) {
+    this.landingOrigin = config.get('PUBLIC_LANDING_ORIGIN', { infer: true })
+  }
 
   // ---------------------------------------------------------------------------
   // Public (landing) — no auth
@@ -156,6 +185,19 @@ export class VacanciesService {
       .returning()
     if (!updated) throw new Error('Failed to update vacancy')
 
+    // Fired AFTER the DB commit above — see the file-header comment on the
+    // await + try/catch rationale (AC4: a Google API error must never break
+    // an already-committed status transition).
+    try {
+      await this.notifyGoogleIndexing(row, updated)
+    } catch (err: unknown) {
+      this.logger.warn(
+        `Google Indexing notification failed for vacancy ${id} (transition already committed): ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      )
+    }
+
     const count = await this.countApplicationsFor(id)
     return this.mapVacancy(updated, count)
   }
@@ -189,6 +231,43 @@ export class VacanciesService {
   private assertAdminOrHr(actor: SessionUser): void {
     if (actor.role !== 'ADMIN' && actor.role !== 'HR') {
       throw new ForbiddenException('Доступно только ADMIN и HR')
+    }
+  }
+
+  /**
+   * task-google-indexing-api §2. `before`/`after` are the pre- and
+   * post-update rows — comparing them (rather than re-deriving intent from
+   * `dto`) keeps this correct regardless of which fields the caller actually
+   * sent, and covers the 3 required cases:
+   *   - `* → PUBLISHED` (DRAFT→PUBLISHED first-publish, or CLOSED→PUBLISHED
+   *     re-open) → notifyUpdated(new URL). A re-open never needs a matching
+   *     notifyDeleted for the old slug: either the slug is unchanged, or (if
+   *     it also changed in this same request) the vacancy was CLOSED and
+   *     therefore already removed from the index by the earlier
+   *     PUBLISHED→CLOSED transition — nothing stale is left to delete.
+   *   - `PUBLISHED → CLOSED` → notifyDeleted(URL as it was published,
+   *     i.e. `before.slug` — a slug change is not expected to accompany a
+   *     close, but using `before` is correct even if one is sent).
+   *   - slug changes while status STAYS PUBLISHED → notifyDeleted(old URL) +
+   *     notifyUpdated(new URL) (the old URL is no longer the canonical page).
+   */
+  private async notifyGoogleIndexing(before: VacancyRow, after: VacancyRow): Promise<void> {
+    const becamePublished = before.status !== 'PUBLISHED' && after.status === 'PUBLISHED'
+    const becameClosed = before.status === 'PUBLISHED' && after.status === 'CLOSED'
+    const slugChangedWhilePublished =
+      before.status === 'PUBLISHED' && after.status === 'PUBLISHED' && before.slug !== after.slug
+
+    if (becamePublished) {
+      await this.googleIndexing.notifyUpdated(careersUrl(this.landingOrigin, after.slug))
+      return
+    }
+    if (becameClosed) {
+      await this.googleIndexing.notifyDeleted(careersUrl(this.landingOrigin, before.slug))
+      return
+    }
+    if (slugChangedWhilePublished) {
+      await this.googleIndexing.notifyDeleted(careersUrl(this.landingOrigin, before.slug))
+      await this.googleIndexing.notifyUpdated(careersUrl(this.landingOrigin, after.slug))
     }
   }
 

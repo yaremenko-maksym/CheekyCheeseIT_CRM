@@ -64,6 +64,7 @@ import { NotificationsService } from '../notifications/notifications.service'
 import { notifications, users, vacancies, vacancyApplications } from '../database/schema'
 import * as schema from '../database/schema'
 import { ApplicationsService, RESUME_MAX_BYTES } from './applications.service'
+import { GoogleIndexingService } from './google-indexing.service'
 import { PublicVacanciesController } from './public-vacancies.controller'
 import { TurnstileService } from './turnstile.service'
 import { VacanciesController } from './vacancies.controller'
@@ -160,9 +161,16 @@ const DISALLOWED = [SENIOR, JUNIOR, ACCOUNTANT, DROP]
 // the vitest worker env).
 // ---------------------------------------------------------------------------
 
+// task-google-indexing-api: GOOGLE_INDEXING_SA_EMAIL / _KEY_B64 are
+// intentionally OMITTED — GoogleIndexingService runs in its no-op mode (no
+// real network calls), same as any dev/CI env without those keys.
+// PUBLIC_LANDING_ORIGIN IS set (matches the real schema default) so
+// VacanciesService/VacanciesRetentionCronService's careers-URL building
+// exercises the real value instead of `undefined`.
 const fakeEnv: Record<string, unknown> = {
   TURNSTILE_SECRET_KEY: DUMMY_TURNSTILE_SECRET,
   NODE_ENV: 'test',
+  PUBLIC_LANDING_ORIGIN: 'https://cheekycheese.tech',
 }
 const fakeConfigService = { get: (key: string) => fakeEnv[key] } as unknown as ConfigService
 
@@ -289,9 +297,18 @@ class TestDatabaseModule {}
       inject: [ConfigService],
     },
     {
+      // task-google-indexing-api: no SA env vars in `fakeEnv` → constructs in
+      // no-op mode (logs one warning, never calls fetch) — safe for this
+      // Postgres-only CI job.
+      provide: GoogleIndexingService,
+      useFactory: (c: ConfigService) => new GoogleIndexingService(c),
+      inject: [ConfigService],
+    },
+    {
       provide: VacanciesService,
-      useFactory: (db: DatabaseService) => new VacanciesService(db),
-      inject: [DatabaseService],
+      useFactory: (db: DatabaseService, gi: GoogleIndexingService, c: ConfigService) =>
+        new VacanciesService(db, gi, c),
+      inject: [DatabaseService, GoogleIndexingService, ConfigService],
     },
     {
       provide: ApplicationsService,
@@ -314,8 +331,13 @@ class TestDatabaseModule {}
     },
     {
       provide: VacanciesRetentionCronService,
-      useFactory: (db: DatabaseService, s3: S3Service) => new VacanciesRetentionCronService(db, s3),
-      inject: [DatabaseService, S3Service],
+      useFactory: (
+        db: DatabaseService,
+        s3: S3Service,
+        gi: GoogleIndexingService,
+        c: ConfigService,
+      ) => new VacanciesRetentionCronService(db, s3, gi, c),
+      inject: [DatabaseService, S3Service, GoogleIndexingService, ConfigService],
     },
     {
       provide: APP_GUARD,
