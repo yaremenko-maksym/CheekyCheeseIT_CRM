@@ -234,6 +234,30 @@ async function main() {
   const browser = await chromium.launch()
   try {
     const page = await browser.newPage()
+
+    // `dist/index.html` (the SPA's one build-time HTML template) carries a
+    // FIXED `<link rel="modulepreload">` list computed from Vite's static
+    // analysis of the client entry graph — it includes `/`'s own
+    // dependencies (e.g. vendor-motion for the home-only Reveal effect)
+    // regardless of which route actually gets served through it. Every
+    // route we snapshot starts from THIS SAME document (there's no
+    // prerendered file at that path yet — that's what we're creating), so
+    // without this, every static page we write would inherit home's full
+    // preload set and force-fetch chunks it never uses (confirmed via
+    // Lighthouse: vendor-motion showing up on `/careers/:slug` network
+    // waterfalls despite no framer-motion import left on that route).
+    // Stripping the stale hints here lets the browser's normal module
+    // loader — and Vite's own runtime `__vitePreload` helper for whatever a
+    // route's `Route.lazy()` chunk *actually* dynamically imports — populate
+    // `<head>` with only what that specific route needs, which is exactly
+    // what `page.content()` below then captures.
+    await page.route('**/*', async (route) => {
+      if (route.request().resourceType() !== 'document') return route.continue()
+      const response = await route.fetch()
+      const body = (await response.text()).replace(/<link rel="modulepreload"[^>]*>\s*/g, '')
+      return route.fulfill({ response, body })
+    })
+
     // Freezes the terminal typewriter + Reveal scroll-in animations in their
     // final, fully-visible state (both already gate on framer-motion's
     // useReducedMotion() — see terminal.tsx / routes/index.tsx) so the

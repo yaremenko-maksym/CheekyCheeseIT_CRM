@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
 import { Link } from '@tanstack/react-router'
-import { AnimatePresence, motion } from 'framer-motion'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
 import { cn, focusRing } from '@/lib/utils'
@@ -14,6 +13,21 @@ import { cn, focusRing } from '@/lib/utils'
  * `active="careers"` marks the Careers link current on `/careers` and
  * `/careers/:slug` — Home passes nothing (no per-scroll-section tracking,
  * matches the source export's per-PAGE active prop, not scroll-position).
+ *
+ * Mobile disclosure animates via a plain CSS `grid-template-rows` transition
+ * (task-landing-seo-prerender.md §3), not framer-motion — this component is
+ * rendered on EVERY route (via each route's own `<MarketingNav>`), and
+ * `/careers` + `/careers/:slug` otherwise have zero framer-motion usage at
+ * all; a top-level `import ... from 'framer-motion'` here pulled its ~40 KB
+ * gzip vendor chunk into their critical path for a once-per-visit,
+ * user-triggered disclosure animation that a CSS transition does just as
+ * well. `/` keeps framer-motion regardless (routes/index.tsx's `Reveal`
+ * scroll-in effect uses it directly). Trade-off: the panel opens with a
+ * smooth transition but closes instantly (no exit animation) — conditional
+ * mount (`{open && ...}`) can't run a CSS "closing" transition without
+ * either staying always-mounted (an a11y footgun: clipped-but-focusable
+ * content behind `overflow-hidden`) or extra JS to delay unmount, neither of
+ * which is worth it for a mobile burger menu.
  */
 const NAV_LINK_CLASS = cn(
   'text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 hover:text-foreground',
@@ -132,56 +146,67 @@ export function MarketingNav({ active }: MarketingNavProps) {
         </button>
       </div>
 
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: 'auto', opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.35, ease: [0.2, 0.6, 0.2, 1] }}
-            className="overflow-hidden border-t border-border bg-background min-[900px]:hidden"
-          >
-            <nav
-              aria-label="Primary mobile"
-              className="mx-auto flex max-w-[1200px] flex-col gap-1 px-5 pt-3.5 pb-5"
-            >
-              <Link
-                to="/"
-                hash="services"
-                className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
-              >
-                Services
-              </Link>
-              <Link to="/" hash="work" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
-                Work
-              </Link>
-              <Link
-                to="/careers"
-                aria-current={active === 'careers' ? 'page' : undefined}
-                className={cn(
-                  NAV_LINK_CLASS,
-                  'px-1 py-3.5 text-[1.05rem]',
-                  active === 'careers' && 'text-foreground',
-                )}
-              >
-                Careers
-              </Link>
-              <Link
-                to="/"
-                hash="contact"
-                className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
-              >
-                Contact
-              </Link>
-              <Button asChild block className="mt-3">
-                <Link to="/" hash="contact">
-                  Start a project
-                </Link>
-              </Button>
-            </nav>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {open && <MobileNavDisclosure active={active} />}
     </header>
+  )
+}
+
+const ENTER_TRANSITION_CLASS =
+  'grid overflow-hidden border-t border-border bg-background transition-[grid-template-rows,opacity] duration-[350ms] ease-out min-[900px]:hidden'
+
+/**
+ * Only ever mounted while `open` — see MarketingNav's module doc for why
+ * this is a plain CSS transition instead of framer-motion. Starts at
+ * `grid-rows-[0fr]` (0 height) and flips to `grid-rows-[1fr]` one animation
+ * frame after mount, so the browser has a "from" state to actually
+ * transition from (mounting directly at the target state would just snap
+ * open with no animation).
+ */
+function MobileNavDisclosure({ active }: { active?: 'careers' | undefined }) {
+  const [entered, setEntered] = useState(false)
+
+  useEffect(() => {
+    const raf = requestAnimationFrame(() => setEntered(true))
+    return () => cancelAnimationFrame(raf)
+  }, [])
+
+  return (
+    <div
+      className={cn(
+        ENTER_TRANSITION_CLASS,
+        entered ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+      )}
+    >
+      <nav
+        aria-label="Primary mobile"
+        className="mx-auto flex max-w-[1200px] min-h-0 flex-col gap-1 overflow-hidden px-5 pt-3.5 pb-5"
+      >
+        <Link to="/" hash="services" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+          Services
+        </Link>
+        <Link to="/" hash="work" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+          Work
+        </Link>
+        <Link
+          to="/careers"
+          aria-current={active === 'careers' ? 'page' : undefined}
+          className={cn(
+            NAV_LINK_CLASS,
+            'px-1 py-3.5 text-[1.05rem]',
+            active === 'careers' && 'text-foreground',
+          )}
+        >
+          Careers
+        </Link>
+        <Link to="/" hash="contact" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+          Contact
+        </Link>
+        <Button asChild block className="mt-3">
+          <Link to="/" hash="contact">
+            Start a project
+          </Link>
+        </Button>
+      </nav>
+    </div>
   )
 }

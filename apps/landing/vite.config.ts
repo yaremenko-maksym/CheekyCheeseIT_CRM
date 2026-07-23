@@ -44,6 +44,46 @@ export default defineConfig({
       '@crm/shared': path.resolve(__dirname, '../../packages/shared/src/index.ts'),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        // Same rationale as apps/web/vite.config.ts's perf-pass manualChunks
+        // (project_ui_perf_pass memory), scaled down for the landing's much
+        // smaller dependency set: split the single ~527 KB vendor bundle so a
+        // route only pays parse/compile cost for what it actually uses, and
+        // browsers can fetch+start-parsing chunks in parallel instead of one
+        // long blocking download (task-landing-seo-prerender.md §3 mobile
+        // Lighthouse budget). Order matters — specific before general.
+        manualChunks: (id: string): string | undefined => {
+          if (
+            id.includes('node_modules/react/') ||
+            id.includes('node_modules/react-dom/') ||
+            id.includes('node_modules/scheduler/')
+          ) {
+            return 'vendor-react'
+          }
+          if (id.includes('node_modules/@tanstack/')) {
+            return 'vendor-tanstack'
+          }
+          if (id.includes('node_modules/framer-motion/')) {
+            return 'vendor-motion'
+          }
+          if (id.includes('node_modules/lucide-react/')) {
+            return 'vendor-icons'
+          }
+          // Deliberately NOT a catch-all `vendor-misc` bucket here (unlike
+          // apps/web): grouping EVERY remaining node_modules dep into one
+          // shared chunk would pull react-markdown/remark-gfm (used only by
+          // `/careers/:slug`) into every route's import graph, undoing
+          // autoCodeSplitting's per-route isolation. Anything not matched
+          // above (zod, clsx, react-markdown, ...) is left to Rollup's own
+          // automatic per-entry chunking, which already keeps it correctly
+          // route-scoped.
+          return undefined
+        },
+      },
+    },
+  },
   plugins: [
     TanStackRouterVite({
       routesDirectory: './app/routes',
