@@ -3,6 +3,26 @@
 
 @custom-variant dark (&:is(.dark *));
 
+/* task-landing-seo-prerender.md §3 — self-hosted Inter (was Google Fonts CDN,
+   see index.html preload comment). Variable font, latin subset only (site
+   copy is 100% English, `lang="en"`) — extracted 1:1 from Google's own css2
+   API response for the exact axes we request (ital,opsz,wght). `font-weight:
+   100 900` + `font-optical-sizing: auto` (browser default) covers the whole
+   variable range without listing every static weight. `font-display: swap`
+   avoids invisible-text-on-load (matches Google's own default for this
+   family) — the JetBrains Mono `@font-face` block still comes from Google
+   Fonts CDN (see index.html), unaffected by this change. */
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/inter-variable-latin.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

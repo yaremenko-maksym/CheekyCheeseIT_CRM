@@ -20,6 +20,18 @@ export default defineConfig({
   },
   preview: {
     port: 3002,
+    proxy: {
+      // Same override pattern as `server.proxy` above — `scripts/prerender.mjs`
+      // sets VITE_PROXY_API_TARGET=$PRERENDER_API_ORIGIN before starting this
+      // preview server programmatically, so the SPA's client-side
+      // `fetch('/api/...')` (TanStack loaders) resolve against the real
+      // vacancies API while every route is being snapshotted headlessly
+      // (task-landing-seo-prerender.md §1).
+      '/api': {
+        target: process.env['VITE_PROXY_API_TARGET'] ?? 'http://localhost:3001',
+        changeOrigin: true,
+      },
+    },
   },
   resolve: {
     alias: {
@@ -36,6 +48,12 @@ export default defineConfig({
     TanStackRouterVite({
       routesDirectory: './app/routes',
       generatedRouteTree: './app/routeTree.gen.ts',
+      // Same as apps/web/vite.config.ts (perf pass, see
+      // project_ui_perf_pass memory) — each route's component/loader gets its
+      // own chunk instead of one eager bundle. On the landing this keeps
+      // react-markdown/remark-gfm (only used by `/careers/:slug`) out of the
+      // `/` critical path (task-landing-seo-prerender.md §3).
+      autoCodeSplitting: true,
     }),
     react(),
     tailwindcss(),

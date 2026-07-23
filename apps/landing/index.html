@@ -10,10 +10,26 @@
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16.png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <!-- Inter (body/heading font, incl. the hero H1 LCP element) is
+         self-hosted — see app/styles/globals.css `@font-face` +
+         public/fonts/inter-variable-latin.woff2 (task-landing-seo-prerender.md
+         §3). This preload is the highest-leverage LCP fix in that task: it
+         collapses "fetch CSS from googleapis.com, then fetch the font file
+         from gstatic.com" (2 cross-origin round trips) down to 1 same-origin
+         fetch that starts in parallel with everything else. -->
+    <link
+      rel="preload"
+      as="font"
+      type="font/woff2"
+      href="/fonts/inter-variable-latin.woff2"
+      crossorigin
+    />
+    <!-- JetBrains Mono (terminal/eyebrow labels only, not LCP-critical) stays
+         on Google Fonts CDN. -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,100..900;1,14..32,100..900&family=JetBrains+Mono:wght@400;500;600;700&display=swap"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&display=swap"
       rel="stylesheet"
     />
     <!-- Cloudflare Turnstile — public vacancy-apply form spam guard (VacancyApplyForm).
