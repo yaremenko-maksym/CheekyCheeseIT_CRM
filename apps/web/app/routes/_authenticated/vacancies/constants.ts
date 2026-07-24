@@ -6,6 +6,7 @@
  * seniority (spec §0 / §3.5 / §3.6 — deliberate exceptions, not oversights).
  */
 import type {
+  Vacancy,
   VacancyApplicationStatus,
   VacancyDomain,
   VacancyEmploymentType,
@@ -69,6 +70,33 @@ export const VACANCY_STATUS_BADGE: Record<
   DRAFT: { variant: 'secondary' },
   PUBLISHED: { variant: 'status-active' },
   CLOSED: { variant: 'secondary', className: 'border-red-500/30 bg-red-500/15 text-red-400' },
+}
+
+// ---------------------------------------------------------------------------
+// task-vacancy-delete-closed — delete gate, mirrors `VacanciesService.remove`
+// (apps/api/src/vacancies/vacancies.service.ts). DRAFT or CLOSED with zero
+// applications may be deleted; PUBLISHED must be closed first; anything with
+// applications never can (R2 resume files + history, cleaned only by the
+// retention cron). Shared by `VacancyCard` (list) and `$vacancyId` (Опасная
+// зона) instead of duplicating the same two-branch logic in both files.
+// ---------------------------------------------------------------------------
+
+export interface VacancyDeleteGate {
+  canDelete: boolean
+  /** Only meaningful when `canDelete` is false — reason shown in the Tooltip. */
+  tooltip: string
+}
+
+export function getVacancyDeleteGate(
+  vacancy: Pick<Vacancy, 'status' | 'applicationsCount'>,
+): VacancyDeleteGate {
+  if (vacancy.status === 'PUBLISHED') {
+    return { canDelete: false, tooltip: 'Опубликованную вакансию нужно сначала закрыть' }
+  }
+  return {
+    canDelete: vacancy.applicationsCount === 0,
+    tooltip: 'Нельзя удалить вакансию с откликами',
+  }
 }
 
 // ---------------------------------------------------------------------------
