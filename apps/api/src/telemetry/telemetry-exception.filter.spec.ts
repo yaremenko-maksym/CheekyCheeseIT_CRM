@@ -27,6 +27,27 @@ function makeHttpAdapterHost(): HttpAdapterHost {
   } as unknown as HttpAdapterHost
 }
 
+/**
+ * `TelemetryExceptionFilter` deliberately does NOT take `HttpAdapterHost` as
+ * a constructor param (see that file's own doc comment — capturing it
+ * eagerly at construction time froze a still-`undefined` adapter and crashed
+ * every response; fixed by relying on `BaseExceptionFilter`'s own `protected
+ * readonly httpAdapterHost` PROPERTY, which Nest's DI populates via property
+ * injection when it constructs the instance itself).
+ *
+ * These are hand-constructed unit tests (`new TelemetryExceptionFilter(...)`,
+ * no Nest DI container involved), so nothing performs that property
+ * injection here — this helper does it manually, standing in for what Nest's
+ * `Injector.loadInstance()` would do. `readonly` is TypeScript-only (not
+ * enforced at runtime), so a direct assignment through an `unknown` cast is
+ * the correct, minimal way to simulate it in a plain unit test.
+ */
+function withHttpAdapter(filter: TelemetryExceptionFilter): TelemetryExceptionFilter {
+  ;(filter as unknown as { httpAdapterHost: HttpAdapterHost }).httpAdapterHost =
+    makeHttpAdapterHost()
+  return filter
+}
+
 function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setImmediate(resolve))
 }
@@ -57,7 +78,7 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
   it('does NOT record an error for a request to /api/telemetry/* (recursion guard)', async () => {
     const recordError = vi.fn().mockResolvedValue(undefined)
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
-    const filter = new TelemetryExceptionFilter(makeHttpAdapterHost(), telemetryErrors)
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
     const host = makeHost('/api/telemetry/events')
 
     filter.catch(new Error('boom inside telemetry ingest'), host)
@@ -69,7 +90,7 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
   it('records a 5xx error for a NORMAL route', async () => {
     const recordError = vi.fn().mockResolvedValue(undefined)
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
-    const filter = new TelemetryExceptionFilter(makeHttpAdapterHost(), telemetryErrors)
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
     const host = makeHost('/api/finance/transactions', { id: 'u1', role: 'SENIOR' })
 
     filter.catch(new Error('unexpected DB failure'), host)
@@ -90,7 +111,7 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
   it('does NOT record a 4xx HttpException (only 5xx/unhandled)', async () => {
     const recordError = vi.fn().mockResolvedValue(undefined)
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
-    const filter = new TelemetryExceptionFilter(makeHttpAdapterHost(), telemetryErrors)
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
     const host = makeHost('/api/finance/transactions')
 
     filter.catch(new HttpException('Not Found', HttpStatus.NOT_FOUND), host)
@@ -102,7 +123,7 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
   it('records a 500 HttpException', async () => {
     const recordError = vi.fn().mockResolvedValue(undefined)
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
-    const filter = new TelemetryExceptionFilter(makeHttpAdapterHost(), telemetryErrors)
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
     const host = makeHost('/api/finance/transactions')
 
     filter.catch(new HttpException('Internal Server Error', HttpStatus.INTERNAL_SERVER_ERROR), host)
@@ -114,7 +135,7 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
   it('still produces a response (via BaseExceptionFilter) even when recordError itself throws — does not break the response (AC4)', async () => {
     const recordError = vi.fn().mockRejectedValue(new Error('DB unreachable'))
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
-    const filter = new TelemetryExceptionFilter(makeHttpAdapterHost(), telemetryErrors)
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
     const host = makeHost('/api/finance/transactions')
 
     // Must not throw synchronously, and must not reject — the whole point of
@@ -126,7 +147,7 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
   it('handles a request with no authenticated user (userId/userRole undefined)', async () => {
     const recordError = vi.fn().mockResolvedValue(undefined)
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
-    const filter = new TelemetryExceptionFilter(makeHttpAdapterHost(), telemetryErrors)
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
     const host = makeHost('/api/health')
 
     filter.catch(new Error('boom'), host)

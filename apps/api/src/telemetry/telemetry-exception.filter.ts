@@ -1,5 +1,13 @@
-import { ArgumentsHost, Catch, HttpException, HttpStatus, Injectable, Logger } from '@nestjs/common'
-import { BaseExceptionFilter, HttpAdapterHost } from '@nestjs/core'
+import {
+  ArgumentsHost,
+  Catch,
+  HttpException,
+  HttpStatus,
+  Inject,
+  Injectable,
+  Logger,
+} from '@nestjs/common'
+import { BaseExceptionFilter } from '@nestjs/core'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
 import { TelemetryErrorsService } from './telemetry-errors.service'
@@ -28,6 +36,23 @@ import { TelemetryErrorsService } from './telemetry-errors.service'
  * here, by URL prefix — this is the ONE thing that would otherwise create a
  * feedback loop (a bug in the ingest/digest endpoints themselves generating
  * telemetry_errors rows about telemetry itself).
+ *
+ * `super()` is called with NO arguments (no eagerly-captured `httpAdapter`)
+ * deliberately — `BaseExceptionFilter` itself declares an `@Optional()
+ * @Inject() httpAdapterHost: HttpAdapterHost` PROPERTY and, inside its own
+ * `catch()`, resolves the adapter LAZILY (`this.applicationRef ||
+ * this.httpAdapterHost.httpAdapter`) at CALL time, not construction time.
+ * `HttpAdapterHost.httpAdapter` is only populated once `createNestApplication()`
+ * runs — which can happen AFTER this filter is instantiated (Nest eagerly
+ * constructs providers during module bootstrap, in both `NestFactory.create()`
+ * and, more visibly, `@nestjs/testing`'s two-phase `.compile()` →
+ * `createNestApplication()` flow). Capturing `httpAdapterHost.httpAdapter`
+ * in the constructor (an earlier version of this file did) freezes that
+ * still-`undefined` value forever and crashes every response with "Cannot
+ * read properties of undefined (reading 'isHeadersSent')" — reproduced by
+ * `telemetry.integration.spec.ts`'s real Nest DI lifecycle (a plain
+ * hand-rolled unit-test mock of `ArgumentsHost`/`HttpAdapterHost` can't catch
+ * this class of bug, which is exactly why that integration spec exists).
  */
 @Injectable()
 @Catch()
@@ -35,10 +60,9 @@ export class TelemetryExceptionFilter extends BaseExceptionFilter {
   private readonly logger = new Logger(TelemetryExceptionFilter.name)
 
   constructor(
-    httpAdapterHost: HttpAdapterHost,
-    private readonly telemetryErrors: TelemetryErrorsService,
+    @Inject(TelemetryErrorsService) private readonly telemetryErrors: TelemetryErrorsService,
   ) {
-    super(httpAdapterHost.httpAdapter)
+    super()
   }
 
   catch(exception: unknown, host: ArgumentsHost): void {
