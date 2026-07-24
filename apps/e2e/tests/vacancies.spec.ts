@@ -82,21 +82,19 @@ function buildMinimalPdf(): Buffer {
 }
 
 /**
- * Fills the 3 free-text fields shared by the create Sheet (spec §4.2).
+ * Fills the 2 free-text fields shared by the create Sheet (spec §4.2).
  * `scope` is the Sheet's own Locator — every field carries a stable
  * `data-testid` (VacancyFormFields.tsx) except the Markdown body, which is a
  * CodeMirror `.cm-content` contenteditable (`.fill()` verified live against
  * this exact pipeline — it correctly reaches TanStack Form's `onChange`,
  * unlike a raw `pressSequentially` which would be slower for no benefit).
- * Domain/seniority/employment-type are left at their form defaults
- * (AI / Senior / Полная занятость) — not part of any AC here.
+ * Domain/employment-type are left at their form defaults (AI / Полная
+ * занятость) — not part of any AC here. «Уровень»/«Локация» controls no
+ * longer exist (task-vacancies-form-simplify) — every vacancy defaults to
+ * SENIOR/Remote via `createVacancySchema`, asserted on the card below.
  */
-async function fillVacancyForm(
-  scope: Locator,
-  fields: { title: string; location: string; descriptionMd: string },
-) {
+async function fillVacancyForm(scope: Locator, fields: { title: string; descriptionMd: string }) {
   await scope.getByTestId('vacancy-form-title').fill(fields.title)
-  await scope.getByTestId('vacancy-form-location').fill(fields.location)
   await scope.locator('.cm-content').fill(fields.descriptionMd)
 }
 
@@ -144,7 +142,6 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
 
     await fillVacancyForm(sheet, {
       title,
-      location: 'Remote',
       descriptionMd: 'E2E full-flow spec description for the vacancy under test.',
     })
     // Auto-slug: slugifyTitle(title) — verifies §4.2's auto-link behaviour.
@@ -160,6 +157,12 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     vacancyId = cardTestId!.replace('vacancy-card-', '')
 
     await expect(card.getByTestId(`vacancy-status-badge-${vacancyId}`)).toHaveText('Черновик')
+
+    // task-vacancies-form-simplify AC2: «Уровень»/«Локация» controls are
+    // gone — the create form no longer sets them, so the card must show the
+    // schema's defaults (createVacancySchema.seniority/location).
+    await expect(card).toContainText('Senior')
+    await expect(card).toContainText('Remote')
 
     // Publish — exact testid (NOT a prefix match: a `-mobile-` sibling button
     // shares the `vacancy-publish-` prefix, see playwright-patterns skill).
