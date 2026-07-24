@@ -7,6 +7,7 @@ import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
+import { trackFeatureClick } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
@@ -351,13 +352,21 @@ function TransactionsTable({
           <>
             <FilterSelect
               value={typeFilter}
-              onChange={setTypeFilter}
+              onChange={(v) => {
+                setTypeFilter(v)
+                // task-telemetry-web: Select onValueChange, not a DOM click —
+                // the delegated [data-track] listener never sees it.
+                trackFeatureClick('finance-filter-change')
+              }}
               placeholder="Все типы"
               options={TYPE_OPTIONS}
             />
             <FilterSelect
               value={statusFilter}
-              onChange={setStatusFilter}
+              onChange={(v) => {
+                setStatusFilter(v)
+                trackFeatureClick('finance-filter-change')
+              }}
               placeholder="Все статусы"
               options={STATUS_OPTIONS}
             />

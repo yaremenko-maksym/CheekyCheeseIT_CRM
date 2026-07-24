@@ -16,6 +16,7 @@ import { cn } from '@/lib/utils'
 import { useAuth } from '@/context/auth'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import { api } from '@/lib/axios'
+import { trackFeatureClick } from '@/lib/telemetry'
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -565,6 +566,9 @@ function TeamPage() {
   ]
   const currentTeamTab: TeamTab = isArchivedView ? 'ARCHIVED' : teamFilter
   const handleTeamTabChange = (next: TeamTab) => {
+    // task-telemetry-web: SegmentedToggle's onChange, not a DOM click on a
+    // [data-track] element — fired manually.
+    trackFeatureClick('team-filter-change')
     // ut-32: wrap navigation in startTransition so the gold-pill layout
     // animation isn't preempted by the query refetch render.
     startTransition(() => {
