@@ -109,6 +109,41 @@ describe('vacancies schemas', () => {
     })
   })
 
+  describe('createVacancySchema — seniority/location defaults (task-vacancies-form-simplify)', () => {
+    const base = {
+      title: 'Senior Frontend Engineer',
+      slug: 'senior-frontend-engineer',
+      descriptionMd: 'A great role with plenty of details to write about.',
+      domain: 'AI' as const,
+      employmentType: 'FULL_TIME' as const,
+    }
+
+    it('defaults seniority to SENIOR when omitted', () => {
+      const result = createVacancySchema.safeParse(base)
+      expect(result.success).toBe(true)
+      if (result.success) expect(result.data.seniority).toBe('SENIOR')
+    })
+
+    it('defaults location to Remote when omitted', () => {
+      const result = createVacancySchema.safeParse(base)
+      expect(result.success).toBe(true)
+      if (result.success) expect(result.data.location).toBe('Remote')
+    })
+
+    it('still accepts an explicit seniority/location override (e.g. a direct API caller)', () => {
+      const result = createVacancySchema.safeParse({
+        ...base,
+        seniority: 'LEAD',
+        location: 'Berlin',
+      })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.seniority).toBe('LEAD')
+        expect(result.data.location).toBe('Berlin')
+      }
+    })
+  })
+
   describe('updateVacancySchema', () => {
     it('accepts a partial update with only status', () => {
       const result = updateVacancySchema.safeParse({ status: 'PUBLISHED' })
@@ -118,11 +153,49 @@ describe('vacancies schemas', () => {
     it('accepts an empty object (no-op update)', () => {
       const result = updateVacancySchema.safeParse({})
       expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.seniority).toBeUndefined()
+        expect(result.data.location).toBeUndefined()
+      }
     })
 
     it('rejects an invalid status value', () => {
       const result = updateVacancySchema.safeParse({ status: 'ARCHIVED' })
       expect(result.success).toBe(false)
+    })
+
+    // Regression pin (task-vacancies-form-simplify): Zod v4 applies `.default()`
+    // even inside `.optional()`-wrapped fields, so a naive
+    // `createVacancySchema.partial()` would silently inject seniority/location
+    // defaults into ANY partial update that omits them — e.g. a pure status
+    // transition `{ status: 'CLOSED' }` would incorrectly reset an existing
+    // LEAD / on-site vacancy back to SENIOR/Remote. `updateVacancySchema`
+    // must keep "omitted key = unchanged" semantics for these two fields.
+    it('a partial update touching only title does NOT inject seniority/location defaults', () => {
+      const result = updateVacancySchema.safeParse({ title: 'New Title Only' })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.seniority).toBeUndefined()
+        expect(result.data.location).toBeUndefined()
+      }
+    })
+
+    it('a pure status transition does NOT inject seniority/location defaults', () => {
+      const result = updateVacancySchema.safeParse({ status: 'CLOSED' })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.seniority).toBeUndefined()
+        expect(result.data.location).toBeUndefined()
+      }
+    })
+
+    it('still accepts an explicit seniority/location override', () => {
+      const result = updateVacancySchema.safeParse({ seniority: 'LEAD', location: 'Kyiv' })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.seniority).toBe('LEAD')
+        expect(result.data.location).toBe('Kyiv')
+      }
     })
   })
 

@@ -113,13 +113,13 @@ describe('VacancySheet — auto-slug generation (§4.2)', () => {
 describe('VacancySheet — create mode submit', () => {
   beforeEach(() => apiPost.mockClear())
 
-  it('submits POST /vacancies with the trimmed, filled-in payload', async () => {
+  // task-vacancies-form-simplify: «Уровень»/«Локация» controls are removed —
+  // the payload never comes from user input for these two fields; the
+  // schema's `.default()` fills them (createVacancySchema.seniority/location).
+  it('submits POST /vacancies with the trimmed payload — seniority/location default to SENIOR/Remote', async () => {
     renderSheet(null)
     fireEvent.change(screen.getByTestId('vacancy-form-title'), {
       target: { value: '  Senior React Developer  ' },
-    })
-    fireEvent.change(screen.getByTestId('vacancy-form-location'), {
-      target: { value: '  Киев  ' },
     })
     fireEvent.change(screen.getByTestId('vacancy-form-description'), {
       target: { value: 'A long enough description for validation.' },
@@ -132,10 +132,10 @@ describe('VacancySheet — create mode submit', () => {
     expect(payload).toMatchObject({
       title: 'Senior React Developer',
       slug: 'senior-react-developer',
-      location: 'Киев',
       domain: 'AI',
       seniority: 'SENIOR',
       employmentType: 'FULL_TIME',
+      location: 'Remote',
     })
   })
 
@@ -151,23 +151,41 @@ describe('VacancySheet — create mode submit', () => {
 describe('VacancySheet — edit mode', () => {
   beforeEach(() => apiPatch.mockClear())
 
-  it('pre-fills all fields from the given vacancy', () => {
+  it('pre-fills the remaining fields from the given vacancy (no Уровень/Локация controls)', () => {
     renderSheet(EXISTING_VACANCY)
     expect(screen.getByTestId('vacancy-form-title')).toHaveValue('Existing Title')
-    expect(screen.getByTestId('vacancy-form-location')).toHaveValue('Львов')
     expect(screen.getByTestId('vacancy-form-description')).toHaveValue('Existing description here.')
+    expect(screen.queryByTestId('vacancy-form-seniority')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('vacancy-form-location')).not.toBeInTheDocument()
     expect(screen.getByText('Сохранить изменения')).toBeInTheDocument()
   })
 
   it('submits PATCH /vacancies/:id', async () => {
     renderSheet(EXISTING_VACANCY)
-    fireEvent.change(screen.getByTestId('vacancy-form-location'), {
-      target: { value: 'Одесса' },
+    fireEvent.change(screen.getByTestId('vacancy-form-title'), {
+      target: { value: 'Updated Title' },
     })
     fireEvent.click(screen.getByTestId('vacancy-sheet-submit'))
     await waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1))
     const [url, payload] = apiPatch.mock.calls[0] as [string, Record<string, unknown>]
     expect(url).toBe('/vacancies/vac-1')
-    expect(payload).toMatchObject({ location: 'Одесса' })
+    expect(payload).toMatchObject({ title: 'Updated Title' })
+  })
+
+  // Regression pin (task-vacancies-form-simplify AC2 "редактирование
+  // существующих не ломается"): EXISTING_VACANCY is seniority: 'LEAD',
+  // location: 'Львов' — since the form no longer collects either field, the
+  // PATCH payload must never carry them (updateVacancySchema then treats
+  // them as "no change", the backend keeps LEAD/Львов as-is).
+  it('edit-mode PATCH payload never includes seniority/location (existing LEAD/Львов vacancy is left untouched)', async () => {
+    renderSheet(EXISTING_VACANCY)
+    fireEvent.change(screen.getByTestId('vacancy-form-title'), {
+      target: { value: 'Renamed' },
+    })
+    fireEvent.click(screen.getByTestId('vacancy-sheet-submit'))
+    await waitFor(() => expect(apiPatch).toHaveBeenCalledTimes(1))
+    const [, payload] = apiPatch.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload).not.toHaveProperty('seniority')
+    expect(payload).not.toHaveProperty('location')
   })
 })
