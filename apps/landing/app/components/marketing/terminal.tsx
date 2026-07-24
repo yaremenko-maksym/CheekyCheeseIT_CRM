@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useReducedMotion } from 'framer-motion'
+import { wasRootPrerendered } from '@/lib/prerender-hint'
 
 /**
  * Hero "live" code terminal (landing-redesign.md §2.4 `Terminal`, evolution
@@ -10,7 +11,26 @@ import { useReducedMotion } from 'framer-motion'
  *
  * `role="img"` + a whole-terminal `aria-label` — assistive tech must not
  * read the per-character typing animation (§9).
+ *
+ * Prerender-hydration flash fix (ui-ux-designer Mode B fidelity review,
+ * PR #398 — HIGH): `scripts/prerender.mjs` captures `/` with the first
+ * snippet already fully typed (its `preparePage()` emulates
+ * `prefers-reduced-motion: reduce` for the capture, hitting the branch
+ * below that sets `revealed` to the full length immediately), so a real
+ * visitor's browser paints that complete snippet BEFORE any client JS
+ * runs. Without special-casing that, this component's normal mount
+ * behavior — reset `revealed` to 0 and type from scratch — would erase the
+ * already-painted code and visibly retype it over ~2-3s on every load of
+ * `/`. `terminalHasMountedOnce` (module-level, NOT component state — it
+ * must survive this component unmounting/remounting on SPA navigation
+ * within the SAME page load) + `wasRootPrerendered()` together identify
+ * ONLY the genuine first mount of a prerendered load: that one starts from
+ * the already-typed state and cycles straight to the next snippet: a
+ * later home -> careers -> home SPA-navigation remount has no prerendered
+ * DOM to preserve and types normally, exactly like before prerendering
+ * existed.
  */
+let terminalHasMountedOnce = false
 
 interface Snippet {
   file: string
@@ -219,11 +239,32 @@ const NEXT_SNIPPET_DELAY_MS = 400
 export function Terminal() {
   const reducedMotion = useReducedMotion()
   const [snapIdx, setSnapIdx] = useState(0)
-  const [revealed, setRevealed] = useState(0)
   const curRef = useRef<FlatCode>(buildFlat(SNIPPETS[0]!.code))
+  // Lazy initializers below run during THIS render only (React guarantees a
+  // `useState` lazy initializer runs exactly once for a given mount) — a
+  // plain read of the module flag, no mutation during render (mutating it
+  // here would double-fire under StrictMode's dev-only double-render).
+  // `curRef` is declared above so its initial value is already set by the
+  // time `revealed`'s initializer reads it.
+  const [skipInitialTyping] = useState(() => !terminalHasMountedOnce && wasRootPrerendered())
+  // Matches the DOM `scripts/prerender.mjs` already painted (or, for a
+  // genuine first mount, the plain empty start) with ZERO intermediate
+  // "reset to empty" render — not just an effect correcting it a tick
+  // later — so a screenshot taken immediately post-hydration is pixel-for-
+  // pixel identical to the pre-hydration prerendered screenshot.
+  const [revealed, setRevealed] = useState(() =>
+    skipInitialTyping ? curRef.current.flat.length : 0,
+  )
   const timerRef = useRef<ReturnType<typeof setTimeout>>()
 
   useEffect(() => {
+    // Commit-phase, not render-phase: guaranteed to run exactly once per
+    // real mount in production (StrictMode's dev-only double-invoke of
+    // effects doesn't apply outside development, see this component's
+    // module doc), so this can safely be the one place that "spends" the
+    // module flag.
+    terminalHasMountedOnce = true
+
     if (reducedMotion) {
       curRef.current = buildFlat(SNIPPETS[0]!.code)
       setSnapIdx(0)
@@ -233,8 +274,17 @@ export function Terminal() {
 
     let cancelled = false
     let localSnap = 0
-    curRef.current = buildFlat(SNIPPETS[0]!.code)
-    setRevealed(0)
+
+    const scheduleNext = () => {
+      timerRef.current = setTimeout(() => {
+        if (cancelled) return
+        localSnap = (localSnap + 1) % SNIPPETS.length
+        curRef.current = buildFlat(SNIPPETS[localSnap]!.code)
+        setSnapIdx(localSnap)
+        setRevealed(0)
+        timerRef.current = setTimeout(tick, NEXT_SNIPPET_DELAY_MS)
+      }, SNIPPET_PAUSE_MS)
+    }
 
     const tick = () => {
       if (cancelled) return
@@ -242,14 +292,7 @@ export function Terminal() {
       setRevealed((prev) => {
         const next = prev + 1
         if (next >= flat.length) {
-          timerRef.current = setTimeout(() => {
-            if (cancelled) return
-            localSnap = (localSnap + 1) % SNIPPETS.length
-            curRef.current = buildFlat(SNIPPETS[localSnap]!.code)
-            setSnapIdx(localSnap)
-            setRevealed(0)
-            timerRef.current = setTimeout(tick, NEXT_SNIPPET_DELAY_MS)
-          }, SNIPPET_PAUSE_MS)
+          scheduleNext()
           return flat.length
         }
         const ch = flat[prev]?.ch ?? ''
@@ -262,7 +305,19 @@ export function Terminal() {
       })
     }
 
-    timerRef.current = setTimeout(tick, 16)
+    if (skipInitialTyping) {
+      // `revealed`'s lazy initializer above already rendered snippet 0
+      // fully typed on this mount's first paint — do NOT reset it back to
+      // 0 (that would be exactly the erase-and-retype flash this fix
+      // exists to remove). Go straight to "pause, then type the next
+      // snippet", same cadence as a normal end-of-snippet transition.
+      scheduleNext()
+    } else {
+      curRef.current = buildFlat(SNIPPETS[0]!.code)
+      setRevealed(0)
+      timerRef.current = setTimeout(tick, 16)
+    }
+
     return () => {
       cancelled = true
       clearTimeout(timerRef.current)
