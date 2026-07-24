@@ -40,8 +40,15 @@ export function TechStackChips({ stack }: { stack: string[] }) {
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'start 0.6'] })
 
   if (reduced) {
+    // `ref` MUST still be attached here even though its value goes unused —
+    // `useScroll({ target: ref })` above already committed to measuring
+    // this ref; permanently never attaching it (as an earlier version of
+    // this component did) throws framer-motion's "Target ref is defined but
+    // not hydrated" error the moment its internal effect looks for a DOM
+    // node that will never arrive, crashing the whole route under
+    // `prefers-reduced-motion: reduce` (caught by E2E, not unit tests).
     return (
-      <div className="flex flex-wrap gap-3">
+      <div ref={ref} className="flex flex-wrap gap-3">
         {stack.map((tech) => (
           <Chip key={tech}>{tech}</Chip>
         ))}
