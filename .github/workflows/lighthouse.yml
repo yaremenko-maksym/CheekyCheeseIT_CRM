@@ -8,7 +8,9 @@ name: Lighthouse CI (landing)
 # Config: scripts/devops/lighthouserc.json (mobile + desktop share the same
 # assertion thresholds; the `preset: desktop` override is applied per matrix
 # leg via the --collect.settings.preset CLI flag, which deep-merges into the
-# JSON config's `collect.settings`).
+# JSON config's `collect.settings`). numberOfRuns=5 with median aggregation —
+# resilience against single-outlier runs on noisy shared runners (2026-07-24
+# mobile-leg flakes; rationale in the config's $comment fields).
 #
 # @lhci/cli is invoked via `npx --yes` — intentionally NOT added to
 # apps/landing/package.json or root package.json (see
@@ -33,7 +35,9 @@ jobs:
   lighthouse:
     name: Lighthouse (${{ matrix.profile }})
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 15 (was 10): numberOfRuns 3 -> 5 adds ~1.5-2 min per leg (observed total
+    # ~3 min at 3 runs incl. install+build); headroom for slow shared runners.
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
