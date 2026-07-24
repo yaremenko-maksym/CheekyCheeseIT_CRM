@@ -1,6 +1,12 @@
 # landing-redesign — coder-ready spec (ui-ux-designer Mode E)
 
-**Статус:** экспорт Claude Design реконсилирован в coder-spec 2026-07-23 (Mode E).
+**Статус:** экспорт Claude Design реконсилирован в coder-spec 2026-07-23 (Mode E). **Обновлено
+2026-07-24:** добавлен §M «Motion-спека v2» — владелец счёл §5 недостаточно живой («не вижу
+активного применения анимаций»); §M расширяет §5 до scroll-progress-driven анимаций per-секция,
+полного hover-языка на всех интерактивных элементах, брендированных page-transitions между
+роутами и плавной in-page навигации. §5 остаётся в силе как база (typewriter-тайминги,
+reduced-motion double-guard, hero above-the-fold правило) — §M его дополняет/апгрейдит явно
+помеченными местами, не дублирует.
 **Claude Design проект:** https://claude.ai/design/p/9c07d82e-ea1b-4b84-a8a1-94aa5210f051
 **Дизайн-система:** `CheekyCheeseIT CRM` (synced) — токены/oklch-значения экспорта **1:1 совпадают**
 с `apps/landing/app/styles/globals.css` (проверено построчным diff, см. §3). Никаких новых
@@ -186,6 +192,12 @@ base-токенов вводить не нужно.
 
 Уже в deps (`framer-motion ^12.0.0`). Принцип продуктовой спеки: «премиум-сдержанные», НЕ
 WebGL/3D, `prefers-reduced-motion` уважается.
+
+> **v2 (2026-07-24):** §5.1's `Reveal` (one-shot `whileInView`) **апгрейднут** в §M.1 до
+> progress-linked scroll-reveal (не one-shot). Terminal-typewriter тайминги, prerender-safety
+> механика и double-guard reduced-motion ниже — **остаются канон**, §M на них ссылается, не
+> переопределяет. Hover-язык (ранее только кнопки/чипы) — полностью покрыт в §M.2. Page-transitions
+> и in-page smooth-scroll — новые темы, §M.3/§M.4.
 
 ### 5.1. Паттерны
 
@@ -465,3 +477,410 @@ per продуктовая спека §2.3).
 - [ ] Contrast-check (axe/Playwright) на domain-tag цветах и primary-на-чёрном.
 - [ ] Diff со скриншотами §7 (spacing rhythm, иерархия, токены, плотность) — per
       `design-fidelity-review.md`.
+
+---
+
+## M. Motion-спека v2 (2026-07-24, дополняет §5)
+
+**Запрос владельца (дословно):** «Я не вижу активного применения анимаций и какой-либо фантазии.
+Добавь каждому блоку жизни; на скролл — интересная анимация, зависящая от текущего положения
+скролла; при наведении на элементы нет анимаций. Придумай и имплементируй page transition
+анимации между всеми страницами (не просто перерендер контента, а креативный переход)... Лендинг
+должен ощущаться живым и откликаться на действия пользователя красиво.» + доп. владельца (через
+координатора, тем же днём): скролл при навигации к якорям/между страницами должен быть **плавным**,
+не моментальным.
+
+**Референс текущего состояния** (для контекста, живой прод 2026-07-24): hero/терминал/careers уже
+соответствуют §1-§9 визуально (тёмный фон, жёлтый акцент, терминал с живым тайпрайтером) — но
+анимация ограничена one-shot `whileInView`-reveal + точечными hover на кнопках/картах. Ниже —
+что добавляется/апгрейдится, БЕЗ переработки визуального языка §0-§9 (тон/токены/раскладка не
+меняются, меняется только _движение_).
+
+**Область действия §M:** только `apps/landing/**`. `apps/web` (CRM) не затрагивается — это
+отдельный workspace/дизайн-язык (см. §2.3).
+
+**Жёсткие ограничения (владелец, не пересматриваются):**
+
+- Lighthouse CI ≥90 медиана **mobile** — не регрессирует. Всё ниже — `transform`/`opacity` (+
+  `translateX`/`translateY`/`scaleX`/`scaleY`) на GPU-composited слоях, НЕ `clip-path`/`width`/
+  `height`/`top`/`left` (layout-трэш) — см. §M.3, где это явно было решающим фактором дизайна
+  page-transition. Scroll-listener'ы — `passive: true`. Никаких новых тяжёлых зависимостей
+  (`framer-motion` уже есть, версия не меняется).
+- `prefers-reduced-motion: reduce` — полный выключатель декоративного: scroll-linked эффекты
+  рендерятся сразу в конечном состоянии (без анимации выезда/parallax), page-transition = мгновенный
+  свап (без wipe/crossfade), smooth-scroll = мгновенный `scrollTo` без твина. Единый флаг —
+  `useReducedMotion()` (компоненты) / `window.matchMedia('(prefers-reduced-motion: reduce)').matches`
+  (модули вне React-дерева, напр. `lib/page-transition.ts`).
+- Hero above-the-fold контракт (§5.1) и prerender-hydration fix (Terminal, PR #398) — **не
+  трогать**: hero по-прежнему виден мгновенно без entrance-анимации; связка `terminalHasMountedOnce`
+  и `wasRootPrerendered()` внутри Terminal остаётся как есть (§M.1 добавляет terminal-контейнеру
+  ТОЛЬКО scroll-linked exit-parallax при скролле мимо hero — сам typewriter внутри не трогается,
+  см. §M.1.2 — важное обоснование, почему буквальная идея «скролл доскролливает код» отклонена).
+- Тач-девайсы: hover-эффекты либо не имеют смысла без tap-эквивалента (у нас все hover-цели уже
+  и так активируются по tap/focus — CSS `:hover`/`:focus-visible` дают одинаковый визуальный
+  результат на границе тач-без-hover; ничего декоративного не завязано ИСКЛЮЧИТЕЛЬНО на mouseenter
+  кроме case-study/process-card, которые намеренно БЕЗ hover, см. §M.2).
+
+---
+
+### M.0 Motion-токены (единый язык движения)
+
+Новый файл `apps/landing/app/lib/motion.ts` — именованные константы вместо разбросанных
+inline-чисел (сейчас `duration: 0.7`, `ease: [0.2,0.6,0.2,1]` и т.д. захардкожены по месту в
+`routes/index.tsx`/`nav.tsx` — оставить как есть там, где это CSS Tailwind-transition, но ВСЕ
+НОВЫЕ JS-driven (Framer Motion `useTransform`/`animate()`) значения — только через этот модуль,
+чтобы scroll-эффекты/page-transition/smooth-scroll не разъезжались по ощущению):
+
+```ts
+// apps/landing/app/lib/motion.ts
+export const EASE_STANDARD = [0.2, 0.6, 0.2, 1] as const // сигнатурная кривая §5.1 Reveal — переиспользуется везде ниже
+export const EASE_EXIT = [0.4, 0, 1, 1] as const // короче/тише, для "исчезновений" (make-interfaces-feel-better: exit короче enter)
+
+export const DUR_REVEAL = 0.7 // section scroll-reveal (было в Reveal, не меняется)
+export const DUR_SMOOTH_SCROLL = 0.6 // in-page якорный скролл (§M.4)
+export const DUR_WIPE_IN = 0.2 // page-transition: жёлтая полоса покрывает экран (§M.3)
+export const DUR_WIPE_OUT = 0.26 // page-transition: полоса открывает новую страницу (§M.3)
+export const DUR_LIGHT_TRANSITION = 0.18 // page-transition: облегчённый back-вариант (§M.3)
+```
+
+Значения hover/press (CSS Tailwind-transitions на кнопках/картах) **токенами не становятся** —
+это `duration-200`/`duration-300` classes на Tailwind default timing-function
+(`cubic-bezier(0.4,0,0.2,1)`), уже консистентны между `button.tsx`/`card.tsx`/`chip.tsx`; §M.2
+явно называет duration-класс по месту, без изобретения параллельной системы для того, что уже
+единообразно.
+
+---
+
+### M.1 Scroll-driven анимация per-секция (progress-linked, НЕ one-shot)
+
+#### M.1.0 Принцип — апгрейд `Reveal` → `ScrollReveal`
+
+Текущий `Reveal` (`routes/index.tsx:37-59`) — `whileInView`+`viewport={{once:true}}`: спрингом
+играет ОДИН раз при пересечении 8%-порога и дальше не реагирует на скролл. Владелец просит
+«анимация, зависящая от **текущего положения** скролла» — это принципиально другой примитив:
+`useScroll`+`useTransform`, где opacity/y — **motion values, привязанные к scroll-прогрессу**, не
+к discrete triggers. Заменить `Reveal` на `ScrollReveal` во ВСЕХ местах текущего использования
+(`routes/index.tsx` — 11 вызовов) с этим паттерном:
+
+```tsx
+function ScrollReveal({
+  children,
+  className,
+  y = 26,
+}: {
+  children: ReactNode
+  className?: string
+  y?: number
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const reduced = useReducedMotion()
+  const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'start 0.6'] })
+  // 3-точечная кривая имитирует ease-out БЕЗ time-based easing (progress не время) —
+  // резкое замедление к концу диапазона, вместо линейного заезда.
+  const opacity = useTransform(scrollYProgress, [0, 1], [0, 1])
+  const yMotion = useTransform(scrollYProgress, [0, 0.6, 1], [y, y * 0.22, 0])
+  if (reduced)
+    return (
+      <div ref={ref} className={className}>
+        {children}
+      </div>
+    )
+  return (
+    <motion.div ref={ref} className={className} style={{ opacity, y: yMotion }}>
+      {children}
+    </motion.div>
+  )
+}
+```
+
+- `offset: ['start end', 'start 0.6']` (Framer Motion `useScroll` intersection-синтаксис,
+  проверено по актуальной документации): прогресс 0 когда верх секции касается низа вьюпорта
+  (секция только показалась снизу), прогресс 1 когда верх секции доходит до 60% высоты вьюпорта
+  сверху (комфортно видна, не обязательно центр — раньше «доезжает», чтобы не тянуть анимацию до
+  середины экрана на длинных секциях).
+- **Без `once`** — намеренно: если пользователь скроллит вверх обратно, секция плавно уходит в
+  исходное состояние и при повторном скролле вниз — снова появляется. Это ТОЧНО то, что просит
+  формулировка «зависящая от текущего положения скролла» (не «play once and forget»). `useTransform`
+  по умолчанию clamp'ит на границах диапазона — вне `[0,1]` progress значения не улетают за
+  `[0, y]`/`[0,1]`.
+- Delay-параметр текущего `Reveal` (`delay={i * 0.05}` на case-study/service карточках-в-цикле) —
+  заменяется на **разный offset старта per-индекс** (не time-delay, т.к. это больше не time-based
+  анимация): `offset: ['start end', \`start ${0.6 + i \* 0.05}\`]` — карточки с большим индексом
+  «дозревают» чуть позже по scroll-прогрессу, сохраняя визуальный stagger без таймера.
+- Секции, где `ScrollReveal` применяется как есть (без доп. правок ниже) — About (оба столбца +
+  stat-strip), Services grid (сохранить index-based offset stagger), Tech stack, Careers teaser
+  (заголовок + карточки), Contact CTA. Hero — **исключение, без ScrollReveal** (§5.1 контракт).
+
+#### M.1.1 Таблица per-секция (сигнатурные/особые случаи)
+
+| Секция (id)                                   | Target / offset                                                                                              | Анимируемое                                                                                                                                                      | Значения                                                                                                                               | Зачем именно так                                                                                                                                                         | Reduced-motion                                                                                                           |
+| --------------------------------------------- | ------------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| **Hero — фон-глоу** (`#hero`)                 | `target=heroRef`, `offset: ['start start', 'end start']`                                                     | `translateY` радиального glow-слоя (`aria-hidden` div, `routes/index.tsx:78-81`)                                                                                 | `useTransform(p, [0,1], [0, 60])` px — глоу «отстаёт», уходит медленнее контента                                                       | Единственный ambient-параллакс, разрешённый в hero (не entrance — hero и так виден сразу; это **exit**-параллакс по мере скролла ВНИЗ)                                   | Статичный glow, без translate                                                                                            |
+| **Hero — терминал «докинг»**                  | `target=heroRef`, `offset: ['start start', 'end start']`                                                     | `translateY` + `scale` контейнера `<Terminal/>` (обёртка `div.min-w-0` в hero-гриде)                                                                             | `translateY: useTransform(p,[0,1],[0,-36])`, `scale: useTransform(p,[0,1],[1,0.965])`, `opacity: useTransform(p,[0,0.7,1],[1,1,0.85])` | «Фирменная» деталь для терминала (владелец просил что-то фирменное). Терминал слегка «уходит вглубь» при скролле — эффект глубины, БЕЗ трогания typewriter-логики внутри | Без transform, `opacity` фиксирован на 1                                                                                 |
+| **How we work — connector-line** (`#process`) | `target=` grid-обёртка 4 шагов, `offset: ['start end', 'end 0.4']`, **только `≥768px`** (`md:`)              | НОВЫЙ элемент — тонкая горизонтальная линия (`absolute`, `top` на уровне step-num, `h-px bg-primary/50`, `left-[12.5%] right-[12.5%]`, `transform-origin: left`) | `scaleX: useTransform(p, [0,1], [0,1])`                                                                                                | Сигнатурная деталь «Four steps» — линия «дорисовывается» слева направо по мере скролла ряда, буквально связывая шаги 1→4                                                 | `scaleX: 1` сразу (линия статично протянута), либо `hidden` до `md:` (мобильный грид и так 1-колоночный, линия не нужна) |
+| **Selected work — metric-lag** (`#work`)      | Внутри каждой `ScrollReveal`-обёртки карточки: metrics-грид получает СВОЙ `useTransform` со сдвинутым входом | `opacity`/`translateY` grid с 3 метриками (`case-study-card.tsx:37-47`)                                                                                          | `useTransform(p, [0.15, 1], [0, 1])` (входит на 15% позже основного контента карточки, `y: [14,0]`)                                    | Метрики «догоняют» текст с лёгким лагом — depth cue внутри карточки, не просто одновременный fade                                                                        | Без лага — рендерится вместе с остальным содержимым карточки                                                             |
+| **Tech stack — chip-волна**                   | `ScrollReveal` на обёртке `<TechStackChips/>` + per-chip `useTransform` с `i * 0.02` доп. входным сдвигом    | `opacity`/`translateY` на каждом `<Chip>`                                                                                                                        | `y: [10,0]`, вход растянут на первые 40% диапазона секции (`i / stack.length * 0.4`)                                                   | Лёгкая «волна» по чипам вместо одновременного появления всех 18 — премиум-деталь без карусели эффектов (один паттерн, не новый язык)                                     | Все чипы видны сразу, без волны                                                                                          |
+
+#### M.1.2 Отклонённая идея — «скролл доскролливает код» (обоснование)
+
+Владелец предложил (как вариант, «например»): scroll-прогресс управляет посимвольным тайпрайтером
+терминала. **Отклонено осознанно**, не пропущено: (1) hero-контракт §5.1 требует, чтобы терминал
+был содержательно виден СРАЗУ при загрузке, до любого скролла — если тайпинг завязан на scroll-
+прогресс, первый экран показывает ПУСТОЙ терминал, пока юзер не начал скроллить, что хуже текущего
+состояния; (2) прямо ломает prerender-hydration fix (PR #398, `terminalHasMountedOnce`/
+`wasRootPrerendered`) — та логика полагается на независимый от скролла таймер, стартующий на mount;
+переход на scroll-scrub означает переписывать этот fix заново, между делом теряя его гарантию
+«без flash при первом заходе»; (3) смешивает две разные метафоры — «live код, который печатается
+сам» (текущий, statusbar `live`+пульсирующая точка подтверждает это) vs «код, который скраббится
+как видео-таймлайн скроллом» — конфликтующие сигналы того, ЧТО терминал «из себя представляет».
+**Принятая альтернатива** — terminal-«докинг» из таблицы M.1.1 выше: typewriter остаётся
+полностью автономным (как сейчас), но КОНТЕЙНЕР терминала получает scroll-linked parallax/scale
+при скролле мимо hero — тоже «фирменно», не конфликтует ни с одним существующим контрактом.
+
+---
+
+### M.2 Hover-язык (ВСЕ интерактивные элементы)
+
+Принцип (`make-interfaces-feel-better`): hover — **CSS-transition**, не Framer Motion (ретаргетится
+при смене намерения на лету, дешевле); `transition-property` — явный список, никогда `transition: all`
+(уже соблюдается в существующем коде — сохранить паттерн). Hit-area ≥40×40px (мобайл — см. §6.7,
+≥44px). Ниже — таблица per-элемент; «уже есть» = зафиксировать текущее поведение как канон (не
+менять), «НОВОЕ» = добавить.
+
+| Элемент                                             | Статус          | Hover/focus состояние                                                                                                                                                                        | `transition-property` / duration                                            | Touch/reduced-motion                                                                                                                         |
+| --------------------------------------------------- | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Button` `variant="default"`                        | Уже есть        | Фон светлеет + `box-shadow` glow + иконка-стрелка `translateX(3px)` + `active:translateY(1px)`                                                                                               | `background-color, border-color, box-shadow, transform` / 200ms             | Tap = тот же visual (CSS `:active`); нет reduced-motion трогания (не декоративно-развлекательное, функциональный feedback)                   |
+| `Button` `variant="outline"`                        | Уже есть        | Бордер темнее + едва заметный фон-тинт + `active:translateY(1px)`                                                                                                                            | то же / 200ms                                                               | То же                                                                                                                                        |
+| **Nav-ссылки desktop** (`nav.tsx` `NAV_LINK_CLASS`) | НОВОЕ           | Сейчас только `text-foreground/72 → text-foreground`. Добавить underline-draw: `::after` `absolute -bottom-1 left-0 h-px w-full bg-primary scale-x-0 origin-left`, `group-hover:scale-x-100` | `transform` (scaleX) / 200ms, `transition-timing-function` Tailwind default | Focus-visible показывает тот же underline (не только outline-ring) — добавить `focus-visible:` вариант тех же классов                        |
+| **Footer-ссылки** (`FOOTER_LINK_CLASS`)             | НОВОЕ           | Тот же underline-draw паттерн, что и nav — единый язык (не два разных hover-стиля для одинаковой семантики «текстовая ссылка»)                                                               | то же / 200ms                                                               | Focus-visible — так же                                                                                                                       |
+| **Burger-кнопка** (закрыта, idle hover)             | НОВОЕ           | `border-border` → `border-[color-mix(...,var(--foreground)_30%,transparent)]` (тот же токен, что hover outline-button §2.3) — едва заметный, не мигающий                                     | `border-color` / 200ms                                                      | На тач — нет hover-состояния, только focus-visible ring (уже есть)                                                                           |
+| `Card` `hover` (ServiceCard/VacancyCard)            | Уже есть        | `-translate-y-[3px]` + бордер-тинт primary/40                                                                                                                                                | `border-color, transform, background` / 300ms                               | Tap на VacancyCard = переход по ссылке, hover-lift не критичен, но CSS всё равно применяется на touchstart в некоторых браузерах — безвредно |
+| `Card` (ServiceCard) — **добавить** glow            | НОВОЕ           | При hover — тот же `box-shadow` glow-паттерн, что у primary-кнопки (`var(--marketing-glow)`), едва заметный, `0 20px 60px -30px`                                                             | `box-shadow` (добавить в существующий `transition-[...]` список) / 300ms    | —                                                                                                                                            |
+| **VacancyCard — стрелка-кружок**                    | Уже есть        | `group-hover:translate-x-[2px]`. **Добавить**: `group-hover:bg-primary/10` (лёгкая заливка круга) для более явного «эта карточка кликабельна»                                                | `transform, background-color` / 200ms                                       | —                                                                                                                                            |
+| `Chip` (tech-stack, hero eyebrow)                   | Уже есть        | Бордер-тинт + текст ярче. **Добавить** `hover:-translate-y-px` (микро-лифт 1px — едва заметно, тактильно, не «прыгает»)                                                                      | `border-color, color, transform` (добавить `transform` в список) / 200ms    | Без transform на touch (CSS `:hover` не триггерится длительно на тач — безвредно оставить)                                                   |
+| Форма — `Input`/`Textarea`                          | НОВОЕ           | Pre-focus hover: `border-[color-mix(...,var(--foreground)_20%,transparent)]` (легче текущего focus-бордера, отличимо от focus-visible ring)                                                  | `border-color` / 150ms                                                      | Focus-visible ring (§9) — не меняется, hover — доп. слой ДО фокуса                                                                           |
+| CV dropzone drag-over                               | Уже есть (§5.1) | Без изменений — chистый CSS-transition, канон                                                                                                                                                | `border-color, background` / 200ms                                          | —                                                                                                                                            |
+| Nav mobile-меню ссылки                              | Уже есть        | Тот же `NAV_LINK_CLASS` (без underline-draw на мобиле — тач не наводит, `hover:` классы там decorative-noop, безвредны)                                                                      | —                                                                           | —                                                                                                                                            |
+
+**Элементы БЕЗ hover (осознанно, не забыто):**
+
+- `CaseStudyCard`, `ProcessStep` — НЕ кликабельны (информационные карточки). Hover-реакция на
+  некликабельном блоке — false affordance (`frontend-design-direction` anti-pattern: не создавать
+  ложных сигналов интерактивности). «Жизнь» этим карточкам дают M.1 scroll-эффекты (metric-lag,
+  connector-line), не hover.
+- `Tag` (domain badge) — статичный лейбл-классификатор, не интерактивен нигде на лендинге →
+  без hover.
+- `SectionEyebrow`, `StatStrip`-числа, terminal window-chrome точки (macOS-style) — декоративные/
+  информационные, без hover.
+
+---
+
+### M.3 Page-transitions (TanStack Router + Framer Motion)
+
+**Выбранная механика (основной вариант): «жёлтая каретка» — сплошная `bg-primary` полоса,
+translateX-свайпом пересекающая экран слева направо ОДИН раз за переход** (не два отдельных
+cover/reveal-блока — один непрерывный свайп: полоса заезжает слева, на пике полностью укрывает
+экран, продолжает движение и уезжает вправо, открывая новую страницу под собой). Метафора —
+терминальный курсор/каретка, «печатающая» новую страницу поверх старой. Только `translateX`
+(hard-constraint transform/opacity — НЕ `clip-path`, который был первым черновым вариантом и
+отклонён именно по этой причине — width/clip анимации не входят в разрешённый список свойств).
+
+```tsx
+// apps/landing/app/components/marketing/page-transition-overlay.tsx (НОВЫЙ)
+// fixed inset-0, ПОВЕРХ всего (z-[999]), pointer-events-none всегда (никогда не блокирует клики),
+// bg-primary. Управляется императивно через framer-motion animate() — НЕ через
+// whileInView/variants (это не scroll- и не hover-driven, это router-event-driven).
+```
+
+**Почему БЕЗ `AnimatePresence`** (прямой ответ на вопрос «как ждать exit-анимацию»): классический
+паттерн `<AnimatePresence mode="wait"><motion.div key={pathname}><Outlet/></motion.div></AnimatePresence>`
+требует держать смонтированным старый `Outlet`-контент, пока играет exit — у TanStack Router нет
+хука «не переключай match, пока не закончилась анимация», так что реально exit играет уже НАД
+данными новой страницы, что хрупко на данных, зависящих от роута. Полноэкранная непрозрачная
+полоса **решает ту же проблему проще**: пока полоса покрывает весь вьюпорт, под ней можно менять
+`Outlet` МГНОВЕННО (обычное поведение роутера, без анимации самого контента) — свап невидим.
+`AnimatePresence` не нужен вообще для основного варианта.
+
+**Механика (пошагово):**
+
+1. `apps/landing/app/lib/page-transition.ts` — модуль-синглтон (по аналогии с
+   `terminalHasMountedOnce` в `terminal.tsx`, тот же паттерн module-level state вне React):
+   `let pendingVariant: 'wipe' | 'light' = 'wipe'`.
+2. `window.addEventListener('popstate', () => { pendingVariant = 'light' })` — регистрируется
+   один раз в корневом orchestrator-компоненте (`__root.tsx`). Браузерные back/forward → всегда
+   light-вариант (см. ниже почему).
+3. Общий `<BackLink>` (обёртка над `Link`, использовать вместо голого `<Link>` в местах, которые
+   семантически «назад» — `careers_.$slug.tsx` `ArrowLeft "All roles"`, `__root.tsx`
+   `ArrowLeft "Back home"`, `careers_.$slug.tsx` `NotFoundState` `ArrowLeft "Back to careers"`):
+   `onClick` синхронно ставит `pendingVariant = 'light'` ДО вызова навигации (React вызывает
+   переданный `onClick`-проп раньше внутреннего обработчика `Link`, если оба навешены на один DOM-
+   узел — порядок гарантирован event bubbling самого элемента).
+4. Orchestrator-компонент в `__root.tsx` (`RootDocument`): `const router = useRouter()`.
+   `useEffect(() => router.subscribe('onBeforeNavigate', ({ toLocation, fromLocation }) => { ... }), [])`.
+   Внутри callback'а:
+   - Если `toLocation.pathname === fromLocation.pathname` (hash-only смена, напр. nav-ссылка
+     `Contact` пока уже на `/`) — **ничего не делать**, page-transition НЕ триггерится (это чисто
+     in-page скролл, см. §M.4).
+   - Иначе — прочитать `pendingVariant`, запустить соответствующую анимацию (ниже), **сбросить
+     `pendingVariant = 'wipe'` сразу после чтения** (одноразовый override, следующая навигация по
+     умолчанию снова «основной» вариант).
+5. **Основной (`wipe`)**: `animate(overlayEl, { x: ['-100%', '0%'] }, { duration: DUR_WIPE_IN, ease: EASE_STANDARD })`
+   → дождаться Promise ЭТОЙ анимации **И** события `onResolved` того же `router.subscribe`
+   (`Promise.all`) — что бы ни закончилось позже (обычно `onResolved` раньше благодаря
+   `defaultPreload: 'intent'` — данные чаще всего уже в кеше на момент клика, см. ниже) →
+   `animate(overlayEl, { x: ['0%', '100%'] }, { duration: DUR_WIPE_OUT, ease: EASE_STANDARD })` →
+   по завершении мгновенно (`animate(overlayEl, {x: '-100%'}, {duration: 0})`) вернуть полосу за
+   левый край, готова к следующему разу.
+6. **Облегчённый (`light`)**: полоса НЕ используется вообще. Вместо неё — контентная обёртка
+   `<motion.div key={pathname} initial={{opacity:0, x:-8}} animate={{opacity:1, x:0}} transition={{duration: DUR_LIGHT_TRANSITION, ease: EASE_EXIT}}>` вокруг `<Outlet/>`
+   (обычный React remount по смене `key`, БЕЗ `AnimatePresence` — старый контент исчезает мгновенно
+   при unmount, новый сразу начинает fade-in с `opacity:0`; на 180мс это ощущается как быстрый
+   crossfade, не как «дыра»). Дешевле и уместнее для «я просто иду назад, уже это видел».
+7. **`preload: 'intent'` — почему hold почти всегда ≈0**: `router.tsx` уже ставит
+   `defaultPreload: 'intent'` (hover/focus на `<Link>` начинает грузить `loader` заранее) — то есть
+   к моменту клика `fetchVacancies()`/`fetchVacancy()` чаще всего уже resolved из кеша, и
+   `onResolved` в шаге 5 срабатывает практически сразу после клика, задолго до того как
+   `DUR_WIPE_IN`-анимация (200мс) успевает доиграть — значит `Promise.all` реально ждёт ТОЛЬКО
+   анимацию полосы, не сеть. Гарантированный бюджет = `DUR_WIPE_IN + DUR_WIPE_OUT` = **460мс**
+   (укладывается в 400-500мс), сеть добавляет задержку только на холодном/медленном заходе — и в
+   этом случае непрозрачная полоса маскирует загрузку вместо пустого экрана (честный trade-off,
+   не баг).
+8. **Первый заход / прямая загрузка (prerendered)** — `onBeforeNavigate` **физически не
+   фейрится** на первичной загрузке документа (это событие клиентского роутера, не document-load) →
+   никакого special-case флага не требуется (в отличие от Terminal — там нужен был
+   `wasRootPrerendered()`, здесь проблема не возникает по конструкции). Прямой заход на `/careers`
+   или `/careers/:slug` рендерится сразу, без полосы.
+9. **Focus management (a11y, WCAG 2.4.3 — не запрошено явно, но обязательный компаньон page-
+   transitions):** после `onResolved` (оба варианта) — переместить фокус на `<main>`
+   лендмарк новой страницы (`tabIndex={-1}` + `.focus({preventScroll:true})` — `preventScroll`,
+   т.к. позиционирование скролла уже управляется §M.4/scroll-restoration отдельно, не должно
+   конфликтовать). **Пререквизит**: `routes/index.tsx` сейчас НЕ оборачивает контент в `<main>`
+   (только `careers.tsx`/`careers_.$slug.tsx` это делают, см. §9) — добавить `<main>` вокруг
+   секций hero..contact на `/` как часть этой задачи (маленькая структурная правка, не визуальная).
+   Без этого шага клавиатурный/скринридер-пользователь при SPA-навигации не узнаёт, что страница
+   сменилась (документ не перезагружается, фокус молча остаётся на теле старой ссылки).
+
+**Значения:**
+
+| Фаза                        | Триггер                                 | Duration                        | Easing          | Свойство                                        |
+| --------------------------- | --------------------------------------- | ------------------------------- | --------------- | ----------------------------------------------- |
+| Wipe-in (полоса накрывает)  | `onBeforeNavigate`, pathname изменился  | `DUR_WIPE_IN` = 200мс           | `EASE_STANDARD` | `translateX` (`-100% → 0%`)                     |
+| Hold (полоса держит экран)  | до `Promise.all([wipe-in, onResolved])` | переменная (обычно ≈0, см. п.7) | —               | —                                               |
+| Wipe-out (полоса открывает) | после hold                              | `DUR_WIPE_OUT` = 260мс          | `EASE_STANDARD` | `translateX` (`0% → 100%`)                      |
+| Light-transition (back)     | `popstate` ИЛИ `<BackLink>`             | `DUR_LIGHT_TRANSITION` = 180мс  | `EASE_EXIT`     | `opacity` + `translateX` (контента, `-8px → 0`) |
+
+**Reduced-motion:** `pendingVariant`-логика полностью обходится — `onBeforeNavigate` при
+`prefers-reduced-motion: reduce` ничего не анимирует (ни полосу, ни content-wrapper), роутер
+работает как обычный мгновенный SPA-свап. Проверка — `window.matchMedia` в момент callback'а (не
+React-хук, т.к. orchestrator — не компонент внутри рендер-дерева страницы).
+
+---
+
+### M.4 Плавная in-page навигация (доп. владельца, 2026-07-24)
+
+**Решение: JS-управляемый скролл** (не CSS `scroll-behavior: smooth`), обоснование ровно по
+развилке, которую поставил владелец:
+
+1. **Контроль easing** — нативный `scrollIntoView({behavior:'smooth'})`/CSS `scroll-behavior`
+   используют браузерный дефолт (`ease`-подобная кривая, не настраиваемая), а у нас уже есть
+   сигнатурная кривая `EASE_STANDARD` (§M.0), которой animated везде — якорный скролл на другой
+   кривой был бы диссонансом («единый язык движения», требование продуктовой спеки).
+2. **Header-offset** — sticky-хедер 66px (`nav.tsx` `h-[66px]`) перекрывает верх секции при
+   обычном `scrollIntoView`; нативное решение — `scroll-margin-top` CSS на каждой `<section id=...>`
+   (работает, но тогда нельзя переиспользовать ЭТУ же логику ниже для cross-page + hash случая
+   единым куском кода — два разных механизма для одного и того же визуального эффекта).
+3. **Reduced-motion гарантия** — браузерная поддержка `prefers-reduced-motion` для нативного smooth
+   scroll реализована консистентно не во всех браузерах/версиях; explicit JS-ветка — единственный
+   способ гарантировать 100% выполнение продуктового требования (§ жёсткие ограничения выше), а не
+   полагаться на UA-эвристику.
+
+```ts
+// apps/landing/app/lib/smooth-scroll.ts
+import { animate } from 'framer-motion'
+import { DUR_SMOOTH_SCROLL, EASE_STANDARD } from './motion'
+
+const HEADER_OFFSET = 66 + 16 // nav height + breathing room
+
+export function smoothScrollToId(id: string): void {
+  const el = document.getElementById(id)
+  if (!el) return
+  const targetY = el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+    window.scrollTo(0, targetY)
+    return
+  }
+  animate(window.scrollY, targetY, {
+    duration: DUR_SMOOTH_SCROLL,
+    ease: EASE_STANDARD,
+    onUpdate: (v) => window.scrollTo(0, v),
+  })
+}
+```
+
+**Где применяется — 2 разных случая, разное поведение (важно не смешать):**
+
+| Случай                                                                                                  | Поведение                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hash-ссылка на ТОЙ ЖЕ странице** (юзер на `/`, кликает «Services» в nav)                              | Route НЕ меняется (pathname тот же) → page-transition НЕ триггерится (§M.3 п.4). Вместо стандартного мгновенного `hashScrollIntoView` роутера — `<Link ... hashScrollIntoView={false} onClick={() => smoothScrollToId(hash)}>` — наш плавный скролл единолично владеет этим случаем.                                                                                                                                                                                               |
+| **Hash-ссылка С ДРУГОЙ страницы** (юзер на `/careers`, кликает «Contact» в nav → уходит на `/#contact`) | Route МЕНЯЕТСЯ → полноценный page-transition (§M.3, полоса). `hashScrollIntoView` роутера остаётся **default (true)** — как только полоса открывает новую страницу (wipe-out завершён), пользователь уже видит `/` заскроленным ровно к `#contact` (роутер это делает мгновенно на `onRendered`, ДО того как полоса открылась — см. ниже). **Дополнительный плавный скролл поверх НЕ проигрывается** — это была бы вторая анимация подряд («не бесить»), а не «премиум-сдержанно». |
+| **Back-to-top**                                                                                         | На лендинге сейчас **нет** такой кнопки/ссылки — если появится позже, обязана переиспользовать `smoothScrollToId`/аналогичный вызов `animate(window.scrollY, 0, {...})` из того же модуля, не заводить отдельный механизм.                                                                                                                                                                                                                                                         |
+
+**Взаимодействие с page-transition scroll-reset и браузерным back/forward** (владелец: «новая
+страница начинается с верха... back/forward восстанавливает позицию»):
+
+- `router.tsx` уже включает `scrollRestoration: true` — TanStack Router САМ восстанавливает
+  scroll-позицию для истории (back/forward) и сбрасывает в 0 для обычной forward-навигации,
+  синхронно на событии `onRendered` (до отрисовки кадра) — **это уже нативно даёт «моментальный
+  snap до enter-анимации»**, ничего доп. писать не нужно, только **не выключать** существующий
+  флаг.
+- Порядок событий защищает от видимого «прыжка»: `onBeforeNavigate` (полоса начинает закрывать) →
+  роутер грузит/коммитит новый match → `onRendered` (TanStack восстанавливает/сбрасывает scroll
+  МГНОВЕННО, без анимации, ДО следующего кадра отрисовки) → наш `Promise.all` видит `onResolved`
+  → полоса открывает (wipe-out) уже ПРАВИЛЬНО заскроленную страницу. При основном (`wipe`)
+  варианте юзер физически не может увидеть промежуточный «прыжок» — он происходит под непрозрачной
+  полосой. При облегчённом (`light`, back/forward) варианте — прыжок происходит ДО первого
+  отрисованного кадра нового `key`-remount (тот же порядок событий), так что тоже не виден как
+  анимированный скролл, только как корректная финальная позиция.
+- Итог: НЕ анимировать scroll-restoration отдельно (владелец прямо просил «restoration восстанавливает
+  позицию», а не «restoration плавно доскролливает») — она инстант по конструкции TanStack Router,
+  и это правильно ложится под page-transition полосу.
+
+---
+
+### M.5 Сигнатурные детали — краткий свод («душа» v2)
+
+Для быстрого сканирования PM/Coder — что здесь реально новое/особенное (не рутинный reveal):
+
+1. **Terminal-докинг** (§M.1.1) — терминал слегка уходит вглубь/масштабируется при скролле мимо
+   hero, typewriter не тронут.
+2. **Process connector-line** (§M.1.1) — линия «дорисовывается» между 4 шагами по scroll-прогрессу,
+   `≥768px`.
+3. **Case-study metric-lag** (§M.1.1) — метрики карточки чуть «догоняют» текст, depth cue.
+4. **«Жёлтая каретка» page-transition** (§M.3) — единый translateX-свайп между всеми роутами,
+   облегчённый back-вариант.
+5. **Единая scroll-progress-linked entrance** (§M.1.0, `ScrollReveal`) — база под всем остальным:
+   каждая секция теперь буквально реагирует на положение скролла, не на факт «появилась в кадре».
+
+---
+
+### M.6 Verification-чеклист (Mode B, специфично для v2 — дополняет §12)
+
+- [ ] Lighthouse mobile ≥90 не регрессировал после добавления scroll-listeners/`animate()`-вызовов
+      (`passive`-листенеры, только `transform`/`opacity`, без layout-триггерящих свойств).
+- [ ] Ни один `ScrollReveal`/scroll-linked эффект не создаёт CLS (все — `transform`, не
+      `margin`/`top`/`height`).
+- [ ] Скролл вверх после того как секция появилась — секция плавно уходит обратно (bidirectional,
+      не `once`).
+- [ ] Page-transition полоса — `pointer-events-none` **всегда** (проверить, что клик сквозь неё
+      проходит даже в момент wipe, если пользователь кликает во время анимации — не должна
+      блокировать доп. клики).
+- [ ] Hash-навигация с другой страницы НЕ проигрывает второй (лишний) скролл-твин поверх
+      page-transition (см. таблицу §M.4).
+- [ ] Browser back/forward — облегчённый `light`-вариант, НЕ основная жёлтая полоса.
+- [ ] После завершения page-transition (оба варианта) — фокус на `<main>` новой страницы
+      (клавиатурный Tab с этой точки идёт по новому контенту, не залипает на старой ссылке).
+- [ ] `prefers-reduced-motion: reduce` — page-transition = мгновенный свап, smooth-scroll =
+      мгновенный `scrollTo`, все `ScrollReveal` — сразу в конечном состоянии (протестировать через
+      Playwright `emulateMedia({reducedMotion: 'reduce'})` на все 3 роута).
+- [ ] Прямой заход (свежая вкладка/reload) на `/`, `/careers`, `/careers/:slug` — БЕЗ полосы
+      page-transition (полоса — только для client-side навигации).
