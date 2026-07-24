@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from '@tanstack/react-router'
+import { Link, useLocation } from '@tanstack/react-router'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
+import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
 
 /**
@@ -21,16 +22,23 @@ import { cn, focusRing } from '@/lib/utils'
  * all; a top-level `import ... from 'framer-motion'` here pulled its ~40 KB
  * gzip vendor chunk into their critical path for a once-per-visit,
  * user-triggered disclosure animation that a CSS transition does just as
- * well. `/` keeps framer-motion regardless (routes/index.tsx's `Reveal`
- * scroll-in effect uses it directly). Trade-off: the panel opens with a
- * smooth transition but closes instantly (no exit animation) — conditional
- * mount (`{open && ...}`) can't run a CSS "closing" transition without
- * either staying always-mounted (an a11y footgun: clipped-but-focusable
- * content behind `overflow-hidden`) or extra JS to delay unmount, neither of
- * which is worth it for a mobile burger menu.
+ * well. `/` keeps framer-motion regardless (routes/index.tsx's `ScrollReveal`
+ * uses it directly). Trade-off: the panel opens with a smooth transition but
+ * closes instantly (no exit animation) — conditional mount (`{open && ...}`)
+ * can't run a CSS "closing" transition without either staying always-mounted
+ * (an a11y footgun: clipped-but-focusable content behind `overflow-hidden`)
+ * or extra JS to delay unmount, neither of which is worth it for a mobile
+ * burger menu.
+ *
+ * Hover underline-draw (§M.2, NEW) — an `::after` hairline that scales in
+ * from 0 on hover/focus-visible, shared by every text link here AND
+ * `footer.tsx` (same class, same "text link" semantics — one hover
+ * language, not two). Decorative-noop on touch (no `:hover` there) —
+ * harmless, per §M.2 "Nav mobile-меню ссылки".
  */
 const NAV_LINK_CLASS = cn(
-  'text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 hover:text-foreground',
+  'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 hover:text-foreground',
+  'after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 hover:after:scale-x-100 focus-visible:after:scale-x-100',
   focusRing,
 )
 
@@ -42,6 +50,7 @@ export function MarketingNav({ active }: MarketingNavProps) {
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const burgerRef = useRef<HTMLButtonElement>(null)
+  const isHome = useLocation({ select: (location) => location.pathname === '/' })
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8)
@@ -95,10 +104,10 @@ export function MarketingNav({ active }: MarketingNavProps) {
           aria-label="Primary"
           className="hidden min-[900px]:flex min-[900px]:items-center min-[900px]:gap-8"
         >
-          <Link to="/" hash="services" className={NAV_LINK_CLASS}>
+          <Link to="/" {...hashLinkProps('services', isHome)} className={NAV_LINK_CLASS}>
             Services
           </Link>
-          <Link to="/" hash="work" className={NAV_LINK_CLASS}>
+          <Link to="/" {...hashLinkProps('work', isHome)} className={NAV_LINK_CLASS}>
             Work
           </Link>
           <Link
@@ -108,11 +117,11 @@ export function MarketingNav({ active }: MarketingNavProps) {
           >
             Careers
           </Link>
-          <Link to="/" hash="contact" className={NAV_LINK_CLASS}>
+          <Link to="/" {...hashLinkProps('contact', isHome)} className={NAV_LINK_CLASS}>
             Contact
           </Link>
           <Button asChild size="sm">
-            <Link to="/" hash="contact">
+            <Link to="/" {...hashLinkProps('contact', isHome)}>
               Start a project
             </Link>
           </Button>
@@ -125,7 +134,7 @@ export function MarketingNav({ active }: MarketingNavProps) {
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
           className={cn(
-            'flex size-11 items-center justify-center rounded-[10px] border border-border bg-transparent text-foreground min-[900px]:hidden',
+            'flex size-11 items-center justify-center rounded-[10px] border border-border bg-transparent text-foreground transition-colors duration-200 hover:border-[color-mix(in_oklch,var(--foreground)_30%,transparent)] min-[900px]:hidden',
             focusRing,
           )}
         >
@@ -146,7 +155,7 @@ export function MarketingNav({ active }: MarketingNavProps) {
         </button>
       </div>
 
-      {open && <MobileNavDisclosure active={active} />}
+      {open && <MobileNavDisclosure active={active} isHome={isHome} />}
     </header>
   )
 }
@@ -162,7 +171,13 @@ const ENTER_TRANSITION_CLASS =
  * transition from (mounting directly at the target state would just snap
  * open with no animation).
  */
-function MobileNavDisclosure({ active }: { active?: 'careers' | undefined }) {
+function MobileNavDisclosure({
+  active,
+  isHome,
+}: {
+  active?: 'careers' | undefined
+  isHome: boolean
+}) {
   const [entered, setEntered] = useState(false)
 
   useEffect(() => {
@@ -181,10 +196,18 @@ function MobileNavDisclosure({ active }: { active?: 'careers' | undefined }) {
         aria-label="Primary mobile"
         className="mx-auto flex max-w-[1200px] min-h-0 flex-col gap-1 overflow-hidden px-5 pt-3.5 pb-5"
       >
-        <Link to="/" hash="services" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+        <Link
+          to="/"
+          {...hashLinkProps('services', isHome)}
+          className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
+        >
           Services
         </Link>
-        <Link to="/" hash="work" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+        <Link
+          to="/"
+          {...hashLinkProps('work', isHome)}
+          className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
+        >
           Work
         </Link>
         <Link
@@ -198,11 +221,15 @@ function MobileNavDisclosure({ active }: { active?: 'careers' | undefined }) {
         >
           Careers
         </Link>
-        <Link to="/" hash="contact" className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}>
+        <Link
+          to="/"
+          {...hashLinkProps('contact', isHome)}
+          className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
+        >
           Contact
         </Link>
         <Button asChild block className="mt-3">
-          <Link to="/" hash="contact">
+          <Link to="/" {...hashLinkProps('contact', isHome)}>
             Start a project
           </Link>
         </Button>
