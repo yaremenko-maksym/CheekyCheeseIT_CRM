@@ -11,7 +11,7 @@ const Chip = React.forwardRef<HTMLSpanElement, React.HTMLAttributes<HTMLSpanElem
     <span
       ref={ref}
       className={cn(
-        'inline-flex min-h-10 items-center gap-[7px] rounded-full border border-border bg-[color-mix(in_oklch,var(--card)_60%,transparent)] px-3.5 py-2 font-mono text-[0.86rem] text-foreground/82 transition-[border-color,color,transform] duration-200 hover:-translate-y-px hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] hover:text-foreground',
+        'inline-flex min-h-10 items-center gap-[7px] rounded-full border border-border bg-[color-mix(in_oklch,var(--card)_60%,transparent)] px-3.5 py-2 font-mono text-[0.86rem] text-foreground/82 transition-[border-color,color,transform] duration-200 ease-out hover:-translate-y-px hover:border-[color-mix(in_oklch,var(--primary)_55%,transparent)] hover:text-foreground',
         className,
       )}
       {...props}

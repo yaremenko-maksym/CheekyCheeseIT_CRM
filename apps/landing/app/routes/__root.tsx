@@ -6,11 +6,14 @@ import { useDocumentHead } from '@/lib/use-document-head'
 import { canonicalUrl } from '@/lib/seo'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
-import { PageTransitionOverlay } from '@/components/marketing/page-transition-overlay'
+import {
+  PageTransitionOverlay,
+  type PageTransitionOverlayHandle,
+} from '@/components/marketing/page-transition-overlay'
 import { BackLink } from '@/components/marketing/back-link'
 import { consumePendingVariant, markNextTransitionLight } from '@/lib/page-transition'
-import { cancelWipeTransition, runWipeTransition } from '@/lib/wipe-transition'
-import { DUR_LIGHT_TRANSITION, EASE_EXIT } from '@/lib/motion'
+import { cancelScrimTransition, runScrimTransition } from '@/lib/scrim-transition'
+import { DUR_LIGHT_TRANSITION, EASE_SOFT } from '@/lib/motion'
 import { cn, focusRing } from '@/lib/utils'
 import '../styles/globals.css'
 
@@ -50,23 +53,25 @@ function onceResolved(router: ReturnType<typeof useRouter>): Promise<void> {
 
 /**
  * Page-transition + in-page smooth-scroll orchestrator (docs/design/landing-
- * redesign.md §M.3). Two variants:
+ * redesign.md §M.3, HOTFIX 2026-07-24). Two variants:
  *
- * - `'wipe'` (default/primary) — the full-screen yellow bar (`overlayRef`)
- *   sweeps in, the route swaps INSTANTLY underneath it (invisible), the bar
- *   sweeps back out.
- * - `'light'` (browser back/forward, `<BackLink>`) — no bar; the content
- *   wrapper below fades/slides in on a plain `key`-based remount instead.
+ * - `'full'` (default/primary) — a dark scrim + thin caret-line
+ *   (`overlayRef`, §M.3.0) sweep in, the route swaps INSTANTLY underneath
+ *   the scrim (invisible), then sweep back out. Replaces the removed
+ *   full-screen `bg-primary` "wipe" fill.
+ * - `'light'` (browser back/forward, `<BackLink>`) — no scrim/caret; the
+ *   content wrapper below fades/slides in on a plain `key`-based remount
+ *   instead.
  *
  * Hash-only navigations (same pathname) are explicitly skipped — that case
  * belongs entirely to `smoothScrollToId` (§M.4), not this orchestrator.
  */
 function RootDocument() {
   const router = useRouter()
-  const overlayRef = useRef<HTMLDivElement>(null)
+  const overlayRef = useRef<PageTransitionOverlayHandle>(null)
   const [transition, setTransition] = useState<{
     pathname: string
-    variant: 'wipe' | 'light' | null
+    variant: 'full' | 'light' | null
   }>({ pathname: router.state.location.pathname, variant: null })
 
   // Browser back/forward always uses the lightweight variant (§M.3 step 2) —
@@ -84,22 +89,24 @@ function RootDocument() {
       // exclusively (§M.3 step 4 / §M.4).
       if (fromLocation && toLocation.pathname === fromLocation.pathname) return
 
-      // A NEW navigation ALWAYS supersedes any wipe-sweep still in flight
-      // from a previous one — regardless of which variant THIS navigation
-      // ends up using. Without this, a rapid double-click (two
+      // A NEW navigation ALWAYS supersedes any scrim/caret sweep still in
+      // flight from a previous one — regardless of which variant THIS
+      // navigation ends up using. Without this, a rapid double-click (two
       // `onBeforeNavigate` firings before the first sweep finishes) could
-      // leave two `animate()` calls racing on the same overlay node, or the
-      // overlay stuck mid-screen while a 'light'/reduced-motion navigation
-      // plays underneath it with no wipe of its own to reset it.
+      // leave `animate()` calls racing on the same overlay nodes, or the
+      // overlay stuck mid-animation while a 'light'/reduced-motion
+      // navigation plays underneath it with no sweep of its own to reset it.
       const overlayForCancel = overlayRef.current
-      if (overlayForCancel) cancelWipeTransition(overlayForCancel)
+      if (overlayForCancel?.scrim && overlayForCancel.caret) {
+        cancelScrimTransition({ scrim: overlayForCancel.scrim, caret: overlayForCancel.caret })
+      }
 
       const variant = consumePendingVariant()
       const reduced = isReducedMotionPreferred()
 
       if (reduced) {
-        // Full stop — no bar, no content-wrapper animation, router does its
-        // normal instant SPA swap. Focus still moves once resolved.
+        // Full stop — no scrim/caret, no content-wrapper animation, router
+        // does its normal instant SPA swap. Focus still moves once resolved.
         setTransition({ pathname: toLocation.pathname, variant: null })
         void onceResolved(router).then(focusMainLandmark)
         return
@@ -115,15 +122,20 @@ function RootDocument() {
         return
       }
 
-      // Primary "wipe": bar sweeps in, hold until BOTH the sweep-in
-      // animation AND the router's own onResolved have fired (whichever is
-      // later — thanks to `defaultPreload: 'intent'` this is almost always
-      // the animation, see §M.3 step 7), move focus (still hidden under the
-      // opaque bar), then sweep back out and reset off-screen. Cancellation
-      // of a superseded run is handled inside `runWipeTransition` itself.
+      // Primary "full": scrim fades in + caret sweeps across (parallel),
+      // hold until BOTH the scrim-in animation AND the router's own
+      // onResolved have fired (whichever is later — thanks to
+      // `defaultPreload: 'intent'` this is almost always the animation, see
+      // §M.3 step 7), move focus (still hidden under the scrim), then fade
+      // the scrim back out and reset both layers. Cancellation of a
+      // superseded run is handled inside `runScrimTransition` itself.
       const overlay = overlayRef.current
-      if (!overlay) return
-      void runWipeTransition(overlay, onceResolved(router), focusMainLandmark)
+      if (!overlay?.scrim || !overlay.caret) return
+      void runScrimTransition(
+        { scrim: overlay.scrim, caret: overlay.caret },
+        onceResolved(router),
+        focusMainLandmark,
+      )
     })
     return unsubscribe
   }, [router])
@@ -136,7 +148,7 @@ function RootDocument() {
           key={transition.pathname}
           initial={{ opacity: 0, x: -8 }}
           animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: DUR_LIGHT_TRANSITION, ease: EASE_EXIT }}
+          transition={{ duration: DUR_LIGHT_TRANSITION, ease: EASE_SOFT }}
         >
           <Outlet />
         </motion.div>

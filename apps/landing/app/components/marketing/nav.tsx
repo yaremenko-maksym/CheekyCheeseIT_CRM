@@ -37,8 +37,8 @@ import { cn, focusRing } from '@/lib/utils'
  * harmless, per §M.2 "Nav mobile-меню ссылки".
  */
 const NAV_LINK_CLASS = cn(
-  'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 hover:text-foreground',
-  'after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 hover:after:scale-x-100 focus-visible:after:scale-x-100',
+  'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 ease-out hover:text-foreground',
+  'after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 after:ease-out hover:after:scale-x-100 focus-visible:after:scale-x-100',
   focusRing,
 )
 
@@ -134,7 +134,7 @@ export function MarketingNav({ active }: MarketingNavProps) {
           aria-expanded={open}
           onClick={() => setOpen((v) => !v)}
           className={cn(
-            'flex size-11 items-center justify-center rounded-[10px] border border-border bg-transparent text-foreground transition-colors duration-200 hover:border-[color-mix(in_oklch,var(--foreground)_30%,transparent)] min-[900px]:hidden',
+            'flex size-11 items-center justify-center rounded-[10px] border border-border bg-transparent text-foreground transition-colors duration-200 ease-out hover:border-[color-mix(in_oklch,var(--foreground)_30%,transparent)] min-[900px]:hidden',
             focusRing,
           )}
         >

@@ -13,9 +13,9 @@ async function freshModule() {
 }
 
 describe('page-transition', () => {
-  it('defaults to the primary "wipe" variant before anything marks it light', async () => {
+  it('defaults to the primary "full" variant before anything marks it light', async () => {
     const { consumePendingVariant } = await freshModule()
-    expect(consumePendingVariant()).toBe('wipe')
+    expect(consumePendingVariant()).toBe('full')
   })
 
   it('markNextTransitionLight forces the next consumePendingVariant() call to return "light"', async () => {
@@ -24,13 +24,13 @@ describe('page-transition', () => {
     expect(consumePendingVariant()).toBe('light')
   })
 
-  it('consumePendingVariant is a one-shot read — resets back to "wipe" immediately after being read', async () => {
+  it('consumePendingVariant is a one-shot read — resets back to "full" immediately after being read', async () => {
     const { markNextTransitionLight, consumePendingVariant } = await freshModule()
     markNextTransitionLight()
     expect(consumePendingVariant()).toBe('light')
     // A second, unrelated navigation right after must NOT inherit the
-    // override — only the primary "wipe" variant is the default.
-    expect(consumePendingVariant()).toBe('wipe')
+    // override — only the primary "full" variant is the default.
+    expect(consumePendingVariant()).toBe('full')
   })
 
   it('multiple markNextTransitionLight calls before a consume still only affect the single next read', async () => {
@@ -38,6 +38,6 @@ describe('page-transition', () => {
     markNextTransitionLight()
     markNextTransitionLight()
     expect(consumePendingVariant()).toBe('light')
-    expect(consumePendingVariant()).toBe('wipe')
+    expect(consumePendingVariant()).toBe('full')
   })
 })

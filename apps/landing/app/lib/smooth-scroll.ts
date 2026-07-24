@@ -1,5 +1,5 @@
 import { animate, type AnimationPlaybackControls } from 'framer-motion'
-import { DUR_SMOOTH_SCROLL, EASE_STANDARD } from './motion'
+import { DUR_SMOOTH_SCROLL, EASE_SOFT } from './motion'
 
 /**
  * `nav.tsx`'s sticky header height (`h-[66px]`) + breathing room — every
@@ -16,7 +16,7 @@ const HEADER_OFFSET = 66 + 16
 
 /**
  * Module-level handle for the in-flight scroll animation (if any) — same
- * "mutable state outside the React tree" pattern as `wipe-transition.ts`.
+ * "mutable state outside the React tree" pattern as `scrim-transition.ts`.
  * There is only ever one smooth-scroll happening at a time (it drives the
  * single `window.scrollY`), so a shared singleton is enough.
  */
@@ -41,11 +41,13 @@ function cancelActiveScroll(): void {
 /**
  * JS-driven in-page smooth scroll to an anchor id (§M.4) — owns the
  * "hash-link on the same page" case exclusively (see `nav.tsx`/`footer.tsx`
- * callers). Uses the shared `EASE_STANDARD` curve instead of the browser's
- * un-customizable native smooth-scroll easing, and explicitly bypasses the
- * animation entirely under `prefers-reduced-motion: reduce` — checked via
- * `matchMedia` (not `useReducedMotion()`) because this module runs outside
- * any component's render, so a React hook isn't available here.
+ * callers). Uses the shared `EASE_SOFT` curve (HOTFIX 2026-07-24 — was
+ * `EASE_STANDARD`, now the single default for every time-based JS animation
+ * on the landing) instead of the browser's un-customizable native
+ * smooth-scroll easing, and explicitly bypasses the animation entirely
+ * under `prefers-reduced-motion: reduce` — checked via `matchMedia` (not
+ * `useReducedMotion()`) because this module runs outside any component's
+ * render, so a React hook isn't available here.
  */
 export function smoothScrollToId(id: string): void {
   // A repeat call — e.g. rapid double-click on a different nav link before
@@ -63,7 +65,7 @@ export function smoothScrollToId(id: string): void {
 
   const controls = animate(window.scrollY, targetY, {
     duration: DUR_SMOOTH_SCROLL,
-    ease: EASE_STANDARD,
+    ease: EASE_SOFT,
     onUpdate: (v) => window.scrollTo(0, v),
   })
   activeScroll = controls

@@ -8,7 +8,11 @@ import { cn } from '@/lib/utils'
 // `active:scale-[0.98]` — visually different from apps/web on purpose, this
 // is a SEPARATE workspace/component-lib, not shared with the CRM.
 const buttonVariants = cva(
-  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] text-sm font-medium tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform] duration-200 focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-[3px] disabled:pointer-events-none disabled:opacity-55 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:transition-transform [&_svg]:duration-200',
+  // HOTFIX 2026-07-24 (§M.2 smoothness-pass): explicit `ease-out` on every
+  // hover-transition — Tailwind's implicit default (cubic-bezier(0.4,0,0.2,1))
+  // has a slight acceleration before decelerating; `ease-out`
+  // (cubic-bezier(0,0,0.2,1)) is strictly decelerating from the first frame.
+  'inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-[10px] text-sm font-medium tracking-[-0.01em] transition-[background-color,border-color,box-shadow,transform] duration-200 ease-out focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-[3px] disabled:pointer-events-none disabled:opacity-55 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 [&_svg]:transition-transform [&_svg]:duration-200 [&_svg]:ease-out',
   {
     variants: {
       variant: {
