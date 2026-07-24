@@ -38,6 +38,7 @@ import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
+import { trackFeatureClick } from '@/lib/telemetry'
 import { DeleteVacancyButton } from './components/VacancyCard'
 import { CandidateCard } from './components/CandidateCard'
 import { VacancyFormFields } from './components/VacancyFormFields'
@@ -371,6 +372,7 @@ function VacancyDetailPage() {
                     }
                     disabled={updateMutation.isPending}
                     data-testid="vacancy-detail-publish"
+                    data-track="vacancy-publish"
                   >
                     <ArrowUp className="mr-1.5 h-3.5 w-3.5" />
                     Опубликовать
@@ -407,7 +409,10 @@ function VacancyDetailPage() {
                   vacancy={vacancy}
                   canDelete={canDelete}
                   tooltip={deleteTooltip}
-                  onDelete={() => deleteMutation.mutate(vacancy.id)}
+                  onDelete={() => {
+                    trackFeatureClick('vacancy-delete')
+                    deleteMutation.mutate(vacancy.id)
+                  }}
                   isPending={deleteMutation.isPending}
                   variant="full"
                 />

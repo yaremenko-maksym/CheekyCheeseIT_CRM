@@ -8,7 +8,7 @@
  * breakpoint to the macet's 452px; same convention as `AttachReceiptSheet`.
  */
 import { useEffect, useState } from 'react'
-import { useForm } from '@tanstack/react-form'
+import { useForm, useStore } from '@tanstack/react-form'
 import type { Vacancy, VacancyDomain, VacancyEmploymentType } from '@crm/shared'
 import { createVacancySchema, updateVacancySchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 import { useCreateVacancy, useUpdateVacancy } from '@/hooks/use-vacancies'
+import { useFormAbandonTracking } from '@/lib/telemetry'
 import { VacancyFormFields } from './VacancyFormFields'
 
 interface VacancySheetProps {
@@ -101,8 +102,21 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
         if (!parsed.success) return
         await createMutation.mutateAsync(parsed.data)
       }
+      markFormSubmitted()
       onClose()
     },
+  })
+
+  // task-telemetry-web: reference wiring for the reusable form_abandon/
+  // form_submit hook (spec §3) — opened + dirtied + closed WITHOUT submit →
+  // `form_abandon`; opened + dirtied + submitted → `form_submit`. Opening a
+  // pristine Sheet and just closing it again fires neither (see
+  // `FormAbandonTracker`/PR body table for the full rollout status across
+  // other dialogs).
+  const isFormDirty = useStore(form.store, (s) => s.isDirty)
+  const { markSubmitted: markFormSubmitted } = useFormAbandonTracking('vacancy', {
+    open,
+    isDirty: isFormDirty,
   })
 
   // Re-seed the form whenever the target vacancy changes (open a different
@@ -169,6 +183,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
             onClick={() => void form.handleSubmit()}
             disabled={isPending}
             data-testid="vacancy-sheet-submit"
+            data-track={isEdit ? undefined : 'vacancy-create'}
           >
             {isEdit ? 'Сохранить изменения' : 'Создать вакансию'}
           </Button>

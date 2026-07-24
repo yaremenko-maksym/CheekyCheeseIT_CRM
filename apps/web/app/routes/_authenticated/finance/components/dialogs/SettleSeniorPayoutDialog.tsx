@@ -242,6 +242,7 @@ export function SettleSeniorPayoutDialog({
             onClick={handleSubmit}
             disabled={mutation.isPending}
             data-testid="settle-senior-submit"
+            data-track="settle-senior-payout"
           >
             {mutation.isPending ? 'Оплата...' : 'Отметить как оплачено'}
           </Button>

@@ -78,6 +78,7 @@ export function ContractActionBar({
         {actions.showMarkReady && (
           <Button
             data-testid="contract-mark-ready-btn"
+            data-track="contract-sign-prep"
             size="sm"
             variant="secondary"
             onClick={onMarkReady}
