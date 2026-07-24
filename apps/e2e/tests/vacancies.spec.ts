@@ -29,15 +29,15 @@
  * HR-review step itself (deleting the application is part of AC3's own
  * assertions) — no PII residue survives the run.
  *
- * The VACANCY row from the main flow, however, can NEVER be deleted once
- * published — `vacancies.service.ts` `VALID_TRANSITIONS` has no path back to
- * DRAFT, and `remove()` 409s on any non-DRAFT vacancy. This is a deliberate
- * product design (a published hiring vacancy is a permanent audit record —
- * same class of "immutable by design" residue as `signed_contracts` rows,
- * see task-integration-spec-cleanup.progress.md). The dedicated DRAFT-only
- * vacancy created in the "удалить DRAFT-вакансию" test below (which never
- * publishes) IS fully removable and leaves zero residue — verified by a
- * post-delete re-fetch assertion.
+ * The VACANCY row from the main flow ends the flow CLOSED with 0
+ * applications (its one application is deleted in step 4). task-vacancy-
+ * delete-closed softened `remove()`'s guard from "DRAFT only" to "DRAFT or
+ * CLOSED, and applicationsCount === 0", so step 5 deletes it itself (via the
+ * detail page's «Опасная зона» / full-variant button) instead of leaving it
+ * behind as permanent residue. The dedicated DRAFT-only vacancy created in
+ * the "удалить DRAFT-вакансию" test below (icon-variant, list page) covers
+ * the other delete surface — together the two leave zero residue across
+ * this whole spec.
  */
 import { test, expect, type Locator, type Page } from '@playwright/test'
 import { loginViaApi, SEED_ADMIN_EMAIL, SEED_EMAILS } from './fixtures'
@@ -238,12 +238,30 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     applicationId = undefined // cleaned — afterAll below has nothing left to do
   })
 
-  test('5. (AC4) Вакансия: close → re-open → close; delete-гард (не DRAFT); отклики очищены', async ({
+  test('5. (AC4, task-vacancy-delete-closed) close → re-open → close; delete-гард (PUBLISHED disabled → CLOSED+0 enabled); удаление + отклики очищены', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     await page.goto(`/vacancies/${vacancyId}`)
     await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText('Опубликовано')
+
+    // delete-guard while PUBLISHED: disabled + "закройте сначала" tooltip
+    // (Опасная зона card, full variant — the only place this exercises the
+    // real browser DOM; the DRAFT/CLOSED branches are covered by
+    // VacancyCard.test.tsx, which shares the same getVacancyDeleteGate()).
+    const publishedDeleteBtn = page.getByTestId(`vacancy-delete-disabled-${vacancyId}`)
+    await expect(publishedDeleteBtn).toBeVisible()
+    await expect(publishedDeleteBtn).toBeDisabled()
+    // Radix wraps a disabled TooltipTrigger in a `<span>` (disabled buttons
+    // don't reliably fire pointer events) — that span visually sits ON TOP
+    // of the button and fails Playwright's own actionability "receives
+    // pointer events" pre-check on the button itself. `force: true` skips
+    // that pre-check and dispatches the hover at the button's coordinates —
+    // the browser's real elementFromPoint then correctly routes it to the
+    // intercepting span, which is what the Tooltip is actually listening on
+    // (verified: without `force`, the hover times out — confirmed live).
+    await publishedDeleteBtn.hover({ force: true })
+    await expect(page.getByText('Опубликованную вакансию нужно сначала закрыть')).toBeVisible()
 
     // close
     await page.getByTestId('vacancy-detail-close').click()
@@ -257,27 +275,33 @@ test.describe.serial('Vacancies — полный флоу (ADMIN → откли�
     await page.getByTestId('vacancy-detail-close').click()
     await expect(page.getByTestId('vacancy-detail-status-badge')).toHaveText('Закрыто')
 
-    // delete-guard: not DRAFT → disabled + tooltip (Опасная зона card, full variant).
-    const deleteBtn = page.getByTestId(`vacancy-delete-disabled-${vacancyId}`)
-    await expect(deleteBtn).toBeVisible()
-    await expect(deleteBtn).toBeDisabled()
-    // Radix wraps a disabled TooltipTrigger in a `<span>` (disabled buttons
-    // don't reliably fire pointer events) — that span visually sits ON TOP
-    // of the button and fails Playwright's own actionability "receives
-    // pointer events" pre-check on the button itself. `force: true` skips
-    // that pre-check and dispatches the hover at the button's coordinates —
-    // the browser's real elementFromPoint then correctly routes it to the
-    // intercepting span, which is what the Tooltip is actually listening on
-    // (verified: without `force`, the hover times out — confirmed live).
-    await deleteBtn.hover({ force: true })
-    await expect(page.getByText('Удалить можно только вакансию в статусе DRAFT')).toBeVisible()
-
-    // Regression guard for the deleted application (previous step) — no
-    // residue in the vacancy's own applications list.
+    // Regression guard for the deleted application (step 4) — no residue in
+    // the vacancy's own applications list. Checked BEFORE the delete below:
+    // this endpoint 404s once the vacancy row itself is gone.
     const appsRes = await page.request.get(
       `${REAL_API_BASE}/api/vacancies/${vacancyId}/applications`,
     )
     expect((await appsRes.json()) as unknown[]).toHaveLength(0)
+
+    // delete-guard now CLOSED + 0 applications → ENABLED. This is AC1's
+    // exact scenario (owner report: couldn't delete a test CLOSED vacancy
+    // with 0 responses) — happy-path delete via the detail page's full
+    // variant, closing the loop so this vacancy leaves zero residue too.
+    const deleteBtn = page.getByTestId(`vacancy-delete-${vacancyId}`)
+    await expect(deleteBtn).toBeEnabled()
+    await deleteBtn.click()
+    const confirmDialog = page.getByRole('alertdialog', { name: 'Удалить вакансию?' })
+    await expect(confirmDialog).toBeVisible()
+    await confirmDialog.getByTestId(`vacancy-delete-confirm-${vacancyId}`).click()
+
+    // `useVacancy()` derives from the list query — once the delete
+    // invalidates it and the refetch no longer contains this id, the detail
+    // page falls back to its not-found state.
+    await expect(page.getByTestId('vacancy-not-found')).toBeVisible()
+
+    const afterRes = await page.request.get(`${REAL_API_BASE}/api/vacancies`)
+    const afterList = (await afterRes.json()) as Array<{ id: string }>
+    expect(afterList.map((v) => v.id)).not.toContain(vacancyId)
   })
 
   test.afterAll(async ({ request }) => {

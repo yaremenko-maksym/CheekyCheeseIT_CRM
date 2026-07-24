@@ -433,8 +433,12 @@ describe('VacanciesService', () => {
     })
   })
 
+  // task-vacancy-delete-closed: gate softened from "DRAFT only" to
+  // "DRAFT or CLOSED, and applicationsCount === 0". PUBLISHED still can
+  // never be deleted directly (close it first); applications still block
+  // delete regardless of status (R2 files + history, retention cron only).
   describe('remove', () => {
-    it('rejects with 409 when the vacancy is not DRAFT', async () => {
+    it('rejects with 409 when the vacancy is PUBLISHED', async () => {
       const row = makeRow({ status: 'PUBLISHED' })
       const h = makeHarness({ findFirstQueue: [row] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
@@ -451,8 +455,26 @@ describe('VacanciesService', () => {
       await expect(svc.remove(ADMIN, row.id)).rejects.toThrow(ConflictException)
     })
 
+    it('rejects with 409 when the CLOSED vacancy already has applications', async () => {
+      const row = makeRow({ status: 'CLOSED', closedAt: new Date('2026-07-05T00:00:00Z') })
+      const h = makeHarness({
+        findFirstQueue: [row],
+        applicationCounts: [{ vacancyId: row.id, count: 1 }],
+      })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await expect(svc.remove(ADMIN, row.id)).rejects.toThrow(ConflictException)
+    })
+
     it('deletes a DRAFT vacancy with zero applications', async () => {
       const row = makeRow({ status: 'DRAFT' })
+      const h = makeHarness({ findFirstQueue: [row], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await svc.remove(ADMIN, row.id)
+      expect(h.getDeletedId()).toBe('deleted')
+    })
+
+    it('deletes a CLOSED vacancy with zero applications (owner report: was impossible before this task)', async () => {
+      const row = makeRow({ status: 'CLOSED', closedAt: new Date('2026-07-05T00:00:00Z') })
       const h = makeHarness({ findFirstQueue: [row], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await svc.remove(ADMIN, row.id)
