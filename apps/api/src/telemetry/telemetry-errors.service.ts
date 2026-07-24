@@ -22,7 +22,7 @@ export interface RecordErrorInput {
   route?: string | null | undefined
   userId?: string | null | undefined
   userRole?: string | null | undefined
-  meta?: Record<string, unknown>
+  meta?: Record<string, unknown> | undefined
 }
 
 /**

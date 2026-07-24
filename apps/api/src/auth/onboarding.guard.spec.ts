@@ -62,6 +62,9 @@ describe('OnboardingGuard', () => {
       '/api/contracts/templates/current/SENIOR',
       '/api/contracts/templates/current/HR',
       '/api/contracts/sign',
+      // task-telemetry-api: must work even for un-onboarded users.
+      '/api/telemetry/errors',
+      '/api/telemetry/events',
     ]
 
     for (const url of bypassPaths) {

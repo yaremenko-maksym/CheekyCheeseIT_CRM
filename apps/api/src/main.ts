@@ -7,6 +7,7 @@ import multipart from '@fastify/multipart'
 import { AppModule } from './app.module'
 import { ZodExceptionFilter } from './zod-exception.filter'
 import { parseCorsOrigins } from './config/cors'
+import { TelemetryExceptionFilter } from './telemetry/telemetry-exception.filter'
 
 async function bootstrap() {
   const isProd = process.env['NODE_ENV'] === 'production'
@@ -87,7 +88,13 @@ async function bootstrap() {
     optionsSuccessStatus: 204,
   })
 
-  app.useGlobalFilters(new ZodExceptionFilter())
+  // task-telemetry-api: TelemetryExceptionFilter (catch-all, 5xx/unhandled →
+  // telemetry_errors) MUST be registered FIRST when combined with a
+  // type-specific filter, so ZodExceptionFilter still wins for ZodError —
+  // see that Nest docs section "Catch everything" / TelemetryExceptionFilter's
+  // own doc comment. Resolved via `app.get()` (not `new`) so its
+  // TelemetryErrorsService dependency is the real DI-wired instance.
+  app.useGlobalFilters(app.get(TelemetryExceptionFilter), new ZodExceptionFilter())
   app.setGlobalPrefix('api')
   app.enableShutdownHooks()
 
