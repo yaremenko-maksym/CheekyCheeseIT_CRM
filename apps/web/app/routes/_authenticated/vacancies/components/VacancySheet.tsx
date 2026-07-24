@@ -9,8 +9,8 @@
  */
 import { useEffect, useState } from 'react'
 import { useForm } from '@tanstack/react-form'
-import type { CreateVacancy, Vacancy } from '@crm/shared'
-import { createVacancySchema } from '@crm/shared'
+import type { Vacancy, VacancyDomain, VacancyEmploymentType } from '@crm/shared'
+import { createVacancySchema, updateVacancySchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Sheet,
@@ -30,27 +30,40 @@ interface VacancySheetProps {
   onClose: () => void
 }
 
-function emptyValues(): CreateVacancy {
+/**
+ * task-vacancies-form-simplify: `seniority`/`location` are deliberately NOT
+ * part of this form's values anymore — every position is full-remote SENIOR.
+ * Create sends this shape through `createVacancySchema` (`.default()` fills
+ * both fields); edit sends it through `updateVacancySchema` (both stay
+ * `undefined` → no-op, the existing vacancy's values are left untouched —
+ * see that schema's file-header comment for why a naive `.partial()` would
+ * be unsafe here).
+ */
+interface VacancyFormValues {
+  title: string
+  slug: string
+  descriptionMd: string
+  domain: VacancyDomain
+  employmentType: VacancyEmploymentType
+}
+
+function emptyValues(): VacancyFormValues {
   return {
     title: '',
     slug: '',
     descriptionMd: '',
     domain: 'AI',
-    seniority: 'SENIOR',
     employmentType: 'FULL_TIME',
-    location: '',
   }
 }
 
-function valuesFromVacancy(vacancy: Vacancy): CreateVacancy {
+function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
   return {
     title: vacancy.title,
     slug: vacancy.slug,
     descriptionMd: vacancy.descriptionMd,
     domain: vacancy.domain,
-    seniority: vacancy.seniority,
     employmentType: vacancy.employmentType,
-    location: vacancy.location,
   }
 }
 
@@ -66,21 +79,26 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
   const form = useForm({
     defaultValues: vacancy ? valuesFromVacancy(vacancy) : emptyValues(),
     onSubmit: async ({ value }) => {
-      const dto: CreateVacancy = {
+      const dto = {
         title: value.title.trim(),
         slug: value.slug.trim(),
         descriptionMd: value.descriptionMd,
         domain: value.domain,
-        seniority: value.seniority,
         employmentType: value.employmentType,
-        location: value.location.trim(),
       }
-      const parsed = createVacancySchema.safeParse(dto)
-      if (!parsed.success) return
 
+      // isEdit branch validates through `updateVacancySchema` (seniority/
+      // location NOT included in `dto` → stay `undefined` → PATCH is a no-op
+      // on those two fields, the existing vacancy keeps its own value).
+      // create branch validates through `createVacancySchema` (same omission
+      // → `.default()` fills seniority: 'SENIOR' / location: 'Remote').
       if (isEdit && vacancy) {
+        const parsed = updateVacancySchema.safeParse(dto)
+        if (!parsed.success) return
         await updateMutation.mutateAsync({ id: vacancy.id, dto: parsed.data })
       } else {
+        const parsed = createVacancySchema.safeParse(dto)
+        if (!parsed.success) return
         await createMutation.mutateAsync(parsed.data)
       }
       onClose()

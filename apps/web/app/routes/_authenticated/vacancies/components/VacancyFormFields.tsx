@@ -3,8 +3,16 @@
  * both the list-page Sheet (`VacancySheet`, create AND edit-from-list) and
  * the detail-page inline edit form (`$vacancyId.tsx` — spec §4.3 explicitly
  * wants an INLINE form there, not a Sheet, but with the SAME fields). A
- * single presentational component avoids re-implementing the same 7
+ * single presentational component avoids re-implementing the same 5
  * TanStack Form fields twice (golden rule #8 — no duplicated logic).
+ *
+ * task-vacancies-form-simplify: «Уровень» (seniority) and «Локация»
+ * (location) controls were REMOVED — every position is a full-remote SENIOR
+ * role. Both fields still exist on `Vacancy`/`createVacancySchema` (now
+ * `.default('SENIOR'/'Remote')`) so existing non-default rows (e.g. a LEAD
+ * vacancy created before this change) keep displaying correctly everywhere
+ * else (VacancyCard badges, detail-page header) — this component just no
+ * longer lets a user set them.
  *
  * `form`/`field` are typed `AnyForm`/`AnyField` (all-`any` generics) —
  * follows the exact pattern already used in this codebase to pass a
@@ -26,7 +34,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
-import { DOMAIN_LABELS, EMPLOYMENT_TYPE_LABELS, SENIORITY_LABELS, slugifyTitle } from '../constants'
+import { DOMAIN_LABELS, EMPLOYMENT_TYPE_LABELS, slugifyTitle } from '../constants'
 
 // TanStack Form field/form render props require many generics — same
 // suppress-locally convention as ProjectEditFields.
@@ -76,7 +84,7 @@ export type AnyForm = ReactFormExtendedApi<
 // pattern /^[a-z0-9]+.../", "Too small: expected string to have >=10
 // characters") — leaking that straight into the UI violates the project's
 // hard "always Russian UI" rule (rules/common/russian-language.md). Map the
-// small set of issue codes these 4 fields can actually produce (regex/min/
+// small set of issue codes these 3 fields can actually produce (regex/min/
 // max on plain strings) to Russian text instead of relying on the schema's
 // message. `patternMsg` lets the slug field give a field-specific hint
 // ("латиница/цифры/дефис") instead of a generic "неверный формат".
@@ -89,7 +97,6 @@ function zodIssueRu(issue: z.core.$ZodIssue | undefined, patternMsg?: string): s
 }
 
 const DOMAIN_OPTIONS = ['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'] as const
-const SENIORITY_OPTIONS = ['SENIOR', 'LEAD'] as const
 const EMPLOYMENT_TYPE_OPTIONS = ['FULL_TIME', 'PART_TIME', 'CONTRACT'] as const
 
 export interface VacancyFormFieldsProps {
@@ -208,28 +215,6 @@ export function VacancyFormFields({
           )}
         </form.Field>
 
-        <form.Field name="seniority">
-          {(field: AnyField) => (
-            <div className="space-y-1.5">
-              <Label>Уровень</Label>
-              <Select value={field.state.value} onValueChange={(v) => field.handleChange(v)}>
-                <SelectTrigger data-testid="vacancy-form-seniority">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {SENIORITY_OPTIONS.map((s) => (
-                    <SelectItem key={s} value={s}>
-                      {SENIORITY_LABELS[s]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </form.Field>
-      </div>
-
-      <div className="grid grid-cols-2 gap-[14px]">
         <form.Field name="employmentType">
           {(field: AnyField) => (
             <div className="space-y-1.5">
@@ -248,36 +233,6 @@ export function VacancyFormFields({
               </Select>
             </div>
           )}
-        </form.Field>
-
-        <form.Field
-          name="location"
-          validators={{
-            onBlur: ({ value }: { value: string }) => {
-              const r = createVacancySchema.shape.location.safeParse(value.trim())
-              return r.success ? undefined : zodIssueRu(r.error.issues[0])
-            },
-          }}
-        >
-          {(field: AnyField) => {
-            const err = field.state.meta.isTouched ? field.state.meta.errors[0] : undefined
-            return (
-              <div className="space-y-1.5">
-                <Label className={cn(err && 'text-destructive')}>Локация</Label>
-                <Input
-                  value={field.state.value}
-                  onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    field.handleChange(e.target.value)
-                  }
-                  onBlur={field.handleBlur}
-                  placeholder="Киев · Удалённо"
-                  data-testid="vacancy-form-location"
-                  className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                />
-                {err && <p className="text-xs text-destructive">{err}</p>}
-              </div>
-            )
-          }}
         </form.Field>
       </div>
 

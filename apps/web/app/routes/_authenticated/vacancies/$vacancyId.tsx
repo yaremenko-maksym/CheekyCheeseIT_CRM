@@ -22,8 +22,8 @@ import { z } from 'zod'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { ArrowLeft, ArrowUp, Globe, RotateCcw, Users, X } from 'lucide-react'
-import type { CreateVacancy, VacancyApplicationStatus } from '@crm/shared'
-import { createVacancySchema } from '@crm/shared'
+import type { VacancyApplicationStatus, VacancyDomain, VacancyEmploymentType } from '@crm/shared'
+import { updateVacancySchema } from '@crm/shared'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import {
   useDeleteVacancy,
@@ -67,15 +67,28 @@ export const Route = createFileRoute('/_authenticated/vacancies/$vacancyId')({
 
 type ApplicationsFilter = 'ALL' | VacancyApplicationStatus
 
-function emptyFormValues(): CreateVacancy {
+/**
+ * task-vacancies-form-simplify: `seniority`/`location` are deliberately NOT
+ * part of this inline form's values anymore (see `VacancySheet.tsx`'s
+ * matching comment) — the PATCH payload built in `onSubmit` below omits
+ * them, so `updateVacancySchema` leaves them `undefined` (no-op) and the
+ * vacancy's existing seniority/location are never touched by this form.
+ */
+interface VacancyFormValues {
+  title: string
+  slug: string
+  descriptionMd: string
+  domain: VacancyDomain
+  employmentType: VacancyEmploymentType
+}
+
+function emptyFormValues(): VacancyFormValues {
   return {
     title: '',
     slug: '',
     descriptionMd: '',
     domain: 'AI',
-    seniority: 'SENIOR',
     employmentType: 'FULL_TIME',
-    location: '',
   }
 }
 
@@ -105,23 +118,22 @@ function VacancyDetailPage() {
           slug: vacancy.slug,
           descriptionMd: vacancy.descriptionMd,
           domain: vacancy.domain,
-          seniority: vacancy.seniority,
           employmentType: vacancy.employmentType,
-          location: vacancy.location,
         }
       : emptyFormValues(),
     onSubmit: async ({ value }) => {
       if (!vacancy) return
-      const dto: CreateVacancy = {
+      const dto = {
         title: value.title.trim(),
         slug: value.slug.trim(),
         descriptionMd: value.descriptionMd,
         domain: value.domain,
-        seniority: value.seniority,
         employmentType: value.employmentType,
-        location: value.location.trim(),
       }
-      const parsed = createVacancySchema.safeParse(dto)
+      // seniority/location NOT in `dto` → updateVacancySchema leaves them
+      // `undefined` → no-op — this form never changes the vacancy's
+      // seniority/location, whatever they currently are.
+      const parsed = updateVacancySchema.safeParse(dto)
       if (!parsed.success) return
       await updateMutation.mutateAsync({ id: vacancy.id, dto: parsed.data })
     },
@@ -137,9 +149,7 @@ function VacancyDetailPage() {
         slug: vacancy.slug,
         descriptionMd: vacancy.descriptionMd,
         domain: vacancy.domain,
-        seniority: vacancy.seniority,
         employmentType: vacancy.employmentType,
-        location: vacancy.location,
       })
     }
     // Keyed on vacancy?.id only — re-running on every refetch would clobber in-progress edits.
@@ -330,9 +340,7 @@ function VacancyDetailPage() {
                       slug: vacancy.slug,
                       descriptionMd: vacancy.descriptionMd,
                       domain: vacancy.domain,
-                      seniority: vacancy.seniority,
                       employmentType: vacancy.employmentType,
-                      location: vacancy.location,
                     })
                   }
                   data-testid="vacancy-edit-cancel"
