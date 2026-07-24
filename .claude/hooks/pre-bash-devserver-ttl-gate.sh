@@ -29,18 +29,16 @@ INPUT=$(cat)
 CMD=$(printf '%s' "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
 CWD=$(printf '%s' "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null || true)
 
-# Fast exit: empty or already TTL-wrapped.
+# Fast exit: empty command.
 [ -z "$CMD" ] && exit 0
-if echo "$CMD" | grep -q 'dev-ttl\.sh'; then
-  exit 0
-fi
 
-# Dev-server launcher patterns (narrow by design):
-#   nest start / nest.js start
+# Dev-server launcher patterns (narrow by design; coarse pre-filter — the
+# authoritative per-segment check runs below in python):
+#   nest start / nest.js start (left-bounded — "an honest start" must not match)
 #   vite as a command (NOT vitest)
 #   pnpm|npm|yarn|turbo [flags|--filter X|run] dev / dev:start
 #   node ... dist/main (booting the built API directly)
-LAUNCHER='nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
+LAUNCHER='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
 echo "$CMD" | grep -qE "$LAUNCHER" || exit 0
 
 # Enforce only in agent worktree / claude scratchpad context.
@@ -48,6 +46,32 @@ CONTEXT='\.claude/worktrees/|/tmp/claude-'
 if ! echo "$CMD" | grep -qE "$CONTEXT" && ! echo "$CWD" | grep -qE "$CONTEXT"; then
   exit 0
 fi
+
+# Authoritative wrapped-check, segment-wise: split on ; & | and require every
+# launcher-bearing segment to itself invoke dev-ttl.sh. A decoy mention of
+# dev-ttl.sh in one segment must not whitelist an unwrapped boot in another.
+# (single-quoted python: $ anchors must reach re untouched by bash)
+WRAP_OK=$(printf '%s' "$CMD" | python3 -c 'import re, sys
+cmd = sys.stdin.read()
+launcher = re.compile(
+    r"(^|[/\s])nest(\.js)?\s+start"
+    r"|(^|[/\s])vite(\s|$)"
+    r"|(^|\s)(pnpm|npm|yarn|turbo)(\s+(-\S+|--filter\s+\S+|run))*\s+dev(:start)?(\s|$)"
+    r"|node\s.*dist/main")
+wrapper = re.compile(r"(^|[/\s])dev-ttl\.sh(\s|$)")
+ok = 1
+for seg in re.split(r"[;&|]+", cmd):
+    if launcher.search(seg) and not wrapper.search(seg):
+        ok = 0
+print(ok)' 2>/dev/null)
+case "$WRAP_OK" in
+1) exit 0 ;;
+0) : ;; # unwrapped launcher confirmed — fall through to block
+*) # python3 unavailable — degrade to the coarse substring check rather than
+  # trapping properly wrapped commands in an unescapable block
+  echo "$CMD" | grep -q 'dev-ttl\.sh' && exit 0
+  ;;
+esac
 
 # Block.
 python3 -c "
