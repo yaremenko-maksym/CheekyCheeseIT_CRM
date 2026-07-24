@@ -3,6 +3,8 @@
   "ci": {
     "collect": {
       "staticDistDir": "apps/landing/dist",
+      "$comment": "Explicit url list disables LHCI's file-path autodiscovery (which would also score 404.html — a page that is CORRECTLY noindex and thus can never pass categories:seo>=0.9). localhost port is substituted by LHCI's static server at runtime. Add prerendered vacancy URLs here only if a stable fixture vacancy ever exists at CI build time.",
+      "url": ["http://localhost/", "http://localhost/careers/"],
       "numberOfRuns": 3,
       "settings": {
         "onlyCategories": ["performance", "accessibility", "best-practices", "seo"]
