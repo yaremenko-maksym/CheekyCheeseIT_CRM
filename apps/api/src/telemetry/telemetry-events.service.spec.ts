@@ -80,6 +80,20 @@ describe('TelemetryEventsService.recordBatch', () => {
     expect((getInsertedRows()[0] as { durationMs: number }).durationMs).toBe(4200)
   })
 
+  it('sec HIGH (review round 1): strips a query string from event.route before storing (consistency with errors/filter)', async () => {
+    const { db, getInsertedRows } = makeDb()
+    const svc = new TelemetryEventsService(db, makeConfig())
+
+    await svc.recordBatch([{ event: 'route_enter', route: '/finance?tab=history&highlight=42' }], {
+      id: 'u1',
+      role: 'SENIOR',
+    })
+
+    const row = getInsertedRows()[0] as { route: string }
+    expect(row.route).toBe('/finance')
+    expect(row.route).not.toContain('tab=')
+  })
+
   it('is a no-op on an empty batch', async () => {
     const { db, getInsertedRows } = makeDb()
     const svc = new TelemetryEventsService(db, makeConfig())

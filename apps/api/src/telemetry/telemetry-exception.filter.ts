@@ -10,6 +10,7 @@ import {
 import { BaseExceptionFilter } from '@nestjs/core'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
+import { toPathname } from './route'
 import { TelemetryErrorsService } from './telemetry-errors.service'
 
 /**
@@ -96,7 +97,13 @@ export class TelemetryExceptionFilter extends BaseExceptionFilter {
       source: 'API',
       message,
       stack,
-      route: url,
+      // sec HIGH (review round 1): `request.url` on Fastify carries the FULL
+      // query string (e.g. `/api/auth/google/callback?code=...&state=...`).
+      // Stored verbatim this would leak an OAuth code/state — or any future
+      // token-in-URL — into the digest -> public GitHub issue pipeline.
+      // `toPathname` is the single shared strip helper (see `route.ts`),
+      // reused at every telemetry route-write site.
+      route: toPathname(url),
       userId: request.user?.id,
       userRole: request.user?.role,
     })
@@ -105,6 +112,5 @@ export class TelemetryExceptionFilter extends BaseExceptionFilter {
 
 /** Recursion guard (AC4) — exported for direct unit testing. */
 export function isTelemetryInternalRoute(url: string): boolean {
-  const path = url.split('?')[0] ?? ''
-  return path.startsWith('/api/telemetry')
+  return toPathname(url).startsWith('/api/telemetry')
 }

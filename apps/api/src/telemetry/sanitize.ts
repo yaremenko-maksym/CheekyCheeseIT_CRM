@@ -19,8 +19,15 @@
 const REDACTION_PATTERNS: RegExp[] = [
   // `Authorization: Bearer <token>` / bare `Bearer <token>` mentions.
   /Bearer\s+\S+/gi,
-  // `Cookie: foo=bar; baz=qux` (up to the next `;` or end of the match).
-  /cookie[^;]+/gi,
+  // `Cookie: foo=bar; jwt=eyJ...; other=qux` — redact the ENTIRE header
+  // value (every `;`-separated pair on the same line), not just up to the
+  // first `;`. sec MED (review round 1): a raw `/cookie[^;]+/gi` stops at
+  // the FIRST semicolon — a multi-pair Cookie header (the normal shape;
+  // browsers always send every cookie on one `Cookie:` line, `; `-joined)
+  // left every pair AFTER the first one — e.g. a JWT session cookie —
+  // completely unredacted. `[^\n]*` consumes the rest of the LINE instead,
+  // so it never bleeds into a following line of a multi-line stack trace.
+  /cookie[^\n]*/gi,
   // `password=...` / `password: "..."` / `password='...'` in any casing.
   /password["':=\s]+\S+/gi,
 ]

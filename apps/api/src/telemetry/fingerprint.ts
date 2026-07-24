@@ -12,9 +12,35 @@ import { createHash } from 'node:crypto'
 
 const TOP_FRAMES_COUNT = 3
 
-/** Collapses incidental whitespace differences (trailing newline, double space) without touching content. */
+// sec MED (review round 1, both reviewers): volatile per-occurrence values
+// inside a message must NOT participate in the fingerprint, or every
+// occurrence of an otherwise-identical error (different UUID/id/timestamp
+// each time) gets its OWN row instead of grouping into one (defeats AC2's
+// whole point — count++ dedup). Order matters: UUID (most specific, dashed
+// hex) first, then ISO timestamps (has its own T/:/- structure), then
+// generic hex identifiers (>=8 hex chars — git SHAs, tx hashes, session
+// ids), then plain 3+-digit numbers last (anything still left: ports,
+// counters, amounts, ids).
+const UUID_PATTERN = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi
+const ISO_TIMESTAMP_PATTERN = /\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/g
+const HEX_ID_PATTERN = /\b[0-9a-f]{8,}\b/gi
+const NUMBER_PATTERN = /\b\d{3,}\b/g
+
+/**
+ * Collapses incidental whitespace differences, THEN strips volatile
+ * per-occurrence values (UUID/timestamp/hex-id/number) to placeholders —
+ * see the comment above for why. Two error messages differing ONLY by a
+ * UUID (e.g. "user <uuid1> not found" vs "user <uuid2> not found") produce
+ * the IDENTICAL normalized string, and therefore the identical fingerprint.
+ */
 function normalizeMessage(message: string): string {
-  return message.trim().replace(/\s+/g, ' ')
+  return message
+    .trim()
+    .replace(/\s+/g, ' ')
+    .replace(UUID_PATTERN, '<id>')
+    .replace(ISO_TIMESTAMP_PATTERN, '<ts>')
+    .replace(HEX_ID_PATTERN, '<hex>')
+    .replace(NUMBER_PATTERN, '<n>')
 }
 
 /**

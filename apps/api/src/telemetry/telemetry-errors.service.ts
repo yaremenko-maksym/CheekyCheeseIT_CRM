@@ -4,6 +4,7 @@ import type { TelemetryErrorSource } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { telemetryErrors } from '../database/schema'
 import { computeFingerprint } from './fingerprint'
+import { toPathname } from './route'
 import { sanitizeAndTruncate } from './sanitize'
 
 /** Contract: `message text (≤500)` / `stack text (≤4000, санитизированный)`. */
@@ -64,6 +65,11 @@ export class TelemetryErrorsService {
     })
     const message = sanitizeAndTruncate(input.message, MESSAGE_MAX_LENGTH)
     const stack = input.stack ? sanitizeAndTruncate(input.stack, STACK_MAX_LENGTH) : null
+    // sec HIGH (review round 1): a client-submitted `route` (or the
+    // server-side `request.url`, via TelemetryExceptionFilter) can carry a
+    // query string (`?code=...&state=...`) — the digest hands this value to
+    // a PUBLIC GitHub issue. Pathname-only, always, at this single write path.
+    const route = input.route ? toPathname(input.route) : null
     const now = new Date()
 
     await this.db.db
@@ -73,7 +79,7 @@ export class TelemetryErrorsService {
         source: input.source,
         message,
         stack,
-        route: input.route ?? null,
+        route,
         userId: input.userId ?? null,
         userRole: input.userRole ?? null,
         meta: input.meta ?? {},
@@ -88,7 +94,7 @@ export class TelemetryErrorsService {
           count: sql`${telemetryErrors.count} + 1`,
           lastSeen: now,
           status: sql`CASE WHEN ${telemetryErrors.status} = 'RESOLVED' THEN 'NEW'::telemetry_error_status ELSE ${telemetryErrors.status} END`,
-          route: input.route ?? null,
+          route,
           userId: input.userId ?? null,
           userRole: input.userRole ?? null,
           meta: input.meta ?? {},

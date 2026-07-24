@@ -106,6 +106,22 @@ describe('TelemetryErrorsService.recordError', () => {
     })
   })
 
+  it('sec HIGH (review round 1): strips a query string from a client-submitted route before storing', async () => {
+    const { db, calls } = makeDb()
+    const svc = new TelemetryErrorsService(db)
+
+    await svc.recordError({
+      source: 'WEB',
+      message: 'boom',
+      route: '/auth/google/callback?code=secret-oauth-code&state=csrf-state-value',
+    })
+
+    const values = calls[0]!.values as { route: string }
+    expect(values.route).toBe('/auth/google/callback')
+    expect(values.route).not.toContain('code=')
+    expect(values.route).not.toContain('secret-oauth-code')
+  })
+
   it('passes through route/userId/userRole/meta when provided', async () => {
     const { db, calls } = makeDb()
     const svc = new TelemetryErrorsService(db)

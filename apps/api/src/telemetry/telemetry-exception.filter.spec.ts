@@ -87,6 +87,23 @@ describe('TelemetryExceptionFilter — recursion guard (AC4)', () => {
     expect(recordError).not.toHaveBeenCalled()
   })
 
+  it('sec HIGH (review round 1): strips a query string (OAuth code/state) from the recorded route', async () => {
+    const recordError = vi.fn().mockResolvedValue(undefined)
+    const telemetryErrors = { recordError } as unknown as TelemetryErrorsService
+    const filter = withHttpAdapter(new TelemetryExceptionFilter(telemetryErrors))
+    const host = makeHost('/api/auth/google/callback?code=secret-oauth-code&state=csrf-state-value')
+
+    filter.catch(new Error('unexpected DB failure'), host)
+    await flushMicrotasks()
+
+    expect(recordError).toHaveBeenCalledTimes(1)
+    const call = recordError.mock.calls[0]![0] as { route: string }
+    expect(call.route).toBe('/api/auth/google/callback')
+    expect(call.route).not.toContain('code=')
+    expect(call.route).not.toContain('secret-oauth-code')
+    expect(call.route).not.toContain('state=')
+  })
+
   it('records a 5xx error for a NORMAL route', async () => {
     const recordError = vi.fn().mockResolvedValue(undefined)
     const telemetryErrors = { recordError } as unknown as TelemetryErrorsService

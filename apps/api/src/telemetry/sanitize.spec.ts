@@ -14,6 +14,26 @@ describe('sanitizeText', () => {
     expect(result).toContain('[redacted]')
   })
 
+  it('sec MED (review round 1): redacts EVERY pair in a multi-section Cookie header, not just up to the first ";"', () => {
+    // Browsers always send every cookie on ONE `Cookie:` line, `; `-joined —
+    // a real JWT session cookie is very likely to land AFTER the first `;`.
+    const result = sanitizeText(
+      'Cookie: jwt=eyJhbGciOiJIUzI1NiJ9.payload.sig; sessionid=s3cr3t; other=1',
+    )
+    expect(result).not.toContain('eyJhbGciOiJIUzI1NiJ9')
+    expect(result).not.toContain('sessionid')
+    expect(result).not.toContain('s3cr3t')
+    expect(result).not.toContain(';')
+  })
+
+  it('sec MED: a multi-line message only redacts the Cookie line, not the following unrelated line', () => {
+    const input = 'Cookie: jwt=secretvalue; sessionid=abc\nUnrelated next line stays intact'
+    const result = sanitizeText(input)
+    expect(result).not.toContain('secretvalue')
+    expect(result).not.toContain('sessionid')
+    expect(result).toContain('Unrelated next line stays intact')
+  })
+
   it('redacts a password field (and its "password" keyword) in several notations', () => {
     expect(sanitizeText('password="hunter2"')).toBe('[redacted]')
     expect(sanitizeText("password='hunter2'")).toBe('[redacted]')

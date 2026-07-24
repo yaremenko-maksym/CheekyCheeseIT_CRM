@@ -69,4 +69,56 @@ describe('computeFingerprint', () => {
     const fp = computeFingerprint({ source: 'API', message: 'x' })
     expect(fp).toMatch(/^[0-9a-f]{64}$/)
   })
+
+  describe('sec MED (review round 1, both reviewers): volatile-value stripping in the message', () => {
+    it('two messages differing ONLY by a UUID produce the SAME fingerprint', () => {
+      const a = computeFingerprint({
+        source: 'API',
+        message: 'user 11111111-1111-4111-8111-111111111111 not found',
+      })
+      const b = computeFingerprint({
+        source: 'API',
+        message: 'user 22222222-2222-4222-8222-222222222222 not found',
+      })
+      expect(a).toBe(b)
+    })
+
+    it('two messages differing ONLY by an ISO timestamp produce the SAME fingerprint', () => {
+      const a = computeFingerprint({
+        source: 'API',
+        message: 'payment expired at 2026-07-24T20:17:53.123Z',
+      })
+      const b = computeFingerprint({
+        source: 'API',
+        message: 'payment expired at 2026-08-01T09:00:00.000Z',
+      })
+      expect(a).toBe(b)
+    })
+
+    it('two messages differing ONLY by a hex identifier (>=8 chars, e.g. a tx hash) produce the SAME fingerprint', () => {
+      const a = computeFingerprint({ source: 'API', message: 'tx a3f9c2d1e5 failed to confirm' })
+      const b = computeFingerprint({ source: 'API', message: 'tx b7e0d4c8f1a2 failed to confirm' })
+      expect(a).toBe(b)
+    })
+
+    it('two messages differing ONLY by a 3+-digit number produce the SAME fingerprint', () => {
+      const a = computeFingerprint({ source: 'API', message: 'balance mismatch: expected 1500' })
+      const b = computeFingerprint({ source: 'API', message: 'balance mismatch: expected 984723' })
+      expect(a).toBe(b)
+    })
+
+    it('still differs for a genuinely different message once volatile values are stripped', () => {
+      const a = computeFingerprint({ source: 'API', message: 'user 123 not found' })
+      const b = computeFingerprint({ source: 'API', message: 'project 123 not found' })
+      expect(a).not.toBe(b)
+    })
+
+    it('a 1-2 digit number is left untouched (not volatile enough to collapse distinct cases)', () => {
+      const a = computeFingerprint({ source: 'API', message: 'expected 3 arguments, got 5' })
+      const b = computeFingerprint({ source: 'API', message: 'expected 3 arguments, got 5' })
+      const c = computeFingerprint({ source: 'API', message: 'expected 3 arguments, got 7' })
+      expect(a).toBe(b)
+      expect(a).not.toBe(c)
+    })
+  })
 })

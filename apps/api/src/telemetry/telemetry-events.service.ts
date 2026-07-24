@@ -4,6 +4,7 @@ import type { TelemetryEventDto } from '@crm/shared'
 import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import { telemetryEvents } from '../database/schema'
+import { toPathname } from './route'
 import { computeSessionHash } from './session-hash'
 
 /**
@@ -39,7 +40,10 @@ export class TelemetryEventsService {
       sessionHash,
       userRole: actor.role,
       event: event.event,
-      route: event.route,
+      // sec HIGH (review round 1): pathname-only for consistency with
+      // errors.route/TelemetryExceptionFilter's route — a client SDK bug
+      // could otherwise leak a query string into UX-event aggregates.
+      route: toPathname(event.route),
       target: event.target ?? null,
       durationMs: event.durationMs ?? null,
     }))
