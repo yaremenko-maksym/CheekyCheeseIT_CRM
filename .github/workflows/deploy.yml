@@ -211,6 +211,16 @@ jobs:
           # as an opaque container crash-loop later. See
           # docs/runbooks/deployment.md "Turnstile secrets".
           TURNSTILE_SECRET_KEY: ${{ secrets.TURNSTILE_SECRET_KEY }}
+          # task-infra-telemetry-digest (T3) / task-telemetry-api (T1, PR #412,
+          # NOT yet merged to main at the time this infra-PR lands): same
+          # fail-fast refine() pattern as TURNSTILE_SECRET_KEY above —
+          # apps/api/src/config/env.ts crash-loops in production without
+          # real values for these two. Both GH secrets already exist (created
+          # ahead of #412 on purpose), so the fail-loud check below passes
+          # today and simply keeps passing once #412 merges. See
+          # scripts/devops/telemetry-digest-runbook.md.
+          TELEMETRY_DIGEST_TOKEN: ${{ secrets.TELEMETRY_DIGEST_TOKEN }}
+          TELEMETRY_SESSION_SALT: ${{ secrets.TELEMETRY_SESSION_SALT }}
           # task-google-indexing-api: all three OPTIONAL, unlike TURNSTILE_SECRET_KEY
           # above — apps/api reads them via the existing (optional) env schema and
           # runs the indexing service in no-op mode (one boot warning, no crash) if
@@ -225,7 +235,7 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           # Pass env vars declared above into the remote shell.
-          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,GH_ACTOR
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,GH_ACTOR
           script: |
             set -euo pipefail
 
@@ -236,6 +246,23 @@ jobs:
               echo "ERROR: TURNSTILE_SECRET_KEY secret is not set in GitHub Actions."
               echo "The production API fails fast on boot without it (apps/api/src/config/env.ts refine)."
               echo "Create the secret before merging/deploying — see docs/runbooks/deployment.md 'Turnstile secrets'."
+              exit 1
+            fi
+
+            # task-infra-telemetry-digest (T3) / task-telemetry-api (T1, PR #412):
+            # same fail-loud pattern as TURNSTILE_SECRET_KEY above. Both secrets
+            # already exist in GitHub Actions (created ahead of #412 on purpose),
+            # so this check passes today and keeps passing once #412 merges.
+            if [ -z "$TELEMETRY_DIGEST_TOKEN" ]; then
+              echo "ERROR: TELEMETRY_DIGEST_TOKEN secret is not set in GitHub Actions."
+              echo "The production API fails fast on boot without it (apps/api/src/config/env.ts refine, task-telemetry-api PR #412)."
+              echo "Create the secret — see scripts/devops/telemetry-digest-runbook.md."
+              exit 1
+            fi
+            if [ -z "$TELEMETRY_SESSION_SALT" ]; then
+              echo "ERROR: TELEMETRY_SESSION_SALT secret is not set in GitHub Actions."
+              echo "The production API fails fast on boot without it (apps/api/src/config/env.ts refine, task-telemetry-api PR #412)."
+              echo "Create the secret — see scripts/devops/telemetry-digest-runbook.md."
               exit 1
             fi
 
@@ -273,6 +300,8 @@ jobs:
             printf 'AWS_ACCESS_KEY_ID=%s\n'       "$AWS_ACCESS_KEY_ID" >> /opt/crm/.env.production
             printf 'AWS_SECRET_ACCESS_KEY=%s\n'   "$AWS_SECRET_ACCESS_KEY" >> /opt/crm/.env.production
             printf 'TURNSTILE_SECRET_KEY=%s\n'    "$TURNSTILE_SECRET_KEY" >> /opt/crm/.env.production
+            printf 'TELEMETRY_DIGEST_TOKEN=%s\n'  "$TELEMETRY_DIGEST_TOKEN" >> /opt/crm/.env.production
+            printf 'TELEMETRY_SESSION_SALT=%s\n'  "$TELEMETRY_SESSION_SALT" >> /opt/crm/.env.production
 
             # task-google-indexing-api: all three OPTIONAL — the API's env schema
             # treats them as optional and the indexing service no-ops (one boot
@@ -336,6 +365,41 @@ jobs:
           # apps/api/drizzle/manual/2026-07-22_vacancies.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-22_vacancies.sql
           # The deploy step reads from those full paths via /opt/crm.
+
+      # ── Telemetry DDL — GUARDED, NOT in the fixed source: list above ────
+      # task-infra-telemetry-digest (T3, this infra-PR) merges BEFORE
+      # task-telemetry-api (T1, PR #412, feature/telemetry-api) — unlike the
+      # vacancies DDL above (whose infra-PR shipped a byte-identical copy of
+      # the .sql file itself), this DevOps PR's zone-of-write excludes
+      # apps/api/** so it CANNOT carry its own copy of
+      # apps/api/drizzle/manual/2026-07-24_telemetry.sql — that file only
+      # exists in the checkout once #412 merges. Adding it to the fixed
+      # comma-separated `source:` list above would make scp-action fail
+      # outright (no such file) on every run until then. So: check for the
+      # file first, and only scp it when present. The deploy job's Step 2f
+      # has the matching ::notice-skip guard for the "not present yet" case.
+      - name: Check for telemetry DDL file (guard until PR #412 merges)
+        id: telemetry-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-07-24_telemetry.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-07-24_telemetry.sql not found in checkout — task-telemetry-api (PR #412) has not merged to main yet. Skipping copy; deploy job Step 2f also notice-skips applying it. See scripts/devops/telemetry-digest-runbook.md."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy telemetry DDL via SCP (only if present)
+        if: steps.telemetry-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-07-24_telemetry.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-07-24_telemetry.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-24_telemetry.sql
 
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
@@ -585,6 +649,36 @@ jobs:
               psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
               < "$VACANCIES_FILE"
             echo "==> vacancies module DDL applied successfully"
+
+            # ── Step 2f: telemetry module tables + enums (idempotent, GUARDED) ───────────────
+            # task-infra-telemetry-digest (T3, this infra-PR): prod-error tracking +
+            # UX-event analytics (docs/superpowers/specs/2026-07-24-crm-telemetry-design.md).
+            # UNLIKE Step 2e above, this infra-PR merges BEFORE task-telemetry-api (T1, PR
+            # #412, feature/telemetry-api) and does NOT carry its own copy of the SQL file
+            # (DevOps zone-of-write excludes apps/api/** — that file is Coder's to add in
+            # #412). So this step SOFT-SKIPS via ::notice when the file isn't present yet,
+            # instead of the fail-loud "scp-action flattened the tree" check every other DDL
+            # step uses — a missing file here is the EXPECTED steady state until #412 merges,
+            # not an error. copy-compose's "Check for telemetry DDL file" step mirrors this
+            # same guard on the scp side. Once #412 merges, the file exists on every
+            # subsequent deploy and this step applies it exactly like the others (idempotent:
+            # guarded CREATE TYPE + CREATE TABLE/INDEX IF NOT EXISTS).
+            # Source: apps/api/drizzle/manual/2026-07-24_telemetry.sql
+            TELEMETRY_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-24_telemetry.sql"
+
+            if [ ! -f "$TELEMETRY_FILE" ]; then
+              echo "::notice::Telemetry DDL file not found at $TELEMETRY_FILE — task-telemetry-api (PR #412) has not merged to main yet. Skipping this step; it applies automatically on the next deploy once #412 is in main. See scripts/devops/telemetry-digest-runbook.md."
+            else
+              echo "==> Applying telemetry module DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$TELEMETRY_FILE"
+              echo "==> telemetry module DDL applied successfully"
+            fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
