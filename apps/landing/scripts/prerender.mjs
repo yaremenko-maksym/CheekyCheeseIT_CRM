@@ -138,12 +138,11 @@ function extractJsonLd(html) {
  * `assertJsonLd` below did NOT catch it) alongside `notFoundComponent`'s
  * "Page not found" body text and a `noindex, nofollow` robots meta — i.e.
  * `page.content()` was called in the gap between two renders' committed DOM
- * and settled effects. Not reproduced locally despite testing across
- * platforms/CPU+network throttling/chrome-headless-shell vs full Chromium/
- * vacancy counts — this waits for the actual OBSERVABLE symptom (the
- * robots meta this exact route is supposed to end up with) instead of a
- * proxy signal, and fails loud with a clear timeout instead of silently
- * shipping whatever was in the DOM at an arbitrary moment.
+ * and settled effects. This gate alone turned out to be insufficient on its
+ * own (the identical symptom recurred on the very next CI run after adding
+ * it) — kept as a first-line wait, but `captureRoute()` below now also
+ * validates the ALREADY-CAPTURED html string and retries with a brand-new
+ * page if it does not match, instead of trusting this wait alone.
  *
  * @param {import('playwright').Page} page
  * @param {boolean} expectNoindex
@@ -160,6 +159,115 @@ async function waitForDocumentHeadSettled(page, expectNoindex) {
     },
     expectNoindex,
     { timeout: 10_000 },
+  )
+}
+
+/**
+ * Belt-and-suspenders check on the ALREADY-SERIALIZED html string (the
+ * exact bytes about to be written to disk / handed to Lighthouse) — not the
+ * live DOM `waitForDocumentHeadSettled` polled a moment earlier. See that
+ * function's doc for why a pre-capture wait alone was not enough.
+ *
+ * @param {string} html
+ * @param {boolean} expectNoindex
+ * @param {string} label
+ * @returns {void}
+ */
+function assertRobotsMeta(html, expectNoindex, label) {
+  const match = html.match(/<meta name="robots" content="([^"]*)"/)
+  const isNoindex = (match?.[1] ?? '').includes('noindex')
+  if (isNoindex !== expectNoindex) {
+    throw new Error(
+      `prerender: captured robots meta for ${label} does not match expected noindex=${expectNoindex} ` +
+        `(got ${match ? `"${match[1]}"` : 'no <meta name="robots"> tag at all'})`,
+    )
+  }
+}
+
+/**
+ * Same document-request interceptor + reduced-motion emulation every
+ * captured page needs (see the inline comments at the two call sites this
+ * replaces for the full rationale) — factored out so `captureRoute()` can
+ * apply it fresh to EVERY retry's brand-new `page`, not just once.
+ *
+ * @param {import('playwright').Page} page
+ * @returns {Promise<void>}
+ */
+async function preparePage(page) {
+  // `dist/index.html` (the SPA's one build-time HTML template) carries a
+  // FIXED `<link rel="modulepreload">` list computed from Vite's static
+  // analysis of the client entry graph — it includes `/`'s own dependencies
+  // (e.g. vendor-motion for the home-only Reveal effect) regardless of
+  // which route actually gets served through it. Stripping the stale hints
+  // here lets the browser's normal module loader — and Vite's own runtime
+  // `__vitePreload` helper for whatever a route's `Route.lazy()` chunk
+  // *actually* dynamically imports — populate `<head>` with only what that
+  // specific route needs (confirmed via Lighthouse: vendor-motion showing
+  // up on `/careers/:slug` network waterfalls despite no framer-motion
+  // import left on that route otherwise).
+  await page.route('**/*', async (route) => {
+    if (route.request().resourceType() !== 'document') return route.continue()
+    const response = await route.fetch()
+    const body = (await response.text()).replace(/<link rel="modulepreload"[^>]*>\s*/g, '')
+    return route.fulfill({ response, body })
+  })
+  // Freezes the terminal typewriter + Reveal scroll-in animations in their
+  // final, fully-visible state (both already gate on framer-motion's
+  // useReducedMotion() — see terminal.tsx / routes/index.tsx) so the
+  // snapshot never lands on a half-typed / opacity:0 frame (task §1
+  // "Пререндер-гард"). Same technique
+  // apps/e2e/tests/landing/responsive.spec.ts uses for the identical class
+  // of problem.
+  await page.emulateMedia({ reducedMotion: 'reduce' })
+}
+
+const MAX_CAPTURE_ATTEMPTS = 3
+
+/**
+ * Renders one route to its final static HTML, on a FRESH `browser.newPage()`
+ * every attempt — never a page reused across routes or retries, so no
+ * capture can possibly inherit ANY state (DOM, in-flight navigation,
+ * pending effect) left over by a previous one. Validates the result
+ * (`assertRobotsMeta` + `assertJsonLd`) before trusting it; on failure,
+ * closes that page outright and tries again on a brand-new one, up to
+ * `MAX_CAPTURE_ATTEMPTS` times, only throwing once every attempt has failed
+ * (see `waitForDocumentHeadSettled`'s doc for the CI-only symptom this
+ * defends against).
+ *
+ * @param {import('playwright').Browser} browser
+ * @param {string} baseUrl
+ * @param {string} url - path to navigate to, e.g. `/careers` or the 404 marker
+ * @param {boolean} expectNoindex
+ * @param {PrerenderRoute | null} route - null for the 404 marker capture (no JSON-LD requirement)
+ * @returns {Promise<string>}
+ */
+async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
+  const label = route?.url ?? url
+  /** @type {unknown} */
+  let lastError
+  for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
+    const page = await browser.newPage()
+    try {
+      await preparePage(page)
+      await page.goto(`${baseUrl}${url}`)
+      await waitForDocumentHeadSettled(page, expectNoindex)
+      const html = await page.content()
+      assertRobotsMeta(html, expectNoindex, label)
+      if (route) assertJsonLd(html, route)
+      return html
+    } catch (err) {
+      lastError = err
+      warn(
+        `capture attempt ${attempt}/${MAX_CAPTURE_ATTEMPTS} for ${label} failed ` +
+          `(${err instanceof Error ? err.message : String(err)}) — retrying with a fresh page`,
+      )
+    } finally {
+      await page.close()
+    }
+  }
+  const reason = lastError instanceof Error ? lastError.message : String(lastError)
+  throw new Error(
+    `prerender: could not capture a valid ${label} after ${MAX_CAPTURE_ATTEMPTS} attempts: ${reason}`,
   )
 }
 
@@ -345,50 +453,16 @@ async function main() {
     })
     const baseUrl = `http://127.0.0.1:${PORT}`
 
-    const page = await browser.newPage()
-
-    // `dist/index.html` (the SPA's one build-time HTML template) carries a
-    // FIXED `<link rel="modulepreload">` list computed from Vite's static
-    // analysis of the client entry graph — it includes `/`'s own
-    // dependencies (e.g. vendor-motion for the home-only Reveal effect)
-    // regardless of which route actually gets served through it. Every
-    // route we snapshot starts from THIS SAME document (there's no
-    // prerendered file at that path yet — that's what we're creating), so
-    // without this, every static page we write would inherit home's full
-    // preload set and force-fetch chunks it never uses (confirmed via
-    // Lighthouse: vendor-motion showing up on `/careers/:slug` network
-    // waterfalls despite no framer-motion import left on that route).
-    // Stripping the stale hints here lets the browser's normal module
-    // loader — and Vite's own runtime `__vitePreload` helper for whatever a
-    // route's `Route.lazy()` chunk *actually* dynamically imports — populate
-    // `<head>` with only what that specific route needs, which is exactly
-    // what `page.content()` below then captures.
-    await page.route('**/*', async (route) => {
-      if (route.request().resourceType() !== 'document') return route.continue()
-      const response = await route.fetch()
-      const body = (await response.text()).replace(/<link rel="modulepreload"[^>]*>\s*/g, '')
-      return route.fulfill({ response, body })
-    })
-
-    // Freezes the terminal typewriter + Reveal scroll-in animations in their
-    // final, fully-visible state (both already gate on framer-motion's
-    // useReducedMotion() — see terminal.tsx / routes/index.tsx) so the
-    // snapshot never lands on a half-typed / opacity:0 frame (task §1
-    // "Пререндер-гард"). Same technique apps/e2e/tests/landing/responsive.spec.ts
-    // uses for the identical class of problem.
-    await page.emulateMedia({ reducedMotion: 'reduce' })
-
     // NOTE: deliberately NOT `waitUntil: 'networkidle'` — the vacancy detail
     // page embeds the live Cloudflare Turnstile widget (VacancyApplyForm),
     // which keeps its own background connections going and can make
     // "no network activity for 500ms" never true, timing out the snapshot.
     // `waitForDocumentHeadSettled` (not just `<footer>` — see its own doc)
-    // is the real readiness gate here, not the network.
+    // is the real readiness gate here, not the network. Each route gets its
+    // own fresh `page` via `captureRoute()` — see that function's doc for
+    // why (a CI-only capture-race this defends against).
     for (const route of routes) {
-      await page.goto(`${baseUrl}${route.url}`)
-      await waitForDocumentHeadSettled(page, false)
-      const html = await page.content()
-      assertJsonLd(html, route)
+      const html = await captureRoute(browser, baseUrl, route.url, false, route)
 
       const outPath = path.join(DIST, route.file)
       await mkdir(path.dirname(outPath), { recursive: true })
@@ -398,9 +472,13 @@ async function main() {
 
     // 404.html — a path guaranteed to match no route triggers the root
     // `notFoundComponent` (see routes/__root.tsx), which sets `noindex`.
-    await page.goto(`${baseUrl}/__prerender-404-marker__`)
-    await waitForDocumentHeadSettled(page, true)
-    const notFoundHtml = await page.content()
+    const notFoundHtml = await captureRoute(
+      browser,
+      baseUrl,
+      '/__prerender-404-marker__',
+      true,
+      null,
+    )
     await writeFile(path.join(DIST, '404.html'), notFoundHtml, 'utf8')
     console.log('prerender: wrote 404.html')
   } finally {
