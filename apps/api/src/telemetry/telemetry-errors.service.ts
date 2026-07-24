@@ -13,10 +13,15 @@ export const STACK_MAX_LENGTH = 4000
 export interface RecordErrorInput {
   source: TelemetryErrorSource
   message: string
-  stack?: string | null
-  route?: string | null
-  userId?: string | null
-  userRole?: string | null
+  // `| undefined` (not just `| null`, on top of the property already being
+  // optional) — callers commonly pass through an optional-chained value
+  // (`exception.stack`, `request.user?.id`) directly; exactOptionalPropertyTypes
+  // rejects assigning `undefined` to a declared-optional prop whose type
+  // doesn't itself include `undefined`.
+  stack?: string | null | undefined
+  route?: string | null | undefined
+  userId?: string | null | undefined
+  userRole?: string | null | undefined
   meta?: Record<string, unknown>
 }
 
