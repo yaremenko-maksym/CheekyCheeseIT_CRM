@@ -2,6 +2,7 @@ import { createRootRoute, Outlet } from '@tanstack/react-router'
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client'
 import { createQueryClient } from '../lib/query-client'
 import { persister } from '../lib/persister'
+import { TelemetryProvider } from '../lib/telemetry'
 import { Toaster } from '../components/ui/sonner'
 import '../styles/globals.css'
 
@@ -38,24 +39,31 @@ export const Route = createRootRoute({
 
 function RootDocument() {
   return (
-    <PersistQueryClientProvider
-      client={queryClient}
-      persistOptions={{
-        persister,
-        maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
-        buster: CACHE_BUSTER,
-        dehydrateOptions: {
-          // Persist only successfully resolved queries whose key prefix is in the
-          // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
-          // transient and never rehydrated into a fresh session.
-          shouldDehydrateQuery: (query) =>
-            query.state.status === 'success' &&
-            PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0])),
-        },
-      }}
-    >
-      <Outlet />
-      <Toaster />
-    </PersistQueryClientProvider>
+    // task-telemetry-web: mounted ABOVE the query provider (and above every
+    // route's own `AuthProvider` — see `routes/login.tsx` /
+    // `routes/_authenticated/route.tsx`) so error/route/click capture
+    // covers the whole app, not just the authenticated CRM shell. No-ops
+    // entirely unless `VITE_TELEMETRY=on` — see `lib/telemetry/config.ts`.
+    <TelemetryProvider>
+      <PersistQueryClientProvider
+        client={queryClient}
+        persistOptions={{
+          persister,
+          maxAge: 24 * 60 * 60 * 1000, // 24 hours — matches persister TTL
+          buster: CACHE_BUSTER,
+          dehydrateOptions: {
+            // Persist only successfully resolved queries whose key prefix is in the
+            // allow-list (see PERSISTED_KEY_PREFIXES). Pending / error states are
+            // transient and never rehydrated into a fresh session.
+            shouldDehydrateQuery: (query) =>
+              query.state.status === 'success' &&
+              PERSISTED_KEY_PREFIXES.has(String(query.queryKey[0])),
+          },
+        }}
+      >
+        <Outlet />
+        <Toaster />
+      </PersistQueryClientProvider>
+    </TelemetryProvider>
   )
 }
