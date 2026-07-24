@@ -82,15 +82,44 @@ export const createVacancySchema = z.object({
     .max(80),
   descriptionMd: z.string().min(10).max(20_000),
   domain: vacancyDomainSchema,
-  seniority: vacancySenioritySchema,
+  // task-vacancies-form-simplify: every position on offer is a full-remote
+  // SENIOR role — the create/edit form no longer collects these two fields,
+  // so the payload may omit them entirely and let the schema default. Still
+  // accepts an explicit override (e.g. a future LEAD/on-site listing created
+  // directly via the API) — this only changes what happens when the key is
+  // ABSENT, not what's allowed when present.
+  seniority: vacancySenioritySchema.default('SENIOR'),
   employmentType: vacancyEmploymentTypeSchema,
-  location: z.string().min(2).max(120),
+  location: z.string().min(2).max(120).default('Remote'),
 })
 export type CreateVacancy = z.infer<typeof createVacancySchema>
+/**
+ * Input shape (pre-default) — what a caller actually needs to build: a
+ * payload that may omit `seniority`/`location` and let the API default them.
+ * Use this (not `CreateVacancy`) for anything constructing an outgoing
+ * create payload; use `CreateVacancy` for the fully-resolved value (e.g. the
+ * `VacanciesService.create()` DTO, which always receives `.parse()` output).
+ */
+export type CreateVacancyInput = z.input<typeof createVacancySchema>
 
-export const updateVacancySchema = createVacancySchema
-  .partial()
-  .extend({ status: vacancyStatusSchema.optional() })
+// NOTE (task-vacancies-form-simplify): do NOT derive `seniority`/`location`
+// here via a plain `createVacancySchema.partial()` — Zod v4 changed default
+// values to apply even INSIDE `.optional()`-wrapped fields (breaking change
+// vs v3: https://zod.dev, "Default values applied within optional fields").
+// `.partial()` wraps every field in `.optional()`, so a naive partial would
+// silently inject `seniority: 'SENIOR'` / `location: 'Remote'` into EVERY
+// partial PATCH that omits them — including pure status transitions like
+// `{ status: 'CLOSED' }` — overwriting an existing LEAD / on-site vacancy's
+// values on every unrelated edit (verified live against the installed Zod
+// version before writing this). Overriding these two keys with a plain
+// `.optional()` (no `.default()`) after `.partial()` restores "omitted =
+// unchanged" semantics, matching `VacanciesService.update()`'s
+// `dto.field !== undefined` no-op guard.
+export const updateVacancySchema = createVacancySchema.partial().extend({
+  seniority: vacancySenioritySchema.optional(),
+  location: z.string().min(2).max(120).optional(),
+  status: vacancyStatusSchema.optional(),
+})
 export type UpdateVacancy = z.infer<typeof updateVacancySchema>
 
 // ---------------------------------------------------------------------------
