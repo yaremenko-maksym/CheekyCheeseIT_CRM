@@ -1,15 +1,24 @@
-import { Link } from '@tanstack/react-router'
+import { Link, useLocation } from '@tanstack/react-router'
 import { BrandMark } from '@/components/brand-mark'
+import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
 import { CONTACT_EMAIL } from '@/content/home'
 
+/**
+ * Hover underline-draw (§M.2) — same `::after` hairline pattern as
+ * `nav.tsx`'s `NAV_LINK_CLASS`: one hover language for "text link" semantics
+ * across the whole marketing surface, not two.
+ */
 const FOOTER_LINK_CLASS = cn(
-  'text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 hover:text-foreground',
+  'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 hover:text-foreground',
+  'after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 hover:after:scale-x-100 focus-visible:after:scale-x-100',
   focusRing,
 )
 
 /** 4-column marketing footer (landing-redesign.md §2.4 `MarketingFooter`). */
 export function MarketingFooter() {
+  const isHome = useLocation({ select: (location) => location.pathname === '/' })
+
   return (
     <footer className="border-t border-border bg-background">
       <div className="mx-auto max-w-[1200px] px-5 pt-14 pb-10 md:px-10 lg:px-14">
@@ -38,13 +47,13 @@ export function MarketingFooter() {
               Studio
             </div>
             <div className="flex flex-col gap-2.5">
-              <Link to="/" hash="services" className={FOOTER_LINK_CLASS}>
+              <Link to="/" {...hashLinkProps('services', isHome)} className={FOOTER_LINK_CLASS}>
                 Services
               </Link>
-              <Link to="/" hash="work" className={FOOTER_LINK_CLASS}>
+              <Link to="/" {...hashLinkProps('work', isHome)} className={FOOTER_LINK_CLASS}>
                 Selected work
               </Link>
-              <Link to="/" hash="process" className={FOOTER_LINK_CLASS}>
+              <Link to="/" {...hashLinkProps('process', isHome)} className={FOOTER_LINK_CLASS}>
                 How we work
               </Link>
             </div>
@@ -58,7 +67,7 @@ export function MarketingFooter() {
               <Link to="/careers/" className={FOOTER_LINK_CLASS}>
                 Careers
               </Link>
-              <Link to="/" hash="about" className={FOOTER_LINK_CLASS}>
+              <Link to="/" {...hashLinkProps('about', isHome)} className={FOOTER_LINK_CLASS}>
                 About us
               </Link>
               <a href={`mailto:${CONTACT_EMAIL}`} className={FOOTER_LINK_CLASS}>

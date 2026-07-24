@@ -2,10 +2,10 @@ import { Card } from '@/components/ui/card'
 import { Tag } from '@/components/ui/tag'
 import type { ServiceItem } from '@/content/home'
 
-/** "Services" domain card (landing-redesign.md §2.4 `ServiceCard`). Hover-enabled. */
+/** "Services" domain card (landing-redesign.md §2.4 `ServiceCard`). Hover-enabled + glow (§M.2). */
 export function ServiceCard({ service }: { service: ServiceItem }) {
   return (
-    <Card hover className="flex flex-col gap-4">
+    <Card hover glow className="flex flex-col gap-4">
       <Tag variant={service.domain} className="self-start">
         {service.domainLabel}
       </Tag>

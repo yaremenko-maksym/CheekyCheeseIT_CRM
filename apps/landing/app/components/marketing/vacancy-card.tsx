@@ -44,7 +44,7 @@ export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
         </span>
         <span
           aria-hidden="true"
-          className="flex size-[38px] flex-none items-center justify-center rounded-full border border-border text-primary transition-transform duration-200 group-hover:translate-x-[2px]"
+          className="flex size-[38px] flex-none items-center justify-center rounded-full border border-border text-primary transition-[transform,background-color] duration-200 group-hover:translate-x-[2px] group-hover:bg-primary/10"
         >
           <ArrowRight className="size-4" />
         </span>
