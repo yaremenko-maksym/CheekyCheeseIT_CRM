@@ -174,12 +174,17 @@ export function SegmentedToggle<V extends string>({
             className={cn(
               'relative flex items-center justify-center rounded-md',
               'transition-colors duration-150 focus:outline-none',
-              // ring-2 (was ring-1 ring-primary/50) — a same-hue ring at
-              // low opacity nearly disappears against the now-solid yellow
-              // active pill; full-opacity ring-ring at 2px keeps the
-              // focus-visible indicator legible (WCAG 2.2 SC 2.4.11) on
-              // every option, active or not.
-              'focus-visible:ring-2 focus-visible:ring-ring',
+              // ring-2 + ring-offset-2/background (button.tsx's own focus
+              // pattern) — a same-hue ring drawn flush against the border
+              // (no offset) visually fuses with the solid yellow active
+              // pill (--ring == --primary): zero perceptible gap, so the
+              // indicator nearly disappears exactly where it matters most
+              // (WCAG 2.2 SC 2.4.11 review, PR #407). The offset punches a
+              // background-colored gap between the pill and the ring so it
+              // reads as a ring on EVERY fill (yellow, red destructive, or
+              // plain track), not just the low-opacity states this used to
+              // cover.
+              'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               sizeStyles,
               'font-medium',
               active ? activeTextClass : 'text-muted-foreground hover:text-foreground',
