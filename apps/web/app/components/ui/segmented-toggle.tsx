@@ -118,12 +118,13 @@ export function SegmentedToggle<V extends string>({
 
   const sizeStyles = size === 'sm' ? 'px-2 py-1 text-xs gap-1.5' : 'px-3 py-2 text-sm gap-2'
 
-  // 'tabs' variant uses a more saturated active pill so page-level segmented
-  // tabs read as a focal control (vs the subtle in-form 'pill' default).
-  const activePillStyles =
-    variant === 'tabs'
-      ? 'bg-primary/25 border border-primary/50 shadow-sm'
-      : 'bg-primary/15 border border-primary/40 shadow-sm'
+  // Active pill is the solid brand yellow — same `bg-primary` fill used by
+  // Button/Badge default variant (owner request 2026-07-24: the active tab
+  // reads as "the" brand yellow, not a translucent tint). 'tabs' keeps a
+  // stronger shadow so page-level segmented tabs still read as more focal
+  // than the subtle in-form 'pill' default; the fill itself is identical
+  // across variants/sizes so yellow application stays consistent.
+  const activePillStyles = variant === 'tabs' ? 'bg-primary shadow-md' : 'bg-primary shadow-sm'
 
   const containerRole = role ?? (variant === 'tabs' ? 'tablist' : 'radiogroup')
   const itemRole = containerRole === 'tablist' ? 'tab' : 'radio'
@@ -145,6 +146,14 @@ export function SegmentedToggle<V extends string>({
         const active = option.value === value
         const buttonDisabled = disabled || option.disabled === true
         const suffix = option.testIdSuffix ?? option.value
+        // Solid `bg-primary` needs near-black `text-primary-foreground` for
+        // contrast (measured ~11-12.5:1 via OKLCH->sRGB relative-luminance,
+        // both themes — well above WCAG AA 4.5:1). The destructive pill
+        // stays translucent (`bg-destructive/20`) so the theme-adaptive
+        // `text-foreground` it already used keeps working — only the
+        // default pill's contrast pairing changed.
+        const activeTextClass =
+          option.activeVariant === 'destructive' ? 'text-foreground' : 'text-primary-foreground'
         return (
           <button
             key={option.value}
@@ -165,10 +174,20 @@ export function SegmentedToggle<V extends string>({
             className={cn(
               'relative flex items-center justify-center rounded-md',
               'transition-colors duration-150 focus:outline-none',
-              'focus-visible:ring-1 focus-visible:ring-primary/50',
+              // ring-2 + ring-offset-2/background (button.tsx's own focus
+              // pattern) — a same-hue ring drawn flush against the border
+              // (no offset) visually fuses with the solid yellow active
+              // pill (--ring == --primary): zero perceptible gap, so the
+              // indicator nearly disappears exactly where it matters most
+              // (WCAG 2.2 SC 2.4.11 review, PR #407). The offset punches a
+              // background-colored gap between the pill and the ring so it
+              // reads as a ring on EVERY fill (yellow, red destructive, or
+              // plain track), not just the low-opacity states this used to
+              // cover.
+              'focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background',
               sizeStyles,
               'font-medium',
-              active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+              active ? activeTextClass : 'text-muted-foreground hover:text-foreground',
               buttonDisabled && 'cursor-not-allowed opacity-50 hover:text-muted-foreground',
             )}
           >
@@ -190,7 +209,11 @@ export function SegmentedToggle<V extends string>({
                 <Icon
                   className={cn(
                     size === 'sm' ? 'h-3.5 w-3.5' : 'h-4 w-4',
-                    active && 'text-primary',
+                    // Match the label's active color, not a hardcoded
+                    // `text-primary` — on the old translucent pill a yellow
+                    // icon read as an accent, but on the new solid-yellow
+                    // fill it would vanish into the background.
+                    active && activeTextClass,
                   )}
                 />
               )}
