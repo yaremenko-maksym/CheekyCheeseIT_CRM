@@ -24,6 +24,7 @@ import { TeamsModule } from './teams/teams.module'
 import { TosModule } from './tos/tos.module'
 import { UsersModule } from './users/users.module'
 import { LegendsModule } from './legends/legends.module'
+import { TelemetryModule } from './telemetry/telemetry.module'
 import { VacanciesModule } from './vacancies/vacancies.module'
 
 @Module({
@@ -76,6 +77,8 @@ import { VacanciesModule } from './vacancies/vacancies.module'
     AdminModule,
     // task-vacancies-api: public vacancies (landing) + admin CRUD (CRM).
     VacanciesModule,
+    // task-telemetry-api: prod-error tracking + UX-event analytics + digest.
+    TelemetryModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order

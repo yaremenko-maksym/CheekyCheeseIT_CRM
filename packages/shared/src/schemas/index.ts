@@ -19,6 +19,7 @@ export * from './employee-contracts'
 export * from './tos'
 export * from './onboarding'
 export * from './vacancies'
+export * from './telemetry'
 
 // Hardcoded partner user IDs (stable across environments).
 // Valid RFC 4122 v4 UUIDs — must match migration 0028_admin_uuid_normalize.sql

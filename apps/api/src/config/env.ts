@@ -128,6 +128,26 @@ const envSchema = z
     // matches how apps/landing canonicalizes the careers route. Defaults to
     // the production landing domain; override only for non-standard deploys.
     PUBLIC_LANDING_ORIGIN: z.string().url().default('https://cheekycheese.tech'),
+
+    // task-telemetry-api: shared secret checked against the `X-Telemetry-Token`
+    // header on GET /api/telemetry/digest (constant-time compare — see
+    // TelemetryDigestTokenGuard). Consumed hourly/weekly by
+    // .github/workflows/telemetry-digest.yml. Same refine()-guarded-default
+    // pattern as TURNSTILE_SECRET_KEY: safe dev/CI default, hard-blocked in
+    // production. Generate: `openssl rand -hex 32`.
+    TELEMETRY_DIGEST_TOKEN: z
+      .string()
+      .min(32)
+      .default('dev-only-telemetry-digest-token-change-in-production-0000'),
+    // task-telemetry-api: secret input to the daily salt used to derive
+    // `telemetry_events.session_hash` (sha256(userId + sha256(secret + UTC
+    // date))) — see apps/api/src/telemetry/session-hash.ts. Never persisted,
+    // never exposed to the client. Same dev-default + prod-refine pattern.
+    // Generate: `openssl rand -hex 32`.
+    TELEMETRY_SESSION_SALT: z
+      .string()
+      .min(32)
+      .default('dev-only-telemetry-session-salt-change-in-production-0000'),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:
@@ -169,6 +189,32 @@ const envSchema = z
       message:
         'TURNSTILE_SECRET_KEY must be overridden in production (the default is Cloudflare\'s "always passes" test secret — leaving it set disables anti-bot protection on the public vacancy-apply endpoint)',
       path: ['TURNSTILE_SECRET_KEY'],
+    },
+  )
+  // task-telemetry-api: the dev default is public (checked into this file) —
+  // leaving it in production would let anyone read the digest endpoint
+  // (error stacks + userId/role context) with no real auth.
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      env.TELEMETRY_DIGEST_TOKEN !== 'dev-only-telemetry-digest-token-change-in-production-0000',
+    {
+      message:
+        'TELEMETRY_DIGEST_TOKEN must be overridden in production (the dev default is public — leaving it set lets anyone read GET /api/telemetry/digest). Generate: openssl rand -hex 32',
+      path: ['TELEMETRY_DIGEST_TOKEN'],
+    },
+  )
+  // task-telemetry-api: the dev default is public — leaving it in production
+  // would let anyone reconstruct a real user's daily session_hash (defeats
+  // the whole point of hashing instead of storing the raw userId).
+  .refine(
+    (env) =>
+      env.NODE_ENV !== 'production' ||
+      env.TELEMETRY_SESSION_SALT !== 'dev-only-telemetry-session-salt-change-in-production-0000',
+    {
+      message:
+        'TELEMETRY_SESSION_SALT must be overridden in production (the dev default is public — leaving it set defeats session_hash privacy). Generate: openssl rand -hex 32',
+      path: ['TELEMETRY_SESSION_SALT'],
     },
   )
 

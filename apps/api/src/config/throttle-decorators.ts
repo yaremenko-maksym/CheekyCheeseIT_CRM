@@ -26,6 +26,8 @@ import { Throttle } from '@nestjs/throttler'
  *   • POST  /api/company-account/dividends           — DIVIDEND_LIMIT req/min           (M2: rare money-out op)
  *   • GET   /api/company-account/deposits/:id/status — DEPOSIT_STATUS_LIMIT req/min     (AC4: Etherscan polling)
  *   • POST /api/users/:id/contract/ready    — falls back to global
+ *   • POST /api/telemetry/errors            — TELEMETRY_ERROR_LIMIT req/min  (task-telemetry-api)
+ *   • POST /api/telemetry/events            — TELEMETRY_EVENTS_LIMIT req/min (task-telemetry-api)
  *
  * In CI E2E suites (rbac-matrix-smoke, drop-role-end-to-end,
  * pending-settlement) each test onboards one or more DROP users, each
@@ -118,6 +120,23 @@ export const DEPOSIT_STATUS_LIMIT = 30
  * Never lowerable via env (security critical path).
  */
 export const AUTH_LIMIT = 10
+
+/**
+ * Prod cap for telemetry error ingestion (POST /telemetry/errors).
+ * task-telemetry-api contract: "~10/мин/юзер". The web SDK already dedupes
+ * to 1 report/fingerprint/session client-side, so genuine traffic per user
+ * is far below this — it exists to block a buggy/malicious client loop.
+ */
+export const TELEMETRY_ERROR_LIMIT = 10
+
+/**
+ * Prod cap for telemetry UX-event ingestion (POST /telemetry/events).
+ * task-telemetry-api contract: "~30/мин/юзер". Higher than
+ * TELEMETRY_ERROR_LIMIT — batched (up to 50 events/request), and
+ * route-enter/leave + click tracking legitimately fires more often during
+ * normal CRM use.
+ */
+export const TELEMETRY_EVENTS_LIMIT = 30
 
 /** Default global request cap when THROTTLER_LIMIT is unset. Mirrors ThrottlerModule default in app.module.ts. */
 export const GLOBAL_LIMIT_DEFAULT = 100

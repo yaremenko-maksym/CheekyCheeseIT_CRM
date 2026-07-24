@@ -32,6 +32,12 @@ import { OnboardingService } from '../onboarding/onboarding.service'
  *      there is no IDOR surface)
  *   - `/api/contracts/sign` (the exit door for MSA)
  *   - NOTE: `/api/contracts/preview-pdf` removed in A3-1 (endpoint deleted).
+ *   - `/api/telemetry/` (task-telemetry-api): prod-error tracking must work
+ *      DURING onboarding too (a bug in the onboarding wizard itself should
+ *      still reach an issue) — `/api/telemetry/digest` doesn't need this
+ *      bypass (no `req.user` is ever set for it, see the `!user` early
+ *      return below), but `/errors`/`/events` are called by authenticated-
+ *      but-possibly-not-yet-onboarded employees.
  *
  * ADMIN: bypass entirely.
  * Non-admin: `OnboardingService.getStatus` decides; missing → `ForbiddenException`
@@ -55,6 +61,8 @@ export class OnboardingGuard implements CanActivate {
     '/api/contracts/templates/preview-rendered/',
     '/api/contracts/sign',
     // NOTE: /api/contracts/preview-pdf removed in A3-1 (endpoint deleted).
+    // task-telemetry-api: telemetry must work even for un-onboarded users.
+    '/api/telemetry/',
   ]
 
   constructor(

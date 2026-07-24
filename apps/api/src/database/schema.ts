@@ -1,5 +1,6 @@
 import { relations, sql } from 'drizzle-orm'
 import {
+  bigserial,
   boolean,
   char,
   customType,
@@ -193,6 +194,21 @@ export const vacancyApplicationStatusEnum = pgEnum('vacancy_application_status',
   'NEW',
   'VIEWED',
   'REJECTED',
+])
+
+// task-telemetry-api — CRM Telemetry (prod-errors + UX-analytics).
+export const telemetrySourceEnum = pgEnum('telemetry_source', ['WEB', 'API'])
+export const telemetryErrorStatusEnum = pgEnum('telemetry_error_status', [
+  'NEW',
+  'NOTIFIED',
+  'RESOLVED',
+])
+export const telemetryEventTypeEnum = pgEnum('telemetry_event_type', [
+  'route_enter',
+  'route_leave',
+  'feature_click',
+  'form_abandon',
+  'form_submit',
 ])
 
 // ---------------------------------------------------------------------------
@@ -1300,6 +1316,69 @@ export const vacancyApplications = pgTable(
     index('idx_vacancy_applications_vacancy_created').on(t.vacancyId, t.createdAt.desc()),
     // Duplicate-submission check: same email + vacancy within 24h.
     index('idx_vacancy_applications_email_vacancy').on(t.email, t.vacancyId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Telemetry (task-telemetry-api) — prod-error tracking + UX-analytics.
+// ---------------------------------------------------------------------------
+//
+// Two tables, deliberately separate lifecycles:
+//   - `telemetry_errors` — one row PER DISTINCT ERROR (grouped by
+//     `fingerprint`), upserted (count++/last_seen bump on repeat; RESOLVED +
+//     repeat = regression → back to NEW). Retention: 180 days since last_seen.
+//   - `telemetry_events` — one row PER RAW UX EVENT (route_enter/leave,
+//     feature_click, form_abandon/submit). High volume, short retention
+//     (90 days) + a 1M-row safety cap — see TelemetryRetentionCronService.
+//
+// Privacy: telemetry_events NEVER stores a raw userId — only a daily-salted
+// `session_hash` (see apps/api/src/telemetry/session-hash.ts) + role.
+
+export const telemetryErrors = pgTable(
+  'telemetry_errors',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // sha256(source + normalized message + top-3 stack frames) — see
+    // apps/api/src/telemetry/fingerprint.ts. Groups repeats of the same error.
+    fingerprint: text('fingerprint').notNull().unique(),
+    source: telemetrySourceEnum('source').notNull(),
+    // Sanitized (secrets redacted) + truncated to 500/4000 chars BEFORE
+    // insert — see apps/api/src/telemetry/sanitize.ts.
+    message: text('message').notNull(),
+    stack: text('stack'),
+    route: text('route'),
+    userId: uuid('user_id').references(() => users.id, { onDelete: 'set null' }),
+    userRole: text('user_role'),
+    // ua / viewport / appVersion ONLY — never request bodies.
+    meta: jsonb('meta').notNull().default({}),
+    count: integer('count').notNull().default(1),
+    firstSeen: timestamp('first_seen', { withTimezone: true }).defaultNow().notNull(),
+    lastSeen: timestamp('last_seen', { withTimezone: true }).defaultNow().notNull(),
+    status: telemetryErrorStatusEnum('status').notNull().default('NEW'),
+    githubIssueNumber: integer('github_issue_number'),
+  },
+  (t) => [index('idx_telemetry_errors_status_last_seen').on(t.status, t.lastSeen)],
+)
+
+export const telemetryEvents = pgTable(
+  'telemetry_events',
+  {
+    // bigserial (not uuid) — this table is high-volume and short-lived
+    // (90-day retention), same rationale as an activity/analytics log.
+    id: bigserial('id', { mode: 'number' }).primaryKey(),
+    sessionHash: text('session_hash').notNull(),
+    userRole: text('user_role').notNull(),
+    event: telemetryEventTypeEnum('event').notNull(),
+    route: text('route').notNull(),
+    // [data-track] feature identifier for feature_click — never free text.
+    target: text('target'),
+    // Time-on-screen for route_leave, in milliseconds.
+    durationMs: integer('duration_ms'),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('idx_telemetry_events_event_created').on(t.event, t.createdAt),
+    index('idx_telemetry_events_route_created').on(t.route, t.createdAt),
   ],
 )
 
