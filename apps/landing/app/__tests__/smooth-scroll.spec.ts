@@ -68,7 +68,11 @@ describe('smoothScrollToId', () => {
     smoothScrollToId('services')
 
     expect(animateMock).toHaveBeenCalledTimes(1)
-    const [from, to, options] = animateMock.mock.calls[0] as [number, number, Record<string, unknown>]
+    const [from, to, options] = animateMock.mock.calls[0] as [
+      number,
+      number,
+      Record<string, unknown>,
+    ]
     expect(from).toBe(40) // window.scrollY at call time
     expect(to).toBe(858) // 900 + 40 - 82
     expect(options['duration']).toBe(DUR_SMOOTH_SCROLL)
