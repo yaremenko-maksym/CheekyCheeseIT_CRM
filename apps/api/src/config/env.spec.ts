@@ -82,6 +82,11 @@ describe('validateEnv — CREDENTIALS_ENC_KEY fail-closed', () => {
         AWS_SECRET_ACCESS_KEY: 'real-secret-access-key',
         CREDENTIALS_ENC_KEY: VALID_HEX_KEY,
         TURNSTILE_SECRET_KEY: 'real-cloudflare-turnstile-secret',
+        // task-telemetry-api: real prod values — this test predates
+        // TELEMETRY_DIGEST_TOKEN/TELEMETRY_SESSION_SALT's own prod-refine
+        // (Section H) and would otherwise now throw on THEIR dev defaults.
+        TELEMETRY_DIGEST_TOKEN: 'real-telemetry-digest-token-not-the-dev-default-000',
+        TELEMETRY_SESSION_SALT: 'real-telemetry-session-salt-not-the-dev-default-000',
       }),
     ).not.toThrow()
   })
@@ -187,6 +192,11 @@ const BASE_PROD_CREDS = {
   CREDENTIALS_ENC_KEY: VALID_HEX_KEY,
   FRONTEND_URL: 'https://app.cheekycheese.tech',
   TURNSTILE_SECRET_KEY: 'real-cloudflare-turnstile-secret',
+  // task-telemetry-api (Section H below) — real prod values so pre-existing
+  // "allows ... in production" tests elsewhere in this file (which spread
+  // BASE_PROD_CREDS without overriding these two) don't newly throw.
+  TELEMETRY_DIGEST_TOKEN: 'real-telemetry-digest-token-not-the-dev-default-000',
+  TELEMETRY_SESSION_SALT: 'real-telemetry-session-salt-not-the-dev-default-000',
 }
 
 describe('validateEnv — S3_USE_SSE and Cloudflare R2 compatibility (Section E)', () => {
@@ -273,6 +283,72 @@ describe('validateEnv — TURNSTILE_SECRET_KEY fail-closed (Section F)', () => {
   })
 
   it('allows a real TURNSTILE_SECRET_KEY in production', () => {
+    expect(() => validateEnv({ ...BASE_PROD_CREDS })).not.toThrow()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Section H — task-telemetry-api: TELEMETRY_DIGEST_TOKEN / TELEMETRY_SESSION_SALT
+// fail-closed (same refine()-guarded-default pattern as TURNSTILE_SECRET_KEY,
+// Section F above)
+//   32. dev default TELEMETRY_DIGEST_TOKEN in production → throw
+//   33. TELEMETRY_DIGEST_TOKEN omitted in production (falls back to the dev
+//       default) → throw
+//   34. dev default TELEMETRY_DIGEST_TOKEN in development → ok
+//   35. dev default TELEMETRY_SESSION_SALT in production → throw
+//   36. TELEMETRY_SESSION_SALT omitted in production (falls back to the dev
+//       default) → throw
+//   37. dev default TELEMETRY_SESSION_SALT in development → ok
+//   38. both real values in production → ok
+// ---------------------------------------------------------------------------
+
+const TELEMETRY_DIGEST_TOKEN_DEV_DEFAULT =
+  'dev-only-telemetry-digest-token-change-in-production-0000'
+const TELEMETRY_SESSION_SALT_DEV_DEFAULT =
+  'dev-only-telemetry-session-salt-change-in-production-0000'
+
+describe('validateEnv — TELEMETRY_DIGEST_TOKEN / TELEMETRY_SESSION_SALT fail-closed (Section H)', () => {
+  it('throws in production when TELEMETRY_DIGEST_TOKEN is the dev default', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        TELEMETRY_DIGEST_TOKEN: TELEMETRY_DIGEST_TOKEN_DEV_DEFAULT,
+      }),
+    ).toThrow(/TELEMETRY_DIGEST_TOKEN/)
+  })
+
+  it('throws in production when TELEMETRY_DIGEST_TOKEN is omitted (falls back to the dev default)', () => {
+    const { TELEMETRY_DIGEST_TOKEN: _omit, ...rest } = BASE_PROD_CREDS as Record<string, unknown>
+    expect(() => validateEnv(rest)).toThrow(/TELEMETRY_DIGEST_TOKEN/)
+  })
+
+  it('allows the dev default TELEMETRY_DIGEST_TOKEN in development', () => {
+    expect(() =>
+      validateEnv({ ...BASE_DEV, TELEMETRY_DIGEST_TOKEN: TELEMETRY_DIGEST_TOKEN_DEV_DEFAULT }),
+    ).not.toThrow()
+  })
+
+  it('throws in production when TELEMETRY_SESSION_SALT is the dev default', () => {
+    expect(() =>
+      validateEnv({
+        ...BASE_PROD_CREDS,
+        TELEMETRY_SESSION_SALT: TELEMETRY_SESSION_SALT_DEV_DEFAULT,
+      }),
+    ).toThrow(/TELEMETRY_SESSION_SALT/)
+  })
+
+  it('throws in production when TELEMETRY_SESSION_SALT is omitted (falls back to the dev default)', () => {
+    const { TELEMETRY_SESSION_SALT: _omit, ...rest } = BASE_PROD_CREDS as Record<string, unknown>
+    expect(() => validateEnv(rest)).toThrow(/TELEMETRY_SESSION_SALT/)
+  })
+
+  it('allows the dev default TELEMETRY_SESSION_SALT in development', () => {
+    expect(() =>
+      validateEnv({ ...BASE_DEV, TELEMETRY_SESSION_SALT: TELEMETRY_SESSION_SALT_DEV_DEFAULT }),
+    ).not.toThrow()
+  })
+
+  it('allows real TELEMETRY_DIGEST_TOKEN + TELEMETRY_SESSION_SALT values in production', () => {
     expect(() => validateEnv({ ...BASE_PROD_CREDS })).not.toThrow()
   })
 })
