@@ -10,8 +10,8 @@ import { CONTACT_EMAIL } from '@/content/home'
  * across the whole marketing surface, not two.
  */
 const FOOTER_LINK_CLASS = cn(
-  'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 hover:text-foreground',
-  'after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 hover:after:scale-x-100 focus-visible:after:scale-x-100',
+  'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 ease-out hover:text-foreground',
+  'after:absolute after:-bottom-1 after:left-0 after:h-px after:w-full after:origin-left after:scale-x-0 after:bg-primary after:transition-transform after:duration-200 after:ease-out hover:after:scale-x-100 focus-visible:after:scale-x-100',
   focusRing,
 )
 

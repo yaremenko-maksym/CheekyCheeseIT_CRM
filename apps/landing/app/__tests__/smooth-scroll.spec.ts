@@ -93,7 +93,7 @@ describe('smoothScrollToId', () => {
     const scrollToSpy = stubAnchor('services', 900, 40)
 
     const { smoothScrollToId } = await import('@/lib/smooth-scroll')
-    const { DUR_SMOOTH_SCROLL, EASE_STANDARD } = await import('@/lib/motion')
+    const { DUR_SMOOTH_SCROLL, EASE_SOFT } = await import('@/lib/motion')
     smoothScrollToId('services')
 
     expect(animateMock).toHaveBeenCalledTimes(1)
@@ -105,7 +105,7 @@ describe('smoothScrollToId', () => {
     expect(from).toBe(40) // window.scrollY at call time
     expect(to).toBe(858) // 900 + 40 - 82
     expect(options['duration']).toBe(DUR_SMOOTH_SCROLL)
-    expect(options['ease']).toBe(EASE_STANDARD)
+    expect(options['ease']).toBe(EASE_SOFT)
 
     // Simulate a frame tick the way framer-motion's animate() would call it.
     ;(options['onUpdate'] as (v: number) => void)(777)
