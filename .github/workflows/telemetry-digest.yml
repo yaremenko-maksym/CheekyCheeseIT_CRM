@@ -46,7 +46,15 @@ concurrency:
   # Scope by trigger + job selection so a manual dispatch never races the
   # hourly/weekly schedule for the same digest type; cheap to just re-run
   # next hour/week if ever cancelled by an overlapping trigger.
-  group: telemetry-digest-${{ github.event_name }}-${{ inputs.job || 'schedule' }}
+  #
+  # `inputs.job || github.event.schedule || 'manual'` (NOT a bare
+  # `|| 'schedule'` fallback): `github.event.schedule` is the actual cron
+  # string that fired ('0 * * * *' vs '0 7 * * 1'), so hourly and weekly
+  # schedule runs land in DIFFERENT groups. A bare 'schedule' fallback would
+  # collapse both crons into one group whenever they land in the same
+  # minute (e.g. Monday 07:00 UTC — both crons fire) and
+  # cancel-in-progress would kill one of the two digests outright.
+  group: telemetry-digest-${{ github.event_name }}-${{ inputs.job || github.event.schedule || 'manual' }}
   cancel-in-progress: true
 
 env:
@@ -149,8 +157,13 @@ jobs:
             FINGERPRINT=$(echo "$ERR" | jq -r '.fingerprint')
             SHORT_FP="${FINGERPRINT:0:12}"
             # Strip newlines so the issue title always stays single-line.
-            MESSAGE=$(echo "$ERR" | jq -r '.message | gsub("\n"; " ")')
-            SHORT_MSG="${MESSAGE:0:80}"
+            MESSAGE_RAW=$(echo "$ERR" | jq -r '.message | gsub("\n"; " ")')
+            # Truncate via jq's `.[0:80]`, NOT bash `${VAR:0:80}` — jq slices
+            # by Unicode codepoint, bash slices by byte. A byte-slice on a
+            # multi-byte message (Cyrillic, emoji, etc.) can cut a
+            # character in half mid-sequence, producing invalid UTF-8 /
+            # mojibake in the issue title.
+            SHORT_MSG=$(echo "$ERR" | jq -r '(.message | gsub("\n"; " "))[0:80]')
             TITLE="[${SHORT_FP}] ${SHORT_MSG}"
 
             ROUTE=$(echo "$ERR" | jq -r '.route // "n/a"')
@@ -159,12 +172,28 @@ jobs:
             COUNT_N=$(echo "$ERR" | jq -r '.count')
             FIRST_SEEN=$(echo "$ERR" | jq -r '.firstSeen')
             LAST_SEEN=$(echo "$ERR" | jq -r '.lastSeen')
-            STACK=$(echo "$ERR" | jq -r '.stack // "(no stack)"')
+            STACK_RAW=$(echo "$ERR" | jq -r '.stack // "(no stack)"')
+
+            # SECURITY: message/stack are attacker-influenced (client-reported
+            # error content — see runbook "Untrusted content" note). Collapse
+            # any run of 3+ backticks down to 2 so the content can never form
+            # a markdown fence-closing sequence on its own — combined with
+            # the 10-backtick OUTER fence below (comfortably longer than any
+            # backtick run survivng this filter), the stack trace can never
+            # break out of its <details> code block early.
+            # shellcheck disable=SC2016
+            MESSAGE=$(printf '%s' "$MESSAGE_RAW" | sed -E 's/`{3,}/``/g')
+            # shellcheck disable=SC2016
+            STACK=$(printf '%s' "$STACK_RAW" | sed -E 's/`{3,}/``/g')
 
             # Search open issues for the fingerprint prefix, then confirm an
             # exact title-prefix match locally (defends against GH search's
-            # fuzzy tokenizer producing a false-positive collision).
-            EXISTING=$(gh search issues "${SHORT_FP}" --repo "$PRIVATE_REPO" --state open --match title --json number,title \
+            # fuzzy tokenizer producing a false-positive collision). `--`
+            # before the positional query is defense-in-depth: SHORT_FP is
+            # always a fixed-format 12-char hex string and can never start
+            # with `-`, but this keeps it from ever being misparsed as a
+            # flag regardless.
+            EXISTING=$(gh search issues --repo "$PRIVATE_REPO" --state open --match title --json number,title -- "${SHORT_FP}" \
               | jq -r --arg fp "[${SHORT_FP}]" '[.[] | select(.title | startswith($fp))][0].number // empty')
 
             if [ -n "$EXISTING" ]; then
@@ -182,11 +211,16 @@ jobs:
             # shell metacharacters: printf's format string is single-quoted
             # (no expansion of its own) and each value is passed as a
             # separate argv entry, never re-parsed as shell syntax.
-            # Intentional: the ``` markdown code fence and %s placeholders
-            # below must stay literal (single quotes) — values are
-            # substituted via printf argv, not $-expansion.
+            # Intentional: the 10-backtick markdown code fence and %s
+            # placeholders below must stay literal (single quotes) — values
+            # are substituted via printf argv, not $-expansion. The fence is
+            # 10 backticks (not the usual 3) as defense-in-depth on top of
+            # the MESSAGE/STACK backtick-collapsing above: even if a stray
+            # backtick run somehow survived that filter, it would need to
+            # reach 10 in a row at the start of a line to prematurely close
+            # this fence.
             # shellcheck disable=SC2016
-            BODY=$(printf '**Message:** %s\n**Source:** %s\n**Route:** %s\n**Role:** %s\n**Count:** %s\n**First seen:** %s\n**Last seen:** %s\n\n<details>\n<summary>Stack trace (sanitized)</summary>\n\n```\n%s\n```\n\n</details>\n\n## Чеклист фикса\n\n- [ ] Репро\n- [ ] Фикс\n- [ ] Тест\n- [ ] Deploy\n- [ ] RESOLVED\n' \
+            BODY=$(printf '**Message:** %s\n**Source:** %s\n**Route:** %s\n**Role:** %s\n**Count:** %s\n**First seen:** %s\n**Last seen:** %s\n\n<details>\n<summary>Stack trace (sanitized)</summary>\n\n``````````\n%s\n``````````\n\n</details>\n\n## Чеклист фикса\n\n- [ ] Репро\n- [ ] Фикс\n- [ ] Тест\n- [ ] Deploy\n- [ ] RESOLVED\n' \
               "$MESSAGE" "$SOURCE" "$ROUTE" "$USER_ROLE" "$COUNT_N" "$FIRST_SEEN" "$LAST_SEEN" "$STACK")
             gh issue create --repo "$PRIVATE_REPO" \
               --title "$TITLE" \
@@ -260,30 +294,37 @@ jobs:
           ISO_DATE=$(date -u '+%Y-%m-%d')
           TITLE="UX weekly ${ISO_DATE}"
 
+          # SECURITY: route/target values are UX-event data (route comes
+          # from the browser location, target from a `[data-track]`
+          # attribute) — not free text, but not a fixed enum either. Escape
+          # literal `|` -> `\|` before interpolating into a markdown table
+          # cell so an unusual value can never inject an extra column /
+          # break the table's row structure. `esc` is redefined per jq
+          # invocation below (each `jq -r` is a separate process).
           {
             echo "## Топ роутов по ролям"
             echo ""
             echo "| Role | Route | Visits | Median duration (ms) |"
             echo "| --- | --- | --- | --- |"
-            jq -r '.ux.topRoutesByRole[]? | "| \(.role) | \(.route) | \(.visits) | \(.medianDurationMs // "n/a") |"' /tmp/ux-digest.json
+            jq -r 'def esc: gsub("\\|"; "\\|"); .ux.topRoutesByRole[]? | "| \(.role|esc) | \(.route|esc) | \(.visits) | \(.medianDurationMs // "n/a") |"' /tmp/ux-digest.json
             echo ""
             echo "## Клики по фичам"
             echo ""
             echo "| Target | Count |"
             echo "| --- | --- |"
-            jq -r '.ux.featureClicks[]? | "| \(.target) | \(.count) |"' /tmp/ux-digest.json
+            jq -r 'def esc: gsub("\\|"; "\\|"); .ux.featureClicks[]? | "| \(.target|esc) | \(.count) |"' /tmp/ux-digest.json
             echo ""
             echo "## Брошенные формы"
             echo ""
             echo "| Route | Abandon | Submit | Rate |"
             echo "| --- | --- | --- | --- |"
-            jq -r '.ux.formAbandonRates[]? | "| \(.route) | \(.abandonCount) | \(.submitCount) | \(.abandonRate) |"' /tmp/ux-digest.json
+            jq -r 'def esc: gsub("\\|"; "\\|"); .ux.formAbandonRates[]? | "| \(.route|esc) | \(.abandonCount) | \(.submitCount) | \(.abandonRate) |"' /tmp/ux-digest.json
             echo ""
             echo "## Медианные тайминги"
             echo ""
             echo "| Route | Median duration (ms) |"
             echo "| --- | --- |"
-            jq -r '.ux.medianDurations[]? | "| \(.route) | \(.medianDurationMs) |"' /tmp/ux-digest.json
+            jq -r 'def esc: gsub("\\|"; "\\|"); .ux.medianDurations[]? | "| \(.route|esc) | \(.medianDurationMs) |"' /tmp/ux-digest.json
             echo ""
             echo "## Выводы ассистента"
             echo ""
