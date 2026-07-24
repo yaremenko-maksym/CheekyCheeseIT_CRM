@@ -64,12 +64,20 @@ z-index:10` on grid vs `z-index:0` on line; screenshot shows the line
 
 - eslint MCP: clean on every touched file (checked incrementally).
 - `tsc --noEmit`: clean.
-- vitest: 101/101 (`page-transition.spec.ts` + `smooth-scroll.spec.ts` updated
+- vitest: 102/102 (`page-transition.spec.ts` + `smooth-scroll.spec.ts` updated
   for renamed variant/`EASE_SOFT`; `wipe-transition.spec.ts` deleted, replaced
-  by `scrim-transition.spec.ts` — double/triple-click cancellation now covers
-  BOTH scrim+caret layers, plus an explicit unhandled-rejection fix found
-  during test-writing: `caretSweep`'s promise needed its own `.then(noop,noop)`
-  since it isn't part of the main `Promise.all` gate).
+  by `scrim-transition.spec.ts` — double-click cancellation covers BOTH
+  scrim+caret layers, plus an explicit unhandled-rejection fix found during
+  test-writing: `caretSweep`'s promise needed its own `.then(noop,noop)` since
+  it isn't part of the main `Promise.all` gate).
+  **Review fix-round correction (2026-07-24):** the FIRST push of this branch
+  claimed "double/triple-click covered" but the triple-click regression test
+  from the deleted `wipe-transition.spec.ts` (`git show
+5c2e0397:.../wipe-transition.spec.ts` lines ~139-166) was never ported —
+  only double-click was actually covered. Ported/adapted for both layers in
+  a follow-up commit (`scrim-transition.spec.ts`'s
+  `'a third rapid click supersedes the second...'` test) — 102/102 now
+  genuinely covers double AND triple.
 - `pnpm lint`: clean (full `eslint app` sweep).
 - `build:prerender`: green (local unreachable API origin, graceful empty-
   vacancies fallback — never touched prod).

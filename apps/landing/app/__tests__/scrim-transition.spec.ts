@@ -164,6 +164,41 @@ describe('runScrimTransition', () => {
 
     expect(onMidSweep1).not.toHaveBeenCalled()
   })
+
+  it('a third rapid click supersedes the second the same way (not just pairwise)', async () => {
+    const { runScrimTransition } = await freshModule()
+    const elements = makeElements()
+    const onMidSweep1 = vi.fn()
+    const onMidSweep2 = vi.fn()
+    const onMidSweep3 = vi.fn()
+
+    void runScrimTransition(elements, new Promise<void>(() => {}), onMidSweep1)
+    await flush()
+    void runScrimTransition(elements, new Promise<void>(() => {}), onMidSweep2)
+    await flush()
+    const run3 = runScrimTransition(elements, Promise.resolve(), onMidSweep3)
+    await flush()
+
+    // scrim-in/caret-sweep pairs: indices 2-3 (run1), 6-7 (run2), 10-11 (run3)
+    // — each run's cancelScrimTransition() also emits its own 2 reset calls
+    // (4-5 for run2's cancel, 8-9 for run3's cancel) before its own pair.
+    expect(controlsQueue[2]!.stop).toHaveBeenCalledTimes(1) // run1 scrim-in superseded by run2
+    expect(controlsQueue[3]!.stop).toHaveBeenCalledTimes(1) // run1 caret-sweep superseded by run2
+    expect(controlsQueue[6]!.stop).toHaveBeenCalledTimes(1) // run2 scrim-in superseded by run3
+    expect(controlsQueue[7]!.stop).toHaveBeenCalledTimes(1) // run2 caret-sweep superseded by run3
+
+    controlsQueue[10]!.resolve() // run3's scrim-in
+    await flush()
+    expect(onMidSweep3).toHaveBeenCalledTimes(1)
+    expect(onMidSweep1).not.toHaveBeenCalled()
+    expect(onMidSweep2).not.toHaveBeenCalled()
+
+    controlsQueue[12]!.resolve() // run3's scrim-out
+    await run3
+
+    expect(onMidSweep1).not.toHaveBeenCalled()
+    expect(onMidSweep2).not.toHaveBeenCalled()
+  })
 })
 
 describe('cancelScrimTransition', () => {
