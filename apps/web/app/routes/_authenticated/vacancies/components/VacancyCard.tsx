@@ -1,14 +1,16 @@
 /**
- * VacancyCard — task-crm-vacancies-ui §4.1 / §4.1.1. List-page card: status
- * badge, domain/seniority/employment tags, location + public slug, response
- * count, status-dependent action row.
+ * VacancyCard — task-crm-vacancies-ui §4.1 / §4.1.1 (delete gate updated by
+ * task-vacancy-delete-closed). List-page card: status badge, domain/
+ * seniority/employment tags, location + public slug, response count,
+ * status-dependent action row.
  *
  * §4.1.1 (source of truth = backend, NOT the static macet — the macet draws
  * the delete icon active on every status; the REAL rule is
- * `vacancies.service.ts remove()`: only DRAFT with 0 applications):
+ * `getVacancyDeleteGate()` / `vacancies.service.ts remove()`: DRAFT or CLOSED
+ * with 0 applications):
  *   DRAFT     → Опубликовать · Редактировать · Удалить (disabled+Tooltip if applicationsCount > 0)
  *   PUBLISHED → Отклики · Редактировать · Закрыть (no delete button at all)
- *   CLOSED    → Восстановить · Редактировать · Удалить (always disabled+Tooltip)
+ *   CLOSED    → Восстановить · Редактировать · Удалить (disabled+Tooltip only if applicationsCount > 0)
  */
 import { Link } from '@tanstack/react-router'
 import {
@@ -49,6 +51,7 @@ import {
   DOMAIN_DOT_COLOR,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
+  getVacancyDeleteGate,
   SENIORITY_LABELS,
   VACANCY_STATUS_BADGE,
   VACANCY_STATUS_LABELS,
@@ -75,11 +78,7 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
   const updateMutation = useUpdateVacancy()
   const deleteMutation = useDeleteVacancy()
 
-  const canDelete = vacancy.status === 'DRAFT' && vacancy.applicationsCount === 0
-  const deleteTooltip =
-    vacancy.status === 'DRAFT'
-      ? 'Нельзя удалить вакансию с откликами'
-      : 'Удалить можно только вакансию в статусе DRAFT'
+  const { canDelete, tooltip: deleteTooltip } = getVacancyDeleteGate(vacancy)
 
   const statusBadge = VACANCY_STATUS_BADGE[vacancy.status]
   const dotColor = DOMAIN_DOT_COLOR[vacancy.domain]

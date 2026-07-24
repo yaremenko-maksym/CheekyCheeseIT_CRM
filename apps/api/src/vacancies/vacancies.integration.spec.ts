@@ -679,7 +679,7 @@ describe('Vacancies — real backend integration', () => {
       expect(res.statusCode).toBe(409)
     })
 
-    it('delete guard: 409 when NOT DRAFT; succeeds for a fresh DRAFT with 0 applications', async () => {
+    it('delete guard: 409 while PUBLISHED; succeeds once CLOSED with 0 applications (task-vacancy-delete-closed)', async () => {
       if (!dbAvailable) return
       const create = await app.inject({
         method: 'POST',
@@ -696,26 +696,39 @@ describe('Vacancies — real backend integration', () => {
         },
       })
       const id = (create.json() as { id: string }).id
+      trackVacancy(id)
 
-      // Publish it → no longer DRAFT → delete must 409.
+      // Publish it → PUBLISHED → delete must 409 (close it first).
       await app.inject({
         method: 'PATCH',
         url: `/api/vacancies/${id}`,
         cookies: { jwt: tokenFor(ADMIN) },
         payload: { status: 'PUBLISHED' },
       })
-      const blocked = await app.inject({
+      const blockedPublished = await app.inject({
         method: 'DELETE',
         url: `/api/vacancies/${id}`,
         cookies: { jwt: tokenFor(ADMIN) },
       })
-      expect(blocked.statusCode).toBe(409)
+      expect(blockedPublished.statusCode).toBe(409)
 
-      // Cleanup this one manually (not DRAFT so we can't delete via the API);
-      // track it so afterAll still purges it directly from the DB.
-      trackVacancy(id)
+      // Close it → CLOSED with 0 applications → owner's reported bug: this
+      // used to 409 unconditionally (only DRAFT was deletable). Now allowed.
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'CLOSED' },
+      })
+      const removed = await app.inject({
+        method: 'DELETE',
+        url: `/api/vacancies/${id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(removed.statusCode).toBe(204)
 
-      // A brand-new DRAFT vacancy with 0 applications CAN be deleted.
+      // A brand-new DRAFT vacancy with 0 applications still CAN be deleted
+      // (unchanged behaviour, pinned against a regression from this task).
       const create2 = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -731,12 +744,12 @@ describe('Vacancies — real backend integration', () => {
         },
       })
       const id2 = (create2.json() as { id: string }).id
-      const removed = await app.inject({
+      const removed2 = await app.inject({
         method: 'DELETE',
         url: `/api/vacancies/${id2}`,
         cookies: { jwt: tokenFor(ADMIN) },
       })
-      expect(removed.statusCode).toBe(204)
+      expect(removed2.statusCode).toBe(204)
     })
   })
 

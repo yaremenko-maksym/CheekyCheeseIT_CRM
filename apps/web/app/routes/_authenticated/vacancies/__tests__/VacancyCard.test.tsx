@@ -1,12 +1,17 @@
 /**
  * task-crm-vacancies-ui — `VacancyCard` (AC4 + spec §4.1.1) interaction tests.
+ * Delete-gate matrix updated by task-vacancy-delete-closed (owner report:
+ * couldn't delete a test CLOSED vacancy with 0 applications).
  *
  * Pins the backend-truth action matrix (NOT the static macet, which shows the
  * delete icon active unconditionally — spec §11 п.3/4):
- *   DRAFT + 0 applications → delete ENABLED
- *   DRAFT + N applications → delete DISABLED + Tooltip
- *   PUBLISHED              → NO delete button at all
- *   CLOSED                 → delete ALWAYS DISABLED + Tooltip
+ *   DRAFT + 0 applications   → delete ENABLED
+ *   DRAFT + N applications   → delete DISABLED + Tooltip ("есть отклики")
+ *   PUBLISHED                → NO delete button at all (list card hides it —
+ *                               close first; full-variant Danger Zone tooltip
+ *                               is covered in `$vacancyId.tsx`)
+ *   CLOSED + 0 applications  → delete ENABLED
+ *   CLOSED + N applications  → delete DISABLED + Tooltip ("есть отклики")
  *
  * Strategy: real TanStack Query (mutations mocked at the `api` boundary).
  * `<Link>` (PUBLISHED → «Отклики») is mocked to a plain anchor so no full
@@ -102,17 +107,29 @@ describe('VacancyCard — status action matrix (§4.1.1)', () => {
     expect(screen.getByTestId('vacancy-close-vac-1')).toBeInTheDocument()
   })
 
-  it('CLOSED: delete ALWAYS disabled with a Tooltip, even with 0 applications', async () => {
+  it('CLOSED + 0 applications: delete ENABLED (task-vacancy-delete-closed)', async () => {
     renderCard(makeVacancy({ status: 'CLOSED', applicationsCount: 0 }))
+    expect(screen.getByTestId('vacancy-delete-vac-1')).toBeEnabled()
+    expect(screen.queryByTestId('vacancy-delete-disabled-vac-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('vacancy-reopen-vac-1')).toBeInTheDocument()
+  })
+
+  it('CLOSED + N applications: delete DISABLED with a Tooltip explaining why', async () => {
+    renderCard(makeVacancy({ status: 'CLOSED', applicationsCount: 2 }))
     const btn = screen.getByTestId('vacancy-delete-disabled-vac-1')
     expect(btn).toBeDisabled()
     expect(screen.getByTestId('vacancy-reopen-vac-1')).toBeInTheDocument()
     fireEvent.focus(btn)
     await waitFor(() =>
-      expect(
-        screen.getAllByText('Удалить можно только вакансию в статусе DRAFT').length,
-      ).toBeGreaterThan(0),
+      expect(screen.getAllByText('Нельзя удалить вакансию с откликами').length).toBeGreaterThan(0),
     )
+  })
+
+  it('CLOSED + 0 applications delete confirm dialog calls DELETE /vacancies/:id', async () => {
+    renderCard(makeVacancy({ status: 'CLOSED', applicationsCount: 0 }))
+    fireEvent.click(screen.getByTestId('vacancy-delete-vac-1'))
+    fireEvent.click(screen.getByTestId('vacancy-delete-confirm-vac-1'))
+    await waitFor(() => expect(apiDelete).toHaveBeenCalledWith('/vacancies/vac-1'))
   })
 
   it('DRAFT delete confirm dialog calls DELETE /vacancies/:id', async () => {

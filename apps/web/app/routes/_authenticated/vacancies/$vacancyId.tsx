@@ -46,6 +46,7 @@ import {
   DOMAIN_DOT_COLOR,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
+  getVacancyDeleteGate,
   SENIORITY_LABELS,
   VACANCY_STATUS_BADGE,
   VACANCY_STATUS_LABELS,
@@ -183,11 +184,7 @@ function VacancyDetailPage() {
     )
   }
 
-  const canDelete = vacancy.status === 'DRAFT' && vacancy.applicationsCount === 0
-  const deleteTooltip =
-    vacancy.status === 'DRAFT'
-      ? 'Нельзя удалить вакансию с откликами'
-      : 'Удалить можно только вакансию в статусе DRAFT'
+  const { canDelete, tooltip: deleteTooltip } = getVacancyDeleteGate(vacancy)
   const statusBadge = VACANCY_STATUS_BADGE[vacancy.status]
   const dotColor = DOMAIN_DOT_COLOR[vacancy.domain]
 

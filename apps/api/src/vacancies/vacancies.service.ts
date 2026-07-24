@@ -202,13 +202,19 @@ export class VacanciesService {
     return this.mapVacancy(updated, count)
   }
 
-  /** 409 if not DRAFT, or if it already has applications. */
+  /**
+   * task-vacancy-delete-closed: 409 unless status is DRAFT or CLOSED AND it
+   * has zero applications. PUBLISHED can never be deleted directly (close it
+   * first — a live hiring post is not a throwaway draft); DRAFT/CLOSED with
+   * applications keep the guard too (applications carry R2 resume files +
+   * history, cleaned only by the retention cron, never by a manual delete).
+   */
   async remove(actor: SessionUser, id: string): Promise<void> {
     this.assertAdminOrHr(actor)
     const row = await this.getRowOrThrow(id)
 
-    if (row.status !== 'DRAFT') {
-      throw new ConflictException('Удалить можно только вакансию в статусе DRAFT')
+    if (row.status !== 'DRAFT' && row.status !== 'CLOSED') {
+      throw new ConflictException('Опубликованную вакансию нужно сначала закрыть')
     }
     const count = await this.countApplicationsFor(id)
     if (count > 0) {
