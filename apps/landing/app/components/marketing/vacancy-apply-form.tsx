@@ -94,7 +94,7 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
           within a few business days.
         </p>
         <Button asChild variant="outline">
-          <Link to="/careers">Browse more roles</Link>
+          <Link to="/careers/">Browse more roles</Link>
         </Button>
       </Card>
     )

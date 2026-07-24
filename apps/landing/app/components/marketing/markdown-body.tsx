@@ -1,3 +1,4 @@
+import { renderToStaticMarkup } from 'react-dom/server'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { cn } from '@/lib/utils'
@@ -26,4 +27,19 @@ export function MarkdownBody({ markdown, className }: { markdown: string; classN
       <ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>
     </article>
   )
+}
+
+/**
+ * Same markdown renderer/plugins as `<MarkdownBody>` above, statically
+ * rendered to a clean HTML string with NO wrapping element or Tailwind
+ * classes — used for the JobPosting JSON-LD `description` field
+ * (`routes/careers_.$slug.tsx`, task-landing-seo-prerender.md, owner
+ * decision 2026-07-24). Structured data shouldn't carry this app's internal
+ * styling implementation details; a bare `<h2>`/`<p>`/`<ul>` tree is exactly
+ * what Google's HTML-description guidance expects, and reusing THIS
+ * function (rather than re-deriving the conversion at the call site) keeps
+ * the visible page and the JSON-LD description from ever drifting apart.
+ */
+export function markdownToHtml(markdown: string): string {
+  return renderToStaticMarkup(<ReactMarkdown remarkPlugins={[remarkGfm]}>{markdown}</ReactMarkdown>)
 }

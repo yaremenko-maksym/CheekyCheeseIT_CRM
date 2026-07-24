@@ -1,12 +1,20 @@
+import { useMemo } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { ArrowLeft, Briefcase, BarChart3, MapPin } from 'lucide-react'
 import type { PublicVacancyDetail } from '@crm/shared'
 import { fetchVacancy } from '@/lib/api'
 import { useDocumentHead } from '@/lib/use-document-head'
+import {
+  buildBreadcrumbListJsonLd,
+  buildJobPostingJsonLd,
+  canonicalUrl,
+  markdownToPlainText,
+  truncateForMetaDescription,
+} from '@/lib/seo'
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
-import { MarkdownBody } from '@/components/marketing/markdown-body'
+import { MarkdownBody, markdownToHtml } from '@/components/marketing/markdown-body'
 import { VacancyApplyForm } from '@/components/marketing/vacancy-apply-form'
 import { Tag } from '@/components/ui/tag'
 import { cn, focusRing } from '@/lib/utils'
@@ -24,9 +32,13 @@ export const Route = createFileRoute('/careers_/$slug')({
 })
 
 function NotFoundState() {
+  const { slug } = Route.useParams()
   useDocumentHead({
     title: 'Role not found — CheekyCheeseIT Careers',
     description: 'This role is no longer available.',
+    canonical: canonicalUrl(`/careers/${slug}`),
+    // Soft-404 (DRAFT/CLOSED/missing slug, see module doc) — never index.
+    noindex: true,
   })
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
@@ -40,7 +52,7 @@ function NotFoundState() {
             This role isn&rsquo;t open anymore — but there may be others.
           </p>
           <Link
-            to="/careers"
+            to="/careers/"
             className={cn('inline-flex items-center gap-2 font-medium text-primary', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
@@ -62,9 +74,30 @@ function VacancyDetailPage() {
 }
 
 function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
+  // Same markdown renderer/plugins as the visible <MarkdownBody> below,
+  // rendered to a clean (no wrapper/Tailwind classes) HTML string — feeds
+  // the JobPosting JSON-LD's full `description` (owner decision 2026-07-24:
+  // Google wants the complete posting text, not a truncated snippet) so it
+  // can never drift from what a visitor actually sees. Memoized:
+  // `markdownToHtml` re-walks the whole markdown tree, not worth repeating
+  // on unrelated re-renders.
+  const descriptionHtml = useMemo(
+    () => markdownToHtml(vacancy.descriptionMd),
+    [vacancy.descriptionMd],
+  )
+  // Plain-text (not raw Markdown) excerpt of the REAL description, per owner
+  // decision 2026-07-24 — was a hand-synthesized sentence; title-bearing
+  // search queries rank better against a snippet of the actual posting.
+  const metaDescription = truncateForMetaDescription(markdownToPlainText(vacancy.descriptionMd))
+
   useDocumentHead({
-    title: `${vacancy.title} — CheekyCheeseIT Careers`,
-    description: `${vacancy.title} (${vacancy.seniority}, ${employmentTypeLabel(vacancy.employmentType)}, ${vacancy.location}) — apply at CheekyCheeseIT.`,
+    // "<Job Title> — <location> | CheekyCheeseIT Careers" (owner decision
+    // 2026-07-24, for queries with a location-qualified job title). Also
+    // becomes the OG title via useDocumentHead's shared `title` prop.
+    title: `${vacancy.title} — ${vacancy.location} | CheekyCheeseIT Careers`,
+    description: metaDescription,
+    canonical: canonicalUrl(`/careers/${vacancy.slug}`),
+    jsonLd: [buildJobPostingJsonLd(vacancy, descriptionHtml), buildBreadcrumbListJsonLd(vacancy)],
   })
 
   return (
@@ -74,7 +107,7 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
       <main className="flex-1">
         <div className="mx-auto max-w-[1200px] px-5 pt-8 pb-5 md:px-10 lg:px-14">
           <Link
-            to="/careers"
+            to="/careers/"
             className={cn('inline-flex items-center gap-2 text-muted-foreground', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />

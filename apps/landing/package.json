@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:prerender": "vite build && node scripts/prerender.mjs",
     "start": "vite preview",
     "typecheck": "tsc --noEmit",
     "lint": "eslint app",
@@ -42,6 +43,7 @@
     "@vitejs/plugin-react": "^4.3.0",
     "eslint": "^10.3.0",
     "happy-dom": "^20.9.0",
+    "playwright": "^1.52.0",
     "tailwindcss": "^4.0.0",
     "typescript": "^5.8.0",
     "vite": "^6.4.0",

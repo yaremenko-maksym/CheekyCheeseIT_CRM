@@ -58,6 +58,13 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # prerender.mjs (build:prerender) launches headless chromium via the
+      # workspace `playwright` package — the CI runner has no browser binaries
+      # by default, so install exactly the one browser the script needs.
+      # Without this, chromium.launch() throws in CI (PR #398 review HIGH).
+      - name: Install Playwright chromium
+        run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
+
       - run: pnpm --filter @crm/shared build
 
       # Forward-compatible guard: task-landing-seo-prerender (Coder, parallel

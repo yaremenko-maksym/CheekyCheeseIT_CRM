@@ -55,7 +55,7 @@ export function MarketingFooter() {
               Company
             </div>
             <div className="flex flex-col gap-2.5">
-              <Link to="/careers" className={FOOTER_LINK_CLASS}>
+              <Link to="/careers/" className={FOOTER_LINK_CLASS}>
                 Careers
               </Link>
               <Link to="/" hash="about" className={FOOTER_LINK_CLASS}>
