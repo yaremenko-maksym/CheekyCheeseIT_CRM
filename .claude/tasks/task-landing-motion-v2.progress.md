@@ -1,0 +1,42 @@
+# task-landing-motion-v2 — progress sentinel
+
+current_milestone: 3/6
+last_commit: (pending — milestone 2 wip)
+last_push: (pending — milestone 2 wip)
+pr: https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/pull/406 (draft)
+
+## Milestones
+
+1. [x] §M.0 motion tokens + §M.3/§M.4 pure-function lib modules (page-transition.ts, smooth-scroll.ts) + unit tests
+2. [x] §M.1 ScrollReveal + hero glow/terminal docking + process connector-line + case-study metric-lag + tech-stack chip-wave
+3. [ ] §M.3 page-transition-overlay + BackLink + \_\_root.tsx orchestrator + <main> wrap on all routes
+4. [ ] §M.2 hover-language (nav/footer underline, card glow, chip lift, vacancy-card arrow, input/textarea hover) + §M.4 smooth-scroll wiring in nav/footer
+5. [ ] Full test/lint/typecheck pass + E2E (existing 22 responsive) + new motion E2E
+6. [ ] Lighthouse verification + M.6 checklist fill-in + final commit + PR ready-for-review
+
+files_done:
+
+- apps/landing/app/lib/motion.ts
+- apps/landing/app/lib/page-transition.ts
+- apps/landing/app/lib/smooth-scroll.ts
+- apps/landing/app/**tests**/page-transition.spec.ts
+- apps/landing/app/**tests**/smooth-scroll.spec.ts
+
+files_pending:
+
+- apps/landing/app/components/marketing/scroll-reveal.tsx
+- apps/landing/app/components/marketing/page-transition-overlay.tsx
+- apps/landing/app/components/marketing/back-link.tsx
+- apps/landing/app/components/marketing/process-steps-grid.tsx
+- apps/landing/app/components/marketing/case-study-card.tsx (metric-lag)
+- apps/landing/app/components/marketing/tech-stack-chips.tsx (chip-wave)
+- apps/landing/app/components/marketing/nav.tsx (hover + smooth-scroll)
+- apps/landing/app/components/marketing/footer.tsx (hover + smooth-scroll)
+- apps/landing/app/components/marketing/vacancy-card.tsx (arrow bg hover)
+- apps/landing/app/components/ui/card.tsx (glow prop)
+- apps/landing/app/components/ui/chip.tsx (hover lift)
+- apps/landing/app/components/ui/input.tsx / textarea.tsx (hover border)
+- apps/landing/app/routes/index.tsx (main wrap, ScrollReveal swap, hero effects)
+- apps/landing/app/routes/\_\_root.tsx (orchestrator)
+- apps/landing/app/routes/careers.tsx (main tabIndex)
+- apps/landing/app/routes/careers\_.$slug.tsx (main tabIndex, BackLink)
