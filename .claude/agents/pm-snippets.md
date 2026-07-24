@@ -13,7 +13,7 @@
 ```
 P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы.
 Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс;
-при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов.
+при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9.
 ```
 
 Причина: рецидив 4× за 2026-07-12/13 — агент запускал E2E/vitest в фоне и завершал ход «подожду уведомления»; фон умирал вместе с ходом, спеки оставались незакоммиченными, dev-порты сиротели (lessons autotest #subagent-lifecycle). Шаблоны ниже уже содержат эту строку — при написании ad-hoc промпта добавить вручную.
@@ -31,7 +31,7 @@ Agent(
 Прочитай .claude/agents/memory/coder/lessons.md — накопленные уроки.
 Task-файл: .claude/tasks/task-<slug>.md
 Repo: yaremenko-maksym/CheekyCheeseIT_CRM
-P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9."""
 )
 ```
 
@@ -55,7 +55,7 @@ Agent(
 Task: .claude/tasks/task-fix-<slug>.md
 target_branch: <pr_branch>
 Ветка уже существует — переключись: git checkout <pr_branch>
-P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9."""
 )
 ```
 
@@ -100,7 +100,7 @@ Agent(
 Прочитай .claude/agents/memory/autotest/lessons.md.
 PR для анализа: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM.
 Режим 1: Post-approval — написать E2E тесты для новых AC.
-P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (E2E/vitest) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по spec-файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (E2E/vitest) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по spec-файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9."""
 )
 ```
 
@@ -117,7 +117,7 @@ Agent(
 Task: .claude/tasks/task-fix-e2e-<slug>.md
 target_branch: <pr_branch>
 Ветка: git checkout <pr_branch>
-P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (E2E/vitest) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по spec-файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (E2E/vitest) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по spec-файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9."""
 )
 ```
 
@@ -142,7 +142,7 @@ Output: docs/design/<slug>.md
 
 Invoke skills: frontend-design-direction → design-system (если нужны новые tokens) → accessibility (critical paths).
 Spec должен содержать: Purpose / Audience / Tone / Memorable detail / Constraints / Component list / Token map / Motion spec / A11y critical paths / Edge cases.
-P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов."""
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9."""
 )
 ```
 
@@ -166,7 +166,7 @@ target_branch: <pr_branch>
 Invoke skills: design-system (Mode 2 10-dim audit + Mode 3 AI-slop) → make-interfaces-feel-better → accessibility (spot-check WCAG SC 2.4.11 / 2.5.8 / 1.4.3).
 Pоsтить PR comment через mcp__github__add_issue_comment с первой строкой `Design Review: PASS|POLISH-REQUESTED|BLOCK`.
 Mode D — если нашёл LOW/MED cosmetic в зоне apps/web/** — пофикси сам + re-verify скриншотом + push в ту же ветку.
-P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов.""",
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9.""",
   run_in_background=True
 )
 ```
@@ -199,7 +199,7 @@ Mode: <pr-final-visual | download-verify | rbac-verify | complement-e2e>
 
 Зона фиксов: cosmetic UI в apps/web/** (apply + re-verify скриншотом).
 Backend / функциональные баги — отчёт PM с severity (CRITICAL/HIGH/MED/LOW) + repro + скриншот.
-P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд/стек) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов.""",
+P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд/стек) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9.""",
   run_in_background=True
 )
 ```

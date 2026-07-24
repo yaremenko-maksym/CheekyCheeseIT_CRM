@@ -53,6 +53,15 @@
   `for p in 3010 3011 3014 3016 3017 3018; do lsof -ti tcp:$p; done` -> kill (сохранив live :3000/:3001).
 - **`DATABASE_URL= git push`** (пустой) для feature-веток — integration-спеки graceful-skip, не бьют
   live crm_db и не ловят CPU-timeout (см. git-policy.md).
+- **Zombie-профилактика (2026-07-24, механика вместо дисциплины).** Инцидент: 67 зомби nest/vite из
+  worktree 12–15.07 -> swap-трэшинг (LA 70). Три слоя: (1) dev-серверы в worktree/scratchpad стартуют
+  ТОЛЬКО через `scripts/devops/dev-ttl.sh -- <cmd>` (TTL-самоликвидация группы процессов, default 4ч);
+  (2) hook `pre:bash:devserver-ttl-gate` блокирует голый `nest start`/`vite`/`pnpm dev`/`node dist/main`
+  в `.claude/worktrees/**` и claude-scratchpad; (3) launchd-reaper каждые 30 мин добивает node-процессы
+  worktree старше 6ч или с удалённым worktree (установка: `scripts/devops/install-devserver-reaper.sh`;
+  dry-run: `REAPER_DRY_RUN=1 scripts/devops/reap-zombie-devservers.sh`). Ручной sweep при надобности:
+  `pgrep -f 'worktrees[/]agent-' | xargs kill -9` — именно xargs: в zsh `kill $VAR` НЕ сплитится
+  (падает «illegal pid» — и это маскируется `2>/dev/null`).
 
 ## Связанные правила
 

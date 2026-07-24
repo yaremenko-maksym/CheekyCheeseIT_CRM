@@ -52,6 +52,17 @@
         "id": "pre:bash:prettier-gate"
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-devserver-ttl-gate.sh"
+          }
+        ],
+        "description": "Devserver TTL gate — block raw dev-server boots (nest/vite/pnpm dev/dist-main) inside agent worktrees and claude scratchpads without scripts/devops/dev-ttl.sh wrapper (zombie prevention, 2026-07-24 incident)",
+        "id": "pre:bash:devserver-ttl-gate"
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
