@@ -38,7 +38,7 @@ function topStackFrames(
 export interface FingerprintInput {
   source: 'WEB' | 'API'
   message: string
-  stack?: string | null
+  stack?: string | null | undefined
 }
 
 /** sha256(source :: normalized message :: top-3 stack frames), hex-encoded. */
