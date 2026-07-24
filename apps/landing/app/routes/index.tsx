@@ -127,7 +127,14 @@ function LandingPage() {
         <hr className="h-px border-0 bg-border" />
 
         {/* ── About ────────────────────────────────────────────────────────── */}
-        <section id="about" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        {/* `scroll-mt-[82px]` (= HEADER_OFFSET in lib/smooth-scroll.ts) — the
+            router's OWN native `scrollIntoView` landing for a cross-page hash
+            link (`hashScrollIntoView` stays default `true` there, §M.4)
+            otherwise aligns the section flush with the viewport top, hidden
+            under the sticky header. Same-page navigation is unaffected —
+            `smoothScrollToId` computes its own explicit offset, independent
+            of this CSS property. */}
+        <section id="about" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
           <div className="mx-auto max-w-[1200px]">
             <div className="grid grid-cols-1 items-start gap-9 min-[900px]:grid-cols-[0.85fr_1.15fr] min-[900px]:gap-14">
               <ScrollReveal>
@@ -170,7 +177,7 @@ function LandingPage() {
         <hr className="h-px border-0 bg-border" />
 
         {/* ── Selected work ────────────────────────────────────────────────── */}
-        <section id="work" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <section id="work" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="mb-[52px] max-w-[640px]">
               <SectionEyebrow className="mb-5">Selected work</SectionEyebrow>
@@ -195,7 +202,7 @@ function LandingPage() {
         <hr className="h-px border-0 bg-border" />
 
         {/* ── Services ─────────────────────────────────────────────────────── */}
-        <section id="services" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <section id="services" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="mb-[52px] max-w-[640px]">
               <SectionEyebrow className="mb-5">Services</SectionEyebrow>
@@ -211,7 +218,7 @@ function LandingPage() {
             </ScrollReveal>
             <div className="grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-7">
               {services.map((service, i) => (
-                <ScrollReveal key={service.title} revealAt={0.6 + i * 0.1}>
+                <ScrollReveal key={service.title} revealAt={0.6 + i * 0.05}>
                   <ServiceCard service={service} />
                 </ScrollReveal>
               ))}
@@ -222,7 +229,7 @@ function LandingPage() {
         <hr className="h-px border-0 bg-border" />
 
         {/* ── How we work ──────────────────────────────────────────────────── */}
-        <section id="process" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <section id="process" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="mb-[52px] max-w-[640px]">
               <SectionEyebrow className="mb-5">How we work</SectionEyebrow>
@@ -258,7 +265,7 @@ function LandingPage() {
         <hr className="h-px border-0 bg-border" />
 
         {/* ── Careers teaser ───────────────────────────────────────────────── */}
-        <section id="careers" className="px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        <section id="careers" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="mb-11 flex flex-wrap items-end justify-between gap-5">
               <div className="max-w-[560px]">
@@ -288,7 +295,7 @@ function LandingPage() {
         <hr className="h-px border-0 bg-border" />
 
         {/* ── Contact ──────────────────────────────────────────────────────── */}
-        <section id="contact" className="px-5 py-22 md:px-10 md:py-32 lg:px-14">
+        <section id="contact" className="scroll-mt-[82px] px-5 py-22 md:px-10 md:py-32 lg:px-14">
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="relative overflow-hidden rounded-2xl border border-border bg-card p-7 py-16 text-center">
               <div

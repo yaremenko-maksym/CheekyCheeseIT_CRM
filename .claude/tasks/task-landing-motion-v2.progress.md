@@ -1,9 +1,44 @@
 # task-landing-motion-v2 — progress sentinel
 
-current_milestone: 6/6 DONE
-last_commit: fbae03ad (rebased onto origin/main after PR #405)
-last_push: fbae03ad
+current_milestone: 7/7 DONE (fix-round after code-review APPROVE + Mode B PASS)
+last_commit: (pending — fix-round wip)
+last_push: (pending — fix-round wip)
 pr: https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/pull/406
+
+## Fix-round (post-review, 5 findings)
+
+1. [x] MED `__root.tsx` orchestrator: double-click guard — extracted cancellable
+       `lib/wipe-transition.ts` (module-level generation counter + `.stop()` on
+       supersede); `cancelWipeTransition()` called unconditionally on EVERY
+       `onBeforeNavigate` (not just wipe→wipe) so a wipe→light/reduced double-click
+       also resets the overlay instead of leaving it stuck mid-sweep. Unit tests:
+       double-click, triple-click, explicit cancel, no-op-safe. Live-verified
+       (synchronous double `.click()` on two different nav links → overlay ends at
+       `translateX(-100%)`, not stuck).
+2. [x] MED `lib/smooth-scroll.ts`: module-level `activeScroll` handle, cancelled
+       on repeat call AND on first `wheel`/`touchstart` during the animation
+       (`{once:true}` + explicit cleanup on natural completion so no stale listener
+       lingers). 4 new unit tests.
+3. [x] MED `ui/input.tsx`+`textarea.tsx`: `transition-[border-color_150ms_ease,box-shadow_200ms_ease]`
+       only ever compiles to `transition-property` (invalid value, silently
+       dropped) — fixed via Tailwind arbitrary-PROPERTY syntax
+       `[transition:border-color_150ms_ease,box-shadow_200ms_ease]` (sets the raw
+       `transition` shorthand). Chose to KEEP both durations distinct (150ms
+       border-color per §M.2's literal hover row, 200ms box-shadow = pre-existing
+       focus-visible ring, unrelated to M.2) rather than collapsing to one value.
+       Verified compiled CSS live: `transition: border-color 150ms ease,box-shadow 200ms ease;`.
+4. [x] MED `routes/index.tsx` Services grid: `revealAt={0.6 + i * 0.1}` →
+       `revealAt={0.6 + i * 0.05}` per §M.1.0 (matches case-study stagger).
+5. [x] INFO cross-page hash landing (`/careers` → `/#contact`) had no
+       HEADER_OFFSET (same-page `smoothScrollToId` path already accounted for it,
+       cross-page native `scrollIntoView` didn't) — added `scroll-mt-[82px]`
+       (= HEADER_OFFSET) to all 6 hash-anchor `<section>`s in `routes/index.tsx`.
+       Verified compiled CSS (`scroll-margin-top: 82px`) + live cross-page nav:
+       `#contact` lands at `rectTop: 81.9px` (was 0, hidden under header).
+
+Gate: eslint MCP clean + `tsc --noEmit` clean + 101/101 vitest (92+9 new) +
+`build:prerender` green (local scratch API origin, no prod touch) +
+Lighthouse CI leg runs automatically on push (paths: `apps/landing/**`).
 
 ## Milestones
 

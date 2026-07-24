@@ -1,6 +1,6 @@
 import { createRootRoute, Outlet, useRouter } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { animate, motion } from 'framer-motion'
+import { motion } from 'framer-motion'
 import { ArrowLeft } from 'lucide-react'
 import { useDocumentHead } from '@/lib/use-document-head'
 import { canonicalUrl } from '@/lib/seo'
@@ -9,13 +9,8 @@ import { MarketingFooter } from '@/components/marketing/footer'
 import { PageTransitionOverlay } from '@/components/marketing/page-transition-overlay'
 import { BackLink } from '@/components/marketing/back-link'
 import { consumePendingVariant, markNextTransitionLight } from '@/lib/page-transition'
-import {
-  DUR_LIGHT_TRANSITION,
-  DUR_WIPE_IN,
-  DUR_WIPE_OUT,
-  EASE_EXIT,
-  EASE_STANDARD,
-} from '@/lib/motion'
+import { cancelWipeTransition, runWipeTransition } from '@/lib/wipe-transition'
+import { DUR_LIGHT_TRANSITION, EASE_EXIT } from '@/lib/motion'
 import { cn, focusRing } from '@/lib/utils'
 import '../styles/globals.css'
 
@@ -89,6 +84,16 @@ function RootDocument() {
       // exclusively (§M.3 step 4 / §M.4).
       if (fromLocation && toLocation.pathname === fromLocation.pathname) return
 
+      // A NEW navigation ALWAYS supersedes any wipe-sweep still in flight
+      // from a previous one — regardless of which variant THIS navigation
+      // ends up using. Without this, a rapid double-click (two
+      // `onBeforeNavigate` firings before the first sweep finishes) could
+      // leave two `animate()` calls racing on the same overlay node, or the
+      // overlay stuck mid-screen while a 'light'/reduced-motion navigation
+      // plays underneath it with no wipe of its own to reset it.
+      const overlayForCancel = overlayRef.current
+      if (overlayForCancel) cancelWipeTransition(overlayForCancel)
+
       const variant = consumePendingVariant()
       const reduced = isReducedMotionPreferred()
 
@@ -114,24 +119,11 @@ function RootDocument() {
       // animation AND the router's own onResolved have fired (whichever is
       // later — thanks to `defaultPreload: 'intent'` this is almost always
       // the animation, see §M.3 step 7), move focus (still hidden under the
-      // opaque bar), then sweep back out and reset off-screen.
+      // opaque bar), then sweep back out and reset off-screen. Cancellation
+      // of a superseded run is handled inside `runWipeTransition` itself.
       const overlay = overlayRef.current
       if (!overlay) return
-      void (async () => {
-        const wipeIn = animate(
-          overlay,
-          { x: ['-100%', '0%'] },
-          { duration: DUR_WIPE_IN, ease: EASE_STANDARD },
-        )
-        await Promise.all([wipeIn, onceResolved(router)])
-        focusMainLandmark()
-        await animate(
-          overlay,
-          { x: ['0%', '100%'] },
-          { duration: DUR_WIPE_OUT, ease: EASE_STANDARD },
-        )
-        animate(overlay, { x: '-100%' }, { duration: 0 })
-      })()
+      void runWipeTransition(overlay, onceResolved(router), focusMainLandmark)
     })
     return unsubscribe
   }, [router])
