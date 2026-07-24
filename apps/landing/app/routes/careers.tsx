@@ -34,7 +34,8 @@ function CareersPage() {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <MarketingNav active="careers" />
 
-      <main className="flex-1">
+      {/* `tabIndex={-1}` — page-transition focus target (§M.3 step 9). */}
+      <main tabIndex={-1} className="flex-1 focus:outline-none">
         <section className="relative overflow-hidden">
           <div
             aria-hidden="true"

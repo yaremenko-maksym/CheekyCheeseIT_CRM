@@ -1,15 +1,15 @@
 # task-landing-motion-v2 — progress sentinel
 
-current_milestone: 3/6
-last_commit: (pending — milestone 2 wip)
-last_push: (pending — milestone 2 wip)
+current_milestone: 4/6
+last_commit: (pending — milestone 3 wip)
+last_push: (pending — milestone 3 wip)
 pr: https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM/pull/406 (draft)
 
 ## Milestones
 
 1. [x] §M.0 motion tokens + §M.3/§M.4 pure-function lib modules (page-transition.ts, smooth-scroll.ts) + unit tests
 2. [x] §M.1 ScrollReveal + hero glow/terminal docking + process connector-line + case-study metric-lag + tech-stack chip-wave
-3. [ ] §M.3 page-transition-overlay + BackLink + \_\_root.tsx orchestrator + <main> wrap on all routes
+3. [x] §M.3 page-transition-overlay + BackLink + \_\_root.tsx orchestrator + <main> wrap on all routes — manually verified live (dev server :3210, playwright): wipe overlay resets off-screen after nav, light back-nav works, no new console errors beyond pre-existing (no-API-running) vacancies fetch fail. Known benign dev-only framer-motion console warning ("non-static position") from useScroll(target) without custom container — cosmetic, stripped in prod build, doesn't affect behavior.
 4. [ ] §M.2 hover-language (nav/footer underline, card glow, chip lift, vacancy-card arrow, input/textarea hover) + §M.4 smooth-scroll wiring in nav/footer
 5. [ ] Full test/lint/typecheck pass + E2E (existing 22 responsive) + new motion E2E
 6. [ ] Lighthouse verification + M.6 checklist fill-in + final commit + PR ready-for-review

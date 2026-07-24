@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { createFileRoute, Link } from '@tanstack/react-router'
+import { createFileRoute } from '@tanstack/react-router'
 import { ArrowLeft, Briefcase, BarChart3, MapPin } from 'lucide-react'
 import type { PublicVacancyDetail } from '@crm/shared'
 import { fetchVacancy } from '@/lib/api'
@@ -14,6 +14,7 @@ import {
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
+import { BackLink } from '@/components/marketing/back-link'
 import { MarkdownBody, markdownToHtml } from '@/components/marketing/markdown-body'
 import { VacancyApplyForm } from '@/components/marketing/vacancy-apply-form'
 import { Tag } from '@/components/ui/tag'
@@ -43,7 +44,10 @@ function NotFoundState() {
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <MarketingNav active="careers" />
-      <main className="flex flex-1 items-center justify-center px-5 py-24 text-center">
+      <main
+        tabIndex={-1}
+        className="flex flex-1 items-center justify-center px-5 py-24 text-center focus:outline-none"
+      >
         <div>
           <h1 className="mb-3 text-[1.6rem] font-semibold tracking-[-0.015em] text-foreground">
             Role not found
@@ -51,13 +55,13 @@ function NotFoundState() {
           <p className="mb-6 text-muted-foreground">
             This role isn&rsquo;t open anymore — but there may be others.
           </p>
-          <Link
+          <BackLink
             to="/careers/"
             className={cn('inline-flex items-center gap-2 font-medium text-primary', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
             Back to careers
-          </Link>
+          </BackLink>
         </div>
       </main>
       <MarketingFooter />
@@ -104,15 +108,15 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <MarketingNav active="careers" />
 
-      <main className="flex-1">
+      <main tabIndex={-1} className="flex-1 focus:outline-none">
         <div className="mx-auto max-w-[1200px] px-5 pt-8 pb-5 md:px-10 lg:px-14">
-          <Link
+          <BackLink
             to="/careers/"
             className={cn('inline-flex items-center gap-2 text-muted-foreground', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
             All roles
-          </Link>
+          </BackLink>
         </div>
 
         <div className="mx-auto max-w-[1200px] border-b border-border px-5 pb-9 md:px-10 lg:px-14">
