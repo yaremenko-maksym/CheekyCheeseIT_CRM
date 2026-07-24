@@ -113,10 +113,13 @@ export const telemetryTopRouteSchema = z.object({
   medianDurationMs: z.number().int().nullable(),
 })
 
+export type TelemetryTopRoute = z.infer<typeof telemetryTopRouteSchema>
+
 export const telemetryFeatureClickSchema = z.object({
   target: z.string(),
   count: z.number().int(),
 })
+export type TelemetryFeatureClick = z.infer<typeof telemetryFeatureClickSchema>
 
 export const telemetryFormAbandonRateSchema = z.object({
   route: z.string(),
@@ -124,11 +127,13 @@ export const telemetryFormAbandonRateSchema = z.object({
   submitCount: z.number().int(),
   abandonRate: z.number().min(0).max(1),
 })
+export type TelemetryFormAbandonRate = z.infer<typeof telemetryFormAbandonRateSchema>
 
 export const telemetryMedianDurationSchema = z.object({
   route: z.string(),
   medianDurationMs: z.number().int(),
 })
+export type TelemetryMedianDuration = z.infer<typeof telemetryMedianDurationSchema>
 
 /** 7-day rolling window UX aggregates — see `TelemetryDigestService.getUxAggregates`. */
 export const telemetryUxAggregatesSchema = z.object({
