@@ -255,17 +255,20 @@ describe('SegmentedToggle', () => {
       expect(tabs[1]).toHaveAttribute('aria-selected', 'true')
     })
 
-    it('uses the more saturated primary/25 pill (vs pill variant primary/15)', () => {
+    it('renders the solid brand-yellow pill in both variants, with a stronger shadow for tabs', () => {
+      // Owner request 2026-07-24: the active tab is the solid brand yellow
+      // (`bg-primary`, same fill as Button/Badge default) in every variant —
+      // no more translucent primary/15 vs primary/25 tint split. 'tabs'
+      // keeps a slightly stronger shadow so page-level tabs still read as
+      // more focal than the inline 'pill' default.
       const { rerender } = render(<TabsLayout />)
-      // Active pill is rendered inside the active button as the first child
-      // motion.div. We assert via class names since framer's layout id is
-      // an implementation detail.
       const activeButton = screen.getByTestId('status-tabs-ALL')
-      const tabsPill = activeButton.querySelector('[class*="bg-primary/25"]')
-      expect(tabsPill).not.toBeNull()
+      expect(activeButton.querySelector('[class*="bg-primary"]')).not.toBeNull()
+      expect(activeButton.querySelector('[class*="shadow-md"]')).not.toBeNull()
+      // Text/icon on the solid yellow pill must be the near-black
+      // primary-foreground, not the theme foreground (contrast).
+      expect(activeButton.className).toContain('text-primary-foreground')
 
-      // Swap to the default variant and confirm the active pill uses the
-      // subtler primary/15 surface instead.
       function PillLayout() {
         const [v, setV] = React.useState<'ALL' | 'ACTIVE'>('ALL')
         return (
@@ -283,8 +286,10 @@ describe('SegmentedToggle', () => {
       }
       rerender(<PillLayout />)
       const pillActive = screen.getByTestId('status-pill-ALL')
-      expect(pillActive.querySelector('[class*="bg-primary/15"]')).not.toBeNull()
-      expect(pillActive.querySelector('[class*="bg-primary/25"]')).toBeNull()
+      expect(pillActive.querySelector('[class*="bg-primary"]')).not.toBeNull()
+      // Pill variant keeps the subtler shadow-sm — no shadow-md.
+      expect(pillActive.querySelector('[class*="shadow-md"]')).toBeNull()
+      expect(pillActive.className).toContain('text-primary-foreground')
     })
   })
 
@@ -309,17 +314,23 @@ describe('SegmentedToggle', () => {
       )
     }
 
-    it('renders a red pill when the destructive option is active', () => {
+    it('renders a red pill (and theme foreground text, not primary-foreground) when the destructive option is active', () => {
       render(<StatusLayout initial="REJECTED" />)
       const activeButton = screen.getByTestId('app-status-REJECTED')
       expect(activeButton.querySelector('[class*="bg-destructive/20"]')).not.toBeNull()
+      // Destructive stays red even though the default active pill went
+      // solid brand-yellow (owner request 2026-07-24) — must NOT pick up
+      // the yellow-pill text color.
+      expect(activeButton.className).toContain('text-foreground')
+      expect(activeButton.className).not.toContain('text-primary-foreground')
     })
 
-    it('does not render the red pill when a non-destructive option is active', () => {
+    it('does not render the red pill when a non-destructive option is active — uses the solid yellow pill instead', () => {
       render(<StatusLayout initial="NEW" />)
       const activeButton = screen.getByTestId('app-status-NEW')
       expect(activeButton.querySelector('[class*="bg-destructive/20"]')).toBeNull()
-      expect(activeButton.querySelector('[class*="bg-primary/15"]')).not.toBeNull()
+      expect(activeButton.querySelector('[class*="bg-primary"]')).not.toBeNull()
+      expect(activeButton.className).toContain('text-primary-foreground')
     })
   })
 
