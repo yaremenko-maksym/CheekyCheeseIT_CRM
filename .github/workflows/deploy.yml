@@ -152,6 +152,15 @@ jobs:
       # see the guard comment there). Points at the LIVE prod API — the old
       # containers are still serving during this build, see the Dockerfile
       # comment for why that is safe.
+      #
+      # task-telemetry-web (PR #415) / task-infra-telemetry-web-buildarg:
+      # VITE_TELEMETRY=on is a plain build-time CONSTANT (not a GH secret —
+      # it carries no sensitive value, just a feature switch) that flips the
+      # CRM telemetry SDK from its default-DENY no-op to active. See
+      # nginx/Dockerfile's crm-builder stage comment for the full
+      # isTelemetryEnabled() contract. Safe regardless of merge order with
+      # #415: before #415 merges the telemetry/ module doesn't exist yet, so
+      # this arg is simply unused by the build.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -163,6 +172,7 @@ jobs:
             VITE_BUILD_VERSION=${{ steps.meta.outputs.image_tag }}
             VITE_TURNSTILE_SITE_KEY=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
             PRERENDER_API_ORIGIN=https://cheekycheese.tech
+            VITE_TELEMETRY=on
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main

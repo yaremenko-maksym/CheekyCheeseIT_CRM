@@ -95,6 +95,23 @@ ENV VITE_API_URL=$VITE_API_URL
 ARG VITE_BUILD_VERSION=
 ENV VITE_BUILD_VERSION=$VITE_BUILD_VERSION
 
+# task-telemetry-web (PR #415) / task-infra-telemetry-web-buildarg (devops
+# follow-up): strict opt-IN switch for the CRM telemetry SDK — see
+# apps/web/app/lib/telemetry/config.ts `isTelemetryEnabled()`:
+#   `import.meta.env['VITE_TELEMETRY'] === 'on'`
+# Default-DENY, not default-allow — UNSET (this Dockerfile's own default
+# below), empty, or any value other than the exact string `on` (e.g. "true",
+# "ON") leaves the SDK a no-op. That is by design: dev (`pnpm dev`) and the
+# E2E stack never set this build-arg and must never silently start shipping
+# telemetry. deploy.yml passes `VITE_TELEMETRY=on` explicitly for the prod
+# nginx image build — that is the ONLY place this should ever be "on". Safe
+# either merge order relative to #415: if this image is built while #415
+# hasn't merged yet, the telemetry/ module doesn't exist in the bundle and
+# this arg is simply unused; once #415 merges, the very next deploy turns
+# the SDK on because the arg is already wired here.
+ARG VITE_TELEMETRY=
+ENV VITE_TELEMETRY=$VITE_TELEMETRY
+
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/web/package.json ./apps/web/
