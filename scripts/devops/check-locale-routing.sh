@@ -164,6 +164,24 @@ else
   printf 'FAIL  %-70s got=%s\n' "MED-2: Cache-Control: no-store present on 302" "$cache_control_redirect"
 fi
 
+# security-review round 2 (PR #423, MED-6): the FIRST fix for MED-3 only
+# matched `index.html` at a locale ROOT (0-1 path segments), so a NESTED
+# index.html (`/careers/index.html`, `/uk/careers/index.html`,
+# `/uk/careers/<slug>/index.html` — exactly what feature/landing-i18n
+# prerenders) fell through to `@locale_fallback` with no explicit
+# Cache-Control at all. Regression guard: `/careers/` already exists on
+# main TODAY (task-vacancies-api, independent of feature/landing-i18n's
+# merge status) — safe to run against real production right now, not just
+# a local fixture with synthetic nested files.
+cache_control_nested="$(curl -s -k -o /dev/null -D - --max-time 10 "$ORIGIN/careers/" 2>/dev/null | grep -i '^Cache-Control:')"
+if [[ "$cache_control_nested" == *"no-store"* ]]; then
+  PASS=$((PASS + 1))
+  printf 'PASS  %-70s %s\n' "MED-6: nested index.html (/careers/) gets no-store Cache-Control" "$cache_control_nested"
+else
+  FAIL=$((FAIL + 1))
+  printf 'FAIL  %-70s got=%s\n' "MED-6: nested index.html (/careers/) gets no-store Cache-Control" "$cache_control_nested"
+fi
+
 # ── B5: CF-IPCountry fallback (only consulted without Accept-Language) ────
 check "B5: CF-IPCountry: UA (no Accept-Language) -> 302 /uk/" 302 "/uk/" \
   -H 'CF-IPCountry: UA'
