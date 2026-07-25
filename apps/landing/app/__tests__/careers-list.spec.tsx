@@ -38,8 +38,10 @@ const vacancies: PublicVacancy[] = [
   },
 ]
 
-function renderList(list: PublicVacancy[]) {
-  const rootRoute = createRootRoute({ component: () => <CareersList vacancies={list} /> })
+function renderList(list: PublicVacancy[], locale?: 'ru') {
+  const rootRoute = createRootRoute({
+    component: () => <CareersList vacancies={list} locale={locale} />,
+  })
   const router = createRouter({
     routeTree: rootRoute,
     history: createMemoryHistory({ initialEntries: ['/'] }),
@@ -68,5 +70,16 @@ describe('CareersList', () => {
     const mailLink = screen.getByRole('link', { name: 'hr@cheekycheese.tech' })
     expect(mailLink.getAttribute('href')).toBe('mailto:hr@cheekycheese.tech')
     expect(screen.queryByRole('heading', { name: 'Senior ML Engineer' })).toBeNull()
+  })
+
+  it('task-landing-i18n.md — locale="ru" рендерит локализованный href и empty-state текст', async () => {
+    renderList(vacancies, 'ru')
+    const links = await screen.findAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/ru/careers/senior-ml-engineer')).toBe(
+      true,
+    )
+
+    renderList([], 'ru')
+    expect(await screen.findByText('Сейчас открытых вакансий нет')).toBeTruthy()
   })
 })

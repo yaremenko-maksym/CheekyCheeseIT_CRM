@@ -32,10 +32,14 @@ vi.mock('@/lib/use-turnstile', () => ({
  * test must await something findBy* before the first synchronous
  * `getBy*`/click, or it sees an empty `<body><div /></body>`.
  */
-async function renderForm() {
+async function renderForm(locale?: 'ru') {
   const rootRoute = createRootRoute({
     component: () => (
-      <VacancyApplyForm slug="senior-ml-engineer" vacancyTitle="Senior ML Engineer" />
+      <VacancyApplyForm
+        slug="senior-ml-engineer"
+        vacancyTitle="Senior ML Engineer"
+        locale={locale}
+      />
     ),
   })
   const router = createRouter({
@@ -43,7 +47,9 @@ async function renderForm() {
     history: createMemoryHistory({ initialEntries: ['/'] }),
   })
   const result = render(<RouterProvider router={router} />)
-  await screen.findByRole('heading', { name: 'Apply for this role' })
+  await screen.findByRole('heading', {
+    name: locale === 'ru' ? 'Откликнуться на вакансию' : 'Apply for this role',
+  })
   return result
 }
 
@@ -122,5 +128,14 @@ describe('VacancyApplyForm', () => {
 
     expect(await screen.findByText(/Enter a valid LinkedIn URL/)).toBeTruthy()
     await waitFor(() => expect(submitSpy).not.toHaveBeenCalled())
+  })
+
+  it('task-landing-i18n.md — locale="ru" рендерит переведённые поля и ошибки валидации', async () => {
+    const user = userEvent.setup()
+    await renderForm('ru')
+
+    expect(screen.getByText('Имя и фамилия')).toBeTruthy()
+    await user.click(screen.getByRole('button', { name: 'Отправить отклик' }))
+    expect(await screen.findByText('Пожалуйста, введите имя.')).toBeTruthy()
   })
 })
