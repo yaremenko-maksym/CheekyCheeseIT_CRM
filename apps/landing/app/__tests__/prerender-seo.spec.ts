@@ -6,11 +6,15 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  assertAlternatesMatch,
+  assertCanonicalSelf,
   assertHtmlLang,
   assertJsonLd,
+  assertNoHomeJsonLdLeak,
   buildRobotsTxt,
   buildRoutes,
   buildSitemapXml,
+  computeAlternateHrefs,
   extractJsonLd,
   LOCALES,
   vacancyHreflangExcludes,
@@ -213,6 +217,9 @@ describe('extractJsonLd + assertJsonLd', () => {
       assertJsonLd('<html><head></head><body></body></html>', {
         url: '/careers',
         file: 'careers/index.html',
+        path: '/careers',
+        pageType: 'careers',
+        hreflangExcludes: [],
         requireJsonLd: null,
       }),
     ).not.toThrow()
@@ -223,6 +230,9 @@ describe('extractJsonLd + assertJsonLd', () => {
       assertJsonLd('<html><head></head><body></body></html>', {
         url: '/',
         file: 'index.html',
+        path: '/',
+        pageType: 'home',
+        hreflangExcludes: [],
         requireJsonLd: 'organization+website',
       }),
     ).toThrow(/Organization\+WebSite/)
@@ -260,6 +270,9 @@ describe('extractJsonLd + assertJsonLd', () => {
   const jobPostingRoute = {
     url: '/careers/senior-ml-engineer',
     file: 'careers/senior-ml-engineer/index.html',
+    path: '/careers/senior-ml-engineer',
+    pageType: 'vacancy' as const,
+    hreflangExcludes: [],
     requireJsonLd: 'job-posting-breadcrumb' as const,
   }
 
@@ -313,6 +326,9 @@ describe('extractJsonLd + assertJsonLd', () => {
     const itemListRoute = {
       url: '/careers',
       file: 'careers/index.html',
+      path: '/careers',
+      pageType: 'careers' as const,
+      hreflangExcludes: [],
       requireJsonLd: 'item-list' as const,
     }
     expect(() =>
@@ -324,6 +340,9 @@ describe('extractJsonLd + assertJsonLd', () => {
     const itemListRoute = {
       url: '/careers',
       file: 'careers/index.html',
+      path: '/careers',
+      pageType: 'careers' as const,
+      hreflangExcludes: [],
       requireJsonLd: 'item-list' as const,
     }
     const html = jsonLdHtml({
@@ -338,5 +357,143 @@ describe('extractJsonLd + assertJsonLd', () => {
       ],
     })
     expect(() => assertJsonLd(html, itemListRoute)).not.toThrow()
+  })
+})
+
+// -----------------------------------------------------------------------
+// task-landing-i18n.md orchestrator finding (PR #421 issuecomment-
+// 5080204989) — page-identity checks. Every case below is a direct repro
+// of the actual bug (a non-EN locale's careers/vacancy route rendering the
+// HOME page instead), phrased as the exact captured-HTML shape that bug
+// produced, to prove these three functions (which existing assertions
+// above do NOT) would have caught it.
+// -----------------------------------------------------------------------
+describe('computeAlternateHrefs', () => {
+  it('returns one absolute href per non-excluded locale (LOCALES order) plus x-default (== en) appended last', () => {
+    expect(computeAlternateHrefs('/careers', [])).toEqual([
+      'https://cheekycheese.tech/careers/',
+      'https://cheekycheese.tech/uk/careers/',
+      'https://cheekycheese.tech/ru/careers/',
+      'https://cheekycheese.tech/es/careers/',
+      'https://cheekycheese.tech/pt/careers/',
+      'https://cheekycheese.tech/careers/',
+    ])
+  })
+
+  it('omits excluded locales from the per-locale list but still appends x-default', () => {
+    expect(computeAlternateHrefs('/careers/a', ['uk', 'es', 'pt'])).toEqual([
+      'https://cheekycheese.tech/careers/a/',
+      'https://cheekycheese.tech/ru/careers/a/',
+      'https://cheekycheese.tech/careers/a/',
+    ])
+  })
+})
+
+describe('assertCanonicalSelf', () => {
+  const ruCareersRoute = {
+    url: '/ru/careers',
+    file: 'ru/careers/index.html',
+    locale: 'ru',
+    path: '/careers',
+    pageType: 'careers' as const,
+    hreflangExcludes: [],
+    requireJsonLd: null,
+  }
+
+  it("passes when canonical equals the route's own absolute URL", () => {
+    const html =
+      '<html><head><link rel="canonical" href="https://cheekycheese.tech/ru/careers/"></head></html>'
+    expect(() => assertCanonicalSelf(html, ruCareersRoute)).not.toThrow()
+  })
+
+  it('throws — bug repro: canonical points at the RU locale HOME instead of /ru/careers/', () => {
+    const html = '<html><head><link rel="canonical" href="https://cheekycheese.tech/ru/"></head></html>'
+    expect(() => assertCanonicalSelf(html, ruCareersRoute)).toThrow(
+      /canonical for \/ru\/careers is "https:\/\/cheekycheese\.tech\/ru\/", expected "https:\/\/cheekycheese\.tech\/ru\/careers\/"/,
+    )
+  })
+
+  it('throws when the canonical tag is missing entirely', () => {
+    expect(() => assertCanonicalSelf('<html><head></head></html>', ruCareersRoute)).toThrow(
+      /\(missing\)/,
+    )
+  })
+})
+
+describe('assertAlternatesMatch', () => {
+  const ruCareersRoute = {
+    url: '/ru/careers',
+    file: 'ru/careers/index.html',
+    locale: 'ru',
+    path: '/careers',
+    pageType: 'careers' as const,
+    hreflangExcludes: [],
+    requireJsonLd: null,
+  }
+  const alternatesHtml = (hrefs: string[]) =>
+    `<html><head>${hrefs
+      .map((href) => `<link rel="alternate" hreflang="x" href="${href}">`)
+      .join('')}</head></html>`
+
+  it('passes when every expected alternate href (computeAlternateHrefs) is present', () => {
+    const html = alternatesHtml(computeAlternateHrefs(ruCareersRoute.path, ruCareersRoute.hreflangExcludes))
+    expect(() => assertAlternatesMatch(html, ruCareersRoute)).not.toThrow()
+  })
+
+  it('throws — bug repro: alternates point at every locale ROOT instead of that locale\'s /careers/', () => {
+    const html = alternatesHtml(
+      LOCALES.map((l) =>
+        l === 'en' ? 'https://cheekycheese.tech/' : `https://cheekycheese.tech/${l}/`,
+      ),
+    )
+    expect(() => assertAlternatesMatch(html, ruCareersRoute)).toThrow(
+      /alternate hrefs for \/ru\/careers do not match/,
+    )
+  })
+
+  it('throws when an expected alternate is missing', () => {
+    const hrefs = computeAlternateHrefs(ruCareersRoute.path, ruCareersRoute.hreflangExcludes).filter(
+      (href) => !href.includes('/uk/'),
+    )
+    expect(() => assertAlternatesMatch(alternatesHtml(hrefs), ruCareersRoute)).toThrow(/missing:/)
+  })
+})
+
+describe('assertNoHomeJsonLdLeak', () => {
+  const ruCareersRoute = {
+    url: '/ru/careers',
+    file: 'ru/careers/index.html',
+    locale: 'ru',
+    path: '/careers',
+    pageType: 'careers' as const,
+    hreflangExcludes: [],
+    requireJsonLd: null,
+  }
+  const ruHomeRoute = {
+    url: '/ru',
+    file: 'ru/index.html',
+    locale: 'ru',
+    path: '/',
+    pageType: 'home' as const,
+    hreflangExcludes: [],
+    requireJsonLd: 'organization+website' as const,
+  }
+  const jsonLdHtml = (payload: unknown) =>
+    `<html><head><script id="seo-json-ld" type="application/ld+json">${JSON.stringify(payload)}</script></head></html>`
+
+  it('passes on the home route even though it legitimately carries Organization+WebSite JSON-LD', () => {
+    const html = jsonLdHtml([{ '@type': 'Organization' }, { '@type': 'WebSite' }])
+    expect(() => assertNoHomeJsonLdLeak(html, ruHomeRoute)).not.toThrow()
+  })
+
+  it('passes on a careers route with no JSON-LD at all (0-vacancy build — assertJsonLd alone would no-op here)', () => {
+    expect(() => assertNoHomeJsonLdLeak('<html><head></head></html>', ruCareersRoute)).not.toThrow()
+  })
+
+  it('throws — bug repro: /ru/careers/ carries Organization+WebSite JSON-LD (home rendered instead)', () => {
+    const html = jsonLdHtml([{ '@type': 'Organization' }, { '@type': 'WebSite' }])
+    expect(() => assertNoHomeJsonLdLeak(html, ruCareersRoute)).toThrow(
+      /\/ru\/careers \(pageType=careers\) carries Organization\/WebSite JSON-LD/,
+    )
   })
 })
