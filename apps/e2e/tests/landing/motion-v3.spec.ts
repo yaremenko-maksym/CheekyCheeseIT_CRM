@@ -7,16 +7,46 @@
  * (default `:3002`, override via `LANDING_BASE_URL`) proxying to an API
  * instance seeded with at least 2 PUBLISHED vacancies (title-morph tests
  * need to click a specific card and land on a specific detail page).
+ *
+ * No hardcoded slugs/titles — fetched live from `/api/public/vacancies` per
+ * test (same `request`-fixture pattern as `responsive.spec.ts`'s vacancy-
+ * detail block), same reasoning: whatever is actually seeded in the scratch
+ * DB at run time, not a fixed fixture that silently drifts from it.
  */
-import { test, expect, type Page } from '@playwright/test'
+import { test, expect, type APIRequestContext, type Page } from '@playwright/test'
 
-/** Deterministic seed: `/careers` must have at least these two slugs published. */
-const VACANCY_A = { slug: 'senior-ml-engineer', title: 'Senior ML Engineer' }
-const VACANCY_B = { slug: 'backend-engineer-commerce', title: 'Backend Engineer, Commerce' }
+interface VacancyFixture {
+  slug: string
+  title: string
+}
+
+/**
+ * Fetches the live PUBLISHED vacancy list and returns the `index`-th entry
+ * — `test.skip`s (not fails) when fewer than `index + 1` are seeded, same
+ * graceful-skip contract as `responsive.spec.ts`'s vacancy-detail block.
+ */
+async function requireVacancy(
+  request: APIRequestContext,
+  baseURL: string | undefined,
+  index: number,
+): Promise<VacancyFixture> {
+  const res = await request.get(`${baseURL}/api/public/vacancies`)
+  const vacancies = (await res.json()) as VacancyFixture[]
+  test.skip(
+    vacancies.length <= index,
+    `need at least ${index + 1} PUBLISHED vacancy/ies seeded in the scratch DB — see task file`,
+  )
+  return vacancies[index]!
+}
 
 async function gotoStable(page: Page, path: string) {
   await page.goto(path)
   await page.waitForSelector('footer', { state: 'visible' })
+}
+
+/** Escapes regex-special characters — vacancy titles are live/dynamic content now, not a fixed literal we control. */
+function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
 // ── §M v3.1 Lift cross-fade (base, all page transitions) ─────────────────
@@ -82,11 +112,14 @@ test.describe('Lift cross-fade page transitions', () => {
 test.describe('Title-morph — /careers <-> /careers/:slug', () => {
   test('forward (list -> detail): an overlay clone appears then cleans up, landing on the real <h1>', async ({
     page,
+    request,
+    baseURL,
   }) => {
+    const vacancy = await requireVacancy(request, baseURL, 0)
     await gotoStable(page, '/careers/')
-    const card = page.getByRole('link', { name: new RegExp(VACANCY_A.title) })
+    const card = page.getByRole('link', { name: new RegExp(escapeRegExp(vacancy.title)) })
     await card.click()
-    await page.waitForURL(new RegExp(`/careers/${VACANCY_A.slug}/?$`))
+    await page.waitForURL(new RegExp(`/careers/${vacancy.slug}/?$`))
 
     // The overlay is a direct `<body>` child with `aria-hidden="true"` and
     // the vacancy's own text — assert it eventually disappears (cleaned up)
@@ -99,21 +132,24 @@ test.describe('Title-morph — /careers <-> /careers/:slug', () => {
               Array.from(document.body.children).filter(
                 (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === title,
               ).length,
-            VACANCY_A.title,
+            vacancy.title,
           ),
         { timeout: 2000 },
       )
       .toBe(0)
 
-    const h1 = page.getByRole('heading', { level: 1, name: VACANCY_A.title })
+    const h1 = page.getByRole('heading', { level: 1, name: vacancy.title })
     await expect(h1).toBeVisible()
     await expect(h1).toHaveCSS('visibility', 'visible')
   })
 
   test('back (detail -> list, via "All roles" BackLink): overlay cleans up, lands on the real card title', async ({
     page,
+    request,
+    baseURL,
   }) => {
-    await gotoStable(page, `/careers/${VACANCY_A.slug}/`)
+    const vacancy = await requireVacancy(request, baseURL, 0)
+    await gotoStable(page, `/careers/${vacancy.slug}/`)
     await page.getByRole('link', { name: 'All roles' }).click()
     await page.waitForURL(/\/careers\/?$/)
     await page.waitForSelector('footer', { state: 'visible' })
@@ -126,30 +162,33 @@ test.describe('Title-morph — /careers <-> /careers/:slug', () => {
               Array.from(document.body.children).filter(
                 (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === title,
               ).length,
-            VACANCY_A.title,
+            vacancy.title,
           ),
         { timeout: 2000 },
       )
       .toBe(0)
 
-    const cardTitle = page.getByRole('heading', { level: 3, name: VACANCY_A.title })
+    const cardTitle = page.getByRole('heading', { level: 3, name: vacancy.title })
     await expect(cardTitle).toBeVisible()
     await expect(cardTitle).toHaveCSS('visibility', 'visible')
   })
 
   test('direct load on /careers/:slug (no capture) never renders a morph overlay', async ({
     page,
+    request,
+    baseURL,
   }) => {
-    await gotoStable(page, `/careers/${VACANCY_A.slug}/`)
+    const vacancy = await requireVacancy(request, baseURL, 0)
+    await gotoStable(page, `/careers/${vacancy.slug}/`)
     const overlayCount = await page.evaluate(
       (title) =>
         Array.from(document.body.children).filter(
           (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === title,
         ).length,
-      VACANCY_A.title,
+      vacancy.title,
     )
     expect(overlayCount).toBe(0)
-    await expect(page.getByRole('heading', { level: 1, name: VACANCY_A.title })).toHaveCSS(
+    await expect(page.getByRole('heading', { level: 1, name: vacancy.title })).toHaveCSS(
       'visibility',
       'visible',
     )
@@ -157,11 +196,14 @@ test.describe('Title-morph — /careers <-> /careers/:slug', () => {
 
   test('Home teaser -> detail (NOT the /careers list) falls back to the base lift, no morph overlay', async ({
     page,
+    request,
+    baseURL,
   }) => {
+    const vacancy = await requireVacancy(request, baseURL, 0)
     await gotoStable(page, '/')
-    const teaserCard = page.getByRole('link', { name: new RegExp(VACANCY_A.title) })
+    const teaserCard = page.getByRole('link', { name: new RegExp(escapeRegExp(vacancy.title)) })
     await teaserCard.click()
-    await page.waitForURL(new RegExp(`/careers/${VACANCY_A.slug}/?$`))
+    await page.waitForURL(new RegExp(`/careers/${vacancy.slug}/?$`))
     await page.waitForSelector('footer', { state: 'visible' })
 
     const overlayCount = await page.evaluate(
@@ -169,10 +211,10 @@ test.describe('Title-morph — /careers <-> /careers/:slug', () => {
         Array.from(document.body.children).filter(
           (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === title,
         ).length,
-      VACANCY_A.title,
+      vacancy.title,
     )
     expect(overlayCount).toBe(0)
-    await expect(page.getByRole('heading', { level: 1, name: VACANCY_A.title })).toHaveCSS(
+    await expect(page.getByRole('heading', { level: 1, name: vacancy.title })).toHaveCSS(
       'visibility',
       'visible',
     )
@@ -180,11 +222,17 @@ test.describe('Title-morph — /careers <-> /careers/:slug', () => {
 
   test('prefers-reduced-motion: capture is skipped, no morph overlay on list -> detail', async ({
     page,
+    request,
+    baseURL,
   }) => {
+    // A DIFFERENT vacancy than the tests above (index 1, not 0) — purely for
+    // test isolation/diversity, no functional requirement ties this to a
+    // specific one.
+    const vacancy = await requireVacancy(request, baseURL, 1)
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await gotoStable(page, '/careers/')
-    await page.getByRole('link', { name: new RegExp(VACANCY_B.title) }).click()
-    await page.waitForURL(new RegExp(`/careers/${VACANCY_B.slug}/?$`))
+    await page.getByRole('link', { name: new RegExp(escapeRegExp(vacancy.title)) }).click()
+    await page.waitForURL(new RegExp(`/careers/${vacancy.slug}/?$`))
     await page.waitForSelector('footer', { state: 'visible' })
 
     const overlayCount = await page.evaluate(
@@ -192,7 +240,7 @@ test.describe('Title-morph — /careers <-> /careers/:slug', () => {
         Array.from(document.body.children).filter(
           (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === title,
         ).length,
-      VACANCY_B.title,
+      vacancy.title,
     )
     expect(overlayCount).toBe(0)
   })
