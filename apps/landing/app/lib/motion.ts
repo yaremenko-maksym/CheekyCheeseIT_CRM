@@ -34,17 +34,24 @@ export const DUR_REVEAL = 0.7 // section scroll-reveal (unchanged)
 /** In-page anchor smooth-scroll (§M.4) — duration unchanged, easing switches to `EASE_SOFT`. */
 export const DUR_SMOOTH_SCROLL = 0.6
 
-// HOTFIX 2026-07-24 — page-transition duration UP (owner: "up, aim for
-// 350-500ms"), plus renamed for the new dark-scrim + thin caret-line
-// mechanic (§M.3) — this is no longer a solid full-screen "wipe" fill:
-/** Dark scrim fades in (was `DUR_WIPE_IN` = 0.2, a solid yellow fill). */
-export const DUR_SCRIM_IN = 0.23
-/** Scrim fades out (was `DUR_WIPE_OUT` = 0.26) — total scrim lifecycle = 500ms, top of the owner's 350-500ms range. */
-export const DUR_SCRIM_OUT = 0.27
-/** Thin yellow leading edge sweeps across the screen ONCE — longer than the scrim phases so it doesn't read as a "flash". */
-export const DUR_CARET_SWEEP = 0.42
-/** Page-transition lightweight back/forward variant (was 0.18 — also part of the "too fast" complaint). */
-export const DUR_LIGHT_TRANSITION = 0.26
+// §M v3 (2026-07-25) — REPLACES DUR_SCRIM_IN/DUR_SCRIM_OUT/DUR_CARET_SWEEP/
+// DUR_LIGHT_TRANSITION (the scrim + thin caret-line page-transition, §M.3,
+// was removed entirely — owner: "contrasts with the site's overall lighting
+// and hits the eyes"). Replaced by a "soft lift" cross-fade applied to EVERY
+// page transition, plus a separate shared-element title morph on
+// `/careers ↔ /careers/:slug` — see docs/design/landing-redesign.md §M v3.0.
+// EASE_SOFT above remains the single default for every time-based JS
+// animation below too — no separate easing curve is introduced for lift/morph.
+/** Old page fades + settles down (§M v3.1) — 220ms. */
+export const DUR_LIFT_EXIT = 0.22
+/** New page fades + rises into place (§M v3.1) — 300ms. */
+export const DUR_LIFT_ENTER = 0.3
+/** `translateY` 0 → +10 (down) on exit, px. */
+export const LIFT_OFFSET_EXIT = 10
+/** `|translateY|` on enter, px — sign depends on navigation direction (§M v3.1). */
+export const LIFT_OFFSET_ENTER = 14
+/** Shared-element title morph duration, `/careers ↔ /careers/:slug` (§M v3.2) — 350ms. */
+export const DUR_TITLE_MORPH = 0.35
 
 /**
  * Hover/press durations (CSS Tailwind-transitions on buttons/cards/chips,
