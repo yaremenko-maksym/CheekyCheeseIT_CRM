@@ -43,7 +43,7 @@ describe('buildRobotsTxt', () => {
 
 describe('buildRoutes', () => {
   it('task-landing-i18n.md A1 — one home + careers-list per locale, plus one vacancy route per locale when the API is reachable (9+ total with 1 vacancy across 5 locales)', () => {
-    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
+    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }])
     expect(routes.length).toBeGreaterThanOrEqual(9)
     expect(routes.map((r) => r.url)).toEqual([
       '/',
@@ -92,7 +92,7 @@ describe('buildRoutes', () => {
   })
 
   it('marks every locale/careers-list route as requiring ItemList JSON-LD only when there are vacancies to list', () => {
-    const withVacancies = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
+    const withVacancies = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }])
     for (const locale of LOCALES) {
       expect(
         withVacancies.find((r) => r.locale === locale && r.url.endsWith('/careers'))?.requireJsonLd,
@@ -107,7 +107,7 @@ describe('buildRoutes', () => {
   })
 
   it('marks every vacancy route (every locale) as requiring JobPosting+BreadcrumbList JSON-LD', () => {
-    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
+    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }])
     for (const locale of LOCALES) {
       const url = locale === 'en' ? '/careers/a' : `/${locale}/careers/a`
       expect(routes.find((r) => r.url === url)?.requireJsonLd).toBe('job-posting-breadcrumb')
@@ -116,19 +116,36 @@ describe('buildRoutes', () => {
 })
 
 describe('vacancyHreflangExcludes', () => {
-  it('excludes every non-default locale when there is no translations field at all (pre-Block-C safe default)', () => {
-    expect(vacancyHreflangExcludes({ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' })).toEqual(
-      NON_DEFAULT_LOCALES,
+  it('excludes every non-default locale when perLocaleVacancies is empty/omitted (safe default — no data yet)', () => {
+    expect(vacancyHreflangExcludes('a')).toEqual(NON_DEFAULT_LOCALES)
+    expect(vacancyHreflangExcludes('a', {})).toEqual(NON_DEFAULT_LOCALES)
+  })
+
+  it('only excludes locales whose OWN list marks this slug isFallback (round-4 — real API contract, no translations field is ever public)', () => {
+    const perLocaleVacancies = {
+      uk: [{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
+      ru: [{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
+      es: [{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
+      pt: [{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
+    }
+    expect(vacancyHreflangExcludes('a', perLocaleVacancies).sort()).toEqual(
+      NON_DEFAULT_LOCALES.filter((l) => l !== 'ru').sort(),
     )
   })
 
-  it('only excludes locales without a real translation entry', () => {
-    const vacancy = {
-      slug: 'a',
-      publishedAt: '2026-07-01T00:00:00.000Z',
-      translations: { ru: { title: 'Т', description: 'О' } },
+  it('conservatively excludes a locale whose list does not contain this slug at all', () => {
+    const perLocaleVacancies = {
+      uk: [{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
+      ru: [{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
+      es: [{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
+      // pt's list is missing entirely (fetch failed) — treated as fallback.
+      pt: null,
     }
-    expect(vacancyHreflangExcludes(vacancy)).toEqual(NON_DEFAULT_LOCALES.filter((l) => l !== 'ru'))
+    expect(vacancyHreflangExcludes('a', perLocaleVacancies)).toEqual(['pt'])
+  })
+
+  it('never excludes en (always the source language)', () => {
+    expect(vacancyHreflangExcludes('a', {})).not.toContain('en')
   })
 })
 
@@ -147,7 +164,7 @@ describe('assertHtmlLang', () => {
 describe('buildSitemapXml', () => {
   it('task-landing-i18n.md A7 — includes / and /careers for every locale with the build time, and one <url> per vacancy per locale with its own publishedAt', () => {
     const xml = buildSitemapXml(
-      [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z' }],
+      [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
       '2026-07-23T00:00:00.000Z',
     )
     expect(xml).toContain('<loc>https://cheekycheese.tech/</loc>')
@@ -170,14 +187,17 @@ describe('buildSitemapXml', () => {
 
   it("omits the untranslated locale from a vacancy URL block's xhtml:link cluster (A10)", () => {
     const xml = buildSitemapXml(
-      [
-        {
-          slug: 'senior-ml-engineer',
-          publishedAt: '2026-07-01T00:00:00.000Z',
-          translations: { ru: { title: 'Т', description: 'О' } },
-        },
-      ],
+      [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
       '2026-07-23T00:00:00.000Z',
+      {
+        // ru has a real translation (isFallback: false); uk/es/pt don't
+        // (round-4 — real API shape, per-locale list with isFallback, not a
+        // single translations object).
+        ru: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
+        uk: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
+        es: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
+        pt: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
+      },
     )
     const block = xml.slice(
       xml.indexOf('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>'),

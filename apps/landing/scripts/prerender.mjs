@@ -56,22 +56,33 @@ function localePrefix(locale) {
 }
 
 /**
- * @typedef {{ slug: string, publishedAt: string, translations?: Record<string, { title: string, description: string }> | null }} VacancyListItem
+ * @typedef {{ slug: string, publishedAt: string, isFallback: boolean }} VacancyListItem
+ * @typedef {Record<string, VacancyListItem[] | null>} PerLocaleVacancies - keyed by locale, mirrors `app/lib/api.ts` `fetchVacancyHreflangExcludes()`'s own per-locale-list source (`null` = that locale's list fetch failed).
  * @typedef {{ url: string, file: string, locale?: string, path: string, pageType: 'home' | 'careers' | 'vacancy', hreflangExcludes: string[], requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
  */
 
 /**
- * Mirrors `app/lib/vacancy-i18n.ts` `vacancyHreflangExcludes` (plain-Node
- * ESM duplication, same rationale as SITE_ORIGIN/LOCALES above) — locales
- * with no real translation for this vacancy (plan §3/A10). Pre-Block-C
- * (no `translations` field in the API response yet), this safely excludes
- * EVERY non-default locale, matching the client-side fallback behavior.
+ * Mirrors `app/lib/api.ts` `fetchVacancyHreflangExcludes()` (plain-Node ESM
+ * duplication, same rationale as SITE_ORIGIN/LOCALES above) — round-4
+ * "дорезка": the public API only reports `isFallback` for the ONE `?locale=`
+ * a request asked about (server-side resolution, no `translations` field is
+ * ever exposed publicly), so this reads each NON-default locale's OWN
+ * PUBLISHED list (`perLocaleVacancies`, fetched once per locale in `main()`
+ * below — same 5-request shape the browser-side helper uses) for this
+ * slug's `isFallback` flag. A locale whose list fetch failed, or that
+ * doesn't (yet) list this slug at all, is conservatively excluded — same
+ * "safe default" as the client helper.
  *
- * @param {VacancyListItem} vacancy
+ * @param {string} slug
+ * @param {PerLocaleVacancies} perLocaleVacancies
  * @returns {string[]}
  */
-function vacancyHreflangExcludes(vacancy) {
-  return LOCALES.filter((locale) => locale !== DEFAULT_LOCALE && !vacancy.translations?.[locale])
+function vacancyHreflangExcludes(slug, perLocaleVacancies = {}) {
+  return LOCALES.filter((locale) => {
+    if (locale === DEFAULT_LOCALE) return false
+    const entry = perLocaleVacancies[locale]?.find((v) => v.slug === slug)
+    return entry?.isFallback !== false
+  })
 }
 
 function warn(message) {
@@ -81,26 +92,47 @@ function warn(message) {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Fetch the PUBLISHED vacancy list (drives which /careers/:slug pages get
-//    prerendered + sitemap entries). Failure here is non-fatal — the task
-//    explicitly requires the build not to fail when the API is unreachable;
-//    the live SPA still fetches this client-side for real visitors.
+// 1. Fetch the PUBLISHED vacancy list, once per locale (drives which
+//    /careers/:slug pages get prerendered + sitemap entries + hreflang
+//    exclusions — round-4 "дорезка", see `vacancyHreflangExcludes()` above
+//    for why one request per locale, not one total). Failure on any single
+//    locale is non-fatal — the task explicitly requires the build not to
+//    fail when the API is unreachable; the live SPA still fetches this
+//    client-side for real visitors.
 // ---------------------------------------------------------------------------
-/** @returns {Promise<VacancyListItem[] | null>} `null` means the API was unreachable. */
-async function fetchVacancies() {
+/** @param {string} locale @returns {Promise<VacancyListItem[] | null>} `null` means that locale's list fetch failed. */
+async function fetchVacanciesForLocale(locale) {
+  const localeQuery = locale === DEFAULT_LOCALE ? '' : `?locale=${locale}`
   try {
-    const res = await fetch(`${API_ORIGIN}/api/public/vacancies`)
+    const res = await fetch(`${API_ORIGIN}/api/public/vacancies${localeQuery}`)
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     if (!Array.isArray(data)) throw new Error('response is not an array')
     return data
   } catch (err) {
     warn(
-      `could not fetch vacancies from ${API_ORIGIN}/api/public/vacancies (${err.message}) — ` +
-        'building without per-slug vacancy pages; the live SPA still fetches them client-side.',
+      `could not fetch vacancies (locale=${locale}) from ${API_ORIGIN}/api/public/vacancies (${err.message}) — ` +
+        'building without per-slug vacancy pages for this locale; the live SPA still fetches them client-side.',
     )
     return null
   }
+}
+
+/**
+ * Fetches all 5 locales' PUBLISHED lists in parallel — the `en` list drives
+ * WHICH vacancies exist (canonical slug set, same status filter regardless
+ * of locale); every locale's own list feeds `vacancyHreflangExcludes()`.
+ *
+ * @returns {Promise<PerLocaleVacancies>}
+ */
+async function fetchAllLocaleVacancies() {
+  const entries = await Promise.all(
+    LOCALES.map(async (locale) => /** @type {[string, VacancyListItem[] | null]} */ ([
+      locale,
+      await fetchVacanciesForLocale(locale),
+    ])),
+  )
+  return Object.fromEntries(entries)
 }
 
 /**
@@ -112,9 +144,10 @@ async function fetchVacancies() {
  * (`<locale>/index.html`, `<locale>/careers/index.html`, ...).
  *
  * @param {VacancyListItem[] | null} vacancies
+ * @param {PerLocaleVacancies} perLocaleVacancies
  * @returns {PrerenderRoute[]}
  */
-function buildRoutes(vacancies) {
+function buildRoutes(vacancies, perLocaleVacancies = {}) {
   // Matches app/routes/careers.tsx's own `vacancies.length > 0 ? buildItemListJsonLd(...) : undefined`
   // — an ItemList with zero items has nothing useful to tell a crawler.
   const hasVacancies = (vacancies?.length ?? 0) > 0
@@ -156,7 +189,7 @@ function buildRoutes(vacancies) {
         locale,
         path: `/careers/${v.slug}`,
         pageType: 'vacancy',
-        hreflangExcludes: vacancyHreflangExcludes(v),
+        hreflangExcludes: vacancyHreflangExcludes(v.slug, perLocaleVacancies),
         requireJsonLd: 'job-posting-breadcrumb',
       })
     }
@@ -612,9 +645,10 @@ function buildXhtmlAlternates(path, excludeLocales) {
 /**
  * @param {VacancyListItem[] | null} vacancies
  * @param {string} buildTime
+ * @param {PerLocaleVacancies} perLocaleVacancies
  * @returns {string}
  */
-function buildSitemapXml(vacancies, buildTime) {
+function buildSitemapXml(vacancies, buildTime, perLocaleVacancies = {}) {
   // Trailing-slash-terminated — matches app/lib/seo.ts canonicalUrl() /
   // router.tsx trailingSlash: 'always' (see that file's comment for why):
   // sitemap URLs should be the exact canonical/200 form, not one that 301s.
@@ -635,7 +669,10 @@ function buildSitemapXml(vacancies, buildTime) {
       urls.push({
         loc: localizedUrl(locale, `/careers/${v.slug}`),
         lastmod: v.publishedAt,
-        alternates: buildXhtmlAlternates(`/careers/${v.slug}`, vacancyHreflangExcludes(v)),
+        alternates: buildXhtmlAlternates(
+          `/careers/${v.slug}`,
+          vacancyHreflangExcludes(v.slug, perLocaleVacancies),
+        ),
       })
     }
   }
@@ -661,8 +698,15 @@ async function main() {
     throw new Error(`prerender: ${DIST}/index.html not found — run "vite build" first`)
   }
 
-  const vacancies = await fetchVacancies()
-  const routes = buildRoutes(vacancies)
+  // task-landing-i18n.md round-4 "дорезка" — one PUBLISHED-list fetch per
+  // locale (5 total), not 1: the public API only reports `isFallback` for
+  // the ONE `?locale=` a request asked about, so building an accurate
+  // hreflang-exclusion map (`vacancyHreflangExcludes()`) needs every
+  // locale's own list. `en`'s list drives WHICH vacancies exist (same
+  // PUBLISHED-status filter regardless of locale).
+  const perLocaleVacancies = await fetchAllLocaleVacancies()
+  const vacancies = perLocaleVacancies[DEFAULT_LOCALE]
+  const routes = buildRoutes(vacancies, perLocaleVacancies)
 
   // Feeds vite.config.ts's `preview.proxy['/api'].target` (same
   // VITE_PROXY_API_TARGET override pattern as apps/web) so the SPA's
@@ -738,7 +782,11 @@ async function main() {
 
   const buildTime = new Date().toISOString()
   await writeFile(path.join(DIST, 'robots.txt'), buildRobotsTxt(), 'utf8')
-  await writeFile(path.join(DIST, 'sitemap.xml'), buildSitemapXml(vacancies, buildTime), 'utf8')
+  await writeFile(
+    path.join(DIST, 'sitemap.xml'),
+    buildSitemapXml(vacancies, buildTime, perLocaleVacancies),
+    'utf8',
+  )
   console.log('prerender: wrote robots.txt, sitemap.xml')
 
   // Sanity echo — lets a CI log reader see at a glance whether vacancy pages
