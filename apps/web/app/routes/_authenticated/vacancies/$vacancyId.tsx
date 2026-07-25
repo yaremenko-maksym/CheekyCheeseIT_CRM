@@ -18,11 +18,17 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
+import { toast } from 'sonner'
 import { z } from 'zod'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { ArrowLeft, ArrowUp, Globe, RotateCcw, Users, X } from 'lucide-react'
-import type { VacancyApplicationStatus, VacancyDomain, VacancyEmploymentType } from '@crm/shared'
+import type {
+  Vacancy,
+  VacancyApplicationStatus,
+  VacancyDomain,
+  VacancyEmploymentType,
+} from '@crm/shared'
 import { updateVacancySchema } from '@crm/shared'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import {
@@ -44,13 +50,22 @@ import { CandidateCard } from './components/CandidateCard'
 import { VacancyFormFields } from './components/VacancyFormFields'
 import {
   APPLICATION_STATUS_LABELS,
+  buildVacancyDto,
+  computeVacancySubmitErrors,
   DOMAIN_DOT_COLOR,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
+  emptySeoFormValues,
+  emptyTranslationsFormValues,
   getVacancyDeleteGate,
+  seoFormValuesFromVacancy,
   SENIORITY_LABELS,
+  translationsFormValuesFromVacancy,
   VACANCY_STATUS_BADGE,
   VACANCY_STATUS_LABELS,
+  type VacancySeoFormValues,
+  type VacancyTranslationFocusRequest,
+  type VacancyTranslationsFormValues,
 } from './constants'
 
 // §4.3: the landing /careers page lives on a separate Vite app/domain
@@ -78,6 +93,9 @@ type ApplicationsFilter = 'ALL' | VacancyApplicationStatus
  * matching comment) — the PATCH payload built in `onSubmit` below omits
  * them, so `updateVacancySchema` leaves them `undefined` (no-op) and the
  * vacancy's existing seniority/location are never touched by this form.
+ *
+ * task-vacancy-i18n-jobposting: `translations`/SEO-enrichment fields (C1/C3)
+ * ADDED — same shape/helpers as `VacancySheet.tsx` (`../constants`).
  */
 interface VacancyFormValues {
   title: string
@@ -85,6 +103,13 @@ interface VacancyFormValues {
   descriptionMd: string
   domain: VacancyDomain
   employmentType: VacancyEmploymentType
+  translations: VacancyTranslationsFormValues
+  skills: VacancySeoFormValues['skills']
+  experienceMonths: VacancySeoFormValues['experienceMonths']
+  qualifications: VacancySeoFormValues['qualifications']
+  responsibilities: VacancySeoFormValues['responsibilities']
+  jobBenefits: VacancySeoFormValues['jobBenefits']
+  workHours: VacancySeoFormValues['workHours']
 }
 
 function emptyFormValues(): VacancyFormValues {
@@ -94,6 +119,20 @@ function emptyFormValues(): VacancyFormValues {
     descriptionMd: '',
     domain: 'AI',
     employmentType: 'FULL_TIME',
+    translations: emptyTranslationsFormValues(),
+    ...emptySeoFormValues(),
+  }
+}
+
+function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
+  return {
+    title: vacancy.title,
+    slug: vacancy.slug,
+    descriptionMd: vacancy.descriptionMd,
+    domain: vacancy.domain,
+    employmentType: vacancy.employmentType,
+    translations: translationsFormValuesFromVacancy(vacancy),
+    ...seoFormValuesFromVacancy(vacancy),
   }
 }
 
@@ -115,29 +154,51 @@ function VacancyDetailPage() {
   // Never auto-links on the detail page — the vacancy already has a live
   // slug; typing in "Название" here must not silently rewrite it.
   const [slugAutoLinked, setSlugAutoLinked] = useState(false)
+  // design-review round 1 (PR #422, HIGH-2) — see VacancyTranslationFields'
+  // module doc / VacancySheet.tsx's matching comment: forces the translation
+  // Tabs to the locale of the first reported error on a failed submit.
+  const [translationFocusRequest, setTranslationFocusRequest] =
+    useState<VacancyTranslationFocusRequest | null>(null)
+  // design-review round 1 (PR #422, HIGH-2) — dot-path → Russian message
+  // from the last failed submit. Deliberately NOT stored in TanStack Form's
+  // own field state — see `VacancyTranslationFields`'s module doc for why.
+  const [submitFieldErrors, setSubmitFieldErrors] = useState<Record<string, string> | null>(null)
 
   const form = useForm({
-    defaultValues: vacancy
-      ? {
-          title: vacancy.title,
-          slug: vacancy.slug,
-          descriptionMd: vacancy.descriptionMd,
-          domain: vacancy.domain,
-          employmentType: vacancy.employmentType,
-        }
-      : emptyFormValues(),
+    defaultValues: vacancy ? valuesFromVacancy(vacancy) : emptyFormValues(),
+    // design-review round 1 (PR #422, HIGH-2) — same mechanism as
+    // VacancySheet.tsx: blocks `onSubmit` below from running when the dto
+    // fails schema validation, replacing the old silent
+    // `if (!parsed.success) return`. Error display/toast/tab-switch itself
+    // happens in `onSubmitInvalid` — see that handler's comment.
+    validators: {
+      onSubmit: ({ value }) => {
+        const dto = buildVacancyDto(value)
+        return updateVacancySchema.safeParse(dto).success ? null : { form: 'Форма содержит ошибки' }
+      },
+    },
+    // Guaranteed by TanStack Form to run whenever `handleSubmit()` finds the
+    // form invalid, regardless of which validator caught it. Sets the plain
+    // `submitFieldErrors` state (see `computeVacancySubmitErrors`'s doc in
+    // `./constants` for why NOT `formApi.setFieldMeta`), force-switches the
+    // tab holding the first error, and fires a fallback toast unconditionally.
+    onSubmitInvalid: ({ value }) => {
+      const result = computeVacancySubmitErrors(value, updateVacancySchema)
+      setSubmitFieldErrors(result?.fields ?? null)
+      if (result?.firstTranslationLocale) {
+        setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
+      }
+      toast.error('Проверьте поля формы — есть ошибки')
+    },
     onSubmit: async ({ value }) => {
       if (!vacancy) return
-      const dto = {
-        title: value.title.trim(),
-        slug: value.slug.trim(),
-        descriptionMd: value.descriptionMd,
-        domain: value.domain,
-        employmentType: value.employmentType,
-      }
+      const dto = buildVacancyDto(value)
       // seniority/location NOT in `dto` → updateVacancySchema leaves them
       // `undefined` → no-op — this form never changes the vacancy's
       // seniority/location, whatever they currently are.
+      // `validators.onSubmit` above already gated this call on a successful
+      // parse, so `safeParse` here always succeeds — re-run only to get the
+      // fully-typed `.data` the mutation needs.
       const parsed = updateVacancySchema.safeParse(dto)
       if (!parsed.success) return
       await updateMutation.mutateAsync({ id: vacancy.id, dto: parsed.data })
@@ -149,16 +210,22 @@ function VacancyDetailPage() {
   // still `undefined` while the query resolves.
   useEffect(() => {
     if (vacancy) {
-      form.reset({
-        title: vacancy.title,
-        slug: vacancy.slug,
-        descriptionMd: vacancy.descriptionMd,
-        domain: vacancy.domain,
-        employmentType: vacancy.employmentType,
-      })
+      form.reset(valuesFromVacancy(vacancy))
     }
+    setTranslationFocusRequest(null)
+    setSubmitFieldErrors(null)
     // Keyed on vacancy?.id only — re-running on every refetch would clobber in-progress edits.
   }, [vacancy?.id])
+
+  // design-review round 1 (PR #422, HIGH-2) — drop a field's stale
+  // `submitFieldErrors` entry the moment the user edits it again.
+  const handleFieldEdited = (path: string) => {
+    setSubmitFieldErrors((prev) => {
+      if (!prev || !(path in prev)) return prev
+      const { [path]: _dropped, ...rest } = prev
+      return rest
+    })
+  }
 
   if (isLoading) {
     return (
@@ -331,19 +398,14 @@ function VacancyDetailPage() {
                 form={form}
                 slugAutoLinked={slugAutoLinked}
                 onSlugAutoLinkedChange={setSlugAutoLinked}
+                focusRequest={translationFocusRequest}
+                submitFieldErrors={submitFieldErrors}
+                onFieldEdited={handleFieldEdited}
               />
               <div className="flex items-center gap-2 pt-2">
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    form.reset({
-                      title: vacancy.title,
-                      slug: vacancy.slug,
-                      descriptionMd: vacancy.descriptionMd,
-                      domain: vacancy.domain,
-                      employmentType: vacancy.employmentType,
-                    })
-                  }
+                  onClick={() => form.reset(valuesFromVacancy(vacancy))}
                   data-testid="vacancy-edit-cancel"
                 >
                   Отмена

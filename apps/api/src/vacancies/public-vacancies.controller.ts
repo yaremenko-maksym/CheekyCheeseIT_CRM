@@ -29,9 +29,11 @@ import {
   Inject,
   Param,
   Post,
+  Query,
   Req,
 } from '@nestjs/common'
 import type { FastifyRequest } from 'fastify'
+import { vacancyLocaleSchema } from '@crm/shared'
 import { Public } from '../auth/public.decorator'
 import { RelaxableThrottle } from '../config/throttle-decorators'
 import { ApplicationsService, RESUME_MAX_BYTES, type ApplyResumeFile } from './applications.service'
@@ -90,8 +92,8 @@ export class PublicVacanciesController {
 
   @Get()
   @Public()
-  listPublic() {
-    return this.vacanciesService.listPublic()
+  listPublic(@Query('locale') locale?: string) {
+    return this.vacanciesService.listPublic(vacancyLocaleSchema.parse(locale))
   }
 
   // NOTE: registered AFTER `:slug/apply` would shadow it if `apply` were a
@@ -99,8 +101,8 @@ export class PublicVacanciesController {
   // Nest matches by method+path, not declaration order across HTTP verbs.
   @Get(':slug')
   @Public()
-  getPublicBySlug(@Param('slug') slug: string) {
-    return this.vacanciesService.getPublicBySlug(slug)
+  getPublicBySlug(@Param('slug') slug: string, @Query('locale') locale?: string) {
+    return this.vacanciesService.getPublicBySlug(slug, vacancyLocaleSchema.parse(locale))
   }
 
   @Post(':slug/apply')

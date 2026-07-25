@@ -6,11 +6,13 @@
  * app/__tests__/prerender-seo.spec.ts.
  */
 import { describe, expect, it } from 'vitest'
-import type { PublicVacancy, PublicVacancyDetail } from '@crm/shared'
+import type { PublicVacancy, PublicVacancyDetail, VacancyLocale } from '@crm/shared'
+import { VACANCY_LOCALES } from '@crm/shared'
 import {
   SITE_NAME,
   SITE_ORIGIN,
   buildBreadcrumbListJsonLd,
+  buildFAQPageJsonLd,
   buildItemListJsonLd,
   buildJobPostingJsonLd,
   buildOrganizationJsonLd,
@@ -90,6 +92,14 @@ describe('buildJobPostingJsonLd', () => {
     location: 'Remote',
     publishedAt: '2026-07-01T00:00:00.000Z',
     descriptionMd: '## About\n\nBuild things.',
+    isFallback: false,
+    relatedVacancies: [],
+    skills: null,
+    experienceMonths: null,
+    qualifications: null,
+    responsibilities: null,
+    jobBenefits: null,
+    workHours: null,
   }
   const descriptionHtml = '<h2>About</h2><p>Build things.</p>'
 
@@ -152,6 +162,74 @@ describe('buildJobPostingJsonLd', () => {
     const jsonLd = buildJobPostingJsonLd(vacancy, descriptionHtml)
     expect(JSON.stringify(jsonLd).toLowerCase()).not.toContain('salary')
   })
+
+  // task-vacancy-i18n-jobposting C3 — enrichment fields.
+  describe('C3 enrichment', () => {
+    it('always includes industry (derived from domain) and the constant occupationalCategory', () => {
+      const jsonLd = buildJobPostingJsonLd(vacancy, descriptionHtml)
+      expect(jsonLd.industry).toBe('Artificial Intelligence')
+      expect(jsonLd.occupationalCategory).toBe('15-1252.00')
+    })
+
+    it('derives industry per domain', () => {
+      expect(
+        buildJobPostingJsonLd({ ...vacancy, domain: 'EDTECH' }, descriptionHtml).industry,
+      ).toBe('Education Technology')
+      expect(
+        buildJobPostingJsonLd({ ...vacancy, domain: 'ECOMMERCE' }, descriptionHtml).industry,
+      ).toBe('E-Commerce')
+      expect(buildJobPostingJsonLd({ ...vacancy, domain: 'OTHER' }, descriptionHtml).industry).toBe(
+        'Information Technology',
+      )
+    })
+
+    it('omits skills/experienceRequirements/qualifications/responsibilities/jobBenefits/workHours when the vacancy has none set (never invented)', () => {
+      const jsonLd = buildJobPostingJsonLd(vacancy, descriptionHtml)
+      expect(jsonLd.skills).toBeUndefined()
+      expect(jsonLd.experienceRequirements).toBeUndefined()
+      expect(jsonLd.qualifications).toBeUndefined()
+      expect(jsonLd.responsibilities).toBeUndefined()
+      expect(jsonLd.jobBenefits).toBeUndefined()
+      expect(jsonLd.workHours).toBeUndefined()
+    })
+
+    it('joins skills into a comma-separated Text property when present', () => {
+      const jsonLd = buildJobPostingJsonLd(
+        { ...vacancy, skills: ['TypeScript', 'React', 'Node.js'] },
+        descriptionHtml,
+      )
+      expect(jsonLd.skills).toBe('TypeScript, React, Node.js')
+    })
+
+    it('builds experienceRequirements.monthsOfExperience when experienceMonths is set (including 0)', () => {
+      const jsonLd = buildJobPostingJsonLd({ ...vacancy, experienceMonths: 36 }, descriptionHtml)
+      expect(jsonLd.experienceRequirements).toEqual({
+        '@type': 'OccupationalExperienceRequirements',
+        monthsOfExperience: 36,
+      })
+      // 0 is a real, meaningful value ("no prior experience required") — must
+      // not be treated as falsy/absent.
+      const zeroJsonLd = buildJobPostingJsonLd({ ...vacancy, experienceMonths: 0 }, descriptionHtml)
+      expect(zeroJsonLd.experienceRequirements?.monthsOfExperience).toBe(0)
+    })
+
+    it('includes qualifications/responsibilities/jobBenefits/workHours verbatim when set', () => {
+      const jsonLd = buildJobPostingJsonLd(
+        {
+          ...vacancy,
+          qualifications: '3+ years commercial experience.',
+          responsibilities: 'Own the frontend architecture.',
+          jobBenefits: 'Remote-first, flexible hours.',
+          workHours: '40 hours per week',
+        },
+        descriptionHtml,
+      )
+      expect(jsonLd.qualifications).toBe('3+ years commercial experience.')
+      expect(jsonLd.responsibilities).toBe('Own the frontend architecture.')
+      expect(jsonLd.jobBenefits).toBe('Remote-first, flexible hours.')
+      expect(jsonLd.workHours).toBe('40 hours per week')
+    })
+  })
 })
 
 describe('buildBreadcrumbListJsonLd', () => {
@@ -185,6 +263,7 @@ describe('buildItemListJsonLd', () => {
       employmentType: 'FULL_TIME',
       location: 'Remote',
       publishedAt: '2026-07-01T00:00:00.000Z',
+      isFallback: false,
     },
     {
       slug: 'lead-ecommerce-backend',
@@ -194,6 +273,7 @@ describe('buildItemListJsonLd', () => {
       employmentType: 'CONTRACT',
       location: 'Remote',
       publishedAt: '2026-07-02T00:00:00.000Z',
+      isFallback: false,
     },
   ]
 
@@ -245,5 +325,41 @@ describe('truncateForMetaDescription', () => {
     expect(truncated.length).toBeLessThanOrEqual(51)
     expect(truncated.endsWith('…')).toBe(true)
     expect(truncated).not.toContain('wordboundarycanary')
+  })
+})
+
+// task-vacancy-i18n-jobposting C6 — FAQPage, localized to all 5 site locales.
+describe('buildFAQPageJsonLd', () => {
+  it('defaults to en when no locale is passed', () => {
+    const jsonLd = buildFAQPageJsonLd()
+    expect(jsonLd['@context']).toBe('https://schema.org')
+    expect(jsonLd['@type']).toBe('FAQPage')
+    expect(jsonLd.mainEntity[0]?.name).toMatch(/hiring process/i)
+  })
+
+  it.each(VACANCY_LOCALES)('builds 3-5 valid Question/Answer pairs for locale %s', (locale) => {
+    const jsonLd = buildFAQPageJsonLd(locale)
+    expect(jsonLd.mainEntity.length).toBeGreaterThanOrEqual(3)
+    expect(jsonLd.mainEntity.length).toBeLessThanOrEqual(5)
+    for (const entry of jsonLd.mainEntity) {
+      expect(entry['@type']).toBe('Question')
+      expect(entry.name.length).toBeGreaterThan(0)
+      expect(entry.acceptedAnswer['@type']).toBe('Answer')
+      expect(entry.acceptedAnswer.text.length).toBeGreaterThan(0)
+    }
+  })
+
+  it('every locale has genuinely distinct (translated, not copy-pasted) content', () => {
+    const byLocale = new Map<VacancyLocale, string>()
+    for (const locale of VACANCY_LOCALES) {
+      byLocale.set(locale, JSON.stringify(buildFAQPageJsonLd(locale)))
+    }
+    const values = [...byLocale.values()]
+    expect(new Set(values).size).toBe(values.length)
+  })
+
+  it('all locales answer the same number of questions (parity — no locale silently drops a question)', () => {
+    const counts = VACANCY_LOCALES.map((locale) => buildFAQPageJsonLd(locale).mainEntity.length)
+    expect(new Set(counts).size).toBe(1)
   })
 })

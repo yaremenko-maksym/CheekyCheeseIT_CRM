@@ -35,6 +35,72 @@ export const vacancyApplicationStatusSchema = z.enum(['NEW', 'VIEWED', 'REJECTED
 export type VacancyApplicationStatus = z.infer<typeof vacancyApplicationStatusSchema>
 
 // ---------------------------------------------------------------------------
+// i18n — task-vacancy-i18n-jobposting (plan-landing-i18n-seo.md §1/§3,
+// owner scope-change 2026-07-25: 5 locales, data-driven so a 6th language is
+// a one-line addition to `VACANCY_TRANSLATION_LOCALES` — no controller/form
+// changes). `en` is the DB row's own language (title/descriptionMd) and
+// never needs a translation entry; the other 4 are optional per-vacancy
+// overrides, independently — a vacancy may be translated into some but not
+// all of them.
+// ---------------------------------------------------------------------------
+
+/** Locales a vacancy CAN be translated into — everything except the `en` default. */
+export const VACANCY_TRANSLATION_LOCALES = ['uk', 'ru', 'es', 'pt'] as const
+export type VacancyTranslationLocale = (typeof VACANCY_TRANSLATION_LOCALES)[number]
+
+/** All site locales, `en` (default/x-default) first — plan §1 URL scheme. */
+export const VACANCY_LOCALES = ['en', ...VACANCY_TRANSLATION_LOCALES] as const
+
+/**
+ * `.catch('en')` makes this schema the single safe parser for the public
+ * endpoints' `?locale=` query param — garbage/missing input silently
+ * resolves to the site default instead of 400ing a public, unauthenticated
+ * GET (mirrors the edge's own "unrecognised -> en" fallback, plan §2).
+ */
+export const vacancyLocaleSchema = z.enum(VACANCY_LOCALES).catch('en')
+export type VacancyLocale = z.infer<typeof vacancyLocaleSchema>
+
+/** One locale's translated copy — plan §3 contract shape `{ title, description }`. */
+export const vacancyTranslationSchema = z.object({
+  title: z.string().min(3).max(120),
+  description: z.string().min(10).max(20_000),
+})
+export type VacancyTranslation = z.infer<typeof vacancyTranslationSchema>
+
+/**
+ * `vacancies.translations` jsonb column — nullable, every locale key
+ * optional (built FROM `VACANCY_TRANSLATION_LOCALES`, not hand-enumerated —
+ * adding a locale to that one array is the only shared-schema change a 6th
+ * language needs).
+ */
+export const vacancyTranslationsSchema = z.object(
+  Object.fromEntries(
+    VACANCY_TRANSLATION_LOCALES.map((locale) => [locale, vacancyTranslationSchema.optional()]),
+  ) as Record<VacancyTranslationLocale, z.ZodOptional<typeof vacancyTranslationSchema>>,
+)
+export type VacancyTranslations = z.infer<typeof vacancyTranslationsSchema>
+
+// ---------------------------------------------------------------------------
+// JobPosting (Google for Jobs) enrichment — task-vacancy-i18n-jobposting C3.
+// All admin-entered, all optional (nullable, never invented): `industry`
+// (derived from `domain`) and `occupationalCategory` (constant — the
+// business exclusively hires software developers) are computed at the
+// seo.ts JSON-LD-builder layer instead, so they are NOT stored fields here.
+// ---------------------------------------------------------------------------
+
+export const vacancySeoFieldsSchema = z.object({
+  /** Individual skill tags — joined for the JobPosting `skills` Text property. */
+  skills: z.array(z.string().min(1).max(60)).max(20).nullable(),
+  /** Feeds JobPosting `experienceRequirements.monthsOfExperience`. */
+  experienceMonths: z.number().int().min(0).max(600).nullable(),
+  qualifications: z.string().max(4000).nullable(),
+  responsibilities: z.string().max(4000).nullable(),
+  jobBenefits: z.string().max(4000).nullable(),
+  workHours: z.string().max(120).nullable(),
+})
+export type VacancySeoFields = z.infer<typeof vacancySeoFieldsSchema>
+
+// ---------------------------------------------------------------------------
 // Public vacancy DTOs
 // ---------------------------------------------------------------------------
 
@@ -46,11 +112,21 @@ export const publicVacancySchema = z.object({
   employmentType: vacancyEmploymentTypeSchema,
   location: z.string(),
   publishedAt: z.string(), // ISO
+  /**
+   * true when a non-`en` `?locale=` was requested but this vacancy has no
+   * translation for it yet — `title`/description below fall back to the
+   * original (EN) copy. Landing MUST NOT print hreflang to this locale's
+   * URL for this vacancy while true (duplicate-content guard, plan §3).
+   */
+  isFallback: z.boolean(),
 })
 export type PublicVacancy = z.infer<typeof publicVacancySchema>
 
 export const publicVacancyDetailSchema = publicVacancySchema.extend({
   descriptionMd: z.string(),
+  ...vacancySeoFieldsSchema.shape,
+  /** Up to 3 other PUBLISHED vacancies in the same domain (task C8), same locale-resolution as this DTO. */
+  relatedVacancies: z.array(publicVacancySchema).max(3),
 })
 export type PublicVacancyDetail = z.infer<typeof publicVacancyDetailSchema>
 
@@ -58,15 +134,18 @@ export type PublicVacancyDetail = z.infer<typeof publicVacancyDetailSchema>
 // Admin vacancy DTO (superset — includes DRAFT/CLOSED + admin-only fields)
 // ---------------------------------------------------------------------------
 
-export const vacancySchema = publicVacancyDetailSchema.extend({
-  id: z.uuid(),
-  status: vacancyStatusSchema,
-  publishedAt: z.string().nullable(), // admin видит и DRAFT
-  closedAt: z.string().nullable(),
-  applicationsCount: z.number().int(),
-  createdAt: z.string(),
-  updatedAt: z.string(),
-})
+export const vacancySchema = publicVacancyDetailSchema
+  .omit({ isFallback: true, relatedVacancies: true })
+  .extend({
+    id: z.uuid(),
+    status: vacancyStatusSchema,
+    publishedAt: z.string().nullable(), // admin видит и DRAFT
+    closedAt: z.string().nullable(),
+    applicationsCount: z.number().int(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    translations: vacancyTranslationsSchema.nullable(),
+  })
 export type Vacancy = z.infer<typeof vacancySchema>
 
 // ---------------------------------------------------------------------------
@@ -91,6 +170,16 @@ export const createVacancySchema = z.object({
   seniority: vacancySenioritySchema.default('SENIOR'),
   employmentType: vacancyEmploymentTypeSchema,
   location: z.string().min(2).max(120).default('Remote'),
+  // task-vacancy-i18n-jobposting: translations + JobPosting enrichment —
+  // deliberately plain `.optional()` (NOT `.default(null)`). `updateVacancySchema`
+  // derives from this via `.partial()`; per the Zod v4 `.partial()`+`.default()`
+  // gotcha documented below for seniority/location, a `.default()` here would
+  // silently inject e.g. `skills: null` into every PATCH that omits it,
+  // clobbering an existing value. Plain `.optional()` has no such footgun —
+  // an omitted key stays `undefined` both on create AND after `.partial()`,
+  // and `VacanciesService.create()` maps `undefined -> null` explicitly.
+  translations: vacancyTranslationsSchema.nullable().optional(),
+  ...vacancySeoFieldsSchema.partial().shape,
 })
 export type CreateVacancy = z.infer<typeof createVacancySchema>
 /**

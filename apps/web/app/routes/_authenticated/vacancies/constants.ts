@@ -5,14 +5,319 @@
  * mounting the full page. Русский UI everywhere EXCEPT domain badges and
  * seniority (spec §0 / §3.5 / §3.6 — deliberate exceptions, not oversights).
  */
+import type { z } from 'zod'
 import type {
+  CreateVacancyInput,
   Vacancy,
   VacancyApplicationStatus,
   VacancyDomain,
   VacancyEmploymentType,
   VacancySeniority,
   VacancyStatus,
+  VacancyTranslationLocale,
+  VacancyTranslations,
 } from '@crm/shared'
+import { VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
+
+// ---------------------------------------------------------------------------
+// task-vacancy-i18n-jobposting — translation tab labels. Driven by
+// `VacancyTranslationLocale` (imported from `@crm/shared`, itself built off
+// `VACANCY_TRANSLATION_LOCALES`) so a 6th language only needs an entry here,
+// never a new tab/field wired by hand.
+// ---------------------------------------------------------------------------
+
+export const VACANCY_TRANSLATION_LOCALE_LABELS: Record<VacancyTranslationLocale, string> = {
+  uk: 'Українська',
+  ru: 'Русский',
+  es: 'Español',
+  pt: 'Português',
+}
+
+// ---------------------------------------------------------------------------
+// task-vacancy-i18n-jobposting — form <-> DTO conversion for translations
+// (C1) + JobPosting SEO enrichment (C3). Shared by `VacancySheet` (create/
+// edit Sheet) AND `$vacancyId.tsx` (detail-page inline edit) — this
+// particular logic is non-trivial (filtering/parsing), unlike the simpler
+// per-file `emptyValues()`/`valuesFromVacancy()` duplication already
+// established for the base fields (golden rule #8: no duplicated
+// non-trivial logic).
+// ---------------------------------------------------------------------------
+
+export interface VacancyTranslationFormValues {
+  title: string
+  description: string
+}
+
+export type VacancyTranslationsFormValues = Record<
+  VacancyTranslationLocale,
+  VacancyTranslationFormValues
+>
+
+export function emptyTranslationsFormValues(): VacancyTranslationsFormValues {
+  return Object.fromEntries(
+    VACANCY_TRANSLATION_LOCALES.map((locale) => [locale, { title: '', description: '' }]),
+  ) as VacancyTranslationsFormValues
+}
+
+export function translationsFormValuesFromVacancy(
+  vacancy: Pick<Vacancy, 'translations'>,
+): VacancyTranslationsFormValues {
+  const values = emptyTranslationsFormValues()
+  if (!vacancy.translations) return values
+  for (const locale of VACANCY_TRANSLATION_LOCALES) {
+    const translation = vacancy.translations[locale]
+    if (translation)
+      values[locale] = { title: translation.title, description: translation.description }
+  }
+  return values
+}
+
+/**
+ * A locale is included ONLY when BOTH title AND description are non-empty —
+ * `vacancyTranslationSchema` requires both together (min-length 3/10 chars
+ * respectively), so a half-filled tab is simply not sent as a translation
+ * rather than surfacing a separate partial-fill validation error.
+ */
+export function buildTranslationsDto(
+  values: VacancyTranslationsFormValues,
+): VacancyTranslations | null {
+  const result: VacancyTranslations = {}
+  for (const locale of VACANCY_TRANSLATION_LOCALES) {
+    const { title, description } = values[locale]
+    if (title.trim() && description.trim()) {
+      result[locale] = { title: title.trim(), description: description.trim() }
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null
+}
+
+export interface VacancySeoFormValues {
+  skills: string
+  experienceMonths: string
+  qualifications: string
+  responsibilities: string
+  jobBenefits: string
+  workHours: string
+}
+
+export function emptySeoFormValues(): VacancySeoFormValues {
+  return {
+    skills: '',
+    experienceMonths: '',
+    qualifications: '',
+    responsibilities: '',
+    jobBenefits: '',
+    workHours: '',
+  }
+}
+
+export function seoFormValuesFromVacancy(
+  vacancy: Pick<
+    Vacancy,
+    | 'skills'
+    | 'experienceMonths'
+    | 'qualifications'
+    | 'responsibilities'
+    | 'jobBenefits'
+    | 'workHours'
+  >,
+): VacancySeoFormValues {
+  return {
+    skills: vacancy.skills?.join(', ') ?? '',
+    experienceMonths: vacancy.experienceMonths !== null ? String(vacancy.experienceMonths) : '',
+    qualifications: vacancy.qualifications ?? '',
+    responsibilities: vacancy.responsibilities ?? '',
+    jobBenefits: vacancy.jobBenefits ?? '',
+    workHours: vacancy.workHours ?? '',
+  }
+}
+
+type VacancySeoDto = Pick<
+  CreateVacancyInput,
+  | 'skills'
+  | 'experienceMonths'
+  | 'qualifications'
+  | 'responsibilities'
+  | 'jobBenefits'
+  | 'workHours'
+>
+
+/** Empty text -> `null` (cleared/unset); a non-numeric experienceMonths is treated as unset, not a hard error. */
+export function buildSeoFieldsDto(values: VacancySeoFormValues): VacancySeoDto {
+  const skills = values.skills
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const experienceMonths =
+    values.experienceMonths.trim() === '' ? NaN : Number(values.experienceMonths)
+  return {
+    skills: skills.length > 0 ? skills : null,
+    experienceMonths: Number.isFinite(experienceMonths) ? experienceMonths : null,
+    qualifications: values.qualifications.trim() || null,
+    responsibilities: values.responsibilities.trim() || null,
+    jobBenefits: values.jobBenefits.trim() || null,
+    workHours: values.workHours.trim() || null,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// design-review round 1 (PR #422, HIGH-2) — shared Zod-issue → Russian
+// message mapping. Was a private copy inside `VacancyFormFields.tsx`; moved
+// here (single source) now that `VacancyTranslationFields.tsx` AND
+// `collectVacancyValidationErrors` below both need the exact same mapping —
+// duplicating it a 2nd/3rd time would violate golden rule #8.
+//
+// Zod's default `.message` is raw English ("Invalid string: must match
+// pattern /^[a-z0-9]+.../", "Too small: expected string to have >=10
+// characters") — leaking that straight into the UI violates the project's
+// hard "always Russian UI" rule (rules/common/russian-language.md). Maps the
+// small set of issue codes these fields can actually produce (regex/min/max
+// on plain strings) to Russian text instead of relying on the schema's
+// message. `patternMsg` lets a field give a field-specific hint (e.g. slug's
+// "латиница/цифры/дефис") instead of a generic "неверный формат".
+// ---------------------------------------------------------------------------
+
+export function zodIssueRu(
+  issue: z.core.$ZodIssue | undefined,
+  patternMsg?: string,
+): string | undefined {
+  if (!issue) return undefined
+  if (issue.code === 'too_small' && 'minimum' in issue) return `Минимум ${issue.minimum} символов`
+  if (issue.code === 'too_big' && 'maximum' in issue) return `Максимум ${issue.maximum} символов`
+  if (issue.code === 'invalid_format') return patternMsg ?? 'Недопустимый формат'
+  return 'Недопустимое значение'
+}
+
+// ---------------------------------------------------------------------------
+// design-review round 1 (PR #422, HIGH-2) — the base (`title`/`slug`/
+// `descriptionMd`/domain/employmentType) + translations + SEO fields are
+// composed into the SAME dto shape identically in `VacancySheet.tsx` and
+// `$vacancyId.tsx` — factored out here (was copy-pasted in both onSubmit
+// handlers) so there is exactly ONE place that assembles the API payload.
+// ---------------------------------------------------------------------------
+
+export interface VacancyDtoFormValues {
+  title: string
+  slug: string
+  descriptionMd: string
+  domain: VacancyDomain
+  employmentType: VacancyEmploymentType
+  translations: VacancyTranslationsFormValues
+  skills: VacancySeoFormValues['skills']
+  experienceMonths: VacancySeoFormValues['experienceMonths']
+  qualifications: VacancySeoFormValues['qualifications']
+  responsibilities: VacancySeoFormValues['responsibilities']
+  jobBenefits: VacancySeoFormValues['jobBenefits']
+  workHours: VacancySeoFormValues['workHours']
+}
+
+export function buildVacancyDto(value: VacancyDtoFormValues) {
+  return {
+    title: value.title.trim(),
+    slug: value.slug.trim(),
+    descriptionMd: value.descriptionMd,
+    domain: value.domain,
+    employmentType: value.employmentType,
+    translations: buildTranslationsDto(value.translations),
+    ...buildSeoFieldsDto(value),
+  }
+}
+
+/**
+ * design-review round 1 (PR #422, HIGH-2) — "ошибка валидации абсолютно
+ * беззвучна": `VacancySheet`/`$vacancyId.tsx` used to `safeParse` the dto and
+ * just `return` on failure — no toast, no field highlight, no console entry.
+ * Worse with translation tabs: an invalid field could be sitting in a
+ * currently-hidden tab, so the (already-silent) failure was now also
+ * invisible even if the user DID look at the form.
+ *
+ * Turns a failed `safeParse` into:
+ *   - `fields`: a `{ 'translations.uk.title': 'Минимум 3 символа', ... }` map
+ *     (dot-path keyed, matching nested field names) — consumed by
+ *     `computeVacancySubmitErrors` below.
+ *   - `firstTranslationLocale`: which locale (if any) the FIRST issue
+ *     belongs to, so the caller can switch the active tab to it.
+ */
+export interface VacancyValidationErrors {
+  fields: Record<string, string>
+  firstTranslationLocale: VacancyTranslationLocale | null
+}
+
+const TRANSLATION_LOCALE_SET: ReadonlySet<string> = new Set(VACANCY_TRANSLATION_LOCALES)
+
+export function collectVacancyValidationErrors(
+  dto: unknown,
+  schema: z.ZodType,
+): VacancyValidationErrors | null {
+  const parsed = schema.safeParse(dto)
+  if (parsed.success) return null
+
+  const fields: Record<string, string> = {}
+  let firstTranslationLocale: VacancyTranslationLocale | null = null
+  for (const issue of parsed.error.issues) {
+    const path = issue.path.join('.')
+    if (!(path in fields)) fields[path] = zodIssueRu(issue) ?? 'Недопустимое значение'
+    if (
+      !firstTranslationLocale &&
+      issue.path[0] === 'translations' &&
+      typeof issue.path[1] === 'string' &&
+      TRANSLATION_LOCALE_SET.has(issue.path[1])
+    ) {
+      firstTranslationLocale = issue.path[1] as VacancyTranslationLocale
+    }
+  }
+  return { fields, firstTranslationLocale }
+}
+
+/** Bumping `nonce` while setting `locale` imperatively switches the active translation tab — used on a failed submit to surface an error hiding in an inactive tab (HIGH-2). */
+export interface VacancyTranslationFocusRequest {
+  locale: VacancyTranslationLocale
+  nonce: number
+}
+
+/**
+ * design-review round 1 (PR #422, HIGH-2 follow-up) — TWO earlier approaches
+ * were tried and empirically disproven against a live scratch stack before
+ * landing on this one:
+ *
+ *   1. A bare `{ fields }` return from `validators.onSubmit` — TanStack Form
+ *      gives a field's OWN validator precedence over a form-level one for
+ *      the same field, but a field's own validator only runs while that
+ *      field is MOUNTED, so an inactive-tab field never got validated this
+ *      way at all.
+ *   2. Imperatively calling `formApi.setFieldMeta(path, ...)` from
+ *      `onSubmitInvalid` — this DOES correctly write the error into
+ *      TanStack's central `fieldMetaBase`, and it IS visible if the field
+ *      happens to already be mounted. But `focusRequest`-driven tab
+ *      switching mounts a BRAND NEW `<form.Field>` for that path right
+ *      after, and (verified by reading `@tanstack/form-core`'s `FieldApi`
+ *      source) that field's `mount()` cleanup unconditionally resets
+ *      `errorMap` on ANY unmount, INCLUDING React StrictMode's dev-only
+ *      double-invoke of a fresh mount's effects (mount→cleanup→mount) — the
+ *      cleanup from that phantom unmount wiped the error before the field
+ *      ever settled. (Confirmed this specific approach DOES work in a
+ *      production build, where StrictMode's double-invoke doesn't happen —
+ *      but `pnpm dev`, i.e. what Coder/Owner/User-Testing actually use
+ *      day-to-day, is exactly where StrictMode IS active, so relying on it
+ *      would have silently broken the fix for every local session.)
+ *
+ * This version sidesteps BOTH problems: submit-time errors are kept in the
+ * PARENT form's own plain React state (`submitFieldErrors`, set in
+ * `onSubmitInvalid`), never written into TanStack's `fieldMetaBase` at all —
+ * so they're immune to any field's mount/unmount lifecycle. Each translation
+ * field's rendered `err` falls back to `submitFieldErrors[path]` whenever
+ * TanStack's own (mount-dependent) `field.state.meta.errors` is empty; see
+ * `VacancyTranslationFields.tsx`. The caller is responsible for clearing the
+ * relevant entry out of `submitFieldErrors` once the user edits that field
+ * again (`onFieldEdited` prop) so a stale error doesn't linger forever.
+ */
+export function computeVacancySubmitErrors(
+  value: VacancyDtoFormValues,
+  schema: z.ZodType,
+): VacancyValidationErrors | null {
+  const dto = buildVacancyDto(value)
+  return collectVacancyValidationErrors(dto, schema)
+}
 
 // ---------------------------------------------------------------------------
 // §3.4 — domain badge text (latin) + dot color (fixed hue, not theme-derived)

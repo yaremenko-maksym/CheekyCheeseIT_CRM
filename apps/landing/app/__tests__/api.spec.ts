@@ -27,6 +27,7 @@ describe('fetchVacancies', () => {
         employmentType: 'FULL_TIME',
         location: 'Remote',
         publishedAt: '2026-07-01T00:00:00.000Z',
+        isFallback: false,
       },
     ]
     vi.stubGlobal(

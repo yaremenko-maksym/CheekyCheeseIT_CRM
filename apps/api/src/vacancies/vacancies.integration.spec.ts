@@ -905,7 +905,7 @@ describe('Vacancies — real backend integration', () => {
   // ── AC5: public visibility ─────────────────────────────────────────────────
 
   describe('AC5 — public visibility', () => {
-    it('public list only includes PUBLISHED vacancies; detail 404 for DRAFT/CLOSED/missing', async () => {
+    it('public list only includes PUBLISHED vacancies; detail 404 for DRAFT/missing, 410 for CLOSED (task C5)', async () => {
       if (!dbAvailable) return
       const draftSlug = `public-draft-${Date.now()}`
       const publishedSlug = `public-published-${Date.now()}`
@@ -974,7 +974,8 @@ describe('Vacancies — real backend integration', () => {
       })
       expect(missingDetail.statusCode).toBe(404)
 
-      // Close it → detail must 404 again.
+      // Close it → task C5: 410 Gone (NOT 404 — a formerly-live posting is
+      // genuinely GONE, distinct from "never existed"/still-DRAFT).
       await app.inject({
         method: 'PATCH',
         url: `/api/vacancies/${publishedId}`,
@@ -985,7 +986,164 @@ describe('Vacancies — real backend integration', () => {
         method: 'GET',
         url: `/api/public/vacancies/${publishedSlug}`,
       })
-      expect(closedDetail.statusCode).toBe(404)
+      expect(closedDetail.statusCode).toBe(410)
+
+      // ...and it's gone from the public list too (sitemap generation reads
+      // this same endpoint, task C5 "уходит из sitemap").
+      const listAfterClose = await app.inject({ method: 'GET', url: '/api/public/vacancies' })
+      const slugsAfterClose = (listAfterClose.json() as { slug: string }[]).map((v) => v.slug)
+      expect(slugsAfterClose).not.toContain(publishedSlug)
+    })
+  })
+
+  // ── C2/C8: locale resolution + isFallback + related vacancies ─────────────
+
+  describe('C2/C8 — locale resolution + related vacancies', () => {
+    it('?locale= resolves translated title/description with isFallback=false; falls back to EN + isFallback=true when untranslated; defaults to en', async () => {
+      if (!dbAvailable) return
+      const slug = `locale-${Date.now()}`
+      const create = await app.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'EN Title',
+          slug,
+          descriptionMd: 'EN description body goes here.',
+          domain: 'AI',
+          employmentType: 'FULL_TIME',
+          translations: {
+            uk: { title: 'UK Заголовок', description: 'UK опис вакансії тут повністю.' },
+            es: { title: 'ES Título', description: 'ES descripción completa de la vacante aquí.' },
+          },
+        },
+      })
+      expect(create.statusCode).toBe(201)
+      const id = trackVacancy((create.json() as { id: string }).id)
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+
+      // Default (no ?locale=) → en, isFallback=false.
+      const noLocale = await app.inject({ method: 'GET', url: `/api/public/vacancies/${slug}` })
+      expect(noLocale.statusCode).toBe(200)
+      const noLocaleBody = noLocale.json() as { title: string; isFallback: boolean }
+      expect(noLocaleBody.title).toBe('EN Title')
+      expect(noLocaleBody.isFallback).toBe(false)
+
+      // Explicit ?locale=en → same as default, isFallback=false (task-vacancy-i18n-jobposting
+      // owner scope-change 2026-07-25: all 5 locales exercised here, not just uk/ru).
+      const en = await app.inject({ method: 'GET', url: `/api/public/vacancies/${slug}?locale=en` })
+      expect((en.json() as { title: string; isFallback: boolean }).title).toBe('EN Title')
+      expect((en.json() as { isFallback: boolean }).isFallback).toBe(false)
+
+      // Translated locales (uk, es) → translated copy, isFallback=false.
+      const uk = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}?locale=uk`,
+      })
+      const ukBody = uk.json() as { title: string; descriptionMd: string; isFallback: boolean }
+      expect(ukBody.title).toBe('UK Заголовок')
+      expect(ukBody.descriptionMd).toBe('UK опис вакансії тут повністю.')
+      expect(ukBody.isFallback).toBe(false)
+
+      const es = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}?locale=es`,
+      })
+      const esBody = es.json() as { title: string; descriptionMd: string; isFallback: boolean }
+      expect(esBody.title).toBe('ES Título')
+      expect(esBody.descriptionMd).toBe('ES descripción completa de la vacante aquí.')
+      expect(esBody.isFallback).toBe(false)
+
+      // Untranslated locales (ru, pt) → fall back to EN copy, isFallback=true.
+      const ru = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}?locale=ru`,
+      })
+      const ruBody = ru.json() as { title: string; isFallback: boolean }
+      expect(ruBody.title).toBe('EN Title')
+      expect(ruBody.isFallback).toBe(true)
+
+      const pt = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}?locale=pt`,
+      })
+      const ptBody = pt.json() as { title: string; isFallback: boolean }
+      expect(ptBody.title).toBe('EN Title')
+      expect(ptBody.isFallback).toBe(true)
+
+      // Garbage locale value → silently falls back to en (public unauth GET, never 400s).
+      const garbage = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}?locale=xx`,
+      })
+      expect(garbage.statusCode).toBe(200)
+      expect((garbage.json() as { title: string }).title).toBe('EN Title')
+
+      // Same resolution applies to the list endpoint.
+      const list = await app.inject({
+        method: 'GET',
+        url: '/api/public/vacancies?locale=uk',
+      })
+      const listEntry = (
+        list.json() as { slug: string; title: string; isFallback: boolean }[]
+      ).find((v) => v.slug === slug)
+      expect(listEntry?.title).toBe('UK Заголовок')
+      expect(listEntry?.isFallback).toBe(false)
+    })
+
+    it('relatedVacancies: up to 3 other PUBLISHED same-domain vacancies, excluding self, resolved to the requested locale', async () => {
+      if (!dbAvailable) return
+      const ts = Date.now()
+      const mainSlug = `related-main-${ts}`
+      const domain = 'ECOMMERCE'
+
+      async function createPublished(slug: string, title: string, otherDomain = false) {
+        const res = await app.inject({
+          method: 'POST',
+          url: '/api/vacancies',
+          cookies: { jwt: tokenFor(ADMIN) },
+          payload: {
+            title,
+            slug,
+            descriptionMd: 'Full description of the role goes here.',
+            domain: otherDomain ? 'AI' : domain,
+            employmentType: 'FULL_TIME',
+          },
+        })
+        const id = trackVacancy((res.json() as { id: string }).id)
+        await app.inject({
+          method: 'PATCH',
+          url: `/api/vacancies/${id}`,
+          cookies: { jwt: tokenFor(ADMIN) },
+          payload: { status: 'PUBLISHED' },
+        })
+        return id
+      }
+
+      await createPublished(mainSlug, 'Main Role')
+      await createPublished(`related-same-domain-1-${ts}`, 'Related 1')
+      await createPublished(`related-same-domain-2-${ts}`, 'Related 2')
+      await createPublished(`related-other-domain-${ts}`, 'Different Domain Role', true)
+
+      const detail = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${mainSlug}`,
+      })
+      expect(detail.statusCode).toBe(200)
+      const body = detail.json() as {
+        relatedVacancies: { slug: string; domain: string }[]
+      }
+      expect(body.relatedVacancies.length).toBeGreaterThan(0)
+      expect(body.relatedVacancies.length).toBeLessThanOrEqual(3)
+      for (const related of body.relatedVacancies) {
+        expect(related.slug).not.toBe(mainSlug)
+        expect(related.domain).toBe(domain)
+      }
     })
   })
 

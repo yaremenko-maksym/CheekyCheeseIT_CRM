@@ -14,9 +14,11 @@
  * call other form tests in this codebase make for heavy lazy editors.
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { Vacancy } from '@crm/shared'
+import { toast } from 'sonner'
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))
 
@@ -65,6 +67,13 @@ const EXISTING_VACANCY: Vacancy = {
   applicationsCount: 0,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
+  translations: null,
+  skills: null,
+  experienceMonths: null,
+  qualifications: null,
+  responsibilities: null,
+  jobBenefits: null,
+  workHours: null,
 }
 
 describe('VacancySheet — auto-slug generation (§4.2)', () => {
@@ -145,6 +154,79 @@ describe('VacancySheet — create mode submit', () => {
     fireEvent.click(screen.getByTestId('vacancy-sheet-submit'))
     await new Promise((r) => setTimeout(r, 50))
     expect(apiPost).not.toHaveBeenCalled()
+  })
+})
+
+// design-review round 1 (PR #422, HIGH-2) — "ошибка валидации абсолютно
+// беззвучна", worsened by the translation tabs: an invalid field can hide
+// behind a currently-inactive tab. Pins the 3 required behaviours: a
+// fallback toast always fires, submission is blocked, and the tab holding
+// the bad field is auto-switched to so the (correctly-set) field error is
+// actually visible — not just present in React state.
+describe('VacancySheet — invalid translation hidden in an inactive tab (HIGH-2)', () => {
+  beforeEach(() => {
+    apiPost.mockClear()
+    vi.mocked(toast.error).mockClear()
+  })
+
+  it('shows a fallback toast, blocks submit, and auto-switches to the tab with the error', async () => {
+    const user = userEvent.setup()
+    renderSheet(null)
+
+    fireEvent.change(screen.getByTestId('vacancy-form-title'), {
+      target: { value: 'Senior React Developer' },
+    })
+    fireEvent.change(screen.getByTestId('vacancy-form-description'), {
+      target: { value: 'A long enough description for validation.' },
+    })
+
+    // Open the "ru" tab (NOT the default-active "uk" one), fill it with an
+    // invalid title (schema requires min 3 chars) + a valid description —
+    // both fields non-empty so `buildTranslationsDto` actually includes this
+    // locale in the outgoing payload (a half-filled translation is dropped
+    // entirely, on purpose — see constants.ts `buildTranslationsDto`).
+    // Radix Tabs' trigger click needs real pointer events (userEvent), a
+    // bare `fireEvent.click` does not switch the active tab in jsdom.
+    await user.click(screen.getByTestId('vacancy-translation-tab-ru'))
+    fireEvent.change(screen.getByTestId('vacancy-translation-ru-title'), {
+      target: { value: 'ab' },
+    })
+    fireEvent.change(screen.getByTestId('vacancy-translation-ru-description'), {
+      target: { value: 'A valid enough description text.' },
+    })
+
+    // Navigate back to "uk" — TanStack Form keeps the "ru" values in its
+    // centralized state even though that tab's panel unmounts (Radix Tabs
+    // default behaviour), so the invalid "ru" title is now hidden.
+    await user.click(screen.getByTestId('vacancy-translation-tab-uk'))
+    expect(screen.queryByTestId('vacancy-translation-ru-title')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('vacancy-sheet-submit'))
+
+    // Fallback toast — fires unconditionally on any invalid submit.
+    await waitFor(() =>
+      expect(toast.error).toHaveBeenCalledWith('Проверьте поля формы — есть ошибки'),
+    )
+    // Submission itself must be blocked.
+    expect(apiPost).not.toHaveBeenCalled()
+
+    // The invalid field's tab is auto-switched to, and the error text is
+    // visible right under the field — not just set in (invisible) React state.
+    await waitFor(() =>
+      expect(screen.getByTestId('vacancy-translation-ru-title')).toBeInTheDocument(),
+    )
+    expect(screen.getByText('Минимум 3 символов')).toBeInTheDocument()
+    expect(screen.getByTestId('vacancy-translation-tab-ru')).toHaveAttribute('data-state', 'active')
+
+    // design-review round 2 (PR #422, MED) — the error must be linked to its
+    // field for assistive tech, not just visually (red border/text): the
+    // input carries aria-invalid + aria-describedby pointing at the error
+    // paragraph's id, and that id must actually exist and hold the message.
+    const ruTitleInput = screen.getByTestId('vacancy-translation-ru-title')
+    expect(ruTitleInput).toHaveAttribute('aria-invalid', 'true')
+    const describedBy = ruTitleInput.getAttribute('aria-describedby')
+    expect(describedBy).toBe('vacancy-translation-ru-title-error')
+    expect(document.getElementById(describedBy as string)).toHaveTextContent('Минимум 3 символов')
   })
 })
 

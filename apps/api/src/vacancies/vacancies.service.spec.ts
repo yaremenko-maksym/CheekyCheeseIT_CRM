@@ -14,7 +14,12 @@
  * vacancies.integration.spec.ts — this file focuses on the service's own
  * branching logic in isolation.
  */
-import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common'
+import {
+  ConflictException,
+  ForbiddenException,
+  HttpException,
+  NotFoundException,
+} from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -84,6 +89,13 @@ function makeRow(overrides: Partial<VacancyRow> = {}): VacancyRow {
     publishedAt: overrides.publishedAt ?? null,
     closedAt: overrides.closedAt ?? null,
     createdBy: overrides.createdBy ?? ADMIN.id,
+    translations: overrides.translations ?? null,
+    skills: overrides.skills ?? null,
+    experienceMonths: overrides.experienceMonths ?? null,
+    qualifications: overrides.qualifications ?? null,
+    responsibilities: overrides.responsibilities ?? null,
+    jobBenefits: overrides.jobBenefits ?? null,
+    workHours: overrides.workHours ?? null,
     createdAt: overrides.createdAt ?? new Date('2026-07-01T00:00:00Z'),
     updatedAt: overrides.updatedAt ?? new Date('2026-07-01T00:00:00Z'),
   }
@@ -103,10 +115,13 @@ function makeHarness(opts: {
   findFirstQueue?: (VacancyRow | undefined)[]
   applicationCounts?: { vacancyId: string; count: number }[]
   listRows?: VacancyRow[]
+  /** Rows `findRelated()` (task C8) resolves to — defaults to none. */
+  relatedRows?: VacancyRow[]
 }) {
   const findFirstQueue = [...(opts.findFirstQueue ?? [])]
   const applicationCountRows = opts.applicationCounts ?? []
   const listRows = opts.listRows ?? []
+  const relatedRows = opts.relatedRows ?? []
 
   let insertedRow: VacancyRow | null = null
   let updatedRow: VacancyRow | null = null
@@ -117,6 +132,7 @@ function makeHarness(opts: {
       query: {
         vacancies: {
           findFirst: async (_args: unknown) => findFirstQueue.shift(),
+          findMany: async (_args: unknown) => relatedRows,
         },
       },
       select: (_fields?: unknown) => ({
@@ -134,7 +150,12 @@ function makeHarness(opts: {
           }
           if (table === vacancies) {
             return {
+              // listAdmin(): select().from(vacancies).orderBy(...) — no filter.
               orderBy: async (_o: unknown) => listRows,
+              // listPublic(): select().from(vacancies).where(...).orderBy(...).
+              where: (_pred: unknown) => ({
+                orderBy: async (_o: unknown) => listRows,
+              }),
             }
           }
           return { orderBy: async () => [], where: async () => [] }
@@ -503,6 +524,104 @@ describe('VacanciesService', () => {
       const result = await svc.getPublicBySlug(row.slug)
       expect(result.slug).toBe(row.slug)
       expect(result.descriptionMd).toBe(row.descriptionMd)
+      expect(result.isFallback).toBe(false)
+      expect(result.relatedVacancies).toEqual([])
+    })
+
+    // task C5 — a CLOSED (formerly-live) posting is 410 Gone, distinct from
+    // a DRAFT/missing slug's 404 (task-careers-seo-v2 §3: stronger de-index
+    // signal to Google than a plain "not found").
+    it('getPublicBySlug throws 410 Gone for a CLOSED vacancy', async () => {
+      const row = makeRow({ status: 'CLOSED' })
+      const h = makeHarness({ findFirstQueue: [row] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await expect(svc.getPublicBySlug(row.slug)).rejects.toThrow(HttpException)
+      const h2 = makeHarness({ findFirstQueue: [row] })
+      const svc2 = new VacanciesService(h2.db, h2.googleIndexing, h2.config)
+      await expect(svc2.getPublicBySlug(row.slug)).rejects.toMatchObject({
+        status: 410,
+      })
+    })
+
+    it('getPublishedRowBySlug throws 410 Gone for a CLOSED vacancy (shared with ApplicationsService.apply)', async () => {
+      const row = makeRow({ status: 'CLOSED' })
+      const h = makeHarness({ findFirstQueue: [row] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await expect(svc.getPublishedRowBySlug(row.slug)).rejects.toMatchObject({ status: 410 })
+    })
+
+    // task C2 (plan §3) — `?locale=` resolution + isFallback flag.
+    describe('locale resolution', () => {
+      const translatedRow = makeRow({
+        status: 'PUBLISHED',
+        publishedAt: new Date('2026-07-01T00:00:00Z'),
+        title: 'Senior Frontend Engineer',
+        descriptionMd: 'EN description.',
+        translations: {
+          uk: { title: 'Провідний Frontend-інженер', description: 'UK опис.' },
+          ru: { title: 'Ведущий Frontend-инженер', description: 'RU описание.' },
+        },
+      })
+
+      it('defaults to en (original row copy) when no locale is passed', async () => {
+        const h = makeHarness({ findFirstQueue: [translatedRow] })
+        const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+        const result = await svc.getPublicBySlug(translatedRow.slug)
+        expect(result.title).toBe('Senior Frontend Engineer')
+        expect(result.descriptionMd).toBe('EN description.')
+        expect(result.isFallback).toBe(false)
+      })
+
+      it.each(['uk', 'ru'] as const)(
+        'returns the %s translation with isFallback=false when present',
+        async (locale) => {
+          const h = makeHarness({ findFirstQueue: [translatedRow] })
+          const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+          const result = await svc.getPublicBySlug(translatedRow.slug, locale)
+          expect(result.title).toBe(translatedRow.translations![locale]!.title)
+          expect(result.descriptionMd).toBe(translatedRow.translations![locale]!.description)
+          expect(result.isFallback).toBe(false)
+        },
+      )
+
+      it.each(['es', 'pt'] as const)(
+        'falls back to the EN row + isFallback=true when the %s translation is missing',
+        async (locale) => {
+          const h = makeHarness({ findFirstQueue: [translatedRow] })
+          const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+          const result = await svc.getPublicBySlug(translatedRow.slug, locale)
+          expect(result.title).toBe('Senior Frontend Engineer')
+          expect(result.descriptionMd).toBe('EN description.')
+          expect(result.isFallback).toBe(true)
+        },
+      )
+
+      it('listPublic resolves each row to the requested locale too', async () => {
+        const h = makeHarness({ listRows: [translatedRow] })
+        const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+        const [result] = await svc.listPublic('ru')
+        expect(result?.title).toBe('Ведущий Frontend-инженер')
+        expect(result?.isFallback).toBe(false)
+      })
+    })
+
+    // task C8 — up to 3 related PUBLISHED vacancies, same locale resolution.
+    it('getPublicBySlug includes relatedVacancies resolved to the same locale', async () => {
+      const row = makeRow({ status: 'PUBLISHED', publishedAt: new Date('2026-07-01T00:00:00Z') })
+      const related = makeRow({
+        id: 'vac-2',
+        slug: 'lead-backend-engineer',
+        status: 'PUBLISHED',
+        publishedAt: new Date('2026-07-02T00:00:00Z'),
+        translations: { uk: { title: 'Ведучий Backend-інженер', description: 'опис' } },
+      })
+      const h = makeHarness({ findFirstQueue: [row], relatedRows: [related] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      const result = await svc.getPublicBySlug(row.slug, 'uk')
+      expect(result.relatedVacancies).toHaveLength(1)
+      expect(result.relatedVacancies[0]?.slug).toBe('lead-backend-engineer')
+      expect(result.relatedVacancies[0]?.title).toBe('Ведучий Backend-інженер')
+      expect(result.relatedVacancies[0]?.isFallback).toBe(false)
     })
 
     it('listAdmin merges applicationsCount per vacancy (0 when absent from the grouped counts)', async () => {
