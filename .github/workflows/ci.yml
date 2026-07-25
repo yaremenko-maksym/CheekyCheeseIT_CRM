@@ -107,6 +107,17 @@ jobs:
         if: steps.filter.outputs.code == 'true'
         run: python3 scripts/devops/check-e2e-shard-coverage.py
 
+      # Incident guard (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422 shipped
+      # apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql, but deploy.yml was
+      # never updated to copy/apply it — the DDL and its deploy-time application live
+      # in different zones (apps/api/** vs .github/workflows/**) and silently drifted
+      # apart, taking GET /api/public/vacancies down in prod with a green pipeline the
+      # whole time. Same pattern as the E2E shard guard above: every manual DDL file
+      # must either be referenced in deploy.yml or be an explicit, reasoned exception.
+      - name: Prod DDL wiring guard
+        if: steps.filter.outputs.code == 'true'
+        run: python3 scripts/devops/check-prod-ddl-wiring.py
+
       - name: Docs-only short-circuit
         if: steps.filter.outputs.code != 'true'
         run: echo "Docs-only PR — skipping quality work, satisfying required status."
