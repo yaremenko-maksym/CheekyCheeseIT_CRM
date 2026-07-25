@@ -428,15 +428,37 @@ function assertJsonLd(html, route) {
   }
 
   if (route.requireJsonLd === 'job-posting-breadcrumb') {
-    if (!Array.isArray(data) || data.length !== 2) {
+    // 3, not 2 — task-vacancy-i18n-jobposting C6 / round-4 "дорезка" added a
+    // THIRD entry (FAQPage) to VacancyDetailContent's `useDocumentHead`
+    // `jsonLd` array (see components/marketing/pages/vacancy-detail-page-
+    // content.tsx). This assertion originally shipped BEFORE that change and
+    // was never updated — with a real seeded vacancy (any non-zero-vacancy
+    // build) it failed 100% of the time, which CI's Lighthouse job never
+    // exercised because it always built against 0 PUBLISHED vacancies. Found
+    // by locally seeding a scratch DB with real published vacancies and
+    // running `build:prerender` end-to-end (round-4, hreflang-exclusion
+    // verification pass).
+    if (!Array.isArray(data) || data.length !== 3) {
       throw new Error(
-        `prerender: expected a JobPosting+BreadcrumbList JSON-LD array on ${route.url}`,
+        `prerender: expected a JobPosting+BreadcrumbList+FAQPage JSON-LD array on ${route.url}`,
       )
     }
     const jobPosting = data.find((entry) => entry['@type'] === 'JobPosting')
     const breadcrumb = data.find((entry) => entry['@type'] === 'BreadcrumbList')
+    const faq = data.find((entry) => entry['@type'] === 'FAQPage')
     if (!jobPosting) throw new Error(`prerender: missing JobPosting JSON-LD on ${route.url}`)
     if (!breadcrumb) throw new Error(`prerender: missing BreadcrumbList JSON-LD on ${route.url}`)
+    if (!faq) throw new Error(`prerender: missing FAQPage JSON-LD on ${route.url}`)
+    if (!Array.isArray(faq.mainEntity) || faq.mainEntity.length < 3) {
+      throw new Error(
+        `prerender: FAQPage on ${route.url} must have at least 3 questions (plan §4 C6 "3-5 вопросов")`,
+      )
+    }
+    for (const entry of faq.mainEntity) {
+      if (entry['@type'] !== 'Question' || !entry.name || !entry.acceptedAnswer?.text) {
+        throw new Error(`prerender: FAQPage on ${route.url} has a malformed Question entry`)
+      }
+    }
 
     // jobLocationType is OPTIONAL now (only set for remote roles, see
     // app/lib/seo.ts parseRemoteLocation) — but Google flags TELECOMMUTE

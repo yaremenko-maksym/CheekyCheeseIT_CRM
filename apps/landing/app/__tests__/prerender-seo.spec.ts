@@ -305,6 +305,29 @@ describe('extractJsonLd + assertJsonLd', () => {
       },
     ],
   }
+  // task-vacancy-i18n-jobposting C6 / round-4 "дорезка" — VacancyDetailContent's
+  // `jsonLd` array is [JobPosting, BreadcrumbList, FAQPage], a THIRD entry
+  // this fixture (and `assertJsonLd`'s length check) originally predated.
+  const validFaq = {
+    '@type': 'FAQPage',
+    mainEntity: [
+      {
+        '@type': 'Question',
+        name: 'What does the hiring process look like?',
+        acceptedAnswer: { '@type': 'Answer', text: 'Submit your application through the form.' },
+      },
+      {
+        '@type': 'Question',
+        name: 'What happens after I submit my application?',
+        acceptedAnswer: { '@type': 'Answer', text: 'Our team reviews it and reaches out.' },
+      },
+      {
+        '@type': 'Question',
+        name: 'Can I apply to more than one open role?',
+        acceptedAnswer: { '@type': 'Answer', text: 'Yes, submit a separate application each.' },
+      },
+    ],
+  }
   const jobPostingRoute = {
     url: '/careers/senior-ml-engineer',
     file: 'careers/senior-ml-engineer/index.html',
@@ -316,28 +339,28 @@ describe('extractJsonLd + assertJsonLd', () => {
 
   it('throws when a TELECOMMUTE JobPosting is missing applicantLocationRequirements', () => {
     const { applicantLocationRequirements: _drop, ...withoutLocationReq } = validJobPosting
-    const html = jsonLdHtml([withoutLocationReq, validBreadcrumb])
+    const html = jsonLdHtml([withoutLocationReq, validBreadcrumb, validFaq])
     expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/applicantLocationRequirements/)
   })
 
   it('throws when validThrough is missing', () => {
     const { validThrough: _drop, ...withoutValidThrough } = validJobPosting
-    const html = jsonLdHtml([withoutValidThrough, validBreadcrumb])
+    const html = jsonLdHtml([withoutValidThrough, validBreadcrumb, validFaq])
     expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/validThrough/)
   })
 
   it('throws when directApply is not true', () => {
-    const html = jsonLdHtml([{ ...validJobPosting, directApply: false }, validBreadcrumb])
+    const html = jsonLdHtml([{ ...validJobPosting, directApply: false }, validBreadcrumb, validFaq])
     expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/directApply/)
   })
 
   it('throws when description is missing/too short', () => {
-    const html = jsonLdHtml([{ ...validJobPosting, description: '' }, validBreadcrumb])
+    const html = jsonLdHtml([{ ...validJobPosting, description: '' }, validBreadcrumb, validFaq])
     expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/description/)
   })
 
   it('throws when BreadcrumbList is missing', () => {
-    const html = jsonLdHtml([validJobPosting])
+    const html = jsonLdHtml([validJobPosting, validFaq])
     expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/JobPosting\+BreadcrumbList/)
   })
 
@@ -345,18 +368,48 @@ describe('extractJsonLd + assertJsonLd', () => {
     const html = jsonLdHtml([
       validJobPosting,
       { ...validBreadcrumb, itemListElement: validBreadcrumb.itemListElement.slice(0, 2) },
+      validFaq,
     ])
     expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/exactly 3 items/)
   })
 
-  it('passes for a complete, valid JobPosting+BreadcrumbList pair (remote role)', () => {
+  it('throws when FAQPage is missing entirely (only 2 entries)', () => {
     const html = jsonLdHtml([validJobPosting, validBreadcrumb])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/JobPosting\+BreadcrumbList\+FAQPage/)
+  })
+
+  it('throws when FAQPage has fewer than 3 questions', () => {
+    const html = jsonLdHtml([
+      validJobPosting,
+      validBreadcrumb,
+      { ...validFaq, mainEntity: validFaq.mainEntity.slice(0, 2) },
+    ])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/at least 3 questions/)
+  })
+
+  it('throws when a FAQPage question is malformed (missing acceptedAnswer)', () => {
+    const html = jsonLdHtml([
+      validJobPosting,
+      validBreadcrumb,
+      {
+        ...validFaq,
+        mainEntity: [
+          { '@type': 'Question', name: 'Q?' },
+          ...validFaq.mainEntity.slice(1),
+        ],
+      },
+    ])
+    expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/malformed Question/)
+  })
+
+  it('passes for a complete, valid JobPosting+BreadcrumbList+FAQPage triple (remote role)', () => {
+    const html = jsonLdHtml([validJobPosting, validBreadcrumb, validFaq])
     expect(() => assertJsonLd(html, jobPostingRoute)).not.toThrow()
   })
 
   it('passes for a JobPosting with no jobLocationType at all (on-site role)', () => {
     const { jobLocationType: _lt, applicantLocationRequirements: _alr, ...onSite } = validJobPosting
-    const html = jsonLdHtml([onSite, validBreadcrumb])
+    const html = jsonLdHtml([onSite, validBreadcrumb, validFaq])
     expect(() => assertJsonLd(html, jobPostingRoute)).not.toThrow()
   })
 
