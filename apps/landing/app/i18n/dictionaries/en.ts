@@ -32,7 +32,7 @@ export const en: Dictionary = {
   },
   languageSwitcher: {
     label: 'Language',
-    names: { en: 'English', ru: 'Русский', uk: 'Українська' },
+    names: { en: 'English', uk: 'Українська', ru: 'Русский', es: 'Español', pt: 'Português' },
   },
   home: {
     seoTitle: 'CheekyCheeseIT — Senior engineering studio for AI, EdTech & E-Commerce',

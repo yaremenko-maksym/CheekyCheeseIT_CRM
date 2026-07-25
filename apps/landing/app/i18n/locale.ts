@@ -12,7 +12,13 @@
  * моргания" — the hard requirement that locale is decided ONLY at render
  * time from the URL, never after hydration).
  */
-export const LOCALES = ['en', 'ru', 'uk'] as const
+// Owner scope-change 2026-07-25 (mid-task): 5 locales, not 3 — `es`/`pt`
+// added alongside `en`/`uk`/`ru`. Base languages, no region variant (`es`,
+// not `es-MX`; `pt` covers both BR and PT — plan §1). Everything downstream
+// (dictionaries, hreflang, sitemap, prerender routes, language switcher)
+// iterates `LOCALES` as DATA — adding a 6th locale later must be a
+// dictionary + this array, never a per-component code change.
+export const LOCALES = ['en', 'uk', 'ru', 'es', 'pt'] as const
 export type Locale = (typeof LOCALES)[number]
 export const DEFAULT_LOCALE: Locale = 'en'
 
@@ -25,8 +31,10 @@ export const NON_DEFAULT_LOCALES = LOCALES.filter((l) => l !== DEFAULT_LOCALE) a
 /** Human-readable per-locale label for the language switcher UI. */
 export const LOCALE_LABEL: Record<Locale, string> = {
   en: 'EN',
-  ru: 'RU',
   uk: 'UA',
+  ru: 'RU',
+  es: 'ES',
+  pt: 'PT',
 }
 
 /** `document.cookie` name the switcher writes (plan §2, read by nginx edge-detection, Block B). */
