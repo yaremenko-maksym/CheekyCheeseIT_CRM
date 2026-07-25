@@ -2,8 +2,12 @@ import { useEffect, useRef, useState } from 'react'
 import { Link, useLocation } from '@tanstack/react-router'
 import { BrandMark } from '@/components/brand-mark'
 import { Button } from '@/components/ui/button'
+import { LanguageSwitcher } from '@/components/marketing/language-switcher'
 import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
+import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
+import { getDictionary } from '@/i18n/dictionaries'
+import { careersRoutePath, homeRoutePath } from '@/i18n/routes'
 
 /**
  * Sticky marketing nav (landing-redesign.md §2.4 `MarketingNav` +
@@ -35,6 +39,12 @@ import { cn, focusRing } from '@/lib/utils'
  * `footer.tsx` (same class, same "text link" semantics — one hover
  * language, not two). Decorative-noop on touch (no `:hover` there) —
  * harmless, per §M.2 "Nav mobile-меню ссылки".
+ *
+ * `locale` (task-landing-i18n.md, default `en`) — every route file passes
+ * its OWN hardcoded locale (see `i18n/locale.ts` module doc); nothing here
+ * ever detects the visitor's language client-side. Drives translated link
+ * text, the correct locale-prefixed hrefs (`i18n/routes.ts`) and the
+ * `<LanguageSwitcher>` (plan §4 A6).
  */
 const NAV_LINK_CLASS = cn(
   'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 ease-out hover:text-foreground',
@@ -44,13 +54,17 @@ const NAV_LINK_CLASS = cn(
 
 interface MarketingNavProps {
   active?: 'careers'
+  locale?: Locale
 }
 
-export function MarketingNav({ active }: MarketingNavProps) {
+export function MarketingNav({ active, locale = DEFAULT_LOCALE }: MarketingNavProps) {
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const burgerRef = useRef<HTMLButtonElement>(null)
-  const isHome = useLocation({ select: (location) => location.pathname === '/' })
+  const t = getDictionary(locale)
+  const homePath = homeRoutePath(locale)
+  const careersPath = careersRoutePath(locale)
+  const isHome = useLocation({ select: (location) => location.pathname === homePath })
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 8)
@@ -98,12 +112,12 @@ export function MarketingNav({ active }: MarketingNavProps) {
     >
       <div className="mx-auto flex h-[66px] max-w-[1200px] items-center justify-between px-5 md:px-10 lg:px-14">
         <Link
-          to="/"
+          to={homePath}
           className={cn(
             'inline-flex items-center gap-2.5 font-semibold tracking-[-0.02em]',
             focusRing,
           )}
-          aria-label="CheekyCheeseIT home"
+          aria-label={t.nav.brandHome}
         >
           <BrandMark className="h-8 w-8 text-primary" />
           <span>
@@ -112,61 +126,73 @@ export function MarketingNav({ active }: MarketingNavProps) {
         </Link>
 
         <nav
-          aria-label="Primary"
-          className="hidden min-[900px]:flex min-[900px]:items-center min-[900px]:gap-8"
+          aria-label={t.nav.primaryNav}
+          className="hidden min-[900px]:flex min-[900px]:items-center min-[900px]:gap-6"
         >
-          <Link to="/" {...hashLinkProps('services', isHome)} className={NAV_LINK_CLASS}>
-            Services
+          <Link to={homePath} {...hashLinkProps('services', isHome)} className={NAV_LINK_CLASS}>
+            {t.nav.services}
           </Link>
-          <Link to="/" {...hashLinkProps('work', isHome)} className={NAV_LINK_CLASS}>
-            Work
+          <Link to={homePath} {...hashLinkProps('work', isHome)} className={NAV_LINK_CLASS}>
+            {t.nav.work}
           </Link>
           <Link
-            to="/careers/"
+            to={careersPath}
             aria-current={active === 'careers' ? 'page' : undefined}
             className={cn(NAV_LINK_CLASS, active === 'careers' && 'text-foreground')}
           >
-            Careers
+            {t.nav.careers}
           </Link>
-          <Link to="/" {...hashLinkProps('contact', isHome)} className={NAV_LINK_CLASS}>
-            Contact
+          <Link to={homePath} {...hashLinkProps('contact', isHome)} className={NAV_LINK_CLASS}>
+            {t.nav.contact}
           </Link>
+          <LanguageSwitcher locale={locale} path="/" t={t.languageSwitcher} variant="nav" />
           <Button asChild size="sm">
-            <Link to="/" {...hashLinkProps('contact', isHome)}>
-              Start a project
+            <Link to={homePath} {...hashLinkProps('contact', isHome)}>
+              {t.nav.startProject}
             </Link>
           </Button>
         </nav>
 
-        <button
-          ref={burgerRef}
-          type="button"
-          aria-label="Toggle menu"
-          aria-expanded={open}
-          onClick={() => setOpen((v) => !v)}
-          className={cn(
-            'flex size-11 items-center justify-center rounded-[10px] border border-border bg-transparent text-foreground transition-colors duration-200 ease-out hover:border-[color-mix(in_oklch,var(--foreground)_30%,transparent)] min-[900px]:hidden',
-            focusRing,
-          )}
-        >
-          <span className="relative block h-3 w-[18px]">
-            <span
-              className={cn(
-                'absolute left-0 h-0.5 w-[18px] rounded-sm bg-current transition-[top,transform] duration-300 ease-out',
-                open ? 'top-[5px] rotate-45' : 'top-px',
-              )}
-            />
-            <span
-              className={cn(
-                'absolute left-0 h-0.5 w-[18px] rounded-sm bg-current transition-[top,transform] duration-300 ease-out',
-                open ? 'top-[5px] -rotate-45' : 'top-[9px]',
-              )}
-            />
-          </span>
-        </button>
+        <div className="flex items-center gap-2 min-[900px]:hidden">
+          <LanguageSwitcher locale={locale} path="/" t={t.languageSwitcher} variant="nav" />
+          <button
+            ref={burgerRef}
+            type="button"
+            aria-label={t.nav.toggleMenu}
+            aria-expanded={open}
+            onClick={() => setOpen((v) => !v)}
+            className={cn(
+              'flex size-11 items-center justify-center rounded-[10px] border border-border bg-transparent text-foreground transition-colors duration-200 ease-out hover:border-[color-mix(in_oklch,var(--foreground)_30%,transparent)]',
+              focusRing,
+            )}
+          >
+            <span className="relative block h-3 w-[18px]">
+              <span
+                className={cn(
+                  'absolute left-0 h-0.5 w-[18px] rounded-sm bg-current transition-[top,transform] duration-300 ease-out',
+                  open ? 'top-[5px] rotate-45' : 'top-px',
+                )}
+              />
+              <span
+                className={cn(
+                  'absolute left-0 h-0.5 w-[18px] rounded-sm bg-current transition-[top,transform] duration-300 ease-out',
+                  open ? 'top-[5px] -rotate-45' : 'top-[9px]',
+                )}
+              />
+            </span>
+          </button>
+        </div>
       </div>
 
-      {open && <MobileNavDisclosure active={active} isHome={isHome} />}
+      {open && (
+        <MobileNavDisclosure
+          active={active}
+          isHome={isHome}
+          locale={locale}
+          homePath={homePath}
+          careersPath={careersPath}
+        />
+      )}
     </header>
   )
 }
@@ -185,11 +211,18 @@ const ENTER_TRANSITION_CLASS =
 function MobileNavDisclosure({
   active,
   isHome,
+  locale,
+  homePath,
+  careersPath,
 }: {
   active?: 'careers' | undefined
   isHome: boolean
+  locale: Locale
+  homePath: ReturnType<typeof homeRoutePath>
+  careersPath: ReturnType<typeof careersRoutePath>
 }) {
   const [entered, setEntered] = useState(false)
+  const t = getDictionary(locale)
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setEntered(true))
@@ -204,25 +237,25 @@ function MobileNavDisclosure({
       )}
     >
       <nav
-        aria-label="Primary mobile"
+        aria-label={t.nav.primaryMobileNav}
         className="mx-auto flex max-w-[1200px] min-h-0 flex-col gap-1 overflow-hidden px-5 pt-3.5 pb-5"
       >
         <Link
-          to="/"
+          to={homePath}
           {...hashLinkProps('services', isHome)}
           className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
         >
-          Services
+          {t.nav.services}
         </Link>
         <Link
-          to="/"
+          to={homePath}
           {...hashLinkProps('work', isHome)}
           className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
         >
-          Work
+          {t.nav.work}
         </Link>
         <Link
-          to="/careers/"
+          to={careersPath}
           aria-current={active === 'careers' ? 'page' : undefined}
           className={cn(
             NAV_LINK_CLASS,
@@ -230,18 +263,18 @@ function MobileNavDisclosure({
             active === 'careers' && 'text-foreground',
           )}
         >
-          Careers
+          {t.nav.careers}
         </Link>
         <Link
-          to="/"
+          to={homePath}
           {...hashLinkProps('contact', isHome)}
           className={cn(NAV_LINK_CLASS, 'px-1 py-3.5 text-[1.05rem]')}
         >
-          Contact
+          {t.nav.contact}
         </Link>
         <Button asChild block className="mt-3">
-          <Link to="/" {...hashLinkProps('contact', isHome)}>
-            Start a project
+          <Link to={homePath} {...hashLinkProps('contact', isHome)}>
+            {t.nav.startProject}
           </Link>
         </Button>
       </nav>
