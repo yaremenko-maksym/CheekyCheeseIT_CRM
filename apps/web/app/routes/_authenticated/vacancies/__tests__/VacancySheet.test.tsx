@@ -119,6 +119,47 @@ describe('VacancySheet — auto-slug generation (§4.2)', () => {
   })
 })
 
+describe('VacancySheet — form resets between two consecutive create sessions (regression)', () => {
+  // task-sheet-form-reset-on-open: the parent (`vacancies/index.tsx`) keeps
+  // this Sheet permanently mounted and passes `vacancy={null}` both while
+  // CLOSED and while OPEN-for-create — `vacancy?.id` never changes across two
+  // "Создать вакансию" sessions. Before the fix, the reset effect was keyed
+  // on `vacancy?.id` alone, so it never re-ran on the second open and the
+  // first session's title/slug leaked in. Must be a `rerender` of the SAME
+  // tree (not a fresh `render`) to actually exercise the effect's deps —
+  // a fresh `render` would always start from a brand-new component instance.
+  it('typing a title + closing + reopening for a new create session starts blank with auto-slug active again', () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const tree = (open: boolean) => (
+      <QueryClientProvider client={qc}>
+        <VacancySheet vacancy={null} open={open} onClose={() => {}} />
+      </QueryClientProvider>
+    )
+    const { rerender } = render(tree(true))
+
+    fireEvent.change(screen.getByTestId('vacancy-form-title'), {
+      target: { value: 'Senior React Developer' },
+    })
+    expect(screen.getByTestId('vacancy-form-slug')).toHaveValue('senior-react-developer')
+
+    // Close (Sheet stays mounted — same parent convention as vacancies/index.tsx).
+    rerender(tree(false))
+    // Reopen a brand-new "Создать вакансию" session.
+    rerender(tree(true))
+
+    expect(screen.getByTestId('vacancy-form-title')).toHaveValue('')
+    expect(screen.getByTestId('vacancy-form-slug')).toHaveValue('')
+
+    // Auto-slug must be active again in the new session (not stuck `false`
+    // from a manual edit the previous session never had, but proving the
+    // flag itself was re-seeded, not just the field values).
+    fireEvent.change(screen.getByTestId('vacancy-form-title'), {
+      target: { value: 'Another Title' },
+    })
+    expect(screen.getByTestId('vacancy-form-slug')).toHaveValue('another-title')
+  })
+})
+
 describe('VacancySheet — create mode submit', () => {
   beforeEach(() => apiPost.mockClear())
 

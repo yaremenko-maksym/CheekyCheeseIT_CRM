@@ -180,17 +180,27 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
     isDirty: isFormDirty,
   })
 
-  // Re-seed the form whenever the target vacancy changes (open a different
-  // card's edit Sheet, or switch from edit back to create) — keyed on
-  // vacancy?.id only, same convention as AttachReceiptSheet's tx?.id effect.
+  // Re-seed the form on every OPEN (plus whenever the target vacancy changes
+  // while already open — switching between two edit Sheets, or from edit
+  // back to create). `vacancy?.id` alone is NOT a sufficient key here: the
+  // parent (`vacancies/index.tsx`) keeps this Sheet permanently mounted and
+  // passes `vacancy={null}` both while CLOSED and while OPEN-for-create, so
+  // two consecutive "Создать вакансию" sessions never flip the dep — without
+  // `open` in the deps the effect wouldn't re-run and the first session's
+  // field values / `slugAutoLinked` would leak into the second. `open` is
+  // deliberately the first dep specifically because it's decoupled from
+  // `vacancy` in the create case (unlike e.g. AttachReceiptSheet, whose
+  // `tx?.id` flips to `undefined` on close and back — that convention
+  // doesn't hold here).
   useEffect(() => {
+    if (!open) return
     form.reset(vacancy ? valuesFromVacancy(vacancy) : emptyValues())
     setSlugAutoLinked(!vacancy)
     setTranslationFocusRequest(null)
     setSubmitFieldErrors(null)
-    // Keyed on vacancy?.id only — re-running on every form/state identity
-    // change would clobber in-progress edits (same pattern as AttachReceiptSheet).
-  }, [vacancy?.id])
+    // Keyed on [open, vacancy?.id] only — re-running on every form/state
+    // identity change would clobber in-progress edits.
+  }, [open, vacancy?.id])
 
   // design-review round 1 (PR #422, HIGH-2) — drop a field's stale
   // `submitFieldErrors` entry the moment the user edits it again.
