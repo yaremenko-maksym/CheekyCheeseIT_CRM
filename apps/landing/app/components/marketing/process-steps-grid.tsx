@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { ProcessStep } from '@/components/marketing/process-step'
+import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 import type { ProcessStepItem } from '@/content/home'
 
 /**
@@ -30,12 +31,16 @@ import type { ProcessStepItem } from '@/content/home'
 export function ProcessStepsGrid({ steps }: { steps: ProcessStepItem[] }) {
   const ref = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
+  const coarse = useCoarsePointer()
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'end 0.4'] })
   const scaleX = useTransform(scrollYProgress, [0, 1], [0, 1])
 
   return (
     <div ref={ref} className="relative">
-      {reduced ? (
+      {/* §M v3.3 п.2 — ambient/continuous effect with no natural one-shot
+          equivalent: touch uses the SAME static fallback as reduced-motion
+          (merged condition) rather than a half-measure touch-only variant. */}
+      {reduced || coarse ? (
         <div
           aria-hidden="true"
           className="absolute top-[60px] right-[12.5%] left-[12.5%] z-0 hidden h-px origin-left bg-primary/50 md:block"
