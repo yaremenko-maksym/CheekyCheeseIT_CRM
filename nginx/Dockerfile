@@ -135,11 +135,75 @@ RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/conf.d/    /etc/nginx/conf.d/
 
+# task-infra-locale-edge: njs module used ONLY for Accept-Language
+# best-match parsing (see the `load_module` comment in nginx.conf). The
+# module .so itself already ships in this base image — only our script
+# needs copying.
+COPY nginx/njs/       /etc/nginx/njs/
+
 # Copy Landing SPA static files.
 COPY --from=landing-builder /app/apps/landing/dist /usr/share/nginx/html/landing
 
 # Copy CRM SPA static files.
 COPY --from=crm-builder /app/apps/web/dist /usr/share/nginx/html/crm
+
+# ── task-infra-locale-edge: search-engine verification / IndexNow files ───
+# Four OPTIONAL build-args, each independently no-op when unset (mirrors the
+# established VITE_TURNSTILE_SITE_KEY / GOOGLE_INDEXING_SA_* pattern already
+# used elsewhere in this Dockerfile / deploy.yml — see
+# docs/runbooks/deployment.md "Google Indexing API" for the precedent).
+# Deliberately NOT hardcoded in the repo: these are low-sensitivity but
+# still per-environment/rotatable values (IndexNow key regeneration, a new
+# Bing/Yandex webmaster property) — a GH secret + rebuild is the same
+# rotation cost as any of the other optional secrets above, without baking
+# a value into version control that would need a code change to rotate.
+#
+# All generated content is a single, deliberately UNESCAPED plain token
+# (GUID / hex string that Bing/Yandex/IndexNow themselves hand out) — no
+# markup, so no shell-quoting risk inside the generated `return 200 "...";`
+# lines below. The Bing XML wrapper is the one exception: the wrapper
+# markup is generated HERE (not accepted as raw input), the only owner-
+# supplied value is the plain verification ID inside it.
+#
+# `default_type` below is a defensive fallback, not the active mechanism for
+# these three specific paths: nginx resolves Content-Type from mime.types by
+# the REQUEST URI's extension FIRST (verified empirically — `.xml` resolves
+# to the stock mime.types entry `text/xml`, not the `application/xml` given
+# to `default_type` here; both are equally valid/accepted by Bing). Kept
+# anyway as the correct fallback for any future extension mime.types does
+# not recognise.
+#
+# AC B6 (IndexNow key file @ /{key}.txt) + B7 (Bing/Yandex verification
+# files) — see scripts/devops/locale-routing-runbook.md "Bing + Yandex
+# Webmaster verification" for the owner's setup steps.
+ARG INDEXNOW_KEY=
+ARG BING_SITE_VERIFICATION_ID=
+ARG YANDEX_VERIFICATION_FILENAME=
+ARG YANDEX_VERIFICATION_CONTENT=
+
+RUN mkdir -p /etc/nginx/snippets && \
+    : > /etc/nginx/snippets/verification-files.conf && \
+    if [ -n "$INDEXNOW_KEY" ]; then \
+      printf 'location = /%s.txt {\n    default_type text/plain;\n    return 200 "%s";\n}\n' \
+        "$INDEXNOW_KEY" "$INDEXNOW_KEY" >> /etc/nginx/snippets/verification-files.conf; \
+      echo "==> IndexNow key file endpoint enabled (/$INDEXNOW_KEY.txt)"; \
+    else \
+      echo "::warning::INDEXNOW_KEY build-arg not set — IndexNow key-file endpoint disabled (no-op). See scripts/devops/locale-routing-runbook.md."; \
+    fi && \
+    if [ -n "$BING_SITE_VERIFICATION_ID" ]; then \
+      printf 'location = /BingSiteAuth.xml {\n    default_type application/xml;\n    return 200 "<?xml version=\\"1.0\\"?><users><user>%s</user></users>";\n}\n' \
+        "$BING_SITE_VERIFICATION_ID" >> /etc/nginx/snippets/verification-files.conf; \
+      echo "==> Bing site-verification file endpoint enabled (/BingSiteAuth.xml)"; \
+    else \
+      echo "::warning::BING_SITE_VERIFICATION_ID build-arg not set — Bing verification file endpoint disabled (no-op). See scripts/devops/locale-routing-runbook.md."; \
+    fi && \
+    if [ -n "$YANDEX_VERIFICATION_FILENAME" ] && [ -n "$YANDEX_VERIFICATION_CONTENT" ]; then \
+      printf 'location = /%s {\n    default_type text/html;\n    return 200 "%s";\n}\n' \
+        "$YANDEX_VERIFICATION_FILENAME" "$YANDEX_VERIFICATION_CONTENT" >> /etc/nginx/snippets/verification-files.conf; \
+      echo "==> Yandex verification file endpoint enabled (/$YANDEX_VERIFICATION_FILENAME)"; \
+    else \
+      echo "::warning::YANDEX_VERIFICATION_FILENAME / YANDEX_VERIFICATION_CONTENT build-args not set — Yandex verification file endpoint disabled (no-op). See scripts/devops/locale-routing-runbook.md."; \
+    fi
 
 # Ports: 80 (HTTP), 443 (HTTPS — certs must be mounted at runtime).
 EXPOSE 80 443

@@ -161,6 +161,15 @@ jobs:
       # isTelemetryEnabled() contract. Safe regardless of merge order with
       # #415: before #415 merges the telemetry/ module doesn't exist yet, so
       # this arg is simply unused by the build.
+      #
+      # task-infra-locale-edge: four MORE optional build-args, same no-op-
+      # when-unset pattern as VITE_TURNSTILE_SITE_KEY above — the IndexNow
+      # key file + Bing/Yandex verification files (AC B6/B7). None of these
+      # secrets exist yet at the time this PR lands (the owner sets them up
+      # per scripts/devops/locale-routing-runbook.md §7/§8) — an empty value
+      # here is expected and safe: nginx/Dockerfile's generation step prints
+      # an explicit ::warning:: and leaves the corresponding endpoint absent
+      # (404) rather than serving anything broken.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -173,6 +182,10 @@ jobs:
             VITE_TURNSTILE_SITE_KEY=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
             PRERENDER_API_ORIGIN=https://cheekycheese.tech
             VITE_TELEMETRY=on
+            INDEXNOW_KEY=${{ secrets.INDEXNOW_KEY }}
+            BING_SITE_VERIFICATION_ID=${{ secrets.BING_SITE_VERIFICATION_ID }}
+            YANDEX_VERIFICATION_FILENAME=${{ secrets.YANDEX_VERIFICATION_FILENAME }}
+            YANDEX_VERIFICATION_CONTENT=${{ secrets.YANDEX_VERIFICATION_CONTENT }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
@@ -736,3 +749,41 @@ jobs:
             docker image prune -f || true
 
             echo "==> Deploy complete. IMAGE_TAG=${IMAGE_TAG}"
+
+      # ── 5. IndexNow ping (AC B6) ─────────────────────────────────────────
+      # task-infra-locale-edge: runs on the RUNNER, not via SSH — it only
+      # needs outbound HTTPS to api.indexnow.org, no VPS access. Added as a
+      # step in this EXISTING job rather than a new job (extra jobs cost more
+      # CI minutes for no benefit here — this step is a ~1s HTTP call).
+      # Non-blocking by design: a missing secret or a non-2xx IndexNow
+      # response never fails the deploy (see
+      # scripts/devops/indexnow-ping.sh and locale-routing-runbook.md
+      # "IndexNow" for the fail-soft rationale, matching the Google Indexing
+      # API convention already established in docs/runbooks/deployment.md).
+      # Pings a fixed set of known static URLs (all 5 locale home pages +
+      # careers indexes) — safe regardless of merge order with
+      # feature/landing-i18n: a locale URL that doesn't have its own
+      # prerendered content yet simply serves the EN fallback (still a valid
+      # 200), so notifying it early is harmless, not incorrect.
+      - name: Checkout (for IndexNow ping script)
+        uses: actions/checkout@v4
+
+      - name: Ping IndexNow (Bing + Yandex)
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+        run: |
+          if [ -z "$INDEXNOW_KEY" ]; then
+            echo "::notice::INDEXNOW_KEY secret not set — skipping IndexNow ping. This is optional and expected until the owner generates a key (see scripts/devops/locale-routing-runbook.md 'IndexNow')."
+            exit 0
+          fi
+          scripts/devops/indexnow-ping.sh "$INDEXNOW_KEY" cheekycheese.tech \
+            https://cheekycheese.tech/ \
+            https://cheekycheese.tech/careers/ \
+            https://cheekycheese.tech/uk/ \
+            https://cheekycheese.tech/uk/careers/ \
+            https://cheekycheese.tech/ru/ \
+            https://cheekycheese.tech/ru/careers/ \
+            https://cheekycheese.tech/es/ \
+            https://cheekycheese.tech/es/careers/ \
+            https://cheekycheese.tech/pt/ \
+            https://cheekycheese.tech/pt/careers/
