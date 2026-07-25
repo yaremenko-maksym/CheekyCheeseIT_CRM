@@ -1,6 +1,7 @@
 import { useRef } from 'react'
 import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { Chip } from '@/components/ui/chip'
+import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 
 /**
  * Chip-wave (docs/design/landing-redesign.md §M.1.1) — each chip is its OWN
@@ -37,9 +38,12 @@ function AnimatedChip({
 export function TechStackChips({ stack }: { stack: string[] }) {
   const ref = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
+  const coarse = useCoarsePointer()
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'start 0.6'] })
 
-  if (reduced) {
+  // §M v3.3 п.2 — ambient chip-wave has no natural one-shot equivalent;
+  // touch merges into the SAME static fallback as reduced-motion.
+  if (reduced || coarse) {
     // `ref` MUST still be attached here even though its value goes unused —
     // `useScroll({ target: ref })` above already committed to measuring
     // this ref; permanently never attaching it (as an earlier version of

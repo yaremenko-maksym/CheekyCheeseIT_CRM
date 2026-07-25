@@ -81,7 +81,18 @@ export function MarketingNav({ active }: MarketingNavProps) {
   return (
     <header
       className={cn(
-        'sticky top-0 z-50 border-b border-transparent bg-[color-mix(in_oklch,var(--background)_72%,transparent)] backdrop-blur-md backdrop-saturate-150 transition-colors duration-300',
+        // §M v3.3 п.5 — `backdrop-filter` on a `sticky` element sitting over
+        // continuously-scrolling content forces iOS Safari to resample the
+        // backdrop on EVERY scroll frame (functionally equivalent to an
+        // animated blur even with no `transition`/`animation` on the filter
+        // itself) — the likely main contributor to "everything feels janky
+        // on iPhone". CSS-only `@media (hover: none)` variant (not the
+        // `useCoarsePointer()` hook used elsewhere) so there's zero flash of
+        // blur before hydration: raise the background opacity from 72% to
+        // ~95% and drop `backdrop-filter` to `none` entirely on touch;
+        // desktop/hover-capable devices are unaffected (blur there doesn't
+        // create the same per-frame repaint cost).
+        'sticky top-0 z-50 border-b border-transparent bg-[color-mix(in_oklch,var(--background)_72%,transparent)] backdrop-blur-md backdrop-saturate-150 transition-colors duration-300 [@media(hover:none)]:bg-[color-mix(in_oklch,var(--background)_95%,transparent)] [@media(hover:none)]:[backdrop-filter:none]',
         scrolled && 'border-border',
       )}
     >

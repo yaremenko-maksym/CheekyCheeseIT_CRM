@@ -1,8 +1,10 @@
+import { useRef } from 'react'
 import { Link } from '@tanstack/react-router'
 import { BarChart3, MapPin, ArrowRight } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { Tag } from '@/components/ui/tag'
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
+import { captureMorphSource } from '@/lib/title-morph'
 
 /**
  * Careers-teaser (Home) + `/careers` list card (landing-redesign.md §2.4
@@ -14,12 +16,22 @@ import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacanc
  * layer-promotion jump fix as `ui/card.tsx`'s `hover` variant; VacancyCard
  * is always hover-active (unconditional, no `hover` prop to gate it), see
  * that file's module doc for the full diagnosis.
+ *
+ * `titleRef`/`onClick` (§M v3.2) — captures the `<h3>` as the shared-element
+ * title-morph SOURCE on click. `VacancyCard` is one shared component for
+ * both the Home teaser and the `/careers` list; the morph only actually
+ * plays when the destination page validates the `/careers ↔ /careers/:slug`
+ * route pair (title-morph.ts's consumer side) — no fork needed here.
  */
 export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
+  const titleRef = useRef<HTMLHeadingElement>(null)
   return (
     <Link
       to="/careers/$slug/"
       params={{ slug: vacancy.slug }}
+      onClick={() => {
+        if (titleRef.current) captureMorphSource(titleRef.current, vacancy.slug)
+      }}
       className="group flex h-full flex-col gap-[18px] rounded-2xl border border-border bg-card p-6 no-underline transition-[border-color,transform,background] duration-300 ease-out will-change-transform hover:-translate-y-[3px] hover:border-[color-mix(in_oklch,var(--primary)_40%,transparent)] focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-[3px] md:p-[30px]"
     >
       <div className="flex items-center justify-between gap-3">
@@ -29,7 +41,11 @@ export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
         </span>
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="text-[1.22rem] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground">
+        <h3
+          ref={titleRef}
+          data-vacancy-morph-slug={vacancy.slug}
+          className="text-[1.22rem] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground"
+        >
           {vacancy.title}
         </h3>
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-[0.9rem] text-muted-foreground">

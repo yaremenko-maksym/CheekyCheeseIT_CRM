@@ -19,6 +19,7 @@ import { CareersTeaser } from '@/components/marketing/careers-teaser'
 import { ScrollReveal } from '@/components/marketing/scroll-reveal'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
+import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 import { caseStudies } from '@/content/case-studies'
 import {
   CONTACT_EMAIL,
@@ -38,10 +39,13 @@ function LandingPage() {
   const vacancies = Route.useLoaderData() as PublicVacancy[]
   const heroRef = useRef<HTMLElement>(null)
   const reducedMotion = useReducedMotion()
+  const coarsePointer = useCoarsePointer()
   // Hero glow + terminal "docking" (§M.1.1) — the ONLY parallax allowed
   // inside the hero: it's an EXIT effect (fires as the visitor scrolls PAST
   // the hero), not an entrance — the hero itself stays visible immediately,
-  // no scroll-reveal (§5.1 contract, unchanged).
+  // no scroll-reveal (§5.1 contract, unchanged). §M v3.3 п.2 — touch merges
+  // into the SAME static fallback as reduced-motion below (ambient effect,
+  // no natural one-shot equivalent).
   const { scrollYProgress: heroProgress } = useScroll({
     target: heroRef,
     offset: ['start start', 'end start'],
@@ -64,14 +68,14 @@ function LandingPage() {
       <MarketingNav />
 
       {/* `tabIndex={-1}` + `focus:outline-none` — programmatic focus target
-          for page-transitions (§M.3 step 9, WCAG 2.4.3): __root.tsx moves
+          for page-transitions (§M v3.1 step 7, WCAG 2.4.3): __root.tsx moves
           focus here after a client-side navigation resolves so keyboard/AT
           users learn the page changed, without a distracting full-page ring
           on an element that isn't otherwise interactive. */}
       <main tabIndex={-1} className="focus:outline-none">
         {/* ── Hero — always visible, no scroll-reveal (§5.1) ─────────────── */}
         <section id="hero" ref={heroRef} className="relative overflow-hidden">
-          {!reducedMotion ? (
+          {!reducedMotion && !coarsePointer ? (
             <motion.div
               aria-hidden="true"
               className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_78%_20%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_70%)]"
@@ -109,7 +113,7 @@ function LandingPage() {
                 </Button>
               </div>
             </div>
-            {!reducedMotion ? (
+            {!reducedMotion && !coarsePointer ? (
               <motion.div
                 className="min-w-0"
                 style={{ y: terminalY, scale: terminalScale, opacity: terminalOpacity }}

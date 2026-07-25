@@ -2,6 +2,7 @@ import { useRef } from 'react'
 import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { Tag } from '@/components/ui/tag'
+import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 import type { CaseStudy } from '@/content/case-studies'
 
 /**
@@ -15,11 +16,21 @@ import type { CaseStudy } from '@/content/case-studies'
  * scroll progress (same `useScroll` offset the outer `ScrollReveal` uses)
  * with a shifted input domain — it "catches up" to the rest of the card's
  * content ~15% later, a subtle depth cue instead of one flat simultaneous
- * fade.
+ * fade. §M v3.3 п.2 (touch) — the lag is disabled: metrics appear TOGETHER
+ * with the rest of the card via the same static/plain render as the
+ * reduced-motion branch (no separate one-shot lag effect, per spec — the
+ * parent `ScrollReveal`'s own touch fallback already handles the entrance).
+ *
+ * §M v3.4 mobile audit #2 — `text-[1.35rem] min-[400px]:text-[1.9rem]` on
+ * both metric-value branches: at 1.9rem, a 2-digit `±NN%` value's natural
+ * width (~83px) overruns the 66px+16px-gap grid column budget on 320px
+ * viewports, visually touching the next metric. Smaller base size fully
+ * fixes it; ≥400px reverts to the original 1.9rem (no overlap there).
  */
 export function CaseStudyCard({ study }: { study: CaseStudy }) {
   const ref = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
+  const coarse = useCoarsePointer()
   const { scrollYProgress } = useScroll({ target: ref, offset: ['start end', 'start 0.6'] })
   const metricsOpacity = useTransform(scrollYProgress, [0.15, 1], [0, 1])
   const metricsY = useTransform(scrollYProgress, [0.15, 1], [14, 0])
@@ -49,11 +60,11 @@ export function CaseStudyCard({ study }: { study: CaseStudy }) {
             </div>
           </div>
         </div>
-        {reduced ? (
+        {reduced || coarse ? (
           <div className="grid grid-cols-3 gap-4">
             {study.metrics.map((metric) => (
               <div key={metric.label}>
-                <div className="text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground tabular-nums">
+                <div className="text-[1.35rem] min-[400px]:text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground tabular-nums">
                   {metric.value}
                   {metric.suffix && <em className="text-primary not-italic">{metric.suffix}</em>}
                 </div>
@@ -68,7 +79,7 @@ export function CaseStudyCard({ study }: { study: CaseStudy }) {
           >
             {study.metrics.map((metric) => (
               <div key={metric.label}>
-                <div className="text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground tabular-nums">
+                <div className="text-[1.35rem] min-[400px]:text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground tabular-nums">
                   {metric.value}
                   {metric.suffix && <em className="text-primary not-italic">{metric.suffix}</em>}
                 </div>
