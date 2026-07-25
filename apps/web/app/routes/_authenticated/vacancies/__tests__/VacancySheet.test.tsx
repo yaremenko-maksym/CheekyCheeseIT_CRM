@@ -65,6 +65,13 @@ const EXISTING_VACANCY: Vacancy = {
   applicationsCount: 0,
   createdAt: '2026-01-01T00:00:00.000Z',
   updatedAt: '2026-01-01T00:00:00.000Z',
+  translations: null,
+  skills: null,
+  experienceMonths: null,
+  qualifications: null,
+  responsibilities: null,
+  jobBenefits: null,
+  workHours: null,
 }
 
 describe('VacancySheet — auto-slug generation (§4.2)', () => {
