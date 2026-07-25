@@ -393,10 +393,7 @@ describe('extractJsonLd + assertJsonLd', () => {
       validBreadcrumb,
       {
         ...validFaq,
-        mainEntity: [
-          { '@type': 'Question', name: 'Q?' },
-          ...validFaq.mainEntity.slice(1),
-        ],
+        mainEntity: [{ '@type': 'Question', name: 'Q?' }, ...validFaq.mainEntity.slice(1)],
       },
     ])
     expect(() => assertJsonLd(html, jobPostingRoute)).toThrow(/malformed Question/)
