@@ -140,4 +140,22 @@ test.describe('plan §1/§2/§4 A6 — language switcher', () => {
     const pref = cookies.find((c) => c.name === 'pref_locale')
     expect(pref?.value).toBe('ru')
   })
+
+  // Review round 1, HIGH-3 — the original bug (`path="/"` hardcoded in
+  // `nav.tsx`/`footer.tsx`) was invisible to a switcher test that only ever
+  // starts from `/`, since `/` -> `/ru/` happens to be the CORRECT target
+  // there too. Starting from `/careers/` is the regression-proof case: the
+  // bug would have sent this to `/ru/` (home), not `/ru/careers/`.
+  test('from /careers/, switching to Russian lands on /ru/careers/ — the SAME document, not the RU home page', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/careers/')
+
+    const nav = page.getByRole('banner')
+    await nav.getByRole('button', { name: 'Language' }).click()
+    await nav.getByRole('menuitem', { name: /Русский/ }).click()
+
+    await page.waitForURL('**/ru/careers/')
+    expect(new URL(page.url()).pathname).toBe('/ru/careers/')
+  })
 })
