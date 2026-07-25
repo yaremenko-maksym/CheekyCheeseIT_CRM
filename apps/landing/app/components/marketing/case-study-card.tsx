@@ -90,7 +90,10 @@ export function CaseStudyCard({
         ) : (
           // `m.div` (perf round, PR #421 orchestrator finding) — see
           // __root.tsx's module doc.
-          <m.div className="grid grid-cols-3 gap-4" style={{ opacity: metricsOpacity, y: metricsY }}>
+          <m.div
+            className="grid grid-cols-3 gap-4"
+            style={{ opacity: metricsOpacity, y: metricsY }}
+          >
             {study.metrics.map((metric) => (
               <div key={metric.label}>
                 <div className="text-[1.35rem] min-[400px]:text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground tabular-nums">
