@@ -236,7 +236,12 @@ function buildLines(cur: FlatCode, revealed: number): RenderedLine[] {
 const SNIPPET_PAUSE_MS = 2400
 const NEXT_SNIPPET_DELAY_MS = 400
 
-export function Terminal() {
+export function Terminal({
+  ariaLabel = 'Animated code editor previewing CheekyCheeseIT project source across AI, EdTech and E-Commerce',
+}: {
+  /** task-landing-i18n.md — localized per `Dictionary['home']['terminalAriaLabel']`; the code snippets themselves stay English (source code, not natural-language copy — task-landing-i18n.md "терминал-хинт не ломать"). */
+  ariaLabel?: string
+}) {
   const reducedMotion = useReducedMotion()
   const [snapIdx, setSnapIdx] = useState(0)
   const curRef = useRef<FlatCode>(buildFlat(SNIPPETS[0]!.code))
@@ -330,7 +335,7 @@ export function Terminal() {
   return (
     <div
       role="img"
-      aria-label="Animated code editor previewing CheekyCheeseIT project source across AI, EdTech and E-Commerce"
+      aria-label={ariaLabel}
       className="relative overflow-hidden rounded-[14px] border border-border bg-[oklch(10%_0_0)] shadow-[0_40px_120px_-40px_var(--marketing-glow)]"
     >
       <div className="flex items-center gap-2 border-b border-[var(--marketing-line-soft)] bg-[color-mix(in_oklch,var(--foreground)_3%,transparent)] px-4 py-[13px]">

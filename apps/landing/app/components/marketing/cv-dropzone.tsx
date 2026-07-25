@@ -1,7 +1,12 @@
 import { useId, useRef, useState, type MouseEvent } from 'react'
 import { FileText, Upload, X } from 'lucide-react'
 import { cn, focusRing } from '@/lib/utils'
-import { formatFileSize, validateResumeFile } from '@/lib/validate-resume'
+import {
+  validateResumeFile,
+  formatFileSize,
+  type ResumeValidationMessages,
+} from '@/lib/validate-resume'
+import type { Dictionary } from '@/i18n/dictionary'
 
 /**
  * Drag & drop CV picker (landing-redesign.md §2.4 `CvDropzone`,
@@ -9,22 +14,39 @@ import { formatFileSize, validateResumeFile } from '@/lib/validate-resume'
  * type=file>` wrapped by a `<label>` is already a11y-correct in the source
  * export (keyboard-focusable via the input, click-through via the label) —
  * ported 1:1.
+ *
+ * `t` (task-landing-i18n.md, optional — defaults to the `en` slice of
+ * `Dictionary['vacancy']['apply']`) — every label/hint/error is localized.
  */
 interface CvDropzoneProps {
   file: File | null
   onFileChange: (file: File | null) => void
   error: string | null
   onErrorChange: (error: string | null) => void
+  t: Pick<
+    Dictionary['vacancy']['apply'],
+    | 'cvLabel'
+    | 'cvDropPrefix'
+    | 'cvBrowse'
+    | 'cvHint'
+    | 'cvRemoveAriaLabel'
+    | 'cvInvalidType'
+    | 'cvTooLarge'
+  >
 }
 
-export function CvDropzone({ file, onFileChange, error, onErrorChange }: CvDropzoneProps) {
+export function CvDropzone({ file, onFileChange, error, onErrorChange, t }: CvDropzoneProps) {
   const [dragging, setDragging] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
   const inputId = useId()
   const errorId = useId()
+  const messages: ResumeValidationMessages = {
+    invalidType: t.cvInvalidType,
+    tooLarge: t.cvTooLarge,
+  }
 
   const setFile = (candidate: File) => {
-    const validationError = validateResumeFile(candidate)
+    const validationError = validateResumeFile(candidate, messages)
     if (validationError) {
       onErrorChange(validationError)
       return
@@ -44,7 +66,7 @@ export function CvDropzone({ file, onFileChange, error, onErrorChange }: CvDropz
   return (
     <div>
       <label className="mb-2 block text-[0.9rem] font-medium text-foreground/88" htmlFor={inputId}>
-        CV / Resume
+        {t.cvLabel}
         <span aria-hidden="true" className="ml-0.5 text-primary">
           *
         </span>
@@ -90,9 +112,9 @@ export function CvDropzone({ file, onFileChange, error, onErrorChange }: CvDropz
           <div>
             <Upload aria-hidden="true" className="mx-auto mb-2.5 size-[26px] text-primary" />
             <div className="mb-1 text-[0.94rem] font-medium text-foreground">
-              Drop your CV here, or <span className="text-primary">browse</span>
+              {t.cvDropPrefix} <span className="text-primary">{t.cvBrowse}</span>
             </div>
-            <div className="m-0 text-[0.8rem] text-muted-foreground">PDF only · up to 5 MB</div>
+            <div className="m-0 text-[0.8rem] text-muted-foreground">{t.cvHint}</div>
           </div>
         ) : (
           <div className="flex items-center gap-3 text-left">
@@ -108,7 +130,7 @@ export function CvDropzone({ file, onFileChange, error, onErrorChange }: CvDropz
             <button
               type="button"
               onClick={clearFile}
-              aria-label="Remove file"
+              aria-label={t.cvRemoveAriaLabel}
               className={cn('flex-none rounded p-1.5 text-muted-foreground', focusRing)}
             >
               <X aria-hidden="true" className="size-[18px]" />

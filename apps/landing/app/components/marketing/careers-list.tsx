@@ -5,12 +5,15 @@ import type { PublicVacancy } from '@crm/shared'
 import { VacancyCard } from '@/components/marketing/vacancy-card'
 import { Button } from '@/components/ui/button'
 import { CONTACT_EMAIL } from '@/content/home'
+import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import {
   findMorphTargetElement,
   playTitleMorphOverlay,
   readPendingMorph,
   validateMorphDestination,
 } from '@/lib/title-morph'
+import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
+import { getDictionary } from '@/i18n/dictionaries'
 
 /**
  * `/careers` list body — extracted from the route component so it is
@@ -44,8 +47,15 @@ import {
  * `pathname` value it captures via closure is a snapshot of THIS
  * component's own identity at that moment, not a live-tracked value.
  */
-export function CareersList({ vacancies }: { vacancies: PublicVacancy[] }) {
+export function CareersList({
+  vacancies,
+  locale = DEFAULT_LOCALE,
+}: {
+  vacancies: (PublicVacancy & LocalizableVacancyFields)[]
+  locale?: Locale
+}) {
   const pathname = useLocation({ select: (location) => location.pathname })
+  const t = getDictionary(locale)
 
   useLayoutEffect(() => {
     const morph = readPendingMorph(pathname)
@@ -62,12 +72,9 @@ export function CareersList({ vacancies }: { vacancies: PublicVacancy[] }) {
           <FolderOpen aria-hidden="true" className="size-7" />
         </div>
         <h2 className="mb-3 text-[1.4rem] font-semibold tracking-[-0.015em] text-foreground">
-          No open roles right now
+          {t.careers.emptyTitle}
         </h2>
-        <p className="mx-auto mb-7 max-w-[46ch] text-muted-foreground">
-          We hire in waves and we&rsquo;re between them. Send your CV anyway — we keep every strong
-          profile on file and reach out the moment something fits.
-        </p>
+        <p className="mx-auto mb-7 max-w-[46ch] text-muted-foreground">{t.careers.emptyBody}</p>
         <Button asChild>
           <a href={`mailto:${CONTACT_EMAIL}`}>{CONTACT_EMAIL}</a>
         </Button>
@@ -78,7 +85,7 @@ export function CareersList({ vacancies }: { vacancies: PublicVacancy[] }) {
   return (
     <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 md:gap-7">
       {vacancies.map((vacancy) => (
-        <VacancyCard key={vacancy.slug} vacancy={vacancy} />
+        <VacancyCard key={vacancy.slug} vacancy={vacancy} locale={locale} />
       ))}
     </div>
   )

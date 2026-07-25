@@ -7,11 +7,25 @@
  */
 export const RESUME_MAX_BYTES = 5 * 1024 * 1024
 
-export function validateResumeFile(file: File): string | null {
+/** task-landing-i18n.md — localized per `Dictionary['vacancy']['apply']`; defaults preserve the original English copy for existing call sites that don't thread a locale. */
+export interface ResumeValidationMessages {
+  invalidType: string
+  tooLarge: string
+}
+
+const DEFAULT_MESSAGES: ResumeValidationMessages = {
+  invalidType: 'CV must be a PDF file.',
+  tooLarge: 'File is larger than 5 MB.',
+}
+
+export function validateResumeFile(
+  file: File,
+  messages: ResumeValidationMessages = DEFAULT_MESSAGES,
+): string | null {
   const isPdfMime = file.type === 'application/pdf'
   const isPdfExt = /\.pdf$/i.test(file.name)
-  if (!isPdfMime && !isPdfExt) return 'CV must be a PDF file.'
-  if (file.size > RESUME_MAX_BYTES) return 'File is larger than 5 MB.'
+  if (!isPdfMime && !isPdfExt) return messages.invalidType
+  if (file.size > RESUME_MAX_BYTES) return messages.tooLarge
   return null
 }
 
