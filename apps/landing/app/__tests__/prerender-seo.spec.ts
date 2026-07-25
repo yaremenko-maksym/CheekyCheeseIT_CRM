@@ -43,7 +43,9 @@ describe('buildRobotsTxt', () => {
 
 describe('buildRoutes', () => {
   it('task-landing-i18n.md A1 — one home + careers-list per locale, plus one vacancy route per locale when the API is reachable (9+ total with 1 vacancy across 5 locales)', () => {
-    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }])
+    const routes = buildRoutes([
+      { slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+    ])
     expect(routes.length).toBeGreaterThanOrEqual(9)
     expect(routes.map((r) => r.url)).toEqual([
       '/',
@@ -92,7 +94,9 @@ describe('buildRoutes', () => {
   })
 
   it('marks every locale/careers-list route as requiring ItemList JSON-LD only when there are vacancies to list', () => {
-    const withVacancies = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }])
+    const withVacancies = buildRoutes([
+      { slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+    ])
     for (const locale of LOCALES) {
       expect(
         withVacancies.find((r) => r.locale === locale && r.url.endsWith('/careers'))?.requireJsonLd,
@@ -107,7 +111,9 @@ describe('buildRoutes', () => {
   })
 
   it('marks every vacancy route (every locale) as requiring JobPosting+BreadcrumbList JSON-LD', () => {
-    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }])
+    const routes = buildRoutes([
+      { slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+    ])
     for (const locale of LOCALES) {
       const url = locale === 'en' ? '/careers/a' : `/${locale}/careers/a`
       expect(routes.find((r) => r.url === url)?.requireJsonLd).toBe('job-posting-breadcrumb')
@@ -193,10 +199,22 @@ describe('buildSitemapXml', () => {
         // ru has a real translation (isFallback: false); uk/es/pt don't
         // (round-4 — real API shape, per-locale list with isFallback, not a
         // single translations object).
-        ru: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
-        uk: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
-        es: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
-        pt: [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true }],
+        ru: [
+          {
+            slug: 'senior-ml-engineer',
+            publishedAt: '2026-07-01T00:00:00.000Z',
+            isFallback: false,
+          },
+        ],
+        uk: [
+          { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true },
+        ],
+        es: [
+          { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true },
+        ],
+        pt: [
+          { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true },
+        ],
       },
     )
     const block = xml.slice(

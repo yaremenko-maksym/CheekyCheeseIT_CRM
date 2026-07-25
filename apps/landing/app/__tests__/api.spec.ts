@@ -88,12 +88,16 @@ describe('fetchVacancyHreflangExcludes', () => {
     }
   }
 
-  function stubFetchByLocale(isFallbackByLocale: Partial<Record<'uk' | 'ru' | 'es' | 'pt', boolean>>) {
+  function stubFetchByLocale(
+    isFallbackByLocale: Partial<Record<'uk' | 'ru' | 'es' | 'pt', boolean>>,
+  ) {
     vi.stubGlobal(
       'fetch',
       vi.fn().mockImplementation((url: string) => {
         const locale = new URL(url, 'http://localhost').searchParams.get('locale')
-        const isFallback = locale ? isFallbackByLocale[locale as 'uk' | 'ru' | 'es' | 'pt'] : undefined
+        const isFallback = locale
+          ? isFallbackByLocale[locale as 'uk' | 'ru' | 'es' | 'pt']
+          : undefined
         const body = isFallback === undefined ? [] : [vacancyEntry(isFallback)]
         return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
       }),
@@ -129,9 +133,7 @@ describe('fetchVacancyHreflangExcludes', () => {
       vi.fn().mockImplementation((url: string) => {
         const locale = new URL(url, 'http://localhost').searchParams.get('locale')
         if (locale === 'ru') return Promise.reject(new TypeError('fetch failed'))
-        return Promise.resolve(
-          new Response(JSON.stringify([vacancyEntry(false)]), { status: 200 }),
-        )
+        return Promise.resolve(new Response(JSON.stringify([vacancyEntry(false)]), { status: 200 }))
       }),
     )
     await expect(fetchVacancyHreflangExcludes(SLUG)).resolves.toEqual(['ru'])
