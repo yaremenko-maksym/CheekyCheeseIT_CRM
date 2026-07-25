@@ -57,7 +57,7 @@ function localePrefix(locale) {
 
 /**
  * @typedef {{ slug: string, publishedAt: string, translations?: Record<string, { title: string, description: string }> | null }} VacancyListItem
- * @typedef {{ url: string, file: string, locale: string, requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
+ * @typedef {{ url: string, file: string, locale?: string, requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
  */
 
 /**
