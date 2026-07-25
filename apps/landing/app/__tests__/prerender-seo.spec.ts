@@ -407,7 +407,8 @@ describe('assertCanonicalSelf', () => {
   })
 
   it('throws — bug repro: canonical points at the RU locale HOME instead of /ru/careers/', () => {
-    const html = '<html><head><link rel="canonical" href="https://cheekycheese.tech/ru/"></head></html>'
+    const html =
+      '<html><head><link rel="canonical" href="https://cheekycheese.tech/ru/"></head></html>'
     expect(() => assertCanonicalSelf(html, ruCareersRoute)).toThrow(
       /canonical for \/ru\/careers is "https:\/\/cheekycheese\.tech\/ru\/", expected "https:\/\/cheekycheese\.tech\/ru\/careers\/"/,
     )
@@ -436,11 +437,13 @@ describe('assertAlternatesMatch', () => {
       .join('')}</head></html>`
 
   it('passes when every expected alternate href (computeAlternateHrefs) is present', () => {
-    const html = alternatesHtml(computeAlternateHrefs(ruCareersRoute.path, ruCareersRoute.hreflangExcludes))
+    const html = alternatesHtml(
+      computeAlternateHrefs(ruCareersRoute.path, ruCareersRoute.hreflangExcludes),
+    )
     expect(() => assertAlternatesMatch(html, ruCareersRoute)).not.toThrow()
   })
 
-  it('throws — bug repro: alternates point at every locale ROOT instead of that locale\'s /careers/', () => {
+  it("throws — bug repro: alternates point at every locale ROOT instead of that locale's /careers/", () => {
     const html = alternatesHtml(
       LOCALES.map((l) =>
         l === 'en' ? 'https://cheekycheese.tech/' : `https://cheekycheese.tech/${l}/`,
@@ -452,9 +455,10 @@ describe('assertAlternatesMatch', () => {
   })
 
   it('throws when an expected alternate is missing', () => {
-    const hrefs = computeAlternateHrefs(ruCareersRoute.path, ruCareersRoute.hreflangExcludes).filter(
-      (href) => !href.includes('/uk/'),
-    )
+    const hrefs = computeAlternateHrefs(
+      ruCareersRoute.path,
+      ruCareersRoute.hreflangExcludes,
+    ).filter((href) => !href.includes('/uk/'))
     expect(() => assertAlternatesMatch(alternatesHtml(hrefs), ruCareersRoute)).toThrow(/missing:/)
   })
 })
