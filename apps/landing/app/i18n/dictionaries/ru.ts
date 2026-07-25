@@ -229,6 +229,7 @@ export const ru: Dictionary = {
     breadcrumbHome: 'Главная',
     breadcrumbCareers: 'Вакансии',
     titleSuffix: 'CheekyCheeseIT Careers',
+    relatedHeading: 'Похожие вакансии',
     apply: {
       heading: 'Откликнуться на вакансию',
       subheading: 'Займёт около 3 минут. Поля со * обязательны.',

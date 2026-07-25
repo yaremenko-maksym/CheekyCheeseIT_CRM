@@ -145,6 +145,7 @@ export interface Dictionary {
     breadcrumbHome: string
     breadcrumbCareers: string
     titleSuffix: string
+    relatedHeading: string
     apply: {
       heading: string
       subheading: string

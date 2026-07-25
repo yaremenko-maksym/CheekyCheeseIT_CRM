@@ -226,6 +226,7 @@ export const pt: Dictionary = {
     breadcrumbHome: 'Início',
     breadcrumbCareers: 'Vagas',
     titleSuffix: 'CheekyCheeseIT Careers',
+    relatedHeading: 'Vagas semelhantes',
     apply: {
       heading: 'Candidatar-se a esta vaga',
       subheading: 'Leva cerca de 3 minutos. Campos com * são obrigatórios.',

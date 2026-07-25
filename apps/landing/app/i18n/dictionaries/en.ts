@@ -213,6 +213,7 @@ export const en: Dictionary = {
     breadcrumbHome: 'Home',
     breadcrumbCareers: 'Careers',
     titleSuffix: 'CheekyCheeseIT Careers',
+    relatedHeading: 'Similar roles',
     apply: {
       heading: 'Apply for this role',
       subheading: 'Takes about 3 minutes. Fields marked * are required.',

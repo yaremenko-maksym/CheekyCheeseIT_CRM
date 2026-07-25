@@ -9,7 +9,7 @@
  * roles" empty state instead.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchVacancies } from '@/lib/api'
+import { fetchVacancies, fetchVacancyHreflangExcludes } from '@/lib/api'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -60,5 +60,80 @@ describe('fetchVacancies', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {})
 
     await expect(fetchVacancies()).resolves.toEqual([])
+  })
+})
+
+/**
+ * task-landing-i18n.md round-4 "дорезка" — the public API only ever reports
+ * `isFallback` for the ONE `?locale=` a request asked about (server-side
+ * resolution), so this fetches the PUBLISHED list once per non-`en` locale
+ * and reads each one's own `isFallback` flag for the target slug — see
+ * `lib/api.ts`'s module doc for why. Each test stubs `fetch` to branch on the
+ * `?locale=` query string, matching how `fetchVacancies(locale)` actually
+ * builds its URL.
+ */
+describe('fetchVacancyHreflangExcludes', () => {
+  const SLUG = 'senior-ml-engineer'
+
+  function vacancyEntry(isFallback: boolean) {
+    return {
+      slug: SLUG,
+      title: 'Senior ML Engineer',
+      domain: 'AI',
+      seniority: 'SENIOR',
+      employmentType: 'FULL_TIME',
+      location: 'Remote',
+      publishedAt: '2026-07-01T00:00:00.000Z',
+      isFallback,
+    }
+  }
+
+  function stubFetchByLocale(isFallbackByLocale: Partial<Record<'uk' | 'ru' | 'es' | 'pt', boolean>>) {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        const locale = new URL(url, 'http://localhost').searchParams.get('locale')
+        const isFallback = locale ? isFallbackByLocale[locale as 'uk' | 'ru' | 'es' | 'pt'] : undefined
+        const body = isFallback === undefined ? [] : [vacancyEntry(isFallback)]
+        return Promise.resolve(new Response(JSON.stringify(body), { status: 200 }))
+      }),
+    )
+  }
+
+  it('excludes nothing when every non-en locale has a real translation (isFallback: false everywhere)', async () => {
+    stubFetchByLocale({ uk: false, ru: false, es: false, pt: false })
+    await expect(fetchVacancyHreflangExcludes(SLUG)).resolves.toEqual([])
+  })
+
+  it('excludes exactly the locales where isFallback is true, keeps the rest', async () => {
+    stubFetchByLocale({ uk: true, ru: false, es: true, pt: false })
+    await expect(fetchVacancyHreflangExcludes(SLUG)).resolves.toEqual(['uk', 'es'])
+  })
+
+  it('excludes every non-en locale when none have a translation', async () => {
+    stubFetchByLocale({ uk: true, ru: true, es: true, pt: true })
+    await expect(fetchVacancyHreflangExcludes(SLUG)).resolves.toEqual(['uk', 'ru', 'es', 'pt'])
+  })
+
+  it('conservatively excludes a locale whose list does not contain this slug at all', async () => {
+    // ru's list is missing the slug entirely (e.g. not yet propagated) —
+    // treated the same as isFallback: true, never silently assumed translated.
+    stubFetchByLocale({ uk: false, es: false, pt: false })
+    await expect(fetchVacancyHreflangExcludes(SLUG)).resolves.toEqual(['ru'])
+  })
+
+  it('conservatively excludes a locale whose list fetch fails outright (network error)', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string) => {
+        const locale = new URL(url, 'http://localhost').searchParams.get('locale')
+        if (locale === 'ru') return Promise.reject(new TypeError('fetch failed'))
+        return Promise.resolve(
+          new Response(JSON.stringify([vacancyEntry(false)]), { status: 200 }),
+        )
+      }),
+    )
+    await expect(fetchVacancyHreflangExcludes(SLUG)).resolves.toEqual(['ru'])
   })
 })
