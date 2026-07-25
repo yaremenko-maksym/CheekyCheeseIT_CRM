@@ -15,8 +15,23 @@
  * both empty). Run locally:
  *   pnpm --filter @crm/landing build:prerender && pnpm --filter @crm/landing start
  *   LANDING_BASE_URL=http://localhost:4173 pnpm --filter @crm/e2e exec playwright test --project=landing tests/landing/i18n.spec.ts
+ *
+ * The "orchestrator finding" describe blocks below (page-identity — careers/
+ * vacancy-detail must NOT render as the locale home) additionally need ONE
+ * published vacancy with slug `senior-ml-engineer` reachable through
+ * whatever `/api/public/vacancies*` proxies to (`VITE_PROXY_API_TARGET` for
+ * `vite preview`, see `apps/landing/vite.config.ts`) — a real seeded scratch
+ * DB + API, OR a lightweight mock server returning the same shape (no DB
+ * required for the mock; see `scripts/prerender.mjs`'s own `fetchVacancies`
+ * for the exact public-API shape it expects).
  */
 import { test, expect, type Page } from '@playwright/test'
+
+// Keep in sync with app/lib/seo.ts SITE_ORIGIN — `<link rel="canonical">` is
+// ALWAYS the fixed production origin (SEO requirement: canonical must not
+// vary by whatever host actually served the page), never `page.url()`'s own
+// origin — this test run's `localhost:3002` in particular.
+const SITE_ORIGIN = 'https://cheekycheese.tech'
 
 const LOCALE_ROUTES: { locale: string; home: string; careers: string; htmlLang: string }[] = [
   { locale: 'en', home: '/', careers: '/careers/', htmlLang: 'en' },
@@ -158,4 +173,65 @@ test.describe('plan §1/§2/§4 A6 — language switcher', () => {
     await page.waitForURL('**/ru/careers/')
     expect(new URL(page.url()).pathname).toBe('/ru/careers/')
   })
+})
+
+// ---------------------------------------------------------------------------
+// task-landing-i18n.md orchestrator finding (PR #421 issuecomment-
+// 5080204989) — a TanStack Router file-nesting bug made `/ru/careers/` (and
+// uk/es/pt) render the LOCALE HOME page: 200 status, `lang="ru"`, and a
+// non-empty `h1` all still held true on the broken build, which is exactly
+// why the existing "A1" describe block above (asserting only those three
+// things) did not catch it. Every check below is chosen specifically because
+// it FAILS on that broken build and PASSES on the fix — a same-locale
+// careers/detail vs. home comparison, not an isolated one-page assertion.
+// ---------------------------------------------------------------------------
+test.describe('orchestrator finding — /:locale/careers/ renders the CAREERS page, not the locale HOME', () => {
+  for (const { locale, home, careers } of LOCALE_ROUTES) {
+    test(`${locale}: careers h1/canonical differ from home, and the seeded vacancy is actually listed`, async ({
+      page,
+    }) => {
+      await gotoStable(page, home)
+      const homeH1 = (await page.locator('h1').first().innerText()).trim()
+      const homeCanonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+
+      await gotoStable(page, careers)
+      const careersH1 = (await page.locator('h1').first().innerText()).trim()
+      const careersCanonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+
+      // The exact symptom of the bug: /ru/careers/ was byte-identical to
+      // /ru/ for both h1 and canonical. A real careers page's h1/canonical
+      // MUST differ from that SAME locale's home, regardless of what the
+      // translated copy actually says.
+      expect(careersH1).not.toBe(homeH1)
+      expect(careersCanonical).not.toBe(homeCanonical)
+      expect(careersCanonical).toBe(`${SITE_ORIGIN}${careers}`)
+
+      // The vacancy LIST is genuinely rendered, not just "some non-empty
+      // h1" — a real link to this locale's own vacancy-detail page for the
+      // seeded fixture (see file header for what the API must serve).
+      await expect(page.locator(`a[href="${careers}senior-ml-engineer/"]`)).toBeVisible()
+    })
+  }
+})
+
+test.describe('orchestrator finding — vacancy DETAIL pages render the DETAIL content in every locale, not home', () => {
+  for (const { locale, careers } of LOCALE_ROUTES) {
+    test(`${locale}: ${careers}senior-ml-engineer/ shows the vacancy detail with its own canonical`, async ({
+      page,
+    }) => {
+      const detailPath = `${careers}senior-ml-engineer/`
+      const res = await page.goto(detailPath)
+      expect(res?.status()).toBe(200)
+      await page.waitForSelector('footer', { state: 'visible' })
+
+      // VacancyDetailPageContent's own <h1> carries the SAME
+      // data-vacancy-morph-slug attribute the list card it morphs from does
+      // (vacancy-card.tsx) — an unambiguous "this is the detail page for
+      // THIS vacancy" marker the home page's h1 never carries.
+      await expect(page.locator('h1[data-vacancy-morph-slug="senior-ml-engineer"]')).toBeVisible()
+
+      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
+      expect(canonical).toBe(`${SITE_ORIGIN}${detailPath}`)
+    })
+  }
 })
