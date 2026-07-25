@@ -1,5 +1,5 @@
 import { useLayoutEffect, useMemo, useRef } from 'react'
-import { createFileRoute } from '@tanstack/react-router'
+import { createFileRoute, useLocation } from '@tanstack/react-router'
 import { ArrowLeft, Briefcase, BarChart3, MapPin } from 'lucide-react'
 import type { PublicVacancyDetail } from '@crm/shared'
 import { fetchVacancy } from '@/lib/api'
@@ -114,9 +114,23 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
   // VacancyCard <h3> "flying" into this page's <h1>. `useLayoutEffect`, not
   // `useEffect`: must run BEFORE the browser paints this route's first
   // frame, or the real <h1> would flash visible before the overlay hides it.
+  // `readPendingMorph(pathname)` only actually returns a morph when THIS
+  // component's own current pathname is the navigation's real destination
+  // (`lib/title-morph.ts`'s addressable consume, fix for a HIGH
+  // fidelity-review finding, 2026-07-25).
+  //
+  // `pathname` is deliberately OMITTED from the effect's dependency array —
+  // same reasoning as `careers-list.tsx`'s companion consumer (see its
+  // module doc): `useLocation()` is reactive and TanStack Router updates
+  // `router.state.location` to the pending/target location EARLY, so
+  // including it as a dep would re-run this effect on ANY global location
+  // change, not just this component's own true mount — defeating the
+  // addressable check entirely (a still-mounted SOURCE instance would
+  // "pass" once the pending location catches up to its own destination).
+  const pathname = useLocation({ select: (location) => location.pathname })
   const titleRef = useRef<HTMLHeadingElement>(null)
   useLayoutEffect(() => {
-    const morph = readPendingMorph()
+    const morph = readPendingMorph(pathname)
     const titleEl = titleRef.current
     if (!morph || !titleEl) return
     if (!validateMorphDestination(morph, vacancy.slug, titleEl)) return

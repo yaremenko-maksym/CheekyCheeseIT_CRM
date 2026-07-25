@@ -49,6 +49,135 @@ function escapeRegExp(text: string): string {
   return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
+/**
+ * Tolerance for "did the overlay land on the real destination" position
+ * checks below — NOT an arbitrary fudge factor, two confirmed, geometry-
+ * driven (not flaky/random — reproduced within a couple px of the same
+ * value across repeated runs) sources of legitimate slop between `destRect`
+ * (the morph's animation target, measured ONCE inside `playTitleMorphOverlay`
+ * at the destination's mount) and the caller's later `boundingBox()` read
+ * (measured well after everything has visually settled):
+ *
+ * 1. `destRect` is measured while the WRAPPER's OWN lift-enter animation
+ *    (`LIFT_OFFSET_ENTER` = 14px, §M v3.1) is still at its INITIAL offset,
+ *    not yet settled to `y: 0` — confirmed via a live
+ *    `getBoundingClientRect()` timeline (standalone reproduction script):
+ *    the destination sits ~14px off at that instant vs. ~300ms later.
+ * 2. The forward direction's destination `<h1>` (`careers_.$slug.tsx`) uses
+ *    Tailwind `text-balance` (`text-wrap: balance`) at a fluid `clamp()`
+ *    font-size — a genuinely async-settling layout feature in Chromium
+ *    (line-break balancing can re-run after the element's initial layout,
+ *    independent of the lift/morph animations entirely). Reproduced
+ *    consistently (~84px, not the back direction's plain, non-balanced
+ *    card `<h3>` — confirms it's `text-balance`-specific, not a generic
+ *    "recently mounted" effect).
+ *
+ * 100px comfortably absorbs both while remaining FAR tighter than the
+ * broken-code symptom this test guards against: the overlay landing back
+ * near its OWN start position (hundreds of px away from the real
+ * destination, see the regression comment below).
+ *
+ * `armOverlayFlightRecorder`/`collectOverlayFlight` below sample the live
+ * transform via an in-browser `requestAnimationFrame` loop specifically so
+ * this tolerance only has to cover the two geometry effects above, not ALSO
+ * Node-side polling jitter under this spec's parallel test execution (a
+ * first attempt using Node-side `expect.poll` needed an even larger,
+ * load-dependent tolerance to stay green — a strictly worse test).
+ */
+const POSITION_TOLERANCE_PX = 100
+
+interface MatrixTransform {
+  scale: number
+  x: number
+  y: number
+}
+
+/**
+ * `getComputedStyle(el).transform` for a pure `translate(Xpx, Ypx) scale(S)`
+ * resolves to `matrix(a, b, c, d, e, f)` where (CSS composes transform
+ * functions left-to-right as matrix multiplication, translate first so it
+ * is NOT itself pre-scaled) `a = d = S`, `e = X`, `f = Y`.
+ */
+function parseMatrixTransform(value: string): MatrixTransform | null {
+  const m = value.match(
+    /matrix\(([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+),\s*([-\d.]+)\)/,
+  )
+  if (!m) return null
+  return { scale: parseFloat(m[1]!), x: parseFloat(m[5]!), y: parseFloat(m[6]!) }
+}
+
+/**
+ * Arms an IN-BROWSER `requestAnimationFrame` recorder for the title-morph
+ * overlay's live `getComputedStyle().transform`, BEFORE the caller triggers
+ * the click that starts the flight. Must run in-browser (not Node-side
+ * `expect.poll`/`setTimeout`): this spec runs several tests concurrently
+ * (Playwright's default parallel workers), and Node-side polling intervals
+ * are subject to that CPU contention — a first attempt using `expect.poll`
+ * reliably UNDER-sampled the tail of the (350ms) animation under load,
+ * landing the "last" captured frame well short of the true final frame
+ * (confirmed empirically: 40-85px short, scaling with parallel load, not a
+ * fixed offset). `requestAnimationFrame` inside the page runs at the
+ * browser's own native paint cadence regardless of Node/IPC scheduling,
+ * so it reliably captures a frame within ~1 tick of the true end.
+ *
+ * Reads the COMPUTED style (not `element.style.transform`, the literal
+ * inline attribute) — framer-motion's standalone `animate()` drives
+ * `transform` via the Web Animations API on a plain DOM node, which does
+ * NOT keep rewriting the inline style string every frame; only
+ * `getComputedStyle` reflects the live, currently-animating matrix.
+ */
+async function armOverlayFlightRecorder(page: Page, expectedText: string): Promise<void> {
+  await page.evaluate((text) => {
+    const w = window as unknown as {
+      __morphSamples: string[]
+      __morphDone: boolean
+    }
+    w.__morphSamples = []
+    w.__morphDone = false
+    const tick = () => {
+      const overlay = Array.from(document.body.children).find(
+        (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === text,
+      )
+      if (overlay) {
+        w.__morphSamples.push(getComputedStyle(overlay).transform)
+      } else if (w.__morphSamples.length > 0) {
+        // Was present, now gone -> the flight is over. Stop recording.
+        w.__morphDone = true
+        return
+      }
+      requestAnimationFrame(tick)
+    }
+    requestAnimationFrame(tick)
+  }, expectedText)
+}
+
+/**
+ * Waits for the recorder armed by `armOverlayFlightRecorder` to finish (the
+ * overlay appeared, then disappeared), via `page.waitForFunction` — itself
+ * polled by Playwright at a `raf`-aligned cadence, but the SAMPLES it's
+ * waiting on were already captured natively in-browser, so Node-side
+ * scheduling jitter no longer affects sample precision, only how quickly
+ * the (already-complete) result is retrieved. Returns the FIRST and LAST
+ * successfully-parsed samples of the recorded flight.
+ */
+async function collectOverlayFlight(
+  page: Page,
+): Promise<{ first: MatrixTransform; last: MatrixTransform }> {
+  await page.waitForFunction(
+    () => (window as unknown as { __morphDone: boolean }).__morphDone === true,
+    { timeout: 2000, polling: 'raf' },
+  )
+  const samples = await page.evaluate(
+    () => (window as unknown as { __morphSamples: string[] }).__morphSamples,
+  )
+  const parsed = samples.map(parseMatrixTransform).filter((s): s is MatrixTransform => s !== null)
+  const first = parsed[0]
+  const last = parsed[parsed.length - 1]
+  if (!first || !last)
+    throw new Error('title-morph overlay never appeared with a readable transform')
+  return { first, last }
+}
+
 // ── §M v3.1 Lift cross-fade (base, all page transitions) ─────────────────
 
 test.describe('Lift cross-fade page transitions', () => {
@@ -110,7 +239,23 @@ test.describe('Lift cross-fade page transitions', () => {
 // ── §M v3.2 Shared-element title morph, /careers <-> /careers/:slug ──────
 
 test.describe('Title-morph — /careers <-> /careers/:slug', () => {
-  test('forward (list -> detail): an overlay clone appears then cleans up, landing on the real <h1>', async ({
+  // Regression guard for the HIGH fidelity-review finding (2026-07-25): the
+  // morph previously NEVER actually flew in either direction — a spurious
+  // remount of the SOURCE page (caused by __root.tsx flipping the wrapper's
+  // `key` optimistically on `onBeforeNavigate`, before the router actually
+  // committed) consumed the one-shot `pendingMorph` before the real
+  // destination ever mounted, so the overlay appeared and vanished
+  // ~in place (scale stuck at 1, ~14px stray shift from the wrapper's OWN
+  // concurrent lift-enter offset — not real travel). The weaker assertions
+  // that used to live here ("overlay eventually disappears" + "h1 is
+  // eventually visible") were BOTH trivially true even in that broken
+  // state, which is exactly why they didn't catch it. These strengthened
+  // versions assert the overlay's LIVE computed transform actually changes
+  // scale substantially AND its last observed frame lands within a few px
+  // of the REAL destination's rect — provably distinguishing "the morph
+  // flew to the correct element" from "an overlay appeared and sat still".
+
+  test('forward (list -> detail): overlay clone actually flies from the card to the real <h1>', async ({
     page,
     request,
     baseURL,
@@ -118,59 +263,68 @@ test.describe('Title-morph — /careers <-> /careers/:slug', () => {
     const vacancy = await requireVacancy(request, baseURL, 0)
     await gotoStable(page, '/careers/')
     const card = page.getByRole('link', { name: new RegExp(escapeRegExp(vacancy.title)) })
-    await card.click()
-    await page.waitForURL(new RegExp(`/careers/${vacancy.slug}/?$`))
-
-    // The overlay is a direct `<body>` child with `aria-hidden="true"` and
-    // the vacancy's own text — assert it eventually disappears (cleaned up)
-    // and the REAL <h1> ends up visible (not left `visibility: hidden`).
-    await expect
-      .poll(
-        async () =>
-          page.evaluate(
-            (title) =>
-              Array.from(document.body.children).filter(
-                (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === title,
-              ).length,
-            vacancy.title,
-          ),
-        { timeout: 2000 },
-      )
-      .toBe(0)
-
+    const overlay = page.locator('body > div[aria-hidden="true"]', { hasText: vacancy.title })
     const h1 = page.getByRole('heading', { level: 1, name: vacancy.title })
+
+    await armOverlayFlightRecorder(page, vacancy.title)
+    await card.click()
+
+    // (a) overlay actually appears and is visible during the transition —
+    // not skipped straight through to the base lift.
+    await expect(overlay).toBeVisible({ timeout: 1000 })
+
+    // (b) its live transform genuinely animates: font-size scale must climb
+    // substantially (card ≈19-20px -> h1 clamp(2rem,5.5vw,3.4rem) ≈ 40-55px
+    // on a desktop viewport, i.e. roughly 2x+), measured at two points in
+    // time via an in-browser rAF recorder, not a fixed sleep.
+    const { first, last } = await collectOverlayFlight(page)
+    const scaleDelta = Math.abs(last.scale - first.scale)
+    expect(scaleDelta).toBeGreaterThan(0.3)
+
+    await page.waitForURL(new RegExp(`/careers/${vacancy.slug}/?$`))
+    await page.waitForSelector('footer', { state: 'visible' })
     await expect(h1).toBeVisible()
     await expect(h1).toHaveCSS('visibility', 'visible')
+
+    // (c) the overlay's LAST observed frame landed within a few px of the
+    // REAL <h1>'s actual, settled position — proves it flew to the CORRECT
+    // element (not e.g. back onto the same card it started from, which is
+    // exactly the broken-code symptom this test guards against).
+    const h1Box = await h1.boundingBox()
+    if (!h1Box) throw new Error('h1 has no bounding box')
+    expect(Math.abs(last.x - h1Box.x)).toBeLessThanOrEqual(POSITION_TOLERANCE_PX)
+    expect(Math.abs(last.y - h1Box.y)).toBeLessThanOrEqual(POSITION_TOLERANCE_PX)
   })
 
-  test('back (detail -> list, via "All roles" BackLink): overlay cleans up, lands on the real card title', async ({
+  test('back (detail -> list, via "All roles" BackLink): overlay clone actually flies from the <h1> to the real card title', async ({
     page,
     request,
     baseURL,
   }) => {
     const vacancy = await requireVacancy(request, baseURL, 0)
     await gotoStable(page, `/careers/${vacancy.slug}/`)
-    await page.getByRole('link', { name: 'All roles' }).click()
+    const backLink = page.getByRole('link', { name: 'All roles' })
+    const overlay = page.locator('body > div[aria-hidden="true"]', { hasText: vacancy.title })
+    const cardTitle = page.getByRole('heading', { level: 3, name: vacancy.title })
+
+    await armOverlayFlightRecorder(page, vacancy.title)
+    await backLink.click()
+
+    await expect(overlay).toBeVisible({ timeout: 1000 })
+
+    const { first, last } = await collectOverlayFlight(page)
+    const scaleDelta = Math.abs(last.scale - first.scale)
+    expect(scaleDelta).toBeGreaterThan(0.3)
+
     await page.waitForURL(/\/careers\/?$/)
     await page.waitForSelector('footer', { state: 'visible' })
-
-    await expect
-      .poll(
-        async () =>
-          page.evaluate(
-            (title) =>
-              Array.from(document.body.children).filter(
-                (el) => el.getAttribute('aria-hidden') === 'true' && el.textContent === title,
-              ).length,
-            vacancy.title,
-          ),
-        { timeout: 2000 },
-      )
-      .toBe(0)
-
-    const cardTitle = page.getByRole('heading', { level: 3, name: vacancy.title })
     await expect(cardTitle).toBeVisible()
     await expect(cardTitle).toHaveCSS('visibility', 'visible')
+
+    const cardBox = await cardTitle.boundingBox()
+    if (!cardBox) throw new Error('card title has no bounding box')
+    expect(Math.abs(last.x - cardBox.x)).toBeLessThanOrEqual(POSITION_TOLERANCE_PX)
+    expect(Math.abs(last.y - cardBox.y)).toBeLessThanOrEqual(POSITION_TOLERANCE_PX)
   })
 
   test('direct load on /careers/:slug (no capture) never renders a morph overlay', async ({

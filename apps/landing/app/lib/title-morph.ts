@@ -103,17 +103,39 @@ export function captureMorphSource(el: HTMLElement, slug: string): void {
  * Consume step, route-pair half (§M v3.2 п.5, first 2 bullets) — reads (and
  * ALWAYS one-shot resets, regardless of outcome — п.5 "сразу сбросить") both
  * `pendingMorph` and the cached route pair. Returns `null` the instant
- * either is missing or the pair isn't the `/careers ↔ /careers/:slug` link;
- * callers still owe the remaining destination-side checks via
+ * either is missing, the pair isn't the `/careers ↔ /careers/:slug` link, or
+ * `consumerPathname` (the CALLING component's own, actually-rendered current
+ * pathname — pass `useLocation({ select: (l) => l.pathname })`, not a value
+ * derived from route params/props) doesn't match `routePair.to` (the
+ * navigation's real destination).
+ *
+ * The `consumerPathname` check (fix for a HIGH fidelity-review finding,
+ * 2026-07-25 — see `__root.tsx`'s module doc for the full root-cause writeup)
+ * is what makes this function safe to call from EITHER consumer
+ * unconditionally, including from a stale/spurious remount of the SOURCE
+ * page that still happens to be mounted when this fires: `routePair.to` is
+ * always the DESTINATION's pathname, so only the component that is ACTUALLY
+ * the destination — regardless of which one's effect happens to run
+ * first — ever sees a non-null result. Without this, `__root.tsx`'s
+ * previous premature `key`-remount race let the SOURCE page's own consumer
+ * effect win the one-shot read before the real destination ever mounted,
+ * and the morph was silently dropped on every navigation, in both
+ * directions. `__root.tsx`'s companion fix (deferring the wrapper's `key`
+ * flip to the router's actual commit) removes the spurious remount at the
+ * source; this check is the second, independent layer — correct even if a
+ * future refactor reintroduces a similar remount somewhere.
+ *
+ * Callers still owe the remaining destination-side checks via
  * `validateMorphDestination` below before actually playing the morph.
  */
-export function readPendingMorph(): PendingMorph | null {
+export function readPendingMorph(consumerPathname: string): PendingMorph | null {
   const morph = pendingMorph
   const routePair = pendingRoutePair
   pendingMorph = null
   pendingRoutePair = null
   if (!morph || !routePair) return null
   if (!isMorphRoutePair(routePair.from, routePair.to)) return null
+  if (routePair.to !== consumerPathname) return null
   return morph
 }
 

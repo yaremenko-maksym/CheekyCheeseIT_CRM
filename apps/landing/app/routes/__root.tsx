@@ -43,16 +43,6 @@ function focusMainLandmark(): void {
   }
 }
 
-/** Resolves once the NEXT `onResolved` router event fires — one-shot, unsubscribes itself. */
-function onceResolved(router: ReturnType<typeof useRouter>): Promise<void> {
-  return new Promise((resolve) => {
-    const unsubscribe = router.subscribe('onResolved', () => {
-      unsubscribe()
-      resolve()
-    })
-  })
-}
-
 /**
  * Page-transition + in-page smooth-scroll orchestrator (docs/design/landing-
  * redesign.md §M v3.1) — a "soft lift" cross-fade on EVERY navigation, via
@@ -65,10 +55,32 @@ function onceResolved(router: ReturnType<typeof useRouter>): Promise<void> {
  *
  * Hash-only navigations (same pathname) are explicitly skipped — that case
  * belongs entirely to `smoothScrollToId` (§M.4), not this orchestrator.
+ *
+ * **`key` timing — fixed 2026-07-25 (HIGH fidelity-review finding).** The
+ * wrapper's `key`/`transition.pathname` state is updated ONLY from the
+ * router's `onResolved` event (the router has ACTUALLY committed the new
+ * match, `<Outlet/>` is ready to render it) — NEVER from `onBeforeNavigate`'s
+ * optimistic `toLocation.pathname`. Root cause of the bug this fixes: React
+ * `key`-remount is synchronous and immediate, but `onBeforeNavigate` fires
+ * BEFORE the router internally switches `router.state.matches` — so setting
+ * `key` there force-unmounts+remounts the wrapper while `<Outlet/>` is
+ * STILL rendering the OLD route (its async loader/match hasn't committed
+ * yet), producing a spurious extra mount of the OLD page's component. That
+ * spurious remount's own `useLayoutEffect` (the title-morph consumer on
+ * `careers-list.tsx`/`careers_.$slug.tsx`) fired FIRST and silently
+ * consumed the one-shot `pendingMorph` meant for the REAL destination page,
+ * which then mounted moments later to nothing — the shared-element title
+ * morph (§M v3.2) never played, in EITHER direction, though the base lift
+ * (§M v3.1) still looked correct (masking the bug from casual visual QA).
+ * `lib/title-morph.ts`'s `readPendingMorph` also gained an independent,
+ * addressable "is this consumer actually the destination" check as a second
+ * defense layer — see its doc for why both fixes matter together.
  */
 function RootDocument() {
   const router = useRouter()
   const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const pendingDirectionRef = useRef<PageTransitionDirection>('forward')
+  const shouldTransitionOnResolveRef = useRef(false)
   const [transition, setTransition] = useState<{
     pathname: string
     direction: PageTransitionDirection | null
@@ -84,37 +96,67 @@ function RootDocument() {
   }, [])
 
   useEffect(() => {
-    const unsubscribe = router.subscribe('onBeforeNavigate', ({ toLocation, fromLocation }) => {
-      // Hash-only change on the SAME route (e.g. nav "Contact" while already
-      // on "/") — no page-transition; `smoothScrollToId` owns this case
-      // exclusively (§M.4).
-      if (fromLocation && toLocation.pathname === fromLocation.pathname) return
+    const unsubscribeBefore = router.subscribe(
+      'onBeforeNavigate',
+      ({ toLocation, fromLocation }) => {
+        // Hash-only change on the SAME route (e.g. nav "Contact" while
+        // already on "/") — no page-transition; `smoothScrollToId` owns
+        // this case exclusively (§M.4). Explicitly tell the `onResolved`
+        // handler below to skip its work too (it still fires for hash-only
+        // navigations) — must NOT flip the wrapper key or steal focus for
+        // what is purely an in-page scroll.
+        if (fromLocation && toLocation.pathname === fromLocation.pathname) {
+          shouldTransitionOnResolveRef.current = false
+          return
+        }
 
-      // Cache the route pair for lib/title-morph.ts's consumer (§M v3.2
-      // step 5) — avoids a second, independent router subscription there.
-      if (fromLocation) setPendingRoutePair(fromLocation.pathname, toLocation.pathname)
+        // Cache the route pair for lib/title-morph.ts's consumer (§M v3.2
+        // step 5) — avoids a second, independent router subscription there.
+        if (fromLocation) setPendingRoutePair(fromLocation.pathname, toLocation.pathname)
 
-      const direction = consumePendingDirection()
-      playLiftExit(wrapperRef.current, isReducedMotionPreferred())
-      setTransition({ pathname: toLocation.pathname, direction })
+        // Direction must be consumed HERE (one-shot, `onBeforeNavigate` is
+        // the only point that reliably fires once per real navigation) —
+        // stashed in a ref since the wrapper-key update itself is deferred
+        // to `onResolved` below (see this function's module doc).
+        pendingDirectionRef.current = consumePendingDirection()
+        playLiftExit(wrapperRef.current, isReducedMotionPreferred())
+        shouldTransitionOnResolveRef.current = true
+      },
+    )
 
-      // Focus management (WCAG 2.4.3, §M v3.1 step 7) — gated on the
-      // router's OWN `onResolved` event, not on the enter-animation's
-      // `onAnimationComplete`/this effect's `transition.pathname` state
-      // change: BOTH of those fire at `onBeforeNavigate` time (immediately,
-      // synchronously), which is BEFORE the destination route's async
-      // loader resolves and `<Outlet/>` actually swaps in the real page
-      // content — confirmed empirically via E2E (a race that reliably
-      // reproduced under `prefers-reduced-motion`, where there's no
-      // animation duration to accidentally paper over the gap): focusing
-      // too early lands on a `<main>` that gets replaced moments later,
-      // silently reverting `document.activeElement` to `<body>`. Waiting
-      // for `onResolved` (same event/pattern the pre-v3 §M.3 orchestrator
-      // used) guarantees the focused `<main>` is the FINAL, stable node.
-      void onceResolved(router).then(focusMainLandmark)
+    const unsubscribeResolved = router.subscribe('onResolved', () => {
+      if (!shouldTransitionOnResolveRef.current) return
+      shouldTransitionOnResolveRef.current = false
+      const pathname = router.state.location.pathname
+      // The router HAS committed by this point — `<Outlet/>` is already
+      // ready to render the real destination the instant the wrapper below
+      // remounts under the new `key`. Guard against a no-op update (in case
+      // `onResolved` ever fires more than once for the same commit).
+      setTransition((prev) =>
+        prev.pathname === pathname ? prev : { pathname, direction: pendingDirectionRef.current },
+      )
     })
-    return unsubscribe
+
+    return () => {
+      unsubscribeBefore()
+      unsubscribeResolved()
+    }
   }, [router])
+
+  // Focus management (WCAG 2.4.3, §M v3.1 step 7) — a `useEffect` keyed on
+  // `transition.pathname`, NOT a call inlined into the `onResolved`
+  // subscriber above. `setTransition` merely SCHEDULES a re-render; calling
+  // `focusMainLandmark()` synchronously right after it (as an earlier
+  // version of this fix did) runs BEFORE React has committed that render —
+  // `document.querySelector('main')` at that instant can still find the
+  // OLD page's `<main>` (or none at all), reliably reproduced via E2E
+  // (`document.activeElement` stayed `BODY`/reverted to a stray link, never
+  // landed on `MAIN`). `useEffect` fires strictly AFTER the DOM commit for
+  // the render that set this exact `transition.pathname`, so the `<main>`
+  // it finds is guaranteed to be the real, final, already-painted one.
+  useEffect(() => {
+    if (transition.direction !== null) focusMainLandmark()
+  }, [transition.pathname])
 
   const reducedMotion = isReducedMotionPreferred()
 

@@ -1,4 +1,5 @@
 import { useLayoutEffect } from 'react'
+import { useLocation } from '@tanstack/react-router'
 import { FolderOpen } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { VacancyCard } from '@/components/marketing/vacancy-card'
@@ -22,13 +23,32 @@ import {
  * `VacancyCard`'s `<h3>` here. `useLayoutEffect` (not `useEffect`): must run
  * BEFORE the browser paints this route's first frame, or the real card
  * titles would flash visible before the overlay hides the target one.
- * `readPendingMorph()` always one-shot consumes regardless of whether this
- * list has any cards — a stray pending morph from an unrelated navigation
- * must never leak into a LATER `/careers` visit.
+ * `readPendingMorph(pathname)` always one-shot consumes regardless of
+ * whether this list has any cards — a stray pending morph from an unrelated
+ * navigation must never leak into a LATER `/careers` visit — but ONLY
+ * actually returns a morph when THIS component's own current pathname is
+ * the navigation's real destination (`lib/title-morph.ts`'s addressable
+ * consume, fix for a HIGH fidelity-review finding, 2026-07-25).
+ *
+ * **`pathname` is deliberately OMITTED from the effect's dependency array**
+ * (fix for a second, self-inflicted bug found while verifying the fix
+ * above): `useLocation()` is reactive — TanStack Router updates
+ * `router.state.location` to the PENDING/target location early in a
+ * navigation, well before this component actually unmounts, so if
+ * `pathname` were a dependency, the effect would RE-RUN the instant the
+ * global pending location changes — while `CareersList` is STILL mounted
+ * as the SOURCE page — defeating the whole point of the addressable check
+ * (the re-run would read the DESTINATION's pathname, "passing" its own
+ * check despite still being the source). Omitting it from deps means the
+ * effect only ever runs on this component's OWN true mount, and the
+ * `pathname` value it captures via closure is a snapshot of THIS
+ * component's own identity at that moment, not a live-tracked value.
  */
 export function CareersList({ vacancies }: { vacancies: PublicVacancy[] }) {
+  const pathname = useLocation({ select: (location) => location.pathname })
+
   useLayoutEffect(() => {
-    const morph = readPendingMorph()
+    const morph = readPendingMorph(pathname)
     if (!morph) return
     const destEl = findMorphTargetElement(morph.slug)
     if (!destEl || !validateMorphDestination(morph, morph.slug, destEl)) return

@@ -116,7 +116,7 @@ describe('captureMorphSource + readPendingMorph', () => {
   it('no capture ever happened -> readPendingMorph returns null', async () => {
     const { readPendingMorph, setPendingRoutePair } = await freshModule()
     setPendingRoutePair('/careers', '/careers/senior-ml-engineer')
-    expect(readPendingMorph()).toBeNull()
+    expect(readPendingMorph('/careers/senior-ml-engineer')).toBeNull()
   })
 
   it('captured but no route pair was ever cached -> readPendingMorph returns null', async () => {
@@ -125,7 +125,7 @@ describe('captureMorphSource + readPendingMorph', () => {
     el.textContent = 'Senior ML Engineer'
     stubMeasurements(el)
     captureMorphSource(el, 'senior-ml-engineer')
-    expect(readPendingMorph()).toBeNull()
+    expect(readPendingMorph('/careers/senior-ml-engineer')).toBeNull()
   })
 
   it('captured + an INELIGIBLE route pair was cached -> readPendingMorph returns null', async () => {
@@ -135,10 +135,25 @@ describe('captureMorphSource + readPendingMorph', () => {
     stubMeasurements(el)
     captureMorphSource(el, 'senior-ml-engineer')
     setPendingRoutePair('/', '/careers/senior-ml-engineer')
-    expect(readPendingMorph()).toBeNull()
+    expect(readPendingMorph('/careers/senior-ml-engineer')).toBeNull()
   })
 
-  it('captured + an eligible route pair -> readPendingMorph returns the captured morph, one-shot', async () => {
+  it('captured + eligible route pair BUT consumerPathname is the SOURCE, not the destination -> readPendingMorph returns null (addressable-consume fix, HIGH fidelity-review 2026-07-25)', async () => {
+    // Regression test for the exact bug: a spurious remount of the SOURCE
+    // page (still at its OWN pathname, navigation not yet committed) must
+    // NOT be able to steal the morph meant for the destination.
+    const { captureMorphSource, readPendingMorph, setPendingRoutePair } = await freshModule()
+    const el = document.createElement('h3')
+    el.textContent = 'Senior ML Engineer'
+    stubMeasurements(el)
+    captureMorphSource(el, 'senior-ml-engineer')
+    setPendingRoutePair('/careers', '/careers/senior-ml-engineer')
+    // The SOURCE list page's own pathname is `/careers`, not the
+    // destination `/careers/senior-ml-engineer` cached as `routePair.to`.
+    expect(readPendingMorph('/careers')).toBeNull()
+  })
+
+  it('captured + eligible route pair + consumerPathname matches the destination -> readPendingMorph returns the captured morph, one-shot', async () => {
     const { captureMorphSource, readPendingMorph, setPendingRoutePair } = await freshModule()
     const el = document.createElement('h3')
     el.textContent = 'Senior ML Engineer'
@@ -152,7 +167,7 @@ describe('captureMorphSource + readPendingMorph', () => {
     captureMorphSource(el, 'senior-ml-engineer')
     setPendingRoutePair('/careers', '/careers/senior-ml-engineer')
 
-    const morph = readPendingMorph()
+    const morph = readPendingMorph('/careers/senior-ml-engineer')
     expect(morph).not.toBeNull()
     expect(morph?.slug).toBe('senior-ml-engineer')
     expect(morph?.text).toBe('Senior ML Engineer')
@@ -160,8 +175,9 @@ describe('captureMorphSource + readPendingMorph', () => {
     expect(morph?.rect.left).toBe(12)
     expect(morph?.rect.top).toBe(34)
 
-    // One-shot — a second read (as if a second, unrelated consumer ran) gets nothing.
-    expect(readPendingMorph()).toBeNull()
+    // One-shot — a second read (as if a second, unrelated consumer ran, even
+    // with the CORRECT pathname) gets nothing.
+    expect(readPendingMorph('/careers/senior-ml-engineer')).toBeNull()
   })
 
   it('reduced-motion -> capture is skipped entirely (fallback table row 3)', async () => {
@@ -175,7 +191,7 @@ describe('captureMorphSource + readPendingMorph', () => {
     stubMeasurements(el)
     captureMorphSource(el, 'senior-ml-engineer')
     setPendingRoutePair('/careers', '/careers/senior-ml-engineer')
-    expect(readPendingMorph()).toBeNull()
+    expect(readPendingMorph('/careers/senior-ml-engineer')).toBeNull()
   })
 
   it('a 2+ line source title -> capture is skipped (fallback table row 4)', async () => {
@@ -186,7 +202,7 @@ describe('captureMorphSource + readPendingMorph', () => {
     stubMeasurements(el, { height: 48, lineHeight: '24px' })
     captureMorphSource(el, 'a-very-long-wrapping-vacancy-title')
     setPendingRoutePair('/careers', '/careers/a-very-long-wrapping-vacancy-title')
-    expect(readPendingMorph()).toBeNull()
+    expect(readPendingMorph('/careers/a-very-long-wrapping-vacancy-title')).toBeNull()
   })
 })
 
@@ -198,7 +214,7 @@ describe('validateMorphDestination', () => {
     stubMeasurements(source)
     captureMorphSource(source, 'senior-ml-engineer')
     setPendingRoutePair('/careers', '/careers/senior-ml-engineer')
-    const morph = readPendingMorph()
+    const morph = readPendingMorph('/careers/senior-ml-engineer')
     if (!morph) throw new Error('expected a captured morph')
     return {
       morph,
