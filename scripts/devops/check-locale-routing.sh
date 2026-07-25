@@ -1,6 +1,6 @@
 #!/bin/bash
 # check-locale-routing.sh — curl proof suite for edge locale detection
-# (task-infra-locale-edge, AC B1-B5).
+# (task-infra-locale-edge, AC B1-B9).
 #
 # Runs a fixed set of curl cases against ANY origin (local nginx test
 # container during development, staging, or production for a post-deploy
@@ -18,6 +18,15 @@
 # Detection order under test (plan-landing-i18n-seo.md §2):
 #   cookie pref_locale > Accept-Language best-match > CF-IPCountry > en
 # Supported locales: en (default, no prefix) | uk | ru | es | pt.
+#
+# AC B9 (added security-review round 1, HIGH-1): a pathological
+# Accept-Language header must not add meaningful latency relative to a
+# normal request — see the "ReDoS hardening" case near the end of this
+# file. This script CANNOT check the nginx/docker error log for the
+# absence of an unhandled njs exception (no log access for an arbitrary
+# HTTP origin) — that half of the AC is verified manually against a local
+# dry-run container, see scripts/devops/locale-routing-runbook.md "ReDoS
+# hardening verification".
 set -u
 
 ORIGIN="${1:-${ORIGIN:-http://localhost:8080}}"
@@ -123,8 +132,11 @@ check_path "B3: /pt/careers/ never redirects" "/pt/careers/" 200 "" \
 check "B3: bot with NO Accept-Language header -> 200 EN" 200 ""
 
 # ── B4: Vary present on redirect-eligible routes (both branches) ──────────
+# security-review round 1 (MED-2): CF-IPCountry participates in the locale
+# decision too — must be in Vary alongside Accept-Language/Cookie, not just
+# the original two.
 vary_redirect="$(curl -s -k -o /dev/null -D - --max-time 10 -H 'Accept-Language: ru' "$ORIGIN/" 2>/dev/null | grep -i '^Vary:')"
-if [[ "$vary_redirect" == *"Accept-Language"* && "$vary_redirect" == *"Cookie"* ]]; then
+if [[ "$vary_redirect" == *"Accept-Language"* && "$vary_redirect" == *"Cookie"* && "$vary_redirect" == *"CF-IPCountry"* ]]; then
   PASS=$((PASS + 1))
   printf 'PASS  %-70s %s\n' "B4: Vary header present on 302 response" "$vary_redirect"
 else
@@ -132,12 +144,24 @@ else
   printf 'FAIL  %-70s got=%s\n' "B4: Vary header present on 302 response" "$vary_redirect"
 fi
 vary_passthrough="$(curl -s -k -o /dev/null -D - --max-time 10 -H 'Accept-Language: en' "$ORIGIN/" 2>/dev/null | grep -i '^Vary:')"
-if [[ "$vary_passthrough" == *"Accept-Language"* && "$vary_passthrough" == *"Cookie"* ]]; then
+if [[ "$vary_passthrough" == *"Accept-Language"* && "$vary_passthrough" == *"Cookie"* && "$vary_passthrough" == *"CF-IPCountry"* ]]; then
   PASS=$((PASS + 1))
   printf 'PASS  %-70s %s\n' "B4: Vary header present on 200 (EN passthrough)" "$vary_passthrough"
 else
   FAIL=$((FAIL + 1))
   printf 'FAIL  %-70s got=%s\n' "B4: Vary header present on 200 (EN passthrough)" "$vary_passthrough"
+fi
+
+# security-review round 1 (MED-2): 302 responses must carry an explicit
+# no-store Cache-Control — RFC 9111 does not heuristically cache a bare 302,
+# but the finding was relying on that implicitly instead of stating it.
+cache_control_redirect="$(curl -s -k -o /dev/null -D - --max-time 10 -H 'Accept-Language: ru' "$ORIGIN/" 2>/dev/null | grep -i '^Cache-Control:')"
+if [[ "$cache_control_redirect" == *"no-store"* ]]; then
+  PASS=$((PASS + 1))
+  printf 'PASS  %-70s %s\n' "MED-2: Cache-Control: no-store present on 302" "$cache_control_redirect"
+else
+  FAIL=$((FAIL + 1))
+  printf 'FAIL  %-70s got=%s\n' "MED-2: Cache-Control: no-store present on 302" "$cache_control_redirect"
 fi
 
 # ── B5: CF-IPCountry fallback (only consulted without Accept-Language) ────
@@ -159,6 +183,48 @@ check_path "deep path: /careers/ + ru -> 302 /ru/careers/ (trailing slash kept)"
   -H 'Accept-Language: ru'
 check_path "deep path: /careers/my-slug/ + uk -> 302 /uk/careers/my-slug/" "/careers/my-slug/" 302 "/uk/careers/my-slug/" \
   -H 'Accept-Language: uk'
+
+# code-review round (PR #423): partial-prerender guard correctness — a path
+# that does NOT exist for the target locale (even though the locale ROOT
+# does) must NOT redirect into a silent language mismatch. Uses a slug that
+# is guaranteed to never exist on any real origin either, so this is safe
+# to run against production as a permanent regression guard, not just a
+# local-fixture-only case.
+check_path "partial-prerender: nonexistent deep slug + uk -> 200 EN (no silent mismatch)" \
+  "/careers/__check-locale-routing-nonexistent-slug__/" 200 "" \
+  -H 'Accept-Language: uk'
+
+# ── B9 (security-review round 1, HIGH-1): ReDoS hardening ─────────────────
+# A pathological Accept-Language must not add meaningful latency relative
+# to a normal request. Payload mirrors the exact shape that took 119-153 ms
+# against the pre-fix regex (a long digit run in the q-value position that
+# never resolves to a valid qvalue, forcing catastrophic backtracking in
+# the old `/^q=([0-9]*\.?[0-9]+)$/` pattern) — fixed version should show no
+# meaningful difference from baseline (typically < 2x, always << the 40x-
+# 100x+ a vulnerable regex produces). This script has no way to inspect the
+# origin's error log for the absence of an unhandled njs exception (the
+# other half of B9) — verify that manually against a local dry-run
+# container, see scripts/devops/locale-routing-runbook.md "ReDoS hardening
+# verification".
+pathological_q="$(head -c 7800 /dev/zero | tr '\0' '9')"
+pathological_al="zz;q=${pathological_q}x"
+baseline_time="$(curl -s -k -o /dev/null -w '%{time_total}' --max-time 10 -H 'Accept-Language: en' "$ORIGIN/" 2>/dev/null)"
+payload_time="$(curl -s -k -o /dev/null -w '%{time_total}' --max-time 10 -H "Accept-Language: $pathological_al" "$ORIGIN/" 2>/dev/null)"
+b9_verdict="$(awk -v b="$baseline_time" -v p="$payload_time" 'BEGIN {
+  if (b <= 0) b = 0.001
+  ratio = p / b
+  # Absolute ceiling (500ms) as a network-latency-independent backstop,
+  # PLUS a relative ceiling (10x baseline) — a genuine ReDoS regression
+  # blows past both by 1-2 orders of magnitude; normal jitter does not.
+  if (p < 0.5 && ratio < 10) print "PASS"; else print "FAIL"
+}')"
+if [ "$b9_verdict" = "PASS" ]; then
+  PASS=$((PASS + 1))
+  printf 'PASS  %-70s baseline=%ss payload=%ss\n' "B9: pathological Accept-Language (7.8KB) adds no meaningful latency" "$baseline_time" "$payload_time"
+else
+  FAIL=$((FAIL + 1))
+  printf 'FAIL  %-70s baseline=%ss payload=%ss\n' "B9: pathological Accept-Language (7.8KB) adds no meaningful latency" "$baseline_time" "$payload_time"
+fi
 
 echo
 echo "== $PASS passed, $FAIL failed =="

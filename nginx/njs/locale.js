@@ -18,9 +18,33 @@
  * stays plain nginx `map`/`if` in that file and in nginx/conf.d/landing.conf
  * — this module's only job is producing one of: "en" | "uk" | "ru" | "es" |
  * "pt".
+ *
+ * SECURITY (security-review round 1, PR #423, HIGH-1 — fixed here):
+ * `$target_locale` is computed for EVERY request that reaches `location /`
+ * in landing.conf, including with the emergency kill-switch ON (the map
+ * that folds the kill-switch in `locale-detect.conf` still needs this
+ * variable's value to build its lookup key) — so this module is on the hot
+ * path for the whole edge (landing AND, via the shared nginx process,
+ * `app.cheekycheese.tech`/CRM `/api` proxying) regardless of feature state.
+ * Treat `Accept-Language` as fully untrusted, unbounded, adversarial input:
+ * hard length/count caps BEFORE any regex touches it (§ MAX_HEADER_LEN /
+ * MAX_TAGS below), a non-backtracking q-value grammar (§ Q_RE — RFC 9110
+ * §12.4.2, no overlapping quantifiers), and the whole exported handler
+ * wrapped in try/catch so ANY unexpected exception degrades to a safe,
+ * cheap, unlogged "en" rather than an uncaught njs stack trace on the hot
+ * path (see runbook "ReDoS hardening" for the empirical before/after).
  */
 
 const SUPPORTED = ['en', 'uk', 'ru', 'es', 'pt']
+
+// A real Accept-Language header from any browser is well under 200 chars
+// (a handful of language tags with q-values). 512 is a generous ceiling
+// that no legitimate client will ever hit but that bounds worst-case work
+// to a small, fixed amount regardless of what nginx's own
+// `large_client_header_buffers` allows through (default up to 8 KB/line).
+const MAX_HEADER_LEN = 512
+// A real Accept-Language header very rarely lists more than 5-6 tags.
+const MAX_TAGS = 20
 
 // CF-IPCountry -> locale fallback, ONLY consulted when Accept-Language is
 // absent or none of its tags matched a supported locale (plan §2 step 3).
@@ -56,6 +80,20 @@ const CF_COUNTRY_LOCALE = {
   UY: 'es',
 }
 
+// RFC 9110 §12.4.2 qvalue grammar: `0[.0-3 digits]` | `1[.0-3 zeros]`.
+// Deliberately NOT `[0-9]*\.?[0-9]+` (the original, vulnerable pattern) —
+// that shape has two adjacent quantifiers ([0-9]* and [0-9]+) that can both
+// match the same digit run, so a non-matching input (e.g. a long digit run
+// followed by a non-digit) forces the engine to retry every possible split
+// between them before giving up: classic CWE-1333 catastrophic
+// backtracking. This grammar has NO overlapping quantifiers and a fixed
+// {1,3} bound, so it cannot backtrack more than a constant amount
+// regardless of input length — confirmed empirically: the same
+// 7800-character pathological q-value that took 119-153 ms against the old
+// regex takes < 0.01 ms against this one (see PR #423 security-review
+// round 1 for the exact benchmark).
+const Q_RE = /^q=(?:0(?:\.[0-9]{1,3})?|1(?:\.0{1,3})?)$/
+
 /**
  * Parses a raw `Accept-Language` header into `{ tag, q }` entries, sorted
  * descending by q-value (RFC 9110 §12.5.4: default q = 1 when omitted).
@@ -63,21 +101,33 @@ const CF_COUNTRY_LOCALE = {
  * case) keep the ORIGINAL left-to-right order — real-world browsers already
  * list tags in preference order even without explicit q values, so a
  * stable sort here is exactly the right tie-break, not an approximation.
+ *
+ * Hard caps applied BEFORE any per-tag work: the header is truncated to
+ * MAX_HEADER_LEN characters and the tag list to MAX_TAGS entries. Both are
+ * generous relative to any real client (see the constants above) and exist
+ * purely to bound worst-case CPU work against adversarial input — this is
+ * defense-in-depth on top of Q_RE, not a substitute for it (a single
+ * MAX_HEADER_LEN-sized pathological value is still cheap against Q_RE, but
+ * costly-if-not-impossible against the old vulnerable regex).
  */
 function parseAcceptLanguage(header) {
   if (!header) {
     return []
   }
+  if (header.length > MAX_HEADER_LEN) {
+    header = header.substring(0, MAX_HEADER_LEN)
+  }
   return header
     .split(',')
+    .slice(0, MAX_TAGS)
     .map(function (part, index) {
       const bits = part.trim().split(';')
       const tag = bits[0].trim().toLowerCase()
       let q = 1
       for (let i = 1; i < bits.length; i++) {
-        const match = bits[i].trim().match(/^q=([0-9]*\.?[0-9]+)$/)
+        const match = bits[i].trim().match(Q_RE)
         if (match) {
-          q = parseFloat(match[1])
+          q = parseFloat(match[0].slice(2))
         }
       }
       return { tag: tag, q: isNaN(q) ? 0 : q, index: index }
@@ -130,7 +180,7 @@ function bestAcceptLanguageLocale(header) {
  * embedded variable (auto-parses the named cookie out of the Cookie header
  * — no custom cookie-parsing needed here).
  */
-function targetLocale(r) {
+function resolveTargetLocale(r) {
   const cookie = (r.variables.cookie_pref_locale || '').toLowerCase()
   if (SUPPORTED.indexOf(cookie) !== -1) {
     return cookie
@@ -147,6 +197,28 @@ function targetLocale(r) {
   }
 
   return 'en'
+}
+
+/**
+ * Exported entry point (`js_set $target_locale locale.targetLocale;`).
+ * Wraps the ENTIRE resolution chain in try/catch: this runs on every
+ * request to the shared nginx process (landing + CRM `/api` proxying share
+ * one nginx), so ANY unexpected exception here — a future edge case in
+ * njs's regex engine, a malformed header njs itself can't parse, etc. —
+ * must degrade to a safe, cheap default rather than surface as an uncaught
+ * njs stack trace (previously ~489 bytes/request logged to an unbounded
+ * docker log, see runbook "ReDoS hardening"). "en" is the correct default
+ * here: it is the same fallback the priority chain itself uses when
+ * nothing matches, so callers cannot distinguish "no signal" from "an
+ * exception happened" — both mean "just show English", which is always a
+ * safe, valid, indexable response.
+ */
+function targetLocale(r) {
+  try {
+    return resolveTargetLocale(r)
+  } catch (e) {
+    return 'en'
+  }
 }
 
 export default { targetLocale }

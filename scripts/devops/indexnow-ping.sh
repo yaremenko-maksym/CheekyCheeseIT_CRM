@@ -32,7 +32,23 @@
 # "ответ 200/202 залогирован" (AC B6) — the HTTP status IS always printed to
 # stdout, which callers running this from GitHub Actions get for free in
 # the run log; no separate log file needed for that requirement.
-set -u
+#
+# SECURITY (security-review round 1, PR #423, LOW): the JSON body is built
+# with `jq -n` (not string concatenation) — today's only two call sites
+# (deploy.yml's fixed URL list) never carry attacker-controlled text, but
+# the runbook explicitly advertises this script for REUSE from a future
+# vacancy publish/close hook, where a URL would embed a DB-derived slug —
+# `jq` makes the eventual reuse safe by construction instead of relying on
+# whoever writes that hook to remember to escape it. `mktemp` (not a fixed
+# /tmp path) avoids a symlink/predictable-path race if this script is ever
+# invoked concurrently. `set -euo pipefail` replaces the looser `set -u`.
+set -euo pipefail
+
+if ! command -v jq >/dev/null 2>&1; then
+  echo "ERROR: jq is required (JSON body construction) but was not found on PATH." >&2
+  echo "GitHub Actions ubuntu-latest runners ship jq by default; for local/manual runs, install it (e.g. \`brew install jq\`)." >&2
+  exit 2
+fi
 
 KEY="${1:-}"
 HOST="${2:-}"
@@ -45,43 +61,35 @@ if [ -z "$KEY" ] || [ -z "$HOST" ] || [ "${#URLS[@]}" -eq 0 ]; then
   exit 2
 fi
 
-# Build the JSON body without a full JSON library dependency — the only
-# dynamic values are the key, host, and a list of plain https URLs (no
-# owner/user-controlled free text ever flows into this script, see the
-# call sites in .github/workflows/deploy.yml), so straightforward manual
-# escaping of the fixed URL shape is safe here.
-url_list_json=""
-for url in "${URLS[@]}"; do
-  if [ -n "$url_list_json" ]; then
-    url_list_json="${url_list_json},"
-  fi
-  url_list_json="${url_list_json}\"${url}\""
-done
-
-body=$(
-  cat <<EOF
-{"host":"${HOST}","key":"${KEY}","keyLocation":"https://${HOST}/${KEY}.txt","urlList":[${url_list_json}]}
-EOF
-)
+body="$(
+  jq -nc \
+    --arg host "$HOST" \
+    --arg key "$KEY" \
+    --arg keyLocation "https://${HOST}/${KEY}.txt" \
+    --args '{host: $host, key: $key, keyLocation: $keyLocation, urlList: $ARGS.positional}' \
+    "${URLS[@]}"
+)"
 
 echo "==> IndexNow ping — host=${HOST} urls=${#URLS[@]}"
 
-http_status=$(
-  curl -s -o /tmp/indexnow-response.txt -w '%{http_code}' --max-time 15 \
+response_file="$(mktemp)"
+trap 'rm -f "$response_file"' EXIT
+
+http_status="$(
+  curl -s -o "$response_file" -w '%{http_code}' --max-time 15 \
     -X POST 'https://api.indexnow.org/indexnow' \
     -H 'Content-Type: application/json; charset=utf-8' \
     -d "$body"
-) || {
+)" || {
   echo "ERROR: IndexNow request failed at the transport level (network/DNS/timeout)." >&2
   exit 1
 }
 
 echo "==> IndexNow response: HTTP ${http_status}"
-if [ -s /tmp/indexnow-response.txt ]; then
+if [ -s "$response_file" ]; then
   echo "==> IndexNow response body:"
-  cat /tmp/indexnow-response.txt
+  cat "$response_file"
 fi
-rm -f /tmp/indexnow-response.txt
 
 case "$http_status" in
 200 | 202)

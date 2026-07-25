@@ -737,12 +737,43 @@ jobs:
               sleep 2
             done
 
-            echo "==> Smoke test — external HTTP check"
+            echo "==> Smoke test — external HTTP check (CRM API, non-fatal)"
             if curl -sf --max-time 15 https://app.cheekycheese.tech/api/health; then
               echo "External health check PASSED"
             else
               echo "WARNING: external check failed (Cloudflare/TLS may not be configured yet)"
               echo "Internal API is healthy — stack is running correctly"
+            fi
+
+            # task-infra-locale-edge (security-review round 1, HIGH-2 follow-up):
+            # unlike the CRM API check above (kept non-fatal, tolerates the
+            # DNS/TLS-not-configured-yet state a brand-new deployment can be
+            # in), this checks the PUBLIC LANDING origin THROUGH nginx and is
+            # FATAL — nginx/Dockerfile's HIGH-2 fix (see
+            # scripts/devops/locale-routing-runbook.md §11) closes the
+            # config-injection vector that could make nginx fail to start,
+            # but this is the last line of defence against ANY OTHER future
+            # config mistake (not just build-arg injection) that produces
+            # the same failure mode: image builds fine, container crash-loops
+            # on boot, `docker compose up -d` still reports success, and
+            # without this check the deploy step would too — silently taking
+            # down the whole public site (landing AND, since nginx is shared,
+            # CRM) with a green pipeline. Checks `/` (root) AND one
+            # locale-prefixed URL (`/uk/`) — the latter is safe to check
+            # regardless of feature/landing-i18n merge state: unmerged, the
+            # locale-edge guard (see runbook §4) makes `/uk/` fall back to a
+            # plain EN 200, not a 404 — still passes this check either way.
+            echo "==> Smoke test — public landing origin through nginx (FATAL)"
+            if curl -sf --max-time 15 https://cheekycheese.tech/ > /dev/null \
+               && curl -sf --max-time 15 https://cheekycheese.tech/uk/ > /dev/null; then
+              echo "Landing origin health check PASSED (/ and /uk/ both 200)"
+            else
+              echo "ERROR: public landing origin is not returning 200 on / and/or /uk/ through nginx."
+              echo "This means nginx failed to start or is misconfigured — the deploy is NOT healthy"
+              echo "even though earlier internal checks passed. See scripts/devops/locale-routing-runbook.md"
+              echo "§11 for the config-injection class this guards against, and §6 for the general"
+              echo "check-locale-routing.sh dry-run workflow to diagnose locally."
+              exit 1
             fi
 
             echo "==> Cleaning dangling images"

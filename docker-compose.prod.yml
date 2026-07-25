@@ -77,6 +77,17 @@ services:
       timeout: 5s
       retries: 3
       start_period: 30s
+    # security-review round 1 (PR #423, MED-5): the json-file log driver has
+    # no size cap by default — unbounded growth on its own, and specifically
+    # dangerous in combination with a high-volume logging bug elsewhere
+    # (e.g. the pre-fix HIGH-1 ReDoS in nginx/njs/locale.js logged ~489
+    # bytes/request on a hot, unauthenticated path). 10m x 5 files = 50MB
+    # cap per service, more than enough for normal operation/debugging.
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
     # No ports exposed to host — nginx connects via internal Docker network.
     networks:
       - backend
@@ -119,6 +130,15 @@ services:
       timeout: 5s
       retries: 3
       start_period: 15s
+    # security-review round 1 (PR #423, MED-5) — see the `api` service above
+    # for the full rationale. nginx is the OTHER half of the "unbounded log
+    # growth from a hot-path bug" risk (it's the process that actually
+    # wrote the pre-fix HIGH-1 njs exception stack traces).
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '5'
     networks:
       - frontend
 
