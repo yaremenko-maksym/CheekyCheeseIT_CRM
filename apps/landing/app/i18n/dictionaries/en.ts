@@ -18,7 +18,8 @@ export const en: Dictionary = {
     brandHome: 'CheekyCheeseIT home',
   },
   footer: {
-    tagline: 'An outsource & outstaffing studio building AI, EdTech and E-Commerce products that scale.',
+    tagline:
+      'An outsource & outstaffing studio building AI, EdTech and E-Commerce products that scale.',
     studioHeading: 'Studio',
     selectedWork: 'Selected work',
     howWeWork: 'How we work',
@@ -65,7 +66,8 @@ export const en: Dictionary = {
     ],
     workEyebrow: 'Selected work',
     workH2: 'Anonymised, but real.',
-    workP: "Under NDA we can't name names — but the problems, the builds and the numbers are exactly as they happened.",
+    workP:
+      "Under NDA we can't name names — but the problems, the builds and the numbers are exactly as they happened.",
     caseStudies: [
       {
         domain: 'ai',
@@ -150,7 +152,8 @@ export const en: Dictionary = {
       {
         stepNum: '01 / Discovery',
         title: 'Discovery',
-        description: 'We scope the problem, de-risk the unknowns and agree a plan you can hold us to.',
+        description:
+          'We scope the problem, de-risk the unknowns and agree a plan you can hold us to.',
       },
       {
         stepNum: '02 / Build',
@@ -166,7 +169,8 @@ export const en: Dictionary = {
       {
         stepNum: '04 / Support',
         title: 'Support',
-        description: 'We stay on for the long tail — performance, reliability and the next iteration.',
+        description:
+          'We stay on for the long tail — performance, reliability and the next iteration.',
       },
     ],
     techStackEyebrow: 'Tech stack',
@@ -188,7 +192,7 @@ export const en: Dictionary = {
       'Open senior engineering roles at CheekyCheeseIT — remote-first, senior-only, real ownership.',
     eyebrow: 'Careers',
     h1: 'Build hard things with senior people.',
-    p1: "Remote-first, senior-only, real ownership. We hire slowly and keep teams small — every role here is one we genuinely need filled.",
+    p1: 'Remote-first, senior-only, real ownership. We hire slowly and keep teams small — every role here is one we genuinely need filled.',
     p2: 'Browse our open remote IT jobs below — every senior engineering role here is a real seat on a live product team, not a maybe-someday requisition.',
     emptyTitle: 'No open roles right now',
     emptyBody:
@@ -224,7 +228,8 @@ export const en: Dictionary = {
       telegramPlaceholder: '@handle',
       linkedinPlaceholder: 'linkedin.com/in/…',
       githubPlaceholder: 'github.com/…',
-      coverPlaceholder: "Tell us about something hard you shipped and what you'd want to build here.",
+      coverPlaceholder:
+        "Tell us about something hard you shipped and what you'd want to build here.",
       cvLabel: 'CV / Resume',
       cvDropPrefix: 'Drop your CV here, or',
       cvBrowse: 'browse',
