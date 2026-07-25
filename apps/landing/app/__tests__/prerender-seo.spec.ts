@@ -6,12 +6,17 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
+  assertHtmlLang,
   assertJsonLd,
   buildRobotsTxt,
   buildRoutes,
   buildSitemapXml,
   extractJsonLd,
+  LOCALES,
+  vacancyHreflangExcludes,
 } from '../../scripts/prerender.mjs'
+
+const NON_DEFAULT_LOCALES = LOCALES.filter((l) => l !== 'en')
 
 describe('buildRobotsTxt', () => {
   it('allows everything for the wildcard agent and every named AI crawler, and links the sitemap', () => {
@@ -33,28 +38,62 @@ describe('buildRobotsTxt', () => {
 })
 
 describe('buildRoutes', () => {
-  it('always includes / and /careers, plus one entry per vacancy when the API is reachable', () => {
-    const routes = buildRoutes([
-      { slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' },
-      { slug: 'b', publishedAt: '2026-07-02T00:00:00.000Z' },
+  it('task-landing-i18n.md A1 — one home + careers-list per locale, plus one vacancy route per locale when the API is reachable (9+ total with 1 vacancy across 5 locales)', () => {
+    const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
+    expect(routes.length).toBeGreaterThanOrEqual(9)
+    expect(routes.map((r) => r.url)).toEqual([
+      '/',
+      '/careers',
+      '/careers/a',
+      '/uk',
+      '/uk/careers',
+      '/uk/careers/a',
+      '/ru',
+      '/ru/careers',
+      '/ru/careers/a',
+      '/es',
+      '/es/careers',
+      '/es/careers/a',
+      '/pt',
+      '/pt/careers',
+      '/pt/careers/a',
     ])
-    expect(routes.map((r) => r.url)).toEqual(['/', '/careers', '/careers/a', '/careers/b'])
     expect(routes.map((r) => r.file)).toEqual([
       'index.html',
       'careers/index.html',
       'careers/a/index.html',
-      'careers/b/index.html',
+      'uk/index.html',
+      'uk/careers/index.html',
+      'uk/careers/a/index.html',
+      'ru/index.html',
+      'ru/careers/index.html',
+      'ru/careers/a/index.html',
+      'es/index.html',
+      'es/careers/index.html',
+      'es/careers/a/index.html',
+      'pt/index.html',
+      'pt/careers/index.html',
+      'pt/careers/a/index.html',
     ])
+    // Every route carries its own locale (A5 — drives <html lang> validation).
+    for (const locale of LOCALES) {
+      expect(routes.filter((r) => r.locale === locale).length).toBe(3)
+    }
   })
 
-  it('produces only / and /careers when the API was unreachable (vacancies === null)', () => {
+  it('produces only the 5 home + 5 careers-list routes when the API was unreachable (vacancies === null)', () => {
     const routes = buildRoutes(null)
-    expect(routes.map((r) => r.url)).toEqual(['/', '/careers'])
+    expect(routes.length).toBe(LOCALES.length * 2)
+    expect(routes.every((r) => !r.url.includes('/careers/a'))).toBe(true)
   })
 
-  it('marks /careers as requiring ItemList JSON-LD only when there are vacancies to list', () => {
+  it('marks every locale/careers-list route as requiring ItemList JSON-LD only when there are vacancies to list', () => {
     const withVacancies = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
-    expect(withVacancies.find((r) => r.url === '/careers')?.requireJsonLd).toBe('item-list')
+    for (const locale of LOCALES) {
+      expect(
+        withVacancies.find((r) => r.locale === locale && r.url.endsWith('/careers'))?.requireJsonLd,
+      ).toBe('item-list')
+    }
 
     const withoutVacancies = buildRoutes([])
     expect(withoutVacancies.find((r) => r.url === '/careers')?.requireJsonLd).toBeNull()
@@ -63,28 +102,96 @@ describe('buildRoutes', () => {
     expect(unreachable.find((r) => r.url === '/careers')?.requireJsonLd).toBeNull()
   })
 
-  it('marks every vacancy route as requiring JobPosting+BreadcrumbList JSON-LD', () => {
+  it('marks every vacancy route (every locale) as requiring JobPosting+BreadcrumbList JSON-LD', () => {
     const routes = buildRoutes([{ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' }])
-    expect(routes.find((r) => r.url === '/careers/a')?.requireJsonLd).toBe('job-posting-breadcrumb')
+    for (const locale of LOCALES) {
+      const url = locale === 'en' ? '/careers/a' : `/${locale}/careers/a`
+      expect(routes.find((r) => r.url === url)?.requireJsonLd).toBe('job-posting-breadcrumb')
+    }
+  })
+})
+
+describe('vacancyHreflangExcludes', () => {
+  it('excludes every non-default locale when there is no translations field at all (pre-Block-C safe default)', () => {
+    expect(vacancyHreflangExcludes({ slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z' })).toEqual(
+      NON_DEFAULT_LOCALES,
+    )
+  })
+
+  it('only excludes locales without a real translation entry', () => {
+    const vacancy = {
+      slug: 'a',
+      publishedAt: '2026-07-01T00:00:00.000Z',
+      translations: { ru: { title: 'Т', description: 'О' } },
+    }
+    expect(vacancyHreflangExcludes(vacancy)).toEqual(NON_DEFAULT_LOCALES.filter((l) => l !== 'ru'))
+  })
+})
+
+describe('assertHtmlLang', () => {
+  it('passes when <html lang> matches the expected locale', () => {
+    expect(() => assertHtmlLang('<html lang="ru"><body></body></html>', 'ru', '/ru')).not.toThrow()
+  })
+
+  it('throws when <html lang> does not match', () => {
+    expect(() => assertHtmlLang('<html lang="en"><body></body></html>', 'ru', '/ru')).toThrow(
+      /expected "ru"/,
+    )
   })
 })
 
 describe('buildSitemapXml', () => {
-  it('includes / and /careers with the build time, and one <url> per vacancy with its own publishedAt', () => {
+  it('task-landing-i18n.md A7 — includes / and /careers for every locale with the build time, and one <url> per vacancy per locale with its own publishedAt', () => {
     const xml = buildSitemapXml(
       [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z' }],
       '2026-07-23T00:00:00.000Z',
     )
     expect(xml).toContain('<loc>https://cheekycheese.tech/</loc>')
+    expect(xml).toContain('<loc>https://cheekycheese.tech/ru/</loc>')
+    expect(xml).toContain('<loc>https://cheekycheese.tech/es/careers/</loc>')
     expect(xml).toContain('<lastmod>2026-07-23T00:00:00.000Z</lastmod>')
     expect(xml).toContain('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>')
+    expect(xml).toContain('<loc>https://cheekycheese.tech/pt/careers/senior-ml-engineer/</loc>')
     expect(xml).toContain('<lastmod>2026-07-01T00:00:00.000Z</lastmod>')
   })
 
-  it('is valid XML with no vacancies', () => {
+  it('carries a reciprocal xhtml:link alternate cluster (every locale + x-default) on / and /careers', () => {
+    const xml = buildSitemapXml([], '2026-07-23T00:00:00.000Z')
+    for (const locale of LOCALES) {
+      expect(xml).toContain(`hreflang="${locale}" href="https://cheekycheese.tech/`)
+    }
+    expect(xml).toContain('hreflang="x-default" href="https://cheekycheese.tech/"')
+    expect(xml).toContain('xmlns:xhtml="http://www.w3.org/1999/xhtml"')
+  })
+
+  it("omits the untranslated locale from a vacancy URL block's xhtml:link cluster (A10)", () => {
+    const xml = buildSitemapXml(
+      [
+        {
+          slug: 'senior-ml-engineer',
+          publishedAt: '2026-07-01T00:00:00.000Z',
+          translations: { ru: { title: 'Т', description: 'О' } },
+        },
+      ],
+      '2026-07-23T00:00:00.000Z',
+    )
+    const block = xml.slice(
+      xml.indexOf('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>'),
+      xml.indexOf(
+        '</url>',
+        xml.indexOf('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>'),
+      ),
+    )
+    expect(block).toContain('hreflang="ru"')
+    expect(block).not.toContain('hreflang="uk"')
+    expect(block).not.toContain('hreflang="es"')
+    expect(block).not.toContain('hreflang="pt"')
+  })
+
+  it('is valid XML with no vacancies — 2 <url> entries per locale (home + careers-list)', () => {
     const xml = buildSitemapXml(null, '2026-07-23T00:00:00.000Z')
     const urlCount = xml.match(/<url>/g)?.length ?? 0
-    expect(urlCount).toBe(2) // just / and /careers
+    expect(urlCount).toBe(LOCALES.length * 2)
   })
 })
 

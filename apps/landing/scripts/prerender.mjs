@@ -43,10 +43,36 @@ const SITE_ORIGIN = 'https://cheekycheese.tech'
 const API_ORIGIN = process.env['PRERENDER_API_ORIGIN'] ?? SITE_ORIGIN
 const PORT = Number(process.env['PRERENDER_PORT'] ?? 4173)
 
+// Keep in sync with app/i18n/locale.ts LOCALES/DEFAULT_LOCALE — same
+// duplication rationale as SITE_ORIGIN above (plain Node ESM script, cannot
+// import a `.ts` module with `as const`/type syntax without a build step).
+// task-landing-i18n.md — owner scope-change 2026-07-25: 5 locales.
+const LOCALES = ['en', 'uk', 'ru', 'es', 'pt']
+const DEFAULT_LOCALE = 'en'
+
+/** @param {string} locale @returns {string} `''` for `en`, `/uk` etc otherwise. */
+function localePrefix(locale) {
+  return locale === DEFAULT_LOCALE ? '' : `/${locale}`
+}
+
 /**
- * @typedef {{ slug: string, publishedAt: string }} VacancyListItem
- * @typedef {{ url: string, file: string, requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
+ * @typedef {{ slug: string, publishedAt: string, translations?: Record<string, { title: string, description: string }> | null }} VacancyListItem
+ * @typedef {{ url: string, file: string, locale: string, requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
  */
+
+/**
+ * Mirrors `app/lib/vacancy-i18n.ts` `vacancyHreflangExcludes` (plain-Node
+ * ESM duplication, same rationale as SITE_ORIGIN/LOCALES above) — locales
+ * with no real translation for this vacancy (plan §3/A10). Pre-Block-C
+ * (no `translations` field in the API response yet), this safely excludes
+ * EVERY non-default locale, matching the client-side fallback behavior.
+ *
+ * @param {VacancyListItem} vacancy
+ * @returns {string[]}
+ */
+function vacancyHreflangExcludes(vacancy) {
+  return LOCALES.filter((locale) => locale !== DEFAULT_LOCALE && !vacancy.translations?.[locale])
+}
 
 function warn(message) {
   // `::warning::` — native GHA annotation, matches the convention already
@@ -78,6 +104,13 @@ async function fetchVacancies() {
 }
 
 /**
+ * task-landing-i18n.md (plan §1/§4 A1/A8) — one home + careers-list + one
+ * per-vacancy detail route PER LOCALE. Matches the 5 parallel route files
+ * (`app/routes/index.tsx` (en) + `uk.tsx`/`ru.tsx`/`es.tsx`/`pt.tsx` and
+ * their `.careers`/`.careers_.$slug` siblings) — `en` is unprefixed
+ * (`/`, `careers/index.html`), every other locale is `/<locale>/...`
+ * (`<locale>/index.html`, `<locale>/careers/index.html`, ...).
+ *
  * @param {VacancyListItem[] | null} vacancies
  * @returns {PrerenderRoute[]}
  */
@@ -85,20 +118,31 @@ function buildRoutes(vacancies) {
   // Matches app/routes/careers.tsx's own `vacancies.length > 0 ? buildItemListJsonLd(...) : undefined`
   // — an ItemList with zero items has nothing useful to tell a crawler.
   const hasVacancies = (vacancies?.length ?? 0) > 0
-  const routes = [
-    { url: '/', file: 'index.html', requireJsonLd: 'organization+website' },
-    {
-      url: '/careers',
-      file: 'careers/index.html',
-      requireJsonLd: hasVacancies ? 'item-list' : null,
-    },
-  ]
-  for (const v of vacancies ?? []) {
+  /** @type {PrerenderRoute[]} */
+  const routes = []
+  for (const locale of LOCALES) {
+    const prefix = localePrefix(locale)
+    const filePrefix = locale === DEFAULT_LOCALE ? '' : `${locale}/`
     routes.push({
-      url: `/careers/${v.slug}`,
-      file: `careers/${v.slug}/index.html`,
-      requireJsonLd: 'job-posting-breadcrumb',
+      url: prefix === '' ? '/' : prefix,
+      file: `${filePrefix}index.html`,
+      locale,
+      requireJsonLd: 'organization+website',
     })
+    routes.push({
+      url: `${prefix}/careers`,
+      file: `${filePrefix}careers/index.html`,
+      locale,
+      requireJsonLd: hasVacancies ? 'item-list' : null,
+    })
+    for (const v of vacancies ?? []) {
+      routes.push({
+        url: `${prefix}/careers/${v.slug}`,
+        file: `${filePrefix}careers/${v.slug}/index.html`,
+        locale,
+        requireJsonLd: 'job-posting-breadcrumb',
+      })
+    }
   }
   return routes
 }
@@ -185,6 +229,26 @@ function assertRobotsMeta(html, expectNoindex, label) {
 }
 
 /**
+ * task-landing-i18n.md (plan §4 A5) — `<html lang>` must match the route's
+ * locale in the CAPTURED static file, same belt-and-suspenders pattern as
+ * `assertRobotsMeta` (checks the already-serialized HTML string, not the
+ * live DOM `useDocumentHead`'s effect wrote a moment earlier).
+ *
+ * @param {string} html
+ * @param {string} expectedLang
+ * @param {string} label
+ * @returns {void}
+ */
+function assertHtmlLang(html, expectedLang, label) {
+  const match = html.match(/<html[^>]*\blang="([^"]*)"/)
+  if (match?.[1] !== expectedLang) {
+    throw new Error(
+      `prerender: captured <html lang> for ${label} is "${match?.[1] ?? '(missing)'}", expected "${expectedLang}"`,
+    )
+  }
+}
+
+/**
  * Same document-request interceptor + reduced-motion emulation every
  * captured page needs (see the inline comments at the two call sites this
  * replaces for the full rationale) — factored out so `captureRoute()` can
@@ -243,6 +307,10 @@ const MAX_CAPTURE_ATTEMPTS = 3
  */
 async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
   const label = route?.url ?? url
+  // route.locale is undefined for the 404-marker capture (route === null) —
+  // `useDocumentHead`'s own `htmlLang` default is `en` (DEFAULT_LOCALE), so
+  // that's the correct expectation there too (task-landing-i18n.md, A5).
+  const expectedLang = route?.locale ?? DEFAULT_LOCALE
   /** @type {unknown} */
   let lastError
   for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
@@ -253,6 +321,7 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
       await waitForDocumentHeadSettled(page, expectNoindex)
       const html = await page.content()
       assertRobotsMeta(html, expectNoindex, label)
+      assertHtmlLang(html, expectedLang, label)
       if (route) assertJsonLd(html, route)
       return html
     } catch (err) {
@@ -381,6 +450,35 @@ function xmlEscape(value) {
   return value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 }
 
+/** @param {string} locale @param {string} path - root-relative, e.g. `/careers/foo` (no trailing slash) @returns {string} absolute, trailing-slash-terminated URL. */
+function localizedUrl(locale, path) {
+  const prefix = localePrefix(locale)
+  if (path === '/') return `${SITE_ORIGIN}${prefix === '' ? '/' : `${prefix}/`}`
+  return `${SITE_ORIGIN}${prefix}${path}/`
+}
+
+/**
+ * task-landing-i18n.md (plan §4 A7) — every `<url>` carries an
+ * `<xhtml:link rel="alternate">` per locale (excluding `excludeLocales`,
+ * plan §3/A10) plus `x-default` -> the `en` URL, same reciprocal cluster
+ * `app/lib/seo.ts` `buildHreflangAlternates()` builds for the live
+ * `<head>` tags — kept in sync by construction (both iterate `LOCALES`).
+ *
+ * @param {string} path
+ * @param {string[]} excludeLocales
+ * @returns {string}
+ */
+function buildXhtmlAlternates(path, excludeLocales) {
+  const links = LOCALES.filter((l) => !excludeLocales.includes(l)).map(
+    (l) =>
+      `    <xhtml:link rel="alternate" hreflang="${l}" href="${xmlEscape(localizedUrl(l, path))}" />`,
+  )
+  links.push(
+    `    <xhtml:link rel="alternate" hreflang="x-default" href="${xmlEscape(localizedUrl(DEFAULT_LOCALE, path))}" />`,
+  )
+  return links.join('\n')
+}
+
 /**
  * @param {VacancyListItem[] | null} vacancies
  * @param {string} buildTime
@@ -390,23 +488,36 @@ function buildSitemapXml(vacancies, buildTime) {
   // Trailing-slash-terminated — matches app/lib/seo.ts canonicalUrl() /
   // router.tsx trailingSlash: 'always' (see that file's comment for why):
   // sitemap URLs should be the exact canonical/200 form, not one that 301s.
-  const urls = [
-    { loc: `${SITE_ORIGIN}/`, lastmod: buildTime },
-    { loc: `${SITE_ORIGIN}/careers/`, lastmod: buildTime },
-    ...(vacancies ?? []).map((v) => ({
-      loc: `${SITE_ORIGIN}/careers/${v.slug}/`,
-      lastmod: v.publishedAt,
-    })),
-  ]
+  /** @type {{ loc: string, lastmod: string, alternates: string }[]} */
+  const urls = []
+  for (const locale of LOCALES) {
+    urls.push({
+      loc: localizedUrl(locale, '/'),
+      lastmod: buildTime,
+      alternates: buildXhtmlAlternates('/', []),
+    })
+    urls.push({
+      loc: localizedUrl(locale, '/careers'),
+      lastmod: buildTime,
+      alternates: buildXhtmlAlternates('/careers', []),
+    })
+    for (const v of vacancies ?? []) {
+      urls.push({
+        loc: localizedUrl(locale, `/careers/${v.slug}`),
+        lastmod: v.publishedAt,
+        alternates: buildXhtmlAlternates(`/careers/${v.slug}`, vacancyHreflangExcludes(v)),
+      })
+    }
+  }
   const body = urls
     .map(
       (u) =>
-        `  <url>\n    <loc>${xmlEscape(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n  </url>`,
+        `  <url>\n    <loc>${xmlEscape(u.loc)}</loc>\n    <lastmod>${u.lastmod}</lastmod>\n${u.alternates}\n  </url>`,
     )
     .join('\n')
   return (
     '<?xml version="1.0" encoding="UTF-8"?>\n' +
-    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' +
     `${body}\n` +
     '</urlset>\n'
   )
@@ -502,8 +613,10 @@ async function main() {
 
   // Sanity echo — lets a CI log reader see at a glance whether vacancy pages
   // were actually produced this run (0 is a valid, non-failing outcome).
+  // `routes.length` = (2 + N vacancies) * LOCALES.length (task-landing-i18n.md).
+  const vacancyPageCount = (vacancies?.length ?? 0) * LOCALES.length
   console.log(
-    `prerender: done — ${routes.length - 2} vacancy page(s) prerendered (API ${vacancies === null ? 'unreachable' : 'reachable, ' + vacancies.length + ' PUBLISHED'}).`,
+    `prerender: done — ${routes.length} route(s) across ${LOCALES.length} locales, ${vacancyPageCount} vacancy page(s) prerendered (API ${vacancies === null ? 'unreachable' : 'reachable, ' + vacancies.length + ' PUBLISHED'}).`,
   )
 }
 
@@ -534,4 +647,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
 // Re-exported for app/__tests__/prerender-seo.spec.ts (plain Node module —
 // Vitest can import .mjs directly, no build step needed).
-export { buildRobotsTxt, buildSitemapXml, buildRoutes, extractJsonLd, assertJsonLd }
+export {
+  buildRobotsTxt,
+  buildSitemapXml,
+  buildRoutes,
+  extractJsonLd,
+  assertJsonLd,
+  assertHtmlLang,
+  vacancyHreflangExcludes,
+  LOCALES,
+}
