@@ -57,7 +57,7 @@ function localePrefix(locale) {
 
 /**
  * @typedef {{ slug: string, publishedAt: string, translations?: Record<string, { title: string, description: string }> | null }} VacancyListItem
- * @typedef {{ url: string, file: string, locale?: string, requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
+ * @typedef {{ url: string, file: string, locale?: string, path: string, pageType: 'home' | 'careers' | 'vacancy', hreflangExcludes: string[], requireJsonLd: 'organization+website' | 'item-list' | 'job-posting-breadcrumb' | null }} PrerenderRoute
  */
 
 /**
@@ -127,12 +127,26 @@ function buildRoutes(vacancies) {
       url: prefix === '' ? '/' : prefix,
       file: `${filePrefix}index.html`,
       locale,
+      // `path` — locale-agnostic, root-relative (task-landing-i18n.md
+      // orchestrator finding #2): the SAME value every locale's own
+      // `*-page-content.tsx` passes to `buildHreflangAlternates()` — lets
+      // `assertCanonicalSelf`/`assertAlternatesMatch` below compute the
+      // EXPECTED canonical/alternate set independently of what the capture
+      // actually rendered, so a page-identity mix-up (careers rendering as
+      // home, or vice versa) is caught by comparing against ground truth,
+      // not by re-deriving expectations from the same (possibly wrong) HTML.
+      path: '/',
+      pageType: 'home',
+      hreflangExcludes: [],
       requireJsonLd: 'organization+website',
     })
     routes.push({
       url: `${prefix}/careers`,
       file: `${filePrefix}careers/index.html`,
       locale,
+      path: '/careers',
+      pageType: 'careers',
+      hreflangExcludes: [],
       requireJsonLd: hasVacancies ? 'item-list' : null,
     })
     for (const v of vacancies ?? []) {
@@ -140,6 +154,9 @@ function buildRoutes(vacancies) {
         url: `${prefix}/careers/${v.slug}`,
         file: `${filePrefix}careers/${v.slug}/index.html`,
         locale,
+        path: `/careers/${v.slug}`,
+        pageType: 'vacancy',
+        hreflangExcludes: vacancyHreflangExcludes(v),
         requireJsonLd: 'job-posting-breadcrumb',
       })
     }
@@ -322,7 +339,12 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
       const html = await page.content()
       assertRobotsMeta(html, expectNoindex, label)
       assertHtmlLang(html, expectedLang, label)
-      if (route) assertJsonLd(html, route)
+      if (route) {
+        assertJsonLd(html, route)
+        assertCanonicalSelf(html, route)
+        assertAlternatesMatch(html, route)
+        assertNoHomeJsonLdLeak(html, route)
+      }
       return html
     } catch (err) {
       lastError = err
@@ -423,6 +445,96 @@ function assertJsonLd(html, route) {
 }
 
 // ---------------------------------------------------------------------------
+// 2b. Page-identity verification (task-landing-i18n.md orchestrator finding,
+//     PR #421 issuecomment-5080204989) — a TanStack Router file-nesting bug
+//     (`ru.tsx` swallowing `ru.careers.tsx` as a child route) made
+//     `/ru/careers/` etc. render the LOCALE HOME page while still returning
+//     200 with a plausible `lang="ru"` and, when 0 vacancies were seeded,
+//     NO JSON-LD requirement at all (`requireJsonLd: null`) — every existing
+//     assertion above (`assertRobotsMeta`/`assertHtmlLang`/`assertJsonLd`)
+//     only checks that a correct-SHAPED tag is present, never that the
+//     rendered CONTENT actually belongs to the URL under test, so all three
+//     passed on the broken build. This is documented as the THIRD
+//     recurrence of this exact bug class in the project (presence-check !=
+//     identity-check). The two functions below close that gap by computing
+//     the EXPECTED canonical/alternate URLs independently from `route.path`/
+//     `route.locale`/`route.hreflangExcludes` (ground truth, set once in
+//     `buildRoutes()`) and comparing them against what the capture actually
+//     produced — a page-identity mix-up fails immediately regardless of
+//     locale, vacancy-seeding state, or copy differences between page types.
+// ---------------------------------------------------------------------------
+
+/**
+ * @param {string} html
+ * @param {PrerenderRoute} route
+ * @returns {void}
+ */
+function assertCanonicalSelf(html, route) {
+  const expected = localizedUrl(route.locale ?? DEFAULT_LOCALE, route.path)
+  const match = html.match(/<link rel="canonical" href="([^"]*)"/)
+  const actual = match?.[1]
+  if (actual !== expected) {
+    throw new Error(
+      `prerender: canonical for ${route.url} is "${actual ?? '(missing)'}", expected "${expected}" ` +
+        '— page-identity check failed (the WRONG route almost certainly rendered here; ' +
+        'see task-landing-i18n.md orchestrator finding).',
+    )
+  }
+}
+
+/**
+ * @param {string} html
+ * @param {PrerenderRoute} route
+ * @returns {void}
+ */
+function assertAlternatesMatch(html, route) {
+  const expected = new Set(computeAlternateHrefs(route.path, route.hreflangExcludes))
+  const actual = new Set(
+    [...html.matchAll(/<link rel="alternate" hreflang="[^"]*" href="([^"]*)"/g)].map((m) => m[1]),
+  )
+  const missing = [...expected].filter((href) => !actual.has(href))
+  const extra = [...actual].filter((href) => !expected.has(href))
+  if (missing.length > 0 || extra.length > 0) {
+    throw new Error(
+      `prerender: alternate hrefs for ${route.url} do not match the expected set — ` +
+        `missing: [${missing.join(', ')}], unexpected: [${extra.join(', ')}] ` +
+        '(alternates must point at the SAME page type on every other locale, never at a locale root; ' +
+        'see task-landing-i18n.md orchestrator finding).',
+    )
+  }
+}
+
+/**
+ * Second, independent page-identity signal (belt-and-suspenders alongside
+ * `assertCanonicalSelf`, and — unlike `assertJsonLd` above — one that does
+ * NOT no-op when `route.requireJsonLd === null`): Organization/WebSite
+ * JSON-LD is emitted EXCLUSIVELY by `home-page-content.tsx` (see
+ * `assertJsonLd`'s `'organization+website'` branch above, the only route
+ * type it applies to). Its presence on a captured non-home route is
+ * unambiguous proof the home component rendered there instead — this is
+ * precisely the check that would have caught the original bug even on a
+ * zero-vacancy build (`requireJsonLd: null` for `/ru/careers/` there, so
+ * `assertJsonLd` alone skipped validation entirely).
+ *
+ * @param {string} html
+ * @param {PrerenderRoute} route
+ * @returns {void}
+ */
+function assertNoHomeJsonLdLeak(html, route) {
+  if (route.pageType === 'home') return
+  const data = extractJsonLd(html)
+  if (data === null) return
+  const types = Array.isArray(data) ? data.map((entry) => entry?.['@type']) : [data?.['@type']]
+  if (types.includes('Organization') || types.includes('WebSite')) {
+    throw new Error(
+      `prerender: ${route.url} (pageType=${route.pageType}) carries Organization/WebSite JSON-LD, ` +
+        'which only ever belongs on the home page — the wrong route rendered here ' +
+        '(see task-landing-i18n.md orchestrator finding).',
+    )
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 3. robots.txt + sitemap.xml (task §2) — plain static files, no React page
 //    exists for these, so they are generated directly here.
 // ---------------------------------------------------------------------------
@@ -455,6 +567,24 @@ function localizedUrl(locale, path) {
   const prefix = localePrefix(locale)
   if (path === '/') return `${SITE_ORIGIN}${prefix === '' ? '/' : `${prefix}/`}`
   return `${SITE_ORIGIN}${prefix}${path}/`
+}
+
+/**
+ * Ground-truth expected alternate hrefs for `path` (locale-agnostic,
+ * root-relative) — one per locale not in `excludeLocales`, in `LOCALES`
+ * order, PLUS `x-default` (the `en` URL) last. Shared by
+ * `buildXhtmlAlternates()` below (sitemap) and `assertAlternatesMatch()`
+ * above (page-identity verification) so both compute the exact same
+ * expected set from the exact same inputs — see that function's doc.
+ *
+ * @param {string} path
+ * @param {string[]} excludeLocales
+ * @returns {string[]}
+ */
+function computeAlternateHrefs(path, excludeLocales) {
+  const hrefs = LOCALES.filter((l) => !excludeLocales.includes(l)).map((l) => localizedUrl(l, path))
+  hrefs.push(localizedUrl(DEFAULT_LOCALE, path))
+  return hrefs
 }
 
 /**
@@ -654,6 +784,10 @@ export {
   extractJsonLd,
   assertJsonLd,
   assertHtmlLang,
+  assertCanonicalSelf,
+  assertAlternatesMatch,
+  assertNoHomeJsonLdLeak,
+  computeAlternateHrefs,
   vacancyHreflangExcludes,
   LOCALES,
 }

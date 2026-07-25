@@ -3,15 +3,15 @@ import type { PublicVacancy } from '@crm/shared'
 import { fetchVacancies } from '@/lib/api'
 import { HomePageContent } from '@/components/marketing/pages/home-page-content'
 import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
-import { ru } from '@/i18n/dictionaries/ru'
+import { uk } from '@/i18n/dictionaries/uk'
 
-/** `/ru` — Russian home (task-landing-i18n.md, plan §1 URL scheme). */
-export const Route = createFileRoute('/ru')({
-  loader: async () => fetchVacancies('ru'),
-  component: RuLandingPage,
+/** `/uk` — Ukrainian home (task-landing-i18n.md, plan §1 URL scheme). */
+export const Route = createFileRoute('/uk/')({
+  loader: async () => fetchVacancies('uk'),
+  component: UkLandingPage,
 })
 
-function RuLandingPage() {
+function UkLandingPage() {
   const vacancies = Route.useLoaderData() as (PublicVacancy & LocalizableVacancyFields)[]
-  return <HomePageContent vacancies={vacancies} locale="ru" dict={ru} />
+  return <HomePageContent vacancies={vacancies} locale="uk" dict={uk} />
 }

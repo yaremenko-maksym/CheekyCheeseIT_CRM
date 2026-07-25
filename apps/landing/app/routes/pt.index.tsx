@@ -6,7 +6,7 @@ import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import { pt } from '@/i18n/dictionaries/pt'
 
 /** `/pt` — Portuguese home (task-landing-i18n.md, plan §1 URL scheme). */
-export const Route = createFileRoute('/pt')({
+export const Route = createFileRoute('/pt/')({
   loader: async () => fetchVacancies('pt'),
   component: PtLandingPage,
 })
