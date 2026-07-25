@@ -1,5 +1,6 @@
 import { animate } from 'framer-motion'
 import { DUR_TITLE_MORPH, EASE_SOFT } from './motion'
+import { LOCALES } from '@/i18n/locale'
 
 /**
  * Shared-element title morph, `/careers ↔ /careers/:slug` only (docs/design/
@@ -28,12 +29,28 @@ interface RoutePair {
 let pendingMorph: PendingMorph | null = null
 let pendingRoutePair: RoutePair | null = null
 
+// task-landing-i18n.md — the morph must keep working across every locale
+// (`/ru/careers/` -> `/ru/careers/<slug>/` plays the same morph as the
+// unprefixed `en` pair). Strips a leading non-default-locale prefix
+// (`/uk`, `/ru`, `/es`, `/pt`) before matching, so the SAME regexes below
+// work for every locale without per-locale duplication.
+const NON_DEFAULT_LOCALE_PREFIX_RE = new RegExp(
+  `^/(?:${LOCALES.filter((l) => l !== 'en').join('|')})(?=/|$)`,
+)
+
+function stripLocalePrefix(pathname: string): string {
+  const stripped = pathname.replace(NON_DEFAULT_LOCALE_PREFIX_RE, '')
+  return stripped === '' ? '/' : stripped
+}
+
 function isCareersListPath(pathname: string): boolean {
-  return pathname === '/careers' || pathname === '/careers/'
+  const p = stripLocalePrefix(pathname)
+  return p === '/careers' || p === '/careers/'
 }
 
 function isCareersDetailPath(pathname: string): boolean {
-  return /^\/careers\/[^/]+\/?$/.test(pathname)
+  const p = stripLocalePrefix(pathname)
+  return /^\/careers\/[^/]+\/?$/.test(p)
 }
 
 /**

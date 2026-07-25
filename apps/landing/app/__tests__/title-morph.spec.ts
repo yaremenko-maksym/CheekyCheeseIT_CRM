@@ -110,6 +110,54 @@ describe('isMorphRoutePair', () => {
     const { isMorphRoutePair } = await freshModule()
     expect(isMorphRoutePair('/careers/senior-ml-engineer', '/')).toBe(false)
   })
+
+  // task-landing-i18n.md review round 1, MED — locale-prefix-stripping
+  // (`stripLocalePrefix`/`NON_DEFAULT_LOCALE_PREFIX_RE`, added by this PR)
+  // had zero coverage; the morph must keep working identically on every
+  // non-default locale's own `/<locale>/careers` <-> `/<locale>/careers/:slug`
+  // pair, not just the unprefixed `en` routes above.
+  it.each(['uk', 'ru', 'es', 'pt'] as const)(
+    '%s: locale-prefixed list -> detail is eligible',
+    async (locale) => {
+      const { isMorphRoutePair } = await freshModule()
+      expect(isMorphRoutePair(`/${locale}/careers`, `/${locale}/careers/senior-ml-engineer`)).toBe(
+        true,
+      )
+      expect(
+        isMorphRoutePair(`/${locale}/careers/`, `/${locale}/careers/senior-ml-engineer/`),
+      ).toBe(true)
+    },
+  )
+
+  it.each(['uk', 'ru', 'es', 'pt'] as const)(
+    '%s: locale-prefixed detail -> list is eligible',
+    async (locale) => {
+      const { isMorphRoutePair } = await freshModule()
+      expect(isMorphRoutePair(`/${locale}/careers/senior-ml-engineer`, `/${locale}/careers`)).toBe(
+        true,
+      )
+    },
+  )
+
+  it("a locale-prefixed HOME path (e.g. /ru) is never mistaken for that locale's careers list", async () => {
+    const { isMorphRoutePair } = await freshModule()
+    expect(isMorphRoutePair('/ru', '/ru/careers/senior-ml-engineer')).toBe(false)
+    expect(isMorphRoutePair('/es/', '/es/careers/senior-ml-engineer')).toBe(false)
+  })
+
+  it("documents actual behavior — isMorphRoutePair strips each side's locale prefix independently, so a (never realistically exercised) cross-locale pair still shape-matches; capture/consume only ever fires within a single page load, always the same locale in practice, so this is harmless, not a bug to fix", async () => {
+    const { isMorphRoutePair } = await freshModule()
+    expect(isMorphRoutePair('/ru/careers', '/uk/careers/senior-ml-engineer')).toBe(true)
+  })
+
+  it('a locale slug string that happens to prefix-match a real locale code is not falsely stripped mid-path', async () => {
+    const { isMorphRoutePair } = await freshModule()
+    // Slug "ru-migration-guide" must NOT be misread as a `/ru` locale
+    // prefix — the regex requires the locale token to be the FIRST path
+    // segment (`^/(?:uk|ru|es|pt)(?=/|$)`), so this is really just an
+    // ordinary (non-prefixed) `/careers/<slug>` pair.
+    expect(isMorphRoutePair('/careers', '/careers/ru-migration-guide')).toBe(true)
+  })
 })
 
 describe('captureMorphSource + readPendingMorph', () => {

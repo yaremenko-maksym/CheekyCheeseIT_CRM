@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { m, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { Tag } from '@/components/ui/tag'
 import { useCoarsePointer } from '@/lib/use-coarse-pointer'
@@ -26,8 +26,23 @@ import type { CaseStudy } from '@/content/case-studies'
  * width (~83px) overruns the 66px+16px-gap grid column budget on 320px
  * viewports, visually touching the next metric. Smaller base size fully
  * fixes it; ≥400px reverts to the original 1.9rem (no overlap there).
+ *
+ * `challengeLabel`/`solutionLabel` (review round 1, designer HIGH fix) —
+ * localized `Dictionary['home']['challengeLabel']`/`['solutionLabel']`
+ * passed by the caller (`home-page-content.tsx`), NOT hardcoded English
+ * "Challenge"/"Solution" — the bug this fixes stayed English on all 5
+ * locales even though the translated strings already existed in every
+ * `i18n/dictionaries/*.ts` and were simply never wired up.
  */
-export function CaseStudyCard({ study }: { study: CaseStudy }) {
+export function CaseStudyCard({
+  study,
+  challengeLabel,
+  solutionLabel,
+}: {
+  study: CaseStudy
+  challengeLabel: string
+  solutionLabel: string
+}) {
   const ref = useRef<HTMLDivElement>(null)
   const reduced = useReducedMotion()
   const coarse = useCoarsePointer()
@@ -48,13 +63,13 @@ export function CaseStudyCard({ study }: { study: CaseStudy }) {
           <div className="flex flex-col gap-4">
             <div>
               <div className="mb-1.5 font-mono text-[0.72rem] tracking-[0.12em] text-primary uppercase">
-                Challenge
+                {challengeLabel}
               </div>
               <p className="m-0 text-muted-foreground">{study.challenge}</p>
             </div>
             <div>
               <div className="mb-1.5 font-mono text-[0.72rem] tracking-[0.12em] text-primary uppercase">
-                Solution
+                {solutionLabel}
               </div>
               <p className="m-0 text-muted-foreground">{study.solution}</p>
             </div>
@@ -73,7 +88,9 @@ export function CaseStudyCard({ study }: { study: CaseStudy }) {
             ))}
           </div>
         ) : (
-          <motion.div
+          // `m.div` (perf round, PR #421 orchestrator finding) — see
+          // __root.tsx's module doc.
+          <m.div
             className="grid grid-cols-3 gap-4"
             style={{ opacity: metricsOpacity, y: metricsY }}
           >
@@ -86,7 +103,7 @@ export function CaseStudyCard({ study }: { study: CaseStudy }) {
                 <div className="mt-2 text-[0.82rem] text-muted-foreground">{metric.label}</div>
               </div>
             ))}
-          </motion.div>
+          </m.div>
         )}
       </div>
     </Card>

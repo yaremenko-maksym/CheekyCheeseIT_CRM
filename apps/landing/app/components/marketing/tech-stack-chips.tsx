@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { motion, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
+import { m, useReducedMotion, useScroll, useTransform, type MotionValue } from 'framer-motion'
 import { Chip } from '@/components/ui/chip'
 import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 
@@ -27,10 +27,12 @@ function AnimatedChip({
   const start = (index / total) * 0.4
   const opacity = useTransform(scrollYProgress, [start, start + 0.2], [0, 1])
   const y = useTransform(scrollYProgress, [start, start + 0.2], [10, 0])
+  // `m.div` (perf round, PR #421 orchestrator finding) — see __root.tsx's
+  // module doc.
   return (
-    <motion.div style={{ opacity, y }}>
+    <m.div style={{ opacity, y }}>
       <Chip>{tech}</Chip>
-    </motion.div>
+    </m.div>
   )
 }
 

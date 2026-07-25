@@ -5,6 +5,7 @@ import type {
   VacancyLocale,
 } from '@crm/shared'
 import { CONTACT_EMAIL } from '@/content/home'
+import { DEFAULT_LOCALE, LOCALES, localizedPath, type Locale } from '@/i18n/locale'
 
 /**
  * task-landing-seo-prerender.md — SEO constants + schema.org JSON-LD builders.
@@ -33,6 +34,50 @@ export const SITE_NAME = 'CheekyCheeseIT'
 export function canonicalUrl(pathname: string): string {
   const withSlash = pathname.endsWith('/') ? pathname : `${pathname}/`
   return `${SITE_ORIGIN}${withSlash}`
+}
+
+export interface HreflangAlternate {
+  /** BCP47-ish tag: one of `Locale` (`en`/`uk`/`ru`/`es`/`pt`) or the literal `'x-default'`. */
+  hreflang: Locale | 'x-default'
+  href: string
+}
+
+/**
+ * Builds the FULL hreflang cluster (plan §1/§4 A4, task-landing-i18n.md) for
+ * a locale-agnostic, root-relative path (e.g. `/`, `/careers`,
+ * `/careers/my-slug`) — one `alternate` entry per locale in `LOCALES`, plus
+ * `x-default` -> the `en` (default locale) URL.
+ *
+ * Reciprocal by construction: every locale's own page calls this with the
+ * SAME locale-agnostic `path`, so all N locale pages for that logical
+ * document emit the identical (N+1)-entry cluster — A ссылается на B, B на
+ * A (plan §1's "взаимность обязательна"), verified by
+ * `__tests__/seo.spec.ts`'s reciprocity test across every route.
+ *
+ * `excludeLocales` (plan §3/A10 "непереведённая — оригинал БЕЗ hreflang на
+ * неё") drops locales a vacancy has no real translation for — the SAME
+ * exclusion set must be passed by every locale's page for that vacancy so
+ * the cluster stays reciprocal even with omissions (see
+ * `pages/vacancy-detail-page-content.tsx`).
+ */
+export function buildHreflangAlternates(
+  path: string,
+  excludeLocales: readonly Locale[] = [],
+): HreflangAlternate[] {
+  const alternates: HreflangAlternate[] = LOCALES.filter(
+    (locale) => !excludeLocales.includes(locale),
+  ).map((locale) => ({
+    hreflang: locale,
+    href: canonicalUrl(localizedPath(locale, path)),
+  }))
+  // x-default always resolves to the `en` URL (plan §1) — `en` is never
+  // realistically in `excludeLocales` (A10's fallback locale IS en, see
+  // lib/api.ts), so this is always present.
+  alternates.push({
+    hreflang: 'x-default',
+    href: canonicalUrl(localizedPath(DEFAULT_LOCALE, path)),
+  })
+  return alternates
 }
 
 export interface OrganizationJsonLd {

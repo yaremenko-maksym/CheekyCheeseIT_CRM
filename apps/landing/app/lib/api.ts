@@ -1,19 +1,35 @@
+import type { PublicVacancy, PublicVacancyDetail } from '@crm/shared'
+// Runtime schema values come from the narrow '@crm/shared/public' subpath,
+// NOT the full '@crm/shared' barrel — see packages/shared/src/public.ts doc
+// comment (PR #421 Lighthouse RCA: the full barrel drags all 28 CRM domains'
+// Zod schemas into this file's importers because z.object()/z.enum() calls
+// aren't tree-shakeable). `import type` above is unaffected — types are
+// erased at compile time regardless of which subpath they resolve through.
+import { publicVacancyDetailSchema, publicVacancySchema } from '@crm/shared/public'
 import { z } from 'zod'
-import {
-  publicVacancyDetailSchema,
-  publicVacancySchema,
-  type PublicVacancy,
-  type PublicVacancyDetail,
-} from '@crm/shared'
+import { DEFAULT_LOCALE, NON_DEFAULT_LOCALES, type Locale } from '@/i18n/locale'
 
 /**
  * Same-origin `fetch` against `/api` (docs/superpowers/specs/2026-07-22-landing-refactor-design.md
  * §2.3) — nginx proxies `/api` in prod, `vite.config.ts` proxies it in dev. No
  * react-query on the landing (product decision — YAGNI for 3 read-mostly
  * routes), no base-URL config needed.
+ *
+ * `PublicVacancy`/`PublicVacancyDetail` are the REAL `@crm/shared` contract
+ * (Block C, PR #422, merged) — `title`/`descriptionMd` are already resolved
+ * SERVER-SIDE for whatever `?locale=` was requested (original `en` copy as a
+ * fallback + `isFallback: true` when no translation exists, see
+ * `VacanciesService.resolveLocalized()`); this file no longer mocks the
+ * contract (task-landing-i18n.md round-4 "дорезка" — was a local `.extend()`
+ * shim with a `translations` object resolved CLIENT-side, superseded now
+ * that Block C's real column + response field exist).
  */
-
 const publicVacancyListSchema = z.array(publicVacancySchema)
+
+/** `?locale=` query suffix — omitted for `en` (the API's own default), matches plan §3 "Публичные эндпоинты принимают `?locale=en|uk|ru|es|pt`". */
+function localeQuery(locale: Locale): string {
+  return locale === DEFAULT_LOCALE ? '' : `?locale=${locale}`
+}
 
 /**
  * GET /api/public/vacancies — only PUBLISHED, mapped to loader data for `/`
@@ -33,10 +49,10 @@ const publicVacancyListSchema = z.array(publicVacancySchema)
  * identical to whoever is reading browser-console/error-tracking output
  * trying to tell them apart.
  */
-export async function fetchVacancies(): Promise<PublicVacancy[]> {
+export async function fetchVacancies(locale: Locale = DEFAULT_LOCALE): Promise<PublicVacancy[]> {
   let res: Response
   try {
-    res = await fetch('/api/public/vacancies')
+    res = await fetch(`/api/public/vacancies${localeQuery(locale)}`)
   } catch (err) {
     console.error('fetchVacancies: network error — falling back to an empty list', err)
     return []
@@ -56,19 +72,56 @@ export async function fetchVacancies(): Promise<PublicVacancy[]> {
 }
 
 /**
- * GET /api/public/vacancies/:slug — `null` for the 404 case (DRAFT/CLOSED/
- * missing; the API deliberately does not distinguish these, see
- * VacanciesService.getPublicBySlug). The route turns `null` into the
- * "Role not found" empty state (docs/design/landing-redesign.md §8), never a
- * raw browser 404.
+ * GET /api/public/vacancies/:slug — `null` for the 404 case (DRAFT/missing)
+ * AND the 410 case (CLOSED — `VacanciesService.getPublishedRowBySlug` now
+ * distinguishes them at the HTTP layer, task-vacancy-i18n-jobposting C5, but
+ * this landing route still shows the SAME friendly "Role not found" empty
+ * state for both — a closed posting is exactly as unavailable to a visitor
+ * as one that never existed; only the 410-vs-404 distinction itself matters
+ * for search-engine de-indexing signals, not for what a human sees).
  */
-export async function fetchVacancy(slug: string): Promise<PublicVacancyDetail | null> {
-  const res = await fetch(`/api/public/vacancies/${encodeURIComponent(slug)}`)
-  if (res.status === 404) return null
+export async function fetchVacancy(
+  slug: string,
+  locale: Locale = DEFAULT_LOCALE,
+): Promise<PublicVacancyDetail | null> {
+  const res = await fetch(`/api/public/vacancies/${encodeURIComponent(slug)}${localeQuery(locale)}`)
+  if (res.status === 404 || res.status === 410) return null
   if (!res.ok) {
     throw new Error(`Failed to load vacancy (HTTP ${res.status})`)
   }
   return publicVacancyDetailSchema.parse(await res.json())
+}
+
+/**
+ * Locales (of `NON_DEFAULT_LOCALES`) where THIS vacancy is a fallback
+ * (untranslated — showing the original `en` copy) — task-landing-i18n.md
+ * round-4 "дорезка", plan §3/A10 "непереведённая — оригинал БЕЗ hreflang на
+ * неё" (duplicate-content guard). The public API only ever reports
+ * `isFallback` for the ONE locale a request asked about (server-side
+ * resolution, see this file's module doc) — there is no single endpoint that
+ * returns "which locales are translated" for a slug, so this fetches the
+ * PUBLISHED list once per `NON_DEFAULT_LOCALES` entry (uk/ru/es/pt — `en` is
+ * never a fallback by construction, no fetch needed for it) and reads each
+ * one's own `isFallback` flag for this slug off the LIST response (cheap:
+ * same payload every OTHER caller of `fetchVacancies` already needs, not a
+ * per-vacancy detail fetch). Called from the vacancy-detail route loaders
+ * (BLOCKING, alongside the main `fetchVacancy` call) — not a later/async
+ * effect — so the value is stable and known BEFORE the first render commits,
+ * matching every other `useDocumentHead` input and avoiding a race with
+ * `scripts/prerender.mjs`'s single-capture-per-route assumption.
+ *
+ * A locale whose list fetch itself fails, or that doesn't (yet) list this
+ * slug at all, is conservatively treated as a fallback (excluded) — same
+ * "safe default" the pre-Block-C mock used.
+ */
+export async function fetchVacancyHreflangExcludes(slug: string): Promise<Locale[]> {
+  const perLocaleLists = await Promise.all(
+    NON_DEFAULT_LOCALES.map((locale) => fetchVacancies(locale)),
+  )
+  return NON_DEFAULT_LOCALES.filter((locale, i) => {
+    const entry = perLocaleLists[i]?.find((v) => v.slug === slug)
+    return entry?.isFallback !== false
+  })
 }
 
 export type SubmitApplicationErrorKind =

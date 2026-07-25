@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-router'
 import type { PublicVacancy } from '@crm/shared'
 import { CareersTeaser } from '@/components/marketing/careers-teaser'
+import { getDictionary } from '@/i18n/dictionaries'
 
 function makeVacancy(slug: string, title: string): PublicVacancy {
   return {
@@ -26,8 +27,16 @@ function makeVacancy(slug: string, title: string): PublicVacancy {
   }
 }
 
-function renderTeaser(list: PublicVacancy[]) {
-  const rootRoute = createRootRoute({ component: () => <CareersTeaser vacancies={list} /> })
+function renderTeaser(list: PublicVacancy[], locale?: 'ru') {
+  const rootRoute = createRootRoute({
+    component: () => (
+      <CareersTeaser
+        vacancies={list}
+        {...(locale ? { locale } : {})}
+        dict={getDictionary(locale ?? 'en')}
+      />
+    ),
+  })
   const router = createRouter({
     routeTree: rootRoute,
     history: createMemoryHistory({ initialEntries: ['/'] }),
@@ -55,5 +64,11 @@ describe('CareersTeaser', () => {
     expect(await screen.findByText('No open roles right now')).toBeTruthy()
     const mailLink = screen.getByRole('link', { name: 'hr@cheekycheese.tech' })
     expect(mailLink.getAttribute('href')).toBe('mailto:hr@cheekycheese.tech')
+  })
+
+  it('task-landing-i18n.md — locale="ru" рендерит локализованный href', async () => {
+    renderTeaser([makeVacancy('a', 'Role A')], 'ru')
+    const links = await screen.findAllByRole('link')
+    expect(links.some((l) => l.getAttribute('href') === '/ru/careers/a')).toBe(true)
   })
 })

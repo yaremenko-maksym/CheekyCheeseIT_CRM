@@ -1,8 +1,12 @@
 import { Link, useLocation } from '@tanstack/react-router'
 import { BrandMark } from '@/components/brand-mark'
+import { LanguageSwitcher } from '@/components/marketing/language-switcher'
 import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
 import { CONTACT_EMAIL } from '@/content/home'
+import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
+import type { Dictionary } from '@/i18n/dictionary'
+import { careersRoutePath, homeRoutePath } from '@/i18n/routes'
 
 /**
  * Hover underline-draw (§M.2) — same `::after` hairline pattern as
@@ -15,9 +19,30 @@ const FOOTER_LINK_CLASS = cn(
   focusRing,
 )
 
-/** 4-column marketing footer (landing-redesign.md §2.4 `MarketingFooter`). */
-export function MarketingFooter() {
-  const isHome = useLocation({ select: (location) => location.pathname === '/' })
+/**
+ * 4-column marketing footer (landing-redesign.md §2.4 `MarketingFooter`).
+ * `locale` (task-landing-i18n.md, default `en`) — same contract as
+ * `MarketingNav`: passed explicitly by every route file, never detected.
+ *
+ * `dict` / `path` — see `nav.tsx`'s module doc (review round 1, HIGH-1b /
+ * HIGH-3): the caller's already-resolved `Dictionary` (no internal
+ * `getDictionary()` barrel lookup — code-splitting) and the current page's
+ * locale-agnostic path (so the language switcher lands on the SAME document
+ * in the new locale, not always home).
+ */
+export function MarketingFooter({
+  locale = DEFAULT_LOCALE,
+  dict,
+  path = '/',
+}: {
+  locale?: Locale
+  dict: Dictionary
+  path?: string
+}) {
+  const t = dict
+  const homePath = homeRoutePath(locale)
+  const careersPath = careersRoutePath(locale)
+  const isHome = useLocation({ select: (location) => location.pathname === homePath })
 
   return (
     <footer className="border-t border-border bg-background">
@@ -25,7 +50,7 @@ export function MarketingFooter() {
         <div className="grid grid-cols-1 items-start gap-7 sm:grid-cols-2 lg:grid-cols-4">
           <div className="col-span-full mb-1 max-w-[340px] lg:col-span-1">
             <Link
-              to="/"
+              to={homePath}
               className={cn(
                 'mb-4 inline-flex items-center gap-2.5 font-semibold tracking-[-0.02em]',
                 focusRing,
@@ -37,65 +62,73 @@ export function MarketingFooter() {
               </span>
             </Link>
             <p className="m-0 max-w-[32ch] text-[0.92rem] text-muted-foreground">
-              An outsource &amp; outstaffing studio building AI, EdTech and E-Commerce products that
-              scale.
+              {t.footer.tagline}
             </p>
           </div>
 
           <div>
             <div className="mb-3.5 font-mono text-[0.72rem] tracking-[0.14em] text-muted-foreground uppercase">
-              Studio
+              {t.footer.studioHeading}
             </div>
             <div className="flex flex-col gap-2.5">
-              <Link to="/" {...hashLinkProps('services', isHome)} className={FOOTER_LINK_CLASS}>
-                Services
+              <Link
+                to={homePath}
+                {...hashLinkProps('services', isHome)}
+                className={FOOTER_LINK_CLASS}
+              >
+                {t.nav.services}
               </Link>
-              <Link to="/" {...hashLinkProps('work', isHome)} className={FOOTER_LINK_CLASS}>
-                Selected work
+              <Link to={homePath} {...hashLinkProps('work', isHome)} className={FOOTER_LINK_CLASS}>
+                {t.footer.selectedWork}
               </Link>
-              <Link to="/" {...hashLinkProps('process', isHome)} className={FOOTER_LINK_CLASS}>
-                How we work
+              <Link
+                to={homePath}
+                {...hashLinkProps('process', isHome)}
+                className={FOOTER_LINK_CLASS}
+              >
+                {t.footer.howWeWork}
               </Link>
             </div>
           </div>
 
           <div>
             <div className="mb-3.5 font-mono text-[0.72rem] tracking-[0.14em] text-muted-foreground uppercase">
-              Company
+              {t.footer.companyHeading}
             </div>
             <div className="flex flex-col gap-2.5">
-              <Link to="/careers/" className={FOOTER_LINK_CLASS}>
-                Careers
+              <Link to={careersPath} className={FOOTER_LINK_CLASS}>
+                {t.footer.careers}
               </Link>
-              <Link to="/" {...hashLinkProps('about', isHome)} className={FOOTER_LINK_CLASS}>
-                About us
+              <Link to={homePath} {...hashLinkProps('about', isHome)} className={FOOTER_LINK_CLASS}>
+                {t.footer.aboutUs}
               </Link>
               <a href={`mailto:${CONTACT_EMAIL}`} className={FOOTER_LINK_CLASS}>
-                Contact
+                {t.footer.contact}
               </a>
             </div>
           </div>
 
           <div>
             <div className="mb-3.5 font-mono text-[0.72rem] tracking-[0.14em] text-muted-foreground uppercase">
-              Get in touch
+              {t.footer.getInTouch}
             </div>
             <a
               href={`mailto:${CONTACT_EMAIL}`}
               className={cn(
-                'inline-flex items-center gap-2 text-[0.98rem] font-medium text-primary',
+                'mb-4 inline-flex items-center gap-2 text-[0.98rem] font-medium text-primary',
                 focusRing,
               )}
             >
               {CONTACT_EMAIL}
             </a>
+            <LanguageSwitcher locale={locale} path={path} t={t.languageSwitcher} variant="footer" />
           </div>
         </div>
 
         <hr className="my-9 h-px border-0 bg-border" />
 
         <div className="flex flex-wrap items-center justify-between gap-3 text-[0.85rem] text-muted-foreground">
-          <span>© 2026 CheekyCheeseIT. All rights reserved.</span>
+          <span>{t.footer.rights}</span>
           <span className="font-mono text-[0.78rem]">cheekycheese.tech</span>
         </div>
       </div>

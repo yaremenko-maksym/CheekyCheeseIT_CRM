@@ -1,6 +1,6 @@
 import { createRootRoute, Outlet, useRouter } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { LazyMotion, domMin, m } from 'framer-motion'
 import { ArrowLeft } from 'lucide-react'
 import { useDocumentHead } from '@/lib/use-document-head'
 import { canonicalUrl } from '@/lib/seo'
@@ -16,6 +16,7 @@ import { playLiftExit } from '@/lib/lift-transition'
 import { setPendingRoutePair } from '@/lib/title-morph'
 import { DUR_LIFT_ENTER, EASE_SOFT, LIFT_OFFSET_ENTER } from '@/lib/motion'
 import { cn, focusRing } from '@/lib/utils'
+import { en } from '@/i18n/dictionaries/en'
 import '../styles/globals.css'
 
 export const Route = createRootRoute({
@@ -160,23 +161,45 @@ function RootDocument() {
 
   const reducedMotion = isReducedMotionPreferred()
 
+  // `LazyMotion` + `m.div` (perf round, PR #421 orchestrator finding —
+  // Lighthouse mobile) — NOT a `motion.div` swap for its own sake: this
+  // wrapper mounts on EVERY route (it's the root layout around `<Outlet/>`),
+  // so the full `motion` component's bundled-in gesture/drag/layout-
+  // projection engine was shipping on every single page load even though
+  // this file (and every OTHER `m.div` site in the app, see each one's own
+  // comment) only ever uses a plain `initial`/`animate`/`transition` tween or
+  // a `style`-bound MotionValue — no drag, no gestures (`whileHover`/
+  // `whileTap`/`whileInView`-the-PROP — `ScrollReveal`'s `useInView` is the
+  // separate HOOK, unrelated to this feature split), no `layout` prop, no
+  // `AnimatePresence` (verified exhaustively — every `motion.`/`m.` JSX
+  // usage in `apps/landing/app` was grepped and read; see
+  // `docs/design/landing-redesign.md` §M v3 for the product spec these
+  // preserve). `domMin` (verified present in the installed framer-motion
+  // v12 — `node_modules/framer-motion/dist/es/render/dom/features-min.mjs`:
+  // `{ renderer, ...animations }`, no gesture bundle) is therefore enough —
+  // NOT `domAnimation` (`domMin` + `gestureAnimations`, gestures we never
+  // use). Same visual/timing behaviour either way — `m.div` accepts the
+  // identical prop API as `motion.div`; this is a bundle-composition change
+  // only.
   return (
-    <motion.div
-      key={transition.pathname}
-      ref={wrapperRef}
-      initial={
-        reducedMotion || transition.direction === null
-          ? false
-          : {
-              opacity: 0,
-              y: transition.direction === 'back' ? -LIFT_OFFSET_ENTER : LIFT_OFFSET_ENTER,
-            }
-      }
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
-    >
-      <Outlet />
-    </motion.div>
+    <LazyMotion features={domMin}>
+      <m.div
+        key={transition.pathname}
+        ref={wrapperRef}
+        initial={
+          reducedMotion || transition.direction === null
+            ? false
+            : {
+                opacity: 0,
+                y: transition.direction === 'back' ? -LIFT_OFFSET_ENTER : LIFT_OFFSET_ENTER,
+              }
+        }
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
+      >
+        <Outlet />
+      </m.div>
+    </LazyMotion>
   )
 }
 
@@ -197,7 +220,7 @@ function NotFoundPage() {
   })
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <MarketingNav />
+      <MarketingNav dict={en} />
       <main
         tabIndex={-1}
         className="flex flex-1 items-center justify-center px-5 py-24 text-center focus:outline-none"
@@ -218,7 +241,7 @@ function NotFoundPage() {
           </BackLink>
         </div>
       </main>
-      <MarketingFooter />
+      <MarketingFooter dict={en} />
     </div>
   )
 }

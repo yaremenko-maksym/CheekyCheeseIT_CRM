@@ -5,6 +5,9 @@ import type { PublicVacancy } from '@crm/shared'
 import { Tag } from '@/components/ui/tag'
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
 import { captureMorphSource } from '@/lib/title-morph'
+import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
+import type { Dictionary } from '@/i18n/dictionary'
+import { careersSlugRoutePath } from '@/i18n/routes'
 
 /**
  * Careers-teaser (Home) + `/careers` list card (landing-redesign.md §2.4
@@ -22,12 +25,32 @@ import { captureMorphSource } from '@/lib/title-morph'
  * both the Home teaser and the `/careers` list; the morph only actually
  * plays when the destination page validates the `/careers ↔ /careers/:slug`
  * route pair (title-morph.ts's consumer side) — no fork needed here.
+ *
+ * `locale` (task-landing-i18n.md, optional — default `en`) — links to this
+ * locale's `/careers/:slug`. `vacancy.title` is ALREADY the correct locale's
+ * copy — `PublicVacancy` resolves it server-side per `?locale=`
+ * (`VacanciesService.resolveLocalized`, task-landing-i18n.md round-4), this
+ * component never re-resolves it.
+ *
+ * `dict` (required — review round 1, HIGH-1b) — caller's already-resolved
+ * `Dictionary`, not looked up here (see `nav.tsx` module doc for the
+ * code-splitting rationale).
  */
-export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
+export function VacancyCard({
+  vacancy,
+  locale = DEFAULT_LOCALE,
+  dict,
+}: {
+  vacancy: PublicVacancy
+  locale?: Locale
+  dict: Dictionary
+}) {
   const titleRef = useRef<HTMLHeadingElement>(null)
+  const t = dict
+  const title = vacancy.title
   return (
     <Link
-      to="/careers/$slug/"
+      to={careersSlugRoutePath(locale)}
       params={{ slug: vacancy.slug }}
       onClick={() => {
         if (titleRef.current) captureMorphSource(titleRef.current, vacancy.slug)
@@ -35,9 +58,11 @@ export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
       className="group flex h-full flex-col gap-[18px] rounded-2xl border border-border bg-card p-6 no-underline transition-[border-color,transform,background] duration-300 ease-out will-change-transform hover:-translate-y-[3px] hover:border-[color-mix(in_oklch,var(--primary)_40%,transparent)] focus-visible:outline-2 focus-visible:outline-primary focus-visible:outline-offset-[3px] md:p-[30px]"
     >
       <div className="flex items-center justify-between gap-3">
-        <Tag variant={domainTagVariant(vacancy.domain)}>{domainLabel(vacancy.domain)}</Tag>
+        <Tag variant={domainTagVariant(vacancy.domain)}>
+          {domainLabel(vacancy.domain, t.vacancy)}
+        </Tag>
         <span className="font-mono text-[0.74rem] tracking-[0.04em] text-muted-foreground">
-          {employmentTypeLabel(vacancy.employmentType)}
+          {employmentTypeLabel(vacancy.employmentType, t.vacancy)}
         </span>
       </div>
       <div className="flex flex-col gap-2">
@@ -46,7 +71,7 @@ export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
           data-vacancy-morph-slug={vacancy.slug}
           className="text-[1.22rem] leading-[1.15] font-semibold tracking-[-0.015em] text-foreground"
         >
-          {vacancy.title}
+          {title}
         </h3>
         <div className="flex flex-wrap gap-x-4 gap-y-2 text-[0.9rem] text-muted-foreground">
           <span className="inline-flex items-center gap-1.5">
@@ -61,7 +86,7 @@ export function VacancyCard({ vacancy }: { vacancy: PublicVacancy }) {
       </div>
       <div className="mt-auto flex items-center justify-between border-t border-border/60 pt-2">
         <span className="pointer-events-none inline-flex items-center gap-2 text-[0.95rem] font-medium text-primary">
-          View role
+          {t.vacancyCard.viewRole}
         </span>
         <span
           aria-hidden="true"

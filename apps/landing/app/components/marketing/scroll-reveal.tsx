@@ -1,5 +1,5 @@
 import { useRef, type ReactNode } from 'react'
-import { motion, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { m, useInView, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 import { cn } from '@/lib/utils'
 
@@ -75,9 +75,14 @@ export function ScrollReveal({
     )
   }
 
+  // `m.div` (perf round, PR #421 orchestrator finding) — see __root.tsx's
+  // module doc for why: `m` + the app-wide `<LazyMotion features={domMin}>`
+  // provider gets the same style-bound-MotionValue rendering `motion.div`
+  // gave here, without bundling gesture/drag/layout-projection code this
+  // component (and none of `ScrollReveal`'s callers) ever uses.
   return (
-    <motion.div ref={ref} className={className} style={{ opacity, y: yMotion }}>
+    <m.div ref={ref} className={className} style={{ opacity, y: yMotion }}>
       {children}
-    </motion.div>
+    </m.div>
   )
 }
