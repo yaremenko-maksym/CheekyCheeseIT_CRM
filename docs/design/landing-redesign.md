@@ -1472,3 +1472,66 @@ col[i+1].left`, все 3 карточки × все 3 метрики).
 - [ ] `Lighthouse mobile ≥90` не регрессировал (тот же гейт, что §M.6, но с учётом нового overlay-
       клона title-morph — DOM-элемент создаётся/удаляется динамически, не должен оставаться в DOM
       после завершения ни при каком фолбэке/раннем прерывании навигации).
+
+### M v3 addendum (implementation notes, 2026-07-25, MED-1 code-review)
+
+Реализация (`apps/landing/app/routes/__root.tsx`, `apps/landing/app/lib/title-morph.ts`,
+`apps/landing/app/components/marketing/careers-list.tsx`, `apps/landing/app/routes/careers_.$slug.tsx`)
+отклонилась от буквы §M v3.1 шаги 5-7 в двух местах — оба отклонения обнаружены практикой
+(E2E-верификация round 1 + ui-ux-designer Mode B fidelity-аудит round 1, PR #419) и являются
+намеренными, задокументированными здесь fix-коммитами `a5510a57`/`e838e3ec`. Спека выше (§M v3.1
+шаги 5-7) остаётся как есть — этот аддендум объясняет ГДЕ и ПОЧЕМУ реализация разошлась с буквой,
+не переписывает саму спеку задним числом.
+
+**1. Focus-management — `onResolved` + `useEffect`, НЕ `onAnimationComplete` (отклонение от §M v3.1
+шаг 6/7).** Буква шага 6 прямо говорит «`onResolved` из старого шага 7 — не нужен вообще, убрать эту
+подписку», а шаг 7 привязывает `focusMainLandmark` к `onAnimationComplete` enter-твина. На практике
+это не работает: `onAnimationComplete`/само изменение `transition.pathname`-state срабатывают в
+момент `onBeforeNavigate` — синхронно, ДО того, как асинхронный `loader` роута зарезолвился и
+`<Outlet/>` реально подставил конечный DOM новой страницы. E2E (round 1) стабильно воспроизвела это
+как race именно под `prefers-reduced-motion` (там нет анимационной задержки, которая на глаз
+маскировала разрыв): фокус уезжал на `<main>`, который мгновение спустя подменялся, и
+`document.activeElement` незаметно откатывался на `<body>`. Round-1 фикс (`a5510a57`) вернул
+`onResolved`-подписку (тот же паттерн, что был в дореспековском §M.3). Round-2 фикс (`e838e3ec`) пошёл
+дальше: `focusMainLandmark()` вызывается не инлайново сразу после `setTransition(...)` внутри
+`onResolved`-обработчика, а из отдельного `useEffect`, зависящего от `transition.pathname` —
+`setTransition` лишь ПЛАНИРУЕТ ре-рендер, синхронный вызов сразу после него ещё выполняется ДО того,
+как React закоммитил этот рендер, и `document.querySelector('main')` в этот момент мог найти СТАРЫЙ
+`<main>` (или ничего). `useEffect` по построению срабатывает строго ПОСЛЕ коммита DOM для рендера,
+который выставил именно это значение `transition.pathname` — гарантированно финальный, уже
+отрисованный узел. Оба фикса эмпирически подтверждены (ui-ux-designer round 1 + round 2): фокус
+корректно уходит на `<main>`, включая под `prefers-reduced-motion`.
+
+**2. `key`/`transition.pathname` — обновляется ТОЛЬКО из `onResolved`, НЕ из `onBeforeNavigate`
+(усиливает, не противоречит букве шага 5 — шаг 5 не специфицировал источник `pathname` явно; round-1
+реализация читала его из `onBeforeNavigate`'s `toLocation.pathname` оптимистично, что и стало HIGH
+root cause ниже).** Round-1 fidelity-аудит (PR #419, `Design Review: BLOCK`) нашёл и локализовал
+точной трассировкой стека: оптимистичный `key` до коммита роутера форсил React на немедленный
+unmount+remount враппера, пока `<Outlet/>` внутри ещё резолвился в СТАРЫЙ маршрут (async `loader` не
+успел закоммититься) — это порождало спуриозный лишний mount СТАРОЙ страницы, чей `useLayoutEffect`
+(title-morph consumer) успевал первым вызвать one-shot `readPendingMorph()` и «съедал» морф раньше,
+чем настоящий destination успевал смонтироваться. Итог — §M v3.2 shared-element title-morph НЕ играл
+НИ В ОДНОМ направлении, при этом базовый лифт (§M v3.1) выглядел корректно и маскировал баг от
+беглого визуального QA. Round-2 фикс (`e838e3ec`) убирает race у источника: `key` меняется только
+когда роутер РЕАЛЬНО закоммитил переход (`onResolved`), спуриозного remount'а больше не происходит.
+
+**3. `title-morph.ts` `readPendingMorph` — адресный по `consumerPathname` (второй, независимый слой
+защиты).** Помимо фикса №2 у источника, `readPendingMorph(consumerPathname)` теперь дополнительно
+сверяет `routePair.to === consumerPathname` — one-shot morph достаётся ТОЛЬКО тому компоненту, чей
+собственный текущий `pathname` реально совпадает с destination навигации, независимо от порядка
+срабатывания эффектов. Это защищает от того же класса race, если он когда-нибудь вернётся при
+будущем рефакторинге `__root.tsx` (defense-in-depth, не полагается только на фикс №2).
+`consumerPathname` передаётся через `useLocation({ select: (l) => l.pathname })`, и **намеренно
+исключён из dependency array** consumer-эффектов (`careers-list.tsx`, `careers_.$slug.tsx`) — этот
+хук реактивен и TanStack Router обновляет `router.state.location` на PENDING/целевой адрес рано, до
+реального unmount текущего компонента; если бы `pathname` был в deps, эффект перезапустился бы на
+ещё смонтированном SOURCE-компоненте в момент, когда pending-location уже переключился на
+destination — тот же race на другом уровне. Эффект должен читать `pathname` как снятый при
+ИСТИННОМ mount снэпшот (через closure), не как live-tracked значение.
+
+**Верификация (ui-ux-designer Mode B, round 2, PR #419 `Fidelity: PASS`):** количественно (не только
+визуально) — `getComputedStyle` timeline overlay-клона сопоставлен с реальной геометрией
+destination-элемента (`getBoundingClientRect()`+`fontSize`) на 1440px в обоих направлениях: финальная
+позиция/масштаб overlay совпадают с destination с точностью <1px / 4 знака после запятой на
+`scaleFactor`. Все 4 применимых фолбэка (прямой заход, Home-тизер, `prefers-reduced-motion`,
+многострочный guard) перепроверены — морф корректно НЕ играет, базовый лифт отрабатывает штатно.
