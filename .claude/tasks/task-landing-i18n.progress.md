@@ -29,6 +29,17 @@
   orchestrator finding), sitemap `xhtml:link`
 - `apps/e2e/tests/landing/i18n.spec.ts` — 32 E2E-теста (реально прогнаны против prerendered
   build + vite preview)
+- `apps/landing/app/routes/__root.tsx` — `<LazyMotion features={domMin}>` (root layout, вокруг
+  `<Outlet/>`) + `m.div` вместо `motion.div` (page-transition lift wrapper); та же обёртка
+  покрывает все остальные `m.div`-usage'и ниже по дереву. `scroll-reveal.tsx`,
+  `case-study-card.tsx`, `tech-stack-chips.tsx`, `process-steps-grid.tsx`,
+  `pages/home-page-content.tsx` — `motion.div` → `m.div` (7 usage-сайтов, 6 файлов; round 3 perf).
+
+## Финальный статус (round 3 закрыт)
+
+Все 3 раунда фиксов закрыты: review round 1 (§ ниже), orchestrator finding (§ ниже), Lighthouse
+perf round 3 (§ в конце). `ac_verified: A1,A2,A3,A4,A5,A6,A7,A8,A9,A10 + perf round` на финальном
+коммите ветки. Готово к следующему раунду ревью.
 
 ## Review round 1 — что исправлено (см. PR body для полной таблицы)
 
