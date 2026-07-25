@@ -6,13 +6,158 @@
  * seniority (spec §0 / §3.5 / §3.6 — deliberate exceptions, not oversights).
  */
 import type {
+  CreateVacancyInput,
   Vacancy,
   VacancyApplicationStatus,
   VacancyDomain,
   VacancyEmploymentType,
   VacancySeniority,
   VacancyStatus,
+  VacancyTranslationLocale,
+  VacancyTranslations,
 } from '@crm/shared'
+import { VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
+
+// ---------------------------------------------------------------------------
+// task-vacancy-i18n-jobposting — translation tab labels. Driven by
+// `VacancyTranslationLocale` (imported from `@crm/shared`, itself built off
+// `VACANCY_TRANSLATION_LOCALES`) so a 6th language only needs an entry here,
+// never a new tab/field wired by hand.
+// ---------------------------------------------------------------------------
+
+export const VACANCY_TRANSLATION_LOCALE_LABELS: Record<VacancyTranslationLocale, string> = {
+  uk: 'Українська',
+  ru: 'Русский',
+  es: 'Español',
+  pt: 'Português',
+}
+
+// ---------------------------------------------------------------------------
+// task-vacancy-i18n-jobposting — form <-> DTO conversion for translations
+// (C1) + JobPosting SEO enrichment (C3). Shared by `VacancySheet` (create/
+// edit Sheet) AND `$vacancyId.tsx` (detail-page inline edit) — this
+// particular logic is non-trivial (filtering/parsing), unlike the simpler
+// per-file `emptyValues()`/`valuesFromVacancy()` duplication already
+// established for the base fields (golden rule #8: no duplicated
+// non-trivial logic).
+// ---------------------------------------------------------------------------
+
+export interface VacancyTranslationFormValues {
+  title: string
+  description: string
+}
+
+export type VacancyTranslationsFormValues = Record<
+  VacancyTranslationLocale,
+  VacancyTranslationFormValues
+>
+
+export function emptyTranslationsFormValues(): VacancyTranslationsFormValues {
+  return Object.fromEntries(
+    VACANCY_TRANSLATION_LOCALES.map((locale) => [locale, { title: '', description: '' }]),
+  ) as VacancyTranslationsFormValues
+}
+
+export function translationsFormValuesFromVacancy(
+  vacancy: Pick<Vacancy, 'translations'>,
+): VacancyTranslationsFormValues {
+  const values = emptyTranslationsFormValues()
+  if (!vacancy.translations) return values
+  for (const locale of VACANCY_TRANSLATION_LOCALES) {
+    const translation = vacancy.translations[locale]
+    if (translation)
+      values[locale] = { title: translation.title, description: translation.description }
+  }
+  return values
+}
+
+/**
+ * A locale is included ONLY when BOTH title AND description are non-empty —
+ * `vacancyTranslationSchema` requires both together (min-length 3/10 chars
+ * respectively), so a half-filled tab is simply not sent as a translation
+ * rather than surfacing a separate partial-fill validation error.
+ */
+export function buildTranslationsDto(
+  values: VacancyTranslationsFormValues,
+): VacancyTranslations | null {
+  const result: VacancyTranslations = {}
+  for (const locale of VACANCY_TRANSLATION_LOCALES) {
+    const { title, description } = values[locale]
+    if (title.trim() && description.trim()) {
+      result[locale] = { title: title.trim(), description: description.trim() }
+    }
+  }
+  return Object.keys(result).length > 0 ? result : null
+}
+
+export interface VacancySeoFormValues {
+  skills: string
+  experienceMonths: string
+  qualifications: string
+  responsibilities: string
+  jobBenefits: string
+  workHours: string
+}
+
+export function emptySeoFormValues(): VacancySeoFormValues {
+  return {
+    skills: '',
+    experienceMonths: '',
+    qualifications: '',
+    responsibilities: '',
+    jobBenefits: '',
+    workHours: '',
+  }
+}
+
+export function seoFormValuesFromVacancy(
+  vacancy: Pick<
+    Vacancy,
+    | 'skills'
+    | 'experienceMonths'
+    | 'qualifications'
+    | 'responsibilities'
+    | 'jobBenefits'
+    | 'workHours'
+  >,
+): VacancySeoFormValues {
+  return {
+    skills: vacancy.skills?.join(', ') ?? '',
+    experienceMonths: vacancy.experienceMonths !== null ? String(vacancy.experienceMonths) : '',
+    qualifications: vacancy.qualifications ?? '',
+    responsibilities: vacancy.responsibilities ?? '',
+    jobBenefits: vacancy.jobBenefits ?? '',
+    workHours: vacancy.workHours ?? '',
+  }
+}
+
+type VacancySeoDto = Pick<
+  CreateVacancyInput,
+  | 'skills'
+  | 'experienceMonths'
+  | 'qualifications'
+  | 'responsibilities'
+  | 'jobBenefits'
+  | 'workHours'
+>
+
+/** Empty text -> `null` (cleared/unset); a non-numeric experienceMonths is treated as unset, not a hard error. */
+export function buildSeoFieldsDto(values: VacancySeoFormValues): VacancySeoDto {
+  const skills = values.skills
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  const experienceMonths =
+    values.experienceMonths.trim() === '' ? NaN : Number(values.experienceMonths)
+  return {
+    skills: skills.length > 0 ? skills : null,
+    experienceMonths: Number.isFinite(experienceMonths) ? experienceMonths : null,
+    qualifications: values.qualifications.trim() || null,
+    responsibilities: values.responsibilities.trim() || null,
+    jobBenefits: values.jobBenefits.trim() || null,
+    workHours: values.workHours.trim() || null,
+  }
+}
 
 // ---------------------------------------------------------------------------
 // §3.4 — domain badge text (latin) + dot color (fixed hue, not theme-derived)

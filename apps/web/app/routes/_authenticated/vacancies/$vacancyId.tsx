@@ -22,7 +22,12 @@ import { z } from 'zod'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
 import { ArrowLeft, ArrowUp, Globe, RotateCcw, Users, X } from 'lucide-react'
-import type { VacancyApplicationStatus, VacancyDomain, VacancyEmploymentType } from '@crm/shared'
+import type {
+  Vacancy,
+  VacancyApplicationStatus,
+  VacancyDomain,
+  VacancyEmploymentType,
+} from '@crm/shared'
 import { updateVacancySchema } from '@crm/shared'
 import { useRoleGuard } from '@/hooks/use-role-guard'
 import {
@@ -44,13 +49,21 @@ import { CandidateCard } from './components/CandidateCard'
 import { VacancyFormFields } from './components/VacancyFormFields'
 import {
   APPLICATION_STATUS_LABELS,
+  buildSeoFieldsDto,
+  buildTranslationsDto,
   DOMAIN_DOT_COLOR,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
+  emptySeoFormValues,
+  emptyTranslationsFormValues,
   getVacancyDeleteGate,
+  seoFormValuesFromVacancy,
   SENIORITY_LABELS,
+  translationsFormValuesFromVacancy,
   VACANCY_STATUS_BADGE,
   VACANCY_STATUS_LABELS,
+  type VacancySeoFormValues,
+  type VacancyTranslationsFormValues,
 } from './constants'
 
 // §4.3: the landing /careers page lives on a separate Vite app/domain
@@ -78,6 +91,9 @@ type ApplicationsFilter = 'ALL' | VacancyApplicationStatus
  * matching comment) — the PATCH payload built in `onSubmit` below omits
  * them, so `updateVacancySchema` leaves them `undefined` (no-op) and the
  * vacancy's existing seniority/location are never touched by this form.
+ *
+ * task-vacancy-i18n-jobposting: `translations`/SEO-enrichment fields (C1/C3)
+ * ADDED — same shape/helpers as `VacancySheet.tsx` (`../constants`).
  */
 interface VacancyFormValues {
   title: string
@@ -85,6 +101,13 @@ interface VacancyFormValues {
   descriptionMd: string
   domain: VacancyDomain
   employmentType: VacancyEmploymentType
+  translations: VacancyTranslationsFormValues
+  skills: VacancySeoFormValues['skills']
+  experienceMonths: VacancySeoFormValues['experienceMonths']
+  qualifications: VacancySeoFormValues['qualifications']
+  responsibilities: VacancySeoFormValues['responsibilities']
+  jobBenefits: VacancySeoFormValues['jobBenefits']
+  workHours: VacancySeoFormValues['workHours']
 }
 
 function emptyFormValues(): VacancyFormValues {
@@ -94,6 +117,20 @@ function emptyFormValues(): VacancyFormValues {
     descriptionMd: '',
     domain: 'AI',
     employmentType: 'FULL_TIME',
+    translations: emptyTranslationsFormValues(),
+    ...emptySeoFormValues(),
+  }
+}
+
+function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
+  return {
+    title: vacancy.title,
+    slug: vacancy.slug,
+    descriptionMd: vacancy.descriptionMd,
+    domain: vacancy.domain,
+    employmentType: vacancy.employmentType,
+    translations: translationsFormValuesFromVacancy(vacancy),
+    ...seoFormValuesFromVacancy(vacancy),
   }
 }
 
@@ -117,15 +154,7 @@ function VacancyDetailPage() {
   const [slugAutoLinked, setSlugAutoLinked] = useState(false)
 
   const form = useForm({
-    defaultValues: vacancy
-      ? {
-          title: vacancy.title,
-          slug: vacancy.slug,
-          descriptionMd: vacancy.descriptionMd,
-          domain: vacancy.domain,
-          employmentType: vacancy.employmentType,
-        }
-      : emptyFormValues(),
+    defaultValues: vacancy ? valuesFromVacancy(vacancy) : emptyFormValues(),
     onSubmit: async ({ value }) => {
       if (!vacancy) return
       const dto = {
@@ -134,6 +163,8 @@ function VacancyDetailPage() {
         descriptionMd: value.descriptionMd,
         domain: value.domain,
         employmentType: value.employmentType,
+        translations: buildTranslationsDto(value.translations),
+        ...buildSeoFieldsDto(value),
       }
       // seniority/location NOT in `dto` → updateVacancySchema leaves them
       // `undefined` → no-op — this form never changes the vacancy's
@@ -149,13 +180,7 @@ function VacancyDetailPage() {
   // still `undefined` while the query resolves.
   useEffect(() => {
     if (vacancy) {
-      form.reset({
-        title: vacancy.title,
-        slug: vacancy.slug,
-        descriptionMd: vacancy.descriptionMd,
-        domain: vacancy.domain,
-        employmentType: vacancy.employmentType,
-      })
+      form.reset(valuesFromVacancy(vacancy))
     }
     // Keyed on vacancy?.id only — re-running on every refetch would clobber in-progress edits.
   }, [vacancy?.id])
@@ -335,15 +360,7 @@ function VacancyDetailPage() {
               <div className="flex items-center gap-2 pt-2">
                 <Button
                   variant="outline"
-                  onClick={() =>
-                    form.reset({
-                      title: vacancy.title,
-                      slug: vacancy.slug,
-                      descriptionMd: vacancy.descriptionMd,
-                      domain: vacancy.domain,
-                      employmentType: vacancy.employmentType,
-                    })
-                  }
+                  onClick={() => form.reset(valuesFromVacancy(vacancy))}
                   data-testid="vacancy-edit-cancel"
                 >
                   Отмена

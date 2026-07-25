@@ -35,6 +35,8 @@ import {
 } from '@/components/ui/select'
 import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
 import { DOMAIN_LABELS, EMPLOYMENT_TYPE_LABELS, slugifyTitle } from '../constants'
+import { VacancySeoFields } from './VacancySeoFields'
+import { VacancyTranslationFields } from './VacancyTranslationFields'
 
 // TanStack Form field/form render props require many generics — same
 // suppress-locally convention as ProjectEditFields.
@@ -262,6 +264,9 @@ export function VacancyFormFields({
           )
         }}
       </form.Field>
+
+      <VacancyTranslationFields form={form} />
+      <VacancySeoFields form={form} />
     </div>
   )
 }

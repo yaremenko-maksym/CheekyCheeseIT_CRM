@@ -22,6 +22,16 @@ import {
 } from '@/components/ui/sheet'
 import { useCreateVacancy, useUpdateVacancy } from '@/hooks/use-vacancies'
 import { useFormAbandonTracking } from '@/lib/telemetry'
+import {
+  buildSeoFieldsDto,
+  buildTranslationsDto,
+  emptySeoFormValues,
+  emptyTranslationsFormValues,
+  seoFormValuesFromVacancy,
+  translationsFormValuesFromVacancy,
+  type VacancySeoFormValues,
+  type VacancyTranslationsFormValues,
+} from '../constants'
 import { VacancyFormFields } from './VacancyFormFields'
 
 interface VacancySheetProps {
@@ -39,6 +49,12 @@ interface VacancySheetProps {
  * `undefined` → no-op, the existing vacancy's values are left untouched —
  * see that schema's file-header comment for why a naive `.partial()` would
  * be unsafe here).
+ *
+ * task-vacancy-i18n-jobposting: `translations`/SEO-enrichment fields (C1/C3)
+ * ADDED to this form's values — `undefined -> null`-on-omit semantics are
+ * NOT relevant here (unlike seniority/location) since `buildTranslationsDto`/
+ * `buildSeoFieldsDto` (`../constants`) always resolve to an explicit
+ * value-or-null from whatever is currently typed into the fields.
  */
 interface VacancyFormValues {
   title: string
@@ -46,6 +62,13 @@ interface VacancyFormValues {
   descriptionMd: string
   domain: VacancyDomain
   employmentType: VacancyEmploymentType
+  translations: VacancyTranslationsFormValues
+  skills: VacancySeoFormValues['skills']
+  experienceMonths: VacancySeoFormValues['experienceMonths']
+  qualifications: VacancySeoFormValues['qualifications']
+  responsibilities: VacancySeoFormValues['responsibilities']
+  jobBenefits: VacancySeoFormValues['jobBenefits']
+  workHours: VacancySeoFormValues['workHours']
 }
 
 function emptyValues(): VacancyFormValues {
@@ -55,6 +78,8 @@ function emptyValues(): VacancyFormValues {
     descriptionMd: '',
     domain: 'AI',
     employmentType: 'FULL_TIME',
+    translations: emptyTranslationsFormValues(),
+    ...emptySeoFormValues(),
   }
 }
 
@@ -65,6 +90,8 @@ function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
     descriptionMd: vacancy.descriptionMd,
     domain: vacancy.domain,
     employmentType: vacancy.employmentType,
+    translations: translationsFormValuesFromVacancy(vacancy),
+    ...seoFormValuesFromVacancy(vacancy),
   }
 }
 
@@ -86,6 +113,8 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
         descriptionMd: value.descriptionMd,
         domain: value.domain,
         employmentType: value.employmentType,
+        translations: buildTranslationsDto(value.translations),
+        ...buildSeoFieldsDto(value),
       }
 
       // isEdit branch validates through `updateVacancySchema` (seniority/
