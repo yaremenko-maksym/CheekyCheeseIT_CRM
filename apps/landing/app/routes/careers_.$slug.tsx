@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef } from 'react'
 import { createFileRoute } from '@tanstack/react-router'
 import { ArrowLeft, Briefcase, BarChart3, MapPin } from 'lucide-react'
 import type { PublicVacancyDetail } from '@crm/shared'
@@ -19,6 +19,12 @@ import { MarkdownBody, markdownToHtml } from '@/components/marketing/markdown-bo
 import { VacancyApplyForm } from '@/components/marketing/vacancy-apply-form'
 import { Tag } from '@/components/ui/tag'
 import { cn, focusRing } from '@/lib/utils'
+import {
+  captureMorphSource,
+  playTitleMorphOverlay,
+  readPendingMorph,
+  validateMorphDestination,
+} from '@/lib/title-morph'
 
 /**
  * `/careers/:slug` — vacancy detail + apply form (landing-redesign.md §1,
@@ -104,6 +110,19 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
     jsonLd: [buildJobPostingJsonLd(vacancy, descriptionHtml), buildBreadcrumbListJsonLd(vacancy)],
   })
 
+  // Title-morph consumer, forward direction (§M v3.2 п.5) — /careers's
+  // VacancyCard <h3> "flying" into this page's <h1>. `useLayoutEffect`, not
+  // `useEffect`: must run BEFORE the browser paints this route's first
+  // frame, or the real <h1> would flash visible before the overlay hides it.
+  const titleRef = useRef<HTMLHeadingElement>(null)
+  useLayoutEffect(() => {
+    const morph = readPendingMorph()
+    const titleEl = titleRef.current
+    if (!morph || !titleEl) return
+    if (!validateMorphDestination(morph, vacancy.slug, titleEl)) return
+    playTitleMorphOverlay(morph, titleEl)
+  }, [vacancy.slug])
+
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <MarketingNav active="careers" />
@@ -112,6 +131,9 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
         <div className="mx-auto max-w-[1200px] px-5 pt-8 pb-5 md:px-10 lg:px-14">
           <BackLink
             to="/careers/"
+            onClick={() => {
+              if (titleRef.current) captureMorphSource(titleRef.current, vacancy.slug)
+            }}
             className={cn('inline-flex items-center gap-2 text-muted-foreground', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
@@ -123,7 +145,11 @@ function VacancyDetailContent({ vacancy }: { vacancy: PublicVacancyDetail }) {
           <Tag variant={domainTagVariant(vacancy.domain)} className="mb-[18px]">
             {domainLabel(vacancy.domain)}
           </Tag>
-          <h1 className="mb-[22px] max-w-[18ch] text-[clamp(2rem,5.5vw,3.4rem)] leading-[1.02] font-semibold tracking-[-0.03em] text-balance text-foreground">
+          <h1
+            ref={titleRef}
+            data-vacancy-morph-slug={vacancy.slug}
+            className="mb-[22px] max-w-[18ch] text-[clamp(2rem,5.5vw,3.4rem)] leading-[1.02] font-semibold tracking-[-0.03em] text-balance text-foreground"
+          >
             {vacancy.title}
           </h1>
           <div className="flex flex-wrap gap-2.5">
