@@ -1,4 +1,4 @@
-import type { PublicVacancy, PublicVacancyDetail, VacancyEmploymentType } from '@crm/shared'
+import type { PublicVacancy, PublicVacancyDetail, VacancyEmploymentType, VacancyLocale } from '@crm/shared'
 import { CONTACT_EMAIL } from '@/content/home'
 
 /**
@@ -156,13 +156,44 @@ export interface JobPostingJsonLd {
   url: string
   jobLocationType?: 'TELECOMMUTE'
   applicantLocationRequirements?: { '@type': 'Country'; name: string }
+  skills?: string
+  experienceRequirements?: { '@type': 'OccupationalExperienceRequirements'; monthsOfExperience: number }
+  qualifications?: string
+  responsibilities?: string
+  industry?: string
+  occupationalCategory?: string
+  jobBenefits?: string
+  workHours?: string
+}
+
+// task-vacancy-i18n-jobposting C3 — `industry` is DERIVED from the
+// vacancy's own `domain` (never invented, never a separate admin-entered
+// field) — every CheekyCheeseIT opening already carries a domain, so this
+// is always present. `OTHER` maps to the closest honest umbrella term for
+// an IT outstaffing/outsourcing business.
+const INDUSTRY_BY_DOMAIN: Record<PublicVacancyDetail['domain'], string> = {
+  AI: 'Artificial Intelligence',
+  EDTECH: 'Education Technology',
+  ECOMMERCE: 'E-Commerce',
+  OTHER: 'Information Technology',
 }
 
 /**
+ * O*NET-SOC occupational classification code for Google's `occupationalCategory`
+ * (task C3). CheekyCheeseIT exclusively hires software developers across its
+ * AI/EdTech/E-Commerce domains (see `docs/business/overview.md`) — `15-1252.00`
+ * ("Software Developers") is accurate for every current and reasonably
+ * foreseeable posting, so it's a constant here rather than a per-vacancy admin
+ * field nobody would ever need to change. https://www.onetonline.org/link/summary/15-1252.00
+ */
+const OCCUPATIONAL_CATEGORY = '15-1252.00'
+
+/**
  * `/careers/:slug` — JobPosting structured data for Google Jobs (task §2,
- * extended to full compliance 2026-07-24). Deliberately has NO salary field
- * — by product design (see `packages/shared/src/schemas/vacancies.ts`
- * module doc), not an omission.
+ * extended to full compliance 2026-07-24, further enriched by
+ * task-vacancy-i18n-jobposting C3). Deliberately has NO salary field — by
+ * product design (see `packages/shared/src/schemas/vacancies.ts` module
+ * doc), not an omission.
  *
  * `descriptionHtml` — the FULL rendered vacancy description as HTML, not
  * the raw Markdown source or a truncated snippet (Google explicitly accepts
@@ -174,6 +205,14 @@ export interface JobPostingJsonLd {
  * description can never drift from what a human sees. `seo.ts` stays a
  * plain `.ts` module (no JSX) on purpose, so this function takes the
  * pre-rendered string rather than doing that conversion itself.
+ *
+ * C3 enrichment fields (`skills`/`experienceRequirements`/`qualifications`/
+ * `responsibilities`/`jobBenefits`/`workHours`) are all OPTIONAL admin-entered
+ * data on the vacancy row (`packages/shared` `vacancySeoFieldsSchema`) —
+ * each is only emitted when actually present, never invented/empty
+ * (task-vacancy-i18n-jobposting: "пустых/выдуманных значений быть не должно").
+ * `industry`/`occupationalCategory` are always present (derived/constant, see
+ * above) since they carry no risk of being fabricated per-vacancy data.
  */
 export function buildJobPostingJsonLd(
   vacancy: PublicVacancyDetail,
@@ -196,6 +235,21 @@ export function buildJobPostingJsonLd(
     identifier: { '@type': 'PropertyValue', name: SITE_NAME, value: vacancy.slug },
     url: canonicalUrl(`/careers/${vacancy.slug}`),
     ...(remote ?? {}),
+    industry: INDUSTRY_BY_DOMAIN[vacancy.domain],
+    occupationalCategory: OCCUPATIONAL_CATEGORY,
+    ...(vacancy.skills && vacancy.skills.length > 0 ? { skills: vacancy.skills.join(', ') } : {}),
+    ...(vacancy.experienceMonths !== null
+      ? {
+          experienceRequirements: {
+            '@type': 'OccupationalExperienceRequirements',
+            monthsOfExperience: vacancy.experienceMonths,
+          },
+        }
+      : {}),
+    ...(vacancy.qualifications ? { qualifications: vacancy.qualifications } : {}),
+    ...(vacancy.responsibilities ? { responsibilities: vacancy.responsibilities } : {}),
+    ...(vacancy.jobBenefits ? { jobBenefits: vacancy.jobBenefits } : {}),
+    ...(vacancy.workHours ? { workHours: vacancy.workHours } : {}),
   }
 }
 
@@ -241,6 +295,140 @@ export function buildItemListJsonLd(vacancies: PublicVacancy[]): ItemListJsonLd 
       position: index + 1,
       url: canonicalUrl(`/careers/${vacancy.slug}`),
       name: vacancy.title,
+    })),
+  }
+}
+
+// -----------------------------------------------------------------------------
+// FAQPage (task-vacancy-i18n-jobposting C6) — 4 questions about the hiring
+// process, on `/careers/:slug` (rich-snippet eligible). Localized to all 5
+// site locales (owner scope-change 2026-07-25) — content authored here
+// (same convention as Block A's landing copy: written in-house, flagged for
+// owner proofreading before it ships, NOT a machine translation).
+// -----------------------------------------------------------------------------
+
+interface FaqEntry {
+  q: string
+  a: string
+}
+
+const FAQ_ENTRIES: Record<VacancyLocale, FaqEntry[]> = {
+  en: [
+    {
+      q: 'What does the hiring process look like?',
+      a: 'Submit your application with your resume through the form on this page. Our team reviews every application and reaches out directly to candidates who are a good fit for the role.',
+    },
+    {
+      q: 'What happens after I submit my application?',
+      a: "Your application and resume go straight to our hiring team. If your profile matches the role, we'll contact you by email or Telegram to schedule an interview.",
+    },
+    {
+      q: 'Do I need to be located in a specific country to apply?',
+      a: "Most of our roles are remote-first — check the role's location note for any regional requirement. We're an outstaffing/outsourcing partner working across AI, EdTech and E-Commerce.",
+    },
+    {
+      q: 'Can I apply to more than one open role?',
+      a: 'Yes — submit a separate application for each role you are interested in.',
+    },
+  ],
+  uk: [
+    {
+      q: 'Як виглядає процес найму?',
+      a: 'Надішліть заявку з резюме через форму на цій сторінці. Наша команда розглядає кожну заявку та звʼязується напряму з кандидатами, які підходять на цю позицію.',
+    },
+    {
+      q: 'Що відбувається після подачі заявки?',
+      a: 'Ваша заявка й резюме одразу потрапляють до команди найму. Якщо ваш профіль підходить, ми звʼяжемося поштою або в Telegram, щоб призначити співбесіду.',
+    },
+    {
+      q: 'Чи обовʼязково перебувати в певній країні, щоб податися?',
+      a: "Більшість наших позицій — full-remote; регіональні вимоги (якщо є) вказані в описі вакансії. Ми — outstaffing/outsourcing-партнер у напрямках AI, EdTech і E-Commerce.",
+    },
+    {
+      q: 'Чи можна податися на кілька вакансій одразу?',
+      a: 'Так — надішліть окрему заявку на кожну вакансію, яка вас цікавить.',
+    },
+  ],
+  ru: [
+    {
+      q: 'Как выглядит процесс найма?',
+      a: 'Отправьте заявку с резюме через форму на этой странице. Наша команда рассматривает каждую заявку и связывается напрямую с кандидатами, которые подходят на позицию.',
+    },
+    {
+      q: 'Что происходит после подачи заявки?',
+      a: 'Ваша заявка и резюме сразу попадают к команде найма. Если ваш профиль подходит, мы свяжемся по почте или в Telegram, чтобы назначить собеседование.',
+    },
+    {
+      q: 'Обязательно ли находиться в определённой стране, чтобы податься?',
+      a: 'Большинство наших позиций — full-remote; региональные требования (если есть) указаны в описании вакансии. Мы — outstaffing/outsourcing-партнёр в направлениях AI, EdTech и E-Commerce.',
+    },
+    {
+      q: 'Можно ли откликнуться на несколько вакансий сразу?',
+      a: 'Да — отправьте отдельную заявку на каждую интересующую вас вакансию.',
+    },
+  ],
+  es: [
+    {
+      q: '¿Cómo es el proceso de contratación?',
+      a: 'Envía tu candidatura con tu currículum a través del formulario de esta página. Nuestro equipo revisa cada candidatura y contacta directamente a quienes encajan con el puesto.',
+    },
+    {
+      q: '¿Qué ocurre después de enviar mi candidatura?',
+      a: 'Tu candidatura y currículum llegan directamente a nuestro equipo de selección. Si tu perfil encaja, te contactaremos por correo o Telegram para programar una entrevista.',
+    },
+    {
+      q: '¿Necesito estar en un país concreto para aplicar?',
+      a: 'La mayoría de nuestros puestos son remotos; cualquier requisito regional se indica en la descripción del puesto. Somos un partner de outstaffing/outsourcing en AI, EdTech y E-Commerce.',
+    },
+    {
+      q: '¿Puedo postularme a más de una vacante?',
+      a: 'Sí — envía una candidatura independiente por cada vacante que te interese.',
+    },
+  ],
+  pt: [
+    {
+      q: 'Como é o processo de contratação?',
+      a: 'Envie sua candidatura com o currículo pelo formulário desta página. Nossa equipe analisa cada candidatura e entra em contato diretamente com quem se encaixa na vaga.',
+    },
+    {
+      q: 'O que acontece depois de eu enviar minha candidatura?',
+      a: 'Sua candidatura e currículo vão direto para a equipe de recrutamento. Se o seu perfil combinar com a vaga, entraremos em contato por e-mail ou Telegram para agendar uma entrevista.',
+    },
+    {
+      q: 'Preciso estar em um país específico para me candidatar?',
+      a: 'A maioria das nossas vagas é remota; qualquer exigência regional é indicada na descrição da vaga. Somos uma parceira de outstaffing/outsourcing em AI, EdTech e E-Commerce.',
+    },
+    {
+      q: 'Posso me candidatar a mais de uma vaga?',
+      a: 'Sim — envie uma candidatura separada para cada vaga do seu interesse.',
+    },
+  ],
+}
+
+export interface FAQPageJsonLd {
+  '@context': 'https://schema.org'
+  '@type': 'FAQPage'
+  mainEntity: Array<{
+    '@type': 'Question'
+    name: string
+    acceptedAnswer: { '@type': 'Answer'; text: string }
+  }>
+}
+
+/**
+ * `/careers/:slug` — FAQPage structured data (task C6). `locale` defaults to
+ * `en` (site default). Content is generic to the hiring process (not
+ * vacancy-specific) — same 4 questions on every posting, localized.
+ */
+export function buildFAQPageJsonLd(locale: VacancyLocale = 'en'): FAQPageJsonLd {
+  const entries = FAQ_ENTRIES[locale]
+  return {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: entries.map(({ q, a }) => ({
+      '@type': 'Question',
+      name: q,
+      acceptedAnswer: { '@type': 'Answer', text: a },
     })),
   }
 }
