@@ -1,6 +1,6 @@
 import { useRef } from 'react'
 import { Link } from '@tanstack/react-router'
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { m, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { ArrowRight, Mail } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { useDocumentHead } from '@/lib/use-document-head'
@@ -102,7 +102,9 @@ export function HomePageContent({
         {/* ── Hero — always visible, no scroll-reveal (§5.1) ─────────────── */}
         <section id="hero" ref={heroRef} className="relative overflow-hidden">
           {!reducedMotion && !coarsePointer ? (
-            <motion.div
+            // `m.div` (perf round, PR #421 orchestrator finding) — see
+            // __root.tsx's module doc.
+            <m.div
               aria-hidden="true"
               className="pointer-events-none absolute inset-0 bg-[radial-gradient(60%_50%_at_78%_20%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_70%)]"
               style={{ y: glowY }}
@@ -137,12 +139,14 @@ export function HomePageContent({
               </div>
             </div>
             {!reducedMotion && !coarsePointer ? (
-              <motion.div
+              // `m.div` (perf round, PR #421 orchestrator finding) — see
+              // __root.tsx's module doc.
+              <m.div
                 className="min-w-0"
                 style={{ y: terminalY, scale: terminalScale, opacity: terminalOpacity }}
               >
                 <Terminal ariaLabel={t.terminalAriaLabel} />
-              </motion.div>
+              </m.div>
             ) : (
               <div className="min-w-0">
                 <Terminal ariaLabel={t.terminalAriaLabel} />

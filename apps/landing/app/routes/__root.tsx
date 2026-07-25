@@ -1,6 +1,6 @@
 import { createRootRoute, Outlet, useRouter } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { motion } from 'framer-motion'
+import { LazyMotion, domAnimation, m } from 'framer-motion'
 import { ArrowLeft } from 'lucide-react'
 import { useDocumentHead } from '@/lib/use-document-head'
 import { canonicalUrl } from '@/lib/seo'
@@ -161,23 +161,40 @@ function RootDocument() {
 
   const reducedMotion = isReducedMotionPreferred()
 
+  // `LazyMotion` + `m.div` (perf round, PR #421 orchestrator finding —
+  // Lighthouse mobile) — NOT a `motion.div` swap for its own sake: this
+  // wrapper mounts on EVERY route (it's the root layout around `<Outlet/>`),
+  // so the full `motion` component's bundled-in gesture/drag/layout-
+  // projection engine was shipping on every single page load even though
+  // this file only ever uses a plain `initial`/`animate`/`transition` tween
+  // (no drag, no gestures, no `layout` prop, no `AnimatePresence` — verified
+  // exhaustively, see `docs/design/landing-redesign.md` §M v3 and the
+  // `unused-javascript` Lighthouse audit that flagged 70% of the shipped
+  // motion bundle as dead code on this exact page). `domAnimation` is the
+  // smallest LazyMotion feature bundle that still supports `initial`/
+  // `animate`/`transition` tweens (`domMin` in the newer `motion` package
+  // naming; framer-motion's classic API only ships `domAnimation`/`domMax`).
+  // Same visual/timing behaviour — `m.div` accepts the identical prop API as
+  // `motion.div`, this is a bundle-composition change only.
   return (
-    <motion.div
-      key={transition.pathname}
-      ref={wrapperRef}
-      initial={
-        reducedMotion || transition.direction === null
-          ? false
-          : {
-              opacity: 0,
-              y: transition.direction === 'back' ? -LIFT_OFFSET_ENTER : LIFT_OFFSET_ENTER,
-            }
-      }
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
-    >
-      <Outlet />
-    </motion.div>
+    <LazyMotion features={domAnimation}>
+      <m.div
+        key={transition.pathname}
+        ref={wrapperRef}
+        initial={
+          reducedMotion || transition.direction === null
+            ? false
+            : {
+                opacity: 0,
+                y: transition.direction === 'back' ? -LIFT_OFFSET_ENTER : LIFT_OFFSET_ENTER,
+              }
+        }
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
+      >
+        <Outlet />
+      </m.div>
+    </LazyMotion>
   )
 }
 

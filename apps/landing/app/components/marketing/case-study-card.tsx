@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { m, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { Card } from '@/components/ui/card'
 import { Tag } from '@/components/ui/tag'
 import { useCoarsePointer } from '@/lib/use-coarse-pointer'
@@ -88,10 +88,9 @@ export function CaseStudyCard({
             ))}
           </div>
         ) : (
-          <motion.div
-            className="grid grid-cols-3 gap-4"
-            style={{ opacity: metricsOpacity, y: metricsY }}
-          >
+          // `m.div` (perf round, PR #421 orchestrator finding) — see
+          // __root.tsx's module doc.
+          <m.div className="grid grid-cols-3 gap-4" style={{ opacity: metricsOpacity, y: metricsY }}>
             {study.metrics.map((metric) => (
               <div key={metric.label}>
                 <div className="text-[1.35rem] min-[400px]:text-[1.9rem] font-semibold tracking-[-0.03em] text-foreground tabular-nums">
@@ -101,7 +100,7 @@ export function CaseStudyCard({
                 <div className="mt-2 text-[0.82rem] text-muted-foreground">{metric.label}</div>
               </div>
             ))}
-          </motion.div>
+          </m.div>
         )}
       </div>
     </Card>

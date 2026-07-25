@@ -1,5 +1,5 @@
 import { useRef } from 'react'
-import { motion, useReducedMotion, useScroll, useTransform } from 'framer-motion'
+import { m, useReducedMotion, useScroll, useTransform } from 'framer-motion'
 import { ProcessStep } from '@/components/marketing/process-step'
 import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 import type { ProcessStepItem } from '@/content/home'
@@ -46,7 +46,9 @@ export function ProcessStepsGrid({ steps }: { steps: ProcessStepItem[] }) {
           className="absolute top-[60px] right-[12.5%] left-[12.5%] z-0 hidden h-px origin-left bg-primary/50 md:block"
         />
       ) : (
-        <motion.div
+        // `m.div` (perf round, PR #421 orchestrator finding) — see
+        // __root.tsx's module doc.
+        <m.div
           aria-hidden="true"
           className="absolute top-[60px] right-[12.5%] left-[12.5%] z-0 hidden h-px origin-left bg-primary/50 md:block"
           style={{ scaleX }}
