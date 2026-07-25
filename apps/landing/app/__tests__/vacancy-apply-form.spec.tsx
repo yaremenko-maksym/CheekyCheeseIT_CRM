@@ -38,7 +38,7 @@ async function renderForm(locale?: 'ru') {
       <VacancyApplyForm
         slug="senior-ml-engineer"
         vacancyTitle="Senior ML Engineer"
-        locale={locale}
+        {...(locale ? { locale } : {})}
       />
     ),
   })

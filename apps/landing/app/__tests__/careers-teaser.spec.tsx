@@ -28,7 +28,7 @@ function makeVacancy(slug: string, title: string): PublicVacancy {
 
 function renderTeaser(list: PublicVacancy[], locale?: 'ru') {
   const rootRoute = createRootRoute({
-    component: () => <CareersTeaser vacancies={list} locale={locale} />,
+    component: () => <CareersTeaser vacancies={list} {...(locale ? { locale } : {})} />,
   })
   const router = createRouter({
     routeTree: rootRoute,

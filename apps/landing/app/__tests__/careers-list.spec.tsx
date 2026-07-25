@@ -40,7 +40,7 @@ const vacancies: PublicVacancy[] = [
 
 function renderList(list: PublicVacancy[], locale?: 'ru') {
   const rootRoute = createRootRoute({
-    component: () => <CareersList vacancies={list} locale={locale} />,
+    component: () => <CareersList vacancies={list} {...(locale ? { locale } : {})} />,
   })
   const router = createRouter({
     routeTree: rootRoute,
