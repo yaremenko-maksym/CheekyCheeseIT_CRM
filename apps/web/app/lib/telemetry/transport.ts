@@ -10,7 +10,8 @@
  * side-effect the spec forbids. Plain `fetch`/`sendBeacon` below never
  * touch that interceptor.
  */
-import type { ReportErrorDto, TelemetryEventDto, TelemetryEventsBatchDto } from '@crm/shared'
+import type { ReportErrorDto, TelemetryEventDto } from '@crm/shared'
+import { buildValidatedEventsBatch } from './validate-events'
 
 /** Mirrors `lib/axios.ts`'s `baseURL` resolution so both transports hit the same API origin. */
 function apiBase(): string {
@@ -37,8 +38,14 @@ function logDeliveryFailure(kind: 'events' | 'error'): void {
  * the payload (returns `false` — e.g. its send queue is full).
  */
 export function sendEventsBeacon(events: TelemetryEventDto[]): void {
-  const body: TelemetryEventsBatchDto = { events }
-  const json = JSON.stringify(body)
+  // MED-1 (code review round 1): schema-validate the batch right before it
+  // leaves the client — see `validate-events.ts`. Invalid rows are dropped
+  // (fail-silent), not thrown; `null` means nothing survived, so send
+  // nothing at all rather than an empty batch.
+  const validated = buildValidatedEventsBatch(events)
+  if (!validated) return
+
+  const json = JSON.stringify(validated)
   const url = `${apiBase()}/telemetry/events`
 
   try {

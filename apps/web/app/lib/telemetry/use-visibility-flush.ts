@@ -7,20 +7,32 @@
 import { useEffect } from 'react'
 import { isTelemetryEnabled } from './config'
 import { flushEvents } from './state'
+import { safeCall } from './safe-call'
 
 export function useVisibilityFlush(): void {
   useEffect(() => {
     if (!isTelemetryEnabled()) return
 
+    // MED-2 (code review round 1): these fire on tab-hide/unload, outside
+    // `TelemetryErrorBoundary`'s subtree (see `safe-call.ts`) — a throw here
+    // must never block the browser's own unload sequence.
     const onVisibilityChange = () => {
-      if (document.visibilityState === 'hidden') flushEvents()
+      safeCall(() => {
+        if (document.visibilityState === 'hidden') flushEvents()
+      }, 'use-visibility-flush:onVisibilityChange')
+    }
+    const onPageHide = () => {
+      safeCall(flushEvents, 'use-visibility-flush:onPageHide')
     }
 
-    window.addEventListener('visibilitychange', onVisibilityChange)
-    window.addEventListener('pagehide', flushEvents)
+    safeCall(() => {
+      window.addEventListener('visibilitychange', onVisibilityChange)
+      window.addEventListener('pagehide', onPageHide)
+    }, 'use-visibility-flush:setup')
+
     return () => {
       window.removeEventListener('visibilitychange', onVisibilityChange)
-      window.removeEventListener('pagehide', flushEvents)
+      window.removeEventListener('pagehide', onPageHide)
     }
   }, [])
 }

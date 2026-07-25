@@ -11,23 +11,33 @@
 import { useEffect } from 'react'
 import { isTelemetryEnabled } from './config'
 import { trackFeatureClick } from './events'
+import { safeCall } from './safe-call'
 
 export function useClickDelegation(): void {
   useEffect(() => {
     if (!isTelemetryEnabled()) return
 
+    // MED-2 (code review round 1): this listener fires on EVERY click
+    // anywhere in the CRM, outside `TelemetryErrorBoundary`'s subtree (see
+    // `safe-call.ts`) — a throw here (e.g. a hostile `data-track` DOM
+    // shape) must never break the user's actual click.
     const onClick = (event: MouseEvent) => {
-      const target = event.target
-      if (!(target instanceof Element)) return
-      const trackedEl = target.closest('[data-track]')
-      if (!trackedEl) return
-      const id = trackedEl.getAttribute('data-track')
-      if (id) trackFeatureClick(id)
+      safeCall(() => {
+        const target = event.target
+        if (!(target instanceof Element)) return
+        const trackedEl = target.closest('[data-track]')
+        if (!trackedEl) return
+        const id = trackedEl.getAttribute('data-track')
+        if (id) trackFeatureClick(id)
+      }, 'use-click-delegation:onClick')
     }
 
-    // Capture phase: still fires even if a descendant handler calls
-    // `stopPropagation()` on the bubble phase (e.g. Radix primitives).
-    document.addEventListener('click', onClick, true)
+    safeCall(() => {
+      // Capture phase: still fires even if a descendant handler calls
+      // `stopPropagation()` on the bubble phase (e.g. Radix primitives).
+      document.addEventListener('click', onClick, true)
+    }, 'use-click-delegation:setup')
+
     return () => document.removeEventListener('click', onClick, true)
   }, [])
 }

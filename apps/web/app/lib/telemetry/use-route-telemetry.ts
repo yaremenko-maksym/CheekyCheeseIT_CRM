@@ -14,6 +14,7 @@ import { useRouter } from '@tanstack/react-router'
 import { isTelemetryEnabled } from './config'
 import { trackRouteEnter, trackRouteLeave } from './events'
 import { computeRouteTransition, type RouteEnteredAt } from './route-duration'
+import { safeCall } from './safe-call'
 
 export function useRouteTelemetry(): void {
   const router = useRouter()
@@ -22,22 +23,38 @@ export function useRouteTelemetry(): void {
   useEffect(() => {
     if (!isTelemetryEnabled()) return
 
-    // `onResolved` doesn't fire for the very first render — seed the
-    // initial route (and its enter timestamp) directly so the FIRST route
-    // the user lands on also gets a `route_enter` + a correct dwell time
-    // once they navigate away.
-    const initialRoute = router.state.location.pathname
-    previousRef.current = { route: initialRoute, enteredAtMs: Date.now() }
-    trackRouteEnter(initialRoute)
+    // MED-2 (code review round 1): the ENTIRE effect body — seeding +
+    // subscribing — runs OUTSIDE `TelemetryErrorBoundary`'s subtree (see
+    // `safe-call.ts`), so it's wrapped end to end. `unsubscribeRef` lets the
+    // cleanup function below see whatever `router.subscribe` produced (or
+    // stay a no-op if the wrapped setup threw before reaching it).
+    let unsubscribe: () => void = () => {}
 
-    const unsubscribe = router.subscribe('onResolved', ({ toLocation, pathChanged }) => {
-      if (!pathChanged) return
-      const now = Date.now()
-      const { leave, enter } = computeRouteTransition(previousRef.current, toLocation.pathname, now)
-      if (leave) trackRouteLeave(leave.route, leave.durationMs)
-      trackRouteEnter(enter.route)
-      previousRef.current = { route: enter.route, enteredAtMs: now }
-    })
-    return unsubscribe
+    safeCall(() => {
+      // `onResolved` doesn't fire for the very first render — seed the
+      // initial route (and its enter timestamp) directly so the FIRST route
+      // the user lands on also gets a `route_enter` + a correct dwell time
+      // once they navigate away.
+      const initialRoute = router.state.location.pathname
+      previousRef.current = { route: initialRoute, enteredAtMs: Date.now() }
+      trackRouteEnter(initialRoute)
+
+      unsubscribe = router.subscribe('onResolved', ({ toLocation, pathChanged }) => {
+        safeCall(() => {
+          if (!pathChanged) return
+          const now = Date.now()
+          const { leave, enter } = computeRouteTransition(
+            previousRef.current,
+            toLocation.pathname,
+            now,
+          )
+          if (leave) trackRouteLeave(leave.route, leave.durationMs)
+          trackRouteEnter(enter.route)
+          previousRef.current = { route: enter.route, enteredAtMs: now }
+        }, 'use-route-telemetry:onResolved')
+      })
+    }, 'use-route-telemetry:setup')
+
+    return () => unsubscribe()
   }, [router])
 }
