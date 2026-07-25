@@ -29,6 +29,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
+import { trackFeatureClick } from '@/lib/telemetry'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -163,6 +164,7 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
             onClick={() => updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })}
             disabled={updateMutation.isPending}
             data-testid={`vacancy-publish-mobile-${vacancy.id}`}
+            data-track="vacancy-publish"
           >
             <ArrowUp className="mr-1.5 h-4 w-4" />
             Опубликовать
@@ -291,6 +293,7 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
               }
               disabled={updateMutation.isPending}
               data-testid={`vacancy-publish-${vacancy.id}`}
+              data-track="vacancy-publish"
             >
               <ArrowUp className="mr-1 h-3.5 w-3.5" />
               Опубликовать
@@ -353,7 +356,10 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
               vacancy={vacancy}
               canDelete={canDelete}
               tooltip={deleteTooltip}
-              onDelete={() => deleteMutation.mutate(vacancy.id)}
+              onDelete={() => {
+                trackFeatureClick('vacancy-delete')
+                deleteMutation.mutate(vacancy.id)
+              }}
               isPending={deleteMutation.isPending}
             />
           )}

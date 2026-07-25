@@ -338,6 +338,7 @@ export function ConfirmPayoutDialog({ tx, onClose }: ConfirmPayoutDialogProps) {
             onClick={() => mutation.mutate()}
             disabled={!canSubmit}
             data-testid="confirm-payout-submit"
+            data-track="confirm-payout"
           >
             {mutation.isPending ? 'Сохранение...' : 'Подтвердить'}
           </Button>

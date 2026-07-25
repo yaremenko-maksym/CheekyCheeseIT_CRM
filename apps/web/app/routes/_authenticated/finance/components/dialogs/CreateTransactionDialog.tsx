@@ -7,6 +7,7 @@ import { SALARY_ELIGIBLE_ROLES, receiptMandatoryError } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
+import { trackFeatureClick } from '@/lib/telemetry'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
@@ -628,6 +629,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     // default currency (any USDT-lock is re-derived from funding).
                     setFundingSource(defaultFundingSource(t))
                     setCurrency('USD')
+                    // task-telemetry-web: USDT-income declaration is its own
+                    // tracked feature (not just a generic "transaction-create") —
+                    // fired on TYPE SELECTION, not on the shared submit button.
+                    if (t === 'USDT_INCOME') trackFeatureClick('usdt-income-declare')
                   }}
                   className={cn(
                     'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
@@ -1191,6 +1196,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             onClick={handleSubmit}
             disabled={mutation.isPending}
             data-testid="create-transaction-submit"
+            data-track="transaction-create"
           >
             {mutation.isPending ? 'Создание...' : 'Создать транзакцию'}
           </Button>

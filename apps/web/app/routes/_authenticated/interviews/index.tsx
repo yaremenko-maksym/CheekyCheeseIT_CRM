@@ -21,6 +21,7 @@ import { useMemo, useState } from 'react'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
+import { trackFeatureClick } from '@/lib/telemetry'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { RejoinTeamDialog } from '@/components/users/RejoinTeamDialog'
@@ -302,6 +303,11 @@ function InterviewsPage() {
       }
     })
 
+    // task-telemetry-web: not a click — the delegated [data-track] listener
+    // can't see a dnd-kit drag, so this feature signal is fired manually,
+    // gated on an ACTUAL move (the early-returns above already ruled out a
+    // same-column no-op reorder).
+    trackFeatureClick('interview-kanban-drag')
     moveMutation.mutate({ id: draggedId, stage: targetStage, position: targetIndex })
   }
 

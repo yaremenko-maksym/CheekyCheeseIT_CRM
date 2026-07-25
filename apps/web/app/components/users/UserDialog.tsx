@@ -2029,6 +2029,7 @@ export function UserDialog(props: UserDialogProps) {
                   onClick={() => void form.handleSubmit()}
                   disabled={isPending}
                   data-testid="wizard-next-btn"
+                  data-track="user-create"
                 >
                   {createMutation.isPending ? (
                     'Создание...'
@@ -2263,6 +2264,7 @@ function WizardStep3({
             onClick={onMarkReady}
             disabled={!hasContract || isMarkingReady}
             data-testid="wizard-mark-ready-btn"
+            data-track="contract-sign-prep"
           >
             {isMarkingReady ? 'Отправка...' : 'Отметить готовым к подписи'}
           </Button>

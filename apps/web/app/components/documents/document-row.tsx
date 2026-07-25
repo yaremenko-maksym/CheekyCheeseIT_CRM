@@ -184,6 +184,7 @@ export function DocumentRow({ doc, viewer, onOpen }: DocumentRowProps) {
           onClick={handleDownload}
           disabled={downloadQuery.isFetching}
           data-testid="document-row-download"
+          data-track="document-download"
           aria-label="Скачать"
         >
           <Download className="h-4 w-4" />

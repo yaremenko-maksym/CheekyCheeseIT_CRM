@@ -271,6 +271,7 @@ export function DocumentCard({ doc, viewer, onOpen }: DocumentCardProps) {
             onClick={handleDownload}
             disabled={downloadQuery.isFetching}
             data-testid="document-download"
+            data-track="document-download"
           >
             <Download className="mr-1 h-4 w-4" />
             Скачать

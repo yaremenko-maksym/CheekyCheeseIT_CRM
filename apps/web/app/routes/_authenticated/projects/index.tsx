@@ -878,6 +878,7 @@ function ProjectsPage() {
                 <Button
                   onClick={() => void createForm.handleSubmit()}
                   disabled={createMutation.isPending}
+                  data-track="project-create"
                 >
                   {createMutation.isPending ? 'Создание...' : 'Создать'}
                 </Button>
