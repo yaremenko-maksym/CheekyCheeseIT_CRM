@@ -13,9 +13,16 @@
 import type { ReportErrorDto, TelemetryEventDto } from '@crm/shared'
 import { buildValidatedEventsBatch } from './validate-events'
 
-/** Mirrors `lib/axios.ts`'s `baseURL` resolution so both transports hit the same API origin. */
+/**
+ * Mirrors `lib/axios.ts`'s `baseURL` resolution so both transports hit the
+ * same API origin. Dot access — hotfix (`config.ts` header): bracket access
+ * to `import.meta.env.VITE_*` is not statically foldable by Vite, so it was
+ * always `undefined` in prod bundles (harmless here only by coincidence,
+ * since the fallback `'/api'` IS the correct same-origin prod value — but a
+ * real `VITE_API_URL` override would have been silently ignored).
+ */
 function apiBase(): string {
-  const v: unknown = import.meta.env['VITE_API_URL']
+  const v: unknown = import.meta.env.VITE_API_URL
   return typeof v === 'string' && v.length > 0 ? v : '/api'
 }
 
