@@ -1,6 +1,6 @@
 import { createRootRoute, Outlet, useRouter } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { LazyMotion, domAnimation, m } from 'framer-motion'
+import { LazyMotion, domMin, m } from 'framer-motion'
 import { ArrowLeft } from 'lucide-react'
 import { useDocumentHead } from '@/lib/use-document-head'
 import { canonicalUrl } from '@/lib/seo'
@@ -166,18 +166,23 @@ function RootDocument() {
   // wrapper mounts on EVERY route (it's the root layout around `<Outlet/>`),
   // so the full `motion` component's bundled-in gesture/drag/layout-
   // projection engine was shipping on every single page load even though
-  // this file only ever uses a plain `initial`/`animate`/`transition` tween
-  // (no drag, no gestures, no `layout` prop, no `AnimatePresence` — verified
-  // exhaustively, see `docs/design/landing-redesign.md` §M v3 and the
-  // `unused-javascript` Lighthouse audit that flagged 70% of the shipped
-  // motion bundle as dead code on this exact page). `domAnimation` is the
-  // smallest LazyMotion feature bundle that still supports `initial`/
-  // `animate`/`transition` tweens (`domMin` in the newer `motion` package
-  // naming; framer-motion's classic API only ships `domAnimation`/`domMax`).
-  // Same visual/timing behaviour — `m.div` accepts the identical prop API as
-  // `motion.div`, this is a bundle-composition change only.
+  // this file (and every OTHER `m.div` site in the app, see each one's own
+  // comment) only ever uses a plain `initial`/`animate`/`transition` tween or
+  // a `style`-bound MotionValue — no drag, no gestures (`whileHover`/
+  // `whileTap`/`whileInView`-the-PROP — `ScrollReveal`'s `useInView` is the
+  // separate HOOK, unrelated to this feature split), no `layout` prop, no
+  // `AnimatePresence` (verified exhaustively — every `motion.`/`m.` JSX
+  // usage in `apps/landing/app` was grepped and read; see
+  // `docs/design/landing-redesign.md` §M v3 for the product spec these
+  // preserve). `domMin` (verified present in the installed framer-motion
+  // v12 — `node_modules/framer-motion/dist/es/render/dom/features-min.mjs`:
+  // `{ renderer, ...animations }`, no gesture bundle) is therefore enough —
+  // NOT `domAnimation` (`domMin` + `gestureAnimations`, gestures we never
+  // use). Same visual/timing behaviour either way — `m.div` accepts the
+  // identical prop API as `motion.div`; this is a bundle-composition change
+  // only.
   return (
-    <LazyMotion features={domAnimation}>
+    <LazyMotion features={domMin}>
       <m.div
         key={transition.pathname}
         ref={wrapperRef}
