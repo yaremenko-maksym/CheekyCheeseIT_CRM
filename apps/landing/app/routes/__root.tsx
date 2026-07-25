@@ -43,6 +43,16 @@ function focusMainLandmark(): void {
   }
 }
 
+/** Resolves once the NEXT `onResolved` router event fires — one-shot, unsubscribes itself. */
+function onceResolved(router: ReturnType<typeof useRouter>): Promise<void> {
+  return new Promise((resolve) => {
+    const unsubscribe = router.subscribe('onResolved', () => {
+      unsubscribe()
+      resolve()
+    })
+  })
+}
+
 /**
  * Page-transition + in-page smooth-scroll orchestrator (docs/design/landing-
  * redesign.md §M v3.1) — a "soft lift" cross-fade on EVERY navigation, via
@@ -87,6 +97,21 @@ function RootDocument() {
       const direction = consumePendingDirection()
       playLiftExit(wrapperRef.current, isReducedMotionPreferred())
       setTransition({ pathname: toLocation.pathname, direction })
+
+      // Focus management (WCAG 2.4.3, §M v3.1 step 7) — gated on the
+      // router's OWN `onResolved` event, not on the enter-animation's
+      // `onAnimationComplete`/this effect's `transition.pathname` state
+      // change: BOTH of those fire at `onBeforeNavigate` time (immediately,
+      // synchronously), which is BEFORE the destination route's async
+      // loader resolves and `<Outlet/>` actually swaps in the real page
+      // content — confirmed empirically via E2E (a race that reliably
+      // reproduced under `prefers-reduced-motion`, where there's no
+      // animation duration to accidentally paper over the gap): focusing
+      // too early lands on a `<main>` that gets replaced moments later,
+      // silently reverting `document.activeElement` to `<body>`. Waiting
+      // for `onResolved` (same event/pattern the pre-v3 §M.3 orchestrator
+      // used) guarantees the focused `<main>` is the FINAL, stable node.
+      void onceResolved(router).then(focusMainLandmark)
     })
     return unsubscribe
   }, [router])
@@ -107,12 +132,6 @@ function RootDocument() {
       }
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
-      onAnimationComplete={() => {
-        // Guard against the very first mount (direction still `null` — no
-        // navigation has happened yet, e.g. a cold document load): don't
-        // steal focus onto `<main>` before the visitor has done anything.
-        if (transition.direction !== null) focusMainLandmark()
-      }}
     >
       <Outlet />
     </motion.div>
