@@ -42,6 +42,11 @@ KNOWN_UNSHARDED = {
                                                    # started apps/landing dev server + vacancies-seeded
                                                    # scratch DB that ci.yml's default shard does not
                                                    # provision. Run locally: `playwright test --project=landing`.
+    "tests/landing/motion-v3.spec.ts",            # debt: opt-in `landing` Playwright project (same
+                                                   # pattern as responsive.spec.ts above) — needs an
+                                                   # externally started apps/landing dev server +
+                                                   # vacancies-seeded scratch DB. Run locally:
+                                                   # `playwright test --project=landing`.
     # --- accountant ---
     "tests/accountant-dashboard.spec.ts",         # debt: not gated, migrate to accountant shard later
     # --- admin ---
