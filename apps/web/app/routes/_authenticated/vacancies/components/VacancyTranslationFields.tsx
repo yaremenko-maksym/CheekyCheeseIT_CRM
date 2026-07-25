@@ -15,19 +15,26 @@
  * design-review round 1 (PR #422, HIGH-1) — the tab ROW itself is compact by
  * design now: 2-letter locale code (`locale.toUpperCase()`, data-driven off
  * `VACANCY_TRANSLATION_LOCALES` — a 6th locale needs zero layout changes)
- * + a small colour dot instead of a full text badge (green = translated,
- * red = has a validation error, muted = untranslated), with the full status
- * carried in `aria-label` for screen readers/colour-blind users. 4 tabs at
- * this size total ≈220px, comfortably inside the narrowest context that was
- * failing (Sheet `max-w-md` = 448px, and the 375px viewport where the Sheet
- * itself goes full-width). `overflow-x-auto` on the list is a defensive
- * fallback ONLY (a future 6th/7th locale, unusual browser zoom) — the fix
- * itself is the compact width, not scrolling. Verified in all 3 contexts the
- * design review flagged (list→Sheet @1440, list→Sheet @375, inline form
- * @375) plus the already-working wide detail column @1440 — see PR body for
- * the concrete measurements/screenshots. Solved locally in this component,
- * NOT in the shared `ui/tabs.tsx` primitive (other screens use TabsList too
- * — see that file's other call sites).
+ * + a small status glyph instead of a full text badge, with the full status
+ * carried in `aria-label` for screen readers. 4 tabs at this size total
+ * ≈220px, comfortably inside the narrowest context that was failing (Sheet
+ * `max-w-md` = 448px, and the 375px viewport where the Sheet itself goes
+ * full-width). `overflow-x-auto` on the list is a defensive fallback ONLY (a
+ * future 6th/7th locale, unusual browser zoom) — the fix itself is the
+ * compact width, not scrolling. Verified in all 3 contexts the design review
+ * flagged (list→Sheet @1440, list→Sheet @375, inline form @375) plus the
+ * already-working wide detail column @1440 — see PR body for the concrete
+ * measurements/screenshots. Solved locally in this component, NOT in the
+ * shared `ui/tabs.tsx` primitive (other screens use TabsList too — see that
+ * file's other call sites).
+ *
+ * design-review round 2 (PR #422, LOW-1) — "переведено"/"ошибка" used to
+ * differ ONLY by dot colour (green/red), unreadable for colour-blind users
+ * or in grayscale. Replaced the dot with 3 SHAPE-distinct glyphs
+ * (`lucide-react`, `size-3`): plain outline circle = не переведено,
+ * check-in-circle = переведено, triangle with "!" = ошибка — each shape is
+ * distinguishable on its own, colour is now reinforcement, not the only
+ * signal.
  *
  * design-review round 1 (PR #422, HIGH-2) — "ошибка валидации абсолютно
  * беззвучна", made worse by tabs (an invalid field can hide in a closed
@@ -49,8 +56,20 @@
  * `focusRequest` prop still force-switches the active tab to wherever the
  * first reported error lives, so it's never left invisible behind a closed
  * tab — Tabs are CONTROLLED (not `defaultValue`) for exactly this reason.
+ *
+ * design-review round 2 (PR #422, MED) — the error text was only linked to
+ * its field VISUALLY (red border/text). Each error `<p>` now has a stable
+ * `id` (`${path}-error`) and the input/textarea carries `aria-invalid` +
+ * `aria-describedby` pointing at it — a screen reader now announces both
+ * "invalid" and the message text when the field receives focus.
+ *
+ * design-review round 2 — tab-trigger height (28px) stays as-is: above the
+ * WCAG 2.2 AA target-size minimum (24px), below the CRM's usual 44px touch
+ * target — an intentional density trade-off for a 4-tab row inside an
+ * already-narrow Sheet, not an oversight (see PR body).
  */
 import { useEffect, useState } from 'react'
+import { Circle, CircleCheck, TriangleAlert } from 'lucide-react'
 import type { VacancyTranslationLocale } from '@crm/shared'
 import { VACANCY_TRANSLATION_LOCALES, vacancyTranslationSchema } from '@crm/shared'
 import { cn } from '@/lib/utils'
@@ -157,6 +176,14 @@ export function VacancyTranslationFields({
                     : status.translated
                       ? 'переведено'
                       : 'не переведено'
+                  // design-review round 2 (LOW-1) — shape, not just colour,
+                  // carries the status: outline circle / check-circle /
+                  // triangle-alert are distinguishable in grayscale.
+                  const StatusIcon = hasError
+                    ? TriangleAlert
+                    : status.translated
+                      ? CircleCheck
+                      : Circle
                   return (
                     <TabsTrigger
                       value={locale}
@@ -165,15 +192,15 @@ export function VacancyTranslationFields({
                       className="shrink-0 gap-1.5"
                       aria-label={`${VACANCY_TRANSLATION_LOCALE_LABELS[locale]} — ${statusLabel}`}
                     >
-                      <span
+                      <StatusIcon
                         aria-hidden="true"
                         className={cn(
-                          'inline-block size-1.5 shrink-0 rounded-full',
+                          'size-3 shrink-0',
                           hasError
-                            ? 'bg-destructive'
+                            ? 'text-destructive'
                             : status.translated
-                              ? 'bg-green-500'
-                              : 'bg-muted-foreground/40',
+                              ? 'text-green-500'
+                              : 'text-muted-foreground/40',
                         )}
                       />
                       {locale.toUpperCase()}
@@ -201,6 +228,7 @@ export function VacancyTranslationFields({
                   const err =
                     (field.state.meta.errors[0] as string | undefined) ??
                     submitFieldErrors?.[titlePath]
+                  const errorId = `vacancy-translation-${locale}-title-error`
                   return (
                     <div className="space-y-1.5">
                       <Label className={cn('text-xs', err && 'text-destructive')}>Название</Label>
@@ -213,11 +241,17 @@ export function VacancyTranslationFields({
                         onBlur={field.handleBlur}
                         placeholder="Senior React Developer"
                         data-testid={`vacancy-translation-${locale}-title`}
+                        aria-invalid={err ? true : undefined}
+                        aria-describedby={err ? errorId : undefined}
                         className={cn(
                           err && 'border-destructive focus-visible:ring-destructive/30',
                         )}
                       />
-                      {err && <p className="text-xs text-destructive">{err}</p>}
+                      {err && (
+                        <p id={errorId} className="text-xs text-destructive">
+                          {err}
+                        </p>
+                      )}
                     </div>
                   )
                 }}
@@ -233,6 +267,7 @@ export function VacancyTranslationFields({
                   const err =
                     (field.state.meta.errors[0] as string | undefined) ??
                     submitFieldErrors?.[descriptionPath]
+                  const errorId = `vacancy-translation-${locale}-description-error`
                   return (
                     <div className="space-y-1.5">
                       <Label className={cn('text-xs', err && 'text-destructive')}>
@@ -247,11 +282,17 @@ export function VacancyTranslationFields({
                         onBlur={field.handleBlur}
                         rows={6}
                         data-testid={`vacancy-translation-${locale}-description`}
+                        aria-invalid={err ? true : undefined}
+                        aria-describedby={err ? errorId : undefined}
                         className={cn(
                           err && 'border-destructive focus-visible:ring-destructive/30',
                         )}
                       />
-                      {err && <p className="text-xs text-destructive">{err}</p>}
+                      {err && (
+                        <p id={errorId} className="text-xs text-destructive">
+                          {err}
+                        </p>
+                      )}
                     </div>
                   )
                 }}

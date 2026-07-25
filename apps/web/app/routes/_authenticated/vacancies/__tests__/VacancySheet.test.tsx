@@ -217,6 +217,16 @@ describe('VacancySheet — invalid translation hidden in an inactive tab (HIGH-2
     )
     expect(screen.getByText('Минимум 3 символов')).toBeInTheDocument()
     expect(screen.getByTestId('vacancy-translation-tab-ru')).toHaveAttribute('data-state', 'active')
+
+    // design-review round 2 (PR #422, MED) — the error must be linked to its
+    // field for assistive tech, not just visually (red border/text): the
+    // input carries aria-invalid + aria-describedby pointing at the error
+    // paragraph's id, and that id must actually exist and hold the message.
+    const ruTitleInput = screen.getByTestId('vacancy-translation-ru-title')
+    expect(ruTitleInput).toHaveAttribute('aria-invalid', 'true')
+    const describedBy = ruTitleInput.getAttribute('aria-describedby')
+    expect(describedBy).toBe('vacancy-translation-ru-title-error')
+    expect(document.getElementById(describedBy as string)).toHaveTextContent('Минимум 3 символов')
   })
 })
 
