@@ -161,6 +161,15 @@ jobs:
       # isTelemetryEnabled() contract. Safe regardless of merge order with
       # #415: before #415 merges the telemetry/ module doesn't exist yet, so
       # this arg is simply unused by the build.
+      #
+      # task-infra-locale-edge: four MORE optional build-args, same no-op-
+      # when-unset pattern as VITE_TURNSTILE_SITE_KEY above — the IndexNow
+      # key file + Bing/Yandex verification files (AC B6/B7). None of these
+      # secrets exist yet at the time this PR lands (the owner sets them up
+      # per scripts/devops/locale-routing-runbook.md §7/§8) — an empty value
+      # here is expected and safe: nginx/Dockerfile's generation step prints
+      # an explicit ::warning:: and leaves the corresponding endpoint absent
+      # (404) rather than serving anything broken.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -173,6 +182,10 @@ jobs:
             VITE_TURNSTILE_SITE_KEY=${{ secrets.VITE_TURNSTILE_SITE_KEY }}
             PRERENDER_API_ORIGIN=https://cheekycheese.tech
             VITE_TELEMETRY=on
+            INDEXNOW_KEY=${{ secrets.INDEXNOW_KEY }}
+            BING_SITE_VERIFICATION_ID=${{ secrets.BING_SITE_VERIFICATION_ID }}
+            YANDEX_VERIFICATION_FILENAME=${{ secrets.YANDEX_VERIFICATION_FILENAME }}
+            YANDEX_VERIFICATION_CONTENT=${{ secrets.YANDEX_VERIFICATION_CONTENT }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
@@ -724,7 +737,7 @@ jobs:
               sleep 2
             done
 
-            echo "==> Smoke test — external HTTP check"
+            echo "==> Smoke test — external HTTP check (CRM API, non-fatal)"
             if curl -sf --max-time 15 https://app.cheekycheese.tech/api/health; then
               echo "External health check PASSED"
             else
@@ -732,7 +745,92 @@ jobs:
               echo "Internal API is healthy — stack is running correctly"
             fi
 
+            # task-infra-locale-edge (security-review round 1, HIGH-2 follow-up;
+            # hardened in round 2, LOW-3): unlike the CRM API check above (kept
+            # non-fatal, tolerates the DNS/TLS-not-configured-yet state a
+            # brand-new deployment can be in), this checks nginx's LANDING
+            # server block and is FATAL — nginx/Dockerfile's HIGH-2 fix (see
+            # scripts/devops/locale-routing-runbook.md §11) closes the
+            # config-injection vector that could make nginx fail to start, but
+            # this is the last line of defence against ANY OTHER future config
+            # mistake (not just build-arg injection) that produces the same
+            # failure mode: image builds fine, container crash-loops on boot,
+            # `docker compose up -d` still reports success, and without this
+            # check the deploy step would too — silently taking down the whole
+            # public site (landing AND, since nginx is shared, CRM) with a
+            # green pipeline.
+            #
+            # round 2 (LOW-3): the FIRST version of this check hit the public
+            # hostname (`https://cheekycheese.tech/`), meaning the VPS made an
+            # outbound request through Cloudflare and back to itself (a
+            # hairpin round-trip) — a transient CF blip or DNS hiccup unrelated
+            # to nginx's own health would fail the deploy. Fixed by hitting
+            # nginx's PUBLISHED PORT directly on loopback
+            # (`docker-compose.prod.yml` maps `80:80`/`443:443` to the host)
+            # with an explicit Host header, so the request still goes THROUGH
+            # nginx (exercises the real landing.conf server block, the
+            # locale-detect njs module, the merge-order guard — everything
+            # this PR added) but never leaves the VPS or depends on Cloudflare/
+            # DNS being reachable. Port 80 (not 443): no TLS handshake/cert
+            # complexity to add here, and the :80 server block runs the exact
+            # same locale-redirect logic as :443 (see nginx/conf.d/landing.conf
+            # — both blocks are kept in sync deliberately). Checks `/` (root)
+            # AND one locale-prefixed URL (`/uk/`) — the latter is safe to
+            # check regardless of feature/landing-i18n merge state: unmerged,
+            # the locale-edge guard (see runbook §4) makes `/uk/` fall back to
+            # a plain EN 200, not a 404 — still passes this check either way.
+            echo "==> Smoke test — landing origin through local nginx, Host header (FATAL)"
+            if curl -sf --max-time 15 -H 'Host: cheekycheese.tech' http://127.0.0.1/ > /dev/null \
+               && curl -sf --max-time 15 -H 'Host: cheekycheese.tech' http://127.0.0.1/uk/ > /dev/null; then
+              echo "Landing origin health check PASSED (/ and /uk/ both 200)"
+            else
+              echo "ERROR: nginx is not returning 200 on / and/or /uk/ for the landing Host header."
+              echo "This means nginx failed to start or is misconfigured — the deploy is NOT healthy"
+              echo "even though earlier internal checks passed. See scripts/devops/locale-routing-runbook.md"
+              echo "§11 for the config-injection class this guards against, and §6 for the general"
+              echo "check-locale-routing.sh dry-run workflow to diagnose locally."
+              exit 1
+            fi
+
             echo "==> Cleaning dangling images"
             docker image prune -f || true
 
             echo "==> Deploy complete. IMAGE_TAG=${IMAGE_TAG}"
+
+      # ── 5. IndexNow ping (AC B6) ─────────────────────────────────────────
+      # task-infra-locale-edge: runs on the RUNNER, not via SSH — it only
+      # needs outbound HTTPS to api.indexnow.org, no VPS access. Added as a
+      # step in this EXISTING job rather than a new job (extra jobs cost more
+      # CI minutes for no benefit here — this step is a ~1s HTTP call).
+      # Non-blocking by design: a missing secret or a non-2xx IndexNow
+      # response never fails the deploy (see
+      # scripts/devops/indexnow-ping.sh and locale-routing-runbook.md
+      # "IndexNow" for the fail-soft rationale, matching the Google Indexing
+      # API convention already established in docs/runbooks/deployment.md).
+      # Pings a fixed set of known static URLs (all 5 locale home pages +
+      # careers indexes) — safe regardless of merge order with
+      # feature/landing-i18n: a locale URL that doesn't have its own
+      # prerendered content yet simply serves the EN fallback (still a valid
+      # 200), so notifying it early is harmless, not incorrect.
+      - name: Checkout (for IndexNow ping script)
+        uses: actions/checkout@v4
+
+      - name: Ping IndexNow (Bing + Yandex)
+        env:
+          INDEXNOW_KEY: ${{ secrets.INDEXNOW_KEY }}
+        run: |
+          if [ -z "$INDEXNOW_KEY" ]; then
+            echo "::notice::INDEXNOW_KEY secret not set — skipping IndexNow ping. This is optional and expected until the owner generates a key (see scripts/devops/locale-routing-runbook.md 'IndexNow')."
+            exit 0
+          fi
+          scripts/devops/indexnow-ping.sh "$INDEXNOW_KEY" cheekycheese.tech \
+            https://cheekycheese.tech/ \
+            https://cheekycheese.tech/careers/ \
+            https://cheekycheese.tech/uk/ \
+            https://cheekycheese.tech/uk/careers/ \
+            https://cheekycheese.tech/ru/ \
+            https://cheekycheese.tech/ru/careers/ \
+            https://cheekycheese.tech/es/ \
+            https://cheekycheese.tech/es/careers/ \
+            https://cheekycheese.tech/pt/ \
+            https://cheekycheese.tech/pt/careers/

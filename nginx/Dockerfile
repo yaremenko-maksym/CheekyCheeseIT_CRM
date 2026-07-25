@@ -135,11 +135,168 @@ RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/conf.d/    /etc/nginx/conf.d/
 
+# task-infra-locale-edge: njs module used ONLY for Accept-Language
+# best-match parsing (see the `load_module` comment in nginx.conf). The
+# module .so itself already ships in this base image — only our script
+# needs copying.
+COPY nginx/njs/       /etc/nginx/njs/
+
 # Copy Landing SPA static files.
 COPY --from=landing-builder /app/apps/landing/dist /usr/share/nginx/html/landing
 
 # Copy CRM SPA static files.
 COPY --from=crm-builder /app/apps/web/dist /usr/share/nginx/html/crm
+
+# ── task-infra-locale-edge: search-engine verification / IndexNow files ───
+# Four OPTIONAL build-args, each independently no-op when unset (mirrors the
+# established VITE_TURNSTILE_SITE_KEY / GOOGLE_INDEXING_SA_* pattern already
+# used elsewhere in this Dockerfile / deploy.yml — see
+# docs/runbooks/deployment.md "Google Indexing API" for the precedent).
+# Deliberately NOT hardcoded in the repo: these are low-sensitivity but
+# still per-environment/rotatable values (IndexNow key regeneration, a new
+# Bing/Yandex webmaster property) — a GH secret + rebuild is the same
+# rotation cost as any of the other optional secrets above, without baking
+# a value into version control that would need a code change to rotate.
+#
+# SECURITY (security-review round 1, PR #423, HIGH-2 — fixed here): the
+# PREVIOUS version of this step interpolated these values directly into
+# GENERATED nginx `location { return 200 "..."; }` DIRECTIVES — a value
+# containing `"`, `;`, `{`, or a newline could break out of the intended
+# string literal and inject arbitrary nginx config (PoC in the PR: a
+# crafted YANDEX_VERIFICATION_CONTENT added a `location /pwn { alias /etc/;
+# autoindex on; }` block that served the container's `/etc/passwd` over
+# HTTP — verified against `nginx -t` passing AND a live container). Fixed
+# with TWO independent layers:
+#   1. Content values are written to plain STATIC FILES under the landing
+#      dist root (below), served by the SAME SPA-fallback `location /` /
+#      try_files mechanism that already serves robots.txt/sitemap.xml (see
+#      the comment at the top of nginx/conf.d/landing.conf) — file BYTES
+#      are never interpolated into nginx config GRAMMAR at all anymore, so
+#      no value here can inject a directive regardless of its content.
+#   2. Filename/key/id values (which DO become part of a file PATH, so a
+#      `/` or `..` could still attempt path traversal) are validated
+#      against a strict `[A-Za-z0-9._-]` allow-list BEFORE use — anything
+#      else FAILS THE BUILD LOUDLY (`docker build` exits non-zero) rather
+#      than silently writing somewhere unintended.
+# `RUN nginx -t` near the end of this stage is a THIRD, independent layer:
+# any config mistake (this class or otherwise) fails the BUILD, not a
+# later deploy — see that step's comment for why this specific fix (a
+# straight `nginx -t` against the real nginx.conf) needed a small
+# build-time-only upstream substitution to work without a live `api`
+# container to resolve.
+#
+# AC B6 (IndexNow key file @ /{key}.txt) + B7 (Bing/Yandex verification
+# files) — see scripts/devops/locale-routing-runbook.md "Bing + Yandex
+# Webmaster verification" for the owner's setup steps.
+ARG INDEXNOW_KEY=
+ARG BING_SITE_VERIFICATION_ID=
+ARG YANDEX_VERIFICATION_FILENAME=
+ARG YANDEX_VERIFICATION_CONTENT=
+
+RUN set -eu; \
+    # Allow-list guard: fails the build (not silently sanitises) on any
+    # character outside [A-Za-z0-9._-] — applied to every value that
+    # becomes part of a FILE PATH under the served static root. Content-only
+    # values (YANDEX_VERIFICATION_CONTENT, the text Yandex tells the owner
+    # to paste — commonly HTML with quotes) are deliberately NOT charset-
+    # restricted: they only ever become file BYTES now (see the big comment
+    # above), never config grammar, so restricting their charset would just
+    # be extra friction with no security benefit. \
+    check_path_safe() { \
+      case "$1" in \
+        '') return 0 ;; \
+        *[!A-Za-z0-9._-]*) \
+          echo "ERROR: $2 contains characters outside [A-Za-z0-9._-] — refusing to use it as a file name/path segment (build-arg injection guard, see nginx/Dockerfile HIGH-2 comment)." >&2; \
+          exit 1 ;; \
+      esac; \
+    }; \
+    # security-review round 2 (PR #423, LOW-4): the allow-list above stops
+    # config-injection/path-traversal, but a value like
+    # INDEXNOW_KEY=robots or YANDEX_VERIFICATION_FILENAME=index.html would
+    # still pass it cleanly and then SILENTLY OVERWRITE a real, already-
+    # built landing asset (robots.txt / the homepage itself) — the
+    # landing-builder COPY above already populated $LANDING_ROOT with the
+    # real site by this point, so any pre-existing file at the target path
+    # is a genuine site asset, never a leftover from a previous run of this
+    # same step. Fails the build loudly instead, same style as
+    # check_path_safe. \
+    check_no_collision() { \
+      if [ -e "$1" ]; then \
+        echo "ERROR: $2 target path '$1' already exists in the landing dist — refusing to overwrite an existing site asset (collision guard, see nginx/Dockerfile LOW-4 comment)." >&2; \
+        exit 1; \
+      fi; \
+    }; \
+    check_path_safe "$INDEXNOW_KEY" INDEXNOW_KEY; \
+    check_path_safe "$BING_SITE_VERIFICATION_ID" BING_SITE_VERIFICATION_ID; \
+    check_path_safe "$YANDEX_VERIFICATION_FILENAME" YANDEX_VERIFICATION_FILENAME; \
+    LANDING_ROOT=/usr/share/nginx/html/landing; \
+    if [ -n "$INDEXNOW_KEY" ]; then \
+      check_no_collision "$LANDING_ROOT/$INDEXNOW_KEY.txt" INDEXNOW_KEY; \
+      printf '%s' "$INDEXNOW_KEY" > "$LANDING_ROOT/$INDEXNOW_KEY.txt"; \
+      echo "==> IndexNow key file written (/$INDEXNOW_KEY.txt)"; \
+    else \
+      echo "::warning::INDEXNOW_KEY build-arg not set — IndexNow key file not written (no-op). See scripts/devops/locale-routing-runbook.md."; \
+    fi; \
+    if [ -n "$BING_SITE_VERIFICATION_ID" ]; then \
+      check_no_collision "$LANDING_ROOT/BingSiteAuth.xml" BING_SITE_VERIFICATION_ID; \
+      printf '<?xml version="1.0"?><users><user>%s</user></users>' "$BING_SITE_VERIFICATION_ID" > "$LANDING_ROOT/BingSiteAuth.xml"; \
+      echo "==> Bing site-verification file written (/BingSiteAuth.xml)"; \
+    else \
+      echo "::warning::BING_SITE_VERIFICATION_ID build-arg not set — Bing verification file not written (no-op). See scripts/devops/locale-routing-runbook.md."; \
+    fi; \
+    if [ -n "$YANDEX_VERIFICATION_FILENAME" ] && [ -n "$YANDEX_VERIFICATION_CONTENT" ]; then \
+      check_no_collision "$LANDING_ROOT/$YANDEX_VERIFICATION_FILENAME" YANDEX_VERIFICATION_FILENAME; \
+      printf '%s' "$YANDEX_VERIFICATION_CONTENT" > "$LANDING_ROOT/$YANDEX_VERIFICATION_FILENAME"; \
+      echo "==> Yandex verification file written (/$YANDEX_VERIFICATION_FILENAME)"; \
+    else \
+      echo "::warning::YANDEX_VERIFICATION_FILENAME / YANDEX_VERIFICATION_CONTENT build-args not set — Yandex verification file not written (no-op). See scripts/devops/locale-routing-runbook.md."; \
+    fi
+
+# ── task-infra-locale-edge (HIGH-2, layer 3): fail the BUILD on any broken
+# nginx config, not a later deploy ──────────────────────────────────────
+# `nginx -t` against the REAL nginx.conf fails outright at build time
+# because `upstream api_upstream { server api:3001; }` cannot resolve the
+# `api` hostname — there is no `api` container/DNS during `docker build`
+# (verified: this is a bare DNS-resolution failure, not a syntax check;
+# nginx resolves static, non-`resolver`-based upstream hostnames at
+# config-load time). Since `-t` only validates SYNTAX (it never actually
+# connects to any upstream), substituting a literal, always-valid
+# `127.0.0.1:1` for that one line is sufficient to test everything else —
+# including every file this stage has touched (nginx.conf, all of conf.d/,
+# the njs module/script) — with zero loss of coverage for the injection
+# class this exists to catch. This substitution is BUILD-TIME ONLY (temp
+# files, removed immediately after); the real /etc/nginx/nginx.conf and
+# /etc/nginx/conf.d/ shipped in the image are untouched.
+#
+# SECOND substitution needed for the same reason: `ssl_certificate` /
+# `ssl_certificate_key` in landing.conf / crm.conf point at
+# /etc/nginx/certs/*.crt|key — real files mounted into the container at
+# RUNTIME by docker-compose.prod.yml (`volumes: - /etc/nginx/certs:...:ro`),
+# never baked into this image, so they genuinely do not exist yet at build
+# time either. `nginx -t` fails to LOAD (not just parse) a `listen 443 ssl`
+# block without a real, valid certificate on disk — no version of `-t`
+# skips that check. Stripping the `ssl_certificate*`/`http2 on;` lines and
+# `listen 443 ssl;` -> `listen 8443;` from a build-time-only COPY of
+# conf.d/ (not the shipped one) sidesteps needing to fabricate a throwaway
+# cert (which would mean either generating one with a tool this base image
+# doesn't ship — no openssl in nginx:1.27-alpine, verified — or committing
+# a dummy private key to the repo, which is exactly the kind of thing
+# secret-scanners flag regardless of it being genuinely inert). This still
+# tests every directive this PR's injection-guard cares about (the
+# `location`/`map`/njs syntax coming from build-args and everything else in
+# conf.d) — only the boilerplate TLS directives themselves are skipped, and
+# those are unrelated to and unchanged by this PR.
+RUN set -eu; \
+    mkdir -p /tmp/nginx-build-test/conf.d && \
+    sed 's/server api:3001;/server 127.0.0.1:1;/' /etc/nginx/nginx.conf \
+      | sed 's#include /etc/nginx/conf\.d/\*\.conf;#include /tmp/nginx-build-test/conf.d/*.conf;#' \
+      > /tmp/nginx-build-test/nginx.conf; \
+    for f in /etc/nginx/conf.d/*.conf; do \
+      sed -e '/ssl_certificate/d' -e 's/listen 443 ssl;/listen 8443;/' -e '/http2 on;/d' \
+        "$f" > "/tmp/nginx-build-test/conf.d/$(basename "$f")"; \
+    done; \
+    nginx -t -c /tmp/nginx-build-test/nginx.conf; \
+    rm -rf /tmp/nginx-build-test
 
 # Ports: 80 (HTTP), 443 (HTTPS — certs must be mounted at runtime).
 EXPOSE 80 443
