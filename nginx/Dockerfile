@@ -210,23 +210,42 @@ RUN set -eu; \
           exit 1 ;; \
       esac; \
     }; \
+    # security-review round 2 (PR #423, LOW-4): the allow-list above stops
+    # config-injection/path-traversal, but a value like
+    # INDEXNOW_KEY=robots or YANDEX_VERIFICATION_FILENAME=index.html would
+    # still pass it cleanly and then SILENTLY OVERWRITE a real, already-
+    # built landing asset (robots.txt / the homepage itself) — the
+    # landing-builder COPY above already populated $LANDING_ROOT with the
+    # real site by this point, so any pre-existing file at the target path
+    # is a genuine site asset, never a leftover from a previous run of this
+    # same step. Fails the build loudly instead, same style as
+    # check_path_safe. \
+    check_no_collision() { \
+      if [ -e "$1" ]; then \
+        echo "ERROR: $2 target path '$1' already exists in the landing dist — refusing to overwrite an existing site asset (collision guard, see nginx/Dockerfile LOW-4 comment)." >&2; \
+        exit 1; \
+      fi; \
+    }; \
     check_path_safe "$INDEXNOW_KEY" INDEXNOW_KEY; \
     check_path_safe "$BING_SITE_VERIFICATION_ID" BING_SITE_VERIFICATION_ID; \
     check_path_safe "$YANDEX_VERIFICATION_FILENAME" YANDEX_VERIFICATION_FILENAME; \
     LANDING_ROOT=/usr/share/nginx/html/landing; \
     if [ -n "$INDEXNOW_KEY" ]; then \
+      check_no_collision "$LANDING_ROOT/$INDEXNOW_KEY.txt" INDEXNOW_KEY; \
       printf '%s' "$INDEXNOW_KEY" > "$LANDING_ROOT/$INDEXNOW_KEY.txt"; \
       echo "==> IndexNow key file written (/$INDEXNOW_KEY.txt)"; \
     else \
       echo "::warning::INDEXNOW_KEY build-arg not set — IndexNow key file not written (no-op). See scripts/devops/locale-routing-runbook.md."; \
     fi; \
     if [ -n "$BING_SITE_VERIFICATION_ID" ]; then \
+      check_no_collision "$LANDING_ROOT/BingSiteAuth.xml" BING_SITE_VERIFICATION_ID; \
       printf '<?xml version="1.0"?><users><user>%s</user></users>' "$BING_SITE_VERIFICATION_ID" > "$LANDING_ROOT/BingSiteAuth.xml"; \
       echo "==> Bing site-verification file written (/BingSiteAuth.xml)"; \
     else \
       echo "::warning::BING_SITE_VERIFICATION_ID build-arg not set — Bing verification file not written (no-op). See scripts/devops/locale-routing-runbook.md."; \
     fi; \
     if [ -n "$YANDEX_VERIFICATION_FILENAME" ] && [ -n "$YANDEX_VERIFICATION_CONTENT" ]; then \
+      check_no_collision "$LANDING_ROOT/$YANDEX_VERIFICATION_FILENAME" YANDEX_VERIFICATION_FILENAME; \
       printf '%s' "$YANDEX_VERIFICATION_CONTENT" > "$LANDING_ROOT/$YANDEX_VERIFICATION_FILENAME"; \
       echo "==> Yandex verification file written (/$YANDEX_VERIFICATION_FILENAME)"; \
     else \

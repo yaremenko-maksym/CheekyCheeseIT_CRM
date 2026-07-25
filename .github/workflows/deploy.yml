@@ -745,30 +745,46 @@ jobs:
               echo "Internal API is healthy — stack is running correctly"
             fi
 
-            # task-infra-locale-edge (security-review round 1, HIGH-2 follow-up):
-            # unlike the CRM API check above (kept non-fatal, tolerates the
-            # DNS/TLS-not-configured-yet state a brand-new deployment can be
-            # in), this checks the PUBLIC LANDING origin THROUGH nginx and is
-            # FATAL — nginx/Dockerfile's HIGH-2 fix (see
+            # task-infra-locale-edge (security-review round 1, HIGH-2 follow-up;
+            # hardened in round 2, LOW-3): unlike the CRM API check above (kept
+            # non-fatal, tolerates the DNS/TLS-not-configured-yet state a
+            # brand-new deployment can be in), this checks nginx's LANDING
+            # server block and is FATAL — nginx/Dockerfile's HIGH-2 fix (see
             # scripts/devops/locale-routing-runbook.md §11) closes the
-            # config-injection vector that could make nginx fail to start,
-            # but this is the last line of defence against ANY OTHER future
-            # config mistake (not just build-arg injection) that produces
-            # the same failure mode: image builds fine, container crash-loops
-            # on boot, `docker compose up -d` still reports success, and
-            # without this check the deploy step would too — silently taking
-            # down the whole public site (landing AND, since nginx is shared,
-            # CRM) with a green pipeline. Checks `/` (root) AND one
-            # locale-prefixed URL (`/uk/`) — the latter is safe to check
-            # regardless of feature/landing-i18n merge state: unmerged, the
-            # locale-edge guard (see runbook §4) makes `/uk/` fall back to a
-            # plain EN 200, not a 404 — still passes this check either way.
-            echo "==> Smoke test — public landing origin through nginx (FATAL)"
-            if curl -sf --max-time 15 https://cheekycheese.tech/ > /dev/null \
-               && curl -sf --max-time 15 https://cheekycheese.tech/uk/ > /dev/null; then
+            # config-injection vector that could make nginx fail to start, but
+            # this is the last line of defence against ANY OTHER future config
+            # mistake (not just build-arg injection) that produces the same
+            # failure mode: image builds fine, container crash-loops on boot,
+            # `docker compose up -d` still reports success, and without this
+            # check the deploy step would too — silently taking down the whole
+            # public site (landing AND, since nginx is shared, CRM) with a
+            # green pipeline.
+            #
+            # round 2 (LOW-3): the FIRST version of this check hit the public
+            # hostname (`https://cheekycheese.tech/`), meaning the VPS made an
+            # outbound request through Cloudflare and back to itself (a
+            # hairpin round-trip) — a transient CF blip or DNS hiccup unrelated
+            # to nginx's own health would fail the deploy. Fixed by hitting
+            # nginx's PUBLISHED PORT directly on loopback
+            # (`docker-compose.prod.yml` maps `80:80`/`443:443` to the host)
+            # with an explicit Host header, so the request still goes THROUGH
+            # nginx (exercises the real landing.conf server block, the
+            # locale-detect njs module, the merge-order guard — everything
+            # this PR added) but never leaves the VPS or depends on Cloudflare/
+            # DNS being reachable. Port 80 (not 443): no TLS handshake/cert
+            # complexity to add here, and the :80 server block runs the exact
+            # same locale-redirect logic as :443 (see nginx/conf.d/landing.conf
+            # — both blocks are kept in sync deliberately). Checks `/` (root)
+            # AND one locale-prefixed URL (`/uk/`) — the latter is safe to
+            # check regardless of feature/landing-i18n merge state: unmerged,
+            # the locale-edge guard (see runbook §4) makes `/uk/` fall back to
+            # a plain EN 200, not a 404 — still passes this check either way.
+            echo "==> Smoke test — landing origin through local nginx, Host header (FATAL)"
+            if curl -sf --max-time 15 -H 'Host: cheekycheese.tech' http://127.0.0.1/ > /dev/null \
+               && curl -sf --max-time 15 -H 'Host: cheekycheese.tech' http://127.0.0.1/uk/ > /dev/null; then
               echo "Landing origin health check PASSED (/ and /uk/ both 200)"
             else
-              echo "ERROR: public landing origin is not returning 200 on / and/or /uk/ through nginx."
+              echo "ERROR: nginx is not returning 200 on / and/or /uk/ for the landing Host header."
               echo "This means nginx failed to start or is misconfigured — the deploy is NOT healthy"
               echo "even though earlier internal checks passed. See scripts/devops/locale-routing-runbook.md"
               echo "§11 for the config-injection class this guards against, and §6 for the general"

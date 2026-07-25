@@ -109,6 +109,22 @@ const Q_RE = /^q=(?:0(?:\.[0-9]{1,3})?|1(?:\.0{1,3})?)$/
  * defense-in-depth on top of Q_RE, not a substitute for it (a single
  * MAX_HEADER_LEN-sized pathological value is still cheap against Q_RE, but
  * costly-if-not-impossible against the old vulnerable regex).
+ *
+ * security-review round 2 (PR #423, LOW-1): a tag whose `q=` parameter is
+ * PRESENT but does NOT match the RFC 9110 grammar (`q=abc`, `q=-1`, `q=2`,
+ * `q=0.0000` — that last one is out of grammar too, `{1,3}` fractional
+ * digits max) used to silently fall back to the DEFAULT q=1 (full
+ * priority) instead of being rejected — so `Accept-Language: ru;q=0.0000`
+ * incorrectly won outright. Not a security hole (the final locale is still
+ * constrained by the SUPPORTED allow-list either way — see `matchLocale`),
+ * but wrong ranking. Fixed: a `q=` parameter that fails Q_RE now marks the
+ * WHOLE TAG invalid (q forced to 0), which the existing `entry.q > 0`
+ * filter below already excludes — same mechanism RFC 9110 uses for an
+ * explicit `q=0` ("not acceptable"), just extended to "not parseable
+ * as a valid qvalue" too. Any OTHER `;`-separated extension that isn't a
+ * `q=` parameter (e.g. an `Accept-Language: da;level=1`-style accept-ext)
+ * is still silently ignored, unchanged from before — only `q=` specifically
+ * is now grammar-checked.
  */
 function parseAcceptLanguage(header) {
   if (!header) {
@@ -124,13 +140,18 @@ function parseAcceptLanguage(header) {
       const bits = part.trim().split(';')
       const tag = bits[0].trim().toLowerCase()
       let q = 1
+      let invalid = false
       for (let i = 1; i < bits.length; i++) {
-        const match = bits[i].trim().match(Q_RE)
+        const bit = bits[i].trim()
+        const match = bit.match(Q_RE)
         if (match) {
           q = parseFloat(match[0].slice(2))
+        } else if (/^q=/i.test(bit)) {
+          invalid = true
         }
       }
-      return { tag: tag, q: isNaN(q) ? 0 : q, index: index }
+      const finalQ = invalid ? 0 : q
+      return { tag: tag, q: isNaN(finalQ) ? 0 : finalQ, index: index }
     })
     .filter(function (entry) {
       return entry.tag.length > 0 && entry.q > 0
