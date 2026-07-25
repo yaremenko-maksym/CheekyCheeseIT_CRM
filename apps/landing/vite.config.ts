@@ -35,6 +35,15 @@ export default defineConfig({
   },
   resolve: {
     alias: {
+      // '@crm/shared/public' MUST be listed before the plain '@crm/shared'
+      // entry below — Vite/@rollup/plugin-alias matches importee-startsWith
+      // in array order, and '@crm/shared/public'.startsWith('@crm/shared/')
+      // is ALSO true, so the general entry would otherwise shadow this one
+      // and wrongly resolve to a subpath of a FILE (index.ts), not a
+      // directory. Points straight at packages/shared's narrow
+      // Lighthouse-safe subset (see that file's doc comment / PR #421 RCA)
+      // instead of the full 28-domain schema barrel.
+      '@crm/shared/public': path.resolve(__dirname, '../../packages/shared/src/public.ts'),
       // Same pattern as apps/web/vite.config.ts — resolve straight to TS
       // source instead of `dist/index.js`. The CJS `tsc`-built dist re-exports
       // via `export *` chains that Rollup's static named-export analysis

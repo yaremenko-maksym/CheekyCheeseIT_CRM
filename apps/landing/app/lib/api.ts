@@ -1,5 +1,11 @@
 import type { PublicVacancy, PublicVacancyDetail } from '@crm/shared'
-import { publicVacancyDetailSchema, publicVacancySchema } from '@crm/shared'
+// Runtime schema values come from the narrow '@crm/shared/public' subpath,
+// NOT the full '@crm/shared' barrel — see packages/shared/src/public.ts doc
+// comment (PR #421 Lighthouse RCA: the full barrel drags all 28 CRM domains'
+// Zod schemas into this file's importers because z.object()/z.enum() calls
+// aren't tree-shakeable). `import type` above is unaffected — types are
+// erased at compile time regardless of which subpath they resolve through.
+import { publicVacancyDetailSchema, publicVacancySchema } from '@crm/shared/public'
 import { z } from 'zod'
 import { DEFAULT_LOCALE, NON_DEFAULT_LOCALES, type Locale } from '@/i18n/locale'
 

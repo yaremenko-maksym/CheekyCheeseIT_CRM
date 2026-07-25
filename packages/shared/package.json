@@ -9,6 +9,11 @@
       "types": "./dist/index.d.ts",
       "source": "./src/index.ts",
       "default": "./dist/index.js"
+    },
+    "./public": {
+      "types": "./dist/public.d.ts",
+      "source": "./src/public.ts",
+      "default": "./dist/public.js"
     }
   },
   "scripts": {
