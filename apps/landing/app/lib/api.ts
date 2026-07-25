@@ -1,10 +1,6 @@
 import { z } from 'zod'
-import {
-  publicVacancyDetailSchema,
-  publicVacancySchema,
-  type PublicVacancy,
-  type PublicVacancyDetail,
-} from '@crm/shared'
+import { publicVacancyDetailSchema, publicVacancySchema } from '@crm/shared'
+import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
 
 /**
  * Same-origin `fetch` against `/api` (docs/superpowers/specs/2026-07-22-landing-refactor-design.md
@@ -13,7 +9,45 @@ import {
  * routes), no base-URL config needed.
  */
 
-const publicVacancyListSchema = z.array(publicVacancySchema)
+// -----------------------------------------------------------------------------
+// plan-landing-i18n-seo.md §3 — `translations`/`isFallback` on the public
+// vacancy DTOs. Block C (T3, `apps/api/**` + `packages/shared/**`) owns the
+// real column + response field; task-landing-i18n.md explicitly scopes THIS
+// package (`apps/landing/**` only) to mock the contract rather than block on
+// T3's merge order. `.extend()` on the IMPORTED `@crm/shared` object schemas
+// (not a copy, not a mutation) tolerates the fields being absent (today,
+// pre-Block-C) or present (once it ships) — `.optional()`/`.nullable()`
+// everywhere so parsing never fails either way.
+// -----------------------------------------------------------------------------
+const vacancyTranslationSchema = z.object({ title: z.string(), description: z.string() })
+const vacancyTranslationsSchema = z
+  .object({
+    uk: vacancyTranslationSchema.optional(),
+    ru: vacancyTranslationSchema.optional(),
+    es: vacancyTranslationSchema.optional(),
+    pt: vacancyTranslationSchema.optional(),
+  })
+  .nullable()
+  .optional()
+
+const localizedVacancySchema = publicVacancySchema.extend({
+  translations: vacancyTranslationsSchema,
+  isFallback: z.boolean().optional(),
+})
+const localizedVacancyDetailSchema = publicVacancyDetailSchema.extend({
+  translations: vacancyTranslationsSchema,
+  isFallback: z.boolean().optional(),
+})
+
+export type LocalizedPublicVacancy = z.infer<typeof localizedVacancySchema>
+export type LocalizedPublicVacancyDetail = z.infer<typeof localizedVacancyDetailSchema>
+
+const publicVacancyListSchema = z.array(localizedVacancySchema)
+
+/** `?locale=` query suffix — omitted for `en` (the API's own default), matches plan §3 "Публичные эндпоинты принимают `?locale=en|uk|ru|es|pt`". */
+function localeQuery(locale: Locale): string {
+  return locale === DEFAULT_LOCALE ? '' : `?locale=${locale}`
+}
 
 /**
  * GET /api/public/vacancies — only PUBLISHED, mapped to loader data for `/`
@@ -33,10 +67,12 @@ const publicVacancyListSchema = z.array(publicVacancySchema)
  * identical to whoever is reading browser-console/error-tracking output
  * trying to tell them apart.
  */
-export async function fetchVacancies(): Promise<PublicVacancy[]> {
+export async function fetchVacancies(
+  locale: Locale = DEFAULT_LOCALE,
+): Promise<LocalizedPublicVacancy[]> {
   let res: Response
   try {
-    res = await fetch('/api/public/vacancies')
+    res = await fetch(`/api/public/vacancies${localeQuery(locale)}`)
   } catch (err) {
     console.error('fetchVacancies: network error — falling back to an empty list', err)
     return []
@@ -62,13 +98,16 @@ export async function fetchVacancies(): Promise<PublicVacancy[]> {
  * "Role not found" empty state (docs/design/landing-redesign.md §8), never a
  * raw browser 404.
  */
-export async function fetchVacancy(slug: string): Promise<PublicVacancyDetail | null> {
-  const res = await fetch(`/api/public/vacancies/${encodeURIComponent(slug)}`)
+export async function fetchVacancy(
+  slug: string,
+  locale: Locale = DEFAULT_LOCALE,
+): Promise<LocalizedPublicVacancyDetail | null> {
+  const res = await fetch(`/api/public/vacancies/${encodeURIComponent(slug)}${localeQuery(locale)}`)
   if (res.status === 404) return null
   if (!res.ok) {
     throw new Error(`Failed to load vacancy (HTTP ${res.status})`)
   }
-  return publicVacancyDetailSchema.parse(await res.json())
+  return localizedVacancyDetailSchema.parse(await res.json())
 }
 
 export type SubmitApplicationErrorKind =
