@@ -6,14 +6,15 @@ import { useDocumentHead } from '@/lib/use-document-head'
 import { canonicalUrl } from '@/lib/seo'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
-import {
-  PageTransitionOverlay,
-  type PageTransitionOverlayHandle,
-} from '@/components/marketing/page-transition-overlay'
 import { BackLink } from '@/components/marketing/back-link'
-import { consumePendingVariant, markNextTransitionLight } from '@/lib/page-transition'
-import { cancelScrimTransition, runScrimTransition } from '@/lib/scrim-transition'
-import { DUR_LIGHT_TRANSITION, EASE_SOFT } from '@/lib/motion'
+import {
+  consumePendingDirection,
+  markNextTransitionBack,
+  type PageTransitionDirection,
+} from '@/lib/page-transition'
+import { playLiftExit } from '@/lib/lift-transition'
+import { setPendingRoutePair } from '@/lib/title-morph'
+import { DUR_LIFT_ENTER, EASE_SOFT, LIFT_OFFSET_ENTER } from '@/lib/motion'
 import { cn, focusRing } from '@/lib/utils'
 import '../styles/globals.css'
 
@@ -29,10 +30,11 @@ function isReducedMotionPreferred(): boolean {
 }
 
 /**
- * Moves focus to the new page's `<main>` landmark (WCAG 2.4.3 — §M.3 step 9).
- * Every route wraps its content in `<main tabIndex={-1}>` specifically so
- * this works: the SPA never reloads the document, so without an explicit
- * focus move keyboard/AT users get no signal the page changed at all.
+ * Moves focus to the new page's `<main>` landmark (WCAG 2.4.3 — §M v3.1
+ * step 7). Every route wraps its content in `<main tabIndex={-1}>`
+ * specifically so this works: the SPA never reloads the document, so
+ * without an explicit focus move keyboard/AT users get no signal the page
+ * changed at all.
  */
 function focusMainLandmark(): void {
   const main = document.querySelector('main')
@@ -41,43 +43,32 @@ function focusMainLandmark(): void {
   }
 }
 
-/** Resolves once the NEXT `onResolved` router event fires — one-shot, unsubscribes itself. */
-function onceResolved(router: ReturnType<typeof useRouter>): Promise<void> {
-  return new Promise((resolve) => {
-    const unsubscribe = router.subscribe('onResolved', () => {
-      unsubscribe()
-      resolve()
-    })
-  })
-}
-
 /**
  * Page-transition + in-page smooth-scroll orchestrator (docs/design/landing-
- * redesign.md §M.3, HOTFIX 2026-07-24). Two variants:
- *
- * - `'full'` (default/primary) — a dark scrim + thin caret-line
- *   (`overlayRef`, §M.3.0) sweep in, the route swaps INSTANTLY underneath
- *   the scrim (invisible), then sweep back out. Replaces the removed
- *   full-screen `bg-primary` "wipe" fill.
- * - `'light'` (browser back/forward, `<BackLink>`) — no scrim/caret; the
- *   content wrapper below fades/slides in on a plain `key`-based remount
- *   instead.
+ * redesign.md §M v3.1) — a "soft lift" cross-fade on EVERY navigation, via
+ * ONE shared, key-remounted content wrapper (no `AnimatePresence`, no
+ * scrim/overlay — §M.3 removed entirely, see §M v3 "SUPERSEDED"). The exit
+ * half plays imperatively (fire-and-forget, `playLiftExit`) on the
+ * still-mounted OLD wrapper right before the route swaps; the enter half is
+ * the new wrapper's own mount animation, direction-aware
+ * (`pendingDirection` — forward from the bottom, back from the top).
  *
  * Hash-only navigations (same pathname) are explicitly skipped — that case
  * belongs entirely to `smoothScrollToId` (§M.4), not this orchestrator.
  */
 function RootDocument() {
   const router = useRouter()
-  const overlayRef = useRef<PageTransitionOverlayHandle>(null)
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
   const [transition, setTransition] = useState<{
     pathname: string
-    variant: 'full' | 'light' | null
-  }>({ pathname: router.state.location.pathname, variant: null })
+    direction: PageTransitionDirection | null
+  }>({ pathname: router.state.location.pathname, direction: null })
 
-  // Browser back/forward always uses the lightweight variant (§M.3 step 2) —
-  // registered once, independent of the onBeforeNavigate subscription below.
+  // Browser back/forward always uses the "back" enter direction (§M v3.1
+  // step 2) — registered once, independent of the onBeforeNavigate
+  // subscription below.
   useEffect(() => {
-    const onPopState = () => markNextTransitionLight()
+    const onPopState = () => markNextTransitionBack()
     window.addEventListener('popstate', onPopState)
     return () => window.removeEventListener('popstate', onPopState)
   }, [])
@@ -86,76 +77,45 @@ function RootDocument() {
     const unsubscribe = router.subscribe('onBeforeNavigate', ({ toLocation, fromLocation }) => {
       // Hash-only change on the SAME route (e.g. nav "Contact" while already
       // on "/") — no page-transition; `smoothScrollToId` owns this case
-      // exclusively (§M.3 step 4 / §M.4).
+      // exclusively (§M.4).
       if (fromLocation && toLocation.pathname === fromLocation.pathname) return
 
-      // A NEW navigation ALWAYS supersedes any scrim/caret sweep still in
-      // flight from a previous one — regardless of which variant THIS
-      // navigation ends up using. Without this, a rapid double-click (two
-      // `onBeforeNavigate` firings before the first sweep finishes) could
-      // leave `animate()` calls racing on the same overlay nodes, or the
-      // overlay stuck mid-animation while a 'light'/reduced-motion
-      // navigation plays underneath it with no sweep of its own to reset it.
-      const overlayForCancel = overlayRef.current
-      if (overlayForCancel?.scrim && overlayForCancel.caret) {
-        cancelScrimTransition({ scrim: overlayForCancel.scrim, caret: overlayForCancel.caret })
-      }
+      // Cache the route pair for lib/title-morph.ts's consumer (§M v3.2
+      // step 5) — avoids a second, independent router subscription there.
+      if (fromLocation) setPendingRoutePair(fromLocation.pathname, toLocation.pathname)
 
-      const variant = consumePendingVariant()
-      const reduced = isReducedMotionPreferred()
-
-      if (reduced) {
-        // Full stop — no scrim/caret, no content-wrapper animation, router
-        // does its normal instant SPA swap. Focus still moves once resolved.
-        setTransition({ pathname: toLocation.pathname, variant: null })
-        void onceResolved(router).then(focusMainLandmark)
-        return
-      }
-
-      setTransition({ pathname: toLocation.pathname, variant })
-
-      if (variant === 'light') {
-        // The content wrapper (rendered below) plays the fade/slide on its
-        // own via the `key` remount — focus moves as soon as the navigation
-        // resolves (step 9, "оба варианта").
-        void onceResolved(router).then(focusMainLandmark)
-        return
-      }
-
-      // Primary "full": scrim fades in + caret sweeps across (parallel),
-      // hold until BOTH the scrim-in animation AND the router's own
-      // onResolved have fired (whichever is later — thanks to
-      // `defaultPreload: 'intent'` this is almost always the animation, see
-      // §M.3 step 7), move focus (still hidden under the scrim), then fade
-      // the scrim back out and reset both layers. Cancellation of a
-      // superseded run is handled inside `runScrimTransition` itself.
-      const overlay = overlayRef.current
-      if (!overlay?.scrim || !overlay.caret) return
-      void runScrimTransition(
-        { scrim: overlay.scrim, caret: overlay.caret },
-        onceResolved(router),
-        focusMainLandmark,
-      )
+      const direction = consumePendingDirection()
+      playLiftExit(wrapperRef.current, isReducedMotionPreferred())
+      setTransition({ pathname: toLocation.pathname, direction })
     })
     return unsubscribe
   }, [router])
 
+  const reducedMotion = isReducedMotionPreferred()
+
   return (
-    <>
-      <PageTransitionOverlay ref={overlayRef} />
-      {transition.variant === 'light' ? (
-        <motion.div
-          key={transition.pathname}
-          initial={{ opacity: 0, x: -8 }}
-          animate={{ opacity: 1, x: 0 }}
-          transition={{ duration: DUR_LIGHT_TRANSITION, ease: EASE_SOFT }}
-        >
-          <Outlet />
-        </motion.div>
-      ) : (
-        <Outlet />
-      )}
-    </>
+    <motion.div
+      key={transition.pathname}
+      ref={wrapperRef}
+      initial={
+        reducedMotion || transition.direction === null
+          ? false
+          : {
+              opacity: 0,
+              y: transition.direction === 'back' ? -LIFT_OFFSET_ENTER : LIFT_OFFSET_ENTER,
+            }
+      }
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
+      onAnimationComplete={() => {
+        // Guard against the very first mount (direction still `null` — no
+        // navigation has happened yet, e.g. a cold document load): don't
+        // steal focus onto `<main>` before the visitor has done anything.
+        if (transition.direction !== null) focusMainLandmark()
+      }}
+    >
+      <Outlet />
+    </motion.div>
   )
 }
 

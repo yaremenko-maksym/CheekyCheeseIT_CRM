@@ -1,7 +1,7 @@
 /**
  * BackLink — wraps `<Link>` for semantically "back" navigations, forcing the
- * lightweight page-transition variant (docs/design/landing-redesign.md
- * §M.3 step 3). Same lightweight router-harness pattern as
+ * "back" lift-enter direction (docs/design/landing-redesign.md §M v3.1
+ * step 3). Same lightweight router-harness pattern as
  * `careers-teaser.spec.tsx` — `<Link>` needs a real router context to render.
  */
 import { render, screen } from '@testing-library/react'
@@ -42,8 +42,8 @@ function renderBackLink() {
 }
 
 describe('BackLink', () => {
-  it('marks the next page-transition as the lightweight variant on click, before navigating', async () => {
-    const spy = vi.spyOn(pageTransition, 'markNextTransitionLight')
+  it('marks the next page-transition as the "back" direction on click, before navigating', async () => {
+    const spy = vi.spyOn(pageTransition, 'markNextTransitionBack')
     renderBackLink()
     const user = userEvent.setup()
 

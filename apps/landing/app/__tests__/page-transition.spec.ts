@@ -1,7 +1,7 @@
 /**
- * page-transition.ts — module-level "which variant should the next
- * navigation use" flag (docs/design/landing-redesign.md §M.3). Same
- * `vi.resetModules()` + dynamic re-import technique as
+ * page-transition.ts — module-level "which direction should the next
+ * navigation's lift enter from" flag (docs/design/landing-redesign.md
+ * §M v3.1). Same `vi.resetModules()` + dynamic re-import technique as
  * `prerender-hint.spec.ts` — the module's state is intentionally global, so
  * each test needs its own fresh instance.
  */
@@ -13,31 +13,31 @@ async function freshModule() {
 }
 
 describe('page-transition', () => {
-  it('defaults to the primary "full" variant before anything marks it light', async () => {
-    const { consumePendingVariant } = await freshModule()
-    expect(consumePendingVariant()).toBe('full')
+  it('defaults to the "forward" direction before anything marks it back', async () => {
+    const { consumePendingDirection } = await freshModule()
+    expect(consumePendingDirection()).toBe('forward')
   })
 
-  it('markNextTransitionLight forces the next consumePendingVariant() call to return "light"', async () => {
-    const { markNextTransitionLight, consumePendingVariant } = await freshModule()
-    markNextTransitionLight()
-    expect(consumePendingVariant()).toBe('light')
+  it('markNextTransitionBack forces the next consumePendingDirection() call to return "back"', async () => {
+    const { markNextTransitionBack, consumePendingDirection } = await freshModule()
+    markNextTransitionBack()
+    expect(consumePendingDirection()).toBe('back')
   })
 
-  it('consumePendingVariant is a one-shot read — resets back to "full" immediately after being read', async () => {
-    const { markNextTransitionLight, consumePendingVariant } = await freshModule()
-    markNextTransitionLight()
-    expect(consumePendingVariant()).toBe('light')
+  it('consumePendingDirection is a one-shot read — resets back to "forward" immediately after being read', async () => {
+    const { markNextTransitionBack, consumePendingDirection } = await freshModule()
+    markNextTransitionBack()
+    expect(consumePendingDirection()).toBe('back')
     // A second, unrelated navigation right after must NOT inherit the
-    // override — only the primary "full" variant is the default.
-    expect(consumePendingVariant()).toBe('full')
+    // override — only the "forward" direction is the default.
+    expect(consumePendingDirection()).toBe('forward')
   })
 
-  it('multiple markNextTransitionLight calls before a consume still only affect the single next read', async () => {
-    const { markNextTransitionLight, consumePendingVariant } = await freshModule()
-    markNextTransitionLight()
-    markNextTransitionLight()
-    expect(consumePendingVariant()).toBe('light')
-    expect(consumePendingVariant()).toBe('full')
+  it('multiple markNextTransitionBack calls before a consume still only affect the single next read', async () => {
+    const { markNextTransitionBack, consumePendingDirection } = await freshModule()
+    markNextTransitionBack()
+    markNextTransitionBack()
+    expect(consumePendingDirection()).toBe('back')
+    expect(consumePendingDirection()).toBe('forward')
   })
 })
