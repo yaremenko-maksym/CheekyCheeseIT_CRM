@@ -4,16 +4,13 @@ import { fetchVacancies } from '@/lib/api'
 import { CareersPageContent } from '@/components/marketing/pages/careers-page-content'
 import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 
-/**
- * `/careers` — full list, NO filters/tabs (owner decision 2026-07-23, see
- * docs/design/landing-redesign.md §1 + task-landing-redesign.md AC2).
- */
-export const Route = createFileRoute('/careers')({
-  loader: async () => fetchVacancies('en'),
-  component: CareersPage,
+/** `/ru/careers` — Russian careers list (task-landing-i18n.md, plan §1 URL scheme). */
+export const Route = createFileRoute('/ru/careers')({
+  loader: async () => fetchVacancies('ru'),
+  component: RuCareersPage,
 })
 
-function CareersPage() {
+function RuCareersPage() {
   const vacancies = Route.useLoaderData() as (PublicVacancy & LocalizableVacancyFields)[]
-  return <CareersPageContent vacancies={vacancies} locale="en" />
+  return <CareersPageContent vacancies={vacancies} locale="ru" />
 }

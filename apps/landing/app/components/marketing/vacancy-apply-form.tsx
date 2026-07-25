@@ -10,12 +10,19 @@ import { CvDropzone } from '@/components/marketing/cv-dropzone'
 import { submitApplication } from '@/lib/api'
 import { useTurnstile } from '@/lib/use-turnstile'
 import { cn } from '@/lib/utils'
+import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
+import { getDictionary } from '@/i18n/dictionaries'
+import { careersRoutePath } from '@/i18n/routes'
 
 /**
  * Vacancy apply form (landing-redesign.md §2.4 `VacancyApplyForm`,
  * Vacancy.dc.html aside). Controlled, 4 states (default/submitting/success/
  * error — task-landing-redesign.md AC4), Turnstile + honeypot + client
  * validation mirroring `applyVacancyFieldsSchema` server rules.
+ *
+ * `locale` (task-landing-i18n.md, optional — default `en`) — every visible
+ * label/placeholder/error/success string comes from
+ * `Dictionary['vacancy']['apply']`.
  */
 
 type FormStatus = 'idle' | 'submitting' | 'success' | 'error'
@@ -37,7 +44,16 @@ interface FieldErrors {
   githubUrl?: string
 }
 
-export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancyTitle: string }) {
+export function VacancyApplyForm({
+  slug,
+  vacancyTitle,
+  locale = DEFAULT_LOCALE,
+}: {
+  slug: string
+  vacancyTitle: string
+  locale?: Locale
+}) {
+  const t = getDictionary(locale).vacancy.apply
   const [status, setStatus] = useState<FormStatus>('idle')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -86,15 +102,16 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
           <Check aria-hidden="true" className="size-[30px]" />
         </div>
         <h2 className="mb-2.5 text-[1.4rem] font-semibold tracking-[-0.015em] text-foreground">
-          Application received
+          {t.successHeading}
         </h2>
         <p className="mx-auto mb-6 max-w-[34ch] text-muted-foreground">
-          Thanks{firstName ? `, ${firstName}` : ''} — we&rsquo;ve got your application for{' '}
-          <strong className="text-foreground">{vacancyTitle}</strong>. We review every one and reply
-          within a few business days.
+          {t.successThanks}
+          {firstName ? `, ${firstName}` : ''} {t.successBodyBefore}{' '}
+          <strong className="text-foreground">{vacancyTitle}</strong>
+          {t.successBodyAfter}
         </p>
         <Button asChild variant="outline">
-          <Link to="/careers/">Browse more roles</Link>
+          <Link to={careersRoutePath(locale)}>{t.successBrowseMore}</Link>
         </Button>
       </Card>
     )
@@ -113,11 +130,10 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
     if (!result.success) {
       for (const issue of result.error.issues) {
         const path = issue.path[0]
-        if (path === 'fullName') errors.fullName = 'Please enter your name.'
-        else if (path === 'email') errors.email = 'Enter a valid email.'
-        else if (path === 'linkedinUrl')
-          errors.linkedinUrl = 'Enter a valid LinkedIn URL (https://…).'
-        else if (path === 'githubUrl') errors.githubUrl = 'Enter a valid GitHub URL (https://…).'
+        if (path === 'fullName') errors.fullName = t.errorName
+        else if (path === 'email') errors.email = t.errorEmail
+        else if (path === 'linkedinUrl') errors.linkedinUrl = t.errorLinkedin
+        else if (path === 'githubUrl') errors.githubUrl = t.errorGithub
       }
     }
     return errors
@@ -129,7 +145,7 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
 
     const errors = validateFields()
     const missingFile = !file
-    if (missingFile) setFileError((prev) => prev ?? 'Please attach your CV (PDF).')
+    if (missingFile) setFileError((prev) => prev ?? t.errorFile)
     if (Object.keys(errors).length > 0 || missingFile || fileError) {
       setFieldErrors(errors)
       return
@@ -157,17 +173,17 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
     }
 
     setStatus('error')
-    setBannerMessage(result.message ?? 'Something went wrong. Please try again.')
+    setBannerMessage(result.message ?? t.apiErrorValidation)
     resetTurnstile()
   }
 
   return (
     <Card className="p-7 md:p-7">
       <h2 className="mb-1.5 text-[1.3rem] font-semibold tracking-[-0.015em] text-foreground">
-        Apply for this role
+        {t.heading}
       </h2>
       <p className="mb-[22px] text-[0.9rem] text-muted-foreground">
-        Takes about 3 minutes. Fields marked <span className="text-primary">*</span> are required.
+        {t.subheading} <span className="text-primary">*</span>
       </p>
 
       {status === 'error' && bannerMessage && (
@@ -186,7 +202,7 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
               htmlFor={nameId}
               className="mb-2 block text-[0.9rem] font-medium text-foreground/88"
             >
-              Full name
+              {t.fullNameLabel}
               <span aria-hidden="true" className="ml-0.5 text-primary">
                 *
               </span>
@@ -194,7 +210,7 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
             <Input
               id={nameId}
               name="name"
-              placeholder="Ada Lovelace"
+              placeholder={t.namePlaceholder}
               required
               value={fullName}
               aria-invalid={fieldErrors.fullName ? true : undefined}
@@ -215,7 +231,7 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
               htmlFor={emailId}
               className="mb-2 block text-[0.9rem] font-medium text-foreground/88"
             >
-              Email
+              {t.emailLabel}
               <span aria-hidden="true" className="ml-0.5 text-primary">
                 *
               </span>
@@ -224,7 +240,7 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
               id={emailId}
               name="email"
               type="email"
-              placeholder="you@domain.com"
+              placeholder={t.emailPlaceholder}
               required
               value={email}
               aria-invalid={fieldErrors.email ? true : undefined}
@@ -248,12 +264,12 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
               htmlFor={telegramId}
               className="mb-2 block text-[0.9rem] font-medium text-foreground/88"
             >
-              Telegram
+              {t.telegramLabel}
             </label>
             <Input
               id={telegramId}
               name="telegram"
-              placeholder="@handle"
+              placeholder={t.telegramPlaceholder}
               value={telegram}
               onChange={(e) => setTelegram(e.target.value)}
             />
@@ -263,13 +279,13 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
               htmlFor={linkedinId}
               className="mb-2 block text-[0.9rem] font-medium text-foreground/88"
             >
-              LinkedIn URL
+              {t.linkedinLabel}
             </label>
             <Input
               id={linkedinId}
               name="linkedin"
               type="url"
-              placeholder="linkedin.com/in/…"
+              placeholder={t.linkedinPlaceholder}
               value={linkedinUrl}
               aria-invalid={fieldErrors.linkedinUrl ? true : undefined}
               aria-describedby={fieldErrors.linkedinUrl ? linkedinErrorId : undefined}
@@ -291,13 +307,13 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
             htmlFor={githubId}
             className="mb-2 block text-[0.9rem] font-medium text-foreground/88"
           >
-            GitHub URL
+            {t.githubLabel}
           </label>
           <Input
             id={githubId}
             name="github"
             type="url"
-            placeholder="github.com/…"
+            placeholder={t.githubPlaceholder}
             value={githubUrl}
             aria-invalid={fieldErrors.githubUrl ? true : undefined}
             aria-describedby={fieldErrors.githubUrl ? githubErrorId : undefined}
@@ -318,12 +334,12 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
             htmlFor={coverId}
             className="mb-2 block text-[0.9rem] font-medium text-foreground/88"
           >
-            Cover letter
+            {t.coverLetterLabel}
           </label>
           <Textarea
             id={coverId}
             name="cover"
-            placeholder="Tell us about something hard you shipped and what you'd want to build here."
+            placeholder={t.coverPlaceholder}
             value={coverLetter}
             onChange={(e) => setCoverLetter(e.target.value)}
           />
@@ -334,10 +350,13 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
           onFileChange={setFile}
           error={fileError}
           onErrorChange={setFileError}
+          t={t}
         />
 
         {/* Honeypot — visually hidden via display:none on purpose (§9): human
-            assistive tech should never reach it, unlike a normal hidden field. */}
+            assistive tech should never reach it, unlike a normal hidden field.
+            Deliberately left in English ("Website") — a decoy field name bots
+            look for, not user-facing copy (task-landing-i18n.md scope). */}
         <div style={{ display: 'none' }} aria-hidden="true">
           <label htmlFor="website">Website</label>
           <input
@@ -364,10 +383,10 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
                 aria-hidden="true"
                 className="size-[15px] animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground"
               />
-              Sending…
+              {t.submitting}
             </span>
           ) : (
-            <span>Submit application</span>
+            <span>{t.submit}</span>
           )}
         </Button>
 
@@ -377,7 +396,7 @@ export function VacancyApplyForm({ slug, vacancyTitle }: { slug: string; vacancy
           )}
         >
           <ShieldCheck aria-hidden="true" className="size-3.5" />
-          Protected by invisible captcha — no puzzles, ever.
+          {t.protectedBy}
         </div>
       </form>
     </Card>

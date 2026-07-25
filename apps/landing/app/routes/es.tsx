@@ -4,12 +4,13 @@ import { fetchVacancies } from '@/lib/api'
 import { HomePageContent } from '@/components/marketing/pages/home-page-content'
 import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 
-export const Route = createFileRoute('/')({
-  loader: async () => fetchVacancies('en'),
-  component: LandingPage,
+/** `/es` — Spanish home (task-landing-i18n.md, plan §1 URL scheme). */
+export const Route = createFileRoute('/es')({
+  loader: async () => fetchVacancies('es'),
+  component: EsLandingPage,
 })
 
-function LandingPage() {
+function EsLandingPage() {
   const vacancies = Route.useLoaderData() as (PublicVacancy & LocalizableVacancyFields)[]
-  return <HomePageContent vacancies={vacancies} locale="en" />
+  return <HomePageContent vacancies={vacancies} locale="es" />
 }

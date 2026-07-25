@@ -9,10 +9,42 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as UkRouteImport } from './routes/uk'
+import { Route as RuRouteImport } from './routes/ru'
+import { Route as PtRouteImport } from './routes/pt'
+import { Route as EsRouteImport } from './routes/es'
 import { Route as CareersRouteImport } from './routes/careers'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as UkCareersRouteImport } from './routes/uk.careers'
+import { Route as RuCareersRouteImport } from './routes/ru.careers'
+import { Route as PtCareersRouteImport } from './routes/pt.careers'
+import { Route as EsCareersRouteImport } from './routes/es.careers'
 import { Route as CareersSlugRouteImport } from './routes/careers_.$slug'
+import { Route as UkCareersSlugRouteImport } from './routes/uk.careers_.$slug'
+import { Route as RuCareersSlugRouteImport } from './routes/ru.careers_.$slug'
+import { Route as PtCareersSlugRouteImport } from './routes/pt.careers_.$slug'
+import { Route as EsCareersSlugRouteImport } from './routes/es.careers_.$slug'
 
+const UkRoute = UkRouteImport.update({
+  id: '/uk',
+  path: '/uk',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const RuRoute = RuRouteImport.update({
+  id: '/ru',
+  path: '/ru',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const PtRoute = PtRouteImport.update({
+  id: '/pt',
+  path: '/pt',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EsRoute = EsRouteImport.update({
+  id: '/es',
+  path: '/es',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const CareersRoute = CareersRouteImport.update({
   id: '/careers',
   path: '/careers',
@@ -23,44 +55,198 @@ const IndexRoute = IndexRouteImport.update({
   path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UkCareersRoute = UkCareersRouteImport.update({
+  id: '/careers',
+  path: '/careers',
+  getParentRoute: () => UkRoute,
+} as any)
+const RuCareersRoute = RuCareersRouteImport.update({
+  id: '/careers',
+  path: '/careers',
+  getParentRoute: () => RuRoute,
+} as any)
+const PtCareersRoute = PtCareersRouteImport.update({
+  id: '/careers',
+  path: '/careers',
+  getParentRoute: () => PtRoute,
+} as any)
+const EsCareersRoute = EsCareersRouteImport.update({
+  id: '/careers',
+  path: '/careers',
+  getParentRoute: () => EsRoute,
+} as any)
 const CareersSlugRoute = CareersSlugRouteImport.update({
   id: '/careers_/$slug',
   path: '/careers/$slug',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UkCareersSlugRoute = UkCareersSlugRouteImport.update({
+  id: '/careers_/$slug',
+  path: '/careers/$slug',
+  getParentRoute: () => UkRoute,
+} as any)
+const RuCareersSlugRoute = RuCareersSlugRouteImport.update({
+  id: '/careers_/$slug',
+  path: '/careers/$slug',
+  getParentRoute: () => RuRoute,
+} as any)
+const PtCareersSlugRoute = PtCareersSlugRouteImport.update({
+  id: '/careers_/$slug',
+  path: '/careers/$slug',
+  getParentRoute: () => PtRoute,
+} as any)
+const EsCareersSlugRoute = EsCareersSlugRouteImport.update({
+  id: '/careers_/$slug',
+  path: '/careers/$slug',
+  getParentRoute: () => EsRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/careers': typeof CareersRoute
+  '/es': typeof EsRouteWithChildren
+  '/pt': typeof PtRouteWithChildren
+  '/ru': typeof RuRouteWithChildren
+  '/uk': typeof UkRouteWithChildren
   '/careers/$slug': typeof CareersSlugRoute
+  '/es/careers': typeof EsCareersRoute
+  '/pt/careers': typeof PtCareersRoute
+  '/ru/careers': typeof RuCareersRoute
+  '/uk/careers': typeof UkCareersRoute
+  '/es/careers/$slug': typeof EsCareersSlugRoute
+  '/pt/careers/$slug': typeof PtCareersSlugRoute
+  '/ru/careers/$slug': typeof RuCareersSlugRoute
+  '/uk/careers/$slug': typeof UkCareersSlugRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/careers': typeof CareersRoute
+  '/es': typeof EsRouteWithChildren
+  '/pt': typeof PtRouteWithChildren
+  '/ru': typeof RuRouteWithChildren
+  '/uk': typeof UkRouteWithChildren
   '/careers/$slug': typeof CareersSlugRoute
+  '/es/careers': typeof EsCareersRoute
+  '/pt/careers': typeof PtCareersRoute
+  '/ru/careers': typeof RuCareersRoute
+  '/uk/careers': typeof UkCareersRoute
+  '/es/careers/$slug': typeof EsCareersSlugRoute
+  '/pt/careers/$slug': typeof PtCareersSlugRoute
+  '/ru/careers/$slug': typeof RuCareersSlugRoute
+  '/uk/careers/$slug': typeof UkCareersSlugRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/careers': typeof CareersRoute
+  '/es': typeof EsRouteWithChildren
+  '/pt': typeof PtRouteWithChildren
+  '/ru': typeof RuRouteWithChildren
+  '/uk': typeof UkRouteWithChildren
   '/careers_/$slug': typeof CareersSlugRoute
+  '/es/careers': typeof EsCareersRoute
+  '/pt/careers': typeof PtCareersRoute
+  '/ru/careers': typeof RuCareersRoute
+  '/uk/careers': typeof UkCareersRoute
+  '/es/careers_/$slug': typeof EsCareersSlugRoute
+  '/pt/careers_/$slug': typeof PtCareersSlugRoute
+  '/ru/careers_/$slug': typeof RuCareersSlugRoute
+  '/uk/careers_/$slug': typeof UkCareersSlugRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/' | '/careers' | '/careers/$slug'
+  fullPaths:
+    | '/'
+    | '/careers'
+    | '/es'
+    | '/pt'
+    | '/ru'
+    | '/uk'
+    | '/careers/$slug'
+    | '/es/careers'
+    | '/pt/careers'
+    | '/ru/careers'
+    | '/uk/careers'
+    | '/es/careers/$slug'
+    | '/pt/careers/$slug'
+    | '/ru/careers/$slug'
+    | '/uk/careers/$slug'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/careers' | '/careers/$slug'
-  id: '__root__' | '/' | '/careers' | '/careers_/$slug'
+  to:
+    | '/'
+    | '/careers'
+    | '/es'
+    | '/pt'
+    | '/ru'
+    | '/uk'
+    | '/careers/$slug'
+    | '/es/careers'
+    | '/pt/careers'
+    | '/ru/careers'
+    | '/uk/careers'
+    | '/es/careers/$slug'
+    | '/pt/careers/$slug'
+    | '/ru/careers/$slug'
+    | '/uk/careers/$slug'
+  id:
+    | '__root__'
+    | '/'
+    | '/careers'
+    | '/es'
+    | '/pt'
+    | '/ru'
+    | '/uk'
+    | '/careers_/$slug'
+    | '/es/careers'
+    | '/pt/careers'
+    | '/ru/careers'
+    | '/uk/careers'
+    | '/es/careers_/$slug'
+    | '/pt/careers_/$slug'
+    | '/ru/careers_/$slug'
+    | '/uk/careers_/$slug'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   CareersRoute: typeof CareersRoute
+  EsRoute: typeof EsRouteWithChildren
+  PtRoute: typeof PtRouteWithChildren
+  RuRoute: typeof RuRouteWithChildren
+  UkRoute: typeof UkRouteWithChildren
   CareersSlugRoute: typeof CareersSlugRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/uk': {
+      id: '/uk'
+      path: '/uk'
+      fullPath: '/uk'
+      preLoaderRoute: typeof UkRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/ru': {
+      id: '/ru'
+      path: '/ru'
+      fullPath: '/ru'
+      preLoaderRoute: typeof RuRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/pt': {
+      id: '/pt'
+      path: '/pt'
+      fullPath: '/pt'
+      preLoaderRoute: typeof PtRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/es': {
+      id: '/es'
+      path: '/es'
+      fullPath: '/es'
+      preLoaderRoute: typeof EsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/careers': {
       id: '/careers'
       path: '/careers'
@@ -75,6 +261,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/uk/careers': {
+      id: '/uk/careers'
+      path: '/careers'
+      fullPath: '/uk/careers'
+      preLoaderRoute: typeof UkCareersRouteImport
+      parentRoute: typeof UkRoute
+    }
+    '/ru/careers': {
+      id: '/ru/careers'
+      path: '/careers'
+      fullPath: '/ru/careers'
+      preLoaderRoute: typeof RuCareersRouteImport
+      parentRoute: typeof RuRoute
+    }
+    '/pt/careers': {
+      id: '/pt/careers'
+      path: '/careers'
+      fullPath: '/pt/careers'
+      preLoaderRoute: typeof PtCareersRouteImport
+      parentRoute: typeof PtRoute
+    }
+    '/es/careers': {
+      id: '/es/careers'
+      path: '/careers'
+      fullPath: '/es/careers'
+      preLoaderRoute: typeof EsCareersRouteImport
+      parentRoute: typeof EsRoute
+    }
     '/careers_/$slug': {
       id: '/careers_/$slug'
       path: '/careers/$slug'
@@ -82,12 +296,92 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof CareersSlugRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/uk/careers_/$slug': {
+      id: '/uk/careers_/$slug'
+      path: '/careers/$slug'
+      fullPath: '/uk/careers/$slug'
+      preLoaderRoute: typeof UkCareersSlugRouteImport
+      parentRoute: typeof UkRoute
+    }
+    '/ru/careers_/$slug': {
+      id: '/ru/careers_/$slug'
+      path: '/careers/$slug'
+      fullPath: '/ru/careers/$slug'
+      preLoaderRoute: typeof RuCareersSlugRouteImport
+      parentRoute: typeof RuRoute
+    }
+    '/pt/careers_/$slug': {
+      id: '/pt/careers_/$slug'
+      path: '/careers/$slug'
+      fullPath: '/pt/careers/$slug'
+      preLoaderRoute: typeof PtCareersSlugRouteImport
+      parentRoute: typeof PtRoute
+    }
+    '/es/careers_/$slug': {
+      id: '/es/careers_/$slug'
+      path: '/careers/$slug'
+      fullPath: '/es/careers/$slug'
+      preLoaderRoute: typeof EsCareersSlugRouteImport
+      parentRoute: typeof EsRoute
+    }
   }
 }
+
+interface EsRouteChildren {
+  EsCareersRoute: typeof EsCareersRoute
+  EsCareersSlugRoute: typeof EsCareersSlugRoute
+}
+
+const EsRouteChildren: EsRouteChildren = {
+  EsCareersRoute: EsCareersRoute,
+  EsCareersSlugRoute: EsCareersSlugRoute,
+}
+
+const EsRouteWithChildren = EsRoute._addFileChildren(EsRouteChildren)
+
+interface PtRouteChildren {
+  PtCareersRoute: typeof PtCareersRoute
+  PtCareersSlugRoute: typeof PtCareersSlugRoute
+}
+
+const PtRouteChildren: PtRouteChildren = {
+  PtCareersRoute: PtCareersRoute,
+  PtCareersSlugRoute: PtCareersSlugRoute,
+}
+
+const PtRouteWithChildren = PtRoute._addFileChildren(PtRouteChildren)
+
+interface RuRouteChildren {
+  RuCareersRoute: typeof RuCareersRoute
+  RuCareersSlugRoute: typeof RuCareersSlugRoute
+}
+
+const RuRouteChildren: RuRouteChildren = {
+  RuCareersRoute: RuCareersRoute,
+  RuCareersSlugRoute: RuCareersSlugRoute,
+}
+
+const RuRouteWithChildren = RuRoute._addFileChildren(RuRouteChildren)
+
+interface UkRouteChildren {
+  UkCareersRoute: typeof UkCareersRoute
+  UkCareersSlugRoute: typeof UkCareersSlugRoute
+}
+
+const UkRouteChildren: UkRouteChildren = {
+  UkCareersRoute: UkCareersRoute,
+  UkCareersSlugRoute: UkCareersSlugRoute,
+}
+
+const UkRouteWithChildren = UkRoute._addFileChildren(UkRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   CareersRoute: CareersRoute,
+  EsRoute: EsRouteWithChildren,
+  PtRoute: PtRouteWithChildren,
+  RuRoute: RuRouteWithChildren,
+  UkRoute: UkRouteWithChildren,
   CareersSlugRoute: CareersSlugRoute,
 }
 export const routeTree = rootRouteImport

@@ -11,31 +11,36 @@ import type { Locale } from './locale'
  * `.careers_.$slug` siblings) — every internal `<Link>` in `nav.tsx`/
  * `footer.tsx`/`vacancy-card.tsx`/etc. goes through these instead of
  * hand-writing the prefix per call site.
+ *
+ * Trailing-slash-terminated — matches the router's `trailingSlash: 'always'`
+ * (`router.tsx`): TanStack's generated `to` union is the EXACT registered
+ * path strings, always WITH the trailing slash (verified against the real
+ * `routeTree.gen.ts` after `vite build`).
  */
-export type HomeRoutePath = '/' | '/uk' | '/ru' | '/es' | '/pt'
+export type HomeRoutePath = '/' | '/uk/' | '/ru/' | '/es/' | '/pt/'
 export type CareersRoutePath =
-  | '/careers'
-  | '/uk/careers'
-  | '/ru/careers'
-  | '/es/careers'
-  | '/pt/careers'
+  | '/careers/'
+  | '/uk/careers/'
+  | '/ru/careers/'
+  | '/es/careers/'
+  | '/pt/careers/'
 export type CareersSlugRoutePath =
-  | '/careers/$slug'
-  | '/uk/careers/$slug'
-  | '/ru/careers/$slug'
-  | '/es/careers/$slug'
-  | '/pt/careers/$slug'
+  | '/careers/$slug/'
+  | '/uk/careers/$slug/'
+  | '/ru/careers/$slug/'
+  | '/es/careers/$slug/'
+  | '/pt/careers/$slug/'
 
 export function homeRoutePath(locale: Locale): HomeRoutePath {
   switch (locale) {
     case 'uk':
-      return '/uk'
+      return '/uk/'
     case 'ru':
-      return '/ru'
+      return '/ru/'
     case 'es':
-      return '/es'
+      return '/es/'
     case 'pt':
-      return '/pt'
+      return '/pt/'
     default:
       return '/'
   }
@@ -44,29 +49,29 @@ export function homeRoutePath(locale: Locale): HomeRoutePath {
 export function careersRoutePath(locale: Locale): CareersRoutePath {
   switch (locale) {
     case 'uk':
-      return '/uk/careers'
+      return '/uk/careers/'
     case 'ru':
-      return '/ru/careers'
+      return '/ru/careers/'
     case 'es':
-      return '/es/careers'
+      return '/es/careers/'
     case 'pt':
-      return '/pt/careers'
+      return '/pt/careers/'
     default:
-      return '/careers'
+      return '/careers/'
   }
 }
 
 export function careersSlugRoutePath(locale: Locale): CareersSlugRoutePath {
   switch (locale) {
     case 'uk':
-      return '/uk/careers/$slug'
+      return '/uk/careers/$slug/'
     case 'ru':
-      return '/ru/careers/$slug'
+      return '/ru/careers/$slug/'
     case 'es':
-      return '/es/careers/$slug'
+      return '/es/careers/$slug/'
     case 'pt':
-      return '/pt/careers/$slug'
+      return '/pt/careers/$slug/'
     default:
-      return '/careers/$slug'
+      return '/careers/$slug/'
   }
 }
