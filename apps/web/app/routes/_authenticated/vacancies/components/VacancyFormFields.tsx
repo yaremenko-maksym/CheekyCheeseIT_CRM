@@ -21,7 +21,6 @@
  * (`ProjectEditFields`, exported `AnyForm`/`AnyField`).
  */
 import type { FieldApi, ReactFormExtendedApi } from '@tanstack/react-form'
-import type { z } from 'zod'
 import { createVacancySchema } from '@crm/shared'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
@@ -34,9 +33,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
-import { DOMAIN_LABELS, EMPLOYMENT_TYPE_LABELS, slugifyTitle } from '../constants'
+import { DOMAIN_LABELS, EMPLOYMENT_TYPE_LABELS, slugifyTitle, zodIssueRu } from '../constants'
 import { VacancySeoFields } from './VacancySeoFields'
-import { VacancyTranslationFields } from './VacancyTranslationFields'
+import {
+  VacancyTranslationFields,
+  type VacancyTranslationFocusRequest,
+} from './VacancyTranslationFields'
 
 // TanStack Form field/form render props require many generics — same
 // suppress-locally convention as ProjectEditFields.
@@ -82,22 +84,6 @@ export type AnyForm = ReactFormExtendedApi<
 >
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-// Zod's default `.message` is raw English ("Invalid string: must match
-// pattern /^[a-z0-9]+.../", "Too small: expected string to have >=10
-// characters") — leaking that straight into the UI violates the project's
-// hard "always Russian UI" rule (rules/common/russian-language.md). Map the
-// small set of issue codes these 3 fields can actually produce (regex/min/
-// max on plain strings) to Russian text instead of relying on the schema's
-// message. `patternMsg` lets the slug field give a field-specific hint
-// ("латиница/цифры/дефис") instead of a generic "неверный формат".
-function zodIssueRu(issue: z.core.$ZodIssue | undefined, patternMsg?: string): string | undefined {
-  if (!issue) return undefined
-  if (issue.code === 'too_small' && 'minimum' in issue) return `Минимум ${issue.minimum} символов`
-  if (issue.code === 'too_big' && 'maximum' in issue) return `Максимум ${issue.maximum} символов`
-  if (issue.code === 'invalid_format') return patternMsg ?? 'Недопустимый формат'
-  return 'Недопустимое значение'
-}
-
 const DOMAIN_OPTIONS = ['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'] as const
 const EMPLOYMENT_TYPE_OPTIONS = ['FULL_TIME', 'PART_TIME', 'CONTRACT'] as const
 
@@ -106,12 +92,15 @@ export interface VacancyFormFieldsProps {
   /** Slug regenerates from title while true; user editing the slug directly flips it off. */
   slugAutoLinked: boolean
   onSlugAutoLinkedChange: (linked: boolean) => void
+  /** Bumped by the parent when submit validation found an error inside a translation tab, to force that tab open. */
+  focusRequest?: VacancyTranslationFocusRequest | null
 }
 
 export function VacancyFormFields({
   form,
   slugAutoLinked,
   onSlugAutoLinkedChange,
+  focusRequest,
 }: VacancyFormFieldsProps) {
   return (
     <div className="space-y-4">
@@ -265,7 +254,7 @@ export function VacancyFormFields({
         }}
       </form.Field>
 
-      <VacancyTranslationFields form={form} />
+      <VacancyTranslationFields form={form} focusRequest={focusRequest} />
       <VacancySeoFields form={form} />
     </div>
   )

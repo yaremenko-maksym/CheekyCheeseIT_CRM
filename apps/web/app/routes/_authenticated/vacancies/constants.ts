@@ -5,6 +5,7 @@
  * mounting the full page. Русский UI everywhere EXCEPT domain badges and
  * seniority (spec §0 / §3.5 / §3.6 — deliberate exceptions, not oversights).
  */
+import type { z } from 'zod'
 import type {
   CreateVacancyInput,
   Vacancy,
@@ -157,6 +158,120 @@ export function buildSeoFieldsDto(values: VacancySeoFormValues): VacancySeoDto {
     jobBenefits: values.jobBenefits.trim() || null,
     workHours: values.workHours.trim() || null,
   }
+}
+
+// ---------------------------------------------------------------------------
+// design-review round 1 (PR #422, HIGH-2) — shared Zod-issue → Russian
+// message mapping. Was a private copy inside `VacancyFormFields.tsx`; moved
+// here (single source) now that `VacancyTranslationFields.tsx` AND
+// `collectVacancyValidationErrors` below both need the exact same mapping —
+// duplicating it a 2nd/3rd time would violate golden rule #8.
+//
+// Zod's default `.message` is raw English ("Invalid string: must match
+// pattern /^[a-z0-9]+.../", "Too small: expected string to have >=10
+// characters") — leaking that straight into the UI violates the project's
+// hard "always Russian UI" rule (rules/common/russian-language.md). Maps the
+// small set of issue codes these fields can actually produce (regex/min/max
+// on plain strings) to Russian text instead of relying on the schema's
+// message. `patternMsg` lets a field give a field-specific hint (e.g. slug's
+// "латиница/цифры/дефис") instead of a generic "неверный формат".
+// ---------------------------------------------------------------------------
+
+export function zodIssueRu(
+  issue: z.core.$ZodIssue | undefined,
+  patternMsg?: string,
+): string | undefined {
+  if (!issue) return undefined
+  if (issue.code === 'too_small' && 'minimum' in issue) return `Минимум ${issue.minimum} символов`
+  if (issue.code === 'too_big' && 'maximum' in issue) return `Максимум ${issue.maximum} символов`
+  if (issue.code === 'invalid_format') return patternMsg ?? 'Недопустимый формат'
+  return 'Недопустимое значение'
+}
+
+// ---------------------------------------------------------------------------
+// design-review round 1 (PR #422, HIGH-2) — the base (`title`/`slug`/
+// `descriptionMd`/domain/employmentType) + translations + SEO fields are
+// composed into the SAME dto shape identically in `VacancySheet.tsx` and
+// `$vacancyId.tsx` — factored out here (was copy-pasted in both onSubmit
+// handlers) so there is exactly ONE place that assembles the API payload.
+// ---------------------------------------------------------------------------
+
+export interface VacancyDtoFormValues {
+  title: string
+  slug: string
+  descriptionMd: string
+  domain: VacancyDomain
+  employmentType: VacancyEmploymentType
+  translations: VacancyTranslationsFormValues
+  skills: VacancySeoFormValues['skills']
+  experienceMonths: VacancySeoFormValues['experienceMonths']
+  qualifications: VacancySeoFormValues['qualifications']
+  responsibilities: VacancySeoFormValues['responsibilities']
+  jobBenefits: VacancySeoFormValues['jobBenefits']
+  workHours: VacancySeoFormValues['workHours']
+}
+
+export function buildVacancyDto(value: VacancyDtoFormValues) {
+  return {
+    title: value.title.trim(),
+    slug: value.slug.trim(),
+    descriptionMd: value.descriptionMd,
+    domain: value.domain,
+    employmentType: value.employmentType,
+    translations: buildTranslationsDto(value.translations),
+    ...buildSeoFieldsDto(value),
+  }
+}
+
+/**
+ * design-review round 1 (PR #422, HIGH-2) — "ошибка валидации абсолютно
+ * беззвучна": `VacancySheet`/`$vacancyId.tsx` used to `safeParse` the dto and
+ * just `return` on failure — no toast, no field highlight, no console entry.
+ * Worse with translation tabs: an invalid field could be sitting in a
+ * currently-hidden tab, so the (already-silent) failure was now also
+ * invisible even if the user DID look at the form.
+ *
+ * This turns a failed `safeParse` into:
+ *   - `fields`: a `{ 'translations.uk.title': 'Минимум 3 символа', ... }` map
+ *     in the EXACT dot-path shape TanStack Form's `validators.onSubmit`
+ *     `{ fields }` return value expects (https://tanstack.com/form — "Setting
+ *     field-level errors from the form's validators") — assigning this makes
+ *     the error appear under the actual field the moment its tab is active,
+ *     with zero extra wiring per field.
+ *   - `firstTranslationLocale`: which locale (if any) the FIRST issue
+ *     belongs to, so the caller can switch the active tab to it — otherwise
+ *     the now-correctly-set field error would still be invisible behind a
+ *     closed tab.
+ */
+export interface VacancyValidationErrors {
+  fields: Record<string, string>
+  firstTranslationLocale: VacancyTranslationLocale | null
+}
+
+const TRANSLATION_LOCALE_SET: ReadonlySet<string> = new Set(VACANCY_TRANSLATION_LOCALES)
+
+export function collectVacancyValidationErrors(
+  dto: unknown,
+  schema: z.ZodType,
+): VacancyValidationErrors | null {
+  const parsed = schema.safeParse(dto)
+  if (parsed.success) return null
+
+  const fields: Record<string, string> = {}
+  let firstTranslationLocale: VacancyTranslationLocale | null = null
+  for (const issue of parsed.error.issues) {
+    const path = issue.path.join('.')
+    if (!(path in fields)) fields[path] = zodIssueRu(issue) ?? 'Недопустимое значение'
+    if (
+      !firstTranslationLocale &&
+      issue.path[0] === 'translations' &&
+      typeof issue.path[1] === 'string' &&
+      TRANSLATION_LOCALE_SET.has(issue.path[1])
+    ) {
+      firstTranslationLocale = issue.path[1] as VacancyTranslationLocale
+    }
+  }
+  return { fields, firstTranslationLocale }
 }
 
 // ---------------------------------------------------------------------------

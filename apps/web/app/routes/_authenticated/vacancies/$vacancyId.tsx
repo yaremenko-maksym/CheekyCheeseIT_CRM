@@ -18,6 +18,7 @@
 import { useEffect, useState } from 'react'
 import { createFileRoute, Link } from '@tanstack/react-router'
 import { useForm } from '@tanstack/react-form'
+import { toast } from 'sonner'
 import { z } from 'zod'
 import { format } from 'date-fns'
 import { ru } from 'date-fns/locale'
@@ -47,10 +48,11 @@ import { trackFeatureClick } from '@/lib/telemetry'
 import { DeleteVacancyButton } from './components/VacancyCard'
 import { CandidateCard } from './components/CandidateCard'
 import { VacancyFormFields } from './components/VacancyFormFields'
+import type { VacancyTranslationFocusRequest } from './components/VacancyTranslationFields'
 import {
   APPLICATION_STATUS_LABELS,
-  buildSeoFieldsDto,
-  buildTranslationsDto,
+  buildVacancyDto,
+  collectVacancyValidationErrors,
   DOMAIN_DOT_COLOR,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
@@ -152,23 +154,39 @@ function VacancyDetailPage() {
   // Never auto-links on the detail page — the vacancy already has a live
   // slug; typing in "Название" here must not silently rewrite it.
   const [slugAutoLinked, setSlugAutoLinked] = useState(false)
+  // design-review round 1 (PR #422, HIGH-2) — see VacancyTranslationFields'
+  // module doc / VacancySheet.tsx's matching comment: forces the translation
+  // Tabs to the locale of the first reported error on a failed submit.
+  const [translationFocusRequest, setTranslationFocusRequest] =
+    useState<VacancyTranslationFocusRequest | null>(null)
 
   const form = useForm({
     defaultValues: vacancy ? valuesFromVacancy(vacancy) : emptyFormValues(),
+    // design-review round 1 (PR #422, HIGH-2) — same mechanism as
+    // VacancySheet.tsx: runs BEFORE `onSubmit`, sets per-field errors +
+    // blocks submission on failure, and unconditionally fires a fallback
+    // toast — replaces the old silent `if (!parsed.success) return`.
+    validators: {
+      onSubmit: ({ value }) => {
+        const dto = buildVacancyDto(value)
+        const result = collectVacancyValidationErrors(dto, updateVacancySchema)
+        if (!result) return null
+        if (result.firstTranslationLocale) {
+          setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
+        }
+        toast.error('Проверьте поля формы — есть ошибки')
+        return { fields: result.fields }
+      },
+    },
     onSubmit: async ({ value }) => {
       if (!vacancy) return
-      const dto = {
-        title: value.title.trim(),
-        slug: value.slug.trim(),
-        descriptionMd: value.descriptionMd,
-        domain: value.domain,
-        employmentType: value.employmentType,
-        translations: buildTranslationsDto(value.translations),
-        ...buildSeoFieldsDto(value),
-      }
+      const dto = buildVacancyDto(value)
       // seniority/location NOT in `dto` → updateVacancySchema leaves them
       // `undefined` → no-op — this form never changes the vacancy's
       // seniority/location, whatever they currently are.
+      // `validators.onSubmit` above already gated this call on a successful
+      // parse, so `safeParse` here always succeeds — re-run only to get the
+      // fully-typed `.data` the mutation needs.
       const parsed = updateVacancySchema.safeParse(dto)
       if (!parsed.success) return
       await updateMutation.mutateAsync({ id: vacancy.id, dto: parsed.data })
@@ -182,6 +200,7 @@ function VacancyDetailPage() {
     if (vacancy) {
       form.reset(valuesFromVacancy(vacancy))
     }
+    setTranslationFocusRequest(null)
     // Keyed on vacancy?.id only — re-running on every refetch would clobber in-progress edits.
   }, [vacancy?.id])
 
@@ -356,6 +375,7 @@ function VacancyDetailPage() {
                 form={form}
                 slugAutoLinked={slugAutoLinked}
                 onSlugAutoLinkedChange={setSlugAutoLinked}
+                focusRequest={translationFocusRequest}
               />
               <div className="flex items-center gap-2 pt-2">
                 <Button

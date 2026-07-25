@@ -6,33 +6,91 @@
  * индикатором «переведено/нет»"). Shared by `VacancySheet` (create/edit) and
  * `$vacancyId.tsx` (inline edit) — same pattern as `VacancyFormFields`.
  *
- * A locale counts as "переведено" (badge) only when BOTH title AND
+ * A locale counts as "переведено" (dot indicator) only when BOTH title AND
  * description are non-empty — matches `vacancyTranslationSchema`'s
  * requirement that a locale entry is all-or-nothing; a half-filled tab is
- * simply not sent as a translation (see `VacancySheet`/`$vacancyId.tsx`
- * `buildTranslationsDto` — filters on this exact condition).
+ * simply not sent as a translation (see `../constants` `buildTranslationsDto`
+ * — filters on this exact condition).
  *
- * design-gate: Tier 2 candidate (new UI structure — tabs + per-locale
- * fields) built with EXISTING shadcn/ui primitives (Tabs/Input/Textarea/
- * Badge, no new visual language) — flagging for PM/ui-ux-designer Mode B
- * fidelity pass per plan §5 "Дизайн-гейт: переключатель языка + любые
- * UI-изменения → ui-ux-designer Mode B".
+ * design-review round 1 (PR #422, HIGH-1) — the tab ROW itself is compact by
+ * design now: 2-letter locale code (`locale.toUpperCase()`, data-driven off
+ * `VACANCY_TRANSLATION_LOCALES` — a 6th locale needs zero layout changes)
+ * + a small colour dot instead of a full text badge (green = translated,
+ * red = has a validation error, muted = untranslated), with the full status
+ * carried in `aria-label` for screen readers/colour-blind users. 4 tabs at
+ * this size total ≈220px, comfortably inside the narrowest context that was
+ * failing (Sheet `max-w-md` = 448px, and the 375px viewport where the Sheet
+ * itself goes full-width). `overflow-x-auto` on the list is a defensive
+ * fallback ONLY (a future 6th/7th locale, unusual browser zoom) — the fix
+ * itself is the compact width, not scrolling. Verified in all 3 contexts the
+ * design review flagged (list→Sheet @1440, list→Sheet @375, inline form
+ * @375) plus the already-working wide detail column @1440 — see PR body for
+ * the concrete measurements/screenshots. Solved locally in this component,
+ * NOT in the shared `ui/tabs.tsx` primitive (other screens use TabsList too
+ * — see that file's other call sites).
+ *
+ * design-review round 1 (PR #422, HIGH-2) — "ошибка валидации абсолютно
+ * беззвучна", made worse by tabs (an invalid field can hide in a closed
+ * tab). Each title/description field now has a real Zod-backed validator
+ * (empty = valid — a locale is simply not being translated; non-empty must
+ * satisfy `vacancyTranslationSchema`) so a bad value shows a message right
+ * under the field. The `focusRequest` prop lets the PARENT (which owns the
+ * dto-level `schema.safeParse` on submit, i.e. sees cross-field issues too)
+ * force-switch the active tab to wherever the first reported error actually
+ * lives — otherwise a correctly-set field error sitting behind a closed tab
+ * would still be invisible. Tabs are CONTROLLED (not `defaultValue`) for
+ * exactly this reason.
  */
+import { useEffect, useState } from 'react'
 import type { VacancyTranslationLocale } from '@crm/shared'
-import { VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
-import { Badge } from '@/components/ui/badge'
+import { VACANCY_TRANSLATION_LOCALES, vacancyTranslationSchema } from '@crm/shared'
+import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { VACANCY_TRANSLATION_LOCALE_LABELS } from '../constants'
+import { VACANCY_TRANSLATION_LOCALE_LABELS, zodIssueRu } from '../constants'
 import type { AnyField, AnyForm } from './VacancyFormFields'
+
+/** Bumping `nonce` while setting `locale` imperatively switches the active tab — used by the parent on a failed submit to surface an error hiding in an inactive tab (HIGH-2). */
+export interface VacancyTranslationFocusRequest {
+  locale: VacancyTranslationLocale
+  nonce: number
+}
 
 export interface VacancyTranslationFieldsProps {
   form: AnyForm
+  focusRequest?: VacancyTranslationFocusRequest | null | undefined
 }
 
-export function VacancyTranslationFields({ form }: VacancyTranslationFieldsProps) {
+/** Empty value is always valid (locale simply isn't being translated) — only non-empty values are checked against the schema's length constraints. */
+function validateNonEmpty(
+  value: string,
+  shape: { safeParse: (v: string) => { success: boolean; error?: { issues: unknown[] } } },
+): string | undefined {
+  const trimmed = value.trim()
+  if (!trimmed) return undefined
+  const result = shape.safeParse(trimmed)
+  if (result.success) return undefined
+  const issues = result.error?.issues as (Parameters<typeof zodIssueRu>[0] | undefined)[]
+  return zodIssueRu(issues?.[0])
+}
+
+export function VacancyTranslationFields({ form, focusRequest }: VacancyTranslationFieldsProps) {
+  const [activeLocale, setActiveLocale] = useState<VacancyTranslationLocale>(
+    VACANCY_TRANSLATION_LOCALES[0],
+  )
+
+  // Force-switch on an incoming focus request (HIGH-2) — keyed on `nonce` so
+  // repeated requests for the SAME locale (e.g. two failed submits in a row
+  // both pointing at `uk`) still re-trigger the switch even though `locale`
+  // itself didn't change.
+  useEffect(() => {
+    if (focusRequest) setActiveLocale(focusRequest.locale)
+    // Intentionally keyed on `nonce` only (not the whole `focusRequest`
+    // object or `.locale`), see comment above.
+  }, [focusRequest?.nonce])
+
   return (
     <div className="space-y-1.5">
       <Label>Переводы (необязательно)</Label>
@@ -40,32 +98,58 @@ export function VacancyTranslationFields({ form }: VacancyTranslationFieldsProps
         Название и описание вакансии для лендинга на других языках. Без перевода на языке
         показывается оригинал (английский).
       </p>
-      <Tabs defaultValue={VACANCY_TRANSLATION_LOCALES[0]}>
-        <TabsList data-testid="vacancy-translations-tabs">
+      <Tabs
+        value={activeLocale}
+        onValueChange={(v) => setActiveLocale(v as VacancyTranslationLocale)}
+      >
+        <TabsList
+          data-testid="vacancy-translations-tabs"
+          className="w-full justify-start overflow-x-auto"
+        >
           {VACANCY_TRANSLATION_LOCALES.map((locale) => (
             <form.Subscribe
               key={locale}
               selector={(state: {
                 values: { translations?: Record<string, { title?: string; description?: string }> }
-              }) => state.values.translations?.[locale]}
-            >
-              {(translation: { title?: string; description?: string } | undefined) => {
+                fieldMeta?: Partial<Record<string, { errors?: unknown[] }>>
+              }) => {
+                const translation = state.values.translations?.[locale]
                 const translated = Boolean(
                   translation?.title?.trim() && translation?.description?.trim(),
                 )
+                const titleErrors = state.fieldMeta?.[`translations.${locale}.title`]?.errors ?? []
+                const descriptionErrors =
+                  state.fieldMeta?.[`translations.${locale}.description`]?.errors ?? []
+                const hasError = titleErrors.length > 0 || descriptionErrors.length > 0
+                return { translated, hasError }
+              }}
+            >
+              {(status: { translated: boolean; hasError: boolean }) => {
+                const statusLabel = status.hasError
+                  ? 'ошибка'
+                  : status.translated
+                    ? 'переведено'
+                    : 'не переведено'
                 return (
                   <TabsTrigger
                     value={locale}
                     data-testid={`vacancy-translation-tab-${locale}`}
-                    className="gap-1.5"
+                    data-has-error={status.hasError || undefined}
+                    className="shrink-0 gap-1.5"
+                    aria-label={`${VACANCY_TRANSLATION_LOCALE_LABELS[locale]} — ${statusLabel}`}
                   >
-                    {VACANCY_TRANSLATION_LOCALE_LABELS[locale]}
-                    <Badge
-                      variant={translated ? 'status-active' : 'secondary'}
-                      className="px-1.5 py-0 text-[10px]"
-                    >
-                      {translated ? 'переведено' : 'нет'}
-                    </Badge>
+                    <span
+                      aria-hidden="true"
+                      className={cn(
+                        'inline-block size-1.5 shrink-0 rounded-full',
+                        status.hasError
+                          ? 'bg-destructive'
+                          : status.translated
+                            ? 'bg-green-500'
+                            : 'bg-muted-foreground/40',
+                      )}
+                    />
+                    {locale.toUpperCase()}
                   </TabsTrigger>
                 )
               }}
@@ -75,37 +159,65 @@ export function VacancyTranslationFields({ form }: VacancyTranslationFieldsProps
 
         {VACANCY_TRANSLATION_LOCALES.map((locale: VacancyTranslationLocale) => (
           <TabsContent key={locale} value={locale} className="space-y-3">
-            <form.Field name={`translations.${locale}.title`}>
-              {(field: AnyField) => (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Название</Label>
-                  <Input
-                    value={field.state.value ?? ''}
-                    onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                      field.handleChange(e.target.value)
-                    }
-                    onBlur={field.handleBlur}
-                    placeholder="Senior React Developer"
-                    data-testid={`vacancy-translation-${locale}-title`}
-                  />
-                </div>
-              )}
+            <form.Field
+              name={`translations.${locale}.title`}
+              validators={{
+                onBlur: ({ value }: { value: string }) =>
+                  validateNonEmpty(value, vacancyTranslationSchema.shape.title),
+                onSubmit: ({ value }: { value: string }) =>
+                  validateNonEmpty(value, vacancyTranslationSchema.shape.title),
+              }}
+            >
+              {(field: AnyField) => {
+                const err = field.state.meta.errors[0] as string | undefined
+                return (
+                  <div className="space-y-1.5">
+                    <Label className={cn('text-xs', err && 'text-destructive')}>Название</Label>
+                    <Input
+                      value={field.state.value ?? ''}
+                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+                        field.handleChange(e.target.value)
+                      }
+                      onBlur={field.handleBlur}
+                      placeholder="Senior React Developer"
+                      data-testid={`vacancy-translation-${locale}-title`}
+                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                    />
+                    {err && <p className="text-xs text-destructive">{err}</p>}
+                  </div>
+                )
+              }}
             </form.Field>
-            <form.Field name={`translations.${locale}.description`}>
-              {(field: AnyField) => (
-                <div className="space-y-1.5">
-                  <Label className="text-xs">Описание (Markdown)</Label>
-                  <Textarea
-                    value={field.state.value ?? ''}
-                    onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                      field.handleChange(e.target.value)
-                    }
-                    onBlur={field.handleBlur}
-                    rows={6}
-                    data-testid={`vacancy-translation-${locale}-description`}
-                  />
-                </div>
-              )}
+            <form.Field
+              name={`translations.${locale}.description`}
+              validators={{
+                onBlur: ({ value }: { value: string }) =>
+                  validateNonEmpty(value, vacancyTranslationSchema.shape.description),
+                onSubmit: ({ value }: { value: string }) =>
+                  validateNonEmpty(value, vacancyTranslationSchema.shape.description),
+              }}
+            >
+              {(field: AnyField) => {
+                const err = field.state.meta.errors[0] as string | undefined
+                return (
+                  <div className="space-y-1.5">
+                    <Label className={cn('text-xs', err && 'text-destructive')}>
+                      Описание (Markdown)
+                    </Label>
+                    <Textarea
+                      value={field.state.value ?? ''}
+                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
+                        field.handleChange(e.target.value)
+                      }
+                      onBlur={field.handleBlur}
+                      rows={6}
+                      data-testid={`vacancy-translation-${locale}-description`}
+                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
+                    />
+                    {err && <p className="text-xs text-destructive">{err}</p>}
+                  </div>
+                )
+              }}
             </form.Field>
           </TabsContent>
         ))}

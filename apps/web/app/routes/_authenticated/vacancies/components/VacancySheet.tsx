@@ -9,6 +9,7 @@
  */
 import { useEffect, useState } from 'react'
 import { useForm, useStore } from '@tanstack/react-form'
+import { toast } from 'sonner'
 import type { Vacancy, VacancyDomain, VacancyEmploymentType } from '@crm/shared'
 import { createVacancySchema, updateVacancySchema } from '@crm/shared'
 import { Button } from '@/components/ui/button'
@@ -23,8 +24,8 @@ import {
 import { useCreateVacancy, useUpdateVacancy } from '@/hooks/use-vacancies'
 import { useFormAbandonTracking } from '@/lib/telemetry'
 import {
-  buildSeoFieldsDto,
-  buildTranslationsDto,
+  buildVacancyDto,
+  collectVacancyValidationErrors,
   emptySeoFormValues,
   emptyTranslationsFormValues,
   seoFormValuesFromVacancy,
@@ -32,6 +33,7 @@ import {
   type VacancySeoFormValues,
   type VacancyTranslationsFormValues,
 } from '../constants'
+import type { VacancyTranslationFocusRequest } from './VacancyTranslationFields'
 import { VacancyFormFields } from './VacancyFormFields'
 
 interface VacancySheetProps {
@@ -103,25 +105,46 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
   // Auto-slug only makes sense for a brand-new title; editing an existing
   // vacancy's already-published slug should never silently rewrite it.
   const [slugAutoLinked, setSlugAutoLinked] = useState(!isEdit)
+  // design-review round 1 (PR #422, HIGH-2) — see VacancyTranslationFields'
+  // module doc: forces the translation Tabs to the locale of the first
+  // reported error on a failed submit, so a field error hiding behind a
+  // closed tab is never invisible.
+  const [translationFocusRequest, setTranslationFocusRequest] =
+    useState<VacancyTranslationFocusRequest | null>(null)
 
   const form = useForm({
     defaultValues: vacancy ? valuesFromVacancy(vacancy) : emptyValues(),
+    // design-review round 1 (PR #422, HIGH-2) — runs BEFORE `onSubmit` below;
+    // returning `{ fields }` sets each listed field's error (visible the
+    // moment its tab/panel is mounted) AND blocks `onSubmit` from running at
+    // all, replacing the old silent `if (!parsed.success) return`. The
+    // fallback toast fires unconditionally on ANY invalid submit — even if a
+    // future field somehow can't be highlighted, the user is never left with
+    // zero feedback.
+    validators: {
+      onSubmit: ({ value }) => {
+        const dto = buildVacancyDto(value)
+        const schema = isEdit ? updateVacancySchema : createVacancySchema
+        const result = collectVacancyValidationErrors(dto, schema)
+        if (!result) return null
+        if (result.firstTranslationLocale) {
+          setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
+        }
+        toast.error('Проверьте поля формы — есть ошибки')
+        return { fields: result.fields }
+      },
+    },
     onSubmit: async ({ value }) => {
-      const dto = {
-        title: value.title.trim(),
-        slug: value.slug.trim(),
-        descriptionMd: value.descriptionMd,
-        domain: value.domain,
-        employmentType: value.employmentType,
-        translations: buildTranslationsDto(value.translations),
-        ...buildSeoFieldsDto(value),
-      }
+      const dto = buildVacancyDto(value)
 
       // isEdit branch validates through `updateVacancySchema` (seniority/
       // location NOT included in `dto` → stay `undefined` → PATCH is a no-op
       // on those two fields, the existing vacancy keeps its own value).
       // create branch validates through `createVacancySchema` (same omission
       // → `.default()` fills seniority: 'SENIOR' / location: 'Remote').
+      // `validators.onSubmit` above already gated this call on a successful
+      // parse, so `safeParse` here always succeeds — re-run only to get the
+      // fully-typed, defaulted `.data` the mutation needs.
       if (isEdit && vacancy) {
         const parsed = updateVacancySchema.safeParse(dto)
         if (!parsed.success) return
@@ -154,6 +177,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
   useEffect(() => {
     form.reset(vacancy ? valuesFromVacancy(vacancy) : emptyValues())
     setSlugAutoLinked(!vacancy)
+    setTranslationFocusRequest(null)
     // Keyed on vacancy?.id only — re-running on every form/state identity
     // change would clobber in-progress edits (same pattern as AttachReceiptSheet).
   }, [vacancy?.id])
@@ -195,6 +219,7 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
             form={form}
             slugAutoLinked={slugAutoLinked}
             onSlugAutoLinkedChange={setSlugAutoLinked}
+            focusRequest={translationFocusRequest}
           />
         </div>
 
