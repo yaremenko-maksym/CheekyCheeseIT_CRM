@@ -142,7 +142,13 @@ describe('captureMorphSource + readPendingMorph', () => {
     const { captureMorphSource, readPendingMorph, setPendingRoutePair } = await freshModule()
     const el = document.createElement('h3')
     el.textContent = 'Senior ML Engineer'
-    stubMeasurements(el, { height: 20, left: 12, top: 34, fontSize: '19.52px', lineHeight: '29.28px' })
+    stubMeasurements(el, {
+      height: 20,
+      left: 12,
+      top: 34,
+      fontSize: '19.52px',
+      lineHeight: '29.28px',
+    })
     captureMorphSource(el, 'senior-ml-engineer')
     setPendingRoutePair('/careers', '/careers/senior-ml-engineer')
 
@@ -194,7 +200,10 @@ describe('validateMorphDestination', () => {
     setPendingRoutePair('/careers', '/careers/senior-ml-engineer')
     const morph = readPendingMorph()
     if (!morph) throw new Error('expected a captured morph')
-    return { morph, validateMorphDestination: (await import('@/lib/title-morph')).validateMorphDestination }
+    return {
+      morph,
+      validateMorphDestination: (await import('@/lib/title-morph')).validateMorphDestination,
+    }
   }
 
   it('slug mismatch -> false', async () => {
