@@ -47,6 +47,11 @@ KNOWN_UNSHARDED = {
                                                    # externally started apps/landing dev server +
                                                    # vacancies-seeded scratch DB. Run locally:
                                                    # `playwright test --project=landing`.
+    "tests/landing/i18n.spec.ts",                 # debt: opt-in `landing` Playwright project (same
+                                                   # pattern as responsive.spec.ts / motion-v3.spec.ts
+                                                   # above) — needs an externally started apps/landing
+                                                   # dev server + vacancies-seeded scratch DB. Run
+                                                   # locally: `playwright test --project=landing`.
     # --- accountant ---
     "tests/accountant-dashboard.spec.ts",         # debt: not gated, migrate to accountant shard later
     # --- admin ---
