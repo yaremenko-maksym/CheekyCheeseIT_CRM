@@ -24,6 +24,14 @@
  * DB + API, OR a lightweight mock server returning the same shape (no DB
  * required for the mock; see `scripts/prerender.mjs`'s own `fetchVacancies`
  * for the exact public-API shape it expects).
+ *
+ * The "plan §3/A10 — hreflang exclusion" describe block below additionally
+ * needs a SECOND published vacancy, slug `lead-ecommerce-dev`, with NO
+ * `translations` entry for ANY locale (`vacancies.translations` column NULL
+ * or `{}`) — while `senior-ml-engineer` above must carry a REAL `ru`
+ * translation (and nothing else) for that block's assertions to mean
+ * anything: it checks that a locale WITH a translation gets an hreflang
+ * link and a locale WITHOUT one does not, on the SAME running stack.
  */
 import { test, expect, type Page } from '@playwright/test'
 
@@ -234,4 +242,63 @@ test.describe('orchestrator finding — vacancy DETAIL pages render the DETAIL c
       expect(canonical).toBe(`${SITE_ORIGIN}${detailPath}`)
     })
   }
+})
+
+// ---------------------------------------------------------------------------
+// plan §3/A10, round-4 "дорезка" — a locale with NO real translation for a
+// given vacancy must NEVER advertise that vacancy's URL as an hreflang
+// alternate (duplicate-content guard: the untranslated locale page shows the
+// SAME `en` copy verbatim, so telling Google "this is the ru/uk/es/pt
+// version" would flag it as duplicate content). Needs BOTH fixtures from the
+// file header: `senior-ml-engineer` (translated to `ru` ONLY) proves a
+// PARTIALLY-translated vacancy still gets a correctly-scoped cluster (not
+// all-or-nothing); `lead-ecommerce-dev` (translated NOWHERE) proves the
+// all-excluded case and that the page itself still renders (200, `en`
+// fallback copy) even though it carries no hreflang alternates for it.
+// ---------------------------------------------------------------------------
+test.describe('plan §3/A10 — hreflang omits locales with no real translation (isFallback)', () => {
+  async function hreflangSet(page: Page, path: string) {
+    await gotoStable(page, path)
+    const hreflangs = await page
+      .locator('link[rel="alternate"]')
+      .evaluateAll((els) => els.map((el) => el.getAttribute('hreflang')))
+    return new Set(hreflangs)
+  }
+
+  test('senior-ml-engineer (translated to ru only): hreflang cluster is exactly {en, ru, x-default} — uk/es/pt excluded', async ({
+    page,
+  }) => {
+    const set = await hreflangSet(page, '/careers/senior-ml-engineer/')
+    expect(set).toEqual(new Set(['en', 'ru', 'x-default']))
+  })
+
+  test('lead-ecommerce-dev (translated nowhere): hreflang cluster is exactly {en, x-default} — every non-en locale excluded', async ({
+    page,
+  }) => {
+    const set = await hreflangSet(page, '/careers/lead-ecommerce-dev/')
+    expect(set).toEqual(new Set(['en', 'x-default']))
+  })
+
+  test('the same exclusion set holds from a NON-en locale page too (/ru/careers/lead-ecommerce-dev/)', async ({
+    page,
+  }) => {
+    // hreflangExcludes is computed from each locale's OWN isFallback flag for
+    // this slug — it must not depend on which locale page you're currently
+    // viewing (the alternates cluster describes the vacancy, not the viewer).
+    const set = await hreflangSet(page, '/ru/careers/lead-ecommerce-dev/')
+    expect(set).toEqual(new Set(['en', 'x-default']))
+  })
+
+  test('lead-ecommerce-dev still renders 200 with the en fallback copy on /ru/ — excluded from hreflang, not from the route itself', async ({
+    page,
+  }) => {
+    const res = await page.goto('/ru/careers/lead-ecommerce-dev/')
+    expect(res?.status()).toBe(200)
+    await page.waitForSelector('footer', { state: 'visible' })
+    // No `ru` translation exists — plan §3 "непереведённая — оригинал":
+    // the page shows the EN title verbatim, not an error/empty state.
+    await expect(page.locator('h1[data-vacancy-morph-slug="lead-ecommerce-dev"]')).toContainText(
+      'E-Commerce Team Lead',
+    )
+  })
 })
