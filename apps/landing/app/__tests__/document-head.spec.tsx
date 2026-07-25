@@ -92,4 +92,52 @@ describe('useDocumentHead', () => {
     rerender(<Head title="Careers" description="E" canonical="https://cheekycheese.tech/careers" />)
     expect(document.getElementById('seo-json-ld')).toBeNull()
   })
+
+  // task-landing-i18n.md A5/A4 — <html lang> + hreflang alternate cluster.
+  it('defaults <html lang> to en when htmlLang is omitted', () => {
+    render(<Head title="A" description="B" canonical="https://cheekycheese.tech/a" />)
+    expect(document.documentElement.lang).toBe('en')
+  })
+
+  it('sets <html lang> to the given locale', () => {
+    render(
+      <Head title="А" description="Б" canonical="https://cheekycheese.tech/ru/" htmlLang="ru" />,
+    )
+    expect(document.documentElement.lang).toBe('ru')
+  })
+
+  it('writes one <link rel="alternate" hreflang> per entry, and clears them on the next render with a different set', () => {
+    const { rerender } = render(
+      <Head
+        title="A"
+        description="B"
+        canonical="https://cheekycheese.tech/careers"
+        alternates={[
+          { hreflang: 'en', href: 'https://cheekycheese.tech/careers/' },
+          { hreflang: 'ru', href: 'https://cheekycheese.tech/ru/careers/' },
+          { hreflang: 'x-default', href: 'https://cheekycheese.tech/careers/' },
+        ]}
+      />,
+    )
+    const links = document.head.querySelectorAll('link[rel="alternate"]')
+    expect(links.length).toBe(3)
+    expect(
+      document.head.querySelector('link[rel="alternate"][hreflang="ru"]')?.getAttribute('href'),
+    ).toBe('https://cheekycheese.tech/ru/careers/')
+
+    rerender(
+      <Head
+        title="A"
+        description="B"
+        canonical="https://cheekycheese.tech/careers/other"
+        alternates={[{ hreflang: 'en', href: 'https://cheekycheese.tech/careers/other/' }]}
+      />,
+    )
+    expect(document.head.querySelectorAll('link[rel="alternate"]').length).toBe(1)
+  })
+
+  it('writes no alternate links when alternates is omitted (e.g. the site-wide 404)', () => {
+    render(<Head title="A" description="B" canonical="https://cheekycheese.tech/404" noindex />)
+    expect(document.head.querySelectorAll('link[rel="alternate"]').length).toBe(0)
+  })
 })

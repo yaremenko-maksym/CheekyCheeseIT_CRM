@@ -13,6 +13,7 @@ import {
   SITE_ORIGIN,
   buildBreadcrumbListJsonLd,
   buildFAQPageJsonLd,
+  buildHreflangAlternates,
   buildItemListJsonLd,
   buildJobPostingJsonLd,
   buildOrganizationJsonLd,
@@ -22,6 +23,7 @@ import {
   parseRemoteLocation,
   truncateForMetaDescription,
 } from '@/lib/seo'
+import { LOCALES } from '@/i18n/locale'
 
 describe('canonicalUrl', () => {
   it('builds an absolute URL under SITE_ORIGIN for the home path', () => {
@@ -36,6 +38,47 @@ describe('canonicalUrl', () => {
 
   it('is idempotent — does not double the trailing slash if already present', () => {
     expect(canonicalUrl('/careers/')).toBe(`${SITE_ORIGIN}/careers/`)
+  })
+})
+
+describe('buildHreflangAlternates (task-landing-i18n.md A4)', () => {
+  it('builds one alternate per locale plus x-default, x-default pointing at the en URL', () => {
+    const alternates = buildHreflangAlternates('/careers')
+    expect(alternates).toHaveLength(LOCALES.length + 1)
+    for (const locale of LOCALES) {
+      const entry = alternates.find((a) => a.hreflang === locale)
+      expect(entry).toBeTruthy()
+    }
+    const xDefault = alternates.find((a) => a.hreflang === 'x-default')
+    const en = alternates.find((a) => a.hreflang === 'en')
+    expect(xDefault?.href).toBe(en?.href)
+    expect(xDefault?.href).toBe(`${SITE_ORIGIN}/careers/`)
+  })
+
+  it('is reciprocal — every locale route calling this with the SAME path emits the identical cluster', () => {
+    const path = '/careers/senior-ml-engineer'
+    const clusters = LOCALES.map(() => buildHreflangAlternates(path))
+    for (const cluster of clusters.slice(1)) {
+      expect(cluster).toEqual(clusters[0])
+    }
+  })
+
+  it('produces locale-prefixed hrefs for non-default locales, unprefixed for en', () => {
+    const alternates = buildHreflangAlternates('/careers/my-slug')
+    expect(alternates.find((a) => a.hreflang === 'en')?.href).toBe(
+      `${SITE_ORIGIN}/careers/my-slug/`,
+    )
+    expect(alternates.find((a) => a.hreflang === 'ru')?.href).toBe(
+      `${SITE_ORIGIN}/ru/careers/my-slug/`,
+    )
+    expect(alternates.find((a) => a.hreflang === 'pt')?.href).toBe(
+      `${SITE_ORIGIN}/pt/careers/my-slug/`,
+    )
+  })
+
+  it('omits locales passed in excludeLocales (A10 fallback-vacancy case), keeps x-default', () => {
+    const alternates = buildHreflangAlternates('/careers/my-slug', ['uk', 'es', 'pt'])
+    expect(alternates.map((a) => a.hreflang).sort()).toEqual(['en', 'ru', 'x-default'])
   })
 })
 
