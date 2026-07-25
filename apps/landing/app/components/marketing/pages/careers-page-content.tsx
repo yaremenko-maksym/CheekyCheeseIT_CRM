@@ -7,28 +7,36 @@ import { MarketingFooter } from '@/components/marketing/footer'
 import { SectionEyebrow } from '@/components/marketing/section-eyebrow'
 import { CareersList } from '@/components/marketing/careers-list'
 import { DEFAULT_LOCALE, localizedPath, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
+
+/** Locale-agnostic path of this page — see `home-page-content.tsx`'s `PATH` doc. */
+const PATH = '/careers'
 
 /**
  * `/careers` content — extracted from `routes/careers.tsx` so the SAME tree
  * renders under every locale route file (task-landing-i18n.md). NO filters/
  * tabs (owner decision 2026-07-23, see task-landing-redesign.md AC2).
+ *
+ * `dict` (required — review round 1, HIGH-1b) — see
+ * `home-page-content.tsx`'s module doc for the code-splitting rationale.
  */
 export function CareersPageContent({
   vacancies,
   locale = DEFAULT_LOCALE,
+  dict,
 }: {
   vacancies: (PublicVacancy & LocalizableVacancyFields)[]
   locale?: Locale
+  dict: Dictionary
 }) {
-  const t = getDictionary(locale)
+  const t = dict
 
   useDocumentHead({
     title: t.careers.seoTitle,
     description: t.careers.seoDescription,
-    canonical: canonicalUrl(localizedPath(locale, '/careers')),
+    canonical: canonicalUrl(localizedPath(locale, PATH)),
     htmlLang: locale,
-    alternates: buildHreflangAlternates('/careers'),
+    alternates: buildHreflangAlternates(PATH),
     // ItemList only when there's something to list — an empty one has
     // nothing useful to tell a crawler (owner decision 2026-07-24).
     jsonLd: vacancies.length > 0 ? buildItemListJsonLd(vacancies) : undefined,
@@ -36,7 +44,7 @@ export function CareersPageContent({
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <MarketingNav active="careers" locale={locale} />
+      <MarketingNav active="careers" locale={locale} dict={dict} path={PATH} />
 
       {/* `tabIndex={-1}` — page-transition focus target (§M.3 step 9). */}
       <main tabIndex={-1} className="flex-1 focus:outline-none">
@@ -64,11 +72,11 @@ export function CareersPageContent({
 
         <div className="mx-auto max-w-[1200px] px-5 pb-24 md:px-10 lg:px-14">
           <div className="mb-10 border-t border-border" />
-          <CareersList vacancies={vacancies} locale={locale} />
+          <CareersList vacancies={vacancies} locale={locale} dict={dict} />
         </div>
       </main>
 
-      <MarketingFooter locale={locale} />
+      <MarketingFooter locale={locale} dict={dict} path={PATH} />
     </div>
   )
 }

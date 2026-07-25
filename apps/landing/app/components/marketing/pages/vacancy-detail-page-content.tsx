@@ -32,7 +32,7 @@ import {
   validateMorphDestination,
 } from '@/lib/title-morph'
 import { DEFAULT_LOCALE, localizedPath, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath } from '@/i18n/routes'
 
 /**
@@ -40,28 +40,34 @@ import { careersRoutePath } from '@/i18n/routes'
  * the SAME tree renders under every locale route file (task-landing-i18n.md).
  * `vacancy === null` renders the localized "Role not found" empty state
  * (docs/design/landing-redesign.md §8), never a raw browser 404.
+ *
+ * `dict` (required — review round 1, HIGH-1b) — see
+ * `home-page-content.tsx`'s module doc for the code-splitting rationale.
  */
 export function VacancyDetailPageContent({
   vacancy,
   slug,
   locale = DEFAULT_LOCALE,
+  dict,
 }: {
   vacancy: (PublicVacancyDetail & LocalizableVacancyDetailFields) | null
   /** The route's `$slug` param — passed explicitly (not re-derived from
    * `pathname`) since every locale route file owns its own `Route.useParams()`. */
   slug: string
   locale?: Locale
+  dict: Dictionary
 }) {
-  if (!vacancy) return <NotFoundState slug={slug} locale={locale} />
-  return <VacancyDetailContent vacancy={vacancy} locale={locale} />
+  if (!vacancy) return <NotFoundState slug={slug} locale={locale} dict={dict} />
+  return <VacancyDetailContent vacancy={vacancy} locale={locale} dict={dict} />
 }
 
-function NotFoundState({ slug, locale }: { slug: string; locale: Locale }) {
-  const t = getDictionary(locale)
+function NotFoundState({ slug, locale, dict }: { slug: string; locale: Locale; dict: Dictionary }) {
+  const t = dict
+  const path = `/careers/${slug}`
   useDocumentHead({
     title: t.vacancy.notFoundSeoTitle,
     description: t.vacancy.notFoundSeoDescription,
-    canonical: canonicalUrl(localizedPath(locale, `/careers/${slug}`)),
+    canonical: canonicalUrl(localizedPath(locale, path)),
     htmlLang: locale,
     // Soft-404 (DRAFT/CLOSED/missing slug, see module doc) — never index,
     // so no hreflang cluster either (nothing to advertise as an alternate).
@@ -69,7 +75,7 @@ function NotFoundState({ slug, locale }: { slug: string; locale: Locale }) {
   })
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <MarketingNav active="careers" locale={locale} />
+      <MarketingNav active="careers" locale={locale} dict={dict} path={path} />
       <main
         tabIndex={-1}
         className="flex flex-1 items-center justify-center px-5 py-24 text-center focus:outline-none"
@@ -88,7 +94,7 @@ function NotFoundState({ slug, locale }: { slug: string; locale: Locale }) {
           </BackLink>
         </div>
       </main>
-      <MarketingFooter locale={locale} />
+      <MarketingFooter locale={locale} dict={dict} path={path} />
     </div>
   )
 }
@@ -96,11 +102,14 @@ function NotFoundState({ slug, locale }: { slug: string; locale: Locale }) {
 function VacancyDetailContent({
   vacancy,
   locale,
+  dict,
 }: {
   vacancy: PublicVacancyDetail & LocalizableVacancyDetailFields
   locale: Locale
+  dict: Dictionary
 }) {
-  const t = getDictionary(locale)
+  const t = dict
+  const path = `/careers/${vacancy.slug}`
   const title = resolveVacancyTitle(vacancy, locale)
   const descriptionMd = resolveVacancyDescription(vacancy, locale)
 
@@ -128,9 +137,9 @@ function VacancyDetailContent({
     // becomes the OG title via useDocumentHead's shared `title` prop.
     title: `${title} — ${vacancy.location} | ${t.vacancy.titleSuffix}`,
     description: metaDescription,
-    canonical: canonicalUrl(localizedPath(locale, `/careers/${vacancy.slug}`)),
+    canonical: canonicalUrl(localizedPath(locale, path)),
     htmlLang: locale,
-    alternates: buildHreflangAlternates(`/careers/${vacancy.slug}`, hreflangExcludes),
+    alternates: buildHreflangAlternates(path, hreflangExcludes),
     jsonLd: [
       buildJobPostingJsonLd(localizedForJsonLd, descriptionHtml),
       buildBreadcrumbListJsonLd(localizedForJsonLd),
@@ -166,7 +175,7 @@ function VacancyDetailContent({
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <MarketingNav active="careers" locale={locale} />
+      <MarketingNav active="careers" locale={locale} dict={dict} path={path} />
 
       <main tabIndex={-1} className="flex-1 focus:outline-none">
         <div className="mx-auto max-w-[1200px] px-5 pt-8 pb-5 md:px-10 lg:px-14">
@@ -214,14 +223,19 @@ function VacancyDetailContent({
             <MarkdownBody markdown={descriptionMd} />
             <aside>
               <div className="static min-[1000px]:sticky min-[1000px]:top-[90px]">
-                <VacancyApplyForm slug={vacancy.slug} vacancyTitle={title} locale={locale} />
+                <VacancyApplyForm
+                  slug={vacancy.slug}
+                  vacancyTitle={title}
+                  locale={locale}
+                  dict={dict}
+                />
               </div>
             </aside>
           </div>
         </div>
       </main>
 
-      <MarketingFooter locale={locale} />
+      <MarketingFooter locale={locale} dict={dict} path={path} />
     </div>
   )
 }

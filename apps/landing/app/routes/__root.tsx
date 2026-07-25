@@ -16,6 +16,7 @@ import { playLiftExit } from '@/lib/lift-transition'
 import { setPendingRoutePair } from '@/lib/title-morph'
 import { DUR_LIFT_ENTER, EASE_SOFT, LIFT_OFFSET_ENTER } from '@/lib/motion'
 import { cn, focusRing } from '@/lib/utils'
+import { en } from '@/i18n/dictionaries/en'
 import '../styles/globals.css'
 
 export const Route = createRootRoute({
@@ -197,7 +198,7 @@ function NotFoundPage() {
   })
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
-      <MarketingNav />
+      <MarketingNav dict={en} />
       <main
         tabIndex={-1}
         className="flex flex-1 items-center justify-center px-5 py-24 text-center focus:outline-none"
@@ -218,7 +219,7 @@ function NotFoundPage() {
           </BackLink>
         </div>
       </main>
-      <MarketingFooter />
+      <MarketingFooter dict={en} />
     </div>
   )
 }

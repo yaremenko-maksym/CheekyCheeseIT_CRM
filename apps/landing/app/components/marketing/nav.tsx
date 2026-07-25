@@ -6,7 +6,7 @@ import { LanguageSwitcher } from '@/components/marketing/language-switcher'
 import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath, homeRoutePath } from '@/i18n/routes'
 
 /**
@@ -42,9 +42,26 @@ import { careersRoutePath, homeRoutePath } from '@/i18n/routes'
  *
  * `locale` (task-landing-i18n.md, default `en`) — every route file passes
  * its OWN hardcoded locale (see `i18n/locale.ts` module doc); nothing here
- * ever detects the visitor's language client-side. Drives translated link
- * text, the correct locale-prefixed hrefs (`i18n/routes.ts`) and the
- * `<LanguageSwitcher>` (plan §4 A6).
+ * ever detects the visitor's language client-side. Drives the correct
+ * locale-prefixed hrefs (`i18n/routes.ts`) and the `<LanguageSwitcher>`
+ * (plan §4 A6).
+ *
+ * `dict` (review round 1, HIGH-1b) — the CALLER'S already-resolved
+ * `Dictionary` object (imported directly from `i18n/dictionaries/<locale>`
+ * at the route-file level, see `pages/home-page-content.tsx` etc), not
+ * looked up here via `getDictionary(locale)`. Looking it up internally
+ * would statically pull the shared 5-locale barrel (`i18n/dictionaries/
+ * index.ts`) into EVERY route's bundle regardless of which single locale
+ * that route actually needs — the root cause of the Lighthouse mobile
+ * performance regression this review round fixed.
+ *
+ * `path` (review round 1, HIGH-3) — the CURRENT page's locale-agnostic,
+ * root-relative path (e.g. `/`, `/careers`, `/careers/my-slug` — same value
+ * every `*-page-content.tsx` already computes for `buildHreflangAlternates`)
+ * — passed straight through to `<LanguageSwitcher>` so switching language
+ * lands on the SAME document in the new locale (plan §2 "ведёт на тот же
+ * документ в другой локали"), not always the home page. Previously
+ * hardcoded to `"/"` on every call — the bug this fixes.
  */
 const NAV_LINK_CLASS = cn(
   'relative text-[0.94rem] font-normal text-foreground/72 transition-colors duration-200 ease-out hover:text-foreground',
@@ -55,13 +72,21 @@ const NAV_LINK_CLASS = cn(
 interface MarketingNavProps {
   active?: 'careers'
   locale?: Locale
+  dict: Dictionary
+  /** Locale-agnostic current path (default `/`) — see module doc HIGH-3. */
+  path?: string
 }
 
-export function MarketingNav({ active, locale = DEFAULT_LOCALE }: MarketingNavProps) {
+export function MarketingNav({
+  active,
+  locale = DEFAULT_LOCALE,
+  dict,
+  path = '/',
+}: MarketingNavProps) {
   const [scrolled, setScrolled] = useState(false)
   const [open, setOpen] = useState(false)
   const burgerRef = useRef<HTMLButtonElement>(null)
-  const t = getDictionary(locale)
+  const t = dict
   const homePath = homeRoutePath(locale)
   const careersPath = careersRoutePath(locale)
   const isHome = useLocation({ select: (location) => location.pathname === homePath })
@@ -145,7 +170,7 @@ export function MarketingNav({ active, locale = DEFAULT_LOCALE }: MarketingNavPr
           <Link to={homePath} {...hashLinkProps('contact', isHome)} className={NAV_LINK_CLASS}>
             {t.nav.contact}
           </Link>
-          <LanguageSwitcher locale={locale} path="/" t={t.languageSwitcher} variant="nav" />
+          <LanguageSwitcher locale={locale} path={path} t={t.languageSwitcher} variant="nav" />
           <Button asChild size="sm">
             <Link to={homePath} {...hashLinkProps('contact', isHome)}>
               {t.nav.startProject}
@@ -154,7 +179,7 @@ export function MarketingNav({ active, locale = DEFAULT_LOCALE }: MarketingNavPr
         </nav>
 
         <div className="flex items-center gap-2 min-[900px]:hidden">
-          <LanguageSwitcher locale={locale} path="/" t={t.languageSwitcher} variant="nav" />
+          <LanguageSwitcher locale={locale} path={path} t={t.languageSwitcher} variant="nav" />
           <button
             ref={burgerRef}
             type="button"
@@ -188,7 +213,7 @@ export function MarketingNav({ active, locale = DEFAULT_LOCALE }: MarketingNavPr
         <MobileNavDisclosure
           active={active}
           isHome={isHome}
-          locale={locale}
+          t={t}
           homePath={homePath}
           careersPath={careersPath}
         />
@@ -211,18 +236,17 @@ const ENTER_TRANSITION_CLASS =
 function MobileNavDisclosure({
   active,
   isHome,
-  locale,
+  t,
   homePath,
   careersPath,
 }: {
   active?: 'careers' | undefined
   isHome: boolean
-  locale: Locale
+  t: Dictionary
   homePath: ReturnType<typeof homeRoutePath>
   careersPath: ReturnType<typeof careersRoutePath>
 }) {
   const [entered, setEntered] = useState(false)
-  const t = getDictionary(locale)
 
   useEffect(() => {
     const raf = requestAnimationFrame(() => setEntered(true))

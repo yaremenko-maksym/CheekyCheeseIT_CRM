@@ -7,11 +7,11 @@ import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { CvDropzone } from '@/components/marketing/cv-dropzone'
-import { submitApplication } from '@/lib/api'
+import { submitApplication, type SubmitApplicationErrorKind } from '@/lib/api'
 import { useTurnstile } from '@/lib/use-turnstile'
 import { cn } from '@/lib/utils'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath } from '@/i18n/routes'
 
 /**
@@ -22,8 +22,28 @@ import { careersRoutePath } from '@/i18n/routes'
  *
  * `locale` (task-landing-i18n.md, optional — default `en`) — every visible
  * label/placeholder/error/success string comes from
- * `Dictionary['vacancy']['apply']`.
+ * `Dictionary['vacancy']['apply']`. `dict` (required — review round 1,
+ * HIGH-1b) is the caller's already-resolved `Dictionary` (see `nav.tsx`
+ * module doc for the code-splitting rationale).
+ *
+ * Server-error banner (review round 1, MED-1 fix) — `submitApplication`
+ * (`lib/api.ts`) always sets an English `message` on failure (its own
+ * `ERROR_COPY`), so this component resolves the LOCALIZED banner text
+ * itself from `result.errorKind` via `API_ERROR_MESSAGES` below, and never
+ * reads `result.message` — otherwise the `??` fallback in `handleSubmit`
+ * never fires (the left side is always defined) and every 5 translated
+ * `apiError*` strings in the dictionary are dead code.
  */
+const API_ERROR_MESSAGE_KEYS: Record<
+  SubmitApplicationErrorKind,
+  keyof Dictionary['vacancy']['apply']
+> = {
+  validation: 'apiErrorValidation',
+  'too-large': 'apiErrorTooLarge',
+  'unsupported-media': 'apiErrorUnsupportedMedia',
+  duplicate: 'apiErrorDuplicate',
+  network: 'apiErrorNetwork',
+}
 
 type FormStatus = 'idle' | 'submitting' | 'success' | 'error'
 
@@ -48,12 +68,14 @@ export function VacancyApplyForm({
   slug,
   vacancyTitle,
   locale = DEFAULT_LOCALE,
+  dict,
 }: {
   slug: string
   vacancyTitle: string
   locale?: Locale
+  dict: Dictionary
 }) {
-  const t = getDictionary(locale).vacancy.apply
+  const t = dict.vacancy.apply
   const [status, setStatus] = useState<FormStatus>('idle')
   const [fullName, setFullName] = useState('')
   const [email, setEmail] = useState('')
@@ -173,7 +195,12 @@ export function VacancyApplyForm({
     }
 
     setStatus('error')
-    setBannerMessage(result.message ?? t.apiErrorValidation)
+    // Resolve from `errorKind` against the LOCALIZED dictionary, not
+    // `result.message` (always English — see module doc MED-1 fix).
+    const messageKey = result.errorKind
+      ? API_ERROR_MESSAGE_KEYS[result.errorKind]
+      : 'apiErrorValidation'
+    setBannerMessage(t[messageKey])
     resetTurnstile()
   }
 

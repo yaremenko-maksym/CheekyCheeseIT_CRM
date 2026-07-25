@@ -14,6 +14,9 @@ import {
 } from '@tanstack/react-router'
 import type { PublicVacancy } from '@crm/shared'
 import { CareersList } from '@/components/marketing/careers-list'
+// Test-only barrel import (fine — not part of the production bundle, see
+// `nav.tsx`'s module doc for why production components never do this).
+import { getDictionary } from '@/i18n/dictionaries'
 
 const vacancies: PublicVacancy[] = [
   {
@@ -40,7 +43,13 @@ const vacancies: PublicVacancy[] = [
 
 function renderList(list: PublicVacancy[], locale?: 'ru') {
   const rootRoute = createRootRoute({
-    component: () => <CareersList vacancies={list} {...(locale ? { locale } : {})} />,
+    component: () => (
+      <CareersList
+        vacancies={list}
+        {...(locale ? { locale } : {})}
+        dict={getDictionary(locale ?? 'en')}
+      />
+    ),
   })
   const router = createRouter({
     routeTree: rootRoute,

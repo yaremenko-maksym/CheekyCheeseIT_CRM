@@ -3,6 +3,7 @@ import type { PublicVacancyDetail } from '@crm/shared'
 import { fetchVacancy } from '@/lib/api'
 import { VacancyDetailPageContent } from '@/components/marketing/pages/vacancy-detail-page-content'
 import type { LocalizableVacancyDetailFields } from '@/lib/vacancy-i18n'
+import { en } from '@/i18n/dictionaries/en'
 
 /**
  * `/careers/:slug` — vacancy detail + apply form (landing-redesign.md §1,
@@ -21,5 +22,5 @@ function VacancyDetailPage() {
     | (PublicVacancyDetail & LocalizableVacancyDetailFields)
     | null
   const { slug } = Route.useParams()
-  return <VacancyDetailPageContent vacancy={vacancy} slug={slug} locale="en" />
+  return <VacancyDetailPageContent vacancy={vacancy} slug={slug} locale="en" dict={en} />
 }

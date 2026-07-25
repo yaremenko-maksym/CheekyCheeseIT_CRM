@@ -13,7 +13,7 @@ import {
   validateMorphDestination,
 } from '@/lib/title-morph'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 
 /**
  * `/careers` list body — extracted from the route component so it is
@@ -50,12 +50,14 @@ import { getDictionary } from '@/i18n/dictionaries'
 export function CareersList({
   vacancies,
   locale = DEFAULT_LOCALE,
+  dict,
 }: {
   vacancies: (PublicVacancy & LocalizableVacancyFields)[]
   locale?: Locale
+  dict: Dictionary
 }) {
   const pathname = useLocation({ select: (location) => location.pathname })
-  const t = getDictionary(locale)
+  const t = dict
 
   useLayoutEffect(() => {
     const morph = readPendingMorph(pathname)
@@ -85,7 +87,7 @@ export function CareersList({
   return (
     <div className="grid grid-cols-1 items-stretch gap-5 sm:grid-cols-2 md:gap-7">
       {vacancies.map((vacancy) => (
-        <VacancyCard key={vacancy.slug} vacancy={vacancy} locale={locale} />
+        <VacancyCard key={vacancy.slug} vacancy={vacancy} locale={locale} dict={dict} />
       ))}
     </div>
   )

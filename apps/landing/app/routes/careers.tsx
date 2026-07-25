@@ -3,6 +3,7 @@ import type { PublicVacancy } from '@crm/shared'
 import { fetchVacancies } from '@/lib/api'
 import { CareersPageContent } from '@/components/marketing/pages/careers-page-content'
 import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
+import { en } from '@/i18n/dictionaries/en'
 
 /**
  * `/careers` — full list, NO filters/tabs (owner decision 2026-07-23, see
@@ -15,5 +16,5 @@ export const Route = createFileRoute('/careers')({
 
 function CareersPage() {
   const vacancies = Route.useLoaderData() as (PublicVacancy & LocalizableVacancyFields)[]
-  return <CareersPageContent vacancies={vacancies} locale="en" />
+  return <CareersPageContent vacancies={vacancies} locale="en" dict={en} />
 }

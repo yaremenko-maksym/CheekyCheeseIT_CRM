@@ -5,7 +5,7 @@ import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
 import { CONTACT_EMAIL } from '@/content/home'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath, homeRoutePath } from '@/i18n/routes'
 
 /**
@@ -23,9 +23,23 @@ const FOOTER_LINK_CLASS = cn(
  * 4-column marketing footer (landing-redesign.md §2.4 `MarketingFooter`).
  * `locale` (task-landing-i18n.md, default `en`) — same contract as
  * `MarketingNav`: passed explicitly by every route file, never detected.
+ *
+ * `dict` / `path` — see `nav.tsx`'s module doc (review round 1, HIGH-1b /
+ * HIGH-3): the caller's already-resolved `Dictionary` (no internal
+ * `getDictionary()` barrel lookup — code-splitting) and the current page's
+ * locale-agnostic path (so the language switcher lands on the SAME document
+ * in the new locale, not always home).
  */
-export function MarketingFooter({ locale = DEFAULT_LOCALE }: { locale?: Locale }) {
-  const t = getDictionary(locale)
+export function MarketingFooter({
+  locale = DEFAULT_LOCALE,
+  dict,
+  path = '/',
+}: {
+  locale?: Locale
+  dict: Dictionary
+  path?: string
+}) {
+  const t = dict
   const homePath = homeRoutePath(locale)
   const careersPath = careersRoutePath(locale)
   const isHome = useLocation({ select: (location) => location.pathname === homePath })
@@ -107,7 +121,7 @@ export function MarketingFooter({ locale = DEFAULT_LOCALE }: { locale?: Locale }
             >
               {CONTACT_EMAIL}
             </a>
-            <LanguageSwitcher locale={locale} path="/" t={t.languageSwitcher} variant="footer" />
+            <LanguageSwitcher locale={locale} path={path} t={t.languageSwitcher} variant="footer" />
           </div>
         </div>
 

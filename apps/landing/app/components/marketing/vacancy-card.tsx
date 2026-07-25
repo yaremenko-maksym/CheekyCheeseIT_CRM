@@ -7,7 +7,7 @@ import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacanc
 import { resolveVacancyTitle, type LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import { captureMorphSource } from '@/lib/title-morph'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 import { careersSlugRoutePath } from '@/i18n/routes'
 
 /**
@@ -30,16 +30,22 @@ import { careersSlugRoutePath } from '@/i18n/routes'
  * `locale` (task-landing-i18n.md, optional — default `en`) — resolves the
  * DISPLAYED title via `resolveVacancyTitle` (real translation or `en`
  * fallback, plan §3/A10) and links to this locale's `/careers/:slug`.
+ *
+ * `dict` (required — review round 1, HIGH-1b) — caller's already-resolved
+ * `Dictionary`, not looked up here (see `nav.tsx` module doc for the
+ * code-splitting rationale).
  */
 export function VacancyCard({
   vacancy,
   locale = DEFAULT_LOCALE,
+  dict,
 }: {
   vacancy: PublicVacancy & LocalizableVacancyFields
   locale?: Locale
+  dict: Dictionary
 }) {
   const titleRef = useRef<HTMLHeadingElement>(null)
-  const t = getDictionary(locale)
+  const t = dict
   const title = resolveVacancyTitle(vacancy, locale)
   return (
     <Link

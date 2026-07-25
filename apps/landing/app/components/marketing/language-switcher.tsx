@@ -83,7 +83,10 @@ export function LanguageSwitcher({
         aria-label={t.label}
         onClick={() => setOpen((v) => !v)}
         className={cn(
-          'inline-flex items-center gap-1.5 rounded-[10px] border border-border bg-transparent px-2.5 py-1.5 text-[0.82rem] font-medium text-foreground/80 transition-colors duration-200 ease-out hover:border-[color-mix(in_oklch,var(--foreground)_30%,transparent)] hover:text-foreground',
+          // `min-h-11` (44px, review round 1 designer MED fix — landing-
+          // redesign.md §6.7 project touch-target standard, not just the
+          // 24px WCAG floor) — was ~33.7px, below spec on mobile.
+          'inline-flex min-h-11 items-center gap-1.5 rounded-[10px] border border-border bg-transparent px-2.5 py-1.5 text-[0.82rem] font-medium text-foreground/80 transition-colors duration-200 ease-out hover:border-[color-mix(in_oklch,var(--foreground)_30%,transparent)] hover:text-foreground',
           focusRing,
         )}
       >
@@ -121,7 +124,9 @@ export function LanguageSwitcher({
               setOpen(false)
             }}
             className={cn(
-              'flex items-center justify-between gap-3 rounded-[7px] px-2.5 py-2 text-[0.88rem] no-underline transition-colors duration-150 ease-out hover:bg-primary/10',
+              // `min-h-11` (44px) — same touch-target fix as the trigger
+              // button above; was ~37px.
+              'flex min-h-11 items-center justify-between gap-3 rounded-[7px] px-2.5 py-2 text-[0.88rem] no-underline transition-colors duration-150 ease-out hover:bg-primary/10',
               option.locale === locale
                 ? 'font-medium text-primary'
                 : 'text-foreground/80 hover:text-foreground',

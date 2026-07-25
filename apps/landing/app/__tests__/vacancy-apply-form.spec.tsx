@@ -17,6 +17,7 @@ import {
 } from '@tanstack/react-router'
 import { VacancyApplyForm } from '@/components/marketing/vacancy-apply-form'
 import * as api from '@/lib/api'
+import { getDictionary } from '@/i18n/dictionaries'
 
 vi.mock('@/lib/use-turnstile', () => ({
   useTurnstile: () => ({
@@ -39,6 +40,7 @@ async function renderForm(locale?: 'ru') {
         slug="senior-ml-engineer"
         vacancyTitle="Senior ML Engineer"
         {...(locale ? { locale } : {})}
+        dict={getDictionary(locale ?? 'en')}
       />
     ),
   })
@@ -113,6 +115,30 @@ describe('VacancyApplyForm', () => {
     // Form data is preserved, NOT cleared, on error.
     expect(screen.getByLabelText(/Full name/)).toHaveValue('Ada Lovelace')
     expect(screen.getByLabelText(/Email/)).toHaveValue('ada@example.com')
+  })
+
+  it('review round 1 MED-1 — locale="ru" + server-error resolves the LOCALIZED banner from errorKind, not the English api.ts message', async () => {
+    vi.spyOn(api, 'submitApplication').mockResolvedValue({
+      ok: false,
+      errorKind: 'duplicate',
+      // Deliberately English (mirrors what `lib/api.ts`'s ERROR_COPY always
+      // sets) — the component must NOT surface this string; it must resolve
+      // the RU dictionary's `apiErrorDuplicate` from `errorKind` instead.
+      message: "You've already applied to this role recently.",
+    })
+    const user = userEvent.setup()
+    await renderForm('ru')
+
+    await user.type(screen.getByLabelText(/Имя и фамилия/), 'Ada Lovelace')
+    await user.type(screen.getByLabelText(/Email/), 'ada@example.com')
+    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    await user.upload(fileInput, makePdfFile())
+
+    await user.click(screen.getByRole('button', { name: 'Отправить отклик' }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent('Вы уже откликались на эту вакансию недавно.')
+    expect(banner.textContent).not.toContain("You've already applied")
   })
 
   it('невалидный LinkedIn URL — блокирует submit с понятной ошибкой', async () => {

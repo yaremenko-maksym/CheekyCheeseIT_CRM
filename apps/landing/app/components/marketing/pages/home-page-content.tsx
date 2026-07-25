@@ -27,8 +27,11 @@ import { Chip } from '@/components/ui/chip'
 import { useCoarsePointer } from '@/lib/use-coarse-pointer'
 import { techStack, CONTACT_EMAIL } from '@/content/home'
 import { DEFAULT_LOCALE, localizedPath, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath } from '@/i18n/routes'
+
+/** Locale-agnostic path of this page — fed to `buildHreflangAlternates` AND threaded to `<MarketingNav>`/`<MarketingFooter>`'s language switcher (review round 1, HIGH-3). */
+const PATH = '/'
 
 /**
  * `/` (Home) content — extracted verbatim from `routes/index.tsx` so the
@@ -36,17 +39,29 @@ import { careersRoutePath } from '@/i18n/routes'
  * (`routes/index.tsx` (en), `routes/uk.tsx`, `routes/ru.tsx`,
  * `routes/es.tsx`, `routes/pt.tsx`), each passing its own hardcoded
  * `locale` — task-landing-i18n.md. All translatable copy comes from
- * `getDictionary(locale).home`; motion/layout/structure is untouched (no
- * regression to §M v3 lift/morph/scroll-reveal effects).
+ * `dict.home`; motion/layout/structure is untouched (no regression to
+ * §M v3 lift/morph/scroll-reveal effects).
+ *
+ * `dict` (required — review round 1, HIGH-1b) is imported by the CALLING
+ * route file directly from `i18n/dictionaries/<locale>` (a single-locale
+ * module, not the 5-locale barrel `i18n/dictionaries/index.ts`) — every
+ * route's own lazy chunk (`autoCodeSplitting`, `vite.config.ts`) then only
+ * ever bundles the ONE dictionary it actually needs. Looking it up here via
+ * `getDictionary(locale)` would statically re-import the shared barrel
+ * (all 5 locales) into every route's chunk regardless of which locale that
+ * route serves — the root cause of the Lighthouse mobile performance
+ * regression this review round fixed.
  */
 export function HomePageContent({
   vacancies,
   locale = DEFAULT_LOCALE,
+  dict,
 }: {
   vacancies: (PublicVacancy & LocalizableVacancyFields)[]
   locale?: Locale
+  dict: Dictionary
 }) {
-  const t = getDictionary(locale).home
+  const t = dict.home
   const heroRef = useRef<HTMLElement>(null)
   const reducedMotion = useReducedMotion()
   const coarsePointer = useCoarsePointer()
@@ -68,15 +83,15 @@ export function HomePageContent({
   useDocumentHead({
     title: t.seoTitle,
     description: t.seoDescription,
-    canonical: canonicalUrl(localizedPath(locale, '/')),
+    canonical: canonicalUrl(localizedPath(locale, PATH)),
     htmlLang: locale,
-    alternates: buildHreflangAlternates('/'),
+    alternates: buildHreflangAlternates(PATH),
     jsonLd: [buildOrganizationJsonLd(), buildWebSiteJsonLd()],
   })
 
   return (
     <div className="min-h-screen bg-background text-foreground">
-      <MarketingNav locale={locale} />
+      <MarketingNav locale={locale} dict={dict} path={PATH} />
 
       {/* `tabIndex={-1}` + `focus:outline-none` — programmatic focus target
           for page-transitions (§M v3.1 step 7, WCAG 2.4.3): __root.tsx moves
@@ -197,7 +212,11 @@ export function HomePageContent({
             <div className="flex flex-col gap-[22px]">
               {t.caseStudies.map((study, i) => (
                 <ScrollReveal key={study.title} revealAt={0.6 + i * 0.05}>
-                  <CaseStudyCard study={study} />
+                  <CaseStudyCard
+                    study={study}
+                    challengeLabel={t.challengeLabel}
+                    solutionLabel={t.solutionLabel}
+                  />
                 </ScrollReveal>
               ))}
             </div>
@@ -290,7 +309,7 @@ export function HomePageContent({
             </ScrollReveal>
 
             <ScrollReveal>
-              <CareersTeaser vacancies={vacancies} locale={locale} />
+              <CareersTeaser vacancies={vacancies} locale={locale} dict={dict} />
             </ScrollReveal>
           </div>
         </section>
@@ -332,7 +351,7 @@ export function HomePageContent({
         </section>
       </main>
 
-      <MarketingFooter locale={locale} />
+      <MarketingFooter locale={locale} dict={dict} path={PATH} />
     </div>
   )
 }

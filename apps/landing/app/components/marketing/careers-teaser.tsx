@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/button'
 import { CONTACT_EMAIL, HOME_CAREERS_TEASER_LIMIT } from '@/content/home'
 import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
-import { getDictionary } from '@/i18n/dictionaries'
+import type { Dictionary } from '@/i18n/dictionary'
 
 /**
  * Home "Careers" section body — up to 3 live PUBLISHED vacancies, or an
@@ -16,12 +16,14 @@ import { getDictionary } from '@/i18n/dictionaries'
 export function CareersTeaser({
   vacancies,
   locale = DEFAULT_LOCALE,
+  dict,
 }: {
   vacancies: (PublicVacancy & LocalizableVacancyFields)[]
   locale?: Locale
+  dict: Dictionary
 }) {
   const teaser = vacancies.slice(0, HOME_CAREERS_TEASER_LIMIT)
-  const t = getDictionary(locale)
+  const t = dict
 
   if (teaser.length === 0) {
     return (
@@ -43,7 +45,7 @@ export function CareersTeaser({
   return (
     <div className="grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-7">
       {teaser.map((vacancy) => (
-        <VacancyCard key={vacancy.slug} vacancy={vacancy} locale={locale} />
+        <VacancyCard key={vacancy.slug} vacancy={vacancy} locale={locale} dict={dict} />
       ))}
     </div>
   )

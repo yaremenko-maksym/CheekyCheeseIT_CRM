@@ -3,6 +3,7 @@ import type { PublicVacancyDetail } from '@crm/shared'
 import { fetchVacancy } from '@/lib/api'
 import { VacancyDetailPageContent } from '@/components/marketing/pages/vacancy-detail-page-content'
 import type { LocalizableVacancyDetailFields } from '@/lib/vacancy-i18n'
+import { ru } from '@/i18n/dictionaries/ru'
 
 /** `/ru/careers/:slug` — Russian vacancy detail (task-landing-i18n.md, plan §1 URL scheme). */
 export const Route = createFileRoute('/ru/careers_/$slug')({
@@ -15,5 +16,5 @@ function RuVacancyDetailPage() {
     | (PublicVacancyDetail & LocalizableVacancyDetailFields)
     | null
   const { slug } = Route.useParams()
-  return <VacancyDetailPageContent vacancy={vacancy} slug={slug} locale="ru" />
+  return <VacancyDetailPageContent vacancy={vacancy} slug={slug} locale="ru" dict={ru} />
 }

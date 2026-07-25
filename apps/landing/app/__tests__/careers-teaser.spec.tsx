@@ -12,6 +12,7 @@ import {
 } from '@tanstack/react-router'
 import type { PublicVacancy } from '@crm/shared'
 import { CareersTeaser } from '@/components/marketing/careers-teaser'
+import { getDictionary } from '@/i18n/dictionaries'
 
 function makeVacancy(slug: string, title: string): PublicVacancy {
   return {
@@ -28,7 +29,13 @@ function makeVacancy(slug: string, title: string): PublicVacancy {
 
 function renderTeaser(list: PublicVacancy[], locale?: 'ru') {
   const rootRoute = createRootRoute({
-    component: () => <CareersTeaser vacancies={list} {...(locale ? { locale } : {})} />,
+    component: () => (
+      <CareersTeaser
+        vacancies={list}
+        {...(locale ? { locale } : {})}
+        dict={getDictionary(locale ?? 'en')}
+      />
+    ),
   })
   const router = createRouter({
     routeTree: rootRoute,

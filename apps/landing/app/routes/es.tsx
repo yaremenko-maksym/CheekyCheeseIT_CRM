@@ -3,6 +3,7 @@ import type { PublicVacancy } from '@crm/shared'
 import { fetchVacancies } from '@/lib/api'
 import { HomePageContent } from '@/components/marketing/pages/home-page-content'
 import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
+import { es } from '@/i18n/dictionaries/es'
 
 /** `/es` — Spanish home (task-landing-i18n.md, plan §1 URL scheme). */
 export const Route = createFileRoute('/es')({
@@ -12,5 +13,5 @@ export const Route = createFileRoute('/es')({
 
 function EsLandingPage() {
   const vacancies = Route.useLoaderData() as (PublicVacancy & LocalizableVacancyFields)[]
-  return <HomePageContent vacancies={vacancies} locale="es" />
+  return <HomePageContent vacancies={vacancies} locale="es" dict={es} />
 }
