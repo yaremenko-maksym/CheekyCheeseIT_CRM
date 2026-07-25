@@ -90,6 +90,14 @@ describe('buildJobPostingJsonLd', () => {
     location: 'Remote',
     publishedAt: '2026-07-01T00:00:00.000Z',
     descriptionMd: '## About\n\nBuild things.',
+    isFallback: false,
+    relatedVacancies: [],
+    skills: null,
+    experienceMonths: null,
+    qualifications: null,
+    responsibilities: null,
+    jobBenefits: null,
+    workHours: null,
   }
   const descriptionHtml = '<h2>About</h2><p>Build things.</p>'
 
@@ -185,6 +193,7 @@ describe('buildItemListJsonLd', () => {
       employmentType: 'FULL_TIME',
       location: 'Remote',
       publishedAt: '2026-07-01T00:00:00.000Z',
+      isFallback: false,
     },
     {
       slug: 'lead-ecommerce-backend',
@@ -194,6 +203,7 @@ describe('buildItemListJsonLd', () => {
       employmentType: 'CONTRACT',
       location: 'Remote',
       publishedAt: '2026-07-02T00:00:00.000Z',
+      isFallback: false,
     },
   ]
 
