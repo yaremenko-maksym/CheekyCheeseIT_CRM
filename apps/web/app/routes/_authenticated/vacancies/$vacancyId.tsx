@@ -55,8 +55,11 @@ import {
 
 // §4.3: the landing /careers page lives on a separate Vite app/domain
 // (apps/landing, cheekycheese.tech) — no shared route tree with apps/web.
-// Same env-override convention as VITE_API_URL (lib/axios.ts).
-const LANDING_URL = import.meta.env['VITE_LANDING_URL'] ?? 'https://cheekycheese.tech'
+// Same env-override convention as VITE_API_URL (lib/axios.ts). Dot access —
+// hotfix (task-telemetry-env-gate): bracket access to `import.meta.env.VITE_*`
+// is NOT statically foldable by Vite (was always `undefined` in prod bundles;
+// harmless here only by coincidence — the fallback IS the correct prod value).
+const LANDING_URL = import.meta.env.VITE_LANDING_URL ?? 'https://cheekycheese.tech'
 
 const detailSearchSchema = z.object({
   tab: z.enum(['details', 'applications']).optional(),

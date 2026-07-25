@@ -38,9 +38,12 @@ export const Route = createFileRoute('/invoice/v/$transactionId')({
 // API base URL — same convention as `apps/web/app/lib/axios.ts`
 // ---------------------------------------------------------------------------
 
+// Dot access — hotfix (task-telemetry-env-gate): bracket access to
+// `import.meta.env.VITE_*` is NOT statically foldable by Vite, so this was
+// silently falling back to the localhost dev URL in every prod build.
 const API_URL =
   (typeof import.meta !== 'undefined' && import.meta.env
-    ? (import.meta.env['VITE_API_URL'] as string | undefined)
+    ? (import.meta.env.VITE_API_URL as string | undefined)
     : undefined) ?? 'http://localhost:3001/api'
 
 // ---------------------------------------------------------------------------

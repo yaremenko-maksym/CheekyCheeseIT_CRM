@@ -49,7 +49,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   invalid_state: 'Сессия истекла. Пожалуйста, попробуйте снова.',
 }
 
-const API_URL = import.meta.env['VITE_API_URL'] ?? 'http://localhost:3001/api'
+// Dot access — hotfix (task-telemetry-env-gate): bracket access to
+// `import.meta.env.VITE_*` is NOT statically foldable by Vite (same pitfall
+// the `SHOW_DEV_LOGIN` comment above already flagged for VITE_DEV_LOGIN) —
+// this line was silently falling back to the localhost dev URL in EVERY prod
+// build, breaking the "Войти через Google" link whenever VITE_API_URL was
+// actually overridden away from the relative-`/api` default.
+const API_URL = import.meta.env.VITE_API_URL ?? 'http://localhost:3001/api'
 
 function GoogleIcon() {
   return (
