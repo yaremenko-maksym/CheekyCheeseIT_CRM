@@ -172,9 +172,9 @@ describe('buildJobPostingJsonLd', () => {
     })
 
     it('derives industry per domain', () => {
-      expect(buildJobPostingJsonLd({ ...vacancy, domain: 'EDTECH' }, descriptionHtml).industry).toBe(
-        'Education Technology',
-      )
+      expect(
+        buildJobPostingJsonLd({ ...vacancy, domain: 'EDTECH' }, descriptionHtml).industry,
+      ).toBe('Education Technology')
       expect(
         buildJobPostingJsonLd({ ...vacancy, domain: 'ECOMMERCE' }, descriptionHtml).industry,
       ).toBe('E-Commerce')

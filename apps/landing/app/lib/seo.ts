@@ -1,4 +1,9 @@
-import type { PublicVacancy, PublicVacancyDetail, VacancyEmploymentType, VacancyLocale } from '@crm/shared'
+import type {
+  PublicVacancy,
+  PublicVacancyDetail,
+  VacancyEmploymentType,
+  VacancyLocale,
+} from '@crm/shared'
 import { CONTACT_EMAIL } from '@/content/home'
 
 /**
@@ -157,7 +162,10 @@ export interface JobPostingJsonLd {
   jobLocationType?: 'TELECOMMUTE'
   applicantLocationRequirements?: { '@type': 'Country'; name: string }
   skills?: string
-  experienceRequirements?: { '@type': 'OccupationalExperienceRequirements'; monthsOfExperience: number }
+  experienceRequirements?: {
+    '@type': 'OccupationalExperienceRequirements'
+    monthsOfExperience: number
+  }
   qualifications?: string
   responsibilities?: string
   industry?: string
@@ -342,7 +350,7 @@ const FAQ_ENTRIES: Record<VacancyLocale, FaqEntry[]> = {
     },
     {
       q: 'Чи обовʼязково перебувати в певній країні, щоб податися?',
-      a: "Більшість наших позицій — full-remote; регіональні вимоги (якщо є) вказані в описі вакансії. Ми — outstaffing/outsourcing-партнер у напрямках AI, EdTech і E-Commerce.",
+      a: 'Більшість наших позицій — full-remote; регіональні вимоги (якщо є) вказані в описі вакансії. Ми — outstaffing/outsourcing-партнер у напрямках AI, EdTech і E-Commerce.',
     },
     {
       q: 'Чи можна податися на кілька вакансій одразу?',
