@@ -48,11 +48,10 @@ import { trackFeatureClick } from '@/lib/telemetry'
 import { DeleteVacancyButton } from './components/VacancyCard'
 import { CandidateCard } from './components/CandidateCard'
 import { VacancyFormFields } from './components/VacancyFormFields'
-import type { VacancyTranslationFocusRequest } from './components/VacancyTranslationFields'
 import {
   APPLICATION_STATUS_LABELS,
   buildVacancyDto,
-  collectVacancyValidationErrors,
+  computeVacancySubmitErrors,
   DOMAIN_DOT_COLOR,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
@@ -65,6 +64,7 @@ import {
   VACANCY_STATUS_BADGE,
   VACANCY_STATUS_LABELS,
   type VacancySeoFormValues,
+  type VacancyTranslationFocusRequest,
   type VacancyTranslationsFormValues,
 } from './constants'
 
@@ -159,24 +159,36 @@ function VacancyDetailPage() {
   // Tabs to the locale of the first reported error on a failed submit.
   const [translationFocusRequest, setTranslationFocusRequest] =
     useState<VacancyTranslationFocusRequest | null>(null)
+  // design-review round 1 (PR #422, HIGH-2) — dot-path → Russian message
+  // from the last failed submit. Deliberately NOT stored in TanStack Form's
+  // own field state — see `VacancyTranslationFields`'s module doc for why.
+  const [submitFieldErrors, setSubmitFieldErrors] = useState<Record<string, string> | null>(null)
 
   const form = useForm({
     defaultValues: vacancy ? valuesFromVacancy(vacancy) : emptyFormValues(),
     // design-review round 1 (PR #422, HIGH-2) — same mechanism as
-    // VacancySheet.tsx: runs BEFORE `onSubmit`, sets per-field errors +
-    // blocks submission on failure, and unconditionally fires a fallback
-    // toast — replaces the old silent `if (!parsed.success) return`.
+    // VacancySheet.tsx: blocks `onSubmit` below from running when the dto
+    // fails schema validation, replacing the old silent
+    // `if (!parsed.success) return`. Error display/toast/tab-switch itself
+    // happens in `onSubmitInvalid` — see that handler's comment.
     validators: {
       onSubmit: ({ value }) => {
         const dto = buildVacancyDto(value)
-        const result = collectVacancyValidationErrors(dto, updateVacancySchema)
-        if (!result) return null
-        if (result.firstTranslationLocale) {
-          setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
-        }
-        toast.error('Проверьте поля формы — есть ошибки')
-        return { fields: result.fields }
+        return updateVacancySchema.safeParse(dto).success ? null : { form: 'Форма содержит ошибки' }
       },
+    },
+    // Guaranteed by TanStack Form to run whenever `handleSubmit()` finds the
+    // form invalid, regardless of which validator caught it. Sets the plain
+    // `submitFieldErrors` state (see `computeVacancySubmitErrors`'s doc in
+    // `./constants` for why NOT `formApi.setFieldMeta`), force-switches the
+    // tab holding the first error, and fires a fallback toast unconditionally.
+    onSubmitInvalid: ({ value }) => {
+      const result = computeVacancySubmitErrors(value, updateVacancySchema)
+      setSubmitFieldErrors(result?.fields ?? null)
+      if (result?.firstTranslationLocale) {
+        setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
+      }
+      toast.error('Проверьте поля формы — есть ошибки')
     },
     onSubmit: async ({ value }) => {
       if (!vacancy) return
@@ -201,8 +213,19 @@ function VacancyDetailPage() {
       form.reset(valuesFromVacancy(vacancy))
     }
     setTranslationFocusRequest(null)
+    setSubmitFieldErrors(null)
     // Keyed on vacancy?.id only — re-running on every refetch would clobber in-progress edits.
   }, [vacancy?.id])
+
+  // design-review round 1 (PR #422, HIGH-2) — drop a field's stale
+  // `submitFieldErrors` entry the moment the user edits it again.
+  const handleFieldEdited = (path: string) => {
+    setSubmitFieldErrors((prev) => {
+      if (!prev || !(path in prev)) return prev
+      const { [path]: _dropped, ...rest } = prev
+      return rest
+    })
+  }
 
   if (isLoading) {
     return (
@@ -376,6 +399,8 @@ function VacancyDetailPage() {
                 slugAutoLinked={slugAutoLinked}
                 onSlugAutoLinkedChange={setSlugAutoLinked}
                 focusRequest={translationFocusRequest}
+                submitFieldErrors={submitFieldErrors}
+                onFieldEdited={handleFieldEdited}
               />
               <div className="flex items-center gap-2 pt-2">
                 <Button

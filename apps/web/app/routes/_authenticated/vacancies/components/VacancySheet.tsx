@@ -25,15 +25,15 @@ import { useCreateVacancy, useUpdateVacancy } from '@/hooks/use-vacancies'
 import { useFormAbandonTracking } from '@/lib/telemetry'
 import {
   buildVacancyDto,
-  collectVacancyValidationErrors,
+  computeVacancySubmitErrors,
   emptySeoFormValues,
   emptyTranslationsFormValues,
   seoFormValuesFromVacancy,
   translationsFormValuesFromVacancy,
   type VacancySeoFormValues,
+  type VacancyTranslationFocusRequest,
   type VacancyTranslationsFormValues,
 } from '../constants'
-import type { VacancyTranslationFocusRequest } from './VacancyTranslationFields'
 import { VacancyFormFields } from './VacancyFormFields'
 
 interface VacancySheetProps {
@@ -111,28 +111,37 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
   // closed tab is never invisible.
   const [translationFocusRequest, setTranslationFocusRequest] =
     useState<VacancyTranslationFocusRequest | null>(null)
+  // design-review round 1 (PR #422, HIGH-2) — dot-path → Russian message
+  // from the last failed submit. Deliberately NOT stored in TanStack Form's
+  // own field state — see `VacancyTranslationFields`'s module doc for why.
+  const [submitFieldErrors, setSubmitFieldErrors] = useState<Record<string, string> | null>(null)
 
   const form = useForm({
     defaultValues: vacancy ? valuesFromVacancy(vacancy) : emptyValues(),
-    // design-review round 1 (PR #422, HIGH-2) — runs BEFORE `onSubmit` below;
-    // returning `{ fields }` sets each listed field's error (visible the
-    // moment its tab/panel is mounted) AND blocks `onSubmit` from running at
-    // all, replacing the old silent `if (!parsed.success) return`. The
-    // fallback toast fires unconditionally on ANY invalid submit — even if a
-    // future field somehow can't be highlighted, the user is never left with
-    // zero feedback.
+    // design-review round 1 (PR #422, HIGH-2) — blocks `onSubmit` below from
+    // running when the dto fails schema validation (replaces the old silent
+    // `if (!parsed.success) return`). The ACTUAL error display/toast/tab-
+    // switch happens in `onSubmitInvalid` below.
     validators: {
       onSubmit: ({ value }) => {
         const dto = buildVacancyDto(value)
         const schema = isEdit ? updateVacancySchema : createVacancySchema
-        const result = collectVacancyValidationErrors(dto, schema)
-        if (!result) return null
-        if (result.firstTranslationLocale) {
-          setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
-        }
-        toast.error('Проверьте поля формы — есть ошибки')
-        return { fields: result.fields }
+        return schema.safeParse(dto).success ? null : { form: 'Форма содержит ошибки' }
       },
+    },
+    // Guaranteed by TanStack Form to run whenever `handleSubmit()` finds the
+    // form invalid, regardless of which validator caught it. Sets the plain
+    // `submitFieldErrors` state (see `computeVacancySubmitErrors`'s doc in
+    // `../constants` for why NOT `formApi.setFieldMeta`), force-switches the
+    // tab holding the first error, and fires a fallback toast unconditionally.
+    onSubmitInvalid: ({ value }) => {
+      const schema = isEdit ? updateVacancySchema : createVacancySchema
+      const result = computeVacancySubmitErrors(value, schema)
+      setSubmitFieldErrors(result?.fields ?? null)
+      if (result?.firstTranslationLocale) {
+        setTranslationFocusRequest({ locale: result.firstTranslationLocale, nonce: Date.now() })
+      }
+      toast.error('Проверьте поля формы — есть ошибки')
     },
     onSubmit: async ({ value }) => {
       const dto = buildVacancyDto(value)
@@ -178,9 +187,20 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
     form.reset(vacancy ? valuesFromVacancy(vacancy) : emptyValues())
     setSlugAutoLinked(!vacancy)
     setTranslationFocusRequest(null)
+    setSubmitFieldErrors(null)
     // Keyed on vacancy?.id only — re-running on every form/state identity
     // change would clobber in-progress edits (same pattern as AttachReceiptSheet).
   }, [vacancy?.id])
+
+  // design-review round 1 (PR #422, HIGH-2) — drop a field's stale
+  // `submitFieldErrors` entry the moment the user edits it again.
+  const handleFieldEdited = (path: string) => {
+    setSubmitFieldErrors((prev) => {
+      if (!prev || !(path in prev)) return prev
+      const { [path]: _dropped, ...rest } = prev
+      return rest
+    })
+  }
 
   return (
     <Sheet
@@ -220,6 +240,8 @@ export function VacancySheet({ vacancy, open, onClose }: VacancySheetProps) {
             slugAutoLinked={slugAutoLinked}
             onSlugAutoLinkedChange={setSlugAutoLinked}
             focusRequest={translationFocusRequest}
+            submitFieldErrors={submitFieldErrors}
+            onFieldEdited={handleFieldEdited}
           />
         </div>
 

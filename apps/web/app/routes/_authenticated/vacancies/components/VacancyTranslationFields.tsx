@@ -31,15 +31,24 @@
  *
  * design-review round 1 (PR #422, HIGH-2) — "ошибка валидации абсолютно
  * беззвучна", made worse by tabs (an invalid field can hide in a closed
- * tab). Each title/description field now has a real Zod-backed validator
+ * tab). Each title/description field keeps an `onBlur` Zod-backed validator
  * (empty = valid — a locale is simply not being translated; non-empty must
- * satisfy `vacancyTranslationSchema`) so a bad value shows a message right
- * under the field. The `focusRequest` prop lets the PARENT (which owns the
- * dto-level `schema.safeParse` on submit, i.e. sees cross-field issues too)
- * force-switch the active tab to wherever the first reported error actually
- * lives — otherwise a correctly-set field error sitting behind a closed tab
- * would still be invisible. Tabs are CONTROLLED (not `defaultValue`) for
- * exactly this reason.
+ * satisfy `vacancyTranslationSchema`) for live feedback while typing.
+ *
+ * Submit-time errors are DELIBERATELY not routed through TanStack Form's own
+ * `field.state.meta` at all (two earlier approaches — a plain `{ fields }`
+ * validator return, and imperative `formApi.setFieldMeta` — were both tried
+ * and empirically disproven against a live scratch stack; see
+ * `computeVacancySubmitErrors`'s doc in `../constants` for the full story,
+ * including a React-StrictMode-specific footgun). Instead, the PARENT
+ * (`VacancySheet.tsx` / `$vacancyId.tsx`) keeps its own plain
+ * `submitFieldErrors` state and passes it down as a prop; each field falls
+ * back to `submitFieldErrors[path]` whenever TanStack's own (mount-
+ * dependent) error is empty. `onFieldEdited` lets a field tell the parent to
+ * drop its now-stale entry the moment the user types in it again. The
+ * `focusRequest` prop still force-switches the active tab to wherever the
+ * first reported error lives, so it's never left invisible behind a closed
+ * tab — Tabs are CONTROLLED (not `defaultValue`) for exactly this reason.
  */
 import { useEffect, useState } from 'react'
 import type { VacancyTranslationLocale } from '@crm/shared'
@@ -49,18 +58,22 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { VACANCY_TRANSLATION_LOCALE_LABELS, zodIssueRu } from '../constants'
+import {
+  VACANCY_TRANSLATION_LOCALE_LABELS,
+  zodIssueRu,
+  type VacancyTranslationFocusRequest,
+} from '../constants'
 import type { AnyField, AnyForm } from './VacancyFormFields'
 
-/** Bumping `nonce` while setting `locale` imperatively switches the active tab — used by the parent on a failed submit to surface an error hiding in an inactive tab (HIGH-2). */
-export interface VacancyTranslationFocusRequest {
-  locale: VacancyTranslationLocale
-  nonce: number
-}
+export type { VacancyTranslationFocusRequest }
 
 export interface VacancyTranslationFieldsProps {
   form: AnyForm
   focusRequest?: VacancyTranslationFocusRequest | null | undefined
+  /** Dot-path → Russian message, from the last failed submit (HIGH-2). Not TanStack field state — see module doc. */
+  submitFieldErrors?: Record<string, string> | null | undefined
+  /** Called with a field's dot-path the moment the user edits it, so the parent can drop its now-stale `submitFieldErrors` entry. */
+  onFieldEdited?: ((path: string) => void) | undefined
 }
 
 /** Empty value is always valid (locale simply isn't being translated) — only non-empty values are checked against the schema's length constraints. */
@@ -76,7 +89,12 @@ function validateNonEmpty(
   return zodIssueRu(issues?.[0])
 }
 
-export function VacancyTranslationFields({ form, focusRequest }: VacancyTranslationFieldsProps) {
+export function VacancyTranslationFields({
+  form,
+  focusRequest,
+  submitFieldErrors,
+  onFieldEdited,
+}: VacancyTranslationFieldsProps) {
   const [activeLocale, setActiveLocale] = useState<VacancyTranslationLocale>(
     VACANCY_TRANSLATION_LOCALES[0],
   )
@@ -106,121 +124,141 @@ export function VacancyTranslationFields({ form, focusRequest }: VacancyTranslat
           data-testid="vacancy-translations-tabs"
           className="w-full justify-start overflow-x-auto"
         >
-          {VACANCY_TRANSLATION_LOCALES.map((locale) => (
-            <form.Subscribe
-              key={locale}
-              selector={(state: {
-                values: { translations?: Record<string, { title?: string; description?: string }> }
-                fieldMeta?: Partial<Record<string, { errors?: unknown[] }>>
-              }) => {
-                const translation = state.values.translations?.[locale]
-                const translated = Boolean(
-                  translation?.title?.trim() && translation?.description?.trim(),
-                )
-                const titleErrors = state.fieldMeta?.[`translations.${locale}.title`]?.errors ?? []
-                const descriptionErrors =
-                  state.fieldMeta?.[`translations.${locale}.description`]?.errors ?? []
-                const hasError = titleErrors.length > 0 || descriptionErrors.length > 0
-                return { translated, hasError }
-              }}
-            >
-              {(status: { translated: boolean; hasError: boolean }) => {
-                const statusLabel = status.hasError
-                  ? 'ошибка'
-                  : status.translated
-                    ? 'переведено'
-                    : 'не переведено'
-                return (
-                  <TabsTrigger
-                    value={locale}
-                    data-testid={`vacancy-translation-tab-${locale}`}
-                    data-has-error={status.hasError || undefined}
-                    className="shrink-0 gap-1.5"
-                    aria-label={`${VACANCY_TRANSLATION_LOCALE_LABELS[locale]} — ${statusLabel}`}
-                  >
-                    <span
-                      aria-hidden="true"
-                      className={cn(
-                        'inline-block size-1.5 shrink-0 rounded-full',
-                        status.hasError
-                          ? 'bg-destructive'
-                          : status.translated
-                            ? 'bg-green-500'
-                            : 'bg-muted-foreground/40',
-                      )}
-                    />
-                    {locale.toUpperCase()}
-                  </TabsTrigger>
-                )
-              }}
-            </form.Subscribe>
-          ))}
+          {VACANCY_TRANSLATION_LOCALES.map((locale) => {
+            const hasSubmitError = Boolean(
+              submitFieldErrors?.[`translations.${locale}.title`] ??
+              submitFieldErrors?.[`translations.${locale}.description`],
+            )
+            return (
+              <form.Subscribe
+                key={locale}
+                selector={(state: {
+                  values: {
+                    translations?: Record<string, { title?: string; description?: string }>
+                  }
+                  fieldMeta?: Partial<Record<string, { errors?: unknown[] }>>
+                }) => {
+                  const translation = state.values.translations?.[locale]
+                  const translated = Boolean(
+                    translation?.title?.trim() && translation?.description?.trim(),
+                  )
+                  const titleErrors =
+                    state.fieldMeta?.[`translations.${locale}.title`]?.errors ?? []
+                  const descriptionErrors =
+                    state.fieldMeta?.[`translations.${locale}.description`]?.errors ?? []
+                  const hasLiveError = titleErrors.length > 0 || descriptionErrors.length > 0
+                  return { translated, hasLiveError }
+                }}
+              >
+                {(status: { translated: boolean; hasLiveError: boolean }) => {
+                  const hasError = status.hasLiveError || hasSubmitError
+                  const statusLabel = hasError
+                    ? 'ошибка'
+                    : status.translated
+                      ? 'переведено'
+                      : 'не переведено'
+                  return (
+                    <TabsTrigger
+                      value={locale}
+                      data-testid={`vacancy-translation-tab-${locale}`}
+                      data-has-error={hasError || undefined}
+                      className="shrink-0 gap-1.5"
+                      aria-label={`${VACANCY_TRANSLATION_LOCALE_LABELS[locale]} — ${statusLabel}`}
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'inline-block size-1.5 shrink-0 rounded-full',
+                          hasError
+                            ? 'bg-destructive'
+                            : status.translated
+                              ? 'bg-green-500'
+                              : 'bg-muted-foreground/40',
+                        )}
+                      />
+                      {locale.toUpperCase()}
+                    </TabsTrigger>
+                  )
+                }}
+              </form.Subscribe>
+            )
+          })}
         </TabsList>
 
-        {VACANCY_TRANSLATION_LOCALES.map((locale: VacancyTranslationLocale) => (
-          <TabsContent key={locale} value={locale} className="space-y-3">
-            <form.Field
-              name={`translations.${locale}.title`}
-              validators={{
-                onBlur: ({ value }: { value: string }) =>
-                  validateNonEmpty(value, vacancyTranslationSchema.shape.title),
-                onSubmit: ({ value }: { value: string }) =>
-                  validateNonEmpty(value, vacancyTranslationSchema.shape.title),
-              }}
-            >
-              {(field: AnyField) => {
-                const err = field.state.meta.errors[0] as string | undefined
-                return (
-                  <div className="space-y-1.5">
-                    <Label className={cn('text-xs', err && 'text-destructive')}>Название</Label>
-                    <Input
-                      value={field.state.value ?? ''}
-                      onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                        field.handleChange(e.target.value)
-                      }
-                      onBlur={field.handleBlur}
-                      placeholder="Senior React Developer"
-                      data-testid={`vacancy-translation-${locale}-title`}
-                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                    />
-                    {err && <p className="text-xs text-destructive">{err}</p>}
-                  </div>
-                )
-              }}
-            </form.Field>
-            <form.Field
-              name={`translations.${locale}.description`}
-              validators={{
-                onBlur: ({ value }: { value: string }) =>
-                  validateNonEmpty(value, vacancyTranslationSchema.shape.description),
-                onSubmit: ({ value }: { value: string }) =>
-                  validateNonEmpty(value, vacancyTranslationSchema.shape.description),
-              }}
-            >
-              {(field: AnyField) => {
-                const err = field.state.meta.errors[0] as string | undefined
-                return (
-                  <div className="space-y-1.5">
-                    <Label className={cn('text-xs', err && 'text-destructive')}>
-                      Описание (Markdown)
-                    </Label>
-                    <Textarea
-                      value={field.state.value ?? ''}
-                      onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-                        field.handleChange(e.target.value)
-                      }
-                      onBlur={field.handleBlur}
-                      rows={6}
-                      data-testid={`vacancy-translation-${locale}-description`}
-                      className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
-                    />
-                    {err && <p className="text-xs text-destructive">{err}</p>}
-                  </div>
-                )
-              }}
-            </form.Field>
-          </TabsContent>
-        ))}
+        {VACANCY_TRANSLATION_LOCALES.map((locale: VacancyTranslationLocale) => {
+          const titlePath = `translations.${locale}.title`
+          const descriptionPath = `translations.${locale}.description`
+          return (
+            <TabsContent key={locale} value={locale} className="space-y-3">
+              <form.Field
+                name={titlePath}
+                validators={{
+                  onBlur: ({ value }: { value: string }) =>
+                    validateNonEmpty(value, vacancyTranslationSchema.shape.title),
+                }}
+              >
+                {(field: AnyField) => {
+                  const err =
+                    (field.state.meta.errors[0] as string | undefined) ??
+                    submitFieldErrors?.[titlePath]
+                  return (
+                    <div className="space-y-1.5">
+                      <Label className={cn('text-xs', err && 'text-destructive')}>Название</Label>
+                      <Input
+                        value={field.state.value ?? ''}
+                        onChange={(e: React.ChangeEvent<HTMLInputElement>) => {
+                          field.handleChange(e.target.value)
+                          onFieldEdited?.(titlePath)
+                        }}
+                        onBlur={field.handleBlur}
+                        placeholder="Senior React Developer"
+                        data-testid={`vacancy-translation-${locale}-title`}
+                        className={cn(
+                          err && 'border-destructive focus-visible:ring-destructive/30',
+                        )}
+                      />
+                      {err && <p className="text-xs text-destructive">{err}</p>}
+                    </div>
+                  )
+                }}
+              </form.Field>
+              <form.Field
+                name={descriptionPath}
+                validators={{
+                  onBlur: ({ value }: { value: string }) =>
+                    validateNonEmpty(value, vacancyTranslationSchema.shape.description),
+                }}
+              >
+                {(field: AnyField) => {
+                  const err =
+                    (field.state.meta.errors[0] as string | undefined) ??
+                    submitFieldErrors?.[descriptionPath]
+                  return (
+                    <div className="space-y-1.5">
+                      <Label className={cn('text-xs', err && 'text-destructive')}>
+                        Описание (Markdown)
+                      </Label>
+                      <Textarea
+                        value={field.state.value ?? ''}
+                        onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => {
+                          field.handleChange(e.target.value)
+                          onFieldEdited?.(descriptionPath)
+                        }}
+                        onBlur={field.handleBlur}
+                        rows={6}
+                        data-testid={`vacancy-translation-${locale}-description`}
+                        className={cn(
+                          err && 'border-destructive focus-visible:ring-destructive/30',
+                        )}
+                      />
+                      {err && <p className="text-xs text-destructive">{err}</p>}
+                    </div>
+                  )
+                }}
+              </form.Field>
+            </TabsContent>
+          )
+        })}
       </Tabs>
     </div>
   )

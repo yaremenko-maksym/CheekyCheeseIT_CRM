@@ -231,17 +231,12 @@ export function buildVacancyDto(value: VacancyDtoFormValues) {
  * currently-hidden tab, so the (already-silent) failure was now also
  * invisible even if the user DID look at the form.
  *
- * This turns a failed `safeParse` into:
+ * Turns a failed `safeParse` into:
  *   - `fields`: a `{ 'translations.uk.title': 'Минимум 3 символа', ... }` map
- *     in the EXACT dot-path shape TanStack Form's `validators.onSubmit`
- *     `{ fields }` return value expects (https://tanstack.com/form — "Setting
- *     field-level errors from the form's validators") — assigning this makes
- *     the error appear under the actual field the moment its tab is active,
- *     with zero extra wiring per field.
+ *     (dot-path keyed, matching nested field names) — consumed by
+ *     `computeVacancySubmitErrors` below.
  *   - `firstTranslationLocale`: which locale (if any) the FIRST issue
- *     belongs to, so the caller can switch the active tab to it — otherwise
- *     the now-correctly-set field error would still be invisible behind a
- *     closed tab.
+ *     belongs to, so the caller can switch the active tab to it.
  */
 export interface VacancyValidationErrors {
   fields: Record<string, string>
@@ -272,6 +267,56 @@ export function collectVacancyValidationErrors(
     }
   }
   return { fields, firstTranslationLocale }
+}
+
+/** Bumping `nonce` while setting `locale` imperatively switches the active translation tab — used on a failed submit to surface an error hiding in an inactive tab (HIGH-2). */
+export interface VacancyTranslationFocusRequest {
+  locale: VacancyTranslationLocale
+  nonce: number
+}
+
+/**
+ * design-review round 1 (PR #422, HIGH-2 follow-up) — TWO earlier approaches
+ * were tried and empirically disproven against a live scratch stack before
+ * landing on this one:
+ *
+ *   1. A bare `{ fields }` return from `validators.onSubmit` — TanStack Form
+ *      gives a field's OWN validator precedence over a form-level one for
+ *      the same field, but a field's own validator only runs while that
+ *      field is MOUNTED, so an inactive-tab field never got validated this
+ *      way at all.
+ *   2. Imperatively calling `formApi.setFieldMeta(path, ...)` from
+ *      `onSubmitInvalid` — this DOES correctly write the error into
+ *      TanStack's central `fieldMetaBase`, and it IS visible if the field
+ *      happens to already be mounted. But `focusRequest`-driven tab
+ *      switching mounts a BRAND NEW `<form.Field>` for that path right
+ *      after, and (verified by reading `@tanstack/form-core`'s `FieldApi`
+ *      source) that field's `mount()` cleanup unconditionally resets
+ *      `errorMap` on ANY unmount, INCLUDING React StrictMode's dev-only
+ *      double-invoke of a fresh mount's effects (mount→cleanup→mount) — the
+ *      cleanup from that phantom unmount wiped the error before the field
+ *      ever settled. (Confirmed this specific approach DOES work in a
+ *      production build, where StrictMode's double-invoke doesn't happen —
+ *      but `pnpm dev`, i.e. what Coder/Owner/User-Testing actually use
+ *      day-to-day, is exactly where StrictMode IS active, so relying on it
+ *      would have silently broken the fix for every local session.)
+ *
+ * This version sidesteps BOTH problems: submit-time errors are kept in the
+ * PARENT form's own plain React state (`submitFieldErrors`, set in
+ * `onSubmitInvalid`), never written into TanStack's `fieldMetaBase` at all —
+ * so they're immune to any field's mount/unmount lifecycle. Each translation
+ * field's rendered `err` falls back to `submitFieldErrors[path]` whenever
+ * TanStack's own (mount-dependent) `field.state.meta.errors` is empty; see
+ * `VacancyTranslationFields.tsx`. The caller is responsible for clearing the
+ * relevant entry out of `submitFieldErrors` once the user edits that field
+ * again (`onFieldEdited` prop) so a stale error doesn't linger forever.
+ */
+export function computeVacancySubmitErrors(
+  value: VacancyDtoFormValues,
+  schema: z.ZodType,
+): VacancyValidationErrors | null {
+  const dto = buildVacancyDto(value)
+  return collectVacancyValidationErrors(dto, schema)
 }
 
 // ---------------------------------------------------------------------------
