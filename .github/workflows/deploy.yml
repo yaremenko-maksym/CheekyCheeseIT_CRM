@@ -370,11 +370,13 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
           # docker-compose.ghcr.yml → /opt/crm/docker-compose.ghcr.yml
+          # apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql
           # apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql
           # apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql
@@ -387,7 +389,25 @@ jobs:
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql
           # apps/api/drizzle/manual/2026-07-22_vacancies.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-22_vacancies.sql
+          # apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql
           # The deploy step reads from those full paths via /opt/crm.
+          #
+          # incident (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422 shipped
+          # 2026-07-25_vacancy_i18n_seo.sql but this source: list was never updated to
+          # include it — the file never reached the VPS, so the "vacancy_i18n module DDL"
+          # apply step below always no-op'd via the "not found" guard... except THAT step
+          # didn't exist either, so prod's `vacancies` table never got the new columns the
+          # already-deployed API code queries, and GET /api/public/vacancies started 500ing.
+          # 2026-06-29_company_account_requisites_markdown.sql was found in the SAME audit
+          # (predates this deploy.yml's DDL-wiring convention entirely — its own header
+          # comment describes a pre-automation "owner applies manually" workflow) and is
+          # wired in now too, defense-in-depth (idempotent `ADD COLUMN IF NOT EXISTS`, so
+          # this is a safe no-op if the owner already applied it by hand). See
+          # scripts/devops/check-prod-ddl-wiring.py for the guard that now fails CI if this
+          # class of gap reappears — every file in apps/api/drizzle/manual/ must either be
+          # referenced somewhere in this workflow or be explicitly allow-listed there with a
+          # reason.
 
       # ── Telemetry DDL — GUARDED, NOT in the fixed source: list above ────
       # task-infra-telemetry-digest (T3, this infra-PR) merges BEFORE
@@ -702,6 +722,60 @@ jobs:
                 < "$TELEMETRY_FILE"
               echo "==> telemetry module DDL applied successfully"
             fi
+
+            # ── Step 2g: vacancy i18n + JobPosting SEO enrichment columns (idempotent) ────────
+            # INCIDENT FIX (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422
+            # (task-vacancy-i18n-jobposting) shipped this file BEFORE this apply step (and the
+            # copy-compose source: entry) existed — the already-deployed API code queries these
+            # columns, so GET /api/public/vacancies started 500ing on prod the moment #422's
+            # image went live. See the copy-compose job's comment above and
+            # scripts/devops/check-prod-ddl-wiring.py (new CI guard preventing a repeat of this
+            # exact gap class: DDL file merged but never wired into this workflow).
+            # Idempotent: `ADD COLUMN IF NOT EXISTS` on all 7 columns — safe to re-run.
+            # Source: apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql
+            VACANCY_I18N_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql"
+
+            if [ ! -f "$VACANCY_I18N_FILE" ]; then
+              echo "ERROR: DDL file not found at $VACANCY_I18N_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying vacancy i18n + JobPosting SEO DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$VACANCY_I18N_FILE"
+            echo "==> vacancy i18n + JobPosting SEO DDL applied successfully"
+
+            # ── Step 2h: company_account.requisites_markdown column (idempotent) ─────────────
+            # Found unwired in the SAME audit that uncovered the Step 2g incident above. This
+            # file predates this workflow's DDL-wiring convention entirely (its own header
+            # comment describes a pre-automation "owner applies manually on prod" workflow, from
+            # before auto-deploy existed — see docs/runbooks/deployment.md). Wiring it in now,
+            # defense-in-depth: `ADD COLUMN IF NOT EXISTS` is a safe no-op if the owner already
+            # applied it by hand at the time, and closes the gap either way if not.
+            # Source: apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql
+            REQUISITES_MARKDOWN_FILE="/opt/crm/apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql"
+
+            if [ ! -f "$REQUISITES_MARKDOWN_FILE" ]; then
+              echo "ERROR: DDL file not found at $REQUISITES_MARKDOWN_FILE — scp-action may have flattened the tree."
+              ls -la /opt/crm/ /opt/crm/apps/api/drizzle/manual/ 2>/dev/null || true
+              exit 1
+            fi
+
+            echo "==> Applying company_account.requisites_markdown DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+            docker compose \
+              -f docker-compose.prod.yml \
+              -f docker-compose.ghcr.yml \
+              --env-file .env.production \
+              exec -T postgres \
+              psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+              < "$REQUISITES_MARKDOWN_FILE"
+            echo "==> company_account.requisites_markdown DDL applied successfully"
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
