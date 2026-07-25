@@ -5,24 +5,20 @@ import type { PublicVacancyDetail } from '@crm/shared'
 import { useDocumentHead } from '@/lib/use-document-head'
 import {
   buildBreadcrumbListJsonLd,
+  buildFAQPageJsonLd,
   buildHreflangAlternates,
   buildJobPostingJsonLd,
   canonicalUrl,
   markdownToPlainText,
   truncateForMetaDescription,
 } from '@/lib/seo'
-import {
-  resolveVacancyDescription,
-  resolveVacancyTitle,
-  vacancyHreflangExcludes,
-  type LocalizableVacancyDetailFields,
-} from '@/lib/vacancy-i18n'
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { BackLink } from '@/components/marketing/back-link'
 import { MarkdownBody, markdownToHtml } from '@/components/marketing/markdown-body'
 import { VacancyApplyForm } from '@/components/marketing/vacancy-apply-form'
+import { VacancyCard } from '@/components/marketing/vacancy-card'
 import { Tag } from '@/components/ui/tag'
 import { cn, focusRing } from '@/lib/utils'
 import {
@@ -43,14 +39,22 @@ import { careersRoutePath } from '@/i18n/routes'
  *
  * `dict` (required — review round 1, HIGH-1b) — see
  * `home-page-content.tsx`'s module doc for the code-splitting rationale.
+ *
+ * `hreflangExcludes` (round-4 "дорезка") — the route loader's OWN resolved
+ * result from `lib/api.ts` `fetchVacancyHreflangExcludes(slug)`, passed down
+ * rather than computed here — see that function's module doc for why it
+ * needs its own multi-request round trip the vacancy DETAIL fetch alone
+ * cannot answer.
  */
 export function VacancyDetailPageContent({
   vacancy,
+  hreflangExcludes,
   slug,
   locale = DEFAULT_LOCALE,
   dict,
 }: {
-  vacancy: (PublicVacancyDetail & LocalizableVacancyDetailFields) | null
+  vacancy: PublicVacancyDetail | null
+  hreflangExcludes: Locale[]
   /** The route's `$slug` param — passed explicitly (not re-derived from
    * `pathname`) since every locale route file owns its own `Route.useParams()`. */
   slug: string
@@ -58,7 +62,14 @@ export function VacancyDetailPageContent({
   dict: Dictionary
 }) {
   if (!vacancy) return <NotFoundState slug={slug} locale={locale} dict={dict} />
-  return <VacancyDetailContent vacancy={vacancy} locale={locale} dict={dict} />
+  return (
+    <VacancyDetailContent
+      vacancy={vacancy}
+      hreflangExcludes={hreflangExcludes}
+      locale={locale}
+      dict={dict}
+    />
+  )
 }
 
 function NotFoundState({ slug, locale, dict }: { slug: string; locale: Locale; dict: Dictionary }) {
@@ -101,17 +112,25 @@ function NotFoundState({ slug, locale, dict }: { slug: string; locale: Locale; d
 
 function VacancyDetailContent({
   vacancy,
+  hreflangExcludes,
   locale,
   dict,
 }: {
-  vacancy: PublicVacancyDetail & LocalizableVacancyDetailFields
+  vacancy: PublicVacancyDetail
+  hreflangExcludes: Locale[]
   locale: Locale
   dict: Dictionary
 }) {
   const t = dict
   const path = `/careers/${vacancy.slug}`
-  const title = resolveVacancyTitle(vacancy, locale)
-  const descriptionMd = resolveVacancyDescription(vacancy, locale)
+  // `vacancy.title`/`descriptionMd` are ALREADY the correct locale's copy —
+  // `PublicVacancyDetail` resolves them SERVER-SIDE per `?locale=`
+  // (`VacanciesService.resolveLocalized`, task-landing-i18n.md round-4); no
+  // client-side re-resolution needed any more (was `resolveVacancyTitle`/
+  // `resolveVacancyDescription` against a locally-mocked `translations`
+  // object, pre-Block-C).
+  const title = vacancy.title
+  const descriptionMd = vacancy.descriptionMd
 
   // Same markdown renderer/plugins as the visible <MarkdownBody> below,
   // rendered to a clean (no wrapper/Tailwind classes) HTML string — feeds
@@ -125,11 +144,6 @@ function VacancyDetailContent({
   // decision 2026-07-24 — was a hand-synthesized sentence; title-bearing
   // search queries rank better against a snippet of the actual posting.
   const metaDescription = truncateForMetaDescription(markdownToPlainText(descriptionMd))
-  // plan §3/A10 — locales with no real translation never advertise this
-  // vacancy's URL as an hreflang alternate (avoids flagging fallback/
-  // duplicate content as a genuine locale variant).
-  const hreflangExcludes = vacancyHreflangExcludes(vacancy)
-  const localizedForJsonLd = { ...vacancy, title }
 
   useDocumentHead({
     // "<Job Title> — <location> | CheekyCheeseIT Careers" (owner decision
@@ -139,10 +153,20 @@ function VacancyDetailContent({
     description: metaDescription,
     canonical: canonicalUrl(localizedPath(locale, path)),
     htmlLang: locale,
+    // plan §3/A10, round-4 — locales with no real translation never
+    // advertise this vacancy's URL as an hreflang alternate (avoids
+    // flagging fallback/duplicate content as a genuine locale variant);
+    // `hreflangExcludes` is the route loader's own resolved result (see
+    // this component's module doc), not computed here.
     alternates: buildHreflangAlternates(path, hreflangExcludes),
+    // task-vacancy-i18n-jobposting C6 — FAQPage JSON-LD, localized to this
+    // page's own locale (round-4 "дорезка"; generic per-locale content, not
+    // vacancy-specific, so it takes no `vacancy` argument — see `lib/seo.ts`
+    // `buildFAQPageJsonLd`).
     jsonLd: [
-      buildJobPostingJsonLd(localizedForJsonLd, descriptionHtml),
-      buildBreadcrumbListJsonLd(localizedForJsonLd),
+      buildJobPostingJsonLd(vacancy, descriptionHtml),
+      buildBreadcrumbListJsonLd(vacancy),
+      buildFAQPageJsonLd(locale),
     ],
   })
 
@@ -218,7 +242,12 @@ function VacancyDetailContent({
           </div>
         </div>
 
-        <div className="mx-auto max-w-[1200px] px-5 pt-12 pb-24 md:px-10 lg:px-14">
+        <div
+          className={cn(
+            'mx-auto max-w-[1200px] px-5 pt-12 md:px-10 lg:px-14',
+            vacancy.relatedVacancies.length > 0 ? 'pb-16 md:pb-20' : 'pb-24',
+          )}
+        >
           <div className="grid grid-cols-1 items-start gap-10 min-[1000px]:grid-cols-[1.35fr_1fr] min-[1000px]:gap-14">
             <MarkdownBody markdown={descriptionMd} />
             <aside>
@@ -233,6 +262,27 @@ function VacancyDetailContent({
             </aside>
           </div>
         </div>
+
+        {/* "Похожие вакансии" (task-vacancy-i18n-jobposting C8, round-4
+            "дорезка") — up to 3 other PUBLISHED roles in the same domain,
+            already resolved + locale-localized server-side
+            (`VacanciesService.findRelated` + `mapPublic`, same `isFallback`/
+            title-resolution contract as the main vacancy). Reuses
+            `VacancyCard` (the SAME component `/careers` and the Home teaser
+            render) rather than a bespoke list — one visual language for
+            "here's a vacancy" everywhere on the site, not two. */}
+        {vacancy.relatedVacancies.length > 0 && (
+          <div className="mx-auto max-w-[1200px] px-5 pt-9 pb-24 md:px-10 lg:px-14">
+            <h2 className="mb-6 text-[clamp(1.5rem,3vw,1.9rem)] leading-[1.1] font-semibold tracking-[-0.02em] text-foreground">
+              {t.vacancy.relatedHeading}
+            </h2>
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+              {vacancy.relatedVacancies.map((related) => (
+                <VacancyCard key={related.slug} vacancy={related} locale={locale} dict={dict} />
+              ))}
+            </div>
+          </div>
+        )}
       </main>
 
       <MarketingFooter locale={locale} dict={dict} path={path} />

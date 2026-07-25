@@ -4,7 +4,6 @@ import { BarChart3, MapPin, ArrowRight } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { Tag } from '@/components/ui/tag'
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
-import { resolveVacancyTitle, type LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import { captureMorphSource } from '@/lib/title-morph'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
@@ -27,9 +26,11 @@ import { careersSlugRoutePath } from '@/i18n/routes'
  * plays when the destination page validates the `/careers ↔ /careers/:slug`
  * route pair (title-morph.ts's consumer side) — no fork needed here.
  *
- * `locale` (task-landing-i18n.md, optional — default `en`) — resolves the
- * DISPLAYED title via `resolveVacancyTitle` (real translation or `en`
- * fallback, plan §3/A10) and links to this locale's `/careers/:slug`.
+ * `locale` (task-landing-i18n.md, optional — default `en`) — links to this
+ * locale's `/careers/:slug`. `vacancy.title` is ALREADY the correct locale's
+ * copy — `PublicVacancy` resolves it server-side per `?locale=`
+ * (`VacanciesService.resolveLocalized`, task-landing-i18n.md round-4), this
+ * component never re-resolves it.
  *
  * `dict` (required — review round 1, HIGH-1b) — caller's already-resolved
  * `Dictionary`, not looked up here (see `nav.tsx` module doc for the
@@ -40,13 +41,13 @@ export function VacancyCard({
   locale = DEFAULT_LOCALE,
   dict,
 }: {
-  vacancy: PublicVacancy & LocalizableVacancyFields
+  vacancy: PublicVacancy
   locale?: Locale
   dict: Dictionary
 }) {
   const titleRef = useRef<HTMLHeadingElement>(null)
   const t = dict
-  const title = resolveVacancyTitle(vacancy, locale)
+  const title = vacancy.title
   return (
     <Link
       to={careersSlugRoutePath(locale)}

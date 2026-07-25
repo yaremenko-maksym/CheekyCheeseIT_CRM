@@ -3,7 +3,6 @@ import type { PublicVacancy } from '@crm/shared'
 import { VacancyCard } from '@/components/marketing/vacancy-card'
 import { Button } from '@/components/ui/button'
 import { CONTACT_EMAIL, HOME_CAREERS_TEASER_LIMIT } from '@/content/home'
-import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
 
@@ -18,7 +17,7 @@ export function CareersTeaser({
   locale = DEFAULT_LOCALE,
   dict,
 }: {
-  vacancies: (PublicVacancy & LocalizableVacancyFields)[]
+  vacancies: PublicVacancy[]
   locale?: Locale
   dict: Dictionary
 }) {

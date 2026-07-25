@@ -10,7 +10,6 @@ import {
   buildWebSiteJsonLd,
   canonicalUrl,
 } from '@/lib/seo'
-import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { Terminal } from '@/components/marketing/terminal'
@@ -57,7 +56,7 @@ export function HomePageContent({
   locale = DEFAULT_LOCALE,
   dict,
 }: {
-  vacancies: (PublicVacancy & LocalizableVacancyFields)[]
+  vacancies: PublicVacancy[]
   locale?: Locale
   dict: Dictionary
 }) {

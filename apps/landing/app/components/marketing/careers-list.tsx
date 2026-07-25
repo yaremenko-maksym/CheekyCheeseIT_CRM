@@ -5,7 +5,6 @@ import type { PublicVacancy } from '@crm/shared'
 import { VacancyCard } from '@/components/marketing/vacancy-card'
 import { Button } from '@/components/ui/button'
 import { CONTACT_EMAIL } from '@/content/home'
-import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import {
   findMorphTargetElement,
   playTitleMorphOverlay,
@@ -52,7 +51,7 @@ export function CareersList({
   locale = DEFAULT_LOCALE,
   dict,
 }: {
-  vacancies: (PublicVacancy & LocalizableVacancyFields)[]
+  vacancies: PublicVacancy[]
   locale?: Locale
   dict: Dictionary
 }) {

@@ -1,7 +1,6 @@
 import type { PublicVacancy } from '@crm/shared'
 import { useDocumentHead } from '@/lib/use-document-head'
 import { buildHreflangAlternates, buildItemListJsonLd, canonicalUrl } from '@/lib/seo'
-import type { LocalizableVacancyFields } from '@/lib/vacancy-i18n'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { SectionEyebrow } from '@/components/marketing/section-eyebrow'
@@ -25,7 +24,7 @@ export function CareersPageContent({
   locale = DEFAULT_LOCALE,
   dict,
 }: {
-  vacancies: (PublicVacancy & LocalizableVacancyFields)[]
+  vacancies: PublicVacancy[]
   locale?: Locale
   dict: Dictionary
 }) {
