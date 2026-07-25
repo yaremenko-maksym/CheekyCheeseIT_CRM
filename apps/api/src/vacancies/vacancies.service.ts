@@ -30,12 +30,14 @@
 import {
   ConflictException,
   ForbiddenException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
-import { desc, eq, sql } from 'drizzle-orm'
+import { and, desc, eq, ne, sql } from 'drizzle-orm'
 import type {
   CreateVacancy,
   PublicVacancy,
@@ -43,6 +45,7 @@ import type {
   SessionUser,
   UpdateVacancy,
   Vacancy,
+  VacancyLocale,
   VacancyStatus,
 } from '@crm/shared'
 import type { Env } from '../config/env'
@@ -82,32 +85,60 @@ export class VacanciesService {
   // Public (landing) — no auth
   // ---------------------------------------------------------------------------
 
-  /** Only PUBLISHED vacancies, most recently published first. */
-  async listPublic(): Promise<PublicVacancy[]> {
+  /** Only PUBLISHED vacancies, most recently published first. `locale` defaults to `en` (site default, plan §1). */
+  async listPublic(locale: VacancyLocale = 'en'): Promise<PublicVacancy[]> {
     const rows = await this.db.db
       .select()
       .from(vacancies)
       .where(eq(vacancies.status, 'PUBLISHED'))
       .orderBy(desc(vacancies.publishedAt))
-    return rows.map((r) => this.mapPublic(r))
+    return rows.map((r) => this.mapPublic(r, locale))
   }
 
   /**
-   * 404 for DRAFT / CLOSED / non-existent — the public endpoint must not
-   * reveal whether a slug ever existed once it's no longer publicly visible.
+   * 404 for DRAFT / non-existent (never reveal whether a slug ever existed
+   * once it's no longer publicly visible) — 410 Gone for CLOSED (task
+   * C5/task-careers-seo-v2 §3: a formerly-live posting is genuinely GONE,
+   * a stronger de-index signal to Google than a plain 404, and distinct from
+   * "never existed"). `locale` defaults to `en`.
    */
-  async getPublicBySlug(slug: string): Promise<PublicVacancyDetail> {
+  async getPublicBySlug(slug: string, locale: VacancyLocale = 'en'): Promise<PublicVacancyDetail> {
     const row = await this.getPublishedRowBySlug(slug)
-    return this.mapPublicDetail(row)
+    const related = await this.findRelated(row)
+    return this.mapPublicDetail(row, related, locale)
   }
 
-  /** Shared with ApplicationsService.apply() — same 404 semantics as above. */
+  /**
+   * Shared with ApplicationsService.apply() — same 404 (DRAFT/missing) / 410
+   * (CLOSED) semantics as `getPublicBySlug` above; applying to a closed
+   * posting is exactly as "gone" as viewing its detail page.
+   */
   async getPublishedRowBySlug(slug: string): Promise<VacancyRow> {
     const row = await this.db.db.query.vacancies.findFirst({ where: eq(vacancies.slug, slug) })
-    if (!row || row.status !== 'PUBLISHED') {
+    if (!row) throw new NotFoundException('Вакансия не найдена')
+    if (row.status === 'CLOSED') {
+      throw new HttpException('Вакансия закрыта', HttpStatus.GONE)
+    }
+    if (row.status !== 'PUBLISHED') {
       throw new NotFoundException('Вакансия не найдена')
     }
     return row
+  }
+
+  /**
+   * Up to 3 other PUBLISHED vacancies in the same domain, most recently
+   * published first (task C8 — "Похожие вакансии" internal-linking block).
+   */
+  private async findRelated(row: VacancyRow): Promise<VacancyRow[]> {
+    return this.db.db.query.vacancies.findMany({
+      where: and(
+        eq(vacancies.status, 'PUBLISHED'),
+        eq(vacancies.domain, row.domain),
+        ne(vacancies.id, row.id),
+      ),
+      orderBy: desc(vacancies.publishedAt),
+      limit: 3,
+    })
   }
 
   // ---------------------------------------------------------------------------
@@ -136,6 +167,13 @@ export class VacanciesService {
         employmentType: dto.employmentType,
         location: dto.location,
         createdBy: actor.id,
+        translations: dto.translations ?? null,
+        skills: dto.skills ?? null,
+        experienceMonths: dto.experienceMonths ?? null,
+        qualifications: dto.qualifications ?? null,
+        responsibilities: dto.responsibilities ?? null,
+        jobBenefits: dto.jobBenefits ?? null,
+        workHours: dto.workHours ?? null,
       })
       .returning()
 
@@ -159,6 +197,13 @@ export class VacanciesService {
     if (dto.seniority !== undefined) updates.seniority = dto.seniority
     if (dto.employmentType !== undefined) updates.employmentType = dto.employmentType
     if (dto.location !== undefined) updates.location = dto.location
+    if (dto.translations !== undefined) updates.translations = dto.translations
+    if (dto.skills !== undefined) updates.skills = dto.skills
+    if (dto.experienceMonths !== undefined) updates.experienceMonths = dto.experienceMonths
+    if (dto.qualifications !== undefined) updates.qualifications = dto.qualifications
+    if (dto.responsibilities !== undefined) updates.responsibilities = dto.responsibilities
+    if (dto.jobBenefits !== undefined) updates.jobBenefits = dto.jobBenefits
+    if (dto.workHours !== undefined) updates.workHours = dto.workHours
 
     if (dto.status !== undefined && dto.status !== row.status) {
       const allowed = VALID_TRANSITIONS[row.status] ?? []
@@ -303,23 +348,59 @@ export class VacanciesService {
     return new Map(rows.map((r) => [r.vacancyId, r.count]))
   }
 
-  private mapPublic(row: VacancyRow): PublicVacancy {
+  /**
+   * Resolves `title`/`descriptionMd` for a requested locale (task
+   * C1/C2 — plan §3 contract). `en` is always the row's own columns — never
+   * stored in `translations` (data-driven over
+   * `VACANCY_TRANSLATION_LOCALES`, so `locale` narrows to a valid
+   * `row.translations` key once `en` is ruled out). Missing translation ->
+   * original copy + `isFallback: true`.
+   */
+  private resolveLocalized(
+    row: VacancyRow,
+    locale: VacancyLocale,
+  ): { title: string; descriptionMd: string; isFallback: boolean } {
+    if (locale === 'en') {
+      return { title: row.title, descriptionMd: row.descriptionMd, isFallback: false }
+    }
+    const translation = row.translations?.[locale]
+    if (!translation) {
+      return { title: row.title, descriptionMd: row.descriptionMd, isFallback: true }
+    }
+    return { title: translation.title, descriptionMd: translation.description, isFallback: false }
+  }
+
+  private mapPublic(row: VacancyRow, locale: VacancyLocale): PublicVacancy {
+    const localized = this.resolveLocalized(row, locale)
     return {
       slug: row.slug,
-      title: row.title,
+      title: localized.title,
       domain: row.domain,
       seniority: row.seniority,
       employmentType: row.employmentType,
       location: row.location,
       // Only ever called for PUBLISHED rows — publishedAt is guaranteed set.
       publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
+      isFallback: localized.isFallback,
     }
   }
 
-  private mapPublicDetail(row: VacancyRow): PublicVacancyDetail {
+  private mapPublicDetail(
+    row: VacancyRow,
+    related: VacancyRow[],
+    locale: VacancyLocale,
+  ): PublicVacancyDetail {
+    const localized = this.resolveLocalized(row, locale)
     return {
-      ...this.mapPublic(row),
-      descriptionMd: row.descriptionMd,
+      ...this.mapPublic(row, locale),
+      descriptionMd: localized.descriptionMd,
+      skills: row.skills ?? null,
+      experienceMonths: row.experienceMonths ?? null,
+      qualifications: row.qualifications ?? null,
+      responsibilities: row.responsibilities ?? null,
+      jobBenefits: row.jobBenefits ?? null,
+      workHours: row.workHours ?? null,
+      relatedVacancies: related.map((r) => this.mapPublic(r, locale)),
     }
   }
 
@@ -339,6 +420,13 @@ export class VacanciesService {
       applicationsCount,
       createdAt: row.createdAt.toISOString(),
       updatedAt: row.updatedAt.toISOString(),
+      translations: row.translations ?? null,
+      skills: row.skills ?? null,
+      experienceMonths: row.experienceMonths ?? null,
+      qualifications: row.qualifications ?? null,
+      responsibilities: row.responsibilities ?? null,
+      jobBenefits: row.jobBenefits ?? null,
+      workHours: row.workHours ?? null,
     }
   }
 }

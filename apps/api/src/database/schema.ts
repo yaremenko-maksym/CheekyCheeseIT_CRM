@@ -17,6 +17,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
+import type { VacancyTranslations } from '@crm/shared'
 
 // PostgreSQL `inet` column type — stores IPv4 / IPv6 addresses with native
 // validation + index support. Drizzle has no first-class `inet` builder, so
@@ -1285,6 +1286,22 @@ export const vacancies = pgTable(
     createdBy: uuid('created_by')
       .notNull()
       .references(() => users.id),
+    // task-vacancy-i18n-jobposting — nullable; shape imported from
+    // packages/shared (VacancyTranslations, the SSOT) instead of duplicated
+    // here — owner scope-change 2026-07-25 made the locale set data-driven
+    // (VACANCY_TRANSLATION_LOCALES), so this column's type follows it
+    // automatically instead of needing a matching edit on every language add.
+    // `en` is the row's own title/descriptionMd above; every other locale is
+    // an optional, independently-present override.
+    translations: jsonb('translations').$type<VacancyTranslations>(),
+    // JobPosting (Google for Jobs) enrichment — all optional/admin-entered,
+    // never invented (see packages/shared vacancySeoFieldsSchema doc).
+    skills: text('skills').array(),
+    experienceMonths: integer('experience_months'),
+    qualifications: text('qualifications'),
+    responsibilities: text('responsibilities'),
+    jobBenefits: text('job_benefits'),
+    workHours: text('work_hours'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },
