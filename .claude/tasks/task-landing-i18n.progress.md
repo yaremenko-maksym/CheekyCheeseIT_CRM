@@ -7,6 +7,83 @@
 **Round 3 — Lighthouse mobile perf (Verdict: BLOCK, `performance` 0.89<0.90 median в CI) —
 закрыт для `/`+`/careers/` (CI-гейт), честный потолок 0.91 задокументирован для `/ru/`+`/es/`**,
 см. секцию в конце.
+**Round 4 "дорезка" (real vacancy contract + FAQ + related vacancies + hreflang для
+непереведённых) — Lighthouse mobile снова BLOCK (0.89<0.90) + build:prerender build-breaking
+баг — оба закрыты**, см. секцию в самом конце.
+
+## Round 4 — Lighthouse regression fix + build:prerender bug + hreflang(isFallback) verification
+
+**Диагноз просадки Lighthouse (0.93→0.89):** `apps/landing/app/lib/api.ts` переключили с
+локального мока на реальный `@crm/shared` (`publicVacancySchema`/`publicVacancyDetailSchema`,
+PR #422). `@crm/shared`'s `.` export — барrel ВСЕХ 28 доменов (`auth`/`finance`/
+`payment-requisites`/`contracts`/`telemetry`/...). Zod builder-вызовы (`z.object()`/`z.enum()`)
+не аннотированы `/*#__PURE__*/`, поэтому Rollup не может доказать их side-effect-free и не
+tree-shake'ит НЕИСПОЛЬЗУЕМЫЕ схемы, реально impортированные через барrel — весь 28-доменный
+Zod-дерево утекало в главный shared-чанк лендинга (подтверждено grep'ом собранного чанка на
+`walletAddress`/`dropShare`/`monthlySalary`/`IBAN`). Чанк грузится НА КАЖДОЙ странице (home
+включительно) → лишний parse/exec → TBT 180-560мс (было ~0мс) → нестабильный perf score.
+
+**Фикс:** `packages/shared/src/public.ts` — узкий подпуть (`package.json` `"./public"` export),
+реэкспортирует ТОЛЬКО 2 нужные схемы напрямую из `./schemas/vacancies` (минуя барrel целиком —
+граф модулей вообще не касается остальных 27 доменов). `apps/landing/vite.config.ts` — alias для
+`@crm/shared/public` (ПЕРЕД общим `@crm/shared` — иначе general-алиас перехватывает по
+startsWith-границе). `api.ts` — рантайм-импорт схем теперь из `@crm/shared/public`; `import type`
+usages в остальных файлах не трогал (типы стираются на компиляции, путь резолва не важен).
+
+Измерено: главный чанк 194.81кБ/56.59кБ gzip → 144.72кБ/45.02кБ gzip (finance/wallet-строк
+больше нет). Локальный `@lhci/cli@0.15.1` прогон (5 ранов, median, тот же конфиг что CI):
+TBT на `/` — было 180-560мс (сильный разброс) → стабильно 0мс на всех 5 ранах; perf score
+5×0.93 (median 0.93) на `/` И `/careers/`, против CI-падения 0.72/0.8/0.9/0.89/0.9 (median 0.89).
+
+**Отдельный найденный build-breaking баг** (НЕ perf, отдельная находка): `assertJsonLd`'s
+`'job-posting-breadcrumb'` ветка в `scripts/prerender.mjs` всё ещё ждала РОВНО 2 JSON-LD записи
+([JobPosting, BreadcrumbList]) — но `VacancyDetailContent`'s `jsonLd` массив теперь 3 записи
+([JobPosting, BreadcrumbList, FAQPage], FAQ добавлен в этом же round-4). CI никогда не ловил это,
+т.к. Lighthouse job всегда собирает `build:prerender` против прод API с 0 PUBLISHED вакансий —
+ветка вообще не исполнялась. Найдено локальным сидом scratch БД с 2 реальными PUBLISHED
+вакансиями и прогоном `build:prerender` end-to-end впервые с добавления FAQ. Фикс: length-check
+→ 3, + валидация самой FAQPage-записи (≥3 вопроса, well-formed Question/acceptedAnswer).
+`prerender-seo.spec.ts` фикстуры обновлены (+3 новых теста на FAQPage failure-режимы).
+
+**hreflang(isFallback) — подтверждено на реальных данных.** Засеял scratch Postgres+Redis+API
+(порты 5433/6380/3321, вне живого стека владельца) двумя PUBLISHED вакансиями:
+`senior-ml-engineer` (переведена ТОЛЬКО на `ru`) и `lead-ecommerce-dev` (не переведена НИГДЕ).
+`build:prerender` против этого стенда — 20 маршрутов (10 × 5 локалей), 0 ошибок page-identity
+гейтов. Прямая проверка сгенерированных файлов:
+
+- `senior-ml-engineer` (EN-страница): hreflang = {en, ru, x-default} — uk/es/pt корректно
+  исключены (частичный перевод, не all-or-nothing).
+- `lead-ecommerce-dev` (EN-страница): hreflang = {en, x-default} — ВСЕ 4 не-en локали исключены.
+- То же самое подтверждено в `sitemap.xml` (`xhtml:link`) на всех 5 локальных `<url>`-блоков
+  каждой вакансии.
+- Страница непереведённой вакансии на `/ru/careers/lead-ecommerce-dev/` всё равно отдаёт 200 с
+  EN-оригиналом (plan §3 "непереведённая — оригинал БЕЗ hreflang на неё") — исключена из
+  hreflang-кластера, НЕ из самого роута.
+
+Новый E2E-блок `apps/e2e/tests/landing/i18n.spec.ts` — `plan §3/A10 — hreflang omits locales with
+no real translation (isFallback)`, 4 теста, покрывает все 4 пункта выше на живом стенде.
+
+**Финальная верификация (полный прогон):**
+
+- `pnpm typecheck` (turbo, все 5 пакетов) — зелёный.
+- `pnpm lint` (turbo) — 0 errors (9 pre-existing warnings в чужих `apps/api` файлах, не трогал).
+- `pnpm --filter @crm/shared test` — 403/403.
+- `pnpm --filter @crm/landing test` — 211/211.
+- `DATABASE_URL= pnpm --filter @crm/api test` — 99 файлов / 1830 тестов (integration graceful-skip).
+- `pnpm --filter @crm/web test` — 98 файлов / 932 теста.
+- Полный `landing` Playwright-проект (i18n + motion-v3 + responsive, засеянные переведённая +
+  непереведённая вакансии) — **75/76**. Единственный фейл — тот же `back navigation focus`
+  (2000мс poll) pre-existing flake, задокументированный в round 3 (не регрессия, файл не в моём
+  diff'е); изолированный повтор ×3 с `--workers=1` — **3/3 зелёные** (resource-contention под
+  параллельной нагрузкой, не код).
+- A3 «без моргания» — зелёный на всех 5 локалях (часть 36/36 в `i18n.spec.ts`).
+- `build:prerender` — зелёный с нуля дважды: против scratch-стенда (2 вакансии, page-identity
+  гейты) И против реального прод API (0 вакансий, ровно как CI) — оба раза все ассерты прошли.
+- Финальный Lighthouse-прогон против CI-эквивалентной сборки (прод API, 0 вакансий) — 5×0.93 на
+  `/`.
+- Vision-check (playwright screenshots): `/`, `/ru/`, `/es/`, `/careers/`, `/ru/careers/`,
+  `/ru/careers/senior-ml-engineer/` — все корректны, 0 console errors, переведённый/
+  непереведённый контент отображается как задумано.
 
 ## Ключевые артефакты
 
