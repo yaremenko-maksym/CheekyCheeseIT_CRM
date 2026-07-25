@@ -1014,6 +1014,7 @@ describe('Vacancies — real backend integration', () => {
           employmentType: 'FULL_TIME',
           translations: {
             uk: { title: 'UK Заголовок', description: 'UK опис вакансії тут повністю.' },
+            es: { title: 'ES Título', description: 'ES descripción completa de la vacante aquí.' },
           },
         },
       })
@@ -1033,7 +1034,13 @@ describe('Vacancies — real backend integration', () => {
       expect(noLocaleBody.title).toBe('EN Title')
       expect(noLocaleBody.isFallback).toBe(false)
 
-      // Translated locale (uk) → translated copy, isFallback=false.
+      // Explicit ?locale=en → same as default, isFallback=false (task-vacancy-i18n-jobposting
+      // owner scope-change 2026-07-25: all 5 locales exercised here, not just uk/ru).
+      const en = await app.inject({ method: 'GET', url: `/api/public/vacancies/${slug}?locale=en` })
+      expect((en.json() as { title: string; isFallback: boolean }).title).toBe('EN Title')
+      expect((en.json() as { isFallback: boolean }).isFallback).toBe(false)
+
+      // Translated locales (uk, es) → translated copy, isFallback=false.
       const uk = await app.inject({
         method: 'GET',
         url: `/api/public/vacancies/${slug}?locale=uk`,
@@ -1043,7 +1050,16 @@ describe('Vacancies — real backend integration', () => {
       expect(ukBody.descriptionMd).toBe('UK опис вакансії тут повністю.')
       expect(ukBody.isFallback).toBe(false)
 
-      // Untranslated locale (ru) → falls back to EN copy, isFallback=true.
+      const es = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}?locale=es`,
+      })
+      const esBody = es.json() as { title: string; descriptionMd: string; isFallback: boolean }
+      expect(esBody.title).toBe('ES Título')
+      expect(esBody.descriptionMd).toBe('ES descripción completa de la vacante aquí.')
+      expect(esBody.isFallback).toBe(false)
+
+      // Untranslated locales (ru, pt) → fall back to EN copy, isFallback=true.
       const ru = await app.inject({
         method: 'GET',
         url: `/api/public/vacancies/${slug}?locale=ru`,
@@ -1051,6 +1067,14 @@ describe('Vacancies — real backend integration', () => {
       const ruBody = ru.json() as { title: string; isFallback: boolean }
       expect(ruBody.title).toBe('EN Title')
       expect(ruBody.isFallback).toBe(true)
+
+      const pt = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}?locale=pt`,
+      })
+      const ptBody = pt.json() as { title: string; isFallback: boolean }
+      expect(ptBody.title).toBe('EN Title')
+      expect(ptBody.isFallback).toBe(true)
 
       // Garbage locale value → silently falls back to en (public unauth GET, never 400s).
       const garbage = await app.inject({
