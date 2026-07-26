@@ -2,7 +2,7 @@ import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { asc, inArray, lt, sql } from 'drizzle-orm'
 import { DatabaseService } from '../database/database.service'
-import { telemetryErrors, telemetryEvents } from '../database/schema'
+import { cspReports, telemetryErrors, telemetryEvents } from '../database/schema'
 
 /**
  * TelemetryRetentionCronService — task-telemetry-api contract
@@ -26,10 +26,18 @@ import { telemetryErrors, telemetryEvents } from '../database/schema'
  * exact formula `deleteEventsOlderThan`/`deleteErrorsOlderThan` feed into
  * their `lt()` predicate, so a pure unit test of `cutoffDate()` pins the
  * real boundary without needing a live Postgres.
+ *
+ * task-csp-reports-and-flip §Часть A item 5 ("Ретеншн: 90 дней, через
+ * существующий retention-крон"): a fourth cleanup rule reuses this SAME
+ * cron/class rather than a new one — `csp_reports` rows with `last_seen`
+ * older than `CSP_REPORTS_RETENTION_DAYS` are deleted, same
+ * cutoffDate()/`lt()` idiom as the other two age-based rules above.
  */
 
 export const EVENTS_RETENTION_DAYS = 90
 export const ERRORS_RETENTION_DAYS = 180
+/** task-csp-reports-and-flip §Часть A item 5: "Ретеншн: 90 дней" — same window as telemetry_events. */
+export const CSP_REPORTS_RETENTION_DAYS = 90
 /** Contract: "если telemetry_events превысила 1 млн строк → удалять старейшие сверх капа". */
 export const EVENTS_ROW_CAP = 1_000_000
 
@@ -45,6 +53,7 @@ export interface PurgeResult {
   eventsDeletedByCap: number
   eventsDeleted: number
   errorsDeleted: number
+  cspReportsDeleted: number
 }
 
 @Injectable()
@@ -63,7 +72,7 @@ export class TelemetryRetentionCronService {
     try {
       const result = await this.purgeExpired()
       this.logger.log(
-        `Telemetry retention: events deleted=${result.eventsDeleted} (age=${result.eventsDeletedByAge}, cap=${result.eventsDeletedByCap}), errors deleted=${result.errorsDeleted}`,
+        `Telemetry retention: events deleted=${result.eventsDeleted} (age=${result.eventsDeletedByAge}, cap=${result.eventsDeletedByCap}), errors deleted=${result.errorsDeleted}, csp reports deleted=${result.cspReportsDeleted}`,
       )
     } catch (err: unknown) {
       this.logger.error(
@@ -81,6 +90,9 @@ export class TelemetryRetentionCronService {
       cutoffDate(now, EVENTS_RETENTION_DAYS),
     )
     const errorsDeleted = await this.deleteErrorsOlderThan(cutoffDate(now, ERRORS_RETENTION_DAYS))
+    const cspReportsDeleted = await this.deleteCspReportsOlderThan(
+      cutoffDate(now, CSP_REPORTS_RETENTION_DAYS),
+    )
     const eventsDeletedByCap = await this.enforceEventsCap()
 
     return {
@@ -88,6 +100,7 @@ export class TelemetryRetentionCronService {
       eventsDeletedByCap,
       eventsDeleted: eventsDeletedByAge + eventsDeletedByCap,
       errorsDeleted,
+      cspReportsDeleted,
     }
   }
 
@@ -104,6 +117,15 @@ export class TelemetryRetentionCronService {
       .delete(telemetryErrors)
       .where(lt(telemetryErrors.lastSeen, cutoff))
       .returning({ id: telemetryErrors.id })
+    return deleted.length
+  }
+
+  /** task-csp-reports-and-flip §Часть A item 5 — same `last_seen`-based cutoff idiom as `deleteErrorsOlderThan`. */
+  async deleteCspReportsOlderThan(cutoff: Date): Promise<number> {
+    const deleted = await this.db.db
+      .delete(cspReports)
+      .where(lt(cspReports.lastSeen, cutoff))
+      .returning({ id: cspReports.id })
     return deleted.length
   }
 

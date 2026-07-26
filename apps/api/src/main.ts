@@ -7,6 +7,7 @@ import multipart from '@fastify/multipart'
 import { AppModule } from './app.module'
 import { ZodExceptionFilter } from './zod-exception.filter'
 import { parseCorsOrigins } from './config/cors'
+import { registerCspReportContentTypeParser } from './csp-reports/csp-report-content-type-parser'
 import { TelemetryExceptionFilter } from './telemetry/telemetry-exception.filter'
 
 async function bootstrap() {
@@ -68,6 +69,12 @@ async function bootstrap() {
       files: 1,
     },
   })
+
+  // task-csp-reports-and-flip: browser CSP violation reports arrive as
+  // application/csp-report or application/reports+json — Fastify has no
+  // built-in parser for either (see that file's own doc comment for the
+  // 32 KB per-route body limit rationale).
+  registerCspReportContentTypeParser(app)
 
   // Build CORS origin allowlist from env:
   //  - CORS_ORIGINS set → use as exact multi-origin allowlist (no dev-tunnel regexes)

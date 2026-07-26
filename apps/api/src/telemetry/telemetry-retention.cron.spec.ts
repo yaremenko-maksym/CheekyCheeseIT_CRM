@@ -2,6 +2,7 @@ import { Logger } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../database/database.service'
 import {
+  CSP_REPORTS_RETENTION_DAYS,
   cutoffDate,
   ERRORS_RETENTION_DAYS,
   EVENTS_RETENTION_DAYS,
@@ -50,6 +51,24 @@ describe('cutoffDate — errors retention boundary (180 days)', () => {
   it('a 181-day-old row IS older than cutoff (deleted)', () => {
     const ts = new Date(NOW.getTime() - 181 * DAY_MS)
     expect(ts.getTime() < cutoffDate(NOW, ERRORS_RETENTION_DAYS).getTime()).toBe(true)
+  })
+})
+
+// task-csp-reports-and-flip §Часть A item 5 — same 90-day window as telemetry_events.
+describe('cutoffDate — csp_reports retention boundary (90 days)', () => {
+  it('an 89-day-old row is NOT older than cutoff (kept)', () => {
+    const ts = new Date(NOW.getTime() - 89 * DAY_MS)
+    expect(ts.getTime() < cutoffDate(NOW, CSP_REPORTS_RETENTION_DAYS).getTime()).toBe(false)
+  })
+
+  it('an EXACTLY-90-day-old row is NOT older than cutoff (kept — inclusive boundary)', () => {
+    const ts = new Date(NOW.getTime() - 90 * DAY_MS)
+    expect(ts.getTime() < cutoffDate(NOW, CSP_REPORTS_RETENTION_DAYS).getTime()).toBe(false)
+  })
+
+  it('a 91-day-old row IS older than cutoff (deleted)', () => {
+    const ts = new Date(NOW.getTime() - 91 * DAY_MS)
+    expect(ts.getTime() < cutoffDate(NOW, CSP_REPORTS_RETENTION_DAYS).getTime()).toBe(true)
   })
 })
 
@@ -122,11 +141,12 @@ describe('TelemetryRetentionCronService.enforceEventsCap', () => {
 // ---------------------------------------------------------------------------
 
 describe('TelemetryRetentionCronService.purgeExpired — orchestration', () => {
-  it('sums eventsDeletedByAge + eventsDeletedByCap into eventsDeleted', async () => {
+  it('sums eventsDeletedByAge + eventsDeletedByCap into eventsDeleted, and includes cspReportsDeleted', async () => {
     const db = {} as unknown as DatabaseService
     const svc = new TelemetryRetentionCronService(db)
     vi.spyOn(svc, 'deleteEventsOlderThan').mockResolvedValue(5)
     vi.spyOn(svc, 'deleteErrorsOlderThan').mockResolvedValue(2)
+    vi.spyOn(svc, 'deleteCspReportsOlderThan').mockResolvedValue(4)
     vi.spyOn(svc, 'enforceEventsCap').mockResolvedValue(3)
 
     const result = await svc.purgeExpired(NOW)
@@ -136,6 +156,7 @@ describe('TelemetryRetentionCronService.purgeExpired — orchestration', () => {
       eventsDeletedByCap: 3,
       eventsDeleted: 8,
       errorsDeleted: 2,
+      cspReportsDeleted: 4,
     })
   })
 })
@@ -161,6 +182,7 @@ describe('TelemetryRetentionCronService.handleRetention (the @Cron entrypoint)',
       eventsDeletedByCap: 0,
       eventsDeleted: 0,
       errorsDeleted: 0,
+      cspReportsDeleted: 0,
     })
 
     await expect(svc.handleRetention()).resolves.toBeUndefined()

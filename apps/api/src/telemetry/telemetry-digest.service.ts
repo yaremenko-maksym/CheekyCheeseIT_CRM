@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import type {
+  CspViolationItem,
   TelemetryErrorItem,
   TelemetryFeatureClick,
   TelemetryFormAbandonRate,
@@ -9,7 +10,7 @@ import type {
   TelemetryUxAggregates,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { telemetryErrors, telemetryEvents } from '../database/schema'
+import { cspReports, telemetryErrors, telemetryEvents } from '../database/schema'
 
 /** Contract: "ux? {... — за 7 дней}" — fixed 7-day rolling window, independent of `since`. */
 export const UX_WINDOW_DAYS = 7
@@ -18,6 +19,7 @@ export const TOP_ROUTES_LIMIT = 20
 export const FEATURE_CLICKS_LIMIT = 20
 
 type TelemetryErrorRow = typeof telemetryErrors.$inferSelect
+type CspReportRow = typeof cspReports.$inferSelect
 
 export interface GetDigestParams {
   since: Date
@@ -38,6 +40,14 @@ export interface GetDigestParams {
  *
  * UX aggregates (only computed when `includeUx` — the `ux=1` query flag):
  * ALWAYS a fixed trailing 7-day window, independent of `since`.
+ *
+ * cspViolations (task-csp-reports-and-flip §4 "Видимость"): every
+ * `csp_reports` row with `last_seen >= since` — ALWAYS included (not gated
+ * behind `ux=1`), same as `errors`. Unlike `telemetry_errors` there is no
+ * NOTIFIED/status tracking on this table — the aggregate itself IS the
+ * summary, and the caller's advancing `since` (the GH Action workflow
+ * already calls this hourly/weekly with a fresh `since`) naturally avoids
+ * re-reporting an unchanged row.
  */
 @Injectable()
 export class TelemetryDigestService {
@@ -47,14 +57,18 @@ export class TelemetryDigestService {
 
   async getDigest(params: GetDigestParams): Promise<{
     errors: TelemetryErrorItem[]
+    cspViolations: CspViolationItem[]
     ux?: TelemetryUxAggregates
   }> {
-    const errors = await this.fetchAndNotifyNewErrors(params.since)
+    const [errors, cspViolations] = await Promise.all([
+      this.fetchAndNotifyNewErrors(params.since),
+      this.getCspViolations(params.since),
+    ])
     if (!params.includeUx) {
-      return { errors }
+      return { errors, cspViolations }
     }
     const ux = await this.getUxAggregates()
-    return { errors, ux }
+    return { errors, cspViolations, ux }
   }
 
   /**
@@ -100,6 +114,36 @@ export class TelemetryDigestService {
       // 'NEW' is what the digest consumer actually cares about (it IS new).
       status: 'NEW',
       githubIssueNumber: row.githubIssueNumber,
+    }
+  }
+
+  /**
+   * Selects every `csp_reports` row with `last_seen >= since`, ordered by
+   * `count` descending (a digest is a summary — surface the worst offenders
+   * first). See the class doc comment above for why there is no
+   * NOTIFIED-style status transition here (unlike `fetchAndNotifyNewErrors`).
+   */
+  async getCspViolations(since: Date): Promise<CspViolationItem[]> {
+    const rows = await this.db.db
+      .select()
+      .from(cspReports)
+      .where(gte(cspReports.lastSeen, since))
+      .orderBy(desc(cspReports.count))
+
+    return rows.map((row) => this.mapCspViolationRow(row))
+  }
+
+  private mapCspViolationRow(row: CspReportRow): CspViolationItem {
+    return {
+      id: row.id,
+      effectiveDirective: row.effectiveDirective,
+      blockedUri: row.blockedUri,
+      documentPath: row.documentPath,
+      disposition: row.disposition,
+      userAgent: row.userAgent,
+      count: row.count,
+      firstSeen: row.firstSeen.toISOString(),
+      lastSeen: row.lastSeen.toISOString(),
     }
   }
 

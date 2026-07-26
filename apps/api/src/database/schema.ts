@@ -212,6 +212,10 @@ export const telemetryEventTypeEnum = pgEnum('telemetry_event_type', [
   'form_submit',
 ])
 
+// task-csp-reports-and-flip — Часть A. Latest occurrence's disposition on an
+// aggregated CSP violation row (see `cspReports` below).
+export const cspDispositionEnum = pgEnum('csp_disposition', ['report', 'enforce'])
+
 // ---------------------------------------------------------------------------
 // Users
 // ---------------------------------------------------------------------------
@@ -1396,6 +1400,55 @@ export const telemetryEvents = pgTable(
   (t) => [
     index('idx_telemetry_events_event_created').on(t.event, t.createdAt),
     index('idx_telemetry_events_route_created').on(t.route, t.createdAt),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// CSP violation reports (task-csp-reports-and-flip, Часть A) — aggregated
+// PUBLIC browser CSP violation reports (POST /api/public/csp-report).
+// ---------------------------------------------------------------------------
+//
+// ONE row per DISTINCT (effectiveDirective, blockedUri, documentPath) tuple —
+// same upsert shape as telemetry_errors (count++/last_seen bump on repeat).
+// Deliberately NOT a raw event stream: this is UNTRUSTED PUBLIC input (any
+// browser on the internet can POST here) — see CspReportsService.recordViolation
+// (apps/api/src/csp-reports/csp-reports.service.ts) for the normalize +
+// sanitize + upsert pipeline. Retention: 90 days since last_seen, via
+// TelemetryRetentionCronService (reuses the existing retention cron, per task
+// §Часть A item 5).
+
+export const cspReports = pgTable(
+  'csp_reports',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // CSP directive that was violated (e.g. 'script-src') — resolved from
+    // effective-directive, falling back to the first token of
+    // violated-directive. See apps/api/src/csp-reports/normalize.ts.
+    effectiveDirective: text('effective_directive').notNull(),
+    // Normalized to origin+pathname (query/fragment stripped) — or a CSP
+    // special keyword ('inline', 'eval', ...) passed through as-is.
+    blockedUri: text('blocked_uri').notNull(),
+    // document-uri/documentURL, pathname ONLY (origin + query/fragment stripped).
+    documentPath: text('document_path').notNull(),
+    // Latest occurrence's disposition — 'report' (Report-Only) or 'enforce'.
+    disposition: cspDispositionEnum('disposition').notNull().default('report'),
+    // Latest occurrence's User-Agent header, sanitized + truncated.
+    userAgent: text('user_agent'),
+    count: integer('count').notNull().default(1),
+    firstSeen: timestamp('first_seen', { withTimezone: true }).defaultNow().notNull(),
+    lastSeen: timestamp('last_seen', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Aggregation key (task §3) — CspReportsService.recordViolation upserts
+    // against this exact composite index.
+    uniqueIndex('uq_csp_reports_aggregate_key').on(
+      t.effectiveDirective,
+      t.blockedUri,
+      t.documentPath,
+    ),
+    // Digest (`last_seen >= since`) + retention cron (`last_seen < cutoff`)
+    // both filter on this column.
+    index('idx_csp_reports_last_seen').on(t.lastSeen),
   ],
 )
 

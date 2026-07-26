@@ -12,6 +12,7 @@ import { validateEnv } from './config/env'
 import type { Env } from './config/env'
 import { ContractsModule } from './contracts/contracts.module'
 import { CredentialsModule } from './credentials/credentials.module'
+import { CspReportsModule } from './csp-reports/csp-reports.module'
 import { DatabaseModule } from './database/database.module'
 import { DocumentsModule } from './documents/documents.module'
 import { HealthModule } from './health/health.module'
@@ -83,6 +84,9 @@ import { VacanciesModule } from './vacancies/vacancies.module'
     // task-landing-contact-and-hiring-strip: public "Start a project" contact
     // form — POST /api/public/contact, emails every ADMIN via Resend.
     ContactModule,
+    // task-csp-reports-and-flip: public CSP violation report endpoint —
+    // POST /api/public/csp-report, aggregated storage, digest visibility.
+    CspReportsModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order
