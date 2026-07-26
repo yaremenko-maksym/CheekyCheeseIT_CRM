@@ -1010,11 +1010,11 @@ export function smoothScrollToId(id: string): void {
 
 **Где применяется — 2 разных случая, разное поведение (важно не смешать):**
 
-| Случай                                                                                                  | Поведение                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| ------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Hash-ссылка на ТОЙ ЖЕ странице** (юзер на `/`, кликает «Services» в nav)                              | Route НЕ меняется (pathname тот же) → page-transition НЕ триггерится (§M.3 п.4). Вместо стандартного мгновенного `hashScrollIntoView` роутера — `<Link ... hashScrollIntoView={false} onClick={() => smoothScrollToId(hash)}>` — наш плавный скролл единолично владеет этим случаем.                                                                                                                                                                                                                                                           |
-| **Hash-ссылка С ДРУГОЙ страницы** (юзер на `/careers`, кликает «Contact» в nav → уходит на `/#contact`) | Route МЕНЯЕТСЯ → полноценный page-transition (**SUPERSEDED 2026-07-25**: было §M.3 scrim+caret-line, теперь §M v3.1 lift — механика ожидания та же, только визуальный слой другой). `hashScrollIntoView` роутера остаётся **default (true)** — TanStack восстанавливает/скроллит к `#contact` синхронно на `onRendered`, ДО первого отрисованного кадра enter-анимации (см. §M v3.1 «Scroll-позиция»). **Дополнительный плавный скролл поверх НЕ проигрывается** — это была бы вторая анимация подряд («не бесить»), а не «премиум-сдержанно». |
-| **Back-to-top**                                                                                         | На лендинге сейчас **нет** такой кнопки/ссылки — если появится позже, обязана переиспользовать `smoothScrollToId`/аналогичный вызов `animate(window.scrollY, 0, {...})` из того же модуля, не заводить отдельный механизм.                                                                                                                                                                                                                                                                                                                     |
+| Случай                                                                                                  | Поведение                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Hash-ссылка на ТОЙ ЖЕ странице** (юзер на `/`, кликает «Services» в nav)                              | Route НЕ меняется (pathname тот же) → page-transition НЕ триггерится (§M.3 п.4). Вместо стандартного мгновенного `hashScrollIntoView` роутера — `<Link ... hashScrollIntoView={false} onClick={() => smoothScrollToId(hash)}>` — наш плавный скролл единолично владеет этим случаем.                                                                                                                                                                                                                          |
+| **Hash-ссылка С ДРУГОЙ страницы** (юзер на `/careers`, кликает «Contact» в nav → уходит на `/#contact`) | Route МЕНЯЕТСЯ → обычный instant re-render, БЕЗ page-transition (**SUPERSEDED 2026-07-26**: цепочка §M.3 scrim+caret-line → §M v3.1 lift закончилась — page transitions убраны совсем, task-landing-remove-page-transitions.md). `hashScrollIntoView` роутера остаётся **default (true)** — TanStack восстанавливает/скроллит к `#contact` синхронно на `onRendered`. **Дополнительный плавный скролл поверх НЕ проигрывается** — это была бы вторая анимация подряд («не бесить»), а не «премиум-сдержанно». |
+| **Back-to-top**                                                                                         | На лендинге сейчас **нет** такой кнопки/ссылки — если появится позже, обязана переиспользовать `smoothScrollToId`/аналогичный вызов `animate(window.scrollY, 0, {...})` из того же модуля, не заводить отдельный механизм.                                                                                                                                                                                                                                                                                    |
 
 **Взаимодействие с page-transition scroll-reset и браузерным back/forward** (владелец: «новая
 страница начинается с верха... back/forward восстанавливает позицию»):
@@ -1048,12 +1048,11 @@ export function smoothScrollToId(id: string): void {
    4 шагами по scroll-прогрессу, `≥768px`, теперь корректно прячется за карточками (не пересекает
    текст лейблов).
 3. **Case-study metric-lag** (§M.1.1) — метрики карточки чуть «догоняют» текст, depth cue.
-4. **SUPERSEDED 2026-07-25** — было: тёмный scrim + тонкая жёлтая caret-line page-transition
-   (§M.3, HOTFIX 2026-07-24). Владелец отверг («бьёт по глазам»). Заменено на **«мягкий лифт»**
-   (lift cross-fade, БЕЗ каких-либо оверлеев — только `opacity`/`translateY` контента, §M v3.1) +
-   **shared-element FLIP-морф заголовка** на `/careers ↔ /careers/:slug` (§M v3.2, новая
-   сигнатурная деталь — заголовок вакансии буквально «перелетает» из карточки в детальную
-   страницу).
+4. **SUPERSEDED 2026-07-26** — цепочка page-transition попыток закончена, ВСЕ удалены. Было:
+   тёмный scrim + тонкая жёлтая caret-line (§M.3, HOTFIX 2026-07-24, «бьёт по глазам») → заменено
+   на «мягкий лифт» + shared-element FLIP-морф заголовка (§M v3.1/§M v3.2) → владелец снова отверг
+   («очень быстро мигает») → **page transitions убраны совсем**, task-landing-remove-page-
+   transitions.md. Навигация между страницами теперь — прямой ререндер, без анимации.
 5. **Единая scroll-progress-linked entrance** (§M.1.0, `ScrollReveal`) — база под всем остальным:
    каждая секция теперь буквально реагирует на положение скролла, не на факт «появилась в кадре».
 
@@ -1100,6 +1099,19 @@ export function smoothScrollToId(id: string): void {
 
 ## M v3 (2026-07-25): page transitions — lift + shared-element morph + iOS perf
 
+> **SUPERSEDED 2026-07-26 (§M v3.0/§M v3.1/§M v3.2 — page-transition part only).**
+> Владелец повторно отверг результат: «У тебя очень криво получились page transition, оно просто
+> очень быстро мигает и всё. Давай вообще уберем page transition анимации и просто будем
+> ререндерить страницу без перехода» (task-landing-remove-page-transitions.md). §M v3.0 (motion-
+> токены `DUR_LIFT_*`/`LIFT_OFFSET_*`/`DUR_TITLE_MORPH`), §M v3.1 (lift cross-fade) и §M v3.2
+> (shared-element title morph) — **удалены полностью**, включая их addendum-фиксы ниже
+> (`__root.tsx` orchestrator, `lib/lift-transition.ts`, `lib/page-transition.ts`,
+> `lib/title-morph.ts`). Клиентская навигация теперь — прямой рендер `<Outlet/>`, без анимации
+> любого рода. **§M v3.3 (iOS-перф) и §M v3.4 (мобильный аудит) остаются в силе как есть** — они
+> не про page-transition и задачей не тронуты. Три раздела ниже (§M v3.0-§M v3.2) оставлены как
+> historical record (объясняют, зачем lift+morph вообще были выбраны и как были устроены) — для
+> реализации навигации использовать НИЧЕГО из них, страница просто ререндерится.
+
 **Решение владельца (дословно, через координатора).** Про задеплоенный scrim+caret-line (§M.3):
 «контрастирует с общим освещением сайта и бьёт по глазам». Про мобильный опыт: «на iPhone все
 анимации дёрганые», плюс отдельный скриншот мобильного хиро с пометкой на строке-бейдже
@@ -1123,6 +1135,10 @@ export function smoothScrollToId(id: string): void {
 
 ### M v3.0 Motion-токены — замена page-transition констант
 
+> **SUPERSEDED 2026-07-26 — page transitions removed by owner decision** (task-landing-remove-page-
+> transitions.md). Все токены ниже (`DUR_LIFT_*`/`LIFT_OFFSET_*`/`DUR_TITLE_MORPH`) удалены из
+> `apps/landing/app/lib/motion.ts` — мертвы, ничего их не потребляет.
+
 `apps/landing/app/lib/motion.ts` — `DUR_SCRIM_IN`/`DUR_SCRIM_OUT`/`DUR_CARET_SWEEP`/
 `DUR_LIGHT_TRANSITION` **удаляются** (были только для scrim+caret, теперь мертвый код). Новые:
 
@@ -1140,6 +1156,13 @@ export const DUR_TITLE_MORPH = 0.35 // 350ms — shared-element заголово
 `DUR_REVEAL`, `DUR_SMOOTH_SCROLL`, `EASE_SOFT`, `EASE_STANDARD` — без изменений (M.0 актуален).
 
 ### M v3.1 Lift cross-fade (база, ВСЕ переходы страниц)
+
+> **SUPERSEDED 2026-07-26 — page transitions removed by owner decision.** Владелец: «У тебя очень
+> криво получились page transition, оно просто очень быстро мигает и всё. Давай вообще уберем page
+> transition анимации и просто будем ререндерить страницу без перехода» (task-landing-remove-page-
+> transitions.md). Весь механизм ниже (`lib/lift-transition.ts`, `lib/page-transition.ts`,
+> `__root.tsx`'s orchestrator) — **удалён**. `<Outlet/>` рендерится напрямую, без `key`-ремаунта и
+> без анимации входа/выхода. Оставлено как historical record.
 
 **Почему всё ещё БЕЗ `AnimatePresence`** (тот же технический аргумент, что в старом §M.3 «Почему БЕЗ
 AnimatePresence» — не повторяется дословно, действует так же): TanStack Router не даёт хука «не
@@ -1242,6 +1265,12 @@ reduce)').matches`, прочитанный в момент рендера (не 
 токенов — здесь эта категория риска отсутствует по построению).
 
 ### M v3.2 Shared-element title morph (`/careers ↔ /careers/:slug`)
+
+> **SUPERSEDED 2026-07-26 — page transitions removed by owner decision** (task-landing-remove-page-
+> transitions.md — same decision as §M v3.1). `lib/title-morph.ts` and every capture/consume call
+> site (`vacancy-card.tsx`, `careers-list.tsx`, `vacancy-detail-page-content.tsx`) — **удалены**.
+> Navigating `/careers ↔ /careers/:slug` is now the same instant re-render as every other route
+> change, no shared-element animation. Oставлено как historical record.
 
 **Что морфится:** ИМЕННО текстовый заголовок вакансии — `<h3>` в `VacancyCard`
 (`apps/landing/app/components/marketing/vacancy-card.tsx:32-34`, `text-[1.22rem] leading-[1.15]
@@ -1443,6 +1472,10 @@ Cloudflare Insights beacon; не влияет на визуал/motion, но с�
 
 ### M v3.5 Verification-чеклист (дополняет §M.6 — то, что реально изменилось в v3)
 
+> **SUPERSEDED 2026-07-26 (page-transition/title-morph пункты только).** Первые 5 пунктов ниже
+> проверяли механику §M v3.1/§M v3.2, которая **удалена** (task-landing-remove-page-transitions.md)
+> — не применимы. iOS-перф/Chip/case-study/Lighthouse пункты остаются в силе как есть.
+
 - [ ] Ни один page-transition НЕ использует `AnimatePresence` (проверка кода — паттерн исключён
       сознательно, см. §M v3.1 «Почему всё ещё БЕЗ AnimatePresence»).
 - [ ] Lift exit/enter — ТОЛЬКО `opacity`/`translateY`, никакого нового цветного/тёмного full-screen
@@ -1474,6 +1507,14 @@ col[i+1].left`, все 3 карточки × все 3 метрики).
       после завершения ни при каком фолбэке/раннем прерывании навигации).
 
 ### M v3 addendum (implementation notes, 2026-07-25, MED-1 code-review)
+
+> **SUPERSEDED 2026-07-26 (mechanism only — pattern carried forward).** The `lib/title-morph.ts` /
+> lift-wrapper machinery this addendum documents is **удалена**
+> (task-landing-remove-page-transitions.md). Point 1's underlying LESSON (defer `focusMainLandmark()`
+> to a `useEffect` keyed on committed state, never call it synchronously right after `setState`) is
+> still correct and is exactly what the NEW, transition-free focus-management code in `__root.tsx`
+> does — see that file's own module doc. Points 2-3 (the `key`-remount race + title-morph
+> addressable-consume) are moot — there is no `key`-remount and no title-morph left to race.
 
 Реализация (`apps/landing/app/routes/__root.tsx`, `apps/landing/app/lib/title-morph.ts`,
 `apps/landing/app/components/marketing/careers-list.tsx`, `apps/landing/app/routes/careers_.$slug.tsx`)
