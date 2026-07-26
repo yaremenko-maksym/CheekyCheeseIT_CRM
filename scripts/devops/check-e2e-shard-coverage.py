@@ -28,26 +28,20 @@ CI_YML = os.path.join(REPO_ROOT, ".github", "workflows", "ci.yml")
 # opposed to individual files temporarily awaiting migration (that's
 # KNOWN_UNSHARDED, below).
 #
-# tests/landing/ — the entire `landing` Playwright PROJECT (see
-# apps/e2e/playwright.config.ts) is opt-in / local-only: it needs an
-# externally started apps/landing dev server + a vacancies-seeded scratch DB
-# that ci.yml's default shard matrix does not provision (tracked as debt F1
-# in docs/superpowers/plans/plan-landing-i18n-seo.md — a real CI job for it
-# is a separate, larger task, not something this guard should paper over).
-# Every spec added under this directory is, BY CONSTRUCTION, never going to
-# land in a ci.yml shard — enumerating them one-by-one in KNOWN_UNSHARDED
-# (as this list used to) was pure repeated toil that recurred 3 times in one
-# review cycle (responsive.spec.ts, motion-v3.spec.ts, i18n.spec.ts, each a
-# separate PR-red-then-fix round-trip) because this script is outside the
-# landing-owning coder's zone-of-write — they cannot add their own entry.
-# A directory-level rule removes the whole CLASS of gap instead of patching
-# one more instance of it, while every OTHER (shardable) directory still
-# goes through the individual KNOWN_UNSHARDED debt-list path below, so a
-# genuinely new gap anywhere else still fails this guard.
+# tests/landing/ — REMOVED 2026-07-26 (task-landing-e2e-in-ci.md Part 2). The
+# `landing` Playwright PROJECT now has a real CI leg: the `landing` entry in
+# ci.yml's `e2e` job matrix (`files: tests/landing/`, a directory prefix —
+# same convention as `tests/crm` in the `misc` shard) provisions Postgres +
+# API + `pnpm --filter @crm/e2e seed:landing` + `apps/landing build:prerender`
+# + `vite preview`, then runs `playwright test --project=landing`. Every spec
+# under this directory is genuinely covered now via the directory-prefix
+# resolution below — a NEW spec here needs no per-file entry (same as before,
+# just for a real reason instead of a permanent opt-out). Nothing currently
+# needs this set; kept as an empty set (not deleted outright) so a future
+# genuinely-structural exclusion has an obvious place to land instead of
+# reinventing the directory-prefix convention from scratch.
 # ---------------------------------------------------------------------------
-EXCLUDED_DIRS = {
-    "tests/landing/",
-}
+EXCLUDED_DIRS: set[str] = set()
 
 # ---------------------------------------------------------------------------
 # KNOWN_UNSHARDED — explicit debt list.

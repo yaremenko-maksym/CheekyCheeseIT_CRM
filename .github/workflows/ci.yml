@@ -377,6 +377,20 @@ jobs:
             files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm
           - name: drop-finance
             files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts
+          # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
+          # other leg above (no apps/web dev server; apps/landing prerender +
+          # `vite preview` instead — see the matrix.shard.name == 'landing'
+          # branches sprinkled through the steps below) but the SAME job, so
+          # it runs in parallel with the other shards (not chained) and gets
+          # the "E2E (landing)" name for free from the templated `name:`
+          # field above — no separate job, no extra required-check wiring.
+          # `tests/landing/` (a directory prefix, not a single *.spec.ts) —
+          # same convention as `tests/crm` in the misc shard above — so the
+          # shard-coverage guard (scripts/devops/check-e2e-shard-coverage.py)
+          # auto-covers every spec under this directory, including future
+          # ones, without a per-file list here.
+          - name: landing
+            files: tests/landing/
     services:
       postgres:
         image: postgres:16-alpine
@@ -478,8 +492,10 @@ jobs:
       - if: steps.filter.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
+      # landing shard never touches document/S3 flows — skip the MinIO
+      # container for that leg only (every other leg keeps it, unchanged).
       - name: Start MinIO + bucket
-        if: steps.filter.outputs.code == 'true'
+        if: steps.filter.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: |
           docker run -d --name minio \
             --network host \
@@ -512,15 +528,21 @@ jobs:
         if: steps.filter.outputs.code == 'true'
         run: nohup pnpm --filter @crm/api start > /tmp/api.log 2>&1 &
 
+      # landing shard never navigates apps/web — skip starting it for that leg.
       - name: Start Web
-        if: steps.filter.outputs.code == 'true'
+        if: steps.filter.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: nohup pnpm --filter @crm/web start > /tmp/web.log 2>&1 &
 
-      - name: Wait for services
+      # Every shard (including landing) needs the API. Split out of the old
+      # combined "Wait for services" step so the apps/web wait can be skipped
+      # for the landing leg (nothing ever listens on :3000 there).
+      - name: Wait for API
         if: steps.filter.outputs.code == 'true'
-        run: |
-          timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health; do sleep 2; done'
-          timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
+        run: timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health; do sleep 2; done'
+
+      - name: Wait for Web
+        if: steps.filter.outputs.code == 'true' && matrix.shard.name != 'landing'
+        run: timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
       - name: Install Playwright browsers
         if: steps.filter.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
@@ -530,11 +552,51 @@ jobs:
         if: steps.filter.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @crm/e2e exec playwright install-deps chromium
 
+      # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
+      # Real admin HTTP API (dev-login → POST/PATCH /api/vacancies), not a
+      # direct DB write — needs the API already answering (Wait for API,
+      # above). See apps/e2e/scripts/seed-landing.ts module doc.
+      - name: Seed landing vacancy fixtures
+        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        run: pnpm --filter @crm/e2e seed:landing
+
+      # `vite build && node scripts/prerender.mjs` — the script drives its
+      # OWN headless Chromium (installed above) against a scratch preview
+      # server (default :4173) to snapshot every route, then exits; the real
+      # :3002 preview used by Playwright is started in the next step.
+      # PRERENDER_API_ORIGIN is pointed at the local seeded API — the default
+      # is the PROD domain (apps/landing/README.md "Env vars"), which would
+      # otherwise silently pull real prod vacancy data into a CI build
+      # instead of the fixtures seeded above.
+      - name: Build landing (prerender)
+        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        env:
+          PRERENDER_API_ORIGIN: http://localhost:3001
+        run: pnpm --filter @crm/landing build:prerender
+
+      # Same VITE_PROXY_API_TARGET override apps/landing/vite.config.ts's
+      # `preview.proxy['/api']` documents for local dev — proxies the built
+      # SPA's /api/* calls to the API started earlier in this job.
+      - name: Start landing preview
+        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        env:
+          VITE_PROXY_API_TARGET: http://localhost:3001
+        run: nohup pnpm --filter @crm/landing start > /tmp/landing.log 2>&1 &
+
+      - name: Wait for landing preview
+        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        run: timeout 30 bash -c 'until curl -sf http://localhost:3002; do sleep 2; done'
+
       - name: Run E2E tests (shard ${{ matrix.shard.name }})
         if: steps.filter.outputs.code == 'true'
         env:
           SHARD_FILES: ${{ matrix.shard.files }}
-        run: pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
+        run: |
+          if [ "${{ matrix.shard.name }}" = "landing" ]; then
+            pnpm --filter @crm/e2e exec playwright test --project=landing
+          else
+            pnpm --filter @crm/e2e exec playwright test $SHARD_FILES
+          fi
 
       - name: Docs-only short-circuit
         if: steps.filter.outputs.code != 'true'
@@ -553,6 +615,7 @@ jobs:
         run: |
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
+          echo "=== LANDING LOG ===" && cat /tmp/landing.log || true
 
       - name: Stop MinIO
         if: always() && steps.filter.outputs.code == 'true'

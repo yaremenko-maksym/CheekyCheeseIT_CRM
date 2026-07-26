@@ -16,24 +16,20 @@
  *   pnpm --filter @crm/landing build:prerender && pnpm --filter @crm/landing start
  *   LANDING_BASE_URL=http://localhost:4173 pnpm --filter @crm/e2e exec playwright test --project=landing tests/landing/i18n.spec.ts
  *
- * The "orchestrator finding" describe blocks below (page-identity — careers/
- * vacancy-detail must NOT render as the locale home) additionally need ONE
- * published vacancy with slug `senior-ml-engineer` reachable through
- * whatever `/api/public/vacancies*` proxies to (`VITE_PROXY_API_TARGET` for
- * `vite preview`, see `apps/landing/vite.config.ts`) — a real seeded scratch
- * DB + API, OR a lightweight mock server returning the same shape (no DB
- * required for the mock; see `scripts/prerender.mjs`'s own `fetchVacancies`
- * for the exact public-API shape it expects).
- *
- * The "plan §3/A10 — hreflang exclusion" describe block below additionally
- * needs a SECOND published vacancy, slug `lead-ecommerce-dev`, with NO
- * `translations` entry for ANY locale (`vacancies.translations` column NULL
- * or `{}`) — while `senior-ml-engineer` above must carry a REAL `ru`
- * translation (and nothing else) for that block's assertions to mean
- * anything: it checks that a locale WITH a translation gets an hreflang
- * link and a locale WITHOUT one does not, on the SAME running stack.
+ * Every vacancy-specific assertion below (page-identity, hreflang exclusion)
+ * needs the fixtures `pnpm --filter @crm/e2e seed:landing` creates against a
+ * real API (task-landing-e2e-in-ci.md КОНТРАКТ) — see `./fixtures.ts` for
+ * exactly what each slug carries and why. Slugs are imported from there, not
+ * hardcoded, so a fixture rename is a compile error here instead of a silent
+ * drift between what was seeded and what this file asserts.
  */
 import { test, expect, type Page } from '@playwright/test'
+import {
+  CLOSED_VACANCY_SLUG,
+  FULLY_TRANSLATED_VACANCY_SLUG,
+  UNTRANSLATED_VACANCY_SLUG,
+  UNTRANSLATED_VACANCY_TITLE,
+} from './fixtures'
 
 // Keep in sync with app/lib/seo.ts SITE_ORIGIN — `<link rel="canonical">` is
 // ALWAYS the fixed production origin (SEO requirement: canonical must not
@@ -216,18 +212,20 @@ test.describe('orchestrator finding — /:locale/careers/ renders the CAREERS pa
 
       // The vacancy LIST is genuinely rendered, not just "some non-empty
       // h1" — a real link to this locale's own vacancy-detail page for the
-      // seeded fixture (see file header for what the API must serve).
-      await expect(page.locator(`a[href="${careers}senior-ml-engineer/"]`)).toBeVisible()
+      // seeded fixture (see ./fixtures.ts for what seed:landing serves).
+      await expect(
+        page.locator(`a[href="${careers}${FULLY_TRANSLATED_VACANCY_SLUG}/"]`),
+      ).toBeVisible()
     })
   }
 })
 
 test.describe('orchestrator finding — vacancy DETAIL pages render the DETAIL content in every locale, not home', () => {
   for (const { locale, careers } of LOCALE_ROUTES) {
-    test(`${locale}: ${careers}senior-ml-engineer/ shows the vacancy detail with its own canonical`, async ({
+    test(`${locale}: ${careers}${FULLY_TRANSLATED_VACANCY_SLUG}/ shows the vacancy detail with its own canonical`, async ({
       page,
     }) => {
-      const detailPath = `${careers}senior-ml-engineer/`
+      const detailPath = `${careers}${FULLY_TRANSLATED_VACANCY_SLUG}/`
       const res = await page.goto(detailPath)
       expect(res?.status()).toBe(200)
       await page.waitForSelector('footer', { state: 'visible' })
@@ -235,7 +233,9 @@ test.describe('orchestrator finding — vacancy DETAIL pages render the DETAIL c
       // VacancyDetailPageContent's own <h1> carries a `data-vacancy-slug`
       // marker — an unambiguous "this is the detail page for THIS vacancy"
       // signal the home page's h1 never carries.
-      await expect(page.locator('h1[data-vacancy-slug="senior-ml-engineer"]')).toBeVisible()
+      await expect(
+        page.locator(`h1[data-vacancy-slug="${FULLY_TRANSLATED_VACANCY_SLUG}"]`),
+      ).toBeVisible()
 
       const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
       expect(canonical).toBe(`${SITE_ORIGIN}${detailPath}`)
@@ -248,12 +248,13 @@ test.describe('orchestrator finding — vacancy DETAIL pages render the DETAIL c
 // given vacancy must NEVER advertise that vacancy's URL as an hreflang
 // alternate (duplicate-content guard: the untranslated locale page shows the
 // SAME `en` copy verbatim, so telling Google "this is the ru/uk/es/pt
-// version" would flag it as duplicate content). Needs BOTH fixtures from the
-// file header: `senior-ml-engineer` (translated to `ru` ONLY) proves a
-// PARTIALLY-translated vacancy still gets a correctly-scoped cluster (not
-// all-or-nothing); `lead-ecommerce-dev` (translated NOWHERE) proves the
-// all-excluded case and that the page itself still renders (200, `en`
-// fallback copy) even though it carries no hreflang alternates for it.
+// version" would flag it as duplicate content). Needs BOTH extremes from
+// ./fixtures.ts: `FULLY_TRANSLATED_VACANCY_SLUG` (translated into EVERY
+// non-en locale) proves nothing is incorrectly excluded when a real
+// translation exists everywhere; `UNTRANSLATED_VACANCY_SLUG` (translated
+// nowhere) proves the all-excluded case and that the page itself still
+// renders (200, `en` fallback copy) even though it carries no hreflang
+// alternates for it.
 // ---------------------------------------------------------------------------
 test.describe('plan §3/A10 — hreflang omits locales with no real translation (isFallback)', () => {
   async function hreflangSet(page: Page, path: string) {
@@ -264,40 +265,86 @@ test.describe('plan §3/A10 — hreflang omits locales with no real translation 
     return new Set(hreflangs)
   }
 
-  test('senior-ml-engineer (translated to ru only): hreflang cluster is exactly {en, ru, x-default} — uk/es/pt excluded', async ({
+  test('fully-translated vacancy: hreflang cluster is every locale — {en, uk, ru, es, pt, x-default}', async ({
     page,
   }) => {
-    const set = await hreflangSet(page, '/careers/senior-ml-engineer/')
-    expect(set).toEqual(new Set(['en', 'ru', 'x-default']))
+    const set = await hreflangSet(page, `/careers/${FULLY_TRANSLATED_VACANCY_SLUG}/`)
+    expect(set).toEqual(new Set(['en', 'uk', 'ru', 'es', 'pt', 'x-default']))
   })
 
-  test('lead-ecommerce-dev (translated nowhere): hreflang cluster is exactly {en, x-default} — every non-en locale excluded', async ({
+  test('untranslated vacancy: hreflang cluster is exactly {en, x-default} — every non-en locale excluded', async ({
     page,
   }) => {
-    const set = await hreflangSet(page, '/careers/lead-ecommerce-dev/')
+    const set = await hreflangSet(page, `/careers/${UNTRANSLATED_VACANCY_SLUG}/`)
     expect(set).toEqual(new Set(['en', 'x-default']))
   })
 
-  test('the same exclusion set holds from a NON-en locale page too (/ru/careers/lead-ecommerce-dev/)', async ({
+  test('the same exclusion set holds from a NON-en locale page too (/ru/careers/<untranslated>/)', async ({
     page,
   }) => {
     // hreflangExcludes is computed from each locale's OWN isFallback flag for
     // this slug — it must not depend on which locale page you're currently
     // viewing (the alternates cluster describes the vacancy, not the viewer).
-    const set = await hreflangSet(page, '/ru/careers/lead-ecommerce-dev/')
+    const set = await hreflangSet(page, `/ru/careers/${UNTRANSLATED_VACANCY_SLUG}/`)
     expect(set).toEqual(new Set(['en', 'x-default']))
   })
 
-  test('lead-ecommerce-dev still renders 200 with the en fallback copy on /ru/ — excluded from hreflang, not from the route itself', async ({
+  test('untranslated vacancy still renders 200 with the en fallback copy on /ru/ — excluded from hreflang, not from the route itself', async ({
     page,
   }) => {
-    const res = await page.goto('/ru/careers/lead-ecommerce-dev/')
+    const res = await page.goto(`/ru/careers/${UNTRANSLATED_VACANCY_SLUG}/`)
     expect(res?.status()).toBe(200)
     await page.waitForSelector('footer', { state: 'visible' })
     // No `ru` translation exists — plan §3 "непереведённая — оригинал":
     // the page shows the EN title verbatim, not an error/empty state.
-    await expect(page.locator('h1[data-vacancy-slug="lead-ecommerce-dev"]')).toContainText(
-      'E-Commerce Team Lead',
-    )
+    await expect(
+      page.locator(`h1[data-vacancy-slug="${UNTRANSLATED_VACANCY_SLUG}"]`),
+    ).toContainText(UNTRANSLATED_VACANCY_TITLE)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-landing-e2e-in-ci.md КОНТРАКТ — CLOSED fixture. A closed posting is
+// GONE (410, not 404 — it existed and was removed, "never existed" is the
+// wrong signal to send crawlers) and must never resurface in the public
+// listing, the sitemap, or the careers page it used to appear on.
+//
+// The 410 status specifically comes from `VacanciesService.
+// getPublishedRowBySlug()` — the REAL public API, hit here via `request.get`
+// through the SAME `/api` proxy `vite preview` uses (not `page.goto()`): a
+// CLOSED vacancy was never part of the `build:prerender` static output (the
+// prerender script only ever fetches PUBLISHED vacancies), so there is no
+// static HTML file for its URL — `page.goto()` on that path hits `vite
+// preview`'s own SPA-fallback middleware, which serves the unrelated HOME
+// page's prerendered `index.html` with a flat 200 (a static host has no
+// concept of "this particular unbuilt route is 410"; that signal only
+// exists at the API layer and in `sitemap.xml`, both asserted below).
+// ---------------------------------------------------------------------------
+test.describe('CLOSED vacancy — 410 + excluded from every public surface', () => {
+  test('GET /api/public/vacancies/:slug returns 410 (not 200/404)', async ({
+    request,
+    baseURL,
+  }) => {
+    const res = await request.get(`${baseURL}/api/public/vacancies/${CLOSED_VACANCY_SLUG}`)
+    expect(res.status()).toBe(410)
+  })
+
+  test('excluded from GET /api/public/vacancies (every locale)', async ({ request, baseURL }) => {
+    for (const { locale } of LOCALE_ROUTES) {
+      const res = await request.get(`${baseURL}/api/public/vacancies?locale=${locale}`)
+      const slugs = (await res.json()) as Array<{ slug: string }>
+      expect(slugs.map((v) => v.slug)).not.toContain(CLOSED_VACANCY_SLUG)
+    }
+  })
+
+  test('excluded from the prerendered sitemap.xml', async ({ request, baseURL }) => {
+    const res = await request.get(`${baseURL}/sitemap.xml`)
+    const xml = await res.text()
+    expect(xml).not.toContain(CLOSED_VACANCY_SLUG)
+  })
+
+  test('not linked from the /careers/ list page', async ({ page }) => {
+    await gotoStable(page, '/careers/')
+    await expect(page.locator(`a[href="/careers/${CLOSED_VACANCY_SLUG}/"]`)).toHaveCount(0)
   })
 })
