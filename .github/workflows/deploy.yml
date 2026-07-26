@@ -170,6 +170,15 @@ jobs:
       # here is expected and safe: nginx/Dockerfile's generation step prints
       # an explicit ::warning:: and leaves the corresponding endpoint absent
       # (404) rather than serving anything broken.
+      #
+      # task-infra-contact-email-env (this infra-PR) / feature/landing-contact-form
+      # (parallel branch, not yet merged at the time this PR lands): the
+      # public contact-email address shown on the landing page as a fallback
+      # channel. This is a plain build-time CONSTANT, not a GitHub secret —
+      # it carries no sensitive value (see scripts/devops/contact-email-runbook.md).
+      # An unused build-arg is harmless if the parallel branch ends up wiring
+      # this differently (e.g. hardcoding the address instead of reading a
+      # Vite env var) — see nginx/Dockerfile's landing-builder stage comment.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -186,6 +195,7 @@ jobs:
             BING_SITE_VERIFICATION_ID=${{ secrets.BING_SITE_VERIFICATION_ID }}
             YANDEX_VERIFICATION_FILENAME=${{ secrets.YANDEX_VERIFICATION_FILENAME }}
             YANDEX_VERIFICATION_CONTENT=${{ secrets.YANDEX_VERIFICATION_CONTENT }}
+            VITE_CONTACT_PUBLIC_EMAIL=hr@cheekycheese.tech
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
@@ -252,13 +262,26 @@ jobs:
           GOOGLE_INDEXING_SA_EMAIL: ${{ secrets.GOOGLE_INDEXING_SA_EMAIL }}
           GOOGLE_INDEXING_SA_KEY_B64: ${{ secrets.GOOGLE_INDEXING_SA_KEY_B64 }}
           PUBLIC_LANDING_ORIGIN: ${{ secrets.PUBLIC_LANDING_ORIGIN }}
+          # task-infra-contact-email-env (this infra-PR) / feature/landing-contact-form
+          # (parallel branch, not yet merged at the time this PR lands): the
+          # public contact-form endpoint (POST /api/public/contact) sends
+          # email via the Resend HTTP API. OPTIONAL like GOOGLE_INDEXING_SA_*
+          # above (NOT fail-loud like TURNSTILE_SECRET_KEY) — per the task
+          # brief the API is expected to boot fine and answer 503 on that one
+          # endpoint if this is unset, rather than crash-looping. Unlike
+          # GOOGLE_INDEXING_SA_* though, the owner already created this
+          # secret ahead of time (see scripts/devops/contact-email-runbook.md),
+          # so an empty value here would be an unexpected drift worth a
+          # visible ::warning:: in the deploy log — see the explicit check
+          # below (still non-fatal).
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           GH_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           # Pass env vars declared above into the remote shell.
-          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,GH_ACTOR
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,GH_ACTOR
           script: |
             set -euo pipefail
 
@@ -289,6 +312,17 @@ jobs:
               exit 1
             fi
 
+            # task-infra-contact-email-env: NOT fail-loud (unlike the two
+            # checks above) — the public contact-form endpoint is expected to
+            # degrade to a 503 no-op if this is unset, not crash-loop the
+            # whole API. Still worth a loud ::warning:: because (unlike
+            # GOOGLE_INDEXING_SA_* which may genuinely never be configured)
+            # the owner already created this secret ahead of time — an empty
+            # value here means it got cleared/renamed, which is unexpected.
+            if [ -z "$RESEND_API_KEY" ]; then
+              echo "::warning::RESEND_API_KEY secret is empty/unset. POST /api/public/contact will boot in no-op mode and answer 503 instead of sending email — see scripts/devops/contact-email-runbook.md."
+            fi
+
             mkdir -p /opt/crm
             # All variables below come from the envs: list above (SSH env channel).
             # No ${{ secrets.* }} interpolation happens here — safe from injection.
@@ -296,6 +330,16 @@ jobs:
             NODE_ENV=production
             API_PORT=3001
             ENVEOF
+            # task-infra-contact-email-env: plain build-time CONSTANTS, not
+            # secrets (no sensitive value — same class as GOOGLE_CALLBACK_URL/
+            # FRONTEND_URL/CORS_ORIGINS below, written literally rather than
+            # threaded through the SSH envs: list). CONTACT_FROM_EMAIL is the
+            # Resend "from" address (domain verified in Resend; no mailbox
+            # needed — replies go to the submitter's reply-to address).
+            # CONTACT_PUBLIC_EMAIL is the fallback contact channel shown on
+            # the landing page. See scripts/devops/contact-email-runbook.md.
+            printf 'CONTACT_FROM_EMAIL=noreply@cheekycheese.tech\n'   >> /opt/crm/.env.production
+            printf 'CONTACT_PUBLIC_EMAIL=hr@cheekycheese.tech\n'      >> /opt/crm/.env.production
             # Append secret values safely via printf (no heredoc variable expansion issue).
             printf 'DATABASE_URL=postgresql://crm_user:%s@postgres:5432/crm_db\n' "$POSTGRES_PASSWORD" >> /opt/crm/.env.production
             printf 'POSTGRES_DB=crm_db\n'                              >> /opt/crm/.env.production
@@ -344,6 +388,16 @@ jobs:
             fi
             if [ -n "$PUBLIC_LANDING_ORIGIN" ]; then
               printf 'PUBLIC_LANDING_ORIGIN=%s\n' "$PUBLIC_LANDING_ORIGIN" >> /opt/crm/.env.production
+            fi
+
+            # task-infra-contact-email-env: same conditional-write pattern as
+            # GOOGLE_INDEXING_SA_* above — skip the line entirely when unset
+            # rather than writing an empty `RESEND_API_KEY=`, so a strict
+            # Zod optional-string validator on the API side can't trip on the
+            # difference between "not configured" and "configured as empty
+            # string". The ::warning:: above already surfaced the unset case.
+            if [ -n "$RESEND_API_KEY" ]; then
+              printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY" >> /opt/crm/.env.production
             fi
 
             printf 'IMAGE_TAG=%s\n'               "$IMAGE_TAG"         >> /opt/crm/.env.production
