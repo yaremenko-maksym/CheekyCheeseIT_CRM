@@ -46,6 +46,19 @@ ENV VITE_BUILD_VERSION=$VITE_BUILD_VERSION
 ARG VITE_TURNSTILE_SITE_KEY=
 ENV VITE_TURNSTILE_SITE_KEY=$VITE_TURNSTILE_SITE_KEY
 
+# task-infra-contact-email-env (this infra-PR) / feature/landing-contact-form
+# (parallel branch, not yet merged at the time this PR lands): the public
+# fallback contact-email address shown on the landing page's contact form.
+# Plain build-time CONSTANT (`hr@cheekycheese.tech`), not a secret — baked
+# into the bundle at build time, same as VITE_TURNSTILE_SITE_KEY above.
+# Empty is a safe default if the parallel branch hasn't merged yet (unused
+# by the bundle in that case) — see scripts/devops/contact-email-runbook.md.
+# If the landing implementation ends up hardcoding this address directly
+# instead of reading a Vite env var, this build-arg is simply unused —
+# harmless either way.
+ARG VITE_CONTACT_PUBLIC_EMAIL=
+ENV VITE_CONTACT_PUBLIC_EMAIL=$VITE_CONTACT_PUBLIC_EMAIL
+
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY packages/shared/package.json ./packages/shared/
 COPY apps/landing/package.json ./apps/landing/
