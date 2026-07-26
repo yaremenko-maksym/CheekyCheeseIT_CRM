@@ -128,7 +128,9 @@ export class ContactService {
       .from(users)
       .where(eq(users.role, 'ADMIN'))
     if (admins.length === 0) {
-      this.logger.error('submit(): no ADMIN recipients found in DB — cannot deliver contact request')
+      this.logger.error(
+        'submit(): no ADMIN recipients found in DB — cannot deliver contact request',
+      )
       throw new BadGatewayException(
         `Не удалось отправить заявку — напишите нам на ${this.publicEmail}`,
       )
@@ -202,6 +204,8 @@ export class ContactService {
       meta: { reason: lastError instanceof Error ? lastError.message : String(lastError) },
     })
 
-    throw new BadGatewayException(`Не удалось отправить заявку — напишите нам на ${this.publicEmail}`)
+    throw new BadGatewayException(
+      `Не удалось отправить заявку — напишите нам на ${this.publicEmail}`,
+    )
   }
 }
