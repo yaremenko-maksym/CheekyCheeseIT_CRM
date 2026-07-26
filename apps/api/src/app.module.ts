@@ -7,6 +7,7 @@ import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
 import { CommonModule } from './common/common.module'
+import { ContactModule } from './contact/contact.module'
 import { validateEnv } from './config/env'
 import type { Env } from './config/env'
 import { ContractsModule } from './contracts/contracts.module'
@@ -79,6 +80,9 @@ import { VacanciesModule } from './vacancies/vacancies.module'
     VacanciesModule,
     // task-telemetry-api: prod-error tracking + UX-event analytics + digest.
     TelemetryModule,
+    // task-landing-contact-and-hiring-strip: public "Start a project" contact
+    // form — POST /api/public/contact, emails every ADMIN via Resend.
+    ContactModule,
   ],
   providers: [
     // ORDER MATTERS — NestJS executes APP_GUARD providers in registration order
