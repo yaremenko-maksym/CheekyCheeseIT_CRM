@@ -108,4 +108,16 @@ describe('HiringStrip', () => {
     const link = await screen.findByRole('link', { name: /Ми наймаємо — 3 відкриті позиції/ })
     expect(link.getAttribute('href')).toBe('/uk/careers')
   })
+
+  // design round 1 MED-2 — hit-area bumped from 28×28px (`size-7`) to the
+  // project's own ≥44px standalone-control standard (`size-11`). Tailwind
+  // classes are the only observable signal in happy-dom (no real CSS layout
+  // engine to read computed pixel sizes from) — same convention as the rest
+  // of this test suite's class-based assertions.
+  it('design round 1 MED-2 — close button carries the size-11 (44px) hit-area class, not the old size-7 (28px)', async () => {
+    renderStrip(3)
+    const closeButton = await screen.findByRole('button', { name: 'Dismiss' })
+    expect(closeButton.className).toContain('size-11')
+    expect(closeButton.className).not.toContain('size-7')
+  })
 })

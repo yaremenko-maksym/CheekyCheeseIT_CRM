@@ -1,4 +1,4 @@
-import { useId, useState, type FormEvent } from 'react'
+import { useId, useRef, useState, type FormEvent } from 'react'
 import { Check, Mail, ShieldCheck } from 'lucide-react'
 import { z } from 'zod'
 import { Button } from '@/components/ui/button'
@@ -94,6 +94,17 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
     reset: resetTurnstile,
   } = useTurnstile()
 
+  // design round 1 LOW-1 — refs so a failed CLIENT-side validation can move
+  // real DOM focus to the first invalid field (see `handleSubmit`), same
+  // principle `VacancyTranslationFields` (apps/web) uses for its own
+  // submit-error handling: an `aria-invalid`/`aria-describedby` association
+  // alone only announces once the user tabs there THEMSELVES — silent if
+  // focus is left on the submit button, which is exactly what was
+  // happening here before.
+  const nameFieldRef = useRef<HTMLInputElement>(null)
+  const emailFieldRef = useRef<HTMLInputElement>(null)
+  const messageFieldRef = useRef<HTMLTextAreaElement>(null)
+
   const nameId = useId()
   const companyId = useId()
   const emailId = useId()
@@ -143,6 +154,15 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
     const errors = validateFields()
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors)
+      // design round 1 LOW-1 — focus the FIRST invalid field, in visual/DOM
+      // order (name → email → message), instead of leaving focus on the
+      // submit button. `aria-invalid`/`aria-describedby` (already wired on
+      // every field below) then makes the screen reader announce BOTH
+      // "invalid" and the message text immediately, since focus itself
+      // just moved there.
+      if (errors.name) nameFieldRef.current?.focus()
+      else if (errors.email) emailFieldRef.current?.focus()
+      else if (errors.message) messageFieldRef.current?.focus()
       return
     }
 
@@ -231,6 +251,7 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
               </span>
             </label>
             <Input
+              ref={nameFieldRef}
               id={nameId}
               name="name"
               placeholder={t.namePlaceholder}
@@ -277,6 +298,7 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
             </span>
           </label>
           <Input
+            ref={emailFieldRef}
             id={emailId}
             name="email"
             type="email"
@@ -308,6 +330,7 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
             </span>
           </label>
           <Textarea
+            ref={messageFieldRef}
             id={messageId}
             name="message"
             placeholder={t.messagePlaceholder}

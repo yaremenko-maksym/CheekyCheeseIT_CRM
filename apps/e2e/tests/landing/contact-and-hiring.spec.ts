@@ -59,10 +59,31 @@ test.describe('AC1 — "Start a project" CTAs have no mailto: href', () => {
     // contact form itself (asserted in the next describe block).
     const footerContact = page.locator('footer').getByRole('link', { name: 'Contact', exact: true })
     await expect(footerContact).toHaveAttribute('href', /#contact$/)
-    const footerGetInTouch = page
-      .locator('footer')
-      .getByRole('link', { name: 'hr@cheekycheese.tech' })
-    await expect(footerGetInTouch).toHaveAttribute('href', /#contact$/)
+    // design round 1 LOW-2 — was literally "hr@cheekycheese.tech" text on a
+    // link that didn't actually mailto: — relabelled to a neutral CTA.
+    const footerWriteToUs = page.locator('footer').getByRole('link', { name: 'Write to us' })
+    await expect(footerWriteToUs).toHaveAttribute('href', /#contact$/)
+  })
+})
+
+test.describe('design round 1 MED-1 — keyboard focus follows "Start a project" (WCAG 2.4.3)', () => {
+  test('same-page click: focus lands on the #contact section after the scroll settles', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/')
+    await page.locator('header').getByRole('link', { name: 'Start a project' }).click()
+    // `smoothScrollToId` only moves focus on a NATURAL animation finish —
+    // poll instead of asserting immediately.
+    await expect.poll(async () => page.evaluate(() => document.activeElement?.id)).toBe('contact')
+  })
+
+  test('cross-page navigation: focus lands on #contact after landing on / from /careers/', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/careers/')
+    await page.locator('header').getByRole('link', { name: 'Start a project' }).click()
+    await page.waitForURL(/\/#contact$/)
+    await expect.poll(async () => page.evaluate(() => document.activeElement?.id)).toBe('contact')
   })
 })
 

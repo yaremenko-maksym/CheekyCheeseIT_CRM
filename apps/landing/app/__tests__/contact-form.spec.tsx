@@ -60,6 +60,43 @@ describe('ContactForm', () => {
     expect(submitSpy).not.toHaveBeenCalled()
   })
 
+  // design round 1 LOW-1 — a failed client-side validation must move real
+  // DOM focus to the first invalid field (name → email → message order),
+  // not leave it on the submit button — aria-invalid/aria-describedby alone
+  // only announces once the user tabs there THEMSELVES.
+  it('design round 1 LOW-1 — невалидный submit переводит фокус на ПЕРВОЕ невалидное поле (Name)', async () => {
+    const user = userEvent.setup()
+    await renderForm()
+
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await screen.findByText('Please enter your name.')
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Name/))
+  })
+
+  it('design round 1 LOW-1 — Name валиден, Email/Message невалидны → фокус на Email (следующее по порядку)', async () => {
+    const user = userEvent.setup()
+    await renderForm()
+
+    await user.type(screen.getByLabelText(/^Name/), 'Ada Lovelace')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await screen.findByText('Enter a valid email.')
+    expect(document.activeElement).toBe(screen.getByLabelText(/^Email/))
+  })
+
+  it('design round 1 LOW-1 — только Message невалиден → фокус на Message', async () => {
+    const user = userEvent.setup()
+    await renderForm()
+
+    await user.type(screen.getByLabelText(/^Name/), 'Ada Lovelace')
+    await user.type(screen.getByLabelText(/^Email/), 'ada@example.com')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await screen.findByText('Tell us a bit more (at least 10 characters).')
+    expect(document.activeElement).toBe(screen.getByLabelText(/What are you building\?/))
+  })
+
   it('валид (happy path) — успешный submit переводит форму в success-состояние', async () => {
     vi.spyOn(api, 'submitContact').mockResolvedValue({ ok: true })
     const user = userEvent.setup()

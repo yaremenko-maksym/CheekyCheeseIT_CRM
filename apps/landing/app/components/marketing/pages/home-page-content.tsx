@@ -182,8 +182,20 @@ export function HomePageContent({
             otherwise aligns the section flush with the viewport top, hidden
             under the sticky header. Same-page navigation is unaffected —
             `smoothScrollToId` computes its own explicit offset, independent
-            of this CSS property. */}
-        <section id="about" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
+            of this CSS property.
+            `tabIndex={-1}` + `focus:outline-none` (design round 1 MED-1) —
+            every hash-link target on this page gets this SAME pattern
+            `__root.tsx`'s `<main>` already uses: focusable via JS
+            (`smoothScrollToId`/`focusMainLandmark`, both via
+            `lib/smooth-scroll.ts` `focusHashTarget`) so keyboard/AT focus
+            follows the scroll, no visible ring on an element that isn't
+            otherwise interactive (a full-width section outline would look
+            broken, same reasoning as `<main>`'s). */}
+        <section
+          id="about"
+          tabIndex={-1}
+          className="scroll-mt-[82px] px-5 py-18 focus:outline-none md:px-10 md:py-26 lg:px-14"
+        >
           <div className="mx-auto max-w-[1200px]">
             <div className="grid grid-cols-1 items-start gap-9 min-[900px]:grid-cols-[0.85fr_1.15fr] min-[900px]:gap-14">
               <ScrollReveal>
@@ -220,7 +232,12 @@ export function HomePageContent({
         <hr className="h-px border-0 bg-border" />
 
         {/* ── Selected work ────────────────────────────────────────────────── */}
-        <section id="work" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        {/* tabIndex/focus:outline-none — see `#about` section's comment. */}
+        <section
+          id="work"
+          tabIndex={-1}
+          className="scroll-mt-[82px] px-5 py-18 focus:outline-none md:px-10 md:py-26 lg:px-14"
+        >
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="mb-[52px] max-w-[640px]">
               <SectionEyebrow className="mb-5">{t.workEyebrow}</SectionEyebrow>
@@ -248,7 +265,12 @@ export function HomePageContent({
         <hr className="h-px border-0 bg-border" />
 
         {/* ── Services ─────────────────────────────────────────────────────── */}
-        <section id="services" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        {/* tabIndex/focus:outline-none — see `#about` section's comment. */}
+        <section
+          id="services"
+          tabIndex={-1}
+          className="scroll-mt-[82px] px-5 py-18 focus:outline-none md:px-10 md:py-26 lg:px-14"
+        >
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="mb-[52px] max-w-[640px]">
               <SectionEyebrow className="mb-5">{t.servicesEyebrow}</SectionEyebrow>
@@ -274,7 +296,12 @@ export function HomePageContent({
         <hr className="h-px border-0 bg-border" />
 
         {/* ── How we work ──────────────────────────────────────────────────── */}
-        <section id="process" className="scroll-mt-[82px] px-5 py-18 md:px-10 md:py-26 lg:px-14">
+        {/* tabIndex/focus:outline-none — see `#about` section's comment. */}
+        <section
+          id="process"
+          tabIndex={-1}
+          className="scroll-mt-[82px] px-5 py-18 focus:outline-none md:px-10 md:py-26 lg:px-14"
+        >
           <div className="mx-auto max-w-[1200px]">
             <ScrollReveal className="mb-[52px] max-w-[640px]">
               <SectionEyebrow className="mb-5">{t.processEyebrow}</SectionEyebrow>
@@ -344,8 +371,15 @@ export function HomePageContent({
             replaced with a real, inline `<ContactForm>` (its own bordered
             Card — no outer card wrapper here anymore, avoiding a card-in-card
             nest). This is the ONE section every "Start a project" CTA on the
-            site (hero above, nav.tsx, footer.tsx) scrolls/links to. */}
-        <section id="contact" className="scroll-mt-[82px] px-5 py-22 md:px-10 md:py-32 lg:px-14">
+            site (hero above, nav.tsx, footer.tsx) scrolls/links to.
+            tabIndex/focus:outline-none — see `#about` section's comment
+            (design round 1 MED-1 — THIS is the target the finding's own
+            repro used: "Start a project" must land keyboard/AT focus here). */}
+        <section
+          id="contact"
+          tabIndex={-1}
+          className="scroll-mt-[82px] px-5 py-22 focus:outline-none md:px-10 md:py-32 lg:px-14"
+        >
           <div className="relative mx-auto max-w-[1200px]">
             <div
               aria-hidden="true"

@@ -3,7 +3,6 @@ import { BrandMark } from '@/components/brand-mark'
 import { LanguageSwitcher } from '@/components/marketing/language-switcher'
 import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
-import { CONTACT_EMAIL } from '@/content/home'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath, homeRoutePath } from '@/i18n/routes'
@@ -120,6 +119,14 @@ export function MarketingFooter({
             <div className="mb-3.5 font-mono text-[0.72rem] tracking-[0.14em] text-muted-foreground uppercase">
               {t.footer.getInTouch}
             </div>
+            {/* design-review round 1 LOW-2 — was the literal CONTACT_EMAIL
+                text (`hr@cheekycheese.tech`) on a link that navigates to
+                `/#contact`, not `mailto:` — a visitor who reads it as a
+                copyable address gets a confusing surprise on click. The
+                REAL mailto: fallback lives only under the contact form
+                itself (owner decision §4: "ТОЛЬКО здесь") — this link's
+                job is purely to get a visitor there, so its text is now a
+                neutral CTA instead of an address that isn't one. */}
             <Link
               to={homePath}
               {...hashLinkProps('contact', isHome)}
@@ -128,7 +135,7 @@ export function MarketingFooter({
                 focusRing,
               )}
             >
-              {CONTACT_EMAIL}
+              {t.footer.writeToUs}
             </Link>
             <LanguageSwitcher locale={locale} path={path} t={t.languageSwitcher} variant="footer" />
           </div>

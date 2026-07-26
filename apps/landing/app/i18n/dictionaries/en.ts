@@ -37,6 +37,7 @@ export const en: Dictionary = {
     aboutUs: 'About us',
     contact: 'Contact',
     getInTouch: 'Get in touch',
+    writeToUs: 'Write to us',
     rights: '© 2026 CheekyCheeseIT. All rights reserved.',
   },
   languageSwitcher: {

@@ -39,6 +39,37 @@ function cancelActiveScroll(): void {
 }
 
 /**
+ * Moves keyboard/AT focus to a hash target WITHOUT touching scroll position
+ * (`preventScroll: true`) — WCAG 2.4.3, design-review round 1 MED-1: a click
+ * that scrolls the page to a section must also move focus there, or a
+ * keyboard/screen-reader visitor is left stranded wherever they started
+ * (verified: `document.activeElement` stayed on the original `<a>` after a
+ * "Start a project" click even though `window.scrollY` had already landed on
+ * the form). The target element needs `tabIndex={-1}` in its own JSX (every
+ * real hash target — `#about`/`#work`/`#services`/`#process`/`#contact` in
+ * `home-page-content.tsx` — carries it) to be focusable at all; silently
+ * no-ops otherwise (defensive — every real caller only ever passes a hash
+ * this app actually renders).
+ *
+ * Shared by TWO call sites, matching the two cases `hash-link-props.ts`
+ * documents:
+ *   - `smoothScrollToId` below (same-page click — JS drives the scroll AND
+ *     the focus, see the `.then()` call site).
+ *   - `__root.tsx`'s `focusMainLandmark()` (cross-page navigation — the
+ *     ROUTER's own native `hashScrollIntoView` already positions the
+ *     viewport, this covers the focus half by preferring the hash target
+ *     over the generic `<main>` landmark when the destination URL has one).
+ */
+export function focusHashTarget(id: string): boolean {
+  const el = document.getElementById(id)
+  if (el instanceof HTMLElement) {
+    el.focus({ preventScroll: true })
+    return true
+  }
+  return false
+}
+
+/**
  * JS-driven in-page smooth scroll to an anchor id (§M.4) — owns the
  * "hash-link on the same page" case exclusively (see `nav.tsx`/`footer.tsx`
  * callers). Uses the shared `EASE_SOFT` curve (HOTFIX 2026-07-24 — was
@@ -60,6 +91,7 @@ export function smoothScrollToId(id: string): void {
   const targetY = el.getBoundingClientRect().top + window.scrollY - HEADER_OFFSET
   if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
     window.scrollTo(0, targetY)
+    focusHashTarget(id)
     return
   }
 
@@ -93,11 +125,15 @@ export function smoothScrollToId(id: string): void {
         activeScroll = null
         activeScrollCleanup?.()
         activeScrollCleanup = null
+        // WCAG 2.4.3 (design round 1 MED-1) — ONLY on a natural finish, never
+        // on interruption: a visitor who took manual scroll control
+        // mid-animation is already looking wherever THEY scrolled to;
+        // stealing focus back to the original target would fight them.
+        focusHashTarget(id)
       }
     },
     () => {
-      // Interrupted via `.stop()` — `cancelActiveScroll()` already cleared
-      // everything at the call site that triggered the interruption.
+      // Interrupted via `.stop()` — no focus change, see comment above.
     },
   )
 }

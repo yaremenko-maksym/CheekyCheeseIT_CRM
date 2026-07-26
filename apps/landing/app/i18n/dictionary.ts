@@ -99,6 +99,17 @@ export interface Dictionary {
     aboutUs: string
     contact: string
     getInTouch: string
+    /**
+     * design-review round 1 LOW-2 — the "Get in touch" column's link used to
+     * literally display `CONTACT_EMAIL` (`hr@cheekycheese.tech`) while
+     * navigating to `/#contact` (the form), not `mailto:` — a confusing
+     * affordance (a visitor reads it as a copyable address, the click takes
+     * them somewhere else). This is the link's visible CTA text now instead
+     * of the raw address — the real `mailto:` fallback lives ONLY under the
+     * contact form itself (owner decision §4 in the task file: "ТОЛЬКО
+     * здесь"), this link's job is purely to get a visitor TO that form.
+     */
+    writeToUs: string
     rights: string
   }
   languageSwitcher: {

@@ -42,6 +42,7 @@ export const uk: Dictionary = {
     aboutUs: 'Про нас',
     contact: 'Контакти',
     getInTouch: "Зв'язатися з нами",
+    writeToUs: 'Написати нам',
     rights: '© 2026 CheekyCheeseIT. Усі права захищено.',
   },
   languageSwitcher: {

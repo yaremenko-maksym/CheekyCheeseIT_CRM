@@ -81,7 +81,11 @@ export function HiringStrip({
   return (
     <div
       className={cn(
-        'relative flex items-center justify-center gap-2 border-b border-primary/20 bg-primary/12 px-10 py-2 text-center text-[0.82rem] font-medium text-foreground sm:text-[0.85rem]',
+        // `min-h-11` (design round 1 MED-2) — reserves enough vertical room
+        // for the 44px close-button hit-area below without it visually
+        // spilling outside the strip; the strip still READS as compact
+        // (py-2 + short text) at every count/locale tested.
+        'relative flex min-h-11 items-center justify-center gap-2 border-b border-primary/20 bg-primary/12 px-12 py-2 text-center text-[0.82rem] font-medium text-foreground sm:text-[0.85rem]',
       )}
     >
       <Link
@@ -94,12 +98,20 @@ export function HiringStrip({
         <span>{selectPluralForm(t.text, locale, count)}</span>
         <ArrowRight aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
       </Link>
+      {/* design round 1 MED-2 — hit-area bumped from 28×28px (`size-7`) to
+          the project's own ≥44px standalone-control standard (`size-11`,
+          `docs/design/landing-redesign.md` §6.7); the VISUAL icon inside
+          stays the same compact `size-3.5` — only the tappable box grew.
+          `top-1/2 -translate-y-1/2` centers it explicitly regardless of box
+          size (was implicit/"static position" `absolute` centering before,
+          which is what let the smaller box get away with no explicit
+          vertical anchor). */}
       <button
         type="button"
         onClick={handleClose}
         aria-label={t.close}
         className={cn(
-          'absolute right-2 flex size-7 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground',
+          'absolute top-1/2 right-1 flex size-11 -translate-y-1/2 shrink-0 items-center justify-center rounded-full text-foreground/60 transition-colors hover:bg-foreground/10 hover:text-foreground',
           focusRing,
         )}
       >
