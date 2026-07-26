@@ -59,12 +59,17 @@
 #      `Content-Security-Policy-Report-Only` for CRM on this first rollout
 #      (never blocks, only observes) rather than `Content-Security-Policy`
 #      (enforcing) — see scripts/devops/csp-report-only-rollout-runbook.md.
-#      `$CRM_CSP_HEADER` below MUST be updated in lockstep with csp-map.conf
-#      when CRM flips to enforcing (the runbook's switch-over step says so).
+#      `$CRM_CSP_HEADER` below is now DERIVED from `CRM_CSP_MODE` (see
+#      below) instead of being an independently-hardcoded constant —
+#      security review round 2 (LOW fix, task-csp-reports-and-flip Part B)
+#      flagged the old two-constants-in-two-files setup as a footgun: this
+#      script and nginx/conf.d/csp-map.conf could silently disagree about
+#      CRM's actual mode if only one of the two was updated on a flip.
 #
 # Usage:
 #   scripts/devops/check-security-headers.sh [origin]
 #   ORIGIN=https://cheekycheese.tech scripts/devops/check-security-headers.sh
+#   CRM_CSP_MODE=enforcing scripts/devops/check-security-headers.sh
 #
 # Default origin: http://localhost:8080 (matches check-locale-routing.sh's
 # local dry-run convention — a single nginx container serving BOTH vhosts,
@@ -78,14 +83,33 @@ ORIGIN="${1:-${ORIGIN:-http://localhost:8080}}"
 LANDING_HOST="cheekycheese.tech"
 CRM_HOST="app.cheekycheese.tech"
 
-# CRM's CSP currently ships as Report-Only (security review round 1, PR
-# #429 HIGH-1/MED-1 — see the origin-story comment above). Update this to
-# "Content-Security-Policy" the same day csp-map.conf's
-# $csp_enforcing/$csp_report_only maps are flipped for app.cheekycheese.tech
-# (scripts/devops/csp-report-only-rollout-runbook.md's switch-over step) —
-# otherwise this guard silently stops checking the header that actually
-# matters post-flip.
-CRM_CSP_HEADER="Content-Security-Policy-Report-Only"
+# task-csp-reports-and-flip (Part B, security review round 2 LOW fix):
+# CRM_CSP_MODE is now the ONE source of truth for CRM's CSP delivery mode —
+# same env var name deploy.yml passes as a Docker build-arg to
+# nginx/Dockerfile (see that file's ARG CRM_CSP_MODE comment) AND passes to
+# THIS script's invocation in the post-deploy smoke-test step, so both sides
+# read from the exact same workflow-level value and cannot drift apart.
+# Default "report-only" matches nginx/Dockerfile's own ARG default, so a
+# bare local run (no CRM_CSP_MODE set) still checks the right header.
+CRM_CSP_MODE="${CRM_CSP_MODE:-report-only}"
+# $CRM_CSP_OTHER_HEADER is the header CRM must NOT be sending — used by the
+# "Report-Only rollout guard" checks below so they stay correct across a
+# CRM_CSP_MODE flip too, not just $CRM_CSP_HEADER (same footgun class this
+# whole consolidation exists to close — see the origin-story comment above).
+case "$CRM_CSP_MODE" in
+  report-only)
+    CRM_CSP_HEADER="Content-Security-Policy-Report-Only"
+    CRM_CSP_OTHER_HEADER="Content-Security-Policy"
+    ;;
+  enforcing)
+    CRM_CSP_HEADER="Content-Security-Policy"
+    CRM_CSP_OTHER_HEADER="Content-Security-Policy-Report-Only"
+    ;;
+  *)
+    echo "ERROR: CRM_CSP_MODE must be exactly 'report-only' or 'enforcing', got: '$CRM_CSP_MODE'." >&2
+    exit 1
+    ;;
+esac
 LANDING_CSP_HEADER="Content-Security-Policy"
 
 PASS=0
@@ -162,6 +186,36 @@ check_header_absent() {
   else
     FAIL=$((FAIL + 1))
     printf 'FAIL  %-70s got=%s (want: header ABSENT)\n' "$desc" "$value"
+  fi
+}
+
+# task-csp-reports-and-flip (Part B, security review round 2 LOW fix):
+# asserts a substring is ABSENT within ONE named CSP directive's own value
+# (up to its terminating `;`), not the whole header. Checking the WHOLE
+# header for e.g. "unsafe-inline" would false-positive on CRM/landing's
+# style-src, which legitimately carries 'unsafe-inline' (Tailwind/shadcn
+# runtime style injection — unrelated to script execution risk) — this
+# scopes the assertion to exactly the directive that matters.
+# Args: description, path, Host header value, header name, CSP directive
+# name (e.g. "script-src"), substring that must be ABSENT within it.
+check_directive_not_contains() {
+  local desc="$1" path="$2" host="$3" header_name="$4" directive="$5" needle="$6"
+  local header_value directive_value
+  header_value="$(curl -sS -k --max-time 10 -o /dev/null -D - -H "Host: $host" "$ORIGIN$path" 2>/dev/null \
+    | grep -i "^${header_name}:" | head -1)"
+  # Isolate "<directive> <value-up-to-semicolon>" — CSP directive names are
+  # case-sensitive per spec and this repo always writes them lowercase.
+  directive_value="$(printf '%s' "$header_value" | grep -oE "${directive} [^;]*" | head -1)"
+
+  if [[ -z "$directive_value" ]]; then
+    FAIL=$((FAIL + 1))
+    printf 'FAIL  %-70s directive "%s" not found in header\n' "$desc" "$directive"
+  elif [[ "$directive_value" != *"$needle"* ]]; then
+    PASS=$((PASS + 1))
+    printf 'PASS  %-70s %s\n' "$desc" "$directive_value"
+  else
+    FAIL=$((FAIL + 1))
+    printf 'FAIL  %-70s got=%s (want ABSENT within %s: %s)\n' "$desc" "$directive_value" "$directive" "$needle"
   fi
 }
 
@@ -255,18 +309,55 @@ check_header_contains "HIGH-1: CRM CSP object-src allows R2 (*.r2.cloudflarestor
 check_header_contains "MED-1: CRM CSP img-src allows blob:" \
   "/" "$CRM_HOST" "$CRM_CSP_HEADER" "img-src 'self' data: blob: https:"
 
-# ── Report-Only rollout guard (security review round 1, HIGH-1) ───────────
+# ── Report-Only rollout guard (security review round 1, HIGH-1; ───────────
+# ── made CRM_CSP_MODE-aware in task-csp-reports-and-flip Part B) ──────────
 # CRM has never served ANY CSP before PR #429 (crm.conf's add_header-
 # inheritance bug dropped it entirely) — its first rollout ships as
 # Report-Only, not enforcing, so a still-unknown gap cannot break a real
-# request. This guard fails loudly the moment either (a) CRM starts sending
-# an enforcing Content-Security-Policy header before the runbook's
-# switch-over procedure has run (premature/accidental flip), or (b) it
-# regresses back to sending neither header at all.
-check_header_absent "Report-Only rollout: CRM does NOT (yet) send enforcing Content-Security-Policy" \
-  "/" "$CRM_HOST" "Content-Security-Policy"
-check_header_present "Report-Only rollout: CRM DOES send Content-Security-Policy-Report-Only" \
-  "/" "$CRM_HOST" "Content-Security-Policy-Report-Only"
+# request. This guard fails loudly the moment nginx and CRM_CSP_MODE
+# disagree about which header CRM is actually sending — BEFORE this fix it
+# hardcoded "report-only is the only valid state", which would have made
+# the guard itself wrong the moment CRM_CSP_MODE flips to enforcing
+# (exactly the class of drift task-csp-reports-and-flip Part B closes).
+check_header_absent "Report-Only rollout: CRM does NOT send $CRM_CSP_OTHER_HEADER" \
+  "/" "$CRM_HOST" "$CRM_CSP_OTHER_HEADER"
+check_header_present "Report-Only rollout: CRM DOES send $CRM_CSP_HEADER" \
+  "/" "$CRM_HOST" "$CRM_CSP_HEADER"
+
+# ── task-csp-reports-and-flip (Part B, security review round 2 LOW fixes) ──
+# Negative assertions on CSP CONTENT itself — catch a future edit widening
+# either domain's policy into something CSP exists to prevent, not just a
+# header-presence/scope regression (everything above this section). Applies
+# to BOTH domains: neither should ever need unsafe-eval/unsafe-inline in
+# script-src (this codebase ships no inline scripts/eval — Vite/React build
+# output is all external, hashed bundle files) or a wildcard default-src.
+check_directive_not_contains "Hardening: landing CSP script-src has no unsafe-eval" \
+  "/" "$LANDING_HOST" "$LANDING_CSP_HEADER" "script-src" "unsafe-eval"
+check_directive_not_contains "Hardening: landing CSP script-src has no unsafe-inline" \
+  "/" "$LANDING_HOST" "$LANDING_CSP_HEADER" "script-src" "unsafe-inline"
+check_directive_not_contains "Hardening: CRM CSP script-src has no unsafe-eval" \
+  "/" "$CRM_HOST" "$CRM_CSP_HEADER" "script-src" "unsafe-eval"
+check_directive_not_contains "Hardening: CRM CSP script-src has no unsafe-inline" \
+  "/" "$CRM_HOST" "$CRM_CSP_HEADER" "script-src" "unsafe-inline"
+check_header_not_contains "Hardening: landing CSP has no wildcard default-src" \
+  "/" "$LANDING_HOST" "$LANDING_CSP_HEADER" "default-src *"
+check_header_not_contains "Hardening: CRM CSP has no wildcard default-src" \
+  "/" "$CRM_HOST" "$CRM_CSP_HEADER" "default-src *"
+
+# ── task-csp-reports-and-flip (Part B): CRM must carry report directives ──
+# CRM-only (landing has no collector wired — see csp-map.conf's rationale).
+# Both directives are part of $csp_value (nginx/conf.d/csp-map.conf), so
+# they are present regardless of CRM_CSP_MODE — report-uri/report-to work
+# identically whether the policy ships as Content-Security-Policy or
+# -Report-Only (only enforcement differs, not reporting).
+check_header_contains "CRM CSP carries report-uri (POST /api/public/csp-report)" \
+  "/" "$CRM_HOST" "$CRM_CSP_HEADER" "report-uri /api/public/csp-report"
+check_header_contains "CRM CSP carries report-to (csp-endpoint)" \
+  "/" "$CRM_HOST" "$CRM_CSP_HEADER" "report-to csp-endpoint"
+check_header_contains "CRM sends Reporting-Endpoints (csp-endpoint -> /api/public/csp-report)" \
+  "/" "$CRM_HOST" "Reporting-Endpoints" "csp-endpoint=\"https://app.cheekycheese.tech/api/public/csp-report\""
+check_header_absent "Scope: landing does NOT send Reporting-Endpoints" \
+  "/" "$LANDING_HOST" "Reporting-Endpoints"
 
 # ── Baseline: landing still gets its own full header set (no regression) ──
 check_header_present "landing: / carries HSTS" \

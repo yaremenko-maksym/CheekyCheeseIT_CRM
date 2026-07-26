@@ -148,6 +148,53 @@ RUN rm /etc/nginx/conf.d/default.conf
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/conf.d/    /etc/nginx/conf.d/
 
+# task-csp-reports-and-flip (Part B, security review round 2 LOW fix):
+# CRM_CSP_MODE — the SINGLE source of truth for whether CRM's CSP ships as
+# Content-Security-Policy-Report-Only (observe, default) or
+# Content-Security-Policy (enforcing). Deliberately a build ARG, not a
+# runtime ENV read by nginx itself — nginx has no built-in mechanism to read
+# OS environment variables inside a `map` directive, and every mode-flip in
+# this project already goes through a reviewed PR anyway (see
+# scripts/devops/csp-report-only-rollout-runbook.md §4), so "rebuild via a
+# one-line deploy.yml change" is the right cost, not a limitation. NOT
+# re-exposed as ENV: nothing at container runtime reads it — the value is
+# baked into /etc/nginx/conf.d/csp-map.conf below, once, at build time.
+# deploy.yml threads this in from ONE `env: CRM_CSP_MODE:` entry at the top
+# of that workflow (see its build-args list) — that is the ONE place a flip
+# actually happens; this Dockerfile's default is only for local/manual
+# `docker build`/`docker compose build` (docker-compose.prod.yml does not
+# pass build-args at all for the nginx service — see that file's comment —
+# so this default is what a manual `docker compose -f docker-compose.prod.yml
+# build` gets too).
+ARG CRM_CSP_MODE=report-only
+
+# nginx/conf.d/csp-map.conf carries exactly one occurrence of the
+# `__CRM_CSP_MODE__` placeholder (inside the `map $server_name $csp_mode`
+# block) — substituted here with the validated ARG value. Fails the BUILD
+# loudly (not a silent fallback to the default) on:
+#   1. an unrecognised CRM_CSP_MODE value — the only two behaviours nginx's
+#      $csp_mode-derived maps understand are the literal strings
+#      "report-only" and "enforcing" (csp-map.conf's `map $csp_mode ...`
+#      blocks); anything else would silently resolve to BOTH $csp_enforcing
+#      and $csp_report_only being "" (neither header sent — a silent
+#      regression to zero CSP on CRM, exactly the class of bug this whole
+#      task exists to prevent recurring).
+#   2. the placeholder itself going missing (e.g. a future refactor of
+#      csp-map.conf renames/removes it without updating this step) — sed
+#      would otherwise silently no-op and ship whatever mode was baked in
+#      the LAST time this line worked, not a build failure.
+RUN set -eu; \
+    case "$CRM_CSP_MODE" in \
+      report-only|enforcing) ;; \
+      *) echo "ERROR: CRM_CSP_MODE must be exactly 'report-only' or 'enforcing', got: '$CRM_CSP_MODE'. See nginx/conf.d/csp-map.conf's 'Report-Only rollout switch' comment." >&2; exit 1 ;; \
+    esac; \
+    if ! grep -q '__CRM_CSP_MODE__' /etc/nginx/conf.d/csp-map.conf; then \
+      echo "ERROR: __CRM_CSP_MODE__ placeholder not found in nginx/conf.d/csp-map.conf — the CRM_CSP_MODE build-arg wiring is broken (file refactored without updating this step?)." >&2; \
+      exit 1; \
+    fi; \
+    sed -i "s/__CRM_CSP_MODE__/$CRM_CSP_MODE/" /etc/nginx/conf.d/csp-map.conf; \
+    echo "==> CRM CSP mode baked in: $CRM_CSP_MODE"
+
 # task-infra-locale-edge: njs module used ONLY for Accept-Language
 # best-match parsing (see the `load_module` comment in nginx.conf). The
 # module .so itself already ships in this base image — only our script

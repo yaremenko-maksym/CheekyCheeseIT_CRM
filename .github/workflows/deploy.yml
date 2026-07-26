@@ -69,6 +69,20 @@ env:
   # Repository owner must be lowercase for GHCR image names.
   IMAGE_OWNER: yaremenko-maksym
   REPO_SLUG: cheekycheeseit-crm
+  # task-csp-reports-and-flip (Part B, security review round 2 LOW fix):
+  # CRM_CSP_MODE — the SINGLE source of truth for whether CRM's CSP ships
+  # Content-Security-Policy-Report-Only (observe, current rollout state) or
+  # Content-Security-Policy (enforcing). Threaded into TWO places below —
+  # the nginx build-arg (bakes the mode into the image, see nginx/Dockerfile
+  # ARG CRM_CSP_MODE) and the post-deploy smoke-test invocation (so the
+  # guard checks whichever header name is actually live) — both read
+  # `${{ env.CRM_CSP_MODE }}`, so they cannot drift apart the way the old
+  # two-independent-constants setup could (nginx/conf.d/csp-map.conf's two
+  # maps + scripts/devops/check-security-headers.sh's own constant, fixed
+  # separately before this consolidation). To flip CRM to enforcing: change
+  # THIS one value and follow
+  # scripts/devops/csp-report-only-rollout-runbook.md §4.
+  CRM_CSP_MODE: report-only
 
 # Default-deny: every job inherits read-only `contents` and nothing else.
 # Jobs that need more (build → packages:write, deploy → packages:read) override
@@ -179,6 +193,12 @@ jobs:
       # An unused build-arg is harmless if the parallel branch ends up wiring
       # this differently (e.g. hardcoding the address instead of reading a
       # Vite env var) — see nginx/Dockerfile's landing-builder stage comment.
+      #
+      # task-csp-reports-and-flip (Part B): CRM_CSP_MODE reads from THIS
+      # workflow's own top-level `env:` block (see comment there) — the
+      # single source of truth for CRM's CSP delivery mode, also passed to
+      # the post-deploy smoke-test step below. See nginx/Dockerfile's own
+      # `ARG CRM_CSP_MODE` comment for how it's consumed at build time.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -196,6 +216,7 @@ jobs:
             YANDEX_VERIFICATION_FILENAME=${{ secrets.YANDEX_VERIFICATION_FILENAME }}
             YANDEX_VERIFICATION_CONTENT=${{ secrets.YANDEX_VERIFICATION_CONTENT }}
             VITE_CONTACT_PUBLIC_EMAIL=hr@cheekycheese.tech
+            CRM_CSP_MODE=${{ env.CRM_CSP_MODE }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
@@ -505,6 +526,54 @@ jobs:
           # apps/api/drizzle/manual/2026-07-24_telemetry.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-24_telemetry.sql
 
+      # ── CSP reports DDL — GUARDED, same reason as telemetry above ───────
+      # task-csp-reports-and-flip: this infra-PR (Part B) is DevOps zone-of-
+      # write (apps/api/** excluded) and is written/dispatched IN PARALLEL
+      # with Part A (Coder, feature/csp-report-endpoint — the module that
+      # actually creates apps/api/drizzle/manual/2026-07-26_csp_reports.sql
+      # and the `csp_reports` table it defines). Order-independent by design
+      # (see the task file's "КОНТРАКТ" section: CSP without the endpoint
+      # just means the browser's report POST 404s harmlessly; the endpoint
+      # without CSP just never gets called) — so, same as telemetry, check
+      # for the file first and only scp it when present.
+      #
+      # COORDINATION NOTE: the exact filename below
+      # (2026-07-26_csp_reports.sql) is this PR's best-effort guess at what
+      # Part A will actually name its migration (today's date + the table
+      # name, matching this repo's `YYYY-MM-DD_<slug>.sql` convention — see
+      # e.g. 2026-07-24_telemetry.sql above). The two PRs are dispatched to
+      # separate agents/branches with no shared filename handshake. If Part
+      # A's real filename differs, update the filename in THIS step and the
+      # matching deploy job step below in a follow-up commit before/after
+      # merge — scripts/devops/check-prod-ddl-wiring.py (wired into ci.yml)
+      # fails the build loudly on `main` if any apps/api/drizzle/manual/*.sql
+      # file is left unreferenced here, so a mismatch cannot silently repeat
+      # the 2026-07-25 vacancy-i18n incident this guard exists to prevent
+      # (see that script's own header comment) — it will just need a small
+      # follow-up PR to rename, not a silent gap.
+      - name: Check for CSP reports DDL file (guard until feature/csp-report-endpoint merges)
+        id: csp-reports-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-07-26_csp_reports.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-07-26_csp_reports.sql not found in checkout — task-csp-reports-and-flip Part A (feature/csp-report-endpoint) has not merged to main yet, or used a different filename (see the COORDINATION NOTE above this step). Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy CSP reports DDL via SCP (only if present)
+        if: steps.csp-reports-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-07-26_csp_reports.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-07-26_csp_reports.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-26_csp_reports.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -525,11 +594,18 @@ jobs:
           # GITHUB_TOKEN for `docker login ghcr.io`. The job-level `permissions:`
           # block above scopes it to packages:read (pull only) + contents:read.
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # task-csp-reports-and-flip (Part B): not a secret, but threaded
+          # through the same SSH env-passthrough mechanism as everything
+          # else in this script (consistent with this job's own convention —
+          # values are never interpolated directly into the `script:` YAML
+          # string, see the write-env job's header comment). Single source
+          # of truth: this workflow's top-level `env:` block.
+          CRM_CSP_MODE: ${{ env.CRM_CSP_MODE }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN
+          envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
           script: |
             set -euo pipefail
             cd /opt/crm
@@ -838,6 +914,35 @@ jobs:
               < "$REQUISITES_MARKDOWN_FILE"
             echo "==> company_account.requisites_markdown DDL applied successfully"
 
+            # ── Step 2i: csp_reports aggregate table (idempotent, GUARDED) ───────────────────
+            # task-csp-reports-and-flip: same GUARDED pattern as telemetry's Step 2f above, for
+            # the same reason — this infra-PR (Part B, DevOps zone-of-write, apps/api/**
+            # excluded) is dispatched in parallel with Part A (Coder, feature/csp-report-
+            # endpoint), which is the branch that actually creates this DDL file and the
+            # `csp_reports` table apps/api/src/csp-reports/ writes to. Order-independent by
+            # design (see the task file's "КОНТРАКТ" section) — a missing file here is the
+            # expected steady state until Part A merges, not an error, so this soft-skips via
+            # ::notice like Step 2f rather than the fail-loud "scp-action flattened the tree"
+            # check every OTHER DDL step above uses.
+            # Source: apps/api/drizzle/manual/2026-07-26_csp_reports.sql (see the copy-compose
+            # job's "COORDINATION NOTE" comment for why this exact filename is a best-effort
+            # guess, not a guaranteed match, and how a mismatch gets caught/fixed).
+            CSP_REPORTS_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-26_csp_reports.sql"
+
+            if [ ! -f "$CSP_REPORTS_FILE" ]; then
+              echo "::notice::CSP reports DDL file not found at $CSP_REPORTS_FILE — task-csp-reports-and-flip Part A (feature/csp-report-endpoint) has not merged to main yet, or used a different filename. Skipping this step; it applies automatically on a future deploy once the real file is wired in (see scripts/devops/csp-report-only-rollout-runbook.md)."
+            else
+              echo "==> Applying csp_reports DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$CSP_REPORTS_FILE"
+              echo "==> csp_reports DDL applied successfully"
+            fi
+
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
             # --remove-orphans cleans up any containers from old service names.
@@ -943,8 +1048,31 @@ jobs:
             # The script itself was scp'd to /opt/crm/scripts/devops/ in the
             # copy-compose job above (see that step's comment) — it is not
             # part of the VPS's normal file set otherwise.
+            #
+            # task-csp-reports-and-flip (Part B, security review round 2 LOW
+            # fix): explicit `[ -f ]` check BEFORE invoking the script —
+            # previously a scp failure/partial-tree (the exact "scp-action
+            # flattened the tree" class already guarded against for every DDL
+            # file above) would surface here as a bare `bash: ... No such
+            # file or directory` (exit 127), indistinguishable at a glance
+            # from the script itself failing its checks. Fails loud with the
+            # SAME diagnostic shape as the DDL guards for consistency.
+            #
+            # $CRM_CSP_MODE is already exported into this shell (see this
+            # step's `env:`/`envs:` above — same SSH env-passthrough
+            # mechanism as $IMAGE_TAG/$GH_ACTOR), sourced from this
+            # workflow's top-level `env:` block (single source of truth), so
+            # the guard below checks whichever CSP header name CRM is
+            # actually sending — matches the build-arg passed to the nginx
+            # image above. No explicit prefix needed on the invocation.
             echo "==> Smoke test — security headers (HSTS/CSP), both domains via local nginx (FATAL)"
-            if bash /opt/crm/scripts/devops/check-security-headers.sh http://127.0.0.1; then
+            SECURITY_HEADERS_SCRIPT="/opt/crm/scripts/devops/check-security-headers.sh"
+            if [ ! -f "$SECURITY_HEADERS_SCRIPT" ]; then
+              echo "ERROR: guard script not found at $SECURITY_HEADERS_SCRIPT — scp-action may have flattened the tree (see copy-compose job)."
+              ls -la /opt/crm/scripts/devops/ 2>/dev/null || true
+              exit 1
+            fi
+            if bash "$SECURITY_HEADERS_SCRIPT" http://127.0.0.1; then
               echo "Security headers check PASSED"
             else
               echo "ERROR: nginx is not serving the expected security headers (HSTS/CSP/etc.) on one"
