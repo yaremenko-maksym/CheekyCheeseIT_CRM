@@ -1,12 +1,13 @@
 /**
- * BackLink — wraps `<Link>` for semantically "back" navigations, forcing the
- * "back" lift-enter direction (docs/design/landing-redesign.md §M v3.1
- * step 3). Same lightweight router-harness pattern as
+ * BackLink — plain `<Link>` wrapper for semantically "back" navigations
+ * (task-landing-remove-page-transitions.md removed the transition-direction
+ * marking it used to do on click, docs/design/landing-redesign.md §M v3.1,
+ * now SUPERSEDED). Same lightweight router-harness pattern as
  * `careers-teaser.spec.tsx` — `<Link>` needs a real router context to render.
  */
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import {
   Outlet,
   RouterProvider,
@@ -16,7 +17,6 @@ import {
   createRouter,
 } from '@tanstack/react-router'
 import { BackLink } from '@/components/marketing/back-link'
-import * as pageTransition from '@/lib/page-transition'
 
 function renderBackLink() {
   const rootRoute = createRootRoute({
@@ -42,15 +42,13 @@ function renderBackLink() {
 }
 
 describe('BackLink', () => {
-  it('marks the next page-transition as the "back" direction on click, before navigating', async () => {
-    const spy = vi.spyOn(pageTransition, 'markNextTransitionBack')
+  it('navigates to the target route on click', async () => {
     renderBackLink()
     const user = userEvent.setup()
 
     const link = await screen.findByRole('link', { name: 'All roles' })
     await user.click(link)
 
-    expect(spy).toHaveBeenCalledTimes(1)
     expect(await screen.findByText('Careers page')).toBeTruthy()
   })
 

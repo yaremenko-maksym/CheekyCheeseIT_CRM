@@ -93,10 +93,10 @@ export function HomePageContent({
       <MarketingNav locale={locale} dict={dict} path={PATH} />
 
       {/* `tabIndex={-1}` + `focus:outline-none` — programmatic focus target
-          for page-transitions (§M v3.1 step 7, WCAG 2.4.3): __root.tsx moves
-          focus here after a client-side navigation resolves so keyboard/AT
-          users learn the page changed, without a distracting full-page ring
-          on an element that isn't otherwise interactive. */}
+          after a client-side navigation (WCAG 2.4.3): __root.tsx moves focus
+          here once the route resolves so keyboard/AT users learn the page
+          changed, without a distracting full-page ring on an element that
+          isn't otherwise interactive. */}
       <main tabIndex={-1} className="focus:outline-none">
         {/* ── Hero — always visible, no scroll-reveal (§5.1) ─────────────── */}
         <section id="hero" ref={heroRef} className="relative overflow-hidden">

@@ -18,14 +18,15 @@
 export const EASE_STANDARD = [0.2, 0.6, 0.2, 1] as const
 
 /**
- * HOTFIX 2026-07-24 (owner: page-transition "very fast, hits the eyes,
- * epilepsy risk for some — make sure ALL animations are smooth"): the
- * single default easing for EVERY time-based (duration+ease) JS animation
- * on the landing — page-transition (§M.3), smooth-scroll (§M.4). Symmetric
+ * HOTFIX 2026-07-24 (owner: the since-removed page-transition "very fast,
+ * hits the eyes, epilepsy risk for some — make sure ALL animations are
+ * smooth"): the single default easing for EVERY time-based (duration+ease)
+ * JS animation on the landing — smooth-scroll (§M.4) is the only remaining
+ * consumer (task-landing-remove-page-transitions.md removed the page-
+ * transition, §M v3.1/§M v3.2, that used to share this curve too — see
+ * docs/design/landing-redesign.md §M v3 "SUPERSEDED"). Symmetric
  * easeInOutCubic: soft start AND soft finish, no jerk on start, no hard
- * stop. Replaces the removed `EASE_EXIT` (was `[0.4,0,1,1]`, a hard
- * "full-speed" finish — part of the "too fast" complaint) as the light
- * page-transition's easing too.
+ * stop.
  */
 export const EASE_SOFT = [0.65, 0, 0.35, 1] as const
 
@@ -33,25 +34,6 @@ export const DUR_REVEAL = 0.7 // section scroll-reveal (unchanged)
 
 /** In-page anchor smooth-scroll (§M.4) — duration unchanged, easing switches to `EASE_SOFT`. */
 export const DUR_SMOOTH_SCROLL = 0.6
-
-// §M v3 (2026-07-25) — REPLACES DUR_SCRIM_IN/DUR_SCRIM_OUT/DUR_CARET_SWEEP/
-// DUR_LIGHT_TRANSITION (the scrim + thin caret-line page-transition, §M.3,
-// was removed entirely — owner: "contrasts with the site's overall lighting
-// and hits the eyes"). Replaced by a "soft lift" cross-fade applied to EVERY
-// page transition, plus a separate shared-element title morph on
-// `/careers ↔ /careers/:slug` — see docs/design/landing-redesign.md §M v3.0.
-// EASE_SOFT above remains the single default for every time-based JS
-// animation below too — no separate easing curve is introduced for lift/morph.
-/** Old page fades + settles down (§M v3.1) — 220ms. */
-export const DUR_LIFT_EXIT = 0.22
-/** New page fades + rises into place (§M v3.1) — 300ms. */
-export const DUR_LIFT_ENTER = 0.3
-/** `translateY` 0 → +10 (down) on exit, px. */
-export const LIFT_OFFSET_EXIT = 10
-/** `|translateY|` on enter, px — sign depends on navigation direction (§M v3.1). */
-export const LIFT_OFFSET_ENTER = 14
-/** Shared-element title morph duration, `/careers ↔ /careers/:slug` (§M v3.2) — 350ms. */
-export const DUR_TITLE_MORPH = 0.35
 
 /**
  * Hover/press durations (CSS Tailwind-transitions on buttons/cards/chips,

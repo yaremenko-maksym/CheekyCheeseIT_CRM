@@ -1,20 +1,12 @@
 import { createRootRoute, Outlet, useRouter } from '@tanstack/react-router'
 import { useEffect, useRef, useState } from 'react'
-import { LazyMotion, domMin, m } from 'framer-motion'
+import { LazyMotion, domMin } from 'framer-motion'
 import { ArrowLeft } from 'lucide-react'
 import { useDocumentHead } from '@/lib/use-document-head'
 import { canonicalUrl } from '@/lib/seo'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { BackLink } from '@/components/marketing/back-link'
-import {
-  consumePendingDirection,
-  markNextTransitionBack,
-  type PageTransitionDirection,
-} from '@/lib/page-transition'
-import { playLiftExit } from '@/lib/lift-transition'
-import { setPendingRoutePair } from '@/lib/title-morph'
-import { DUR_LIFT_ENTER, EASE_SOFT, LIFT_OFFSET_ENTER } from '@/lib/motion'
 import { cn, focusRing } from '@/lib/utils'
 import { en } from '@/i18n/dictionaries/en'
 import '../styles/globals.css'
@@ -24,18 +16,11 @@ export const Route = createRootRoute({
   notFoundComponent: NotFoundPage,
 })
 
-function isReducedMotionPreferred(): boolean {
-  return (
-    typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
-  )
-}
-
 /**
- * Moves focus to the new page's `<main>` landmark (WCAG 2.4.3 — §M v3.1
- * step 7). Every route wraps its content in `<main tabIndex={-1}>`
- * specifically so this works: the SPA never reloads the document, so
- * without an explicit focus move keyboard/AT users get no signal the page
- * changed at all.
+ * Moves focus to the new page's `<main>` landmark (WCAG 2.4.3). Every route
+ * wraps its content in `<main tabIndex={-1}>` specifically so this works:
+ * the SPA never reloads the document, so without an explicit focus move
+ * keyboard/AT users get no signal the page changed at all.
  */
 function focusMainLandmark(): void {
   const main = document.querySelector('main')
@@ -45,97 +30,66 @@ function focusMainLandmark(): void {
 }
 
 /**
- * Page-transition + in-page smooth-scroll orchestrator (docs/design/landing-
- * redesign.md §M v3.1) — a "soft lift" cross-fade on EVERY navigation, via
- * ONE shared, key-remounted content wrapper (no `AnimatePresence`, no
- * scrim/overlay — §M.3 removed entirely, see §M v3 "SUPERSEDED"). The exit
- * half plays imperatively (fire-and-forget, `playLiftExit`) on the
- * still-mounted OLD wrapper right before the route swaps; the enter half is
- * the new wrapper's own mount animation, direction-aware
- * (`pendingDirection` — forward from the bottom, back from the top).
+ * Root layout — task-landing-remove-page-transitions.md (owner decision
+ * 2026-07-26): the page-transition layer that used to live here (§M v3.1
+ * "soft lift" cross-fade + §M v3.2 shared-element title morph, docs/design/
+ * landing-redesign.md, now marked SUPERSEDED) is REMOVED entirely — owner:
+ * "получились криво, очень быстро мигает — уберём совсем, будем просто
+ * ререндерить страницу без перехода". `<Outlet/>` renders directly, no
+ * `key`-remounted wrapper, no enter/exit animation of any kind.
  *
- * Hash-only navigations (same pathname) are explicitly skipped — that case
- * belongs entirely to `smoothScrollToId` (§M.4), not this orchestrator.
+ * `LazyMotion`/`domMin` stays — unrelated bundle-composition perf
+ * optimization for every OTHER `m.*` site in the app (`ScrollReveal`,
+ * `nav.tsx`, `case-study-card.tsx`, `terminal.tsx`, ... — see each one's own
+ * comment), which still needs a `LazyMotion` ancestor even with zero
+ * page-transition motion left in THIS file.
  *
- * **`key` timing — fixed 2026-07-25 (HIGH fidelity-review finding).** The
- * wrapper's `key`/`transition.pathname` state is updated ONLY from the
- * router's `onResolved` event (the router has ACTUALLY committed the new
- * match, `<Outlet/>` is ready to render it) — NEVER from `onBeforeNavigate`'s
- * optimistic `toLocation.pathname`. Root cause of the bug this fixes: React
- * `key`-remount is synchronous and immediate, but `onBeforeNavigate` fires
- * BEFORE the router internally switches `router.state.matches` — so setting
- * `key` there force-unmounts+remounts the wrapper while `<Outlet/>` is
- * STILL rendering the OLD route (its async loader/match hasn't committed
- * yet), producing a spurious extra mount of the OLD page's component. That
- * spurious remount's own `useLayoutEffect` (the title-morph consumer on
- * `careers-list.tsx`/`careers_.$slug.tsx`) fired FIRST and silently
- * consumed the one-shot `pendingMorph` meant for the REAL destination page,
- * which then mounted moments later to nothing — the shared-element title
- * morph (§M v3.2) never played, in EITHER direction, though the base lift
- * (§M v3.1) still looked correct (masking the bug from casual visual QA).
- * `lib/title-morph.ts`'s `readPendingMorph` also gained an independent,
- * addressable "is this consumer actually the destination" check as a second
- * defense layer — see its doc for why both fixes matter together.
+ * What's left, and MUST keep working (task AC3) — focus-management only
+ * (WCAG 2.4.3), the one piece of the old orchestrator that wasn't actually
+ * about the transition motion itself. Still keyed off
+ * `onBeforeNavigate`/`onResolved` (not a plain `useEffect` on
+ * `router.state.location.pathname`): the hash-only guard below is
+ * load-bearing — a same-pathname hash navigation (nav "Contact" while
+ * already on `/`) is `smoothScrollToId`'s case exclusively (§M.4 in the
+ * design doc) and must NOT steal focus for what is purely an in-page
+ * scroll (`onResolved` still fires for it, `onBeforeNavigate` is the only
+ * point that reliably distinguishes it). The actual `focusMainLandmark()`
+ * call is deferred to a `useEffect` keyed on `resolvedPathname` state, NOT
+ * called synchronously inside the `onResolved` subscriber — `setState`
+ * there only SCHEDULES a re-render; calling `focusMainLandmark()` right
+ * after it runs BEFORE React has committed that render, so
+ * `document.querySelector('main')` at that instant can still find the OLD
+ * page's `<main>` (or none at all) — this was a real, E2E-reproduced race
+ * in the page-transition-era version of this file (`docs/design/
+ * landing-redesign.md` §M v3 addendum has the original root-cause writeup);
+ * the same two-step fix (subscribe to `onResolved`, defer the actual DOM
+ * call to an effect) is kept here even though transition-direction is no
+ * longer part of what's being tracked.
  */
 function RootDocument() {
   const router = useRouter()
-  const wrapperRef = useRef<HTMLDivElement | null>(null)
-  const pendingDirectionRef = useRef<PageTransitionDirection>('forward')
-  const shouldTransitionOnResolveRef = useRef(false)
-  const [transition, setTransition] = useState<{
-    pathname: string
-    direction: PageTransitionDirection | null
-  }>({ pathname: router.state.location.pathname, direction: null })
-
-  // Browser back/forward always uses the "back" enter direction (§M v3.1
-  // step 2) — registered once, independent of the onBeforeNavigate
-  // subscription below.
-  useEffect(() => {
-    const onPopState = () => markNextTransitionBack()
-    window.addEventListener('popstate', onPopState)
-    return () => window.removeEventListener('popstate', onPopState)
-  }, [])
+  const shouldFocusOnResolveRef = useRef(false)
+  const isFirstRenderRef = useRef(true)
+  const [resolvedPathname, setResolvedPathname] = useState(router.state.location.pathname)
 
   useEffect(() => {
     const unsubscribeBefore = router.subscribe(
       'onBeforeNavigate',
       ({ toLocation, fromLocation }) => {
-        // Hash-only change on the SAME route (e.g. nav "Contact" while
-        // already on "/") — no page-transition; `smoothScrollToId` owns
-        // this case exclusively (§M.4). Explicitly tell the `onResolved`
-        // handler below to skip its work too (it still fires for hash-only
-        // navigations) — must NOT flip the wrapper key or steal focus for
-        // what is purely an in-page scroll.
-        if (fromLocation && toLocation.pathname === fromLocation.pathname) {
-          shouldTransitionOnResolveRef.current = false
-          return
-        }
-
-        // Cache the route pair for lib/title-morph.ts's consumer (§M v3.2
-        // step 5) — avoids a second, independent router subscription there.
-        if (fromLocation) setPendingRoutePair(fromLocation.pathname, toLocation.pathname)
-
-        // Direction must be consumed HERE (one-shot, `onBeforeNavigate` is
-        // the only point that reliably fires once per real navigation) —
-        // stashed in a ref since the wrapper-key update itself is deferred
-        // to `onResolved` below (see this function's module doc).
-        pendingDirectionRef.current = consumePendingDirection()
-        playLiftExit(wrapperRef.current, isReducedMotionPreferred())
-        shouldTransitionOnResolveRef.current = true
+        // Hash-only change on the SAME route — see module doc.
+        shouldFocusOnResolveRef.current = !(
+          fromLocation && toLocation.pathname === fromLocation.pathname
+        )
       },
     )
 
     const unsubscribeResolved = router.subscribe('onResolved', () => {
-      if (!shouldTransitionOnResolveRef.current) return
-      shouldTransitionOnResolveRef.current = false
+      if (!shouldFocusOnResolveRef.current) return
+      shouldFocusOnResolveRef.current = false
       const pathname = router.state.location.pathname
-      // The router HAS committed by this point — `<Outlet/>` is already
-      // ready to render the real destination the instant the wrapper below
-      // remounts under the new `key`. Guard against a no-op update (in case
-      // `onResolved` ever fires more than once for the same commit).
-      setTransition((prev) =>
-        prev.pathname === pathname ? prev : { pathname, direction: pendingDirectionRef.current },
-      )
+      // Guard against a no-op update in case `onResolved` ever fires more
+      // than once for the same commit.
+      setResolvedPathname((prev) => (prev === pathname ? prev : pathname))
     })
 
     return () => {
@@ -144,61 +98,20 @@ function RootDocument() {
     }
   }, [router])
 
-  // Focus management (WCAG 2.4.3, §M v3.1 step 7) — a `useEffect` keyed on
-  // `transition.pathname`, NOT a call inlined into the `onResolved`
-  // subscriber above. `setTransition` merely SCHEDULES a re-render; calling
-  // `focusMainLandmark()` synchronously right after it (as an earlier
-  // version of this fix did) runs BEFORE React has committed that render —
-  // `document.querySelector('main')` at that instant can still find the
-  // OLD page's `<main>` (or none at all), reliably reproduced via E2E
-  // (`document.activeElement` stayed `BODY`/reverted to a stray link, never
-  // landed on `MAIN`). `useEffect` fires strictly AFTER the DOM commit for
-  // the render that set this exact `transition.pathname`, so the `<main>`
-  // it finds is guaranteed to be the real, final, already-painted one.
+  // Deferred to a real commit (see module doc) — skips the very first run
+  // (initial mount, nothing navigated yet, browser owns focus as normal;
+  // `resolvedPathname`'s initial value never came from a real navigation).
   useEffect(() => {
-    if (transition.direction !== null) focusMainLandmark()
-  }, [transition.pathname])
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false
+      return
+    }
+    focusMainLandmark()
+  }, [resolvedPathname])
 
-  const reducedMotion = isReducedMotionPreferred()
-
-  // `LazyMotion` + `m.div` (perf round, PR #421 orchestrator finding —
-  // Lighthouse mobile) — NOT a `motion.div` swap for its own sake: this
-  // wrapper mounts on EVERY route (it's the root layout around `<Outlet/>`),
-  // so the full `motion` component's bundled-in gesture/drag/layout-
-  // projection engine was shipping on every single page load even though
-  // this file (and every OTHER `m.div` site in the app, see each one's own
-  // comment) only ever uses a plain `initial`/`animate`/`transition` tween or
-  // a `style`-bound MotionValue — no drag, no gestures (`whileHover`/
-  // `whileTap`/`whileInView`-the-PROP — `ScrollReveal`'s `useInView` is the
-  // separate HOOK, unrelated to this feature split), no `layout` prop, no
-  // `AnimatePresence` (verified exhaustively — every `motion.`/`m.` JSX
-  // usage in `apps/landing/app` was grepped and read; see
-  // `docs/design/landing-redesign.md` §M v3 for the product spec these
-  // preserve). `domMin` (verified present in the installed framer-motion
-  // v12 — `node_modules/framer-motion/dist/es/render/dom/features-min.mjs`:
-  // `{ renderer, ...animations }`, no gesture bundle) is therefore enough —
-  // NOT `domAnimation` (`domMin` + `gestureAnimations`, gestures we never
-  // use). Same visual/timing behaviour either way — `m.div` accepts the
-  // identical prop API as `motion.div`; this is a bundle-composition change
-  // only.
   return (
     <LazyMotion features={domMin}>
-      <m.div
-        key={transition.pathname}
-        ref={wrapperRef}
-        initial={
-          reducedMotion || transition.direction === null
-            ? false
-            : {
-                opacity: 0,
-                y: transition.direction === 'back' ? -LIFT_OFFSET_ENTER : LIFT_OFFSET_ENTER,
-              }
-        }
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ duration: DUR_LIFT_ENTER, ease: EASE_SOFT }}
-      >
-        <Outlet />
-      </m.div>
+      <Outlet />
     </LazyMotion>
   )
 }
