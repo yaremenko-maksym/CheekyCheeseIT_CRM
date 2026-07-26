@@ -182,7 +182,17 @@ function VacancyDetailContent({
           <Tag variant={domainTagVariant(vacancy.domain)} className="mb-[18px]">
             {domainLabel(vacancy.domain, t.vacancy)}
           </Tag>
-          <h1 className="mb-[22px] max-w-[18ch] text-[clamp(2rem,5.5vw,3.4rem)] leading-[1.02] font-semibold tracking-[-0.03em] text-balance text-foreground">
+          {/* `data-vacancy-slug` — E2E-only marker (apps/e2e/tests/landing/
+              i18n.spec.ts "orchestrator finding" block): an unambiguous "this
+              is the DETAIL page's own heading" signal the home page's h1
+              never carries, proving the body content — not just the head's
+              `<link rel="canonical">` — actually rendered the detail page.
+              No runtime consumer (task-landing-remove-page-transitions.md
+              removed the title-morph feature this attribute used to serve). */}
+          <h1
+            data-vacancy-slug={vacancy.slug}
+            className="mb-[22px] max-w-[18ch] text-[clamp(2rem,5.5vw,3.4rem)] leading-[1.02] font-semibold tracking-[-0.03em] text-balance text-foreground"
+          >
             {title}
           </h1>
           <div className="flex flex-wrap gap-2.5">

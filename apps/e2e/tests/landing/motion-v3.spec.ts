@@ -108,8 +108,10 @@ test.describe('Instant page navigation (no page-transition)', () => {
   test('browser back restores the previous scroll position', async ({ page }) => {
     await gotoStable(page, '/')
     await page.mouse.wheel(0, 1200)
-    const scrolledY = await page.evaluate(() => window.scrollY)
-    expect(scrolledY).toBeGreaterThan(0)
+    // `mouse.wheel` dispatches the event but the browser's own scroll
+    // handling lags a frame or two — poll instead of a single immediate read
+    // (same reasoning as the "forward navigation" test above).
+    await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(0)
 
     await page.getByRole('link', { name: 'See open roles' }).click()
     await page.waitForURL('**/careers/')
