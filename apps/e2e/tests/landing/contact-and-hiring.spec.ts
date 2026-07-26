@@ -8,13 +8,17 @@
  * Opt-in `landing` project (same pattern as `responsive.spec.ts`/
  * `motion-v3.spec.ts`). Requires an externally started `apps/landing` dev
  * server (default `:3002`, override via `LANDING_BASE_URL`) proxying to a
- * real API instance.
+ * real API instance — no vacancy fixtures needed from
+ * `pnpm --filter @crm/e2e seed:landing` for THIS file specifically (every
+ * vacancy-shaped response below is mocked, see next paragraph), but the
+ * shared stack every other `landing/*.spec.ts` file needs is assumed to
+ * already be seeded.
  *
  * `GET /api/public/vacancies` is intercepted via `page.route()` for the
  * HiringStrip describe block ONLY — deterministic count control without
- * writing/cleaning up rows in the shared scratch DB (every other describe
- * block here hits the real backend, same convention as the rest of this
- * project's `landing` shard).
+ * depending on however many PUBLISHED fixtures `seed:landing` happens to
+ * have created (every other describe block here hits the real backend, same
+ * convention as the rest of this project's `landing` shard).
  */
 import { test, expect, type Page } from '@playwright/test'
 

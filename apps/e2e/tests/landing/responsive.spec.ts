@@ -4,9 +4,17 @@
  * Opt-in project (`--project=landing`, see ../../playwright.config.ts) — NOT
  * run by the default `chromium` project or ci.yml's default shard. Requires
  * an externally started `apps/landing` dev server (default `:3002`, override
- * via `LANDING_BASE_URL`) proxying to an API instance seeded with at least
- * one PUBLISHED vacancy (see the task file's "Процесс" section for the
- * scratch-DB setup used to verify this locally).
+ * via `LANDING_BASE_URL`) proxying to an API instance seeded with
+ * `pnpm --filter @crm/e2e seed:landing` (task-landing-e2e-in-ci.md КОНТРАКТ —
+ * publishes at least the 2 PUBLISHED fixtures in `./fixtures.ts`).
+ *
+ * The vacancy-detail describe block below deliberately does NOT import a
+ * specific slug from `./fixtures.ts` — the "no overflow at width X" check
+ * doesn't care WHICH vacancy it looks at, only that a real detail page
+ * renders, so it picks whatever `/api/public/vacancies` returns first (the
+ * "unified approach" task-landing-e2e-in-ci.md asks for: specs that don't
+ * need a SPECIFIC vacancy's content fetch dynamically instead of hardcoding
+ * a slug that would drift from whatever the seed script actually creates).
  *
  * Covers, per docs/design/landing-redesign.md §6 + rules/common/
  * responsive-design.md: no horizontal overflow at any of the 7 test widths
@@ -87,7 +95,7 @@ test.describe('Responsive — vacancy detail (/careers/:slug)', () => {
       const vacancies = (await res.json()) as Array<{ slug: string }>
       test.skip(
         vacancies.length === 0,
-        'no PUBLISHED vacancy seeded in the scratch DB — see task file',
+        'no PUBLISHED vacancy seeded — run `pnpm --filter @crm/e2e seed:landing` first',
       )
 
       await page.setViewportSize({ width, height: VIEWPORT_HEIGHT })

@@ -6,10 +6,12 @@
     "test": "playwright test",
     "test:ui": "playwright test --ui",
     "test:headed": "playwright test --headed",
-    "codegen": "playwright codegen http://localhost:3000"
+    "codegen": "playwright codegen http://localhost:3000",
+    "seed:landing": "tsx scripts/seed-landing.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.52.0",
-    "@types/node": "^20.0.0"
+    "@types/node": "^20.0.0",
+    "tsx": "^4.21.0"
   }
 }
