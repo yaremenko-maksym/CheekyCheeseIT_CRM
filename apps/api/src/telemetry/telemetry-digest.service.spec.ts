@@ -58,6 +58,81 @@ describe('TelemetryDigestService.getDigest — orchestration', () => {
     const result = await svc.getDigest({ since: new Date('2026-01-01'), includeUx: false })
     expect(result.errors).toEqual([])
   })
+
+  it('ALWAYS includes cspViolations, even when includeUx=false (task-csp-reports-and-flip §4)', async () => {
+    const result = await svc.getDigest({ since: new Date('2026-01-01'), includeUx: false })
+    expect(result).toHaveProperty('cspViolations')
+    expect(result.cspViolations).toEqual([])
+  })
+
+  it('sources cspViolations from getCspViolations', async () => {
+    const stubViolation = {
+      id: '11111111-1111-4111-8111-111111111111',
+      effectiveDirective: 'script-src',
+      blockedUri: 'https://evil.example',
+      documentPath: '/team',
+      disposition: 'report' as const,
+      userAgent: null,
+      count: 3,
+      firstSeen: '2026-07-01T00:00:00.000Z',
+      lastSeen: '2026-07-02T00:00:00.000Z',
+    }
+    vi.spyOn(svc, 'getCspViolations').mockResolvedValue([stubViolation])
+
+    const result = await svc.getDigest({ since: new Date('2026-01-01'), includeUx: false })
+
+    expect(result.cspViolations).toEqual([stubViolation])
+  })
+})
+
+describe('TelemetryDigestService.getCspViolations', () => {
+  it('maps DB rows to the wire shape, ordered by count desc (query-level, not asserted here)', async () => {
+    const row = {
+      id: '22222222-2222-4222-8222-222222222222',
+      effectiveDirective: 'style-src',
+      blockedUri: 'https://cdn.example/x.css',
+      documentPath: '/finance',
+      disposition: 'enforce' as const,
+      userAgent: 'Mozilla/5.0',
+      count: 5,
+      firstSeen: new Date('2026-07-01T00:00:00Z'),
+      lastSeen: new Date('2026-07-03T00:00:00Z'),
+    }
+    const db = {
+      db: {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              orderBy: async () => [row],
+            }),
+          }),
+        }),
+      },
+    } as unknown as DatabaseService
+    const svc = new TelemetryDigestService(db)
+
+    const result = await svc.getCspViolations(new Date('2026-07-01T00:00:00Z'))
+
+    expect(result).toEqual([
+      {
+        id: row.id,
+        effectiveDirective: 'style-src',
+        blockedUri: 'https://cdn.example/x.css',
+        documentPath: '/finance',
+        disposition: 'enforce',
+        userAgent: 'Mozilla/5.0',
+        count: 5,
+        firstSeen: '2026-07-01T00:00:00.000Z',
+        lastSeen: '2026-07-03T00:00:00.000Z',
+      },
+    ])
+  })
+
+  it('returns an empty array when there are no matching rows', async () => {
+    const svc = new TelemetryDigestService(makeEmptyDb())
+    const result = await svc.getCspViolations(new Date('2026-01-01'))
+    expect(result).toEqual([])
+  })
 })
 
 describe('TelemetryDigestService.fetchAndNotifyNewErrors', () => {
