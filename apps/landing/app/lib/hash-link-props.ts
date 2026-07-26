@@ -6,9 +6,10 @@ import { smoothScrollToId } from './smooth-scroll'
  * wiring: on "/" itself, our own `smoothScrollToId` owns the scroll entirely
  * (native `hashScrollIntoView` disabled so the router doesn't ALSO jump
  * instantly first); navigating in from another route leaves the router's own
- * default (instant) hash-scroll-on-arrival untouched — a full page-transition
- * plays instead (§M.3), and layering a second scroll animation on top would
- * be "annoying", not "premium".
+ * default (instant) hash-scroll-on-arrival untouched — the page swap itself
+ * is instant (no page-transition, task-landing-remove-page-transitions.md),
+ * and layering a smooth-scroll animation on top would be "annoying", not
+ * "premium".
  */
 export function hashLinkProps(hash: string, isHome: boolean) {
   return {

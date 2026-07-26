@@ -1,5 +1,4 @@
-import { useLayoutEffect, useMemo, useRef } from 'react'
-import { useLocation } from '@tanstack/react-router'
+import { useMemo } from 'react'
 import { ArrowLeft, Briefcase, BarChart3, MapPin } from 'lucide-react'
 import type { PublicVacancyDetail } from '@crm/shared'
 import { useDocumentHead } from '@/lib/use-document-head'
@@ -21,12 +20,6 @@ import { VacancyApplyForm } from '@/components/marketing/vacancy-apply-form'
 import { VacancyCard } from '@/components/marketing/vacancy-card'
 import { Tag } from '@/components/ui/tag'
 import { cn, focusRing } from '@/lib/utils'
-import {
-  captureMorphSource,
-  playTitleMorphOverlay,
-  readPendingMorph,
-  validateMorphDestination,
-} from '@/lib/title-morph'
 import { DEFAULT_LOCALE, localizedPath, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath } from '@/i18n/routes'
@@ -170,33 +163,6 @@ function VacancyDetailContent({
     ],
   })
 
-  // Title-morph consumer, forward direction (§M v3.2 п.5) — /careers's
-  // VacancyCard <h3> "flying" into this page's <h1>. `useLayoutEffect`, not
-  // `useEffect`: must run BEFORE the browser paints this route's first
-  // frame, or the real <h1> would flash visible before the overlay hides it.
-  // `readPendingMorph(pathname)` only actually returns a morph when THIS
-  // component's own current pathname is the navigation's real destination
-  // (`lib/title-morph.ts`'s addressable consume, fix for a HIGH
-  // fidelity-review finding, 2026-07-25).
-  //
-  // `pathname` is deliberately OMITTED from the effect's dependency array —
-  // same reasoning as `careers-list.tsx`'s companion consumer (see its
-  // module doc): `useLocation()` is reactive and TanStack Router updates
-  // `router.state.location` to the pending/target location EARLY, so
-  // including it as a dep would re-run this effect on ANY global location
-  // change, not just this component's own true mount — defeating the
-  // addressable check entirely (a still-mounted SOURCE instance would
-  // "pass" once the pending location catches up to its own destination).
-  const pathname = useLocation({ select: (location) => location.pathname })
-  const titleRef = useRef<HTMLHeadingElement>(null)
-  useLayoutEffect(() => {
-    const morph = readPendingMorph(pathname)
-    const titleEl = titleRef.current
-    if (!morph || !titleEl) return
-    if (!validateMorphDestination(morph, vacancy.slug, titleEl)) return
-    playTitleMorphOverlay(morph, titleEl)
-  }, [vacancy.slug])
-
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <MarketingNav active="careers" locale={locale} dict={dict} path={path} />
@@ -205,9 +171,6 @@ function VacancyDetailContent({
         <div className="mx-auto max-w-[1200px] px-5 pt-8 pb-5 md:px-10 lg:px-14">
           <BackLink
             to={careersRoutePath(locale)}
-            onClick={() => {
-              if (titleRef.current) captureMorphSource(titleRef.current, vacancy.slug)
-            }}
             className={cn('inline-flex items-center gap-2 text-muted-foreground', focusRing)}
           >
             <ArrowLeft aria-hidden="true" className="size-4" />
@@ -219,9 +182,15 @@ function VacancyDetailContent({
           <Tag variant={domainTagVariant(vacancy.domain)} className="mb-[18px]">
             {domainLabel(vacancy.domain, t.vacancy)}
           </Tag>
+          {/* `data-vacancy-slug` — E2E-only marker (apps/e2e/tests/landing/
+              i18n.spec.ts "orchestrator finding" block): an unambiguous "this
+              is the DETAIL page's own heading" signal the home page's h1
+              never carries, proving the body content — not just the head's
+              `<link rel="canonical">` — actually rendered the detail page.
+              No runtime consumer (task-landing-remove-page-transitions.md
+              removed the title-morph feature this attribute used to serve). */}
           <h1
-            ref={titleRef}
-            data-vacancy-morph-slug={vacancy.slug}
+            data-vacancy-slug={vacancy.slug}
             className="mb-[22px] max-w-[18ch] text-[clamp(2rem,5.5vw,3.4rem)] leading-[1.02] font-semibold tracking-[-0.03em] text-balance text-foreground"
           >
             {title}

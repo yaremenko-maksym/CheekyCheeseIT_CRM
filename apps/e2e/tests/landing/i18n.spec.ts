@@ -232,11 +232,10 @@ test.describe('orchestrator finding — vacancy DETAIL pages render the DETAIL c
       expect(res?.status()).toBe(200)
       await page.waitForSelector('footer', { state: 'visible' })
 
-      // VacancyDetailPageContent's own <h1> carries the SAME
-      // data-vacancy-morph-slug attribute the list card it morphs from does
-      // (vacancy-card.tsx) — an unambiguous "this is the detail page for
-      // THIS vacancy" marker the home page's h1 never carries.
-      await expect(page.locator('h1[data-vacancy-morph-slug="senior-ml-engineer"]')).toBeVisible()
+      // VacancyDetailPageContent's own <h1> carries a `data-vacancy-slug`
+      // marker — an unambiguous "this is the detail page for THIS vacancy"
+      // signal the home page's h1 never carries.
+      await expect(page.locator('h1[data-vacancy-slug="senior-ml-engineer"]')).toBeVisible()
 
       const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
       expect(canonical).toBe(`${SITE_ORIGIN}${detailPath}`)
@@ -297,7 +296,7 @@ test.describe('plan §3/A10 — hreflang omits locales with no real translation 
     await page.waitForSelector('footer', { state: 'visible' })
     // No `ru` translation exists — plan §3 "непереведённая — оригинал":
     // the page shows the EN title verbatim, not an error/empty state.
-    await expect(page.locator('h1[data-vacancy-morph-slug="lead-ecommerce-dev"]')).toContainText(
+    await expect(page.locator('h1[data-vacancy-slug="lead-ecommerce-dev"]')).toContainText(
       'E-Commerce Team Lead',
     )
   })

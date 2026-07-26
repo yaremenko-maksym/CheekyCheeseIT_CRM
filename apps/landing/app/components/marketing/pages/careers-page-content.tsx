@@ -45,7 +45,9 @@ export function CareersPageContent({
     <div className="flex min-h-screen flex-col bg-background text-foreground">
       <MarketingNav active="careers" locale={locale} dict={dict} path={PATH} />
 
-      {/* `tabIndex={-1}` — page-transition focus target (§M.3 step 9). */}
+      {/* `tabIndex={-1}` — programmatic focus target after a client-side
+          navigation (WCAG 2.4.3) — `__root.tsx` moves focus here once the
+          route resolves. */}
       <main tabIndex={-1} className="flex-1 focus:outline-none">
         <section className="relative overflow-hidden">
           <div
