@@ -106,7 +106,11 @@ export function MarketingFooter({
                   mailto: CTA; scrolls/links to the real inline contact form
                   in `#contact` (same `hashLinkProps` pattern as every other
                   in-page link in this component). */}
-              <Link to={homePath} {...hashLinkProps('contact', isHome)} className={FOOTER_LINK_CLASS}>
+              <Link
+                to={homePath}
+                {...hashLinkProps('contact', isHome)}
+                className={FOOTER_LINK_CLASS}
+              >
                 {t.footer.contact}
               </Link>
             </div>

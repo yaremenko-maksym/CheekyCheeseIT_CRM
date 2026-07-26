@@ -66,7 +66,8 @@ export function VacancyDetailPageContent({
   dict: Dictionary
 }) {
   const count = vacancyCount ?? 0
-  if (!vacancy) return <NotFoundState slug={slug} vacancyCount={count} locale={locale} dict={dict} />
+  if (!vacancy)
+    return <NotFoundState slug={slug} vacancyCount={count} locale={locale} dict={dict} />
   return (
     <VacancyDetailContent
       vacancy={vacancy}
