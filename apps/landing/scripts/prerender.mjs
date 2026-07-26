@@ -127,10 +127,13 @@ async function fetchVacanciesForLocale(locale) {
  */
 async function fetchAllLocaleVacancies() {
   const entries = await Promise.all(
-    LOCALES.map(async (locale) => /** @type {[string, VacancyListItem[] | null]} */ ([
-      locale,
-      await fetchVacanciesForLocale(locale),
-    ])),
+    LOCALES.map(
+      async (locale) =>
+        /** @type {[string, VacancyListItem[] | null]} */ ([
+          locale,
+          await fetchVacanciesForLocale(locale),
+        ]),
+    ),
   )
   return Object.fromEntries(entries)
 }
@@ -238,20 +241,53 @@ function extractJsonLd(html) {
  * validates the ALREADY-CAPTURED html string and retries with a brand-new
  * page if it does not match, instead of trusting this wait alone.
  *
+ * **`expectedCanonical` param — task-landing-remove-page-transitions.md
+ * fix-round-1 (code-review BLOCK) — closes a STALE-DOM race, a DIFFERENT
+ * failure mode than the settled-vs-committed one above.** `captureRoute()`
+ * writes each route's captured HTML straight to `dist/<route>/index.html`
+ * as soon as it's captured, and this SAME `vite preview` server serves
+ * `dist/` as static files with an SPA fallback for any path that doesn't
+ * (yet) have its own file on disk — so a LATER route's very first
+ * navigation can be served an EARLIER route's already-written, fully-
+ * rendered HTML as its initial document (`/` is captured first and written
+ * to `dist/index.html`; `/careers`'s `page.goto()` a moment later, before
+ * `dist/careers/index.html` exists, gets that same now-stale
+ * `dist/index.html` — Home's markup — as its SPA fallback). Whichever page
+ * actually committed first already has a REAL `<footer>` and a REAL (if
+ * WRONG for this capture) robots meta that can satisfy the two waits above
+ * without ever being the route under capture at all. This is exactly what
+ * broke when `app/client.tsx` stopped mounting `<Outlet/>` synchronously
+ * (mount is now deferred to AFTER `router.load()` resolves, to fix a
+ * separate empty-frame bug — see that file's module doc): the stale Home
+ * markup sat in `#root` untouched long enough for THIS gate to pass
+ * against IT, before the real `/careers` render ever committed —
+ * `page.content()` captured Home while `captureRoute()` thought it was
+ * capturing `/careers`, and `assertCanonicalSelf` (the post-capture check)
+ * caught the mismatch. Checking `<link rel="canonical">` against the EXACT
+ * URL this capture is FOR (same ground-truth `localizedUrl()` computation
+ * `assertCanonicalSelf` uses, passed in by the caller) closes this race at
+ * the READINESS-GATE level, generically — "some page rendered" is no
+ * longer enough to satisfy this wait; it has to be genuinely THIS page,
+ * regardless of what timing changes land in `client.tsx`/`__root.tsx` in
+ * the future.
+ *
  * @param {import('playwright').Page} page
  * @param {boolean} expectNoindex
+ * @param {string} expectedCanonical - the exact `<link rel="canonical" href>` this capture must observe before it is considered settled (see doc above).
  * @returns {Promise<void>}
  */
-async function waitForDocumentHeadSettled(page, expectNoindex) {
+async function waitForDocumentHeadSettled(page, expectNoindex, expectedCanonical) {
   await page.waitForSelector('footer', { state: 'visible' })
   await page.waitForFunction(
-    (expected) => {
+    ({ expectNoindex, expectedCanonical }) => {
       const meta = document.querySelector('meta[name="robots"]')
       if (!meta) return false
       const isNoindex = (meta.getAttribute('content') ?? '').includes('noindex')
-      return isNoindex === expected
+      if (isNoindex !== expectNoindex) return false
+      const canonical = document.querySelector('link[rel="canonical"]')?.getAttribute('href')
+      return canonical === expectedCanonical
     },
-    expectNoindex,
+    { expectNoindex, expectedCanonical },
     { timeout: 10_000 },
   )
 }
@@ -361,6 +397,16 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
   // `useDocumentHead`'s own `htmlLang` default is `en` (DEFAULT_LOCALE), so
   // that's the correct expectation there too (task-landing-i18n.md, A5).
   const expectedLang = route?.locale ?? DEFAULT_LOCALE
+  // Ground truth for `waitForDocumentHeadSettled`'s stale-DOM identity check
+  // (see that function's doc) — the SAME `localizedUrl()` computation
+  // `assertCanonicalSelf` uses post-capture below, so both checks can never
+  // disagree with each other. The 404 marker (`route === null`) has no
+  // `PrerenderRoute` to derive this from — `routes/__root.tsx`'s
+  // `NotFoundPage` hardcodes `canonicalUrl('/404')`, mirrored literally here
+  // (plain Node ESM, same duplication rationale as `SITE_ORIGIN` above).
+  const expectedCanonical = route
+    ? localizedUrl(route.locale ?? DEFAULT_LOCALE, route.path)
+    : `${SITE_ORIGIN}/404/`
   /** @type {unknown} */
   let lastError
   for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
@@ -368,7 +414,7 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
     try {
       await preparePage(page)
       await page.goto(`${baseUrl}${url}`)
-      await waitForDocumentHeadSettled(page, expectNoindex)
+      await waitForDocumentHeadSettled(page, expectNoindex, expectedCanonical)
       const html = await page.content()
       assertRobotsMeta(html, expectNoindex, label)
       assertHtmlLang(html, expectedLang, label)
