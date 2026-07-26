@@ -23,6 +23,33 @@ E2E_TESTS_DIR = os.path.join(REPO_ROOT, "apps", "e2e", "tests")
 CI_YML = os.path.join(REPO_ROOT, ".github", "workflows", "ci.yml")
 
 # ---------------------------------------------------------------------------
+# EXCLUDED_DIRS — structural exclusion (NOT debt): whole directories that are
+# categorically, permanently outside the CI shard matrix BY DESIGN, as
+# opposed to individual files temporarily awaiting migration (that's
+# KNOWN_UNSHARDED, below).
+#
+# tests/landing/ — the entire `landing` Playwright PROJECT (see
+# apps/e2e/playwright.config.ts) is opt-in / local-only: it needs an
+# externally started apps/landing dev server + a vacancies-seeded scratch DB
+# that ci.yml's default shard matrix does not provision (tracked as debt F1
+# in docs/superpowers/plans/plan-landing-i18n-seo.md — a real CI job for it
+# is a separate, larger task, not something this guard should paper over).
+# Every spec added under this directory is, BY CONSTRUCTION, never going to
+# land in a ci.yml shard — enumerating them one-by-one in KNOWN_UNSHARDED
+# (as this list used to) was pure repeated toil that recurred 3 times in one
+# review cycle (responsive.spec.ts, motion-v3.spec.ts, i18n.spec.ts, each a
+# separate PR-red-then-fix round-trip) because this script is outside the
+# landing-owning coder's zone-of-write — they cannot add their own entry.
+# A directory-level rule removes the whole CLASS of gap instead of patching
+# one more instance of it, while every OTHER (shardable) directory still
+# goes through the individual KNOWN_UNSHARDED debt-list path below, so a
+# genuinely new gap anywhere else still fails this guard.
+# ---------------------------------------------------------------------------
+EXCLUDED_DIRS = {
+    "tests/landing/",
+}
+
+# ---------------------------------------------------------------------------
 # KNOWN_UNSHARDED — explicit debt list.
 # Each entry is a path relative to apps/e2e/ (same convention as ci.yml shards).
 # To remove debt: add the file to a shard in ci.yml AND remove from this list.
@@ -36,22 +63,7 @@ KNOWN_UNSHARDED = {
     "tests/cache/media-cache.spec.ts",            # debt: cache tests not in any shard, migrate later
     "tests/cache/no-store.spec.ts",               # debt: cache tests not in any shard, migrate later
     "tests/cache/sw-smoke.spec.ts",               # debt: cache tests not in any shard, migrate later
-    # --- landing/ suite (task-landing-redesign.md AC6) ---
-    "tests/landing/responsive.spec.ts",           # debt: opt-in `landing` Playwright project (same
-                                                   # pattern as cache/ above) — needs an externally
-                                                   # started apps/landing dev server + vacancies-seeded
-                                                   # scratch DB that ci.yml's default shard does not
-                                                   # provision. Run locally: `playwright test --project=landing`.
-    "tests/landing/motion-v3.spec.ts",            # debt: opt-in `landing` Playwright project (same
-                                                   # pattern as responsive.spec.ts above) — needs an
-                                                   # externally started apps/landing dev server +
-                                                   # vacancies-seeded scratch DB. Run locally:
-                                                   # `playwright test --project=landing`.
-    "tests/landing/i18n.spec.ts",                 # debt: opt-in `landing` Playwright project (same
-                                                   # pattern as responsive.spec.ts / motion-v3.spec.ts
-                                                   # above) — needs an externally started apps/landing
-                                                   # dev server + vacancies-seeded scratch DB. Run
-                                                   # locally: `playwright test --project=landing`.
+    # --- landing/ suite: see EXCLUDED_DIRS above (structural, not debt) ---
     # --- accountant ---
     "tests/accountant-dashboard.spec.ts",         # debt: not gated, migrate to accountant shard later
     # --- admin ---
@@ -199,8 +211,12 @@ def main():
     all_specs = collect_all_specs(E2E_TESTS_DIR)
     sharded_patterns = parse_sharded_from_ci(CI_YML)
     sharded_specs = resolve_sharded_specs(sharded_patterns, all_specs)
+    excluded_specs = {
+        spec for spec in all_specs
+        if any(spec.startswith(prefix) for prefix in EXCLUDED_DIRS)
+    }
 
-    accounted = sharded_specs | KNOWN_UNSHARDED
+    accounted = sharded_specs | KNOWN_UNSHARDED | excluded_specs
 
     ghost_debt = sorted(KNOWN_UNSHARDED - all_specs)
     uncovered = sorted(all_specs - accounted)
@@ -208,6 +224,7 @@ def main():
     print("E2E Shard Coverage Guard")
     print("  Total spec files:    {}".format(len(all_specs)))
     print("  Sharded (gated):     {}".format(len(sharded_specs)))
+    print("  Excluded (by design):{}".format(len(excluded_specs)))
     print("  Known unsharded:     {}".format(len(KNOWN_UNSHARDED)))
     print("  Ghost debt entries:  {}".format(len(ghost_debt)))
     print("  UNCOVERED (new!):    {}".format(len(uncovered)))
