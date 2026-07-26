@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { Cron } from '@nestjs/schedule'
 import { asc, inArray, lt, sql } from 'drizzle-orm'
+import { CSP_REPORTS_ROW_CAP } from '../csp-reports/csp-reports.service'
 import { DatabaseService } from '../database/database.service'
 import { cspReports, telemetryErrors, telemetryEvents } from '../database/schema'
 
@@ -20,6 +21,16 @@ import { cspReports, telemetryErrors, telemetryEvents } from '../database/schema
  *     defensive backstop on top of the age-based delete, in case of a
  *     sudden event-volume spike; runs AFTER the age-based delete so it only
  *     ever does extra work when the normal 90-day window isn't enough.
+ *   - `csp_reports` row-count safety cap (`CSP_REPORTS_ROW_CAP`, 10 000 —
+ *     security round 1 HIGH-1a) — same backstop shape as
+ *     `enforceEventsCap`, but the PRIMARY defense against unbounded growth
+ *     of THIS table is the insert-time budget check in
+ *     `CspReportsService.recordViolation` (HIGH-1b): this daily sweep alone
+ *     would leave a full day of flood unprotected between runs, so it is a
+ *     backstop on top of the insert-time check, not a replacement for it.
+ *     Eviction order is `last_seen` ASCENDING (least-recently-seen first) —
+ *     the SAME column the age-based delete above already cuts on, so a row
+ *     evicted here is one that was already close to aging out naturally.
  *
  * AC7 requires the 89/90/91 + 179/180/181-day BOUNDARY to be unit-tested
  * (not integration, unlike vacancies' equivalent) — `cutoffDate()` is the
@@ -53,6 +64,8 @@ export interface PurgeResult {
   eventsDeletedByCap: number
   eventsDeleted: number
   errorsDeleted: number
+  cspReportsDeletedByAge: number
+  cspReportsDeletedByCap: number
   cspReportsDeleted: number
 }
 
@@ -72,7 +85,7 @@ export class TelemetryRetentionCronService {
     try {
       const result = await this.purgeExpired()
       this.logger.log(
-        `Telemetry retention: events deleted=${result.eventsDeleted} (age=${result.eventsDeletedByAge}, cap=${result.eventsDeletedByCap}), errors deleted=${result.errorsDeleted}, csp reports deleted=${result.cspReportsDeleted}`,
+        `Telemetry retention: events deleted=${result.eventsDeleted} (age=${result.eventsDeletedByAge}, cap=${result.eventsDeletedByCap}), errors deleted=${result.errorsDeleted}, csp reports deleted=${result.cspReportsDeleted} (age=${result.cspReportsDeletedByAge}, cap=${result.cspReportsDeletedByCap})`,
       )
     } catch (err: unknown) {
       this.logger.error(
@@ -90,17 +103,20 @@ export class TelemetryRetentionCronService {
       cutoffDate(now, EVENTS_RETENTION_DAYS),
     )
     const errorsDeleted = await this.deleteErrorsOlderThan(cutoffDate(now, ERRORS_RETENTION_DAYS))
-    const cspReportsDeleted = await this.deleteCspReportsOlderThan(
+    const cspReportsDeletedByAge = await this.deleteCspReportsOlderThan(
       cutoffDate(now, CSP_REPORTS_RETENTION_DAYS),
     )
     const eventsDeletedByCap = await this.enforceEventsCap()
+    const cspReportsDeletedByCap = await this.enforceCspReportsCap()
 
     return {
       eventsDeletedByAge,
       eventsDeletedByCap,
       eventsDeleted: eventsDeletedByAge + eventsDeletedByCap,
       errorsDeleted,
-      cspReportsDeleted,
+      cspReportsDeletedByAge,
+      cspReportsDeletedByCap,
+      cspReportsDeleted: cspReportsDeletedByAge + cspReportsDeletedByCap,
     }
   }
 
@@ -152,6 +168,36 @@ export class TelemetryRetentionCronService {
     await this.db.db.delete(telemetryEvents).where(
       inArray(
         telemetryEvents.id,
+        oldest.map((r) => r.id),
+      ),
+    )
+    return oldest.length
+  }
+
+  /**
+   * Security round 1 (HIGH-1a) — defensive row-count cap for `csp_reports`,
+   * same shape as `enforceEventsCap` above but ordered by `last_seen`
+   * ascending (least-recently-seen first — see the class doc comment for
+   * why). This is the DAILY backstop; the insert-time budget check in
+   * `CspReportsService.recordViolation` (HIGH-1b) is the primary defense
+   * and is what actually stops growth WITHIN a single day.
+   */
+  async enforceCspReportsCap(): Promise<number> {
+    const [row] = await this.db.db.select({ count: sql<number>`count(*)::int` }).from(cspReports)
+    const total = row?.count ?? 0
+    if (total <= CSP_REPORTS_ROW_CAP) return 0
+
+    const excess = total - CSP_REPORTS_ROW_CAP
+    const oldest = await this.db.db
+      .select({ id: cspReports.id })
+      .from(cspReports)
+      .orderBy(asc(cspReports.lastSeen))
+      .limit(excess)
+    if (oldest.length === 0) return 0
+
+    await this.db.db.delete(cspReports).where(
+      inArray(
+        cspReports.id,
         oldest.map((r) => r.id),
       ),
     )

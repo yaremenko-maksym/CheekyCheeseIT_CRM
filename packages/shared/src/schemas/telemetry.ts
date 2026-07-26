@@ -150,10 +150,17 @@ export type TelemetryUxAggregates = z.infer<typeof telemetryUxAggregatesSchema>
  * CSP violation reports with `last_seen >= since`, ALWAYS present (not
  * gated behind `ux=1`) so the hourly errors-digest run already surfaces
  * them, not just the weekly UX one. See `csp-report.ts` for the item shape.
+ *
+ * `cspViolationsTotal` — security round 1 (HIGH-2): `cspViolations` is
+ * capped (`CSP_VIOLATIONS_DIGEST_LIMIT` in the API's TelemetryDigestService
+ * — this table can be grown by an anonymous caller, an unbounded select
+ * here was an OOM vector); this sibling field is the FULL matching count
+ * before that cap, so truncation is visible rather than silently dropped.
  */
 export const telemetryDigestResponseSchema = z.object({
   errors: z.array(telemetryErrorItemSchema),
   cspViolations: z.array(cspViolationItemSchema),
+  cspViolationsTotal: z.number().int(),
   ux: telemetryUxAggregatesSchema.optional(),
 })
 export type TelemetryDigestResponse = z.infer<typeof telemetryDigestResponseSchema>

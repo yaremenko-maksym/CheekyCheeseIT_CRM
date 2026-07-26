@@ -69,8 +69,14 @@ describe('cspReportToBodySchema (application/reports+json)', () => {
     expect(result.success).toBe(true)
   })
 
-  it('rejects a batch over 50 entries', () => {
-    const items = Array.from({ length: 51 }, () => ({ type: 'csp-violation' }))
+  it('accepts a batch of up to 10 entries (security round 1 HIGH-1e)', () => {
+    const items = Array.from({ length: 10 }, () => ({ type: 'csp-violation' }))
+    const result = cspReportToBodySchema.safeParse(items)
+    expect(result.success).toBe(true)
+  })
+
+  it('rejects a batch over 10 entries', () => {
+    const items = Array.from({ length: 11 }, () => ({ type: 'csp-violation' }))
     const result = cspReportToBodySchema.safeParse(items)
     expect(result.success).toBe(false)
   })

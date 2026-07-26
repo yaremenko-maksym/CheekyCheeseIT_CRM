@@ -62,8 +62,14 @@ export const cspReportToItemSchema = z.object({
 })
 export type CspReportToItem = z.infer<typeof cspReportToItemSchema>
 
-/** Capped at 50 — mirrors `telemetryEventsBatchSchema`'s batch cap (a single navigation cannot generate more). */
-export const cspReportToBodySchema = z.array(cspReportToItemSchema).max(50)
+/**
+ * Capped at 10 — security round 1 (HIGH-1e). A real browser's
+ * `reports+json` batch is tiny (a handful of violations from one
+ * navigation); `.max(50)` combined with per-item writes meant one request
+ * could mint up to 50 aggregation-key rows, letting the 60/hour per-IP rate
+ * limit be multiplied 50×. 10 still comfortably covers any genuine batch.
+ */
+export const cspReportToBodySchema = z.array(cspReportToItemSchema).max(10)
 export type CspReportToBody = z.infer<typeof cspReportToBodySchema>
 
 // ---------------------------------------------------------------------------

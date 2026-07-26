@@ -3,13 +3,20 @@
  * HTTP pipeline, real ThrottlerGuard, real custom content-type parser).
  * Same pattern as `telemetry.integration.spec.ts` / `contact.integration.spec.ts`.
  *
- * Covers (task-csp-reports-and-flip §Часть A item 6):
+ * Covers (task-csp-reports-and-flip §Часть A item 6 + security round 1):
  *   AC2 — both Content-Types accepted (application/csp-report,
  *         application/reports+json); garbage body → 204, no record;
  *         rate-limit 429 once CSP_REPORT_LIMIT (60/hour) is exceeded.
  *   AC3 — dedup: 3 identical reports → 1 row, count=3.
  *   AC4 — a recorded violation is visible in GET /api/telemetry/digest's
- *         `cspViolations` section.
+ *         `cspViolations` section (+ `cspViolationsTotal`).
+ *   Security round 1:
+ *     HIGH-1d — a document-uri from a FOREIGN origin is dropped (the
+ *       mass-reflection vector).
+ *     HIGH-1e — a batch over the 10-item cap is rejected wholesale.
+ *     LOW — a body over the 32 KB parser-level limit is rejected (413).
+ *     MED-3 — a REAL write failure (not garbage input) still responds 204,
+ *       but is recorded into `telemetry_errors` with a FIXED message.
  *
  * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable or
  * the `csp_reports` table is missing — every test bails early and stays
@@ -26,20 +33,27 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { drizzle } from 'drizzle-orm/node-postgres'
+import { eq } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
+import type { Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import * as schema from '../database/schema'
+import { telemetryErrors } from '../database/schema'
 import { TelemetryDigestTokenGuard } from '../telemetry/telemetry-digest-token.guard'
 import { TelemetryDigestController } from '../telemetry/telemetry-digest.controller'
 import { TelemetryDigestService } from '../telemetry/telemetry-digest.service'
+import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import { ZodExceptionFilter } from '../zod-exception.filter'
 import { registerCspReportContentTypeParser } from './csp-report-content-type-parser'
 import { CspReportsController } from './csp-reports.controller'
 import { CspReportsService } from './csp-reports.service'
 
 const DIGEST_TOKEN = 'csp-reports-integration-real-digest-token-32chars!!'
+/** Matches `FRONTEND_URL` below — every well-formed test payload's `document-uri` must be on THIS origin (HIGH-1d). */
+const OUR_ORIGIN = 'https://app.cheekycheese.tech'
+const INGEST_FAILURE_MESSAGE = 'csp-reports: write to csp_reports failed'
 
 // ---------------------------------------------------------------------------
 // TestDatabaseModule — same closure-pool-per-app pattern as
@@ -82,6 +96,8 @@ class TestDatabaseModule {}
 function fakeEnv(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     TELEMETRY_DIGEST_TOKEN: DIGEST_TOKEN,
+    FRONTEND_URL: OUR_ORIGIN,
+    CORS_ORIGINS: undefined,
     NODE_ENV: 'test',
     ...overrides,
   }
@@ -101,7 +117,13 @@ function buildCspReportsTestModule(throttlerLimit: number, env: Record<string, u
       { provide: ConfigService, useValue: fakeConfigService },
       {
         provide: CspReportsService,
-        useFactory: (db: DatabaseService) => new CspReportsService(db),
+        useFactory: (db: DatabaseService, c: ConfigService) =>
+          new CspReportsService(db, c as ConfigService<Env, true>),
+        inject: [DatabaseService, ConfigService],
+      },
+      {
+        provide: TelemetryErrorsService,
+        useFactory: (db: DatabaseService) => new TelemetryErrorsService(db),
         inject: [DatabaseService],
       },
       {
@@ -200,6 +222,9 @@ describe('CSP Reports — real backend integration', () => {
     if (!dbAvailable) return
     try {
       await dbSvc.db.execute('TRUNCATE TABLE csp_reports RESTART IDENTITY')
+      await dbSvc.db
+        .delete(telemetryErrors)
+        .where(eq(telemetryErrors.message, INGEST_FAILURE_MESSAGE))
     } catch {
       // non-fatal cleanup failure — do not mask test results
     }
@@ -210,7 +235,10 @@ describe('CSP Reports — real backend integration', () => {
 
   it('application/csp-report — 204, row created with normalized fields', async () => {
     if (!dbAvailable) return
-    const directive = `script-src-test-${Date.now()}`
+    // `effective-directive` MUST be a real, allow-listed CSP directive
+    // (HIGH-1c) — per-test isolation now comes from a unique `blocked-uri`
+    // segment instead (still free text).
+    const marker = `x-${Date.now()}`
     const res = await app.inject({
       method: 'POST',
       url: '/api/public/csp-report',
@@ -220,9 +248,9 @@ describe('CSP Reports — real backend integration', () => {
       },
       payload: JSON.stringify({
         'csp-report': {
-          'document-uri': 'https://app.cheekycheese.tech/team?foo=bar',
-          'effective-directive': directive,
-          'blocked-uri': 'https://evil.example/x.js?q=1',
+          'document-uri': `${OUR_ORIGIN}/team?foo=bar`,
+          'effective-directive': 'script-src',
+          'blocked-uri': `https://evil.example/${marker}.js?q=1`,
           disposition: 'report',
         },
       }),
@@ -230,10 +258,10 @@ describe('CSP Reports — real backend integration', () => {
     expect(res.statusCode).toBe(204)
 
     const row = await dbSvc.db.query.cspReports.findFirst({
-      where: (t, { eq: eqOp }) => eqOp(t.effectiveDirective, directive),
+      where: (t, { eq: eqOp }) => eqOp(t.blockedUri, `https://evil.example/${marker}.js`),
     })
     expect(row).toBeDefined()
-    expect(row?.blockedUri).toBe('https://evil.example/x.js')
+    expect(row?.effectiveDirective).toBe('script-src')
     expect(row?.documentPath).toBe('/team')
     expect(row?.disposition).toBe('report')
     expect(row?.userAgent).toBe('IntegrationTestUA/1.0')
@@ -244,7 +272,7 @@ describe('CSP Reports — real backend integration', () => {
 
   it('application/reports+json — 204, row created from a csp-violation entry, non-csp-violation entries ignored', async () => {
     if (!dbAvailable) return
-    const directive = `style-src-test-${Date.now()}`
+    const marker = `x-${Date.now()}`
     const res = await app.inject({
       method: 'POST',
       url: '/api/public/csp-report',
@@ -254,9 +282,9 @@ describe('CSP Reports — real backend integration', () => {
         {
           type: 'csp-violation',
           body: {
-            documentURL: 'https://app.cheekycheese.tech/finance?token=x',
-            effectiveDirective: directive,
-            blockedURL: 'https://cdn.evil.example/x.css',
+            documentURL: `${OUR_ORIGIN}/finance?token=x`,
+            effectiveDirective: 'style-src',
+            blockedURL: `https://cdn.evil.example/${marker}.css`,
             disposition: 'enforce',
           },
         },
@@ -265,9 +293,10 @@ describe('CSP Reports — real backend integration', () => {
     expect(res.statusCode).toBe(204)
 
     const row = await dbSvc.db.query.cspReports.findFirst({
-      where: (t, { eq: eqOp }) => eqOp(t.effectiveDirective, directive),
+      where: (t, { eq: eqOp }) => eqOp(t.blockedUri, `https://cdn.evil.example/${marker}.css`),
     })
     expect(row).toBeDefined()
+    expect(row?.effectiveDirective).toBe('style-src')
     expect(row?.documentPath).toBe('/finance')
     expect(row?.disposition).toBe('enforce')
   })
@@ -304,7 +333,9 @@ describe('CSP Reports — real backend integration', () => {
         method: 'POST',
         url: '/api/public/csp-report',
         headers: { 'content-type': 'application/csp-report' },
-        payload: JSON.stringify({ 'csp-report': { 'blocked-uri': marker } }),
+        payload: JSON.stringify({
+          'csp-report': { 'document-uri': `${OUR_ORIGIN}/x`, 'blocked-uri': marker },
+        }),
       })
       expect(res.statusCode).toBe(204)
 
@@ -315,16 +346,90 @@ describe('CSP Reports — real backend integration', () => {
     })
   })
 
+  // ── Security round 1 HIGH-1d — origin check (the mass-reflection vector) ──
+
+  it('a document-uri from a FOREIGN origin is dropped → 204, no row created', async () => {
+    if (!dbAvailable) return
+    const marker = `foreign-origin-marker-${Date.now()}`
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/public/csp-report',
+      headers: { 'content-type': 'application/csp-report' },
+      payload: JSON.stringify({
+        'csp-report': {
+          'document-uri': 'https://attacker.example/their-own-page',
+          'effective-directive': 'script-src',
+          'blocked-uri': marker,
+        },
+      }),
+    })
+    expect(res.statusCode).toBe(204)
+
+    const row = await dbSvc.db.query.cspReports.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.blockedUri, marker),
+    })
+    expect(row).toBeUndefined()
+  })
+
+  // ── Security round 1 HIGH-1e — batch cap (Zod .max(10)) ───────────────────
+
+  it('a reports+json batch over 10 entries is rejected wholesale → 204, no rows created', async () => {
+    if (!dbAvailable) return
+    const marker = `batch-cap-marker-${Date.now()}`
+    const items = Array.from({ length: 11 }, (_, i) => ({
+      type: 'csp-violation',
+      body: {
+        documentURL: `${OUR_ORIGIN}/x`,
+        effectiveDirective: 'script-src',
+        blockedURL: `${marker}-${i}`,
+      },
+    }))
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/public/csp-report',
+      headers: { 'content-type': 'application/reports+json' },
+      payload: JSON.stringify(items),
+    })
+    expect(res.statusCode).toBe(204)
+
+    const rows = await dbSvc.db.query.cspReports.findMany({
+      where: (t, { like }) => like(t.blockedUri, `${marker}%`),
+    })
+    expect(rows).toHaveLength(0)
+  })
+
+  // ── LOW — 32 KB parser-level body limit (separate from the global limit) ─
+
+  it('a body over the 32 KB parser limit is rejected with 413', async () => {
+    if (!dbAvailable) return
+    const oversized = JSON.stringify({
+      'csp-report': {
+        'document-uri': `${OUR_ORIGIN}/x`,
+        'effective-directive': 'script-src',
+        // Comfortably over 32 KB — a single oversized field, not a
+        // realistic report, this is purely to exercise the parser-level cap.
+        'blocked-uri': 'https://evil.example/' + 'x'.repeat(40 * 1024),
+      },
+    })
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/public/csp-report',
+      headers: { 'content-type': 'application/csp-report' },
+      payload: oversized,
+    })
+    expect(res.statusCode).toBe(413)
+  })
+
   // ── AC3 — dedup: 3 identical reports → 1 row, count=3 ─────────────────────
 
   it('AC3 — 3 identical csp-report submissions → 1 row, count=3', async () => {
     if (!dbAvailable) return
-    const directive = `dedup-test-${Date.now()}`
+    const marker = `dedup-${Date.now()}`
     const body = JSON.stringify({
       'csp-report': {
-        'document-uri': 'https://app.cheekycheese.tech/team',
-        'effective-directive': directive,
-        'blocked-uri': 'https://evil.example/dup.js',
+        'document-uri': `${OUR_ORIGIN}/team`,
+        'effective-directive': 'script-src',
+        'blocked-uri': `https://evil.example/${marker}.js`,
       },
     })
 
@@ -339,25 +444,109 @@ describe('CSP Reports — real backend integration', () => {
     }
 
     const rows = await dbSvc.db.query.cspReports.findMany({
-      where: (t, { eq: eqOp }) => eqOp(t.effectiveDirective, directive),
+      where: (t, { eq: eqOp }) => eqOp(t.blockedUri, `https://evil.example/${marker}.js`),
     })
     expect(rows).toHaveLength(1)
     expect(rows[0]!.count).toBe(3)
   })
 
+  it('MED-2 — a conflicting submission does NOT overwrite disposition/userAgent (data-poisoning guard)', async () => {
+    if (!dbAvailable) return
+    const marker = `no-overwrite-${Date.now()}`
+    const blockedUri = `https://evil.example/${marker}.js`
+    const documentUri = `${OUR_ORIGIN}/no-overwrite`
+
+    const first = await app.inject({
+      method: 'POST',
+      url: '/api/public/csp-report',
+      headers: { 'content-type': 'application/csp-report', 'user-agent': 'FirstUA/1.0' },
+      payload: JSON.stringify({
+        'csp-report': {
+          'document-uri': documentUri,
+          'effective-directive': 'script-src',
+          'blocked-uri': blockedUri,
+          disposition: 'report',
+        },
+      }),
+    })
+    expect(first.statusCode).toBe(204)
+
+    const second = await app.inject({
+      method: 'POST',
+      url: '/api/public/csp-report',
+      headers: { 'content-type': 'application/csp-report', 'user-agent': 'SecondUA/2.0' },
+      payload: JSON.stringify({
+        'csp-report': {
+          'document-uri': documentUri,
+          'effective-directive': 'script-src',
+          'blocked-uri': blockedUri,
+          disposition: 'enforce',
+        },
+      }),
+    })
+    expect(second.statusCode).toBe(204)
+
+    const row = await dbSvc.db.query.cspReports.findFirst({
+      where: (t, { eq: eqOp }) => eqOp(t.blockedUri, blockedUri),
+    })
+    expect(row?.count).toBe(2)
+    // First-observed values win — neither disposition nor userAgent flipped.
+    expect(row?.disposition).toBe('report')
+    expect(row?.userAgent).toBe('FirstUA/1.0')
+  })
+
+  // ── Security round 1 MED-3 — write failure IS observable (unlike garbage) ─
+
+  it('a REAL write failure still responds 204, but is recorded into telemetry_errors with a FIXED message', async () => {
+    if (!dbAvailable) return
+    const svc = app.get(CspReportsService)
+    const spy = vi
+      .spyOn(svc, 'recordViolation')
+      .mockRejectedValueOnce(new Error('simulated DB failure'))
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/public/csp-report',
+        headers: { 'content-type': 'application/csp-report' },
+        payload: JSON.stringify({
+          'csp-report': {
+            'document-uri': `${OUR_ORIGIN}/x`,
+            'effective-directive': 'script-src',
+            'blocked-uri': 'https://evil.example/whatever-the-payload-is.js',
+          },
+        }),
+      })
+      expect(res.statusCode).toBe(204)
+
+      const errorRow = await dbSvc.db.query.telemetryErrors.findFirst({
+        where: (t, { eq: eqOp }) => eqOp(t.message, INGEST_FAILURE_MESSAGE),
+      })
+      expect(errorRow).toBeDefined()
+      expect(errorRow?.route).toBe('/api/public/csp-report')
+      expect(errorRow?.source).toBe('API')
+      // The attacker-controlled payload never lands in the (public-digest-
+      // feeding) message — only the fixed string above.
+      expect(errorRow?.message).not.toContain('whatever-the-payload-is')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
   // ── AC4 — digest visibility ────────────────────────────────────────────
 
-  it('AC4 — a recorded violation appears in GET /api/telemetry/digest cspViolations', async () => {
+  it('AC4 — a recorded violation appears in GET /api/telemetry/digest cspViolations, with cspViolationsTotal reflecting the match count', async () => {
     if (!dbAvailable) return
-    const directive = `digest-visible-test-${Date.now()}`
+    const marker = `digest-visible-${Date.now()}`
     await app.inject({
       method: 'POST',
       url: '/api/public/csp-report',
       headers: { 'content-type': 'application/csp-report' },
       payload: JSON.stringify({
         'csp-report': {
-          'effective-directive': directive,
-          'blocked-uri': 'https://evil.example/v.js',
+          'document-uri': `${OUR_ORIGIN}/x`,
+          'effective-directive': 'script-src',
+          'blocked-uri': `https://evil.example/${marker}.js`,
         },
       }),
     })
@@ -369,8 +558,14 @@ describe('CSP Reports — real backend integration', () => {
       headers: { 'x-telemetry-token': DIGEST_TOKEN },
     })
     expect(res.statusCode).toBe(200)
-    const body = res.json() as { cspViolations: { effectiveDirective: string }[] }
-    expect(body.cspViolations.some((v) => v.effectiveDirective === directive)).toBe(true)
+    const body = res.json() as {
+      cspViolations: { blockedUri: string }[]
+      cspViolationsTotal: number
+    }
+    expect(
+      body.cspViolations.some((v) => v.blockedUri === `https://evil.example/${marker}.js`),
+    ).toBe(true)
+    expect(body.cspViolationsTotal).toBeGreaterThanOrEqual(1)
   })
 
   // ── AC2 — rate limit (own dedicated app instance — own throttle store) ──
@@ -389,7 +584,11 @@ describe('CSP Reports — real backend integration', () => {
             url: '/api/public/csp-report',
             headers: { 'content-type': 'application/csp-report' },
             payload: JSON.stringify({
-              'csp-report': { 'effective-directive': `rl-probe-${i}-${Date.now()}` },
+              'csp-report': {
+                'document-uri': `${OUR_ORIGIN}/x`,
+                'effective-directive': 'script-src',
+                'blocked-uri': `rl-probe-${i}-${Date.now()}`,
+              },
             }),
           })
           if (res.statusCode === 429) {
