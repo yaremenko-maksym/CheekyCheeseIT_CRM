@@ -22,7 +22,11 @@ function renderStrip(count: number, locale?: 'ru' | 'uk' | 'es' | 'pt') {
     // `exactOptionalPropertyTypes` — omit `locale` entirely rather than pass
     // `locale={undefined}` (same pattern as ContactForm's optional `company`).
     component: () => (
-      <HiringStrip count={count} {...(locale ? { locale } : {})} dict={getDictionary(locale ?? 'en')} />
+      <HiringStrip
+        count={count}
+        {...(locale ? { locale } : {})}
+        dict={getDictionary(locale ?? 'en')}
+      />
     ),
   })
   const router = createRouter({

@@ -168,7 +168,9 @@ describe('ContactForm', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     const banner = await screen.findByRole('alert')
-    expect(banner).toHaveTextContent('The "I\'m not a robot" check didn\'t go through — please try again.')
+    expect(banner).toHaveTextContent(
+      'The "I\'m not a robot" check didn\'t go through — please try again.',
+    )
     // Distinct from the generic validation copy.
     expect(banner.textContent).not.toContain('check your details')
     // Only the ONE persistent link under the button — no inline link inside
