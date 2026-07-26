@@ -33,7 +33,7 @@ import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify
 import { Test } from '@nestjs/testing'
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { eq } from 'drizzle-orm'
+import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 
@@ -47,13 +47,13 @@ import { TelemetryDigestService } from '../telemetry/telemetry-digest.service'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import { ZodExceptionFilter } from '../zod-exception.filter'
 import { registerCspReportContentTypeParser } from './csp-report-content-type-parser'
-import { CspReportsController } from './csp-reports.controller'
-import { CspReportsService } from './csp-reports.service'
+import { CSP_REPORT_WRITE_FAILURE_MESSAGE, CspReportsController } from './csp-reports.controller'
+import { CSP_REPORTS_CAP_REACHED_MESSAGE, CspReportsService } from './csp-reports.service'
 
 const DIGEST_TOKEN = 'csp-reports-integration-real-digest-token-32chars!!'
 /** Matches `FRONTEND_URL` below — every well-formed test payload's `document-uri` must be on THIS origin (HIGH-1d). */
 const OUR_ORIGIN = 'https://app.cheekycheese.tech'
-const INGEST_FAILURE_MESSAGE = 'csp-reports: write to csp_reports failed'
+const INGEST_FAILURE_MESSAGE = CSP_REPORT_WRITE_FAILURE_MESSAGE
 
 // ---------------------------------------------------------------------------
 // TestDatabaseModule — same closure-pool-per-app pattern as
@@ -116,15 +116,18 @@ function buildCspReportsTestModule(throttlerLimit: number, env: Record<string, u
       Reflector,
       { provide: ConfigService, useValue: fakeConfigService },
       {
-        provide: CspReportsService,
-        useFactory: (db: DatabaseService, c: ConfigService) =>
-          new CspReportsService(db, c as ConfigService<Env, true>),
-        inject: [DatabaseService, ConfigService],
-      },
-      {
         provide: TelemetryErrorsService,
         useFactory: (db: DatabaseService) => new TelemetryErrorsService(db),
         inject: [DatabaseService],
+      },
+      {
+        provide: CspReportsService,
+        useFactory: (
+          db: DatabaseService,
+          c: ConfigService,
+          telemetryErrors: TelemetryErrorsService,
+        ) => new CspReportsService(db, c as ConfigService<Env, true>, telemetryErrors),
+        inject: [DatabaseService, ConfigService, TelemetryErrorsService],
       },
       {
         provide: TelemetryDigestService,
@@ -224,7 +227,12 @@ describe('CSP Reports — real backend integration', () => {
       await dbSvc.db.execute('TRUNCATE TABLE csp_reports RESTART IDENTITY')
       await dbSvc.db
         .delete(telemetryErrors)
-        .where(eq(telemetryErrors.message, INGEST_FAILURE_MESSAGE))
+        .where(
+          inArray(telemetryErrors.message, [
+            INGEST_FAILURE_MESSAGE,
+            CSP_REPORTS_CAP_REACHED_MESSAGE,
+          ]),
+        )
     } catch {
       // non-fatal cleanup failure — do not mask test results
     }
@@ -528,6 +536,50 @@ describe('CSP Reports — real backend integration', () => {
       // The attacker-controlled payload never lands in the (public-digest-
       // feeding) message — only the fixed string above.
       expect(errorRow?.message).not.toContain('whatever-the-payload-is')
+    } finally {
+      spy.mockRestore()
+    }
+  })
+
+  // ── Security round 2 MED-residual — cap exhaustion IS observable too ────
+
+  it('a row-cap rejection still responds 204, but is recorded into telemetry_errors with a FIXED message (distinct from the write-failure one)', async () => {
+    if (!dbAvailable) return
+    const svc = app.get(CspReportsService)
+    // Forces the cap branch without actually inserting CSP_REPORTS_ROW_CAP
+    // rows — `getApproxRowCount` is the ONE call `recordViolation` makes to
+    // decide "at cap", so stubbing it exercises the real end-to-end wiring
+    // (real TelemetryErrorsService, real telemetry_errors write, real
+    // digest read) without a 10 000-row fixture.
+    const spy = vi
+      .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
+      .mockResolvedValue(1_000_000)
+
+    try {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/public/csp-report',
+        headers: { 'content-type': 'application/csp-report' },
+        payload: JSON.stringify({
+          'csp-report': {
+            'document-uri': `${OUR_ORIGIN}/x`,
+            'effective-directive': 'script-src',
+            'blocked-uri': `https://evil.example/cap-test-${Date.now()}.js`,
+          },
+        }),
+      })
+      expect(res.statusCode).toBe(204)
+
+      const errorRow = await dbSvc.db.query.telemetryErrors.findFirst({
+        where: (t, { eq: eqOp }) => eqOp(t.message, CSP_REPORTS_CAP_REACHED_MESSAGE),
+      })
+      expect(errorRow).toBeDefined()
+      expect(errorRow?.route).toBe('/api/public/csp-report')
+      expect(errorRow?.source).toBe('API')
+      // A distinct message from the write-failure one — the digest reader
+      // (and whoever checks the runbook before the 03.08 flip) must be able
+      // to tell "cap exhausted" apart from "writes are broken".
+      expect(errorRow?.message).not.toBe(INGEST_FAILURE_MESSAGE)
     } finally {
       spy.mockRestore()
     }

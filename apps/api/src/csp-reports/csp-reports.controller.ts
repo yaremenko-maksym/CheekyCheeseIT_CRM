@@ -4,10 +4,16 @@ import { cspReportToBodySchema, cspReportUriBodySchema } from '@crm/shared'
 import { Public } from '../auth/public.decorator'
 import { CSP_REPORT_LIMIT, RelaxableThrottle } from '../config/throttle-decorators'
 import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
-import { CspReportsService, type RecordCspViolationInput } from './csp-reports.service'
+import {
+  CSP_REPORT_ROUTE,
+  CspReportsService,
+  type RecordCspViolationInput,
+} from './csp-reports.service'
 
 /** Contract: "ориентир 60/час" — an hourly bucket (see throttle-decorators.ts). */
 const CSP_REPORT_TTL_MS = 60 * 60 * 1000
+/** Security round 1 (MED-3) — fixed message, see `recordIngestFailure`'s own doc comment. */
+export const CSP_REPORT_WRITE_FAILURE_MESSAGE = 'csp-reports: write to csp_reports failed'
 
 /**
  * CspReportsController — `POST /api/public/csp-report` (task-csp-reports-and-
@@ -143,8 +149,8 @@ export class CspReportsController {
     try {
       await this.telemetryErrors.recordError({
         source: 'API',
-        message: 'csp-reports: write to csp_reports failed',
-        route: '/api/public/csp-report',
+        message: CSP_REPORT_WRITE_FAILURE_MESSAGE,
+        route: CSP_REPORT_ROUTE,
       })
     } catch {
       // Best-effort — if telemetry_errors itself is unwritable there is

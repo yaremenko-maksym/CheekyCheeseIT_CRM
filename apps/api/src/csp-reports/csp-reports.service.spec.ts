@@ -1,8 +1,11 @@
 import { ConfigService } from '@nestjs/config'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { Env } from '../config/env'
 import type { DatabaseService } from '../database/database.service'
+import type { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import {
+  CSP_REPORT_ROUTE,
+  CSP_REPORTS_CAP_REACHED_MESSAGE,
   CSP_REPORTS_ROW_CAP,
   CspReportsService,
   USER_AGENT_MAX_LENGTH,
@@ -27,6 +30,14 @@ function makeConfigService(): ConfigService<Env, true> {
     NODE_ENV: 'test',
   }
   return { get: (key: string) => env[key] } as unknown as ConfigService<Env, true>
+}
+
+function makeTelemetryErrorsService(): {
+  telemetryErrors: TelemetryErrorsService
+  recordError: ReturnType<typeof vi.fn>
+} {
+  const recordError = vi.fn(async () => undefined)
+  return { telemetryErrors: { recordError } as unknown as TelemetryErrorsService, recordError }
 }
 
 interface InsertCall {
@@ -80,7 +91,11 @@ function makeDb(opts: { existingRows?: unknown[]; rowCount?: number } = {}): {
 describe('CspReportsService.recordViolation', () => {
   it('inserts with the resolved directive, normalized blockedUri/documentPath, count=1', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       effectiveDirective: 'script-src',
@@ -101,7 +116,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('does NOT insert when the document-uri origin is not ours (HIGH-1d — the mass-reflection vector)', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       effectiveDirective: 'script-src',
@@ -113,7 +132,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('does NOT insert when document-uri is missing entirely', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({ effectiveDirective: 'script-src' })
 
@@ -122,7 +145,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('does NOT insert when neither effective-directive nor violated-directive is allow-listed (HIGH-1c)', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       documentUri: VALID_DOCUMENT_URI,
@@ -134,7 +161,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('does NOT insert an arbitrary non-CSP-directive string, even if non-empty', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       documentUri: VALID_DOCUMENT_URI,
@@ -146,7 +177,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('falls back to violated-directive when effective-directive is missing', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       documentUri: VALID_DOCUMENT_URI,
@@ -158,7 +193,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('defaults disposition to "report" when omitted', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({ documentUri: VALID_DOCUMENT_URI, effectiveDirective: 'script-src' })
 
@@ -167,7 +206,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('does NOT mangle a cookie-consent blockedUri (MED-4 regression, end-to-end through the service)', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       documentUri: VALID_DOCUMENT_URI,
@@ -180,7 +223,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('redacts a Bearer-token-shaped blockedUri before normalizing/storing', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       documentUri: VALID_DOCUMENT_URI,
@@ -196,7 +243,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('sanitizes AND truncates the User-Agent header before storing (byte-based cap)', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       documentUri: VALID_DOCUMENT_URI,
@@ -211,7 +262,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('strips control characters (CRLF) from the User-Agent header', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({
       documentUri: VALID_DOCUMENT_URI,
@@ -225,7 +280,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('stores userAgent as null when omitted', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({ documentUri: VALID_DOCUMENT_URI, effectiveDirective: 'script-src' })
 
@@ -234,7 +293,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('targets the (effectiveDirective, blockedUri, documentPath) composite key for onConflictDoUpdate, and does NOT overwrite disposition/userAgent (MED-2)', async () => {
     const { db, calls } = makeDb()
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({ documentUri: VALID_DOCUMENT_URI, effectiveDirective: 'script-src' })
 
@@ -248,7 +311,11 @@ describe('CspReportsService.recordViolation', () => {
 
   it('row-cap budget (HIGH-1a/b): refuses a NEW aggregation key once the row cap is reached', async () => {
     const { db, calls } = makeDb({ existingRows: [], rowCount: CSP_REPORTS_ROW_CAP })
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({ documentUri: VALID_DOCUMENT_URI, effectiveDirective: 'script-src' })
 
@@ -260,7 +327,11 @@ describe('CspReportsService.recordViolation', () => {
       existingRows: [{ id: 'existing-row-id' }],
       rowCount: CSP_REPORTS_ROW_CAP,
     })
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({ documentUri: VALID_DOCUMENT_URI, effectiveDirective: 'script-src' })
 
@@ -269,10 +340,50 @@ describe('CspReportsService.recordViolation', () => {
 
   it('allows a new key when the row count is comfortably under the cap', async () => {
     const { db, calls } = makeDb({ existingRows: [], rowCount: CSP_REPORTS_ROW_CAP - 1 })
-    const svc = new CspReportsService(db, makeConfigService())
+    const svc = new CspReportsService(
+      db,
+      makeConfigService(),
+      makeTelemetryErrorsService().telemetryErrors,
+    )
 
     await svc.recordViolation({ documentUri: VALID_DOCUMENT_URI, effectiveDirective: 'script-src' })
 
     expect(calls).toHaveLength(1)
+  })
+
+  // security round 2 (MED-residual)
+  it('row-cap rejection records a FIXED telemetry error (never the sender payload), so "0 violations" stays distinguishable from "cap exhausted"', async () => {
+    const { db, calls } = makeDb({ existingRows: [], rowCount: CSP_REPORTS_ROW_CAP })
+    const { telemetryErrors, recordError } = makeTelemetryErrorsService()
+    const svc = new CspReportsService(db, makeConfigService(), telemetryErrors)
+
+    await svc.recordViolation({
+      documentUri: VALID_DOCUMENT_URI,
+      effectiveDirective: 'script-src',
+      blockedUri: 'https://evil.example/attacker-controlled-payload.js',
+    })
+
+    expect(calls).toHaveLength(0)
+    expect(recordError).toHaveBeenCalledTimes(1)
+    expect(recordError).toHaveBeenCalledWith({
+      source: 'API',
+      message: CSP_REPORTS_CAP_REACHED_MESSAGE,
+      route: CSP_REPORT_ROUTE,
+    })
+    const call = recordError.mock.calls[0]![0] as { message: string }
+    expect(call.message).not.toContain('attacker-controlled-payload')
+  })
+
+  it('does NOT record a telemetry error for a count++ on an existing key, even at the cap', async () => {
+    const { db } = makeDb({
+      existingRows: [{ id: 'existing-row-id' }],
+      rowCount: CSP_REPORTS_ROW_CAP,
+    })
+    const { telemetryErrors, recordError } = makeTelemetryErrorsService()
+    const svc = new CspReportsService(db, makeConfigService(), telemetryErrors)
+
+    await svc.recordViolation({ documentUri: VALID_DOCUMENT_URI, effectiveDirective: 'script-src' })
+
+    expect(recordError).not.toHaveBeenCalled()
   })
 })

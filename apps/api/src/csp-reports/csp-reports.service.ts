@@ -7,6 +7,7 @@ import { parseCorsOrigins } from '../config/cors'
 import { DatabaseService } from '../database/database.service'
 import { cspReports } from '../database/schema'
 import { sanitizeText, stripControlChars } from '../telemetry/sanitize'
+import { TelemetryErrorsService } from '../telemetry/telemetry-errors.service'
 import {
   normalizeBlockedUri,
   normalizeDocumentPath,
@@ -15,6 +16,9 @@ import {
 } from './normalize'
 import { isAllowedDocumentOrigin } from './origin-check'
 import { sanitizeUrlFieldNullable } from './sanitize-url-field'
+
+/** Shared with `CspReportsController.recordIngestFailure` — the ONE route string, no drift. */
+export const CSP_REPORT_ROUTE = '/api/public/csp-report'
 
 /** Truncation cap for the stored User-Agent header, in BYTES (see `normalize.ts#truncateBytes`) — mirrors telemetry's `meta.ua` cap (500) but tighter (300). */
 export const USER_AGENT_MAX_LENGTH = 300
@@ -36,6 +40,17 @@ export const USER_AGENT_MAX_LENGTH = 300
  * case table size to roughly 10 000 × ~1.4 KB/row ≈ 14 MB.
  */
 export const CSP_REPORTS_ROW_CAP = 10_000
+
+/**
+ * Security round 2 (MED-residual): a FIXED message, same rationale as
+ * `CspReportsController.recordIngestFailure` — never the sender's payload,
+ * or the fingerprint itself becomes a second unbounded-cardinality channel.
+ * Recorded exactly once per occurrence (upserted into the SAME
+ * `telemetry_errors` row via its own fingerprint-based dedup — see
+ * `TelemetryErrorsService.recordError` — so a sustained cap-exhaustion
+ * attempt shows up as ONE row with a growing `count`, not a flood).
+ */
+export const CSP_REPORTS_CAP_REACHED_MESSAGE = 'csp-reports: aggregation-key row cap reached'
 
 /** How long the cached approximate row count (used for the cap check above) is trusted before a fresh `COUNT(*)`. */
 const ROW_COUNT_CACHE_TTL_MS = 30_000
@@ -82,6 +97,16 @@ export interface RecordCspViolationInput {
  * hits a fresh aggregation key FIRST sets those fields for good; a later
  * submission landing on the SAME key (genuine repeat OR an attacker probing
  * for a collision) can only bump the counter, never overwrite metadata.
+ *
+ * Security round 2 (MED-residual): a row-cap rejection is now recorded into
+ * `telemetry_errors` (fixed message, `CSP_REPORTS_CAP_REACHED_MESSAGE`) —
+ * same "distinguish 0-because-quiet from 0-because-broken" rationale as
+ * `CspReportsController.recordIngestFailure` (MED-3), just for a DIFFERENT
+ * failure mode: cap exhaustion silently dropped LEGITIMATE new violations
+ * with only a container-log line as a trace, which would have let the
+ * 03.08 enforcing decision be made on an artificially-quiet digest during
+ * exactly the kind of targeted flood that fills ~600 keys/hour/IP — well
+ * under the 60/hour report cap × 10 items/batch ceiling.
  */
 @Injectable()
 export class CspReportsService {
@@ -93,6 +118,7 @@ export class CspReportsService {
   constructor(
     private readonly db: DatabaseService,
     @Inject(ConfigService) config: ConfigService<Env, true>,
+    @Inject(TelemetryErrorsService) private readonly telemetryErrors: TelemetryErrorsService,
   ) {
     // Reuses the SAME allowlist CORS already trusts (FRONTEND_URL /
     // CORS_ORIGINS) — a genuine CSP report can only ever originate from a
@@ -131,6 +157,7 @@ export class CspReportsService {
       this.logger.warn(
         `csp report dropped — row cap (${CSP_REPORTS_ROW_CAP}) reached, refusing new aggregation key (directive=${directive})`,
       )
+      await this.recordCapReachedTelemetryError()
       return
     }
 
@@ -193,5 +220,28 @@ export class CspReportsService {
     this.cachedRowCount = row?.count ?? 0
     this.cachedRowCountAt = now
     return this.cachedRowCount
+  }
+
+  /**
+   * Security round 2 (MED-residual) — see the class doc comment. Reuses the
+   * SAME `TelemetryErrorsService.recordError` upsert `CspReportsController.
+   * recordIngestFailure` already relies on: a FIXED message (never the
+   * sender's payload — the fingerprint is `sha256(source+message+stack)`,
+   * so a variable message here would reopen an unbounded-cardinality
+   * channel, exactly what HIGH-1 closed for `csp_reports` itself), which
+   * means every cap-exhaustion occurrence upserts the SAME `telemetry_errors`
+   * row (count++) rather than flooding it with distinct rows.
+   */
+  private async recordCapReachedTelemetryError(): Promise<void> {
+    try {
+      await this.telemetryErrors.recordError({
+        source: 'API',
+        message: CSP_REPORTS_CAP_REACHED_MESSAGE,
+        route: CSP_REPORT_ROUTE,
+      })
+    } catch {
+      // Best-effort — if telemetry_errors itself is unwritable there is
+      // nothing further to do; the warn log above already reached the logs.
+    }
   }
 }
