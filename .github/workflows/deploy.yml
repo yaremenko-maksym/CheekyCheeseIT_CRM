@@ -424,7 +424,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql,scripts/devops/check-security-headers.sh'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
@@ -445,6 +445,13 @@ jobs:
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-22_vacancies.sql
           # apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql
+          # scripts/devops/check-security-headers.sh → /opt/crm/scripts/devops/check-security-headers.sh
+          #   (security review round 1, PR #429, MED-3: the post-deploy smoke
+          #   test below runs this ON THE VPS via SSH — same 127.0.0.1-through-
+          #   nginx-directly pattern as the "landing origin health check" a few
+          #   steps below it, not the VPS filesystem's normal state, which is
+          #   compose files + DDL only. This is the ONLY reason a script file
+          #   is in this SCP list at all.)
           # The deploy step reads from those full paths via /opt/crm.
           #
           # incident (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422 shipped
@@ -917,6 +924,34 @@ jobs:
               echo "even though earlier internal checks passed. See scripts/devops/locale-routing-runbook.md"
               echo "§11 for the config-injection class this guards against, and §6 for the general"
               echo "check-locale-routing.sh dry-run workflow to diagnose locally."
+              exit 1
+            fi
+
+            # security review round 1 (PR #429, MED-3): scripts/devops/check-
+            # security-headers.sh was written to catch the HSTS/CSP/X-Frame-
+            # Options-loss class of regression (crm.conf's add_header-
+            # inheritance bug, and the Turnstile/R2 CSP-content gaps) but was
+            # never actually wired into anything — a repeat of exactly this
+            # bug class would ship silently through a green pipeline, same
+            # failure mode the landing check above already guards against for
+            # locale-routing. FATAL for the same reason: this is a "did nginx
+            # end up serving the config we think it did" class of check, not
+            # a soft warning. Hits 127.0.0.1 (not the public hostnames) for
+            # the SAME reason as the landing check immediately above (round 2,
+            # LOW-3 there) — avoids a Cloudflare/DNS hairpin dependency on
+            # what is fundamentally a "is nginx's OWN config correct" check.
+            # The script itself was scp'd to /opt/crm/scripts/devops/ in the
+            # copy-compose job above (see that step's comment) — it is not
+            # part of the VPS's normal file set otherwise.
+            echo "==> Smoke test — security headers (HSTS/CSP), both domains via local nginx (FATAL)"
+            if bash /opt/crm/scripts/devops/check-security-headers.sh http://127.0.0.1; then
+              echo "Security headers check PASSED"
+            else
+              echo "ERROR: nginx is not serving the expected security headers (HSTS/CSP/etc.) on one"
+              echo "or both domains. This means a regression of the class fixed in PR #429 (nginx's"
+              echo "add_header inheritance gotcha, or an incomplete/missing CSP directive) shipped —"
+              echo "see scripts/devops/check-security-headers.sh's own header comment and"
+              echo "scripts/devops/csp-report-only-rollout-runbook.md for how to diagnose locally."
               exit 1
             fi
 
