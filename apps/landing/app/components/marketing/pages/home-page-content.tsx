@@ -1,7 +1,7 @@
 import { useRef } from 'react'
 import { Link } from '@tanstack/react-router'
 import { m, useReducedMotion, useScroll, useTransform } from 'framer-motion'
-import { ArrowRight, Mail } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { useDocumentHead } from '@/lib/use-document-head'
 import {
@@ -10,8 +10,11 @@ import {
   buildWebSiteJsonLd,
   canonicalUrl,
 } from '@/lib/seo'
+import { smoothScrollToId } from '@/lib/smooth-scroll'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
+import { HiringStrip } from '@/components/marketing/hiring-strip'
+import { ContactForm } from '@/components/marketing/contact-form'
 import { Terminal } from '@/components/marketing/terminal'
 import { SectionEyebrow } from '@/components/marketing/section-eyebrow'
 import { StatStrip } from '@/components/marketing/stat-strip'
@@ -24,7 +27,7 @@ import { ScrollReveal } from '@/components/marketing/scroll-reveal'
 import { Button } from '@/components/ui/button'
 import { Chip } from '@/components/ui/chip'
 import { useCoarsePointer } from '@/lib/use-coarse-pointer'
-import { techStack, CONTACT_EMAIL } from '@/content/home'
+import { techStack } from '@/content/home'
 import { DEFAULT_LOCALE, localizedPath, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath } from '@/i18n/routes'
@@ -90,6 +93,7 @@ export function HomePageContent({
 
   return (
     <div className="min-h-screen bg-background text-foreground">
+      <HiringStrip count={vacancies.length} locale={locale} dict={dict} />
       <MarketingNav locale={locale} dict={dict} path={PATH} />
 
       {/* `tabIndex={-1}` + `focus:outline-none` — programmatic focus target
@@ -127,7 +131,22 @@ export function HomePageContent({
               </p>
               <div className="flex flex-col gap-3 min-[460px]:flex-row min-[460px]:flex-wrap">
                 <Button asChild size="lg">
-                  <a href={`mailto:${CONTACT_EMAIL}`}>
+                  {/* task-landing-contact-and-hiring-strip.md AC1 — "Start a
+                      project" no longer opens a mailto: link, it scrolls to
+                      the real inline contact form in `#contact` below (same
+                      in-page target `nav.tsx`'s own "Start a project" button
+                      already scrolls to via `hashLinkProps`). Plain anchor +
+                      `smoothScrollToId` (not `hashLinkProps`/`<Link>`) — this
+                      component only ever renders AS the home page itself, so
+                      there is no cross-page case to handle here, unlike
+                      nav.tsx/footer.tsx which render on every route. */}
+                  <a
+                    href="#contact"
+                    onClick={(e) => {
+                      e.preventDefault()
+                      smoothScrollToId('contact')
+                    }}
+                  >
                     {t.ctaStartProject}
                     <ArrowRight aria-hidden="true" />
                   </a>
@@ -320,36 +339,31 @@ export function HomePageContent({
         <hr className="h-px border-0 bg-border" />
 
         {/* ── Contact ──────────────────────────────────────────────────────── */}
+        {/* task-landing-contact-and-hiring-strip.md Часть A — owner decision
+            §1 "Открывается форма прямо на странице": the two mailto CTAs are
+            replaced with a real, inline `<ContactForm>` (its own bordered
+            Card — no outer card wrapper here anymore, avoiding a card-in-card
+            nest). This is the ONE section every "Start a project" CTA on the
+            site (hero above, nav.tsx, footer.tsx) scrolls/links to. */}
         <section id="contact" className="scroll-mt-[82px] px-5 py-22 md:px-10 md:py-32 lg:px-14">
-          <div className="mx-auto max-w-[1200px]">
-            <ScrollReveal className="relative overflow-hidden rounded-2xl border border-border bg-card p-7 py-16 text-center">
-              <div
-                aria-hidden="true"
-                className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_120%_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_65%)]"
-              />
-              <div className="relative">
+          <div className="relative mx-auto max-w-[1200px]">
+            <div
+              aria-hidden="true"
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(70%_120%_at_50%_0%,color-mix(in_oklch,var(--primary)_12%,transparent),transparent_65%)]"
+            />
+            <div className="relative mx-auto max-w-[640px]">
+              <ScrollReveal className="mb-10 text-center">
                 <h2 className="mx-auto mb-[18px] max-w-[18ch] text-[clamp(1.9rem,4.5vw,3rem)] leading-[1.05] font-semibold tracking-[-0.025em] text-balance text-foreground">
                   {t.contactH2}
                 </h2>
-                <p className="mx-auto mb-8 max-w-[46ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
+                <p className="mx-auto max-w-[46ch] text-[clamp(1.05rem,1.6vw,1.3rem)] leading-[1.55] text-pretty text-muted-foreground">
                   {t.contactP}
                 </p>
-                <div className="flex flex-col justify-center gap-3 min-[460px]:flex-row min-[460px]:flex-wrap">
-                  <Button asChild size="lg">
-                    <a href={`mailto:${CONTACT_EMAIL}`}>
-                      {t.ctaStartProject}
-                      <ArrowRight aria-hidden="true" />
-                    </a>
-                  </Button>
-                  <Button asChild size="lg" variant="outline">
-                    <a href={`mailto:${CONTACT_EMAIL}`}>
-                      <Mail aria-hidden="true" className="size-4" />
-                      {CONTACT_EMAIL}
-                    </a>
-                  </Button>
-                </div>
-              </div>
-            </ScrollReveal>
+              </ScrollReveal>
+              <ScrollReveal revealAt={0.7}>
+                <ContactForm dict={dict} />
+              </ScrollReveal>
+            </div>
           </div>
         </section>
       </main>

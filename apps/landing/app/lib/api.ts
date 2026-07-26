@@ -186,3 +186,60 @@ export async function submitApplication(
   const kind = errorKindForStatus(res.status)
   return { ok: false, errorKind: kind, message: ERROR_COPY[kind] }
 }
+
+// ---------------------------------------------------------------------------
+// Contact form — task-landing-contact-and-hiring-strip.md
+// ---------------------------------------------------------------------------
+
+export type SubmitContactErrorKind = 'validation' | 'rate-limited' | 'unavailable' | 'network'
+
+export interface SubmitContactResult {
+  ok: boolean
+  errorKind?: SubmitContactErrorKind
+}
+
+export interface ContactPayload {
+  name: string
+  company?: string
+  email: string
+  message: string
+  turnstileToken: string
+  /** Honeypot — always empty for a real visitor, see ContactForm's hidden field. */
+  website: string
+}
+
+/**
+ * 502 (no ADMIN recipients / Resend send failed after retries — see
+ * `ContactService.sendWithRetry`) is mapped to the SAME `'unavailable'`
+ * bucket as 503 (Resend not configured at all) — from a visitor's point of
+ * view both mean "the form can't deliver right now, use the fallback email",
+ * the distinction only matters server-side (telemetry).
+ */
+function contactErrorKindForStatus(status: number): SubmitContactErrorKind {
+  switch (status) {
+    case 429:
+      return 'rate-limited'
+    case 502:
+    case 503:
+      return 'unavailable'
+    default:
+      return 'validation'
+  }
+}
+
+/** POST /api/public/contact — plain JSON, no file upload. */
+export async function submitContact(payload: ContactPayload): Promise<SubmitContactResult> {
+  let res: Response
+  try {
+    res = await fetch('/api/public/contact', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+  } catch {
+    return { ok: false, errorKind: 'network' }
+  }
+
+  if (res.ok) return { ok: true }
+  return { ok: false, errorKind: contactErrorKindForStatus(res.status) }
+}
