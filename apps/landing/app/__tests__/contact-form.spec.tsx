@@ -155,6 +155,79 @@ describe('ContactForm', () => {
     )
   })
 
+  // review round 1 MED-2 — a Turnstile (422) failure must NOT show the
+  // generic "check your details" validation copy: the fields are fine.
+  it('ошибка сервера (turnstile, 1й раз) — отдельный текст "попробуйте ещё раз", БЕЗ встроенной ссылки на hr@ в баннере', async () => {
+    vi.spyOn(api, 'submitContact').mockResolvedValue({ ok: false, errorKind: 'turnstile' })
+    const user = userEvent.setup()
+    await renderForm()
+
+    await user.type(screen.getByLabelText(/^Name/), 'Ada Lovelace')
+    await user.type(screen.getByLabelText(/^Email/), 'ada@example.com')
+    await user.type(screen.getByLabelText(/What are you building\?/), 'We need a senior team.')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent('The "I\'m not a robot" check didn\'t go through — please try again.')
+    // Distinct from the generic validation copy.
+    expect(banner.textContent).not.toContain('check your details')
+    // Only the ONE persistent link under the button — no inline link inside
+    // the banner yet (that only appears from the 2nd consecutive failure).
+    expect(screen.getAllByRole('link', { name: /hr@cheekycheese\.tech/ })).toHaveLength(1)
+  })
+
+  it('ошибка сервера (turnstile, 2й раз подряд) — эскалирует до текста с встроенной ссылкой на hr@ ПРЯМО в баннере', async () => {
+    vi.spyOn(api, 'submitContact').mockResolvedValue({ ok: false, errorKind: 'turnstile' })
+    const user = userEvent.setup()
+    await renderForm()
+
+    await user.type(screen.getByLabelText(/^Name/), 'Ada Lovelace')
+    await user.type(screen.getByLabelText(/^Email/), 'ada@example.com')
+    await user.type(screen.getByLabelText(/What are you building\?/), 'We need a senior team.')
+
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+    await screen.findByRole('alert')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent(
+      'The "I\'m not a robot" check failed again. Please try once more, or email us directly at',
+    )
+    // NOW two links: the persistent one under the button + the new inline
+    // one inside the error banner itself.
+    const links = screen.getAllByRole('link', { name: /hr@cheekycheese\.tech/ })
+    expect(links).toHaveLength(2)
+    for (const link of links) {
+      expect(link.getAttribute('href')).toBe('mailto:hr@cheekycheese.tech')
+    }
+  })
+
+  it('turnstile-стрик сбрасывается другой ошибкой — 3й submit (validation) НЕ показывает turnstile-repeat текст', async () => {
+    const submitSpy = vi.spyOn(api, 'submitContact')
+    submitSpy.mockResolvedValueOnce({ ok: false, errorKind: 'turnstile' })
+    submitSpy.mockResolvedValueOnce({ ok: false, errorKind: 'turnstile' })
+    submitSpy.mockResolvedValueOnce({ ok: false, errorKind: 'validation' })
+    const user = userEvent.setup()
+    await renderForm()
+
+    await user.type(screen.getByLabelText(/^Name/), 'Ada Lovelace')
+    await user.type(screen.getByLabelText(/^Email/), 'ada@example.com')
+    await user.type(screen.getByLabelText(/What are you building\?/), 'We need a senior team.')
+
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+    await screen.findByRole('alert')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+    await screen.findByRole('alert')
+    await user.click(screen.getByRole('button', { name: 'Send message' }))
+
+    const banner = await screen.findByRole('alert')
+    expect(banner).toHaveTextContent(
+      'Something went wrong sending your message. Please check your details and try again.',
+    )
+    // Streak reset — back to a SINGLE (persistent-only) hr@ link.
+    expect(screen.getAllByRole('link', { name: /hr@cheekycheese\.tech/ })).toHaveLength(1)
+  })
+
   it('task-landing-i18n.md — locale="ru" рендерит переведённые поля и ошибки валидации', async () => {
     const user = userEvent.setup()
     await renderForm('ru')

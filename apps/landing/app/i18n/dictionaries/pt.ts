@@ -11,7 +11,15 @@ import type { Dictionary } from '../dictionary'
  */
 export const pt: Dictionary = {
   hiringStrip: {
-    text: 'Estamos contratando — {count} posições abertas',
+    // review round 1 MED-1 — CLDR pt selects one/other (n=0..1 → one,
+    // 2+ → other — irrelevant here since the strip never renders at
+    // count=0); `few`/`many` unused but filled for key-set parity.
+    text: {
+      one: 'Estamos contratando — 1 posição aberta',
+      few: 'Estamos contratando — {count} posições abertas',
+      many: 'Estamos contratando — {count} posições abertas',
+      other: 'Estamos contratando — {count} posições abertas',
+    },
     close: 'Fechar',
   },
   nav: {
@@ -218,6 +226,9 @@ export const pt: Dictionary = {
       successBody: 'Obrigado — recebemos e responderemos em um dia útil.',
       apiErrorValidation:
         'Algo deu errado ao enviar sua mensagem. Verifique seus dados e tente novamente.',
+      apiErrorTurnstile: 'A verificação "não sou um robô" não foi concluída — tente novamente.',
+      apiErrorTurnstileRepeat:
+        'A verificação "não sou um robô" falhou novamente. Tente mais uma vez, ou escreva diretamente para',
       apiErrorRateLimited:
         'Você enviou algumas mensagens recentemente — tente novamente em breve, ou escreva diretamente para nós.',
       apiErrorUnavailable:

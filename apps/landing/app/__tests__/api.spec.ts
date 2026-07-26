@@ -191,9 +191,17 @@ describe('submitContact', () => {
     await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'unavailable' })
   })
 
-  it('maps 400 (validation/turnstile) to errorKind "validation"', async () => {
+  it('maps 400 (Zod field validation) to errorKind "validation"', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 400 })))
     await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'validation' })
+  })
+
+  // review round 1 MED-2 — 422 (Turnstile verification failure) is a
+  // DISTINCT errorKind from 400 (Zod field validation) — see
+  // `ContactService.submit()`'s `UnprocessableEntityException`.
+  it('maps 422 (Turnstile verification failure) to errorKind "turnstile", NOT "validation"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 422 })))
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'turnstile' })
   })
 
   it('maps a network error (fetch throws) to errorKind "network"', async () => {

@@ -51,15 +51,31 @@ export interface CaseStudy {
   metrics: [CaseStudyMetric, CaseStudyMetric, CaseStudyMetric]
 }
 
+/**
+ * CLDR plural-category forms (review round 1 MED-1) — `Intl.PluralRules`
+ * only ever selects `one`/`few`/`many`/`other` for the integer counts this
+ * app renders (ru/uk use all four; en/es/pt only ever select `one`/`other`,
+ * see `lib/plural.ts`), but EVERY locale dictionary fills all four keys so
+ * the flat key-set-parity test (`__tests__/i18n.spec.ts`) stays meaningful
+ * across locales with different category sets. `{count}` is a literal
+ * placeholder substituted at render time (`selectPluralForm`).
+ */
+export interface PluralForms {
+  one: string
+  few: string
+  many: string
+  other: string
+}
+
 export interface Dictionary {
   /**
    * task-landing-contact-and-hiring-strip.md — announcement strip rendered
    * above `MarketingNav` on every page whenever there is at least one
-   * PUBLISHED vacancy (`{count}` is a literal placeholder substituted with
-   * the real number at render time, see `HiringStrip`).
+   * PUBLISHED vacancy. `text` is CLDR-pluralized (review round 1 MED-1) —
+   * see `PluralForms` / `lib/plural.ts` `selectPluralForm`.
    */
   hiringStrip: {
-    text: string
+    text: PluralForms
     close: string
   }
   nav: {
@@ -154,6 +170,20 @@ export interface Dictionary {
       successHeading: string
       successBody: string
       apiErrorValidation: string
+      /**
+       * review round 1 MED-2 — a Turnstile-verification failure (expired/
+       * invalid captcha check, server 422) is a DISTINCT situation from a
+       * malformed field: the fields are fine, the anti-bot check itself
+       * needs a retry. Shown on the FIRST occurrence in a submit streak.
+       */
+      apiErrorTurnstile: string
+      /**
+       * Shown from the SECOND consecutive Turnstile failure onward (same
+       * submit streak) — same message, PLUS the `hr@` fallback rendered
+       * inline right at the point of failure (not just the persistent link
+       * under the button, which a visitor mid-retry may not notice).
+       */
+      apiErrorTurnstileRepeat: string
       apiErrorRateLimited: string
       apiErrorUnavailable: string
       apiErrorNetwork: string

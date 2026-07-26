@@ -10,7 +10,14 @@ import type { Dictionary } from '../dictionary'
  */
 export const uk: Dictionary = {
   hiringStrip: {
-    text: 'Ми наймаємо — {count} відкритих позицій',
+    // review round 1 MED-1 — CLDR one/few/many (same category structure as
+    // ru — see lib/plural.ts).
+    text: {
+      one: 'Ми наймаємо — {count} відкрита позиція',
+      few: 'Ми наймаємо — {count} відкриті позиції',
+      many: 'Ми наймаємо — {count} відкритих позицій',
+      other: 'Ми наймаємо — {count} відкритих позицій',
+    },
     close: 'Закрити',
   },
   nav: {
@@ -221,6 +228,9 @@ export const uk: Dictionary = {
       successBody: 'Дякуємо — ми отримали його і відповімо протягом одного робочого дня.',
       apiErrorValidation:
         'Не вдалося надіслати повідомлення. Перевірте введені дані та спробуйте ще раз.',
+      apiErrorTurnstile: 'Перевірка «я не робот» не пройшла — спробуйте ще раз.',
+      apiErrorTurnstileRepeat:
+        'Перевірка «я не робот» знову не пройшла. Спробуйте ще раз або напишіть нам напряму на',
       apiErrorRateLimited:
         'Ви нещодавно вже надсилали повідомлення — спробуйте трохи пізніше або напишіть нам напряму.',
       apiErrorUnavailable: 'Форма тимчасово недоступна — напишіть нам напряму.',

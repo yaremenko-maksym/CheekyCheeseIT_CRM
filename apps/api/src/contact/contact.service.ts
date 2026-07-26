@@ -5,9 +5,10 @@
  * (`POST /api/public/contact`, owner decision §1-2 in the task file). Fail-
  * fast order — mirrors `ApplicationsService.apply`'s documented pipeline:
  * rate-limit is enforced at the controller (`@RelaxableThrottle`, not here)
- * → honeypot → Zod field validation → Turnstile → Resend-configured check →
- * ADMIN recipient lookup → sanitize → send (with retry) → 502 + telemetry
- * log on final failure.
+ * → honeypot → Zod field validation (400, via `ZodExceptionFilter`) →
+ * Turnstile (422 — see review round 1 MED-2 below) → Resend-configured
+ * check (503) → ADMIN recipient lookup → sanitize → send (with retry) →
+ * 502 + telemetry log on final failure.
  *
  * The submitted request is NEVER persisted to the database (owner decision
  * #2) — this service's only durable side effect is a `telemetry_errors` row
@@ -31,10 +32,10 @@
  */
 import {
   BadGatewayException,
-  BadRequestException,
   Injectable,
   Logger,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { eq } from 'drizzle-orm'
@@ -110,9 +111,15 @@ export class ContactService {
     const fields = contactRequestSchema.parse(rawFields)
 
     // ---- 3. Turnstile ----
+    // review round 1 MED-2: a DISTINCT status (422, not the 400 Zod field-
+    // validation uses via ZodExceptionFilter) — the frontend maps status ->
+    // errorKind (`lib/api.ts` contactErrorKindForStatus), and a failed/
+    // expired captcha check is a completely different situation for the
+    // visitor than a malformed field ("your fields are fine, the anti-bot
+    // check itself needs a retry" vs "fix this field").
     const turnstileOk = await this.turnstile.verify(fields.turnstileToken, remoteIp)
     if (!turnstileOk) {
-      throw new BadRequestException('Проверка Turnstile не пройдена')
+      throw new UnprocessableEntityException('Проверка Turnstile не пройдена — попробуйте ещё раз')
     }
 
     // ---- 4. RESEND_API_KEY not provisioned yet — graceful degrade ----

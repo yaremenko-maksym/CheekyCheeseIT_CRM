@@ -10,7 +10,14 @@ import type { Dictionary } from '../dictionary'
  */
 export const ru: Dictionary = {
   hiringStrip: {
-    text: 'Мы нанимаем — {count} открытых позиций',
+    // review round 1 MED-1 — CLDR one/few/many (1 / 2-4 / 0,5-20,25+; ru
+    // "teen exception": 11-14 → many, NOT few — see lib/plural.ts).
+    text: {
+      one: 'Мы нанимаем — {count} открытая позиция',
+      few: 'Мы нанимаем — {count} открытые позиции',
+      many: 'Мы нанимаем — {count} открытых позиций',
+      other: 'Мы нанимаем — {count} открытых позиций',
+    },
     close: 'Закрыть',
   },
   nav: {
@@ -221,6 +228,9 @@ export const ru: Dictionary = {
       successBody: 'Спасибо — мы получили его и ответим в течение одного рабочего дня.',
       apiErrorValidation:
         'Не удалось отправить сообщение. Проверьте введённые данные и попробуйте снова.',
+      apiErrorTurnstile: 'Проверка «я не робот» не прошла — попробуйте ещё раз.',
+      apiErrorTurnstileRepeat:
+        'Проверка «я не робот» снова не прошла. Попробуйте ещё раз или напишите нам напрямую на',
       apiErrorRateLimited:
         'Вы недавно уже отправляли сообщения — попробуйте чуть позже или напишите нам напрямую.',
       apiErrorUnavailable: 'Форма временно недоступна — напишите нам напрямую.',

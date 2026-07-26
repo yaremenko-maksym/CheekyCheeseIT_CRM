@@ -12,8 +12,8 @@
  */
 import {
   BadGatewayException,
-  BadRequestException,
   ServiceUnavailableException,
+  UnprocessableEntityException,
 } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -115,9 +115,11 @@ describe('ContactService.submit()', () => {
     expect(h.turnstile.verify).not.toHaveBeenCalled()
   })
 
-  it('turnstile invalid → BadRequestException, mailer never called', async () => {
+  it('turnstile invalid → UnprocessableEntityException (422, DISTINCT from Zod validation 400 — review round 1 MED-2), mailer never called', async () => {
     h = makeHarness({ turnstileValid: false })
-    await expect(h.svc.submit(VALID_FIELDS, '1.2.3.4')).rejects.toThrow(BadRequestException)
+    await expect(h.svc.submit(VALID_FIELDS, '1.2.3.4')).rejects.toThrow(
+      UnprocessableEntityException,
+    )
     expect(h.mailer.send).not.toHaveBeenCalled()
   })
 

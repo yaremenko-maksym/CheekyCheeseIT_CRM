@@ -18,6 +18,9 @@
  *     store, same pattern as vacancies.integration.spec.ts AC8).
  *   AC5 — 503 with the CONTACT_PUBLIC_EMAIL fallback when RESEND_API_KEY is
  *     unset (own dedicated app instance, no boot failure).
+ *   review round 1 MED-2 — a Turnstile REJECTION (real Cloudflare "always
+ *     fails" dummy secret) responds 422, a DISTINCT status from the 400 Zod
+ *     field-validation uses — own dedicated app instance/env.
  *
  * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable or
  * the `users` table is missing — every test bails early and stays green.
@@ -289,19 +292,18 @@ describe('Contact — real backend integration', () => {
     expect(lastInput.subject).toContain('Ivan Petrenko')
   })
 
-  it('turnstile invalid token → 400 (real Cloudflare siteverify call against the dummy secret)', async () => {
+  it('empty turnstileToken → 400 via Zod (`.min(1)`), never reaches Turnstile at all', async () => {
     if (!dbAvailable) return
-    // The dummy TURNSTILE_SECRET_KEY still requires a genuine round trip to
-    // Cloudflare — an EMPTY response token is what a real browser sends when
-    // the widget never completed, and Cloudflare rejects it regardless of
-    // which secret verifies it.
     const res = await app.inject({
       method: 'POST',
       url: '/api/public/contact',
       payload: { ...VALID_BODY, turnstileToken: '' },
     })
     // Zod rejects the empty string before Turnstile is ever reached
-    // (`turnstileToken: z.string().min(1)`).
+    // (`turnstileToken: z.string().min(1)`) — this is a FIELD-validation
+    // failure, not a Turnstile-verification failure (see the dedicated
+    // "AC-turnstile-422" describe block below for the latter, DISTINCT
+    // status).
     expect(res.statusCode).toBe(400)
   })
 
@@ -335,6 +337,38 @@ describe('Contact — real backend integration', () => {
         expect((unconfiguredMailer.send as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
       } finally {
         await noKeyApp.close()
+      }
+    }, 20_000)
+  })
+
+  // ── review round 1 MED-2 — real Turnstile REJECTION → 422, distinct from
+  // the 400 Zod validation uses (own dedicated app instance, own
+  // TURNSTILE_SECRET_KEY: Cloudflare's documented "always FAILS" dummy
+  // secret `2x0000...AA` — the SAME family as the "always passes" `1x...AA`
+  // used everywhere else in this spec, https://developers.cloudflare.com/
+  // turnstile/troubleshooting/testing/ — a genuine round trip to Cloudflare,
+  // not a mock, so this proves the REAL siteverify-rejection path reaches
+  // the visitor as 422, never 400/500). ──────────────────────────────────
+
+  describe('AC-turnstile-422 — Turnstile verification failure', () => {
+    it('a token rejected by the REAL Cloudflare siteverify call → 422, mailer never called', async () => {
+      if (!dbAvailable) return
+      const mailer = makeStubMailer()
+      const alwaysFailApp = await buildApp(
+        mailer,
+        1_000,
+        fakeEnv({ TURNSTILE_SECRET_KEY: '2x0000000000000000000000000000000AA' }),
+      )
+      try {
+        const res = await alwaysFailApp.inject({
+          method: 'POST',
+          url: '/api/public/contact',
+          payload: VALID_BODY,
+        })
+        expect(res.statusCode).toBe(422)
+        expect((mailer.send as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+      } finally {
+        await alwaysFailApp.close()
       }
     }, 20_000)
   })

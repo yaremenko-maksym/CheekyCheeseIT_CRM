@@ -191,7 +191,12 @@ export async function submitApplication(
 // Contact form — task-landing-contact-and-hiring-strip.md
 // ---------------------------------------------------------------------------
 
-export type SubmitContactErrorKind = 'validation' | 'rate-limited' | 'unavailable' | 'network'
+export type SubmitContactErrorKind =
+  | 'validation'
+  | 'turnstile'
+  | 'rate-limited'
+  | 'unavailable'
+  | 'network'
 
 export interface SubmitContactResult {
   ok: boolean
@@ -209,6 +214,13 @@ export interface ContactPayload {
 }
 
 /**
+ * review round 1 MED-2: a Turnstile-verification failure (`422`,
+ * `ContactService.submit` — DISTINCT from the `400` Zod field-validation
+ * uses via `ZodExceptionFilter`) must NOT land in the same `'validation'`
+ * bucket as a malformed field. A visitor whose captcha check expired sees
+ * "check your details" for fields that were never wrong — `ContactForm`
+ * resolves `'turnstile'` to its own retry-oriented copy instead.
+ *
  * 502 (no ADMIN recipients / Resend send failed after retries — see
  * `ContactService.sendWithRetry`) is mapped to the SAME `'unavailable'`
  * bucket as 503 (Resend not configured at all) — from a visitor's point of
@@ -217,6 +229,8 @@ export interface ContactPayload {
  */
 function contactErrorKindForStatus(status: number): SubmitContactErrorKind {
   switch (status) {
+    case 422:
+      return 'turnstile'
     case 429:
       return 'rate-limited'
     case 502:

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight, X } from 'lucide-react'
 import { cn, focusRing } from '@/lib/utils'
+import { selectPluralForm } from '@/lib/plural'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath } from '@/i18n/routes'
@@ -90,7 +91,7 @@ export function HiringStrip({
           focusRing,
         )}
       >
-        <span>{t.text.replace('{count}', String(count))}</span>
+        <span>{selectPluralForm(t.text, locale, count)}</span>
         <ArrowRight aria-hidden="true" className="size-3.5 shrink-0 text-primary" />
       </Link>
       <button

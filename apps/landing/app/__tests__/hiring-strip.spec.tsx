@@ -17,9 +17,13 @@ import { getDictionary } from '@/i18n/dictionaries'
 
 const STORAGE_KEY = 'cc-hiring-strip-dismissed-count'
 
-function renderStrip(count: number, locale?: 'ru') {
+function renderStrip(count: number, locale?: 'ru' | 'uk' | 'es' | 'pt') {
   const rootRoute = createRootRoute({
-    component: () => <HiringStrip count={count} dict={getDictionary(locale ?? 'en')} />,
+    // `exactOptionalPropertyTypes` — omit `locale` entirely rather than pass
+    // `locale={undefined}` (same pattern as ContactForm's optional `company`).
+    component: () => (
+      <HiringStrip count={count} {...(locale ? { locale } : {})} dict={getDictionary(locale ?? 'en')} />
+    ),
   })
   const router = createRouter({
     routeTree: rootRoute,
@@ -73,9 +77,31 @@ describe('HiringStrip', () => {
     expect(link).toBeTruthy()
   })
 
-  it('task-landing-i18n.md — locale="ru" рендерит переведённый текст', async () => {
+  it('task-landing-i18n.md — locale="ru" рендерит переведённый текст (правильная плюрализация: few)', async () => {
     renderStrip(2, 'ru')
-    const link = await screen.findByRole('link', { name: /Мы нанимаем — 2 открытых позиций/ })
-    expect(link.getAttribute('href')).toBe('/careers')
+    const link = await screen.findByRole('link', { name: /Мы нанимаем — 2 открытые позиции/ })
+    expect(link.getAttribute('href')).toBe('/ru/careers')
+  })
+
+  // review round 1 MED-1 — component-level pin (not just the pure
+  // `selectPluralForm` unit in plural.spec.ts): `locale` must actually reach
+  // `Intl.PluralRules` through the component, not just the dictionary text.
+  // 11 is the CLDR "teen exception" (many, NOT few, despite ending in "1").
+  it('review round 1 MED-1 — locale="ru" count=11 selects "many" (teen exception), NOT "few"', async () => {
+    renderStrip(11, 'ru')
+    const link = await screen.findByRole('link', { name: /Мы нанимаем — 11 открытых позиций/ })
+    expect(link).toBeTruthy()
+  })
+
+  it('review round 1 MED-1 — locale="ru" count=1 selects "one" (singular noun form)', async () => {
+    renderStrip(1, 'ru')
+    const link = await screen.findByRole('link', { name: /Мы нанимаем — 1 открытая позиция/ })
+    expect(link).toBeTruthy()
+  })
+
+  it('review round 1 MED-1 — locale="uk" рендерит переведённый текст (few)', async () => {
+    renderStrip(3, 'uk')
+    const link = await screen.findByRole('link', { name: /Ми наймаємо — 3 відкриті позиції/ })
+    expect(link.getAttribute('href')).toBe('/uk/careers')
   })
 })

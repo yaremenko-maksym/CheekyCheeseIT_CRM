@@ -30,9 +30,16 @@ import type { Dictionary } from '@/i18n/dictionary'
  * `hr@cheekycheese.tech`) stays visible as a `mailto:` fallback link right
  * under the submit button — the ONLY `mailto:` left in a CTA context
  * (task AC1).
+ *
+ * review round 1 MED-2 — `errorKind: 'turnstile'` (server 422, a captcha-
+ * check failure) is handled SEPARATELY from every other error kind here,
+ * not through `API_ERROR_MESSAGE_KEYS`: the fields are fine, only the
+ * anti-bot check needs a retry, so it gets its own copy + its own repeat-
+ * failure escalation (see `turnstileFailureStreak` below) instead of the
+ * generic "check your details" validation message.
  */
 const API_ERROR_MESSAGE_KEYS: Record<
-  SubmitContactErrorKind,
+  Exclude<SubmitContactErrorKind, 'turnstile'>,
   keyof Dictionary['home']['contactForm']
 > = {
   validation: 'apiErrorValidation',
@@ -67,6 +74,11 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
   const [website, setWebsite] = useState('') // honeypot — must stay empty
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [bannerMessage, setBannerMessage] = useState<string | null>(null)
+  // review round 1 MED-2 — how many Turnstile (422) failures in a row THIS
+  // submit streak has seen. Any OTHER error kind (or a successful submit)
+  // resets it: the escalation is specifically about "the captcha check keeps
+  // failing", not a running total across the whole session.
+  const [turnstileFailureStreak, setTurnstileFailureStreak] = useState(0)
 
   const clearFieldError = (key: keyof FieldErrors) => {
     setFieldErrors((prev) => {
@@ -157,12 +169,30 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
     }
 
     setStatus('error')
-    const messageKey = result.errorKind
-      ? API_ERROR_MESSAGE_KEYS[result.errorKind]
-      : 'apiErrorValidation'
-    setBannerMessage(t[messageKey])
+    if (result.errorKind === 'turnstile') {
+      // 1st failure in a streak → plain retry copy; 2nd+ consecutive
+      // failure → the SAME copy plus an inline `hr@` link right at the
+      // point of failure (the persistent link under the button, below,
+      // stays regardless — this is an EXTRA, more visible nudge once a
+      // retry has already failed once).
+      const nextStreak = turnstileFailureStreak + 1
+      setTurnstileFailureStreak(nextStreak)
+      setBannerMessage(nextStreak >= 2 ? t.apiErrorTurnstileRepeat : t.apiErrorTurnstile)
+    } else {
+      setTurnstileFailureStreak(0)
+      const messageKey = result.errorKind
+        ? API_ERROR_MESSAGE_KEYS[result.errorKind]
+        : 'apiErrorValidation'
+      setBannerMessage(t[messageKey])
+    }
     resetTurnstile()
   }
+
+  // Inline `hr@` link — ONLY alongside the repeat-Turnstile-failure banner
+  // (see `handleSubmit`'s `apiErrorTurnstileRepeat` branch); every other
+  // error banner relies on the persistent link below the button instead.
+  const showInlineTurnstileRetryLink =
+    status === 'error' && bannerMessage === t.apiErrorTurnstileRepeat
 
   return (
     <Card className="p-7 text-left md:p-7">
@@ -171,7 +201,20 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
           role="alert"
           className="mb-5 flex items-start gap-3 rounded-xl border border-destructive/40 bg-destructive/12 p-3.5 text-[0.92rem] text-destructive"
         >
-          <span>{bannerMessage}</span>
+          <span>
+            {bannerMessage}
+            {showInlineTurnstileRetryLink && (
+              <>
+                {' '}
+                <a
+                  href={`mailto:${CONTACT_EMAIL}`}
+                  className="font-medium underline underline-offset-2"
+                >
+                  {CONTACT_EMAIL}
+                </a>
+              </>
+            )}
+          </span>
         </div>
       )}
 

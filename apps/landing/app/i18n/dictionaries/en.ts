@@ -7,7 +7,12 @@ import type { Dictionary } from '../dictionary'
  */
 export const en: Dictionary = {
   hiringStrip: {
-    text: "We're hiring — {count} open positions",
+    text: {
+      one: "We're hiring — 1 open position",
+      few: "We're hiring — {count} open positions",
+      many: "We're hiring — {count} open positions",
+      other: "We're hiring — {count} open positions",
+    },
     close: 'Dismiss',
   },
   nav: {
@@ -209,6 +214,9 @@ export const en: Dictionary = {
       successBody: "Thanks — we've got it and will reply within one business day.",
       apiErrorValidation:
         'Something went wrong sending your message. Please check your details and try again.',
+      apiErrorTurnstile: "The \"I'm not a robot\" check didn't go through — please try again.",
+      apiErrorTurnstileRepeat:
+        "The \"I'm not a robot\" check failed again. Please try once more, or email us directly at",
       apiErrorRateLimited:
         "You've sent a few messages recently — please try again in a bit, or email us directly.",
       apiErrorUnavailable:
