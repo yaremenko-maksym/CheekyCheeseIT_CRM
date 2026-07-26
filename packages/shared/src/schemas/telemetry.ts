@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { cspViolationItemSchema } from './csp-report'
 
 /**
  * task-telemetry-api — CRM Telemetry (prod-errors + UX-analytics).
@@ -144,8 +145,15 @@ export const telemetryUxAggregatesSchema = z.object({
 })
 export type TelemetryUxAggregates = z.infer<typeof telemetryUxAggregatesSchema>
 
+/**
+ * `cspViolations` — task-csp-reports-and-flip §4 ("Видимость"): aggregated
+ * CSP violation reports with `last_seen >= since`, ALWAYS present (not
+ * gated behind `ux=1`) so the hourly errors-digest run already surfaces
+ * them, not just the weekly UX one. See `csp-report.ts` for the item shape.
+ */
 export const telemetryDigestResponseSchema = z.object({
   errors: z.array(telemetryErrorItemSchema),
+  cspViolations: z.array(cspViolationItemSchema),
   ux: telemetryUxAggregatesSchema.optional(),
 })
 export type TelemetryDigestResponse = z.infer<typeof telemetryDigestResponseSchema>
