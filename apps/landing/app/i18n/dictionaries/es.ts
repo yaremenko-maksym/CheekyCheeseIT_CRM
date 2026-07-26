@@ -223,7 +223,8 @@ export const es: Dictionary = {
         'Algo salió mal al enviar tu mensaje. Revisa tus datos e inténtalo de nuevo.',
       apiErrorRateLimited:
         'Has enviado varios mensajes recientemente — inténtalo de nuevo en un rato, o escríbenos directamente.',
-      apiErrorUnavailable: 'El formulario no está disponible temporalmente — escríbenos directamente.',
+      apiErrorUnavailable:
+        'El formulario no está disponible temporalmente — escríbenos directamente.',
       apiErrorNetwork:
         'Algo salió mal al enviar tu mensaje. Revisa tus datos e inténtalo de nuevo.',
     },

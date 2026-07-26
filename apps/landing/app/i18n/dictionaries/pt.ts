@@ -220,7 +220,8 @@ export const pt: Dictionary = {
         'Algo deu errado ao enviar sua mensagem. Verifique seus dados e tente novamente.',
       apiErrorRateLimited:
         'Você enviou algumas mensagens recentemente — tente novamente em breve, ou escreva diretamente para nós.',
-      apiErrorUnavailable: 'O formulário está temporariamente indisponível — escreva diretamente para nós.',
+      apiErrorUnavailable:
+        'O formulário está temporariamente indisponível — escreva diretamente para nós.',
       apiErrorNetwork:
         'Algo deu errado ao enviar sua mensagem. Verifique seus dados e tente novamente.',
     },

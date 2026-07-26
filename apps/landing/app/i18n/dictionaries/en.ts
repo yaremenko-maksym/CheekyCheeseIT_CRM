@@ -211,7 +211,8 @@ export const en: Dictionary = {
         'Something went wrong sending your message. Please check your details and try again.',
       apiErrorRateLimited:
         "You've sent a few messages recently — please try again in a bit, or email us directly.",
-      apiErrorUnavailable: 'The contact form is temporarily unavailable — please email us directly.',
+      apiErrorUnavailable:
+        'The contact form is temporarily unavailable — please email us directly.',
       apiErrorNetwork:
         'Something went wrong sending your message. Please check your details and try again.',
     },
