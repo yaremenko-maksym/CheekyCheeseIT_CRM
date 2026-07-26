@@ -9,6 +9,17 @@ import type { Dictionary } from '../dictionary'
  * exactly (enforced by `__tests__/i18n.spec.ts`).
  */
 export const ru: Dictionary = {
+  hiringStrip: {
+    // review round 1 MED-1 — CLDR one/few/many (1 / 2-4 / 0,5-20,25+; ru
+    // "teen exception": 11-14 → many, NOT few — see lib/plural.ts).
+    text: {
+      one: 'Мы нанимаем — {count} открытая позиция',
+      few: 'Мы нанимаем — {count} открытые позиции',
+      many: 'Мы нанимаем — {count} открытых позиций',
+      other: 'Мы нанимаем — {count} открытых позиций',
+    },
+    close: 'Закрыть',
+  },
   nav: {
     services: 'Услуги',
     work: 'Кейсы',
@@ -31,6 +42,7 @@ export const ru: Dictionary = {
     aboutUs: 'О нас',
     contact: 'Контакты',
     getInTouch: 'Связаться с нами',
+    writeToUs: 'Написать нам',
     rights: '© 2026 CheekyCheeseIT. Все права защищены.',
   },
   languageSwitcher: {
@@ -197,6 +209,35 @@ export const ru: Dictionary = {
       'Расскажите, что вы строите. Мы ответим в течение одного рабочего дня — senior-специалисты, а не презентация продаж.',
     terminalAriaLabel:
       'Анимированный редактор кода с примерами проектов CheekyCheeseIT в AI, EdTech и E-Commerce',
+    contactForm: {
+      nameLabel: 'Имя',
+      namePlaceholder: 'Ada Lovelace',
+      companyLabel: 'Компания',
+      companyPlaceholder: 'Acme Inc. (необязательно)',
+      emailLabel: 'Email',
+      emailPlaceholder: 'you@company.com',
+      messageLabel: 'Что вы строите?',
+      messagePlaceholder: 'Расскажите о задаче, сроках и команде, которая у вас есть сейчас.',
+      submit: 'Отправить сообщение',
+      submitting: 'Отправляем…',
+      protectedBy: 'Защищено невидимой капчей — без головоломок.',
+      orEmailUs: 'или напишите нам напрямую на',
+      errorName: 'Пожалуйста, введите имя.',
+      errorEmail: 'Введите корректный email.',
+      errorMessage: 'Расскажите чуть подробнее (минимум 10 символов).',
+      successHeading: 'Сообщение получено',
+      successBody: 'Спасибо — мы получили его и ответим в течение одного рабочего дня.',
+      apiErrorValidation:
+        'Не удалось отправить сообщение. Проверьте введённые данные и попробуйте снова.',
+      apiErrorTurnstile: 'Проверка «я не робот» не прошла — попробуйте ещё раз.',
+      apiErrorTurnstileRepeat:
+        'Проверка «я не робот» снова не прошла. Попробуйте ещё раз или напишите нам напрямую на',
+      apiErrorRateLimited:
+        'Вы недавно уже отправляли сообщения — попробуйте чуть позже или напишите нам напрямую.',
+      apiErrorUnavailable: 'Форма временно недоступна — напишите нам напрямую.',
+      apiErrorNetwork:
+        'Не удалось отправить сообщение. Проверьте введённые данные и попробуйте снова.',
+    },
   },
   careers: {
     seoTitle: 'Вакансии — CheekyCheeseIT',

@@ -148,6 +148,23 @@ const envSchema = z
       .string()
       .min(32)
       .default('dev-only-telemetry-session-salt-change-in-production-0000'),
+
+    // task-landing-contact-and-hiring-strip: Resend HTTP API key for the
+    // public "Start a project" contact form (POST /api/public/contact).
+    // Deliberately OPTIONAL with NO default (unlike TURNSTILE_SECRET_KEY /
+    // TELEMETRY_*) — the owner does not have a real key yet. Left unset,
+    // `ResendMailerService` boots fine (one warning log) and
+    // `ContactController` responds 503 with the `CONTACT_PUBLIC_EMAIL`
+    // fallback instead of ever attempting to send. See that service's module
+    // doc for the full contract.
+    RESEND_API_KEY: z.string().min(1).optional(),
+    // "From" address Resend sends contact-form emails as. Must be a verified
+    // sender/domain in the Resend account (provisioning is a devops task, see
+    // apps/api/.env.example).
+    CONTACT_FROM_EMAIL: z.email().default('site@cheekycheese.tech'),
+    // Visible fallback address shown to visitors (landing UI + the 502/503
+    // error copy below) when the form itself is unavailable or fails.
+    CONTACT_PUBLIC_EMAIL: z.email().default('hr@cheekycheese.tech'),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:

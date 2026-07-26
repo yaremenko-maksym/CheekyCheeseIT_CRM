@@ -10,6 +10,18 @@ import type { Dictionary } from '../dictionary'
  * exactly (enforced by `__tests__/i18n.spec.ts`).
  */
 export const pt: Dictionary = {
+  hiringStrip: {
+    // review round 1 MED-1 — CLDR pt selects one/other (n=0..1 → one,
+    // 2+ → other — irrelevant here since the strip never renders at
+    // count=0); `few`/`many` unused but filled for key-set parity.
+    text: {
+      one: 'Estamos contratando — 1 posição aberta',
+      few: 'Estamos contratando — {count} posições abertas',
+      many: 'Estamos contratando — {count} posições abertas',
+      other: 'Estamos contratando — {count} posições abertas',
+    },
+    close: 'Fechar',
+  },
   nav: {
     services: 'Serviços',
     work: 'Projetos',
@@ -32,6 +44,7 @@ export const pt: Dictionary = {
     aboutUs: 'Sobre nós',
     contact: 'Contato',
     getInTouch: 'Entre em contato',
+    writeToUs: 'Escreva-nos',
     rights: '© 2026 CheekyCheeseIT. Todos os direitos reservados.',
   },
   languageSwitcher: {
@@ -194,6 +207,36 @@ export const pt: Dictionary = {
       'Conte-nos o que você está construindo. Respondemos em um dia útil com pessoas sênior, não com uma apresentação de vendas.',
     terminalAriaLabel:
       'Editor de código animado exibindo código de projetos da CheekyCheeseIT em AI, EdTech e E-Commerce',
+    contactForm: {
+      nameLabel: 'Nome',
+      namePlaceholder: 'Ada Lovelace',
+      companyLabel: 'Empresa',
+      companyPlaceholder: 'Acme Inc. (opcional)',
+      emailLabel: 'Email',
+      emailPlaceholder: 'you@company.com',
+      messageLabel: 'O que você está construindo?',
+      messagePlaceholder: 'Conte-nos sobre o problema, o prazo e a equipe que você tem hoje.',
+      submit: 'Enviar mensagem',
+      submitting: 'Enviando…',
+      protectedBy: 'Protegido por captcha invisível — sem quebra-cabeças.',
+      orEmailUs: 'ou escreva diretamente para',
+      errorName: 'Por favor, insira seu nome.',
+      errorEmail: 'Insira um email válido.',
+      errorMessage: 'Conte-nos um pouco mais (pelo menos 10 caracteres).',
+      successHeading: 'Mensagem recebida',
+      successBody: 'Obrigado — recebemos e responderemos em um dia útil.',
+      apiErrorValidation:
+        'Algo deu errado ao enviar sua mensagem. Verifique seus dados e tente novamente.',
+      apiErrorTurnstile: 'A verificação "não sou um robô" não foi concluída — tente novamente.',
+      apiErrorTurnstileRepeat:
+        'A verificação "não sou um robô" falhou novamente. Tente mais uma vez, ou escreva diretamente para',
+      apiErrorRateLimited:
+        'Você enviou algumas mensagens recentemente — tente novamente em breve, ou escreva diretamente para nós.',
+      apiErrorUnavailable:
+        'O formulário está temporariamente indisponível — escreva diretamente para nós.',
+      apiErrorNetwork:
+        'Algo deu errado ao enviar sua mensagem. Verifique seus dados e tente novamente.',
+    },
   },
   careers: {
     seoTitle: 'Vagas — CheekyCheeseIT',

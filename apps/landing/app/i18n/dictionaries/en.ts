@@ -6,6 +6,15 @@ import type { Dictionary } from '../dictionary'
  * mirror this exact key set (enforced by `__tests__/i18n.spec.ts`, plan §A2).
  */
 export const en: Dictionary = {
+  hiringStrip: {
+    text: {
+      one: "We're hiring — 1 open position",
+      few: "We're hiring — {count} open positions",
+      many: "We're hiring — {count} open positions",
+      other: "We're hiring — {count} open positions",
+    },
+    close: 'Dismiss',
+  },
   nav: {
     services: 'Services',
     work: 'Work',
@@ -28,6 +37,7 @@ export const en: Dictionary = {
     aboutUs: 'About us',
     contact: 'Contact',
     getInTouch: 'Get in touch',
+    writeToUs: 'Write to us',
     rights: '© 2026 CheekyCheeseIT. All rights reserved.',
   },
   languageSwitcher: {
@@ -185,6 +195,36 @@ export const en: Dictionary = {
       "Tell us what you're building. We'll reply within one business day with senior people, not a sales deck.",
     terminalAriaLabel:
       'Animated code editor previewing CheekyCheeseIT project source across AI, EdTech and E-Commerce',
+    contactForm: {
+      nameLabel: 'Name',
+      namePlaceholder: 'Ada Lovelace',
+      companyLabel: 'Company',
+      companyPlaceholder: 'Acme Inc. (optional)',
+      emailLabel: 'Email',
+      emailPlaceholder: 'you@company.com',
+      messageLabel: 'What are you building?',
+      messagePlaceholder: 'Tell us about the problem, the timeline and the team you have today.',
+      submit: 'Send message',
+      submitting: 'Sending…',
+      protectedBy: 'Protected by invisible captcha — no puzzles, ever.',
+      orEmailUs: 'or email us directly at',
+      errorName: 'Please enter your name.',
+      errorEmail: 'Enter a valid email.',
+      errorMessage: 'Tell us a bit more (at least 10 characters).',
+      successHeading: 'Message received',
+      successBody: "Thanks — we've got it and will reply within one business day.",
+      apiErrorValidation:
+        'Something went wrong sending your message. Please check your details and try again.',
+      apiErrorTurnstile: 'The "I\'m not a robot" check didn\'t go through — please try again.',
+      apiErrorTurnstileRepeat:
+        'The "I\'m not a robot" check failed again. Please try once more, or email us directly at',
+      apiErrorRateLimited:
+        "You've sent a few messages recently — please try again in a bit, or email us directly.",
+      apiErrorUnavailable:
+        'The contact form is temporarily unavailable — please email us directly.',
+      apiErrorNetwork:
+        'Something went wrong sending your message. Please check your details and try again.',
+    },
   },
   careers: {
     seoTitle: 'Careers — CheekyCheeseIT',

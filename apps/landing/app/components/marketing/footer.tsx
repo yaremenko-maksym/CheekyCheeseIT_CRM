@@ -3,7 +3,6 @@ import { BrandMark } from '@/components/brand-mark'
 import { LanguageSwitcher } from '@/components/marketing/language-switcher'
 import { hashLinkProps } from '@/lib/hash-link-props'
 import { cn, focusRing } from '@/lib/utils'
-import { CONTACT_EMAIL } from '@/content/home'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
 import { careersRoutePath, homeRoutePath } from '@/i18n/routes'
@@ -102,9 +101,17 @@ export function MarketingFooter({
               <Link to={homePath} {...hashLinkProps('about', isHome)} className={FOOTER_LINK_CLASS}>
                 {t.footer.aboutUs}
               </Link>
-              <a href={`mailto:${CONTACT_EMAIL}`} className={FOOTER_LINK_CLASS}>
+              {/* task-landing-contact-and-hiring-strip.md AC1 — no more
+                  mailto: CTA; scrolls/links to the real inline contact form
+                  in `#contact` (same `hashLinkProps` pattern as every other
+                  in-page link in this component). */}
+              <Link
+                to={homePath}
+                {...hashLinkProps('contact', isHome)}
+                className={FOOTER_LINK_CLASS}
+              >
                 {t.footer.contact}
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -112,15 +119,24 @@ export function MarketingFooter({
             <div className="mb-3.5 font-mono text-[0.72rem] tracking-[0.14em] text-muted-foreground uppercase">
               {t.footer.getInTouch}
             </div>
-            <a
-              href={`mailto:${CONTACT_EMAIL}`}
+            {/* design-review round 1 LOW-2 — was the literal CONTACT_EMAIL
+                text (`hr@cheekycheese.tech`) on a link that navigates to
+                `/#contact`, not `mailto:` — a visitor who reads it as a
+                copyable address gets a confusing surprise on click. The
+                REAL mailto: fallback lives only under the contact form
+                itself (owner decision §4: "ТОЛЬКО здесь") — this link's
+                job is purely to get a visitor there, so its text is now a
+                neutral CTA instead of an address that isn't one. */}
+            <Link
+              to={homePath}
+              {...hashLinkProps('contact', isHome)}
               className={cn(
                 'mb-4 inline-flex items-center gap-2 text-[0.98rem] font-medium text-primary',
                 focusRing,
               )}
             >
-              {CONTACT_EMAIL}
-            </a>
+              {t.footer.writeToUs}
+            </Link>
             <LanguageSwitcher locale={locale} path={path} t={t.languageSwitcher} variant="footer" />
           </div>
         </div>

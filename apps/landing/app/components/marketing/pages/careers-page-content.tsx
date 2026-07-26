@@ -3,6 +3,7 @@ import { useDocumentHead } from '@/lib/use-document-head'
 import { buildHreflangAlternates, buildItemListJsonLd, canonicalUrl } from '@/lib/seo'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
+import { HiringStrip } from '@/components/marketing/hiring-strip'
 import { SectionEyebrow } from '@/components/marketing/section-eyebrow'
 import { CareersList } from '@/components/marketing/careers-list'
 import { DEFAULT_LOCALE, localizedPath, type Locale } from '@/i18n/locale'
@@ -43,6 +44,7 @@ export function CareersPageContent({
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <HiringStrip count={vacancies.length} locale={locale} dict={dict} />
       <MarketingNav active="careers" locale={locale} dict={dict} path={PATH} />
 
       {/* `tabIndex={-1}` — programmatic focus target after a client-side

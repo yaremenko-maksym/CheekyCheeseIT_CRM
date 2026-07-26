@@ -9,7 +9,7 @@
  * roles" empty state instead.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { fetchVacancies, fetchVacancyHreflangExcludes } from '@/lib/api'
+import { fetchVacancies, fetchVacancyHreflangExcludes, submitContact } from '@/lib/api'
 
 afterEach(() => {
   vi.restoreAllMocks()
@@ -137,5 +137,75 @@ describe('fetchVacancyHreflangExcludes', () => {
       }),
     )
     await expect(fetchVacancyHreflangExcludes(SLUG)).resolves.toEqual(['ru'])
+  })
+})
+
+/**
+ * submitContact — task-landing-contact-and-hiring-strip.md. Only the network/
+ * status-mapping contract is covered here (mirrors `submitApplication`'s own
+ * shape); the component's field-validation/state-machine is covered by
+ * `contact-form.spec.tsx`.
+ */
+describe('submitContact', () => {
+  const PAYLOAD = {
+    name: 'Ada Lovelace',
+    email: 'ada@example.com',
+    message: 'We would like to discuss a new project.',
+    turnstileToken: 'tok-123',
+    website: '',
+  }
+
+  it('posts JSON to /api/public/contact and resolves ok:true on 2xx', async () => {
+    let capturedUrl: string | undefined
+    let capturedInit: RequestInit | undefined
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockImplementation((url: string, init: RequestInit) => {
+        capturedUrl = url
+        capturedInit = init
+        return Promise.resolve(new Response(null, { status: 201 }))
+      }),
+    )
+
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: true })
+    expect(capturedUrl).toBe('/api/public/contact')
+    expect(capturedInit?.method).toBe('POST')
+    expect((capturedInit?.headers as Record<string, string>)['Content-Type']).toBe(
+      'application/json',
+    )
+    expect(JSON.parse(capturedInit?.body as string)).toEqual(PAYLOAD)
+  })
+
+  it('maps 429 to errorKind "rate-limited"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 429 })))
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'rate-limited' })
+  })
+
+  it('maps 503 (Resend not configured) to errorKind "unavailable"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 503 })))
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'unavailable' })
+  })
+
+  it('maps 502 (no ADMIN recipients / send failed after retries) to errorKind "unavailable"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 502 })))
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'unavailable' })
+  })
+
+  it('maps 400 (Zod field validation) to errorKind "validation"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 400 })))
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'validation' })
+  })
+
+  // review round 1 MED-2 — 422 (Turnstile verification failure) is a
+  // DISTINCT errorKind from 400 (Zod field validation) — see
+  // `ContactService.submit()`'s `UnprocessableEntityException`.
+  it('maps 422 (Turnstile verification failure) to errorKind "turnstile", NOT "validation"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, { status: 422 })))
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'turnstile' })
+  })
+
+  it('maps a network error (fetch throws) to errorKind "network"', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('fetch failed')))
+    await expect(submitContact(PAYLOAD)).resolves.toEqual({ ok: false, errorKind: 'network' })
   })
 })

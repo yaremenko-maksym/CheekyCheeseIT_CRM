@@ -8,6 +8,7 @@ import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { BackLink } from '@/components/marketing/back-link'
 import { cn, focusRing } from '@/lib/utils'
+import { focusHashTarget } from '@/lib/smooth-scroll'
 import { en } from '@/i18n/dictionaries/en'
 import '../styles/globals.css'
 
@@ -21,8 +22,25 @@ export const Route = createRootRoute({
  * wraps its content in `<main tabIndex={-1}>` specifically so this works:
  * the SPA never reloads the document, so without an explicit focus move
  * keyboard/AT users get no signal the page changed at all.
+ *
+ * design-review round 1 MED-1 — a CROSS-page navigation whose destination
+ * URL carries a hash (e.g. footer/nav "Start a project" clicked from
+ * `/careers`, landing on `/#contact`) prefers that hash target over the
+ * generic `<main>` landmark: the router's own native `hashScrollIntoView`
+ * (`hash-link-props.ts`) already positions the viewport there, so focus
+ * should follow the SAME target, not the top of the page. Falls back to
+ * `<main>` exactly as before when there is no hash, or the hash doesn't
+ * resolve to an element — every existing pinned behaviour (motion-v3.spec.ts)
+ * only ever exercises hash-LESS cross-page navigations, so this is additive,
+ * not a change to any previously-tested path. The SAME-page case (already on
+ * `/`, clicking a hash link) is `smoothScrollToId`'s own concern (via the
+ * SAME `focusHashTarget` helper) — this function is never even reached for
+ * it (`shouldFocusOnResolveRef` below is `false` for a same-pathname hash
+ * change, see the module doc).
  */
 function focusMainLandmark(): void {
+  const hash = window.location.hash.slice(1)
+  if (hash && focusHashTarget(hash)) return
   const main = document.querySelector('main')
   if (main instanceof HTMLElement) {
     main.focus({ preventScroll: true })

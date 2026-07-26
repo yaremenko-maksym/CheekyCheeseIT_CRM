@@ -51,7 +51,33 @@ export interface CaseStudy {
   metrics: [CaseStudyMetric, CaseStudyMetric, CaseStudyMetric]
 }
 
+/**
+ * CLDR plural-category forms (review round 1 MED-1) — `Intl.PluralRules`
+ * only ever selects `one`/`few`/`many`/`other` for the integer counts this
+ * app renders (ru/uk use all four; en/es/pt only ever select `one`/`other`,
+ * see `lib/plural.ts`), but EVERY locale dictionary fills all four keys so
+ * the flat key-set-parity test (`__tests__/i18n.spec.ts`) stays meaningful
+ * across locales with different category sets. `{count}` is a literal
+ * placeholder substituted at render time (`selectPluralForm`).
+ */
+export interface PluralForms {
+  one: string
+  few: string
+  many: string
+  other: string
+}
+
 export interface Dictionary {
+  /**
+   * task-landing-contact-and-hiring-strip.md — announcement strip rendered
+   * above `MarketingNav` on every page whenever there is at least one
+   * PUBLISHED vacancy. `text` is CLDR-pluralized (review round 1 MED-1) —
+   * see `PluralForms` / `lib/plural.ts` `selectPluralForm`.
+   */
+  hiringStrip: {
+    text: PluralForms
+    close: string
+  }
   nav: {
     services: string
     work: string
@@ -73,6 +99,17 @@ export interface Dictionary {
     aboutUs: string
     contact: string
     getInTouch: string
+    /**
+     * design-review round 1 LOW-2 — the "Get in touch" column's link used to
+     * literally display `CONTACT_EMAIL` (`hr@cheekycheese.tech`) while
+     * navigating to `/#contact` (the form), not `mailto:` — a confusing
+     * affordance (a visitor reads it as a copyable address, the click takes
+     * them somewhere else). This is the link's visible CTA text now instead
+     * of the raw address — the real `mailto:` fallback lives ONLY under the
+     * contact form itself (owner decision §4 in the task file: "ТОЛЬКО
+     * здесь"), this link's job is purely to get a visitor TO that form.
+     */
+    writeToUs: string
     rights: string
   }
   languageSwitcher: {
@@ -119,6 +156,49 @@ export interface Dictionary {
     contactH2: string
     contactP: string
     terminalAriaLabel: string
+    /**
+     * task-landing-contact-and-hiring-strip.md — the "Start a project"
+     * contact form rendered inline in the `#contact` section (owner decision
+     * §1: "форма прямо на странице", replacing the previous mailto CTAs).
+     * `contactH2`/`contactP` above stay the section heading/intro copy.
+     */
+    contactForm: {
+      nameLabel: string
+      namePlaceholder: string
+      companyLabel: string
+      companyPlaceholder: string
+      emailLabel: string
+      emailPlaceholder: string
+      messageLabel: string
+      messagePlaceholder: string
+      submit: string
+      submitting: string
+      protectedBy: string
+      orEmailUs: string
+      errorName: string
+      errorEmail: string
+      errorMessage: string
+      successHeading: string
+      successBody: string
+      apiErrorValidation: string
+      /**
+       * review round 1 MED-2 — a Turnstile-verification failure (expired/
+       * invalid captcha check, server 422) is a DISTINCT situation from a
+       * malformed field: the fields are fine, the anti-bot check itself
+       * needs a retry. Shown on the FIRST occurrence in a submit streak.
+       */
+      apiErrorTurnstile: string
+      /**
+       * Shown from the SECOND consecutive Turnstile failure onward (same
+       * submit streak) — same message, PLUS the `hr@` fallback rendered
+       * inline right at the point of failure (not just the persistent link
+       * under the button, which a visitor mid-retry may not notice).
+       */
+      apiErrorTurnstileRepeat: string
+      apiErrorRateLimited: string
+      apiErrorUnavailable: string
+      apiErrorNetwork: string
+    }
   }
   careers: {
     seoTitle: string

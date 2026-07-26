@@ -14,6 +14,12 @@
  * consumed by both `VacanciesService` (publish/close/slug-change hooks) and
  * `VacanciesRetentionCronService` (weekly PUBLISHED refresh) — module-scoped
  * so both get the SAME instance (and its single boot warning fires once).
+ *
+ * `TurnstileService` is exported (task-landing-contact-and-hiring-strip) so
+ * `ContactModule` can reuse the SAME Cloudflare Turnstile verification
+ * service for the public contact-form endpoint instead of a second
+ * copy-pasted implementation — it has zero vacancy-specific logic, this
+ * module is just where it was first introduced (task-vacancies-api).
  */
 import { Module } from '@nestjs/common'
 import { ScheduleModule } from '@nestjs/schedule'
@@ -37,6 +43,6 @@ import { VacanciesService } from './vacancies.service'
     GoogleIndexingService,
     VacanciesRetentionCronService,
   ],
-  exports: [VacanciesService, ApplicationsService],
+  exports: [VacanciesService, ApplicationsService, TurnstileService],
 })
 export class VacanciesModule {}
