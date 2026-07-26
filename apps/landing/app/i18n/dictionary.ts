@@ -52,6 +52,16 @@ export interface CaseStudy {
 }
 
 export interface Dictionary {
+  /**
+   * task-landing-contact-and-hiring-strip.md — announcement strip rendered
+   * above `MarketingNav` on every page whenever there is at least one
+   * PUBLISHED vacancy (`{count}` is a literal placeholder substituted with
+   * the real number at render time, see `HiringStrip`).
+   */
+  hiringStrip: {
+    text: string
+    close: string
+  }
   nav: {
     services: string
     work: string
@@ -119,6 +129,35 @@ export interface Dictionary {
     contactH2: string
     contactP: string
     terminalAriaLabel: string
+    /**
+     * task-landing-contact-and-hiring-strip.md — the "Start a project"
+     * contact form rendered inline in the `#contact` section (owner decision
+     * §1: "форма прямо на странице", replacing the previous mailto CTAs).
+     * `contactH2`/`contactP` above stay the section heading/intro copy.
+     */
+    contactForm: {
+      nameLabel: string
+      namePlaceholder: string
+      companyLabel: string
+      companyPlaceholder: string
+      emailLabel: string
+      emailPlaceholder: string
+      messageLabel: string
+      messagePlaceholder: string
+      submit: string
+      submitting: string
+      protectedBy: string
+      orEmailUs: string
+      errorName: string
+      errorEmail: string
+      errorMessage: string
+      successHeading: string
+      successBody: string
+      apiErrorValidation: string
+      apiErrorRateLimited: string
+      apiErrorUnavailable: string
+      apiErrorNetwork: string
+    }
   }
   careers: {
     seoTitle: string

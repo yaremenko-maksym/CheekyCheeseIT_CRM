@@ -9,6 +9,10 @@ import type { Dictionary } from '../dictionary'
  * exactly (enforced by `__tests__/i18n.spec.ts`).
  */
 export const uk: Dictionary = {
+  hiringStrip: {
+    text: 'Ми наймаємо — {count} відкритих позицій',
+    close: 'Закрити',
+  },
   nav: {
     services: 'Послуги',
     work: 'Кейси',
@@ -197,6 +201,32 @@ export const uk: Dictionary = {
       'Розкажіть, що ви будуєте. Ми відповімо протягом одного робочого дня — senior-фахівці, а не презентація продажів.',
     terminalAriaLabel:
       'Анімований редактор коду з прикладами проєктів CheekyCheeseIT в AI, EdTech і E-Commerce',
+    contactForm: {
+      nameLabel: "Ім'я",
+      namePlaceholder: 'Ada Lovelace',
+      companyLabel: 'Компанія',
+      companyPlaceholder: 'Acme Inc. (необов’язково)',
+      emailLabel: 'Email',
+      emailPlaceholder: 'you@company.com',
+      messageLabel: 'Що ви будуєте?',
+      messagePlaceholder: 'Розкажіть про задачу, терміни та команду, яка у вас є зараз.',
+      submit: 'Надіслати повідомлення',
+      submitting: 'Надсилаємо…',
+      protectedBy: 'Захищено невидимою капчею — без головоломок.',
+      orEmailUs: 'або напишіть нам напряму на',
+      errorName: "Будь ласка, введіть ім'я.",
+      errorEmail: 'Введіть коректний email.',
+      errorMessage: 'Розкажіть трохи детальніше (мінімум 10 символів).',
+      successHeading: 'Повідомлення отримано',
+      successBody: 'Дякуємо — ми отримали його і відповімо протягом одного робочого дня.',
+      apiErrorValidation:
+        'Не вдалося надіслати повідомлення. Перевірте введені дані та спробуйте ще раз.',
+      apiErrorRateLimited:
+        'Ви нещодавно вже надсилали повідомлення — спробуйте трохи пізніше або напишіть нам напряму.',
+      apiErrorUnavailable: 'Форма тимчасово недоступна — напишіть нам напряму.',
+      apiErrorNetwork:
+        'Не вдалося надіслати повідомлення. Перевірте введені дані та спробуйте ще раз.',
+    },
   },
   careers: {
     seoTitle: 'Вакансії — CheekyCheeseIT',

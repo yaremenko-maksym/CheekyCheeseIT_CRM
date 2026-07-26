@@ -9,6 +9,10 @@ import type { Dictionary } from '../dictionary'
  * exactly (enforced by `__tests__/i18n.spec.ts`).
  */
 export const ru: Dictionary = {
+  hiringStrip: {
+    text: 'Мы нанимаем — {count} открытых позиций',
+    close: 'Закрыть',
+  },
   nav: {
     services: 'Услуги',
     work: 'Кейсы',
@@ -197,6 +201,32 @@ export const ru: Dictionary = {
       'Расскажите, что вы строите. Мы ответим в течение одного рабочего дня — senior-специалисты, а не презентация продаж.',
     terminalAriaLabel:
       'Анимированный редактор кода с примерами проектов CheekyCheeseIT в AI, EdTech и E-Commerce',
+    contactForm: {
+      nameLabel: 'Имя',
+      namePlaceholder: 'Ada Lovelace',
+      companyLabel: 'Компания',
+      companyPlaceholder: 'Acme Inc. (необязательно)',
+      emailLabel: 'Email',
+      emailPlaceholder: 'you@company.com',
+      messageLabel: 'Что вы строите?',
+      messagePlaceholder: 'Расскажите о задаче, сроках и команде, которая у вас есть сейчас.',
+      submit: 'Отправить сообщение',
+      submitting: 'Отправляем…',
+      protectedBy: 'Защищено невидимой капчей — без головоломок.',
+      orEmailUs: 'или напишите нам напрямую на',
+      errorName: 'Пожалуйста, введите имя.',
+      errorEmail: 'Введите корректный email.',
+      errorMessage: 'Расскажите чуть подробнее (минимум 10 символов).',
+      successHeading: 'Сообщение получено',
+      successBody: 'Спасибо — мы получили его и ответим в течение одного рабочего дня.',
+      apiErrorValidation:
+        'Не удалось отправить сообщение. Проверьте введённые данные и попробуйте снова.',
+      apiErrorRateLimited:
+        'Вы недавно уже отправляли сообщения — попробуйте чуть позже или напишите нам напрямую.',
+      apiErrorUnavailable: 'Форма временно недоступна — напишите нам напрямую.',
+      apiErrorNetwork:
+        'Не удалось отправить сообщение. Проверьте введённые данные и попробуйте снова.',
+    },
   },
   careers: {
     seoTitle: 'Вакансии — CheekyCheeseIT',
