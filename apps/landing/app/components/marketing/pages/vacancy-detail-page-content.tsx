@@ -14,6 +14,7 @@ import {
 import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
+import { HiringStrip } from '@/components/marketing/hiring-strip'
 import { BackLink } from '@/components/marketing/back-link'
 import { MarkdownBody, markdownToHtml } from '@/components/marketing/markdown-body'
 import { VacancyApplyForm } from '@/components/marketing/vacancy-apply-form'
@@ -43,6 +44,7 @@ export function VacancyDetailPageContent({
   vacancy,
   hreflangExcludes,
   slug,
+  vacancyCount,
   locale = DEFAULT_LOCALE,
   dict,
 }: {
@@ -51,21 +53,42 @@ export function VacancyDetailPageContent({
   /** The route's `$slug` param — passed explicitly (not re-derived from
    * `pathname`) since every locale route file owns its own `Route.useParams()`. */
   slug: string
+  /**
+   * Total PUBLISHED vacancy count for THIS locale — task-landing-contact-
+   * and-hiring-strip.md Часть B (`<HiringStrip>`). Fetched by the route
+   * loader alongside `vacancy`/`hreflangExcludes` (see `routes/careers_.
+   * $slug.tsx` — a SEPARATE `fetchVacancies(locale)` call, this detail route
+   * otherwise never needs the full list). Defaults to `0` (strip hidden) so
+   * existing callers/tests that don't pass it keep working.
+   */
+  vacancyCount?: number
   locale?: Locale
   dict: Dictionary
 }) {
-  if (!vacancy) return <NotFoundState slug={slug} locale={locale} dict={dict} />
+  const count = vacancyCount ?? 0
+  if (!vacancy) return <NotFoundState slug={slug} vacancyCount={count} locale={locale} dict={dict} />
   return (
     <VacancyDetailContent
       vacancy={vacancy}
       hreflangExcludes={hreflangExcludes}
+      vacancyCount={count}
       locale={locale}
       dict={dict}
     />
   )
 }
 
-function NotFoundState({ slug, locale, dict }: { slug: string; locale: Locale; dict: Dictionary }) {
+function NotFoundState({
+  slug,
+  vacancyCount,
+  locale,
+  dict,
+}: {
+  slug: string
+  vacancyCount: number
+  locale: Locale
+  dict: Dictionary
+}) {
   const t = dict
   const path = `/careers/${slug}`
   useDocumentHead({
@@ -79,6 +102,7 @@ function NotFoundState({ slug, locale, dict }: { slug: string; locale: Locale; d
   })
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <HiringStrip count={vacancyCount} locale={locale} dict={dict} />
       <MarketingNav active="careers" locale={locale} dict={dict} path={path} />
       <main
         tabIndex={-1}
@@ -106,11 +130,13 @@ function NotFoundState({ slug, locale, dict }: { slug: string; locale: Locale; d
 function VacancyDetailContent({
   vacancy,
   hreflangExcludes,
+  vacancyCount,
   locale,
   dict,
 }: {
   vacancy: PublicVacancyDetail
   hreflangExcludes: Locale[]
+  vacancyCount: number
   locale: Locale
   dict: Dictionary
 }) {
@@ -165,6 +191,7 @@ function VacancyDetailContent({
 
   return (
     <div className="flex min-h-screen flex-col bg-background text-foreground">
+      <HiringStrip count={vacancyCount} locale={locale} dict={dict} />
       <MarketingNav active="careers" locale={locale} dict={dict} path={path} />
 
       <main tabIndex={-1} className="flex-1 focus:outline-none">

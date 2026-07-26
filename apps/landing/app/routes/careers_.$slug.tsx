@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { fetchVacancy, fetchVacancyHreflangExcludes } from '@/lib/api'
+import { fetchVacancies, fetchVacancy, fetchVacancyHreflangExcludes } from '@/lib/api'
 import { VacancyDetailPageContent } from '@/components/marketing/pages/vacancy-detail-page-content'
 import { en } from '@/i18n/dictionaries/en'
 
@@ -17,23 +17,29 @@ import { en } from '@/i18n/dictionaries/en'
  */
 export const Route = createFileRoute('/careers_/$slug')({
   loader: async ({ params }) => {
-    const [vacancy, hreflangExcludes] = await Promise.all([
+    // `vacancies` (task-landing-contact-and-hiring-strip.md Часть B) — total
+    // PUBLISHED count for `<HiringStrip>`, same blocking-loader convention
+    // as `hreflangExcludes` (not a client-only effect — see that prop's doc
+    // on `VacancyDetailPageContent`).
+    const [vacancy, hreflangExcludes, vacancies] = await Promise.all([
       fetchVacancy(params.slug, 'en'),
       fetchVacancyHreflangExcludes(params.slug),
+      fetchVacancies('en'),
     ])
-    return { vacancy, hreflangExcludes }
+    return { vacancy, hreflangExcludes, vacancyCount: vacancies.length }
   },
   component: VacancyDetailPage,
 })
 
 function VacancyDetailPage() {
-  const { vacancy, hreflangExcludes } = Route.useLoaderData()
+  const { vacancy, hreflangExcludes, vacancyCount } = Route.useLoaderData()
   const { slug } = Route.useParams()
   return (
     <VacancyDetailPageContent
       vacancy={vacancy}
       hreflangExcludes={hreflangExcludes}
       slug={slug}
+      vacancyCount={vacancyCount}
       locale="en"
       dict={en}
     />

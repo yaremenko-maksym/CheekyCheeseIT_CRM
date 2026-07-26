@@ -1,5 +1,5 @@
 import { createFileRoute } from '@tanstack/react-router'
-import { fetchVacancy, fetchVacancyHreflangExcludes } from '@/lib/api'
+import { fetchVacancies, fetchVacancy, fetchVacancyHreflangExcludes } from '@/lib/api'
 import { VacancyDetailPageContent } from '@/components/marketing/pages/vacancy-detail-page-content'
 import { pt } from '@/i18n/dictionaries/pt'
 
@@ -11,23 +11,25 @@ import { pt } from '@/i18n/dictionaries/pt'
  */
 export const Route = createFileRoute('/pt/careers_/$slug')({
   loader: async ({ params }) => {
-    const [vacancy, hreflangExcludes] = await Promise.all([
+    const [vacancy, hreflangExcludes, vacancies] = await Promise.all([
       fetchVacancy(params.slug, 'pt'),
       fetchVacancyHreflangExcludes(params.slug),
+      fetchVacancies('pt'),
     ])
-    return { vacancy, hreflangExcludes }
+    return { vacancy, hreflangExcludes, vacancyCount: vacancies.length }
   },
   component: PtVacancyDetailPage,
 })
 
 function PtVacancyDetailPage() {
-  const { vacancy, hreflangExcludes } = Route.useLoaderData()
+  const { vacancy, hreflangExcludes, vacancyCount } = Route.useLoaderData()
   const { slug } = Route.useParams()
   return (
     <VacancyDetailPageContent
       vacancy={vacancy}
       hreflangExcludes={hreflangExcludes}
       slug={slug}
+      vacancyCount={vacancyCount}
       locale="pt"
       dict={pt}
     />

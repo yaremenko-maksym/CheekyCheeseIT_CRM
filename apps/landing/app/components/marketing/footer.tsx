@@ -102,9 +102,13 @@ export function MarketingFooter({
               <Link to={homePath} {...hashLinkProps('about', isHome)} className={FOOTER_LINK_CLASS}>
                 {t.footer.aboutUs}
               </Link>
-              <a href={`mailto:${CONTACT_EMAIL}`} className={FOOTER_LINK_CLASS}>
+              {/* task-landing-contact-and-hiring-strip.md AC1 — no more
+                  mailto: CTA; scrolls/links to the real inline contact form
+                  in `#contact` (same `hashLinkProps` pattern as every other
+                  in-page link in this component). */}
+              <Link to={homePath} {...hashLinkProps('contact', isHome)} className={FOOTER_LINK_CLASS}>
                 {t.footer.contact}
-              </a>
+              </Link>
             </div>
           </div>
 
@@ -112,15 +116,16 @@ export function MarketingFooter({
             <div className="mb-3.5 font-mono text-[0.72rem] tracking-[0.14em] text-muted-foreground uppercase">
               {t.footer.getInTouch}
             </div>
-            <a
-              href={`mailto:${CONTACT_EMAIL}`}
+            <Link
+              to={homePath}
+              {...hashLinkProps('contact', isHome)}
               className={cn(
                 'mb-4 inline-flex items-center gap-2 text-[0.98rem] font-medium text-primary',
                 focusRing,
               )}
             >
               {CONTACT_EMAIL}
-            </a>
+            </Link>
             <LanguageSwitcher locale={locale} path={path} t={t.languageSwitcher} variant="footer" />
           </div>
         </div>
