@@ -187,8 +187,10 @@ export type OnChainSettlement =
  * was briefly expressed as `claimsOnChainHash(fundingSource)` — accurate for
  * admin income, but read as a GLOBAL rule it would have returned false for
  * every deposit and silently re-opened the hole it had just closed. Hence the
- * per-path shape: the type system now refuses a call that does not say which
- * path it is.
+ * per-path shape: a caller must NAME its path and hand over the fact that
+ * decides it, so the deposit rule cannot be applied to an income BY ACCIDENT.
+ * It is not a proof — a caller that names the wrong path still compiles; the
+ * type removes the easy mistake, not deliberate misuse.
  */
 export function settlementConsumesTransfer(settlement: OnChainSettlement): boolean {
   switch (settlement.kind) {
@@ -253,13 +255,52 @@ export async function consumeTxHash(
 export async function findConsumedTxHash(
   db: Pick<DrizzleTx, 'query'>,
   txHash: string,
-): Promise<{ purpose: string } | null> {
+): Promise<{ purpose: string; referenceId: string | null } | null> {
   const normalized = normalizeOnChainTxHash(txHash)
   if (!normalized) return null
 
+  // `referenceId` matters (security-review round 4, MED-G): a guard that only
+  // asks "is this hash taken?" rejects a user re-attaching their OWN receipt to
+  // the very row that claimed it. Callers compare the OWNER, not the value.
   const row = await db.query.consumedTxHashes.findFirst({
     where: eq(consumedTxHashes.txHash, normalized),
-    columns: { purpose: true },
+    columns: { purpose: true, referenceId: true },
   })
   return row ?? null
+}
+
+/**
+ * Release a claim so the transfer can be settled again — the ONLY way out of a
+ * mis-claim (security-review round 4, MED-G).
+ *
+ * Why this must exist: a claim is otherwise permanent. A typo'd hash burns a
+ * stranger's transfer forever; an unconfirmed deposit that later collides can
+ * never be credited; deleting and re-creating the row does not help, because
+ * the registry deliberately outlives its referent. Without a release the
+ * integrity fix becomes an operational lock-out — and the people locked out are
+ * us.
+ *
+ * Deliberately NOT self-service: callers must be ADMIN and must supply a reason,
+ * and the caller is responsible for journaling (see
+ * `TransactionsService.releaseOnChainHash`) — swapping "cannot unstick money"
+ * for "anyone can silently un-spend a transfer" would be the worse trade.
+ *
+ * Returns the released row, or null when the hash was not claimed.
+ */
+export async function releaseConsumedTxHash(
+  dbtx: DrizzleTx,
+  txHash: string,
+): Promise<{ txHash: string; purpose: string; referenceId: string | null } | null> {
+  const normalized = normalizeOnChainTxHash(txHash)
+  if (!normalized) return null
+
+  const [deleted] = await dbtx
+    .delete(consumedTxHashes)
+    .where(eq(consumedTxHashes.txHash, normalized))
+    .returning({
+      txHash: consumedTxHashes.txHash,
+      purpose: consumedTxHashes.purpose,
+      referenceId: consumedTxHashes.referenceId,
+    })
+  return deleted ?? null
 }

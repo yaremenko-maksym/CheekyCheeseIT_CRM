@@ -174,18 +174,26 @@ BEGIN
        AND t.status = 'PAID'
        AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
     UNION ALL
+    -- LOW (round 4): filter with the SAME case-insensitive pattern the
+    -- extraction uses, so the two cannot disagree on which rows qualify.
     SELECT lower((regexp_match(t.receipt_external_url, '0x[0-9a-fA-F]{64}'))[1]), 'ADMIN_INCOME'
       FROM transactions t
      WHERE t.type = 'ADMIN_INCOME'
        AND t.status = 'PAID'
        AND t.funding_source = 'COMPANY_ACCOUNT'
        AND t.currency = 'USDT'
-       AND t.receipt_external_url ~* '0x[0-9a-f]{64}'
+       AND t.receipt_external_url ~* '0x[0-9a-fA-F]{64}'
   )
+  -- MED-I: count a hash as duplicated when it appears more than ONCE at all —
+  -- not merely across two different paths. `payout_requests` and
+  -- `COMPANY_DEPOSIT` each have a unique index on the hash, but ADMIN_INCOME
+  -- has NONE (its hash lives inside a free-text receipt URL), so two admin
+  -- incomes can legitimately-by-accident cite the SAME transfer. A
+  -- `count(DISTINCT src) > 1` test is blind to exactly that case.
   SELECT count(*) INTO dup_count
     FROM (
-      SELECT h FROM claimed WHERE h IS NOT NULL GROUP BY h HAVING count(DISTINCT src) > 1
-    ) AS multi_path;
+      SELECT h FROM claimed WHERE h IS NOT NULL GROUP BY h HAVING count(*) > 1
+    ) AS multi_claim;
 
   IF dup_count > 0 THEN
     RAISE WARNING
@@ -215,14 +223,34 @@ ALTER TABLE transactions
 --    WHERE tablename = 'consumed_tx_hashes';                    -- uq_… present
 --   SELECT purpose, count(*) FROM consumed_tx_hashes GROUP BY 1;
 --
--- AUDIT (pre-existing double credits, if the WARNING above fired):
---   SELECT lower(pr.tx_hash) AS tx_hash, pr.id AS payout_id, t.id AS deposit_tx_id
---     FROM payout_requests pr
---     JOIN transactions t
---       ON lower(t.tx_hash) = lower(pr.tx_hash)
---      AND t.type = 'COMPANY_DEPOSIT'
---    WHERE pr.status = 'PAID'
---      AND pr.tx_hash ~* '^0x[0-9a-f]{64}$';
+-- AUDIT (pre-existing double credits, if the WARNING above fired).
+-- MED-I: mirrors the NOTICE exactly — all THREE crediting paths, and duplicates
+-- WITHIN one path count too (ADMIN_INCOME has no unique index on its hash, so
+-- two incomes can cite the same transfer). Lists every row behind each
+-- duplicated hash so the owner can decide what to correct:
+--
+--   WITH claimed AS (
+--     SELECT lower(pr.tx_hash) AS h, 'PAYOUT' AS src, pr.id AS row_id
+--       FROM payout_requests pr
+--      WHERE pr.status = 'PAID' AND pr.tx_hash ~* '^0x[0-9a-fA-F]{64}$'
+--     UNION ALL
+--     SELECT lower(t.tx_hash), 'COMPANY_DEPOSIT', t.id
+--       FROM transactions t
+--      WHERE t.type = 'COMPANY_DEPOSIT' AND t.status = 'PAID'
+--        AND t.tx_hash ~* '^0x[0-9a-fA-F]{64}$'
+--     UNION ALL
+--     SELECT lower((regexp_match(t.receipt_external_url, '0x[0-9a-fA-F]{64}'))[1]),
+--            'ADMIN_INCOME', t.id
+--       FROM transactions t
+--      WHERE t.type = 'ADMIN_INCOME' AND t.status = 'PAID'
+--        AND t.funding_source = 'COMPANY_ACCOUNT' AND t.currency = 'USDT'
+--        AND t.receipt_external_url ~* '0x[0-9a-fA-F]{64}'
+--   )
+--   SELECT h AS tx_hash, src, row_id
+--     FROM claimed
+--    WHERE h IS NOT NULL
+--      AND h IN (SELECT h FROM claimed WHERE h IS NOT NULL GROUP BY h HAVING count(*) > 1)
+--    ORDER BY h, src;
 -- =============================================================================
 --
 -- Rollback (feature-level):

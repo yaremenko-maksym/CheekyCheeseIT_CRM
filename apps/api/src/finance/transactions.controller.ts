@@ -28,6 +28,7 @@ import {
   dropIncomesQuerySchema,
   incomeComplianceQuerySchema,
   manualConfirmPayoutSchema,
+  releaseOnChainHashSchema,
   payPayoutRequestSchema,
   paySalarySchema,
   updateProjectFinanceSettingsSchema,
@@ -233,6 +234,19 @@ export class TransactionsController {
     @CurrentUser() user: SessionUser,
   ) {
     return this.svc.attachOrReplaceReceipt(id, attachReceiptSchema.parse(body), user)
+  }
+
+  // MED-G (security-review PR #438): release a mis-claimed on-chain hash so the
+  // transfer can be settled again. ADMIN only (RolesGuard + a service-side
+  // re-check) and always journaled with a reason — the counterweight to a
+  // registry whose claims are otherwise permanent. Deliberately NOT a route on
+  // `:id`: the subject is the HASH, which may outlive every row referencing it.
+  @Post('onchain-hash/release')
+  @Roles('ADMIN')
+  @HttpCode(200)
+  releaseOnChainHash(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = releaseOnChainHashSchema.parse(body)
+    return this.svc.releaseOnChainHash(data.txHash, data.reason, user)
   }
 
   @Delete(':id')

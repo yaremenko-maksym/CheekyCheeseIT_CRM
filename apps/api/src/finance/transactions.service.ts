@@ -48,6 +48,7 @@ import {
   minorUnitsFromString,
   normalizeEthAddress,
   normalizeOnChainTxHash,
+  releaseConsumedTxHash,
   settlementConsumesTransfer,
   usdtToMinorUnits,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
@@ -181,6 +182,165 @@ export class TransactionsService {
    * logged at WARN with the row id: greppable, and it surfaces in the same
    * server logs the rest of the money path uses.
    */
+  /**
+   * MED-F (security-review round 4) — ONE rule for every receipt change on a
+   * crediting row, shared by `attachOrReplaceReceipt` AND
+   * `adminUpdateTransaction`.
+   *
+   * Round 3 guarded only the first entrance; `PATCH /transactions/:id/admin-edit`
+   * could still re-point a credited admin income at a transfer another
+   * settlement had already consumed — two crediting rows, one transfer. A guard
+   * with a known bypass is worse than no guard: the next reader trusts it.
+   * Both entrances now call this, so a third one has a single thing to reuse.
+   *
+   * Returns what the caller must apply:
+   *   • `txHashPatch` — the recorded-hash column change (may be empty),
+   *   • `claimHash`   — a hash to claim inside the caller's transaction,
+   *   • `staleClaim`  — the new evidence dropped the hash while the old claim
+   *                     stands; the claim is KEPT (the transfer really was
+   *                     consumed by this credit) and the divergence is recorded.
+   *
+   * Throws 400 when the new evidence points at a transfer owned by a DIFFERENT
+   * row. Ownership, not value: re-attaching this row's own receipt is fine
+   * (MED-G — the value-only comparison rejected honest users on their own data).
+   */
+  private async resolveReceiptHashTransition(
+    tx: typeof transactions.$inferSelect,
+    nextExternalUrl: string | null,
+  ): Promise<{
+    txHashPatch: { txHash?: string | null }
+    claimHash: string | null
+    staleClaim: boolean
+  }> {
+    const rowConsumesTransfer =
+      tx.type === 'ADMIN_INCOME' &&
+      settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource: tx.fundingSource })
+    if (!rowConsumesTransfer) {
+      return { txHashPatch: {}, claimHash: null, staleClaim: false }
+    }
+
+    const currentHash = normalizeOnChainTxHash(tx.txHash)
+    const nextHash = extractOnChainTxHash(nextExternalUrl)
+
+    if (nextHash === currentHash) {
+      // Unchanged evidence (including re-attaching the same link) — no-op.
+      return { txHashPatch: {}, claimHash: null, staleClaim: false }
+    }
+
+    if (!nextHash) {
+      // LOW (round 4): the new receipt carries no hash. The old claim STAYS —
+      // that transfer really did fund this credit and must not become
+      // re-spendable — so the recorded hash stays too (column and registry
+      // agree). The evidence/hash divergence is what gets recorded.
+      return { txHashPatch: {}, claimHash: null, staleClaim: currentHash !== null }
+    }
+
+    const consumed = await findConsumedTxHash(this.db.db, nextHash)
+    if (consumed && consumed.referenceId !== tx.id) {
+      throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+    }
+
+    return {
+      txHashPatch: { txHash: nextHash },
+      // Already ours (referenceId === tx.id) → nothing to claim again.
+      claimHash: consumed ? null : nextHash,
+      staleClaim: false,
+    }
+  }
+
+  /**
+   * MED-G (security-review round 4) — ADMIN releases a mis-claimed hash.
+   *
+   * The escape hatch for the lock-outs a permanent claim creates: a typo'd hash
+   * burning a stranger's transfer, or a deposit that can never be credited
+   * because its hash collided. Deleting the row does not help — the registry
+   * outlives its referent by design.
+   *
+   * Two conditions make the release safe to have:
+   *   • ADMIN only (not the SENIOR/DROP who submitted the hash — otherwise
+   *     "release then re-spend" becomes the new double-spend), and
+   *   • it is JOURNALED: who, when, which hash, which claim, and why. A silent
+   *     un-spend would trade one problem for a worse one.
+   */
+  async releaseOnChainHash(
+    txHash: string,
+    reason: string,
+    currentUser: SessionUser,
+  ): Promise<{ txHash: string; purpose: string; referenceId: string | null }> {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    const normalized = normalizeOnChainTxHash(txHash)
+    if (!normalized) {
+      throw new BadRequestException(
+        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
+      )
+    }
+    const trimmedReason = reason.trim()
+    if (trimmedReason.length === 0) {
+      throw new BadRequestException('Укажите причину освобождения хеша (она попадёт в журнал)')
+    }
+
+    return this.db.db.transaction(async (dbtx) => {
+      const released = await releaseConsumedTxHash(dbtx, normalized)
+      if (!released) {
+        throw new NotFoundException('Этот хеш не числится использованным')
+      }
+
+      // Journal INSIDE the same transaction — a release without its record must
+      // be impossible. `targetId` points at the row that held the claim when
+      // known, else at the actor (the audit table takes a bare uuid, no FK).
+      await dbtx.insert(transactionAuditLog).values({
+        actorId: currentUser.id,
+        targetId: released.referenceId ?? currentUser.id,
+        action: 'ONCHAIN_HASH_RELEASED',
+        metadata: {
+          txHash: released.txHash,
+          purpose: released.purpose,
+          referenceId: released.referenceId,
+          reason: trimmedReason,
+        },
+      })
+
+      this.logger.warn(
+        `[onchain-registry] hash RELEASED by admin ${currentUser.id} — ` +
+          `purpose=${released.purpose} referenceId=${released.referenceId ?? 'none'}. ` +
+          `The transfer can be settled again.`,
+      )
+
+      return released
+    })
+  }
+
+  /**
+   * LOW (security-review round 4) — the receipt on a crediting row lost its
+   * hash while the old claim stands.
+   *
+   * The claim is deliberately KEPT (that transfer really did fund this credit;
+   * releasing it automatically would make it re-spendable), so evidence and
+   * registry now describe different things. Silent divergence is what an
+   * auditor must never meet — record it. An ADMIN who decides the old claim was
+   * wrong has `releaseOnChainHash` for that, and it journals the decision.
+   */
+  private async recordReceiptClaimDivergence(
+    dbtx: DrizzleTx,
+    params: { path: string; transactionId: string; actorId: string },
+  ): Promise<void> {
+    await dbtx.insert(transactionAuditLog).values({
+      actorId: params.actorId,
+      targetId: params.transactionId,
+      action: 'RECEIPT_DROPPED_ONCHAIN_HASH',
+      metadata: {
+        path: params.path,
+        reason: 'new-receipt-carries-no-tx-hash-existing-claim-kept',
+      },
+    })
+    this.logger.warn(
+      `[onchain-registry] receipt replaced with one carrying NO tx hash on a crediting row — ` +
+        `path=${params.path} transactionId=${params.transactionId} actorId=${params.actorId}. ` +
+        `The previous claim is kept; use releaseOnChainHash if it was wrong.`,
+    )
+  }
+
   private async recordUnclaimedCredit(
     dbtx: DrizzleTx,
     params: { path: string; transactionId: string; actorId: string },
@@ -1937,16 +2097,7 @@ export class TransactionsService {
     // The guard refuses only that case: a NEW hash that is already spent by a
     // DIFFERENT row. Honest corrections still work — a link with no hash, an
     // unclaimed hash, or re-attaching this row's own hash all pass.
-    const nextHash = extractOnChainTxHash(nextExtUrl)
-    const rowConsumesTransfer =
-      tx.type === 'ADMIN_INCOME' &&
-      settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource: tx.fundingSource })
-    if (rowConsumesTransfer && nextHash && nextHash !== normalizeOnChainTxHash(tx.txHash)) {
-      const consumed = await findConsumedTxHash(this.db.db, nextHash)
-      if (consumed) {
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
-      }
-    }
+    const transition = await this.resolveReceiptHashTransition(tx, nextExtUrl)
 
     const action: 'ATTACH' | 'REPLACE' = hadReceipt ? 'REPLACE' : 'ATTACH'
     await this.replaceReceiptAtomic(
@@ -1957,7 +2108,7 @@ export class TransactionsService {
         receiptDocumentId: nextDocId,
         receiptExternalUrl: nextExtUrl,
         // Keep the recorded hash in step with the evidence it came from.
-        ...(rowConsumesTransfer ? { txHash: nextHash } : {}),
+        ...transition.txHashPatch,
         updatedAt: new Date(),
       },
       async (dbtx) => {
@@ -1965,12 +2116,19 @@ export class TransactionsService {
         // credit the pool while its (new) transfer stayed spendable elsewhere.
         // Inside the same transaction as the swap; a concurrent claim collides
         // on the unique index and rolls the whole swap back.
-        if (rowConsumesTransfer && nextHash && nextHash !== normalizeOnChainTxHash(tx.txHash)) {
+        if (transition.claimHash) {
           await consumeTxHash(dbtx, {
-            txHash: nextHash,
+            txHash: transition.claimHash,
             purpose: 'ADMIN_INCOME',
             referenceId: id,
             consumedByUserId: currentUser.id,
+          })
+        }
+        if (transition.staleClaim) {
+          await this.recordReceiptClaimDivergence(dbtx, {
+            path: 'attachOrReplaceReceipt',
+            transactionId: id,
+            actorId: currentUser.id,
           })
         }
         // Audit atomically with the receipt swap.
@@ -2083,20 +2241,50 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(nextReceiptDocId, currentUser, { expectedOwnerId })
     }
 
-    await this.db.db
-      .update(transactions)
-      .set({
-        ...(data.amount !== undefined && { amount: String(data.amount) }),
-        ...(data.currency !== undefined && {
-          currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-        }),
-        ...(data.notes !== undefined && { notes: data.notes }),
-        ...receiptPatch,
-        ...(data.category !== undefined && { receiverLabel: data.category }),
-        ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
-        updatedAt: new Date(),
-      })
-      .where(eq(transactions.id, id))
+    // ── SECURITY (security-review round 4, MED-F): the SECOND receipt entrance.
+    // This endpoint edits `receiptExternalUrl` on an already-PAID crediting row
+    // (metadata-only edits are explicitly allowed on PAID rows above), so
+    // without this it bypassed the guard `attachOrReplaceReceipt` got in round
+    // 3 — re-pointing a credited admin income at a transfer another settlement
+    // had already consumed. Same shared rule, same behaviour.
+    const transition =
+      receiptUrlChanged || receiptDocChanged
+        ? await this.resolveReceiptHashTransition(tx, receiptPatch.receiptExternalUrl ?? null)
+        : { txHashPatch: {}, claimHash: null, staleClaim: false }
+
+    await this.db.db.transaction(async (dbtx) => {
+      await dbtx
+        .update(transactions)
+        .set({
+          ...(data.amount !== undefined && { amount: String(data.amount) }),
+          ...(data.currency !== undefined && {
+            currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+          }),
+          ...(data.notes !== undefined && { notes: data.notes }),
+          ...receiptPatch,
+          ...transition.txHashPatch,
+          ...(data.category !== undefined && { receiverLabel: data.category }),
+          ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
+          updatedAt: new Date(),
+        })
+        .where(eq(transactions.id, id))
+
+      if (transition.claimHash) {
+        await consumeTxHash(dbtx, {
+          txHash: transition.claimHash,
+          purpose: 'ADMIN_INCOME',
+          referenceId: id,
+          consumedByUserId: currentUser.id,
+        })
+      }
+      if (transition.staleClaim) {
+        await this.recordReceiptClaimDivergence(dbtx, {
+          path: 'adminUpdateTransaction',
+          transactionId: id,
+          actorId: currentUser.id,
+        })
+      }
+    })
 
     return this.findOne(id, currentUser)
   }

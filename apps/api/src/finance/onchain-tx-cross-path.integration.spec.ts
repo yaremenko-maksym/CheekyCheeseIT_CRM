@@ -1,4 +1,10 @@
-import { BadRequestException, Global, Module } from '@nestjs/common'
+import {
+  BadRequestException,
+  ForbiddenException,
+  Global,
+  Module,
+  NotFoundException,
+} from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray, sql } from 'drizzle-orm'
@@ -641,6 +647,157 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       expect(await balance()).toBeCloseTo(afterBoth, 6)
     })
 
+    // ── MED-F (round 4): the SECOND receipt entrance must obey the same rule ──
+    // Round 3 guarded `attachOrReplaceReceipt` only; `PATCH :id/admin-edit`
+    // edits the same field on the same PAID crediting row.
+    it('admin-edit REFUSES a receipt whose hash is already spent elsewhere', async () => {
+      if (!dbAvailable) return
+      const INCOME_HASH = '0x' + 'e5'.repeat(32)
+      const DEPOSIT_HASH = '0x' + 'e6'.repeat(32)
+
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 800,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${INCOME_HASH}`,
+        },
+        ADMIN,
+      )
+      scriptValid(DEPOSIT_HASH, 800)
+      await companySvc.submitDeposit({ txHashOrLink: DEPOSIT_HASH }, SENIOR)
+      const afterBoth = await balance()
+
+      await expect(
+        svc.adminUpdateTransaction(
+          income.id,
+          { receiptExternalUrl: `https://etherscan.io/tx/${DEPOSIT_HASH}` },
+          ADMIN,
+        ),
+      ).rejects.toThrowError(/уже использован/)
+
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBe(INCOME_HASH) // evidence unchanged
+      expect(row?.receiptExternalUrl).toBe(`https://etherscan.io/tx/${INCOME_HASH}`)
+      expect(await balance()).toBeCloseTo(afterBoth, 6)
+    })
+
+    it('admin-edit claims the new transfer on an honest correction', async () => {
+      if (!dbAvailable) return
+      const WRONG_HASH = '0x' + 'e7'.repeat(32)
+      const RIGHT_HASH = '0x' + 'e8'.repeat(32)
+
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 250,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${WRONG_HASH}`,
+        },
+        ADMIN,
+      )
+
+      await svc.adminUpdateTransaction(
+        income.id,
+        { receiptExternalUrl: `https://etherscan.io/tx/${RIGHT_HASH}` },
+        ADMIN,
+      )
+
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBe(RIGHT_HASH)
+      const claimed = await dbSvc.db
+        .select({ purpose: consumedTxHashes.purpose })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, RIGHT_HASH))
+      expect(claimed.length).toBe(1)
+    })
+
+    // ── MED-G (round 4): the guard compares the claim OWNER, not the value ────
+    it('re-attaching the row OWN receipt is allowed (no false rejection)', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'e9'.repeat(32)
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 310,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      // The row already owns this claim — a value-only comparison would have
+      // rejected the user on their own data.
+      await expect(
+        svc.attachOrReplaceReceipt(
+          income.id,
+          { receiptExternalUrl: `https://etherscan.io/tx/${HASH}?utm=mail` },
+          ADMIN,
+        ),
+      ).resolves.toBeDefined()
+      await expect(
+        svc.adminUpdateTransaction(
+          income.id,
+          { receiptExternalUrl: `https://etherscan.io/tx/${HASH}#eventlog` },
+          ADMIN,
+        ),
+      ).resolves.toBeDefined()
+
+      const claimed = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(claimed.length).toBe(1) // still exactly one claim
+    })
+
+    it('a receipt that DROPS the hash keeps the claim and records the divergence', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'ea'.repeat(32)
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 150,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      await svc.attachOrReplaceReceipt(
+        income.id,
+        { receiptExternalUrl: 'https://etherscan.io/address/0xabc' },
+        ADMIN,
+      )
+
+      // The claim STAYS — that transfer really funded this credit…
+      const claimed = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(claimed.length).toBe(1)
+      // …the recorded hash stays with it (column and registry agree)…
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBe(HASH)
+      // …and the divergence is recorded rather than silent.
+      const audit = await dbSvc.db.query.transactionAuditLog.findFirst({
+        where: and(
+          eq(transactionAuditLog.targetId, income.id),
+          eq(transactionAuditLog.action, 'RECEIPT_DROPPED_ONCHAIN_HASH'),
+        ),
+      })
+      expect(audit).toBeDefined()
+    })
+
     it('ALLOWS an honest correction and claims the new transfer', async () => {
       if (!dbAvailable) return
       const WRONG_HASH = '0x' + 'e3'.repeat(32)
@@ -681,6 +838,117 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       await expect(
         companySvc.submitDeposit({ txHashOrLink: RIGHT_HASH }, SENIOR),
       ).rejects.toBeInstanceOf(BadRequestException)
+    })
+  })
+
+  // ── MED-G (round 4): a claim must be releasable, or the fix becomes a lock ──
+  // A permanent claim turns a typo into a permanent burn and can strand a
+  // deposit that can never be credited. The release is ADMIN-only and journaled.
+  describe('MED-G: releasing a mis-claimed hash', () => {
+    it('unsticks a deposit whose hash was claimed by someone else', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'f1'.repeat(32)
+      const before = await balance()
+
+      // The real payer submits their deposit while the tx is still unconfirmed:
+      // nothing is claimed yet (MED-3), so this is allowed.
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        fromAddress: EXCHANGE_WALLET,
+        confirmed: false,
+        confirmations: 1,
+        amountUsdt: 500,
+      })
+      const dep = await companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR2)
+      expect(dep.status).toBe('PENDING')
+
+      // …then someone settles a payout with that same hash (a typo — the
+      // transfer was not theirs), consuming it first.
+      const { requestId, payable } = await seedPayout(SENIOR, '1000')
+      scriptValid(HASH, payable)
+      await svc.payPayoutRequest(requestId, HASH, SENIOR)
+
+      // Now the honest deposit can NEVER be credited — this is the lock-out.
+      scriptValid(HASH, 500)
+      await expect(companySvc.getDepositStatus(dep.id, SENIOR2)).rejects.toBeInstanceOf(
+        BadRequestException,
+      )
+
+      // ADMIN releases the claim, with a reason.
+      const released = await svc.releaseOnChainHash(
+        HASH,
+        'payout settled with a typo’d hash',
+        ADMIN,
+      )
+      expect(released.purpose).toBe('PAYOUT')
+      expect(released.referenceId).toBe(requestId)
+
+      // …and the deposit can finally be credited.
+      const status = await companySvc.getDepositStatus(dep.id, SENIOR2)
+      expect(status.status).toBe('PAID')
+      expect(await balance()).toBeCloseTo(before + payable + 500, 6)
+    })
+
+    it('is journaled: who, which hash, which claim, why', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'f2'.repeat(32)
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 90,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      await svc.releaseOnChainHash(HASH, 'wrong receipt pasted by support', ADMIN)
+
+      const audit = await dbSvc.db.query.transactionAuditLog.findFirst({
+        where: and(
+          eq(transactionAuditLog.targetId, income.id),
+          eq(transactionAuditLog.action, 'ONCHAIN_HASH_RELEASED'),
+        ),
+      })
+      expect(audit).toBeDefined()
+      expect(audit?.actorId).toBe(ADMIN.id)
+      expect(audit?.metadata).toMatchObject({
+        txHash: HASH,
+        purpose: 'ADMIN_INCOME',
+        referenceId: income.id,
+        reason: 'wrong receipt pasted by support',
+      })
+    })
+
+    it('RBAC: only ADMIN may release; a reason is mandatory', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'f3'.repeat(32)
+      const { requestId, payable } = await seedPayout(SENIOR, '1000')
+      scriptValid(HASH, payable)
+      await svc.payPayoutRequest(requestId, HASH, SENIOR)
+
+      // The submitter must NOT be able to un-spend their own transfer —
+      // otherwise "release then re-spend" is the new double-spend.
+      await expect(svc.releaseOnChainHash(HASH, 'let me redo it', SENIOR)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+      await expect(svc.releaseOnChainHash(HASH, '   ', ADMIN)).rejects.toThrowError(/причину/)
+
+      // Still claimed after both refusals.
+      const rows = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(rows.length).toBe(1)
+    })
+
+    it('404s on a hash nobody claimed', async () => {
+      if (!dbAvailable) return
+      await expect(
+        svc.releaseOnChainHash('0x' + 'f4'.repeat(32), 'nothing to release', ADMIN),
+      ).rejects.toBeInstanceOf(NotFoundException)
     })
   })
 
@@ -728,14 +996,26 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       // the rows this test asserts on and undo the collateral, so exercising
       // the REAL file stays side-effect-free for everyone else.
       const after = await dbSvc.db
-        .select({ id: consumedTxHashes.id, txHash: consumedTxHashes.txHash })
+        .select({
+          id: consumedTxHashes.id,
+          txHash: consumedTxHashes.txHash,
+          referenceId: consumedTxHashes.referenceId,
+        })
         .from(consumedTxHashes)
-      const collateral = after
-        .filter((r) => !preExisting.has(r.id) && !keepHashes.includes(r.txHash))
+
+      // MED-H (round 4): report what the backfill created BEFORE the cleanup.
+      // Asserting after the cleanup made the "claims nothing" test unfalsifiable
+      // — the cleanup deleted the very row a broken backfill would have written,
+      // so it passed either way. Tests now assert on this snapshot.
+      const createdByBackfill = after.filter((r) => !preExisting.has(r.id))
+
+      const collateral = createdByBackfill
+        .filter((r) => !keepHashes.includes(r.txHash))
         .map((r) => r.id)
       if (collateral.length > 0) {
         await dbSvc.db.delete(consumedTxHashes).where(inArray(consumedTxHashes.id, collateral))
       }
+      return createdByBackfill
     }
 
     it('a back-filled PENDING deposit still reaches PAID (not bricked)', async () => {
@@ -893,7 +1173,9 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
         ADMIN,
       )
 
-      await runMigrationFile([HASH])
+      // Keep the hash so a wrong claim would SURVIVE to the assertion (MED-H).
+      const created = await runMigrationFile([HASH])
+      expect(created.filter((r) => r.txHash === HASH)).toEqual([])
 
       const rows = await dbSvc.db
         .select({ id: consumedTxHashes.id })
@@ -915,8 +1197,12 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
         },
         ADMIN,
       )
-      // Nothing to keep — this row must produce no claim at all.
-      await runMigrationFile([])
+      // MED-H: assert on what the backfill actually WROTE, captured before the
+      // helper's collateral cleanup. Previously the cleanup removed any claim
+      // this row produced BEFORE the assertion ran, so the test passed even on
+      // a backfill that wrongly claimed — it could not fail.
+      const created = await runMigrationFile([])
+      expect(created.filter((r) => r.referenceId === income.id)).toEqual([])
 
       const rows = await dbSvc.db
         .select({ id: consumedTxHashes.id })

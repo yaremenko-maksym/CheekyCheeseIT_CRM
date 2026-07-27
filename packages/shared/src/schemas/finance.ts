@@ -823,6 +823,27 @@ export function extractOnChainTxHash(raw: string | null | undefined): string | n
   return match ? match[0].toLowerCase() : null
 }
 
+/**
+ * POST /api/transactions/onchain-hash/release — ADMIN only.
+ *
+ * MED-G (security-review PR #438): the escape hatch from a mis-claimed transfer
+ * (a typo'd hash, a deposit whose hash collided). Without it a claim is
+ * permanent and the money it blocks is unreachable. `reason` is REQUIRED and
+ * lands in `transaction_audit_log` — a release is a deliberate, attributable
+ * act, never a quiet un-spend.
+ */
+export const releaseOnChainHashSchema = z.object({
+  txHash: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((v) => extractOnChainTxHash(v) !== null, {
+      message: 'Укажите корректный hash транзакции (0x + 64 hex) или ссылку на Etherscan',
+    }),
+  reason: z.string().trim().min(3, 'Опишите причину — она попадёт в журнал').max(500),
+})
+export type ReleaseOnChainHashDto = z.infer<typeof releaseOnChainHashSchema>
+
 export const manualConfirmPayoutSchema = z.object({
   method: manualPayoutMethodSchema,
   note: z.string().max(1000).optional().nullable(),
