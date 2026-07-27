@@ -1363,10 +1363,13 @@ export class UsersService {
         .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
       seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
     } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+      // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
+      // HR/ACCOUNTANT membership must not resolve a team roster anymore.
+      // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
       const memberships = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(eq(teamMembers.userId, userId))
+        .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
       if (memberships.length === 0) return []
       const teamIds = memberships.map((m) => m.teamId)
       const seniorsInTeams = await this.db.db
@@ -1408,11 +1411,22 @@ export class UsersService {
 
     // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
     // Teams are linked to senior via team_members (the SENIOR is itself a member).
+    // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
+    // a detached (rotated-out) senior's team_members row must not resolve a
+    // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
+    // roster returned to the caller (stale-member leak, distinct from the
+    // team-access class of bug already fixed in teams.service.ts).
     const seniorMemberships = await this.db.db
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
       .innerJoin(users, eq(teamMembers.userId, users.id))
-      .where(and(inArray(teamMembers.userId, seniorIds), eq(users.role, 'SENIOR')))
+      .where(
+        and(
+          inArray(teamMembers.userId, seniorIds),
+          eq(users.role, 'SENIOR'),
+          isNull(teamMembers.leftAt),
+        ),
+      )
     const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
 
     const memberIds = new Set<string>()
@@ -1420,7 +1434,7 @@ export class UsersService {
       const tmRows = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
-        .where(inArray(teamMembers.teamId, teamIds))
+        .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
       tmRows.forEach((r) => memberIds.add(r.userId))
     }
 

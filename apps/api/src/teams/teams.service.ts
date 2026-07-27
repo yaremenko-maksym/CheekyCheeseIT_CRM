@@ -42,7 +42,12 @@ export class TeamsService {
       return this.mapDropTeam(team, currentUser)
     }
 
-    const senior = team.members.find((m) => m.user?.role === 'SENIOR')
+    // MED-2 (security-review round 2): `leftAt === null` — a rotated-out
+    // (detached) senior's team_members row must not be treated as "the
+    // team's senior" here. Without this, a stale/duplicate SENIOR row left
+    // by a rotation could seed the wrong seniorId, deriving the wrong
+    // (or an empty) junior roster for `mapTeam`'s consumers.
+    const senior = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
 
     const juniorMembers: Array<{
       id: string
@@ -313,7 +318,12 @@ export class TeamsService {
         if (t.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return true
         if (currentUser.role === 'JUNIOR') {
           // Check if this team's senior has an active project with this junior
-          const senior = t.members.find((m) => m.user?.role === 'SENIOR')
+          // MED-2 (security-review round 2): `leftAt === null` — a rotated-out
+          // senior's team_members row must not seed this lookup (mirrors the
+          // same fix in mapTeam). Without it, a detached senior could keep
+          // granting their old juniors visibility into a team they left, or a
+          // stale row could shadow the CURRENT senior and wrongly deny access.
+          const senior = t.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
           if (senior) {
             const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
             return seniorProjects.some((p) =>
@@ -486,11 +496,19 @@ export class TeamsService {
 
     // Find SENIOR via team_members + users join — `with: { members: true }`
     // above doesn't include user.role, so we run a focused lookup here.
+    // MED-2 (security-review round 2): `isNull(leftAt)` — without it, a
+    // team with rotation history (a detached ex-senior row PLUS the current
+    // active senior row, both role=SENIOR) has no ORDER BY guarantee on
+    // which row `rows[0]` picks. Picking the detached one would silently
+    // restore access to the WRONG (possibly still-fired) person instead of
+    // the team's actual current senior.
     const seniorRow = await this.db.db
       .select({ userId: teamMembers.userId })
       .from(teamMembers)
       .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR')))
+      .where(
+        and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
+      )
       .then((rows) => rows[0])
     if (!seniorRow) {
       throw new NotFoundException('Senior of this team not found')
@@ -639,8 +657,14 @@ export class TeamsService {
     }
 
     // Prevent adding a second SENIOR
+    // MED-2 (security-review round 2, informational — consistency, not a
+    // security fix): `leftAt === null` — without it a rotated-out senior's
+    // stale row permanently blocks ever adding a new senior to this team
+    // (conservative failure, not an access bug), even though the team is
+    // legitimately senior-less after rotation. Brought in line with every
+    // other SENIOR lookup in this file.
     if (user.role === 'SENIOR') {
-      const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR')
+      const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
       if (hasSenior) throw new BadRequestException('Team already has a senior')
     }
 
@@ -784,8 +808,13 @@ export class TeamsService {
     if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
 
     // For JUNIORs: check if they have an active project with this team's senior
+    // MED-2 (security-review round 2): `leftAt === null` — same fix as
+    // findAll's JUNIOR branch above; a rotated-out senior's stale row must
+    // not seed this lookup (mirror-image bug of the DROP/general branches:
+    // it could both wrongly grant access via a departed senior AND wrongly
+    // deny access by shadowing the current one).
     if (currentUser.role === 'JUNIOR') {
-      const senior = team.members.find((m) => m.user?.role === 'SENIOR')
+      const senior = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
       if (senior) {
         const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
         const hasActiveProjectWithSenior = seniorProjects.some((p) =>
