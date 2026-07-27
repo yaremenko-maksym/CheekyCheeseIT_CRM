@@ -9,6 +9,7 @@ import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { CompanyAccountService } from './company-account.service'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
+import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
 import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 import { companyAccount, consumedTxHashes, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
@@ -70,18 +71,10 @@ const HASH_MISMATCH = '0x' + 'b'.repeat(64)
 const HASH_PENDING = '0x' + 'c'.repeat(64)
 
 // ── Controllable fake Etherscan: per-hash scripted verification ───────────────
-const verifyScript = new Map<string, DepositVerification>()
+const verifyScript = new Map<string, ScriptedVerification>()
 const fakeEtherscan: Pick<EtherscanService, 'verifyDeposit'> = {
   verifyDeposit: (txHash: string): Promise<DepositVerification> =>
-    Promise.resolve(
-      verifyScript.get(txHash) ?? {
-        found: false,
-        toMatches: false,
-        confirmed: false,
-        confirmations: 0,
-        amountUsdt: null,
-      },
-    ),
+    Promise.resolve(withDerivedMinorUnits(verifyScript.get(txHash))),
 }
 
 let _pool: Pool | null = null

@@ -13,6 +13,7 @@ import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
+import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import {
   companyAccount,
@@ -99,38 +100,10 @@ const TEST_USER_IDS = ALL.map((u) => u.id)
 const ACCOUNT_ID = 'ca110000-0000-4000-cc00-000000000001'
 
 // ── Controllable fake Etherscan: per-hash scripted verification ──────────────
-const verifyScript = new Map<string, DepositVerification>()
+const verifyScript = new Map<string, ScriptedVerification>()
 const fakeEtherscan: Pick<EtherscanService, 'verifyDeposit'> = {
   verifyDeposit: (txHash: string): Promise<DepositVerification> =>
-    Promise.resolve(
-      verifyScript.get(txHash) ?? {
-        found: false,
-        toMatches: false,
-        fromAddress: null,
-        confirmed: false,
-        confirmations: 0,
-        amountUsdt: null,
-        amountUsdtMinor: null,
-      },
-    ),
-}
-
-/**
- * task-onchain-payment-integrity. Script a verification for `hash`.
- *
- * `amountUsdt` is given in whole USDT and the EXACT minor-units figure the
- * payout path compares against is derived from it here — so a test states the
- * amount once and cannot accidentally desynchronise the two representations.
- */
-function scriptVerification(
-  hash: string,
-  v: Omit<DepositVerification, 'amountUsdtMinor'> & { amountUsdt: number | null },
-): void {
-  verifyScript.set(hash, {
-    ...v,
-    amountUsdtMinor:
-      v.amountUsdt === null ? null : BigInt(Math.round(v.amountUsdt * 1_000_000)).toString(),
-  })
+    Promise.resolve(withDerivedMinorUnits(verifyScript.get(txHash))),
 }
 
 // Fixed-rate NBU stub (USDT incomes → identity conversion; never hits network).
@@ -330,7 +303,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000') // payable = 740 USDT
     const HASH = '0x' + '1'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       confirmed: true,
@@ -349,7 +322,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000')
     const HASH = '0x' + '2'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: false, // recipient mismatch
       confirmed: false,
@@ -371,7 +344,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000')
     const HASH = '0x' + '3'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       confirmed: false, // below threshold
@@ -389,7 +362,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000') // payable 740
     const HASH = '0x' + '4'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       confirmed: true,
@@ -410,7 +383,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000') // 740
     const HASH = '0x' + '5'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       fromAddress: SENDER_WALLET,
@@ -547,7 +520,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000')
     const HASH = '0x' + '6'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       confirmed: true,
@@ -571,7 +544,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const first = await seedPayout(SENIOR, '1000')
     const second = await seedPayout(SENIOR2, '1000')
     const HASH = '0x' + '7'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       confirmed: true,
@@ -765,7 +738,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000')
     const HASH = '0x' + 'b'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       confirmed: true,
@@ -796,7 +769,7 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     // payPayoutRequest on the now-PAID payout → rejected (status !== PENDING gate),
     // even with an otherwise-valid on-chain verification scripted.
     const HASH = '0x' + 'c'.repeat(64)
-    scriptVerification(HASH, {
+    verifyScript.set(HASH, {
       found: true,
       toMatches: true,
       confirmed: true,
