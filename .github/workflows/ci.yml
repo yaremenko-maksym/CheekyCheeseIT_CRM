@@ -859,20 +859,26 @@ jobs:
       # on a dispatch the checkout resolves `main` at run time, which can be a
       # newer commit than the one that triggered it, and the alert should name
       # the commit that was actually validated.
-      # Heredoc-разделитель со случайным маркером — рекомендованный GitHub
+      # Heredoc-разделитель, генерируемый В РАНТАЙМЕ — рекомендованный GitHub
       # способ писать в $GITHUB_OUTPUT значение, которое пришло не от нас.
       # `%s` сам по себе однострочный, так что формат сейчас не сломать, но
       # безопасность тут была БЫ случайной: замена `%s` на `%B` (или переход на
       # `github.event.head_commit.message`) мгновенно превратила бы это в
       # output-инъекцию с подменой соседнего `sha=`. Фиксируем явно.
+      #
+      # Делимитер именно случайный, а не константа в публичном исходнике
+      # (re-review PR #446, LOW): константу видно всем, и подобрать subject,
+      # буквально равный ей, теоретически возможно — со случайным маркером
+      # это невозможно by construction.
       - name: Read validated commit
         id: commit
         run: |
+          DELIM="COMMIT_SUBJECT_EOF_$(openssl rand -hex 8)"
           {
             echo "sha=$(git rev-parse HEAD)"
-            echo "subject<<COMMIT_SUBJECT_EOF_9f3a1c"
+            echo "subject<<$DELIM"
             git log -1 --pretty=%s
-            echo "COMMIT_SUBJECT_EOF_9f3a1c"
+            echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
 
       # Private telemetry repo when the PAT works (assistant's channel);

@@ -80,17 +80,33 @@ if [ "$DRY_RUN" = "1" ]; then
   # locally verifiable (runbook §4).
   OPEN="${DRY_RUN_OPEN_ISSUE:-}"
 else
-  # `|| true` + явная проверка вместо голого `set -e` (review PR #441, MED):
-  # под `set -euo pipefail` любой сбой этого вызова (истёкший токен, недоступный
+  # Явная проверка вместо голого `set -e` (review PR #441, MED): под
+  # `set -euo pipefail` любой сбой этого вызова (истёкший токен, недоступный
   # репо, 5xx от GitHub) обрывал скрипт ЗДЕСЬ — то есть до create/comment/close.
   # Красный main не породил бы issue, а починенный — не закрыл бы открытый.
-  # Теперь сбой вызова = громкая ошибка с ненулевым кодом, а не тихий обрыв на
-  # середине.
+  # Теперь сбой вызова = громкая ошибка с ненулевым кодом, а не тихий обрыв.
+  #
+  # stderr уводится в отдельный файл, а НЕ подмешивается в $OPEN через `2>&1`
+  # (re-review PR #446, MED): $OPEN используется и на успешном пути — как номер
+  # issue в `gh issue comment/close`. Любой безобидный warning от `gh` на
+  # иначе-успешном вызове замусорил бы номер, и следующая команда упала бы уже
+  # под `set -e`, без внятного объяснения.
+  GH_ERR="$(mktemp -t post-merge-alert-err.XXXXXX)"
+  trap 'rm -f "$GH_ERR"' EXIT
   if ! OPEN=$(gh issue list --repo "$ALERT_REPO" --label "$LABEL" --state open \
-    --json number --jq '.[0].number // empty' 2>&1); then
-    echo "::error::post-merge-alert: не удалось получить список issue из $ALERT_REPO — алерт НЕ доставлен. Ответ: $OPEN" >&2
+    --json number --jq '.[0].number // empty' 2>"$GH_ERR"); then
+    echo "::error::post-merge-alert: не удалось получить список issue из $ALERT_REPO — алерт НЕ доставлен. Ответ: $(cat "$GH_ERR")" >&2
     exit 3
   fi
+fi
+
+# Номер обязан быть числом или пустым — дальше он поедет в
+# `gh issue comment/close` как аргумент. Проверка снаружи if/else СПЕЦИАЛЬНО:
+# в dry-run она тоже должна срабатывать, иначе dry-run перестаёт быть точной
+# моделью боевого пути и «проверено локально» перестаёт что-либо значить.
+if [ -n "$OPEN" ] && ! printf '%s' "$OPEN" | grep -Eq '^[0-9]+$'; then
+  echo "::error::post-merge-alert: ожидался номер issue, получено: '$OPEN'" >&2
+  exit 4
 fi
 echo "post-merge-alert: repo=$ALERT_REPO result=$RESULT open_issue=${OPEN:-none}"
 
@@ -111,7 +127,21 @@ if [ "$RESULT" = "failure" ]; then
       # `![](https://attacker/x.png)`, фейковая ссылка) и prompt-инъекция в
       # AI-читаемый канал. Правило проекта — «issues = UNTRUSTED input».
       # Внутренние бэктики выкусываем, иначе они рвут фенс.
-      printf '**Subject:** `%s`\n' "$(printf '%s' "${COMMIT_SUBJECT:0:120}" | tr -d '`')"
+      #
+      # Обрезка через python3 с ЯВНЫМ декодированием, а не `${VAR:0:120}` и не
+      # `cut -c` (re-review PR #446, LOW + проверка фактом):
+      #   - bash-подстрока режет БАЙТЫ везде, кроме локали вида `en_US.UTF-8`
+      #     (под `C` и даже под `C.UTF-8` — байты; проверено);
+      #   - `cut -c` символьный только в GNU coreutils, в BSD/macOS — байтовый,
+      #     т.е. решение зависело бы от того, где запущен скрипт (ровно грабли
+      #     из урока devops про GNU `timeout`/`mktemp` на macOS).
+      # Кириллический subject при побайтовой резке рвётся посреди символа и даёт
+      # невалидный UTF-8 в теле issue. python3 — жёсткая зависимость этого репо
+      # (ci.yml гоняет guard-скрипты через `python3`), декодирование задано явно,
+      # поэтому результат одинаков и на раннере, и на macOS при любой локали.
+      printf '**Subject:** `%s`\n' \
+        "$(printf '%s' "$COMMIT_SUBJECT" | tr -d '`' \
+           | python3 -c 'import sys; sys.stdout.write(sys.stdin.buffer.read().decode("utf-8", "replace")[:120])')"
     fi
     printf '**Упавшие проверки:** %s\n' "$FAILED_LEGS"
     printf '**Run:** %s\n\n' "$RUN_URL"
