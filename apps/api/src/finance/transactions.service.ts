@@ -45,6 +45,7 @@ import { isUniqueViolation } from '../database/pg-errors'
 import {
   consumeTxHash,
   findConsumedTxHash,
+  minorUnitsFromString,
   normalizeEthAddress,
   usdtToMinorUnits,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
@@ -2833,8 +2834,7 @@ export class TransactionsService {
       // either side (unresolved / malformed) is a mismatch — never credit a
       // payout whose transferred amount we cannot verify.
       const payableMinor = usdtToMinorUnits(req.payableAmount)
-      const onChainMinor =
-        verification.amountUsdtMinor === null ? null : BigInt(verification.amountUsdtMinor)
+      const onChainMinor = minorUnitsFromString(verification.amountUsdtMinor)
       if (payableMinor === null || payableMinor <= 0n || onChainMinor !== payableMinor) {
         throw new BadRequestException(
           `Сумма on-chain транзакции должна точно совпадать с суммой выплаты (${req.payableAmount} USDT)`,

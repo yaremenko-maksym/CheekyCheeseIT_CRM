@@ -90,6 +90,21 @@ const USDT_DECIMALS = 6
  * than 6 decimal places (un-representable in USDT — never silently truncate an
  * amount that decides whether money moves).
  */
+/**
+ * Parse an ALREADY-minor-units integer string (what
+ * `DepositVerification.amountUsdtMinor` carries) into a bigint.
+ *
+ * Returns null for null/undefined/malformed input instead of letting `BigInt()`
+ * throw: a verifier that returns garbage must produce a clean "amount does not
+ * match" rejection (payout stays PENDING), never a 500 on the money path.
+ */
+export function minorUnitsFromString(raw: string | null | undefined): bigint | null {
+  if (raw === null || raw === undefined) return null
+  const text = raw.trim()
+  if (!/^-?\d+$/.test(text)) return null
+  return BigInt(text)
+}
+
 export function usdtToMinorUnits(raw: string | number | null | undefined): bigint | null {
   if (raw === null || raw === undefined) return null
   const text = typeof raw === 'number' ? String(raw) : raw.trim()
