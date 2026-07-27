@@ -413,6 +413,23 @@ export class UsersService {
     ) {
       throw new ForbiddenException('Cannot change own ADMIN role')
     }
+    // MED (security-audit authz-hardening): mirror changeRole's privilege-
+    // escalation guards here. PATCH /:id/role already forbids elevating
+    // anyone to ADMIN (fixed pool) and moving a user to DROP (must go
+    // through POST /users/drops, which atomically provisions the mandatory
+    // drop-team). Without this, the SAME `role` field on the general
+    // PATCH /:id body bypassed both invariants — this only fires on an
+    // ACTUAL role change (data.role !== existing.role) so the routine
+    // round-trip of resubmitting the current role (e.g. an ADMIN self-edit,
+    // or editing a DROP user's other fields) is unaffected.
+    if (data.role !== undefined && data.role !== existing.role) {
+      if (data.role === 'ADMIN') {
+        throw new ForbiddenException('Назначение роли ADMIN запрещено — пул фиксирован')
+      }
+      if (data.role === 'DROP') {
+        throw new ForbiddenException('Изменение роли на DROP — через POST /api/users/drops')
+      }
+    }
     // ut-17: Telegram channel of the team is a SENIOR-only field. The pair
     // invariant SENIOR ≡ team means setting it for any other role would be a
     // contract violation — reject early with 400.
