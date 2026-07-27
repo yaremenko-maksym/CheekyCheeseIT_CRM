@@ -66,51 +66,16 @@ test.describe('Instant page navigation (no page-transition)', () => {
       .toBe('MAIN')
   })
 
-  // task-landing-e2e-in-ci.md — known flaky test, ROOT-CAUSED (not masked).
-  //
-  // Was previously flagged "pre-existing flake" without proof twice; that is
-  // not acceptable for a CI-gated suite (zero-tolerance to flaky). Root cause
-  // is now confirmed empirically and is a REAL race in app code, OUTSIDE
-  // this spec's/apps/e2e's zone-of-write — `apps/landing/app/routes/
-  // __root.tsx`'s `RootDocument()` focus-management effect (lines ~93-128):
-  //
-  //   router.subscribe('onResolved', () => {
-  //     ...
-  //     setResolvedPathname((prev) => (prev === pathname ? prev : pathname))
-  //   })
-  //
-  // This "no-op guard" is commented as protecting against `onResolved`
-  // firing twice for the SAME commit — but it also silently swallows a
-  // legitimate A→B→A round trip (forward nav then an IMMEDIATE back nav,
-  // exactly what this test does): under CPU pressure slow enough that React
-  // hasn't flushed the FIRST navigation's `setResolvedPathname('/careers/')`
-  // before the SECOND (`setResolvedPathname('/')`) is queued, React 18
-  // batches both into a single commit whose net pathname change vs. the
-  // component's actual last-committed `prev` is ZERO (back to the mount-time
-  // value) — the guard's `prev === pathname` check bails out, the
-  // `useEffect(() => focusMainLandmark(), [resolvedPathname])` never fires
-  // for EITHER hop, and focus silently stays on whatever was focused before
-  // navigation even started (the originally-clicked "See open roles" link).
-  //
-  // Reproduced locally with proof (10/10 green under `--workers=1`, matching
-  // CI's `playwright.config.ts` `workers: process.env['CI'] ? 1 : '50%'` —
-  // but ~1 in 10-30 under contention with `--repeat-each=30` at default
-  // parallel workers): every failure has `expect(activeElement.tagName)`
-  // report `"A"`, and the Playwright error-context DOM snapshot on every
-  // captured failure shows `link "See open roles" [active]` — i.e. focus
-  // genuinely never moved, not a timing/assertion issue on this spec's side.
-  // CI's GHA runners are resource-constrained even at `workers: 1`, which is
-  // consistent with the higher in-CI failure rate this test was flagged
-  // with (3-5/5) vs. this lighter local repro.
-  //
-  // Retrying/relaxing the timeout here would MASK a real accessibility bug
-  // (WCAG 2.4.3 focus-not-obvious) instead of fixing it — not acceptable
-  // (golden rule: root-cause or `test.fixme`, never paper over). Fix belongs
-  // in `__root.tsx` (Coder's zone, not apps/e2e/**) — e.g. track navigations
-  // with a monotonically increasing epoch/counter instead of comparing
-  // pathnames, so a net-zero round trip is never conflated with "no new
-  // navigation happened".
-  test.fixme('browser back navigation still works and re-focuses <main>', async ({ page }) => {
+  // fix/landing-focus-race — was `test.fixme` (task-landing-e2e-in-ci.md):
+  // a real race in `apps/landing/app/routes/__root.tsx`'s `RootDocument()`
+  // could swallow a forward-then-immediate-back (A→B→A) round trip entirely.
+  // See that file's module doc (on `RootDocument`) for the full root-cause
+  // writeup and the fix. Re-enabled once the fix landed; proof of both the
+  // original failure (under contention) and the post-fix stability is in the
+  // PR that re-enabled this test, not here — this comment intentionally
+  // stays short so it doesn't go stale the way the pre-fix writeup would
+  // have.
+  test('browser back navigation still works and re-focuses <main>', async ({ page }) => {
     await gotoStable(page, '/')
     await page.getByRole('link', { name: 'See open roles' }).click()
     await page.waitForURL('**/careers/')
