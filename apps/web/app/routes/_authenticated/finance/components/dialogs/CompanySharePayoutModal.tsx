@@ -20,6 +20,7 @@ import { fmtAmount, STATUS_COLORS, STATUS_LABELS } from '../../constants'
 import {
   buildPreviewRows,
   groupByProject,
+  isIncomeTransaction,
   pluralizeIncomes,
   pluralizeProjects,
   type ProjectIncomeGroup,
@@ -295,10 +296,19 @@ export function CompanySharePayoutModal({
   // Step-2 summary line (fidelity-review finding #2) — derived from the
   // CREATED payout's own `transactions` (server-authoritative), not the
   // local `selected` set, which is stale/cleared by the time step 2 renders.
+  //
+  // MUST filter to income rows (isIncomeTransaction) BEFORE counting either
+  // number — `payout.transactions` also carries the PAYOUT ledger row itself
+  // (projectId NULL), which otherwise inflates projectsCount by exactly 1 on
+  // EVERY payout (regression: fidelity-review re-audit, confirmed against
+  // the DB on both a 3-project and a 1-project payout). The same filter
+  // covers DROP payouts too — a type-specific filter here would silently
+  // zero out incomesCount for DROP (this modal's other caller, design spec §9).
   const payoutTxs = paymentState.payout?.transactions ?? []
+  const payoutIncomeTxs = payoutTxs.filter(isIncomeTransaction)
   const payoutSummary = {
-    projectsCount: new Set(payoutTxs.map((t) => t.projectId)).size,
-    incomesCount: payoutTxs.filter((t) => t.type === 'SENIOR_INCOME').length,
+    projectsCount: new Set(payoutIncomeTxs.map((t) => t.projectId)).size,
+    incomesCount: payoutIncomeTxs.length,
   }
   const stepAriaLabel =
     step === 'pay'

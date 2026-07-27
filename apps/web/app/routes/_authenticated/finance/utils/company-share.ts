@@ -24,6 +24,22 @@ export const DEFAULT_SENIOR_SHARE_PERCENT = 26
 export const DEFAULT_DROP_SHARE_PERCENT_FALLBACK = 5
 
 /**
+ * A payout_request's `transactions` array (as returned by the backend) is
+ * NOT homogeneous — it includes the income rows (SENIOR_INCOME /
+ * DROP_INCOME) that were bundled into it AND the PAYOUT ledger row itself
+ * (project_id NULL). Any count/group derived from that array MUST filter to
+ * income rows FIRST, by role-agnostic type — never assume SENIOR_INCOME only
+ * (that undercounts/misses DROP payouts, the same modal's other caller) and
+ * never skip the filter (the stray PAYOUT row pollutes counts — regression:
+ * fidelity-review finding, project count off-by-one on every payout).
+ */
+export function isIncomeTransaction(
+  t: Pick<TransactionDto, 'type'>,
+): t is Pick<TransactionDto, 'type'> & { type: 'SENIOR_INCOME' | 'DROP_INCOME' } {
+  return t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME'
+}
+
+/**
  * Company-share preview formula — 1:1 copy of the calculation that lived in
  * `PayoutDialog.tsx` (§4.3 of the design spec). This is a CLIENT-SIDE preview
  * only; the authoritative amount is computed server-side at

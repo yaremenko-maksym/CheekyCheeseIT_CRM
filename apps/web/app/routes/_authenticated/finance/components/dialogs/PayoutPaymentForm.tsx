@@ -17,6 +17,7 @@ import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import { fmtAmount } from '../../constants'
+import { isIncomeTransaction } from '../../utils/company-share'
 import { SHOW_DEV_SIMULATE, type PayoutPaymentFormState } from '../../hooks/usePayoutPaymentForm'
 
 const MANUAL_METHODS: { value: ManualPayoutMethod; label: string; icon: React.ReactNode }[] = [
@@ -151,11 +152,15 @@ export function PayoutPaymentForm({
             </div>
           </div>
 
-          {/* Transactions in this payout (SENIOR_INCOME-only — see PR #56).
-              Preserved exactly as in the original PayoutDetailDialog — this
-              extraction changes NO logic (design spec §7.3). */}
+          {/* Transactions in this payout. Originally SENIOR_INCOME-only (PR
+              #56) — fixed to the generic isIncomeTransaction filter
+              (fidelity-review re-audit) because this SAME dialog is also the
+              DROP payment entry point (InProgressPanel's «Оплатить» pill,
+              design spec §9): the SENIOR_INCOME-only filter silently showed
+              an empty list for a DROP's own payout, same root cause as the
+              step-2 summary line's project-count bug. */}
           {(() => {
-            const incomeTxs = payout.transactions?.filter((t) => t.type === 'SENIOR_INCOME') ?? []
+            const incomeTxs = payout.transactions?.filter(isIncomeTransaction) ?? []
             if (incomeTxs.length === 0) return null
             return (
               <div className="space-y-1.5">

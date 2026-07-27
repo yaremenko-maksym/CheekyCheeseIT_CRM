@@ -230,29 +230,89 @@ describe('CompanySharePayoutModal — create -> step 2 without closing (AC3/AC4)
     expect(onClose).not.toHaveBeenCalled()
   })
 
-  it('step 2 shows the payout-id/project/income summary line (fidelity-review finding #2)', async () => {
-    // 2 projects, 4 incomes — matches the design mockup's own example
-    // ("№a1b2c3 · 2 проекта, 4 прихода") so the declension is exercised
-    // against a real multi-item case, not just singular.
-    const payout = makePayout({
-      id: 'a1b2c3-full-uuid',
-      transactions: [
-        { ...TX_A1, id: 't1' },
-        { ...TX_A1, id: 't2' },
-        { ...TX_B1, id: 't3' },
-        { ...TX_B1, id: 't4' },
-      ],
+  describe('step 2 payout-id/project/income summary line — VALUE assertions (fidelity-review regression)', () => {
+    // Regression context: `payout.transactions` (as the real backend
+    // returns it) is NOT homogeneous — it includes the PAYOUT ledger row
+    // itself (projectId NULL) alongside the bundled income rows. A prior fix
+    // that filtered `incomesCount` but not `projectsCount` shipped a
+    // universally-reproducible +1 project-count bug (confirmed against the
+    // DB: 3 projects/3 incomes showed "4 проекта"; 1 project/1 income showed
+    // "2 проекта"). Both fixtures below DELIBERATELY include that PAYOUT row
+    // — a test built only from income rows would pass on the buggy code too
+    // (Set({A,A,B,B}).size === 2 either way) and would NOT have caught this.
+
+    it('SENIOR payout, 2 projects / 4 incomes + the PAYOUT ledger row itself — counts stay 2/4, not 3/4', async () => {
+      const payoutLedgerRow = makeTx({
+        id: 'payout-ledger-row',
+        type: 'PAYOUT',
+        projectId: null,
+        projectName: null,
+        seniorSharePercent: null,
+      })
+      const payout = makePayout({
+        id: 'a1b2c3-full-uuid',
+        transactions: [
+          { ...TX_A1, id: 't1' },
+          { ...TX_A1, id: 't2' },
+          { ...TX_B1, id: 't3' },
+          { ...TX_B1, id: 't4' },
+          payoutLedgerRow,
+        ],
+      })
+      createPayoutRequestMock.mockResolvedValue(payout)
+      getPayoutRequestMock.mockResolvedValue(payout)
+
+      renderModal({ preselectedTxIds: [TX_A1.id] })
+      fireEvent.click(screen.getByTestId('company-share-create-payout'))
+
+      const summary = await screen.findByTestId('company-share-payout-summary')
+      // Exact value, not "contains a number" — this is the whole point.
+      expect(summary).toHaveTextContent('№a1b2c3 · 2 проекта, 4 прихода')
     })
-    createPayoutRequestMock.mockResolvedValue(payout)
-    getPayoutRequestMock.mockResolvedValue(payout)
 
-    renderModal({ preselectedTxIds: [TX_A1.id] })
-    fireEvent.click(screen.getByTestId('company-share-create-payout'))
+    it('DROP payout, 1 project / 2 DROP_INCOME rows + the PAYOUT ledger row — counts are 1/2, not 0 incomes or an inflated project count', async () => {
+      const dropIncome1 = makeTx({
+        id: 'drop-1',
+        type: 'DROP_INCOME',
+        projectId: PROJECT_A,
+        projectName: 'Project Alpha',
+        seniorSharePercent: null,
+        dropSharePercent: 5,
+        receiverId: 'drop-1-id',
+      })
+      const dropIncome2 = makeTx({
+        id: 'drop-2',
+        type: 'DROP_INCOME',
+        projectId: PROJECT_A,
+        projectName: 'Project Alpha',
+        seniorSharePercent: null,
+        dropSharePercent: 5,
+        receiverId: 'drop-1-id',
+      })
+      const payoutLedgerRow = makeTx({
+        id: 'payout-ledger-row-drop',
+        type: 'PAYOUT',
+        projectId: null,
+        projectName: null,
+        seniorSharePercent: null,
+      })
+      const payout = makePayout({
+        id: 'd4e5f6-full-uuid',
+        seniorId: 'drop-1-id',
+        transactions: [dropIncome1, dropIncome2, payoutLedgerRow],
+      })
+      createPayoutRequestMock.mockResolvedValue(payout)
+      getPayoutRequestMock.mockResolvedValue(payout)
 
-    const summary = await screen.findByTestId('company-share-payout-summary')
-    expect(summary).toHaveTextContent('№a1b2c3')
-    expect(summary).toHaveTextContent('2 проекта')
-    expect(summary).toHaveTextContent('4 прихода')
+      // The old SENIOR_INCOME-only filter would have produced
+      // incomesCount=0 here (all rows are DROP_INCOME) — this fixture
+      // exercises exactly that gap too.
+      renderModal({ preselectedTxIds: [TX_A1.id] })
+      fireEvent.click(screen.getByTestId('company-share-create-payout'))
+
+      const summary = await screen.findByTestId('company-share-payout-summary')
+      expect(summary).toHaveTextContent('№d4e5f6 · 1 проект, 2 прихода')
+    })
   })
 
   it('the step announcer live-region reports the step change (a11y)', async () => {
