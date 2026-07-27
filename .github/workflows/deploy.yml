@@ -445,7 +445,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql,scripts/devops/check-security-headers.sh'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql,scripts/devops/check-security-headers.sh,scripts/devops/check-nginx-perimeter.sh'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
@@ -473,6 +473,13 @@ jobs:
           #   steps below it, not the VPS filesystem's normal state, which is
           #   compose files + DDL only. This is the ONLY reason a script file
           #   is in this SCP list at all.)
+          # scripts/devops/check-nginx-perimeter.sh → /opt/crm/scripts/devops/check-nginx-perimeter.sh
+          #   (security audit 2026-07-27, MED-1/MED-5: same rationale/pattern as
+          #   check-security-headers.sh immediately above — verifies nginx's
+          #   client_max_body_size + default_server catch-all on every deploy,
+          #   so a future config edit that silently reintroduces the 1 MB
+          #   default (or drops the unmatched-Host catch-all) fails the deploy
+          #   instead of shipping unnoticed.)
           # The deploy step reads from those full paths via /opt/crm.
           #
           # incident (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422 shipped
@@ -1080,6 +1087,32 @@ jobs:
               echo "add_header inheritance gotcha, or an incomplete/missing CSP directive) shipped —"
               echo "see scripts/devops/check-security-headers.sh's own header comment and"
               echo "scripts/devops/csp-report-only-rollout-runbook.md for how to diagnose locally."
+              exit 1
+            fi
+
+            # security audit 2026-07-27 (MED-1/MED-5): same FATAL pattern as the
+            # security-headers check immediately above — this is the "did nginx
+            # end up serving the config we think it did" class of check, not a
+            # soft warning. Only the body-size + default_server sub-checks run
+            # here (POSTs to the real, public, GET-only /api/health — never
+            # touches the DB/S3/business logic); the Cloudflare-only allow/deny
+            # gate is NOT (and cannot be, from loopback) verified by this
+            # invocation — see the script's own header comment.
+            echo "==> Smoke test — nginx perimeter (body limits, default_server), via local nginx (FATAL)"
+            NGINX_PERIMETER_SCRIPT="/opt/crm/scripts/devops/check-nginx-perimeter.sh"
+            if [ ! -f "$NGINX_PERIMETER_SCRIPT" ]; then
+              echo "ERROR: guard script not found at $NGINX_PERIMETER_SCRIPT — scp-action may have flattened the tree (see copy-compose job)."
+              ls -la /opt/crm/scripts/devops/ 2>/dev/null || true
+              exit 1
+            fi
+            if bash "$NGINX_PERIMETER_SCRIPT" http://127.0.0.1; then
+              echo "nginx perimeter check PASSED"
+            else
+              echo "ERROR: nginx is not enforcing the expected request-body limits and/or the"
+              echo "default_server catch-all is missing. This means a regression of the class fixed"
+              echo "in the 2026-07-27 security audit (client_max_body_size silently reverted to"
+              echo "nginx's 1 MB default, or an unmatched Host falling through to a real vhost again)"
+              echo "shipped — see scripts/devops/check-nginx-perimeter.sh's own header comment."
               exit 1
             fi
 
