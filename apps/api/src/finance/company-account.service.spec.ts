@@ -80,7 +80,10 @@ function makeDb(overrides: Record<string, unknown> = {}) {
 
   const base = {
     query: { ...baseQuery, ...(queryOverride ?? {}) },
-    insert: vi.fn(),
+    // Default insert resolves the drizzle chain: since MED-3 the poll-credit
+    // path also claims the hash (`consumeTxHash` → insert().values()), so a
+    // bare `vi.fn()` would blow up in tests that never look at inserts.
+    insert: vi.fn(() => ({ values: () => Promise.resolve() })),
     update: vi.fn(),
     select: vi.fn(),
     // Default: run the callback against this same fake handle (the deposit
@@ -430,7 +433,12 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
   })
 
   it('reaches threshold → flips to PAID + persists amount', async () => {
-    const updateSpy = vi.fn(() => ({ set: () => ({ where: () => Promise.resolve() }) }))
+    // MED-3 (security-review PR #438): the flip now runs INSIDE a transaction
+    // together with the consumed-hash claim and uses a conditional
+    // `WHERE status='PENDING' … RETURNING`, so the fake must resolve a row.
+    const updateSpy = vi.fn(() => ({
+      set: () => ({ where: () => ({ returning: () => Promise.resolve([{ id: 'dep-1' }]) }) }),
+    }))
     const db = makeDb({
       query: {
         companyAccount: {
@@ -468,7 +476,9 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
   // deposit to PAID — a deposit submitted before the tx was mined has no sender
   // recorded yet, so the re-poll must record it on the flip.
   it('records the on-chain sender when the poll flips the deposit to PAID', async () => {
-    const setSpy = vi.fn(() => ({ where: () => Promise.resolve() }))
+    const setSpy = vi.fn(() => ({
+      where: () => ({ returning: () => Promise.resolve([{ id: 'dep-1' }]) }),
+    }))
     const db = makeDb({
       query: { transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) } },
       update: vi.fn(() => ({ set: setSpy })),

@@ -69,6 +69,12 @@ describe('usdtToMinorUnits — exact decimal → integer minor units', () => {
     expect(usdtToMinorUnits(undefined)).toBeNull()
   })
 
+  it('rejects a trailing decimal point (review LOW)', () => {
+    // "740." is malformed input, not the number 740 — a decimal point that
+    // decides money must be followed by digits.
+    expect(usdtToMinorUnits('740.')).toBeNull()
+  })
+
   it('accepts numbers as well as strings', () => {
     expect(usdtToMinorUnits(740)).toBe(740_000_000n)
   })
@@ -101,6 +107,25 @@ describe('normalizeOnChainTxHash — what may be consumed', () => {
     expect(normalizeOnChainTxHash('0x' + 'z'.repeat(64))).toBeNull()
     expect(normalizeOnChainTxHash('')).toBeNull()
     expect(normalizeOnChainTxHash(null)).toBeNull()
+  })
+
+  // ── HIGH-1 (security-review PR #438) ──────────────────────────────────────
+  // The registry regex used to be ANCHORED while `submitDeposit` extracted with
+  // a non-anchored one — the gap let a link-shaped input credit money without a
+  // claim. The registry now uses the SAME extraction as every entry path, so no
+  // input format can produce a credit the registry cannot see.
+  it('EXTRACTS the hash from an explorer link (was null → the HIGH-1 bypass)', () => {
+    expect(normalizeOnChainTxHash(`https://etherscan.io/tx/${real}`)).toBe(real)
+    expect(normalizeOnChainTxHash(`https://etherscan.io/tx/${real}#eventlog`)).toBe(real)
+    expect(normalizeOnChainTxHash(`  https://etherscan.io/tx/${'0x' + 'A'.repeat(64)}  `)).toBe(
+      real,
+    )
+  })
+
+  it('a link and its bare hash normalise to the SAME key (they collide)', () => {
+    expect(normalizeOnChainTxHash(`https://etherscan.io/tx/${real}`)).toBe(
+      normalizeOnChainTxHash(real),
+    )
   })
 })
 
@@ -136,6 +161,18 @@ describe('consumeTxHash / findConsumedTxHash — registry plumbing', () => {
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({ txHash: '0x' + 'a'.repeat(64), purpose: 'PAYOUT' }),
     )
+  })
+
+  it('HIGH-1: a LINK is claimed under its bare hash (no unregistered credit)', async () => {
+    const { handle, values } = makeTx()
+    await consumeTxHash(handle, {
+      txHash: `https://etherscan.io/tx/${'0x' + 'A'.repeat(64)}`,
+      purpose: 'PAYOUT',
+      referenceId: 'ref-link',
+      consumedByUserId: 'user-1',
+    })
+    // Before the fix this inserted NOTHING — the credit went through unclaimed.
+    expect(values).toHaveBeenCalledWith(expect.objectContaining({ txHash: '0x' + 'a'.repeat(64) }))
   })
 
   it('no-ops for synthetic markers (no row, no collision)', async () => {

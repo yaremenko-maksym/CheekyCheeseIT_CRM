@@ -42,12 +42,19 @@ function makeService(apiKey: string, nodeEnv: string | undefined = 'test'): Ethe
  * `to` address is padded as per ABI encoding (right-aligned in 32-byte topic).
  * `value` is USDT units (e.g. 500 = 500 USDT) converted to raw uint256 (6 decimals).
  */
-function makeTransferLog(opts: { to: string; value: number; blockNumber?: string; from?: string }) {
+function makeTransferLog(opts: {
+  to: string
+  value: number
+  blockNumber?: string
+  from?: string
+  /** Emitting token contract — defaults to real USDT. Override to fake a token. */
+  address?: string
+}) {
   const from = opts.from ?? SENDER_WALLET
   return {
     transactionHash: TX_HASH,
     blockNumber: opts.blockNumber ?? '0x7b', // block 123
-    address: USDT_CONTRACT,
+    address: opts.address ?? USDT_CONTRACT,
     topics: [
       TRANSFER_TOPIC,
       `0x000000000000000000000000${from.replace('0x', '').toLowerCase()}`, // from (padded)
@@ -72,7 +79,7 @@ function mockDirectLookup(opts: {
   txBlockHex?: string
   receiptFound?: boolean
   receiptStatus?: '0x0' | '0x1'
-  logs?: Array<{ to: string; value: number; from?: string }>
+  logs?: Array<{ to: string; value: number; from?: string; address?: string }>
   currentBlock?: number
   /** tx-level `from` (eth_getTransactionByHash) — defaults to SENDER_WALLET. */
   txFrom?: string
@@ -366,6 +373,107 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
       mockDirectLookup({ logs: [{ to: OTHER_WALLET, value: 500 }], currentBlock: 135 })
       const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
       expect(r.amountUsdtMinor).toBeNull()
+    })
+  })
+
+  // ── CONDITION 2 of the verification spec: CURRENCY (security-review) ───────
+  // Recipient + amount alone are forgeable for free: anyone can deploy a
+  // worthless ERC-20 and emit a Transfer of "740" to the company wallet. Only
+  // the emitting-contract check makes the credited asset actually USDT.
+  describe('currency — the transfer must be REAL USDT', () => {
+    const FAKE_TOKEN = '0xbadbadbadbadbadbadbadbadbadbadbadbadbad0'
+
+    it('SECURITY: a fake-token Transfer with the right recipient and amount is NOT credited', async () => {
+      mockDirectLookup({
+        logs: [{ to: COMPANY_WALLET, value: 740, address: FAKE_TOKEN }],
+        currentBlock: 135,
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+      expect(r.toMatches).toBe(false) // no USDT reached the company wallet
+      expect(r.confirmed).toBe(false)
+      expect(r.amountUsdtMinor).toBeNull() // nothing to compare against a payable
+    })
+
+    it('SECURITY: a fake-token Transfer does not top up a real USDT transfer', async () => {
+      // Real 40 USDT + fake "700" in the same tx must credit 40, not 740.
+      mockDirectLookup({
+        logs: [
+          { to: COMPANY_WALLET, value: 40 },
+          { to: COMPANY_WALLET, value: 700, address: FAKE_TOKEN },
+        ],
+        currentBlock: 135,
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+      expect(r.amountUsdtMinor).toBe('40000000')
+    })
+
+    it('accepts the USDT contract in any case (checksum vs lowercase)', async () => {
+      mockDirectLookup({
+        logs: [{ to: COMPANY_WALLET, value: 500, address: USDT_CONTRACT.toLowerCase() }],
+        currentBlock: 135,
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+      expect(r.confirmed).toBe(true)
+      expect(r.amountUsdtMinor).toBe('500000000')
+    })
+  })
+
+  // ── MED-2 (security-review): degraded verifier must not lie ───────────────
+  describe('RPC payload validation — honest "unavailable" instead of a fake fact', () => {
+    /** Etherscan answers a rate-limited call with a STRING in `result`. */
+    function mockRateLimited(afterCalls: number) {
+      const ok = [
+        { jsonrpc: '2.0', result: { hash: TX_HASH, blockNumber: '0x7b', from: SENDER_WALLET } },
+        {
+          jsonrpc: '2.0',
+          result: { transactionHash: TX_HASH, blockNumber: '0x7b', status: '0x1' },
+        },
+        { jsonrpc: '2.0', result: [makeTransferLog({ to: COMPANY_WALLET, value: 500 })] },
+      ]
+      let idx = 0
+      // @ts-expect-error — test stub for global fetch
+      globalThis.fetch = vi.fn().mockImplementation(() => {
+        const body =
+          idx < afterCalls
+            ? (ok[idx++] ?? { jsonrpc: '2.0', result: null })
+            : { jsonrpc: '2.0', result: 'Max rate limit reached' }
+        return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
+      })
+    }
+
+    it('rate-limited eth_getTransactionByHash → "верификация недоступна", NOT "reverted"', async () => {
+      mockRateLimited(0)
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+      expect(r.confirmed).toBe(false) // fail-closed, as before
+      expect(r.error).toMatch(/Верификация недоступна/)
+      // The old code reported a confident, WRONG chain fact here.
+      expect(r.error).not.toMatch(/отменена/)
+    })
+
+    it('rate-limited eth_getTransactionReceipt → "верификация недоступна", NOT "reverted"', async () => {
+      mockRateLimited(1)
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+      expect(r.confirmed).toBe(false)
+      expect(r.error).toMatch(/Верификация недоступна/)
+      expect(r.error).not.toMatch(/отменена/)
+    })
+
+    it('rate-limited eth_getLogs → "верификация недоступна", NOT a recipient mismatch', async () => {
+      mockRateLimited(2)
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+      expect(r.toMatches).toBe(false)
+      expect(r.confirmed).toBe(false)
+      expect(r.error).toMatch(/Верификация недоступна/)
+    })
+
+    it('a body without `result` at all → "верификация недоступна"', async () => {
+      // @ts-expect-error — test stub
+      globalThis.fetch = vi.fn().mockResolvedValue({
+        ok: true,
+        json: () => Promise.resolve({ status: '0', message: 'NOTOK' }),
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+      expect(r.error).toMatch(/Верификация недоступна/)
     })
   })
 })

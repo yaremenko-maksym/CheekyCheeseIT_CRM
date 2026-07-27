@@ -39,10 +39,12 @@ import {
  *   - ADMIN dividend withdrawal (free amount, 50/50 accounted post-hoc)
  *
  * SECURITY INVARIANT #1: a deposit is credited (status=PAID) ONLY when the
- * on-chain recipient matches the configured company wallet, the on-chain SENDER
- * matches the submitter's registered wallet, AND confirmations reach the
- * threshold. Enforced in `submitDeposit` / `getDepositStatus` via
- * `EtherscanService.verifyDeposit` (`toMatches` + `fromMatches` + `confirmed`).
+ * on-chain recipient matches the configured company wallet, the transfer is
+ * REAL USDT (the log's emitting contract is the USDT contract), AND
+ * confirmations reach the threshold. Enforced in `submitDeposit` /
+ * `getDepositStatus` via `EtherscanService.verifyDeposit`
+ * (`toMatches` + `confirmed`). The on-chain SENDER is recorded for audit but is
+ * NOT a gate (exchange withdrawals legitimately show the exchange's wallet).
  *
  * SECURITY INVARIANT #2 (task-onchain-payment-integrity): a real on-chain
  * transfer settles AT MOST ONE thing system-wide. Both this service and the
@@ -54,8 +56,10 @@ import {
 export class CompanyAccountService {
   private readonly logger = new Logger(CompanyAccountService.name)
 
-  // Extract a 0x-prefixed 32-byte tx hash from a bare hash or an Etherscan link.
-  private static readonly TX_HASH_RE = /0x[0-9a-fA-F]{64}/
+  // HIGH-1 (security-review PR #438): the local `TX_HASH_RE` lived here and was
+  // ONE of three different rules for "what is a hash" across the money paths.
+  // It is gone — every path now calls `extractOnChainTxHash` from `@crm/shared`,
+  // the same rule the consumed-hash registry and the Zod boundary use.
 
   constructor(
     private readonly db: DatabaseService,

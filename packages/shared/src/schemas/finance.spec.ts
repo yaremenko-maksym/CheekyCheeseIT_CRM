@@ -8,7 +8,12 @@
  * the client. The «accepts null» test has been replaced with a rejection test.
  */
 import { describe, expect, it } from 'vitest'
-import { financeSummarySchema, transactionSchema } from './finance'
+import {
+  extractOnChainTxHash,
+  financeSummarySchema,
+  manualConfirmPayoutSchema,
+  transactionSchema,
+} from './finance'
 
 const baseSummary = {
   totalIncome: 50000,
@@ -373,5 +378,69 @@ describe('dropPaymentDtoSchema', () => {
 
   it('rejects an income-style status on a payment', () => {
     expect(() => dropPaymentDtoSchema.parse({ ...base, status: 'validated' })).toThrow()
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIGH-1 (security-review PR #438) — the manual-confirm write boundary.
+//
+// `txHash` used to be `z.string().max(255)`: ANY string passed, went straight
+// into `payout_requests.tx_hash`, credited the company account, and — because
+// the consumed-hash registry could not recognise a non-bare-hash value —
+// escaped the "one transfer settles one thing" invariant. Validating the format
+// here means a bad value never reaches the money path at all.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('manualConfirmPayoutSchema.txHash — format is validated', () => {
+  const HASH = '0x' + 'a'.repeat(64)
+
+  it('accepts a bare hash', () => {
+    expect(
+      manualConfirmPayoutSchema.parse({ method: 'COMPANY_ACCOUNT', txHash: HASH }).txHash,
+    ).toBe(HASH)
+  })
+
+  it('accepts an explorer link (the format the deposit endpoint advertises)', () => {
+    const link = `https://etherscan.io/tx/${HASH}`
+    expect(
+      manualConfirmPayoutSchema.parse({ method: 'COMPANY_ACCOUNT', txHash: link }).txHash,
+    ).toBe(link)
+  })
+
+  it('accepts omitted / null / empty (manual settlement without a hash)', () => {
+    expect(() => manualConfirmPayoutSchema.parse({ method: 'CASH' })).not.toThrow()
+    expect(() => manualConfirmPayoutSchema.parse({ method: 'CASH', txHash: null })).not.toThrow()
+    expect(() => manualConfirmPayoutSchema.parse({ method: 'CASH', txHash: '' })).not.toThrow()
+  })
+
+  it('REJECTS a truncated hash (was accepted by the old `length >= 10` rule)', () => {
+    expect(() =>
+      manualConfirmPayoutSchema.parse({ method: 'COMPANY_ACCOUNT', txHash: '0xabcdef0123456789' }),
+    ).toThrow()
+  })
+
+  it('REJECTS free text that merely looks long enough', () => {
+    expect(() =>
+      manualConfirmPayoutSchema.parse({
+        method: 'COMPANY_ACCOUNT',
+        txHash: 'paid by bank transfer on friday',
+      }),
+    ).toThrow()
+  })
+})
+
+describe('extractOnChainTxHash — ONE rule for every money path', () => {
+  const HASH = '0x' + 'ab'.repeat(32)
+
+  it('extracts from a bare hash and from a link, always lowercase', () => {
+    expect(extractOnChainTxHash(HASH)).toBe(HASH)
+    const mixedCaseLink = `https://etherscan.io/tx/${HASH.toUpperCase().replace('0X', '0x')}`
+    expect(extractOnChainTxHash(mixedCaseLink)).toBe(HASH)
+  })
+
+  it('returns null for synthetic markers and junk', () => {
+    expect(extractOnChainTxHash('0xSIM' + 'b'.repeat(56))).toBeNull()
+    expect(extractOnChainTxHash('0xMANUAL' + 'c'.repeat(52))).toBeNull()
+    expect(extractOnChainTxHash('0x123')).toBeNull()
+    expect(extractOnChainTxHash(null)).toBeNull()
   })
 })

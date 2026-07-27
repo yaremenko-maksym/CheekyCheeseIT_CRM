@@ -13,11 +13,14 @@ import { CompanyAccountService } from './company-account.service'
 import { PendingSettlementService } from './pending-settlement.service'
 import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import {
   companyAccount,
+  consumedTxHashes,
+  payoutRequests,
   pendingObligations,
   projects,
   transactions,
@@ -257,6 +260,10 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
       .where(inArray(pendingObligations.creditorUserId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(transactions).where(inArray(transactions.projectId, MY_PROJECT_IDS))
     await dbSvc.db.delete(transactions).where(eq(transactions.senderLabel, DEPOSIT_LABEL))
+    // MED-1 (security-review PR #438): ADMIN_INCOME now claims the hash carried
+    // by its explorer receipt, and the registry outlives the row by design —
+    // sweep the orphans so re-runs are deterministic.
+    await sweepOrphanConsumedTxHashes(dbSvc)
   }
 
   async function gateBalance(): Promise<number> {
@@ -934,5 +941,99 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     const summary = await svc.getDropSelfSummary(DROP)
     // debtToCompany = income × (1 − dropShare/100) = 1000 × (1 − 0.12) = 880.
     expect(summary.debtToCompany).toBeCloseTo(1000 * (1 - DROP_OVERRIDE / 100), 6)
+  })
+
+  // ── MED-1 (security-review PR #438): ADMIN_INCOME joins the hash registry ───
+  // `computeCompanyAccountBalanceFromLedger` credits THREE terms —
+  // COMPANY_DEPOSIT, PAYOUT(COMPANY_ACCOUNT) and ADMIN_INCOME(COMPANY_ACCOUNT).
+  // Registering only the first two left the "one transfer settles one thing"
+  // invariant non-global: the same on-chain transfer could be declared as admin
+  // income AND settle a payout / credit a deposit.
+  describe('MED-1: admin USDT income consumes its on-chain hash', () => {
+    const REAL_HASH = '0x' + 'ad'.repeat(32)
+
+    it('claims the hash carried by the explorer receipt (purpose=ADMIN_INCOME)', async () => {
+      if (!dbAvailable) return
+      const income = await declare(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 500,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+          receiptExternalUrl: `https://etherscan.io/tx/${REAL_HASH}`,
+        },
+        ADMIN_MAKSYM,
+      )
+      expect(income.status).toBe('PAID')
+
+      const rows = await dbSvc.db
+        .select()
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, REAL_HASH))
+      expect(rows.length).toBe(1)
+      expect(rows[0]!.purpose).toBe('ADMIN_INCOME')
+      expect(rows[0]!.referenceId).toBe(income.id)
+      // The hash is also recorded on the ledger row itself (attribution).
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBe(REAL_HASH)
+    })
+
+    it('SECURITY: a hash spent as admin income cannot then settle a payout', async () => {
+      if (!dbAvailable) return
+      await declare(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 500,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+          receiptExternalUrl: `https://etherscan.io/tx/${REAL_HASH}`,
+        },
+        ADMIN_MAKSYM,
+      )
+
+      // A payout owned by the DROP, settled manually with the SAME transfer.
+      const [payoutIncome] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'DROP_INCOME',
+          status: 'VALIDATED',
+          amount: '1000',
+          currency: 'USDT',
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: USDT_DROP_PROJECT,
+          dropSharePercent: 5,
+          createdBy: DROP.id,
+        })
+        .returning()
+      const pr = await svc.createPayoutRequest([payoutIncome!.id], DROP)
+
+      await expect(
+        svc.manualConfirmPayout(pr.id, 'COMPANY_ACCOUNT', ADMIN_MAKSYM, { txHash: REAL_HASH }),
+      ).rejects.toThrowError(/уже использован/)
+
+      const after = await dbSvc.db.query.payoutRequests.findFirst({
+        where: eq(payoutRequests.id, pr.id),
+      })
+      expect(after?.status).toBe('PENDING')
+    })
+
+    it('a receipt link WITHOUT a real hash claims nothing (legacy links keep working)', async () => {
+      if (!dbAvailable) return
+      const income = await declare(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 321,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+          receiptExternalUrl: 'https://etherscan.io/tx/legacy-marker-no-hash',
+        },
+        ADMIN_MAKSYM,
+      )
+      expect(income.status).toBe('PAID')
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBeNull()
+    })
   })
 })

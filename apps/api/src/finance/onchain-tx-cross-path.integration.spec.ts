@@ -3,7 +3,7 @@ import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
@@ -330,6 +330,226 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
     })
     expect(pr?.status).toBe('PENDING') // payout NOT settled by someone else's deposit
     expect(await balance()).toBeCloseTo(afterDeposit, 6) // NOT doubled
+  })
+
+  // ── HIGH-1 (security-review PR #438): input FORMAT must not bypass the registry
+  // The exploit needed no malice: pasting an explorer LINK into manual-confirm
+  // (the format the neighbouring deposit endpoint advertises) credited the
+  // company account with a `tx_hash` the anchored registry regex could not
+  // recognise → no claim → the same transfer was still free to be credited
+  // again as a deposit, by a DIFFERENT role.
+  it('THE FORMAT EXPLOIT: manual-confirm with an explorer LINK, then the same hash as a deposit → rejected', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + 'd7'.repeat(32)
+    const LINK = `https://etherscan.io/tx/${HASH}`
+    scriptValid(HASH, payable)
+
+    // ADMIN settles the payout off the on-chain path, pasting the LINK.
+    const confirmed = await svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN, {
+      txHash: LINK,
+    })
+    expect(confirmed.status).toBe('PAID')
+    const afterPayout = await balance()
+    expect(afterPayout).toBeCloseTo(before + payable, 6)
+
+    // ── The second half of the exploit — a DIFFERENT role, same transfer.
+    // Asserted FIRST so a regression shows up as MONEY (a doubled balance),
+    // not merely as a stored-format detail.
+    await expect(companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    expect(await balance()).toBeCloseTo(afterPayout, 6) // NOT doubled
+
+    // The LINK must have been reduced to the bare, lowercase hash…
+    const pr = await dbSvc.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, requestId),
+    })
+    expect(pr?.txHash).toBe(HASH)
+    // …and claimed in the registry, so the transfer is spent.
+    const registry = await dbSvc.db
+      .select({ purpose: consumedTxHashes.purpose })
+      .from(consumedTxHashes)
+      .where(eq(consumedTxHashes.txHash, HASH))
+    expect(registry.length).toBe(1)
+  })
+
+  it('THE FORMAT EXPLOIT, REVERSED: deposit by LINK, then manual-confirm with the bare hash → rejected', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const { requestId } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + 'd8'.repeat(32)
+    scriptValid(HASH, 500)
+
+    const dep = await companySvc.submitDeposit(
+      { txHashOrLink: `https://etherscan.io/tx/${HASH}` },
+      SENIOR,
+    )
+    expect(dep.status).toBe('PAID')
+    const afterDeposit = await balance()
+
+    await expect(
+      svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN, { txHash: HASH }),
+    ).rejects.toThrowError(/уже использован/)
+    expect(await balance()).toBeCloseTo(afterDeposit, 6)
+  })
+
+  it('a MIXED-CASE hash in manual-confirm collides with the lowercase registry entry', async () => {
+    if (!dbAvailable) return
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const second = await seedPayout(SENIOR2, '1000')
+    const HASH = '0x' + 'd9'.repeat(32)
+    scriptValid(HASH, payable)
+
+    await svc.payPayoutRequest(requestId, HASH, SENIOR)
+    const afterPayout = await balance()
+
+    await expect(
+      svc.manualConfirmPayout(second.requestId, 'COMPANY_ACCOUNT', ADMIN, {
+        txHash: HASH.toUpperCase().replace('0X', '0x'),
+      }),
+    ).rejects.toThrowError(/уже использован/)
+    expect(await balance()).toBeCloseTo(afterPayout, 6)
+  })
+
+  it('manual-confirm with an UNPARSEABLE hash fails loud (no unregistered credit)', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const { requestId } = await seedPayout(SENIOR, '1000')
+
+    // Truncated hash — previously accepted verbatim (`length >= 10`), credited,
+    // and left unregistered.
+    await expect(
+      svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN, {
+        txHash: '0xabcdef0123456789',
+      }),
+    ).rejects.toThrowError(/Некорректный hash/)
+
+    const pr = await dbSvc.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, requestId),
+    })
+    expect(pr?.status).toBe('PENDING')
+    expect(await balance()).toBe(before)
+  })
+
+  it('manual-confirm WITHOUT a hash still works (0xMANUAL marker, nothing claimed)', async () => {
+    if (!dbAvailable) return
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const before = await balance()
+
+    const confirmed = await svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN, {})
+    expect(confirmed.status).toBe('PAID')
+    expect(await balance()).toBeCloseTo(before + payable, 6)
+
+    const pr = await dbSvc.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, requestId),
+    })
+    expect(pr?.txHash).toMatch(/^0xMANUAL/)
+    // Synthetic markers reference no on-chain transfer → nothing to consume.
+    const registry = await dbSvc.db
+      .select({ id: consumedTxHashes.id })
+      .from(consumedTxHashes)
+      .where(eq(consumedTxHashes.txHash, pr!.txHash!))
+    expect(registry.length).toBe(0)
+  })
+
+  // ── MED-3 (security-review PR #438): an UNVERIFIED deposit burns nothing ───
+  // The company wallet address is published to every payer, so any SENIOR/DROP
+  // can read a stranger's incoming transfer off the explorer. If merely
+  // SUBMITTING its hash claimed it system-wide, the attacker could block the
+  // real payer's settlement («хеш уже использован») without ever crediting
+  // anything. The claim now accompanies MONEY: a PENDING, uncredited deposit
+  // leaves the transfer free.
+  it('MED-3: a PENDING (unverified) deposit does NOT burn the hash for the real payer', async () => {
+    if (!dbAvailable) return
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + 'da'.repeat(32)
+
+    // The front-runner submits the hash while the tx is still un-confirmed.
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      fromAddress: EXCHANGE_WALLET,
+      confirmed: false, // below threshold → NOT credited
+      confirmations: 2,
+      amountUsdt: payable,
+    })
+    const dep = await companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR2)
+    expect(dep.status).toBe('PENDING')
+
+    // Nothing claimed — the transfer is still spendable by its rightful owner.
+    const registryAfterSubmit = await dbSvc.db
+      .select({ id: consumedTxHashes.id })
+      .from(consumedTxHashes)
+      .where(eq(consumedTxHashes.txHash, HASH))
+    expect(registryAfterSubmit.length).toBe(0)
+
+    // The real payer settles their payout with it — must NOT be blocked.
+    const before = await balance()
+    scriptValid(HASH, payable)
+    const paid = await svc.payPayoutRequest(requestId, HASH, SENIOR)
+    expect(paid.status).toBe('PAID')
+    expect(await balance()).toBeCloseTo(before + payable, 6)
+
+    // And now that it IS spent, the front-runner's pending deposit can never be
+    // credited by polling — the flip rolls back on the registry collision.
+    await expect(companySvc.getDepositStatus(dep.id, SENIOR2)).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    const depRow = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, dep.id),
+    })
+    expect(depRow?.status).toBe('PENDING')
+    expect(await balance()).toBeCloseTo(before + payable, 6) // still credited ONCE
+  })
+
+  // ── MED-4 (security-review PR #438): the dev-simulate switch is fail-CLOSED ─
+  // `simulateResult:'success'` bypasses Etherscan entirely, synthesises a
+  // `0xSIM…` marker (which the registry rightly ignores) and STILL credits the
+  // company account — i.e. "not registered AND credits". The old gate was
+  // `NODE_ENV !== 'production'`, so an UNSET or typo'd NODE_ENV ('staging', '')
+  // opened it in a real deployment. It now mirrors the hardened EtherscanService
+  // rule: only an explicit development/test is non-prod.
+  describe('MED-4: dev-simulate is unreachable outside development/test', () => {
+    const ORIGINAL_NODE_ENV = process.env['NODE_ENV']
+    afterEach(() => {
+      if (ORIGINAL_NODE_ENV === undefined) delete process.env['NODE_ENV']
+      else process.env['NODE_ENV'] = ORIGINAL_NODE_ENV
+    })
+
+    it.each(['staging', 'production', ''])(
+      'NODE_ENV=%o → simulate is IGNORED, real verification decides',
+      async (nodeEnv) => {
+        if (!dbAvailable) return
+        process.env['NODE_ENV'] = nodeEnv
+        const before = await balance()
+        const { requestId } = await seedPayout(SENIOR, '1000')
+
+        // No hash + simulate: with the gate closed there is nothing to verify,
+        // so the request is refused instead of minting a 0xSIM credit.
+        await expect(
+          svc.payPayoutRequest(requestId, undefined, SENIOR, 'success'),
+        ).rejects.toBeInstanceOf(BadRequestException)
+
+        const pr = await dbSvc.db.query.payoutRequests.findFirst({
+          where: eq(payoutRequests.id, requestId),
+        })
+        expect(pr?.status).toBe('PENDING')
+        expect(await balance()).toBe(before)
+      },
+    )
+
+    it('NODE_ENV=test → simulate still works (dev rehearsal preserved)', async () => {
+      if (!dbAvailable) return
+      process.env['NODE_ENV'] = 'test'
+      const { requestId, payable } = await seedPayout(SENIOR, '1000')
+      const before = await balance()
+
+      const result = await svc.payPayoutRequest(requestId, undefined, SENIOR, 'success')
+      expect(result.status).toBe('PAID')
+      expect(await balance()).toBeCloseTo(before + payable, 6)
+    })
   })
 
   // ── The registry is the SINGLE source of truth ─────────────────────────────
