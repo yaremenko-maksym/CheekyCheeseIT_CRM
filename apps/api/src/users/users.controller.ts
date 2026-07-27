@@ -142,6 +142,11 @@ export class UsersController {
       ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
       ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
       ...(!isHrActor && dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
+      // MED-3 (security-review round 2): lets the service scope
+      // teamMode=JOIN_DROP_TEAM to a drop-team the HR actor actually
+      // belongs to (see UsersService.createUser's check).
+      actorRole: currentUser.role,
+      actorId: currentUser.id,
     })
   }
 

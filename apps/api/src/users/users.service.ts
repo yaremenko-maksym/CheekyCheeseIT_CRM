@@ -250,6 +250,16 @@ export class UsersService {
     teamMode?: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
     /** Required when `teamMode='JOIN_DROP_TEAM'`. */
     dropTeamId?: string
+    /**
+     * MED-3 (security-review round 2, authz-hardening): identity of the
+     * caller, used ONLY to scope `teamMode='JOIN_DROP_TEAM'` for an HR actor
+     * to a drop-team they actually belong to (see the check below). Optional
+     * so every existing unit test that constructs `data` directly (bypassing
+     * the controller) keeps working unchanged — the real production caller
+     * (UsersController.createUser) always supplies both.
+     */
+    actorRole?: AppRole
+    actorId?: string
   }): Promise<User> {
     // ut-12: ADMIN creation is reserved to the seed pool — block here as a
     // defense-in-depth measure even if the controller / Roles guard let it slip.
@@ -268,6 +278,21 @@ export class UsersService {
       }
       if (!data.dropTeamId) {
         throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+      }
+      // MED-3 (security-review round 2): `TeamsService.addSeniorToDropTeam`
+      // explicitly delegates RBAC to its caller (see that method's own
+      // docblock) — without this check, an HR actor could attach the SENIOR
+      // they are provisioning to ANY drop-team with a free senior slot, not
+      // just their own, reaching into another team's payment routing. ADMIN
+      // is exempt (full control, as everywhere else in this method).
+      if (data.actorRole === 'HR') {
+        const isMember = await this.teamsService.isActiveMemberOfTeam(
+          data.dropTeamId,
+          data.actorId ?? '',
+        )
+        if (!isMember) {
+          throw new ForbiddenException('HR может присоединять синьора только к своей drop-команде')
+        }
       }
     }
     const existing = await this.findByEmail(data.email)

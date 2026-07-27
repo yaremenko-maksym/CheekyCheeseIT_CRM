@@ -210,6 +210,28 @@ export class TeamsService {
     )
   }
 
+  /**
+   * MED-3 (security-review round 2, authz-hardening): plain active-membership
+   * check (any role), exposed publicly for callers that need to scope an
+   * action to "a team this user actually belongs to" without loading the
+   * full team+members tree. Introduced for `UsersService.createUser`'s
+   * `teamMode='JOIN_DROP_TEAM'` path — `addSeniorToDropTeam` below
+   * explicitly delegates RBAC to its caller (see that method's own
+   * docblock), so without this check an HR actor could attach the SENIOR
+   * they are provisioning to ANY drop-team with a free senior slot, not
+   * just one they belong to — reaching into another team's payment routing.
+   */
+  async isActiveMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
+    const row = await this.db.db.query.teamMembers.findFirst({
+      where: and(
+        eq(teamMembers.teamId, teamId),
+        eq(teamMembers.userId, userId),
+        isNull(teamMembers.leftAt),
+      ),
+    })
+    return row !== undefined
+  }
+
   private async fetchAllProjects(): Promise<ProjectWithMembers[]> {
     return this.db.db.query.projects.findMany({
       with: { members: { with: { user: true } } },
