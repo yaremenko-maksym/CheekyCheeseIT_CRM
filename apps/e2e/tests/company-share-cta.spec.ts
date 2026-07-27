@@ -326,6 +326,33 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
     expect(createCalls).toBe(1)
   })
+
+  // fidelity-review finding #3 (LOW, unconfirmed): the auditor saw the modal
+  // vanish once on a first pass through create->step2 with zero interaction,
+  // could not reproduce it in two follow-up clean attempts, and suspected a
+  // tooling artifact rather than a product bug — but flagged it as worth a
+  // defensive regression given "the modal must not close after submit" is
+  // the single highest-stakes owner requirement. This pins that: idle on
+  // step 2 for several seconds with NO interaction must NOT auto-close.
+  // `CONFIRMED_AUTOCLOSE_MS` (1.5s) is gated behind an actual `payMutation`
+  // success, not a bare timer — this test proves that gate holds under idle.
+  test('step 2 does not auto-close while idle (no payMutation triggered) — regression for fidelity finding #3', async ({
+    asSenior,
+  }) => {
+    await mockTransactions(asSenior, [OUTSTANDING_INCOME])
+    await mockPayoutRequests(asSenior)
+
+    await asSenior.goto('/finance')
+    await asSenior.getByTestId('company-share-cta-strip').click()
+    await asSenior.getByTestId('company-share-create-payout').click()
+    await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
+
+    // CONFIRMED_AUTOCLOSE_MS is 1.5s — wait comfortably past it, doing
+    // nothing, and confirm the modal is still there.
+    await asSenior.waitForTimeout(3000)
+    await expect(asSenior.getByTestId('company-share-payout-modal')).toBeVisible()
+    await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
+  })
 })
 
 test.describe('Company-share payout modal — responsive (AC7)', () => {
@@ -348,6 +375,83 @@ test.describe('Company-share payout modal — responsive (AC7)', () => {
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
       )
       expect(modalOverflow, `modal causes horizontal overflow at ${width}px`).toBe(false)
+    })
+  }
+
+  // fidelity-review finding #1 (HIGH, fix-before-merge): reproduces the
+  // exact reported bug — a bare <fieldset> gets browser-default
+  // `min-width: min-content`, which balloons to the widest UNWRAPPED row
+  // the moment ANY project name in the list is long, hiding EVERY project's
+  // amount (not just the long-named one). Content-length-driven, not
+  // viewport-driven — the auditor confirmed it reproduced identically at
+  // 320 and 1440, so both are asserted here (not just mobile).
+  for (const width of [320, 1440]) {
+    test(`long project name does not push other projects' amounts off-screen at ${width}px (fidelity finding #1)`, async ({
+      asSenior,
+    }) => {
+      const LONG_NAME = 'International Recruitment Platform for EdTech Companies Worldwide'
+      const SHORT_NAME = 'AI Platform v2'
+      const longNameIncome = {
+        ...OUTSTANDING_INCOME,
+        id: 'cta-income-long',
+        projectId: 'project-long-name-id',
+        projectName: LONG_NAME,
+      }
+      const shortNameIncome = {
+        ...OUTSTANDING_INCOME,
+        id: 'cta-income-short',
+        projectId: 'project-short-name-id',
+        projectName: SHORT_NAME,
+      }
+
+      await asSenior.setViewportSize({ width, height: 900 })
+      await mockTransactions(asSenior, [longNameIncome, shortNameIncome])
+      await mockPayoutRequests(asSenior)
+      await asSenior.goto('/finance')
+      await asSenior.getByTestId('company-share-cta-strip').click()
+      await expect(asSenior.getByTestId('company-share-payout-modal')).toBeVisible()
+      // Let Radix's open transform/zoom animation settle before measuring
+      // bounding boxes below — mid-transition `getBoundingClientRect()`
+      // reports the scaled-down transient rect, which is a false positive
+      // for an overflow check, not a real layout issue.
+      await asSenior.waitForTimeout(300)
+
+      // Both project rows' checkboxes are present...
+      const longCheckbox = asSenior.getByTestId(
+        'company-share-project-checkbox-project-long-name-id',
+      )
+      const shortCheckbox = asSenior.getByTestId(
+        'company-share-project-checkbox-project-short-name-id',
+      )
+      await expect(longCheckbox).toBeVisible()
+      await expect(shortCheckbox).toBeVisible()
+
+      // ...and — the actual regression — BOTH rows' amount figures must
+      // still be on-screen and within the dialog's own width, not clipped
+      // off to the right by an oversized <fieldset>.
+      const dialogBox = await asSenior.getByTestId('company-share-payout-modal').boundingBox()
+      const longAmount = longCheckbox.locator('..').getByText(/USDT/)
+      const shortAmount = shortCheckbox.locator('..').getByText(/USDT/)
+      await expect(longAmount).toBeVisible()
+      await expect(shortAmount).toBeVisible()
+      const longAmountBox = await longAmount.boundingBox()
+      const shortAmountBox = await shortAmount.boundingBox()
+      expect(dialogBox).toBeTruthy()
+      expect(longAmountBox).toBeTruthy()
+      expect(shortAmountBox).toBeTruthy()
+      // Amount's right edge must be within the dialog's right edge — if the
+      // fieldset ballooned, this would fail (amount pushed far past it).
+      expect(longAmountBox!.x + longAmountBox!.width).toBeLessThanOrEqual(
+        dialogBox!.x + dialogBox!.width + 1,
+      )
+      expect(shortAmountBox!.x + shortAmountBox!.width).toBeLessThanOrEqual(
+        dialogBox!.x + dialogBox!.width + 1,
+      )
+      // No page-level horizontal overflow either.
+      const overflow = await asSenior.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      )
+      expect(overflow, `long-name row causes horizontal overflow at ${width}px`).toBe(false)
     })
   }
 

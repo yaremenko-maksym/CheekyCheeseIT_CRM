@@ -4,6 +4,7 @@ import {
   buildAmountLabel,
   buildPreviewRows,
   groupByProject,
+  pluralizeIncomes,
   pluralizeProjects,
   resolveSharePercent,
   sumPayable,
@@ -147,6 +148,19 @@ describe('pluralizeProjects', () => {
     [21, 'проект'],
   ])('%i -> %s', (n, expected) => {
     expect(pluralizeProjects(n)).toBe(expected)
+  })
+})
+
+describe('pluralizeIncomes', () => {
+  it.each([
+    [1, 'приход'],
+    [2, 'прихода'],
+    [4, 'прихода'],
+    [5, 'приходов'],
+    [11, 'приходов'],
+    [21, 'приход'],
+  ])('%i -> %s', (n, expected) => {
+    expect(pluralizeIncomes(n)).toBe(expected)
   })
 })
 

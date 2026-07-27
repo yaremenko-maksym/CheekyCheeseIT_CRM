@@ -20,6 +20,8 @@ import { fmtAmount, STATUS_COLORS, STATUS_LABELS } from '../../constants'
 import {
   buildPreviewRows,
   groupByProject,
+  pluralizeIncomes,
+  pluralizeProjects,
   type ProjectIncomeGroup,
 } from '../../utils/company-share'
 import { usePayoutPaymentForm } from '../../hooks/usePayoutPaymentForm'
@@ -93,7 +95,12 @@ function ProjectRow({
           data-testid={`company-share-project-checkbox-${project.projectId}`}
         />
         <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-          <span className="truncate text-sm font-medium">{project.projectName}</span>
+          {/* min-w-0 on the truncate target itself, not just its flex
+              parent — a flex item's default min-width is `auto` (its
+              content's intrinsic width), so without this the name refuses
+              to shrink below its full text width and pushes the amount
+              off-screen (fidelity-review finding #1). */}
+          <span className="min-w-0 truncate text-sm font-medium">{project.projectName}</span>
           <span className="shrink-0 tabular-nums text-sm font-medium">
             {fmtAmount(projectTotal, currency)}
           </span>
@@ -114,7 +121,7 @@ function ProjectRow({
             data-testid={`company-share-income-checkbox-${tx.id}`}
           />
           <span className="flex min-w-0 flex-1 items-center justify-between gap-2">
-            <span className="truncate text-xs text-muted-foreground">
+            <span className="min-w-0 truncate text-xs text-muted-foreground">
               Приход от {new Date(tx.txDate ?? tx.createdAt).toLocaleDateString('ru-RU')}
             </span>
             <span className="shrink-0 tabular-nums text-xs">
@@ -285,6 +292,14 @@ export function CompanySharePayoutModal({
   // reads consistently with everything else the SENIOR already sees, not the
   // payout_request's internal status wording.
   const payoutStatusKey = isPaid ? 'PAID' : 'PENDING_PAYMENT'
+  // Step-2 summary line (fidelity-review finding #2) — derived from the
+  // CREATED payout's own `transactions` (server-authoritative), not the
+  // local `selected` set, which is stale/cleared by the time step 2 renders.
+  const payoutTxs = paymentState.payout?.transactions ?? []
+  const payoutSummary = {
+    projectsCount: new Set(payoutTxs.map((t) => t.projectId)).size,
+    incomesCount: payoutTxs.filter((t) => t.type === 'SENIOR_INCOME').length,
+  }
   const stepAriaLabel =
     step === 'pay'
       ? 'Шаг 2 из 2: оплата созданной заявки'
@@ -321,6 +336,20 @@ export function CompanySharePayoutModal({
               ? 'Выберите проекты и приходы, которые войдут в заявку на выплату.'
               : 'Переведите сумму компании и подтвердите оплату.'}
           </DialogDescription>
+          {/* fidelity-review finding #2: at-a-glance payout-id/project/income
+              summary line — matches modal-step2-fresh-1440.png. Derived from
+              the created payout's own transactions, not from the (now stale)
+              local `selected` set. */}
+          {step === 'pay' && paymentState.payout && (
+            <p
+              className="mt-0.5 text-xs text-muted-foreground"
+              data-testid="company-share-payout-summary"
+            >
+              №{paymentState.payout.id.slice(0, 6)} · {payoutSummary.projectsCount}{' '}
+              {pluralizeProjects(payoutSummary.projectsCount)}, {payoutSummary.incomesCount}{' '}
+              {pluralizeIncomes(payoutSummary.incomesCount)}
+            </p>
+          )}
           <div className="mt-3 flex items-center gap-2" role="status" aria-label={stepAriaLabel}>
             <StepDot state={step === 'select' ? 'active' : 'done'} label="1" />
             <span className="text-xs font-medium">Выбор</span>
@@ -351,7 +380,14 @@ export function CompanySharePayoutModal({
                     Нет проверенных приходов
                   </p>
                 ) : (
-                  <fieldset disabled={createMutation.isPending} className="space-y-2">
+                  // fidelity-review finding #1 (HIGH): a bare <fieldset> gets the
+                  // browser default `min-width: min-content` (an ancient
+                  // <fieldset>-specific quirk it does NOT inherit from a plain
+                  // <div>), which ignores its flex/block parent's width and
+                  // balloons to the widest unwrapped row — every project's
+                  // amount gets pushed off-screen the moment ANY project name
+                  // in the list is long, not just the long-named row's own.
+                  <fieldset disabled={createMutation.isPending} className="min-w-0 space-y-2">
                     {projects.map((project) => (
                       <ProjectRow
                         key={project.projectId}

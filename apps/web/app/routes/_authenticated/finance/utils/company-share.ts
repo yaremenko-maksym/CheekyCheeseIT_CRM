@@ -133,6 +133,20 @@ export function pluralizeProjects(n: number): string {
 }
 
 /**
+ * ru-RU plural helper for «N приход / N прихода / N приходов» — same
+ * declension pattern as `pluralizeProjects` above. Used by the step-2
+ * summary line («№a1b2c3 · 2 проекта, 4 прихода», fidelity-review finding #2).
+ */
+export function pluralizeIncomes(n: number): string {
+  const mod10 = n % 10
+  const mod100 = n % 100
+  if (mod100 >= 11 && mod100 <= 14) return 'приходов'
+  if (mod10 === 1) return 'приход'
+  if (mod10 >= 2 && mod10 <= 4) return 'прихода'
+  return 'приходов'
+}
+
+/**
  * Builds the banner's amount label. Single currency → simple formatted
  * amount. 2-3 currencies → joined per-currency breakdown («820 USDT + 300
  * EUR»). 4+ currencies → a fixed, non-overwhelming placeholder pointing the
