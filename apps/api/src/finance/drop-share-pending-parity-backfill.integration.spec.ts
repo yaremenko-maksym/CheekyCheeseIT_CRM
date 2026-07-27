@@ -438,4 +438,41 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
     const afterSettle = await dropBalance()
     expect(afterSettle).toBeCloseTo(baseline, 6)
   })
+
+  it('AC6-verify: fail-loud when a target cannot get its paired obligation (receiver_id corrupted to NULL) — RAISE EXCEPTION rolls back the WHOLE conversion, including unrelated targets in the same run', async () => {
+    if (!dbAvailable) return
+    // A normal target (would convert cleanly) alongside a CORRUPTED target
+    // (receiver_id forced to NULL — step 2c's INSERT guard "tgt.receiver_id
+    // IS NOT NULL" then skips it, so it can never get a paired obligation).
+    // targets=2, converted=2 (2b's UPDATE does not filter on receiver_id), but
+    // obligations=1 — the mismatch the fail-loud assert exists to catch.
+    const { txId: goodId } = await seedPathBRow('10')
+    const { txId: corruptId } = await seedPathBRow('20')
+    await dbSvc.db
+      .update(transactions)
+      .set({ receiverId: null, recipientId: null })
+      .where(eq(transactions.id, corruptId))
+
+    await expect(runBackfill()).rejects.toThrow(/drop-share-pending-parity verify failed/)
+
+    // Real Postgres ROLLBACK (not a mock) — the whole transaction aborts, so
+    // NEITHER row was converted, not even the otherwise-healthy one.
+    const goodAfter = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, goodId),
+    })
+    const corruptAfter = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, corruptId),
+    })
+    expect(goodAfter!.type).toBe('PAYOUT_DROP')
+    expect(goodAfter!.status).toBe('PAID')
+    expect(corruptAfter!.type).toBe('PAYOUT_DROP')
+    expect(corruptAfter!.status).toBe('PAID')
+
+    // No obligations booked for either — the aborted transaction undid 2c too.
+    const obligations = await dbSvc.db
+      .select({ id: pendingObligations.id })
+      .from(pendingObligations)
+      .where(inArray(pendingObligations.sourceTransactionId, [goodId, corruptId]))
+    expect(obligations).toHaveLength(0)
+  })
 })
