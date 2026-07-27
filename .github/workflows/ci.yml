@@ -30,6 +30,14 @@ jobs:
   quality:
     name: Typecheck · Lint · Unit Tests
     runs-on: ubuntu-latest
+    # Дефолтные права токена в этом репо = `read` (настройка репозитория), а
+    # job-level `permissions:` их не дополняет, а ЗАМЕНЯЕТ. Без этого блока шаги
+    # `gh label create` / `gh pr edit --add-label "ci-failed"` ниже получали 403
+    # и метка не ставилась никогда (найдено security-review PR #441). Это ровно
+    # про тему задачи — не терять сигнал о красном CI.
+    permissions:
+      contents: read
+      pull-requests: write
     # DB-free: unit tests use dbAvailable-guard and skip integration specs when
     # DATABASE_URL is absent. Integration specs run in the dedicated `integration`
     # job below, which has a Postgres service and full seed+fixture setup.
@@ -377,49 +385,28 @@ jobs:
             --color "d73a4a" --description "CI checks failed" 2>/dev/null || true
           gh pr edit "$PR_NUMBER" --add-label "ci-failed"
 
-  auto_merge:
-    name: Auto-Merge PR
-    runs-on: ubuntu-latest
-    needs: [quality, integration, e2e_summary]
-    # PM must explicitly add `merge-approved` label after user-testing approval.
-    # `awaiting-pm-review` blocks merge until PM reviews. All three jobs must be
-    # `success` (not just non-failure — `skipped` no longer counts as pass).
-    if: |
-      github.event_name == 'pull_request' &&
-      needs.quality.result == 'success' &&
-      needs.integration.result == 'success' &&
-      needs.e2e_summary.result == 'success' &&
-      contains(github.event.pull_request.labels.*.name, 'merge-approved') &&
-      !contains(github.event.pull_request.labels.*.name, 'awaiting-pm-review') &&
-      !contains(github.event.pull_request.labels.*.name, 'do-not-merge')
-    permissions:
-      contents: write
-      pull-requests: write
-      # `actions: write` — required by the `gh workflow run` dispatches below.
-      actions: write
-    steps:
-      - name: Squash and merge PR
-        env:
-          GH_TOKEN: ${{ github.token }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
-
-      # This is the *second* merge path (auto-merge-on-label.yml is the one
-      # that fires in practice, because ci.yml deliberately does not listen to
-      # `labeled`; this job only wins when `merge-approved` was already on the
-      # PR while CI ran). It squashes with GITHUB_TOKEN just like the other
-      # path, so it produces no push event either — without these dispatches a
-      # PR merged here would silently get neither a deploy nor a post-merge CI
-      # run. Mirrors the two dispatch steps in auto-merge-on-label.yml.
-      - name: Dispatch production deploy + post-merge CI
-        env:
-          GH_TOKEN: ${{ github.token }}
-          REPO: ${{ github.repository }}
-        run: |
-          gh workflow run deploy.yml --repo "$REPO" --ref main
-          gh workflow run ci.yml --repo "$REPO" --ref main
+  # ── Job `auto_merge` УДАЛЁН 2026-07-27 (review PR #441) ───────────────────
+  #
+  # Это был второй, спящий merge-путь: он мог сквошить PR прямо из `ci.yml`,
+  # если метка `merge-approved` уже висела на PR в момент прогона. На практике
+  # не срабатывал — `ci.yml` намеренно не слушает `labeled`, поэтому метку
+  # всегда ставят ПОСЛЕ того, как CI позеленел, и мержит `auto-merge-on-label.yml`.
+  #
+  # Почему удалён, а не починен (security-review PR #441, MED):
+  #   1. Он нёс `contents: write` + `pull-requests: write` (+ добавленный в #441
+  #      `actions: write`) в workflow с триггером `pull_request`. Для веток
+  #      ЭТОГО репо (а все наши агенты работают в них) GitHub исполняет версию
+  #      workflow из merge-ref — то есть ветка могла переписать условие
+  #      `contains(labels, 'merge-approved')` в своей же версии файла и
+  #      само-смержиться без апрува владельца. Ровно класс инцидента
+  #      2026-06-21 (reviewer self-merge, PR #271).
+  #   2. В нём же жил HIGH-баг из #441: два `gh workflow run` в ОДНОМ `run:`
+  #      под дефолтным `bash -eo pipefail` — падение первой команды гарантированно
+  #      обрывало вторую.
+  # Удаление закрывает оба разом и не трогает рабочий путь мержа.
+  #
+  # Ветка `merge-approved` → сквош → dispatch deploy + CI живёт целиком в
+  # `.github/workflows/auto-merge-on-label.yml`.
 
   e2e:
     name: E2E (${{ matrix.shard.name }})
@@ -511,8 +498,13 @@ jobs:
       THROTTLER_LIMIT: '2000'
 
     steps:
+      # `inputs.ref` — как в `quality` / `integration` (review PR #441, LOW).
+      # Раньше этот job чекаутил голый `github.sha`, поэтому диспатч с явным
+      # `-f ref=...` гонял E2E по одному дереву, а typecheck/unit — по другому,
+      # и вердикт «main зелёный» собирался из разных коммитов.
       - uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 2
 
       # Always-run skeleton: detect whether any non-docs file changed. If only
@@ -784,7 +776,20 @@ jobs:
     needs: [quality, integration, e2e_summary]
     # `always()` so the job still runs when a leg failed. Guarded to main +
     # non-PR so PR runs and feature-branch dispatches never open alerts.
-    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    #
+    # Третье условие (review PR #441, MED) закрывает расцепление «какой код
+    # исполняется» и «какие гарды проверяются»: `github.ref` на диспатче — это
+    # ветка, С КОТОРОЙ взят workflow-файл, а `inputs.ref` — то, что реально
+    # чекаутится. `gh workflow run ci.yml --ref main -f ref=<чужая-ветка>`
+    # проходил гард `github.ref == main` и запускал ЧУЖОЙ
+    # `scripts/devops/post-merge-alert.sh` — а этот job единственный в ci.yml,
+    # кто держит `secrets.TELEMETRY_ISSUES_PAT`. Требует repo-write (внешнему
+    # контрибьютору недоступно), но blast-radius скомпрометированного
+    # агентского доступа включал бы телеметрийный PAT.
+    if: >-
+      always() && github.ref == 'refs/heads/main' &&
+      github.event_name != 'pull_request' &&
+      (github.event_name != 'workflow_dispatch' || inputs.ref == '' || inputs.ref == 'main')
     permissions:
       issues: write
     env:
@@ -793,9 +798,11 @@ jobs:
       # privacy constraint documented there is not at stake either way.
       PRIVATE_REPO: yaremenko-maksym/cheekycheese-telemetry
     steps:
+      # Пин на main, а НЕ `inputs.ref` — belt-and-braces к гарду выше: job
+      # исполняет скрипт с PAT, поэтому дерево берём только с main.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref || github.sha }}
+          ref: main
           fetch-depth: 1
 
       # Roll the three required legs into one verdict.
@@ -822,6 +829,14 @@ jobs:
             RESULT=success
           else
             RESULT=inconclusive
+            # `inconclusive` — это НЕ только штатная отмена по
+            # `cancel-in-progress` (следующий мерж обгонит этот прогон и
+            # провалидирует надмножество). Сюда же попадают инфра-сбои: job не
+            # стартовал, раннер умер, docker-pull таймаут на `Initialize
+            # containers` (был реальный прецедент). В этом случае main остался
+            # НЕ провалидированным, и issue не откроется — поэтому хотя бы
+            # ::warning, чтобы состояние не выглядело как «всё хорошо».
+            echo "::warning::Post-merge run inconclusive (quality=$QUALITY integration=$INTEGRATION e2e=$E2E) — main НЕ провалидирован. Если это не отмена по cancel-in-progress (следующий мерж), перезапустить: gh workflow run ci.yml --ref main"
           fi
 
           echo "result=$RESULT" >> "$GITHUB_OUTPUT"
@@ -844,32 +859,60 @@ jobs:
       # on a dispatch the checkout resolves `main` at run time, which can be a
       # newer commit than the one that triggered it, and the alert should name
       # the commit that was actually validated.
+      # Heredoc-разделитель, генерируемый В РАНТАЙМЕ — рекомендованный GitHub
+      # способ писать в $GITHUB_OUTPUT значение, которое пришло не от нас.
+      # `%s` сам по себе однострочный, так что формат сейчас не сломать, но
+      # безопасность тут была БЫ случайной: замена `%s` на `%B` (или переход на
+      # `github.event.head_commit.message`) мгновенно превратила бы это в
+      # output-инъекцию с подменой соседнего `sha=`. Фиксируем явно.
+      #
+      # Делимитер именно случайный, а не константа в публичном исходнике
+      # (re-review PR #446, LOW): константу видно всем, и подобрать subject,
+      # буквально равный ей, теоретически возможно — со случайным маркером
+      # это невозможно by construction.
       - name: Read validated commit
         id: commit
         run: |
+          DELIM="COMMIT_SUBJECT_EOF_$(openssl rand -hex 8)"
           {
             echo "sha=$(git rev-parse HEAD)"
-            echo "subject=$(git log -1 --pretty=%s)"
+            echo "subject<<$DELIM"
+            git log -1 --pretty=%s
+            echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
 
-      # Private telemetry repo when the PAT is available (assistant's channel);
+      # Private telemetry repo when the PAT works (assistant's channel);
       # otherwise fall back to an issue on this public repo via GITHUB_TOKEN.
-      # The fallback matters: TELEMETRY_ISSUES_PAT is a fine-grained token with
-      # an expiry (rotation — telemetry-digest-runbook.md §2.2), and an expired
-      # PAT must degrade the alert to a different channel, never to silence.
+      #
+      # Канал выбирается по РАБОТОСПОСОБНОСТИ токена, а не по его наличию
+      # (review PR #441, MED). `TELEMETRY_ISSUES_PAT` — fine-grained токен с
+      # датой истечения (ротация — telemetry-digest-runbook.md §2.2). Протухший
+      # PAT это НЕПУСТАЯ строка: проверка `-n "$PAT"` считала бы его валидным,
+      # `gh issue list` в скрипте отдавал бы 401, `set -euo pipefail` ронял бы
+      # скрипт ДО создания issue — и алерт исчезал бы в тишину, ровно вопреки
+      # тому, что обещают рунбук и комментарий выше. Поэтому — реальная проба.
       - name: Resolve alert channel
         id: channel
         env:
           PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
         run: |
-          if [ -n "$PAT" ]; then
-            echo "repo=$PRIVATE_REPO" >> "$GITHUB_OUTPUT"
-            echo "use_pat=true" >> "$GITHUB_OUTPUT"
-          else
+          # $PRIVATE_REPO приходит из job-level `env:` — уже в окружении шага.
+          use_pat=false
+          if [ -z "$PAT" ]; then
             echo "::warning::TELEMETRY_ISSUES_PAT is not set — falling back to an issue on ${{ github.repository }}."
-            echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
-            echo "use_pat=false" >> "$GITHUB_OUTPUT"
+          elif GH_TOKEN="$PAT" gh issue list --repo "$PRIVATE_REPO" --limit 1 >/dev/null 2>&1; then
+            use_pat=true
+          else
+            echo "::warning::TELEMETRY_ISSUES_PAT is set but cannot reach $PRIVATE_REPO (expired / revoked / insufficient scope) — falling back to an issue on ${{ github.repository }}. See telemetry-digest-runbook.md §2.2 (rotation)."
           fi
+
+          if [ "$use_pat" = "true" ]; then
+            echo "repo=$PRIVATE_REPO" >> "$GITHUB_OUTPUT"
+          else
+            echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+          fi
+          echo "use_pat=$use_pat" >> "$GITHUB_OUTPUT"
+          echo "Alert channel: use_pat=$use_pat"
 
       - name: Open / update / close the alert issue
         env:
