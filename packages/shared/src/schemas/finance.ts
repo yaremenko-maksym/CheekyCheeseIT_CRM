@@ -134,6 +134,22 @@ export const transactionSchema = z.object({
   projectId: z.string().uuid().nullable(),
   projectName: z.string().nullable(),
   payoutRequestId: z.string().uuid().nullable(),
+  /**
+   * security-review PR #443 (MED-1, round 4). Origin marker for a
+   * DROP_PENDING_PAYOUT / PAYOUT_DROP row — `true` ⟺ booked by the
+   * drop-payout CASCADE (its slice never touched the shared company
+   * account); `false` ⟺ booked by the admin-USDT declaration path (the
+   * company genuinely holds the money); `null` ⟺ unstamped/unknown
+   * (pre-marker-column legacy row, or a future insert path that forgot to
+   * set it) — treated as cascade-equivalent (block) by the server, same as
+   * `true`. Exposed so `SettleSeniorPayoutDialog` can read the SAME signal
+   * `settleByCompany`'s HIGH-1/MED-B guard authoritatively uses, instead of
+   * re-deriving a (weaker, FK-dependent) approximation from
+   * `payoutRequestId`. `undefined` on transaction types other than
+   * DROP_PENDING_PAYOUT/PAYOUT_DROP (the column exists on every row, but is
+   * only ever meaningful for these two).
+   */
+  dropCascadeOrigin: z.boolean().nullable().optional(),
   payoutRequest: z
     .object({
       seniorId: z.string(),

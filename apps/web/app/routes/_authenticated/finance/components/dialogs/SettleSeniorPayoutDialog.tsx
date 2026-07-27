@@ -64,19 +64,30 @@ function extractErrorMessage(err: unknown): string {
  * success toast) adapts to «дропу» below. Everything else (funding picker,
  * mutation, invalidations) is identical for both row types.
  *
- * security-review PR #443 (HIGH-1): a DROP_PENDING_PAYOUT row booked by the
- * drop-payout CASCADE (`tx.payoutRequestId != null` — task-drop-share-pending-parity)
- * never had its share land on the shared company account (the cascade only
+ * security-review PR #443 (HIGH-1 / MED-B / MED-1 round 4): a
+ * DROP_PENDING_PAYOUT row booked by the drop-payout CASCADE
+ * (`tx.dropCascadeOrigin !== false` — task-drop-share-pending-parity) never
+ * had its share land on the shared company account (the cascade only
  * credits `payable = income*(1-dropShare%)`; the drop keeps their own cut
  * before the on-chain transfer). «Счёт компании» would silently debit money
- * the company never held. The server is the authority (see the HIGH-1 guard
- * in pending-settlement.service.ts's settleByCompany — it rejects this with a
- * 400 regardless of what the UI does); this dialog mirrors that decision so
- * an ADMIN/ACCOUNTANT never even reaches the rejected request: for such a
- * row the «Счёт компании» option is disabled and the default account is
- * empty (forces an explicit ADMIN-partner pick, not a guessed one). A drop
- * obligation booked by declareUsdtProjectIncome (`payoutRequestId == null` —
- * the company genuinely holds the full declared income) is unaffected.
+ * the company never held. The server is the authority (see the HIGH-1/MED-B
+ * guard in pending-settlement.service.ts's settleByCompany — it rejects this
+ * with a 400 regardless of what the UI does); this dialog mirrors that
+ * decision so an ADMIN/ACCOUNTANT never even reaches the rejected request:
+ * for such a row the «Счёт компании» option is disabled and the default
+ * account is empty (forces an explicit ADMIN-partner pick, not a guessed
+ * one). A drop obligation booked by declareUsdtProjectIncome
+ * (`dropCascadeOrigin === false` — the company genuinely holds the full
+ * declared income) is unaffected.
+ *
+ * MED-1 (round 4): reads `tx.dropCascadeOrigin` — the SAME marker
+ * `settleByCompany` authoritatively reads — NOT `tx.payoutRequestId`. The two
+ * can diverge (a FK-nulled cascade row, or — before the HIGH-1/round-4 data
+ * backfill — a pre-existing admin-declared row that had no marker yet), and
+ * `payoutRequestId` was only ever an approximation of the server's real
+ * signal. `!== false` mirrors the server's exact fail-safe polarity: `null`
+ * (unstamped/unknown) is treated the SAME as `true` (block) — only an
+ * EXPLICIT `false` is treated as verified-safe.
  */
 export function SettleSeniorPayoutDialog({
   tx,
@@ -103,11 +114,12 @@ export function SettleSeniorPayoutDialog({
   // funding logic is identical for both SENIOR_PENDING_PAYOUT and
   // DROP_PENDING_PAYOUT source rows.
   const isDropPayout = tx?.type === 'DROP_PENDING_PAYOUT'
-  // HIGH-1: cascade-originated drop obligation — `payoutRequestId` is the
-  // deterministic discriminator the server ALSO reads (resolveSource /
-  // settleByCompany). declareUsdtProjectIncome-booked drop IOUs carry
-  // payoutRequestId=null and are unaffected.
-  const isCascadeDropObligation = isDropPayout && tx?.payoutRequestId != null
+  // HIGH-1 / MED-1 (round 4): cascade-originated (or unknown-origin) drop
+  // obligation — `dropCascadeOrigin !== false` is the EXACT discriminator
+  // the server reads (resolveSource / settleByCompany), not an
+  // approximation. declareUsdtProjectIncome-booked drop IOUs carry
+  // dropCascadeOrigin=false (explicit) and are unaffected.
+  const isCascadeDropObligation = isDropPayout && tx?.dropCascadeOrigin !== false
   const companyAccountDisabledReason = isCascadeDropObligation
     ? 'Доля дропа из этой выплаты не проходила через счёт компании — выберите личный счёт админа'
     : undefined

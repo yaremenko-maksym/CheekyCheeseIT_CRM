@@ -80,10 +80,11 @@ const TX = {
 } as never
 
 // settle-drop-btn: SAME shape as TX above, only type flips to DROP_PENDING_PAYOUT
-// (mirrors the company-IOU-to-a-drop row). `payoutRequestId` is absent (like
-// an admin-USDT-declaration-booked drop IOU) — used to pin that the dialog is
-// REUSED as-is for the drop mirror — only the recipient-facing copy adapts,
-// and the HIGH-1 gate below does NOT engage for this shape.
+// (mirrors the company-IOU-to-a-drop row). `dropCascadeOrigin: false` (like
+// an admin-USDT-declaration-booked drop IOU, post HIGH-1-round-4 backfill) —
+// used to pin that the dialog is REUSED as-is for the drop mirror — only the
+// recipient-facing copy adapts, and the HIGH-1 gate below does NOT engage
+// for this shape.
 const DROP_TX = {
   id: 'drop-pending-1',
   type: 'DROP_PENDING_PAYOUT',
@@ -92,14 +93,15 @@ const DROP_TX = {
   currency: 'USDT',
   receiverName: 'Drop Person',
   projectName: 'USDT Project',
+  dropCascadeOrigin: false,
   createdAt: '2026-06-01T00:00:00.000Z',
 } as never
 
-// security-review PR #443 (HIGH-1): SAME shape as DROP_TX, but with
-// `payoutRequestId` set — the deterministic marker of a CASCADE-originated
-// drop obligation (task-drop-share-pending-parity), whose share never landed
-// on the shared company account. This is the shape that must disable/block
-// «Счёт компании».
+// security-review PR #443 (HIGH-1 / MED-1 round 4): SAME shape as DROP_TX,
+// but with `dropCascadeOrigin: true` — the marker `settleByCompany`
+// authoritatively reads (NOT `payoutRequestId`, kept here too since a real
+// cascade row carries both) — whose share never landed on the shared company
+// account. This is the shape that must disable/block «Счёт компании».
 const CASCADE_DROP_TX = {
   id: 'cascade-drop-pending-1',
   type: 'DROP_PENDING_PAYOUT',
@@ -109,7 +111,25 @@ const CASCADE_DROP_TX = {
   receiverName: 'Cascade Drop Person',
   projectName: 'Drop Project',
   payoutRequestId: 'payout-req-1',
+  dropCascadeOrigin: true,
   createdAt: '2026-07-27T00:00:00.000Z',
+} as never
+
+// MED-1 (round 4): a row with an UNSTAMPED marker (null — e.g. a legacy row
+// older than the drop_cascade_origin column, before the HIGH-1 data
+// backfill runs). The UI must treat this the SAME as a verified-cascade row
+// (fail-safe) — mirrors the server's `!== false` polarity, not a truthy
+// check (`null &&` would be falsy and wrongly ALLOW).
+const UNSTAMPED_DROP_TX = {
+  id: 'unstamped-drop-pending-1',
+  type: 'DROP_PENDING_PAYOUT',
+  status: 'PENDING_PAYMENT',
+  amount: '75',
+  currency: 'USDT',
+  receiverName: 'Unstamped Drop Person',
+  projectName: 'Drop Project',
+  dropCascadeOrigin: null,
+  createdAt: '2026-07-28T00:00:00.000Z',
 } as never
 
 function renderDialog(tx: unknown = TX) {
@@ -311,5 +331,18 @@ describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obl
     expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
     expect(payload.payerAdminId).toBe('maksym-id')
     expect(screen.queryByTestId('settle-senior-error-account')).not.toBeInTheDocument()
+  })
+
+  // MED-1 (round 4): `dropCascadeOrigin: null` (unstamped) must be treated
+  // the SAME as a verified-cascade row — `!== false`, not a truthy check.
+  it('treats an UNSTAMPED marker (dropCascadeOrigin=null) the same as a cascade obligation — disables «Счёт компании», blocks submit', async () => {
+    renderDialog(UNSTAMPED_DROP_TX)
+    const companyBtn = await screen.findByTestId('settle-senior-account-company')
+    expect(companyBtn).toBeDisabled()
+
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    expect(settleMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('settle-senior-error-account')).toBeInTheDocument()
   })
 })

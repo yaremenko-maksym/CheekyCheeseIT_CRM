@@ -343,6 +343,65 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
     return income!.id
   }
 
+  /** MED-2 (security-review PR #443, round 4): seed a DROP_PENDING_PAYOUT
+   * COMPANY obligation the SAME way a row OLDER than the `drop_cascade_origin`
+   * column would look — the column is simply never mentioned in the insert,
+   * so it stays NULL (Drizzle omits unset fields; the column is nullable with
+   * no default — see schema.ts). This is exactly the "row older than the
+   * column" state a `db:push`-provisioned integration DB can never otherwise
+   * produce (push always creates every column from the CURRENT schema), so it
+   * must be constructed explicitly to exercise the fail-safe branch at all. */
+  async function seedUnstampedDropObligation(amount: string): Promise<{ obligationId: string }> {
+    // Self-contained (order-independent): `beforeAll` only DELETEs
+    // DROP_PROJECT_A (the other helpers, e.g. seedValidatedDropIncome,
+    // upsert it lazily) — upsert it here too so this test does not silently
+    // depend on an earlier test in this file having already created it
+    // (caught by running this test in isolation via `-t`).
+    await dbSvc.db
+      .insert(projects)
+      .values({
+        id: DROP_PROJECT_A,
+        name: 'DPCA Drop dd01',
+        companyName: 'DPCA DropCorp',
+        domain: 'fintech',
+        startDate: new Date('2025-01-01'),
+        seniorId: SENIOR.id,
+        dropId: DROP_A.id,
+        currency: 'USDT',
+        rate: 1000,
+      })
+      .onConflictDoNothing()
+
+    const [tx] = await dbSvc.db
+      .insert(transactions)
+      .values({
+        type: 'DROP_PENDING_PAYOUT',
+        status: 'PENDING_PAYMENT',
+        amount,
+        currency: 'USDT',
+        senderLabel: 'COMPANY',
+        receiverId: DROP_A.id,
+        recipientId: DROP_A.id,
+        projectId: DROP_PROJECT_A,
+        createdBy: ADMIN_MAKSYM.id,
+        // dropCascadeOrigin: deliberately NOT set — must stay NULL.
+      })
+      .returning()
+    const [obligation] = await dbSvc.db
+      .insert(pendingObligations)
+      .values({
+        creditorUserId: DROP_A.id,
+        debtorType: 'COMPANY',
+        debtorUserId: null,
+        sourceTransactionId: tx!.id,
+        amount,
+        currency: 'USDT',
+        status: 'PENDING',
+      })
+      .returning()
+    return { obligationId: obligation!.id }
+  }
+
   beforeAll(async () => {
     try {
       const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -764,6 +823,59 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
       where: eq(pendingObligations.id, dropObRow!.id),
     })
     expect(stillPending!.status).toBe('PENDING')
+  })
+
+  // ── MED-2 (security-review PR #443, round 4): the NULL/"unstamped marker"
+  // branch of the fail-safe guard was never exercised by any spec — a
+  // `db:push`-provisioned integration DB always creates every column fresh
+  // from the CURRENT schema, so "a row older than the column" can never
+  // arise organically; it has to be constructed explicitly (see
+  // seedUnstampedDropObligation). This pins the exact polarity the guard
+  // must use: `!== false` (blocks null), NOT a truthy check (`null &&` is
+  // falsy and would WRONGLY allow — see the HIGH-1 marker migration's own
+  // header for why NULL means "unknown", not "safe").
+  it('MED-2 settle rejected for an UNSTAMPED drop_cascade_origin (NULL — row older than the column); explicit false still settles fine', async () => {
+    if (!dbAvailable) return
+    const before = await displayBalance()
+    const { obligationId } = await seedUnstampedDropObligation('30')
+
+    const row = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, obligationId),
+    })
+    const sourceTx = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, row!.sourceTransactionId),
+    })
+    // Sanity: genuinely NULL, not accidentally false/true.
+    expect(sourceTx!.dropCascadeOrigin).toBeNull()
+
+    await expect(
+      settleSvc.settleByCompany(obligationId, ACCOUNTANT, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4001',
+      }),
+    ).rejects.toThrow(/не проходила через счёт компании/)
+
+    // No money moved, obligation untouched by the rejected attempt.
+    expect(await displayBalance()).toBeCloseTo(before, 6)
+    const stillPending = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, obligationId),
+    })
+    expect(stillPending!.status).toBe('PENDING')
+
+    // Once the row is EXPLICITLY marked false (mirrors the HIGH-1 marker
+    // migration's own backfill), the SAME obligation settles fine from
+    // COMPANY_ACCOUNT — proves the guard reacts to the marker's VALUE, not
+    // to some other property of this seeded row.
+    await dbSvc.db
+      .update(transactions)
+      .set({ dropCascadeOrigin: false })
+      .where(eq(transactions.id, row!.sourceTransactionId))
+    const settled = await settleSvc.settleByCompany(obligationId, ACCOUNTANT, {
+      fundingSource: 'COMPANY_ACCOUNT',
+      receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4002',
+    })
+    expect(settled.obligation.status).toBe('PAID')
+    expect(await displayBalance()).toBeCloseTo(before - 30, 6)
   })
 
   // ── INV3: senior-project payout unchanged

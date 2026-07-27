@@ -369,6 +369,12 @@ export class TransactionsService {
       projectId: tx.projectId,
       projectName: tx.project?.name ?? null,
       payoutRequestId: tx.payoutRequestId,
+      // security-review PR #443 (MED-1, round 4): expose the SAME origin
+      // marker settleByCompany's HIGH-1/MED-B guard authoritatively reads
+      // (pending-settlement.service.ts), so the settle dialog can mirror the
+      // server's actual decision instead of re-deriving a weaker,
+      // FK-dependent approximation from payoutRequestId.
+      dropCascadeOrigin: tx.dropCascadeOrigin,
       payoutRequest: tx.payoutRequest ?? null,
       seniorSharePercent: tx.seniorSharePercent,
       // task-team-senior-share-override. Snapshot source of the % above.
