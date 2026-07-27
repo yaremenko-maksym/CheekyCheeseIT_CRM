@@ -52,8 +52,17 @@ jobs:
       # docs/markdown/CODEOWNERS were touched, every work-step below is skipped
       # and the job short-circuits to success — satisfying the required status
       # check without doing wasted work.
+      #
+      # PR-only (task-infra-post-merge-ci): paths-filter derives its diff from
+      # the PR's base..head range. On push / workflow_dispatch there is no such
+      # range — the action falls back to comparing the default branch against
+      # itself, and a wrong guess there reports "no changes", which would
+      # short-circuit the entire post-merge run to a *silent green*. That is
+      # the one outcome a post-merge gate must never produce, so non-PR scope
+      # is resolved explicitly below instead of being inferred here.
       - name: Detect non-docs changes
         id: filter
+        if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
           filters: |
@@ -62,49 +71,75 @@ jobs:
               - '!**.md'
               - '!.github/CODEOWNERS'
 
+      # Single source of truth for "should this job do work?" — every work-step
+      # below keys off `steps.scope.outputs.code`.
+      #   pull_request    → paths-filter verdict (docs-only PRs stay cheap).
+      #   push / dispatch → always `true`. A post-merge run exists to validate
+      #                     the actual state of `main`, so it must never skip
+      #                     itself. Actions minutes are free on this public
+      #                     repo, so running the full suite even on a docs-only
+      #                     merge is a fair price for the guarantee that a
+      #                     green post-merge run means main was really tested.
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE"
+          {
+            echo "### CI scope"
+            echo ""
+            echo "- event: \`$EVENT\`"
+            echo "- ref: \`$GITHUB_REF\`"
+            echo "- work-steps enabled: \`$CODE\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
       - uses: pnpm/action-setup@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           version: 7.32.4
 
       - uses: actions/setup-node@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           node-version: '20'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
       # Full build needed so vite generates routeTree.gen.ts before tsc runs.
       # Turbo cache makes this a no-op on subsequent runs for unchanged packages.
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm build
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm typecheck
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm lint
 
       # Run unit tests only — no DATABASE_URL means dbAvailable=false and
       # integration specs skip themselves via their guard. No DB service needed.
       - name: Run unit tests (no DB)
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
 
       # FM-5 guard: every apps/e2e/tests/**/*.spec.ts must be either in a CI shard
       # or explicitly listed as debt in KNOWN_UNSHARDED. Pure Python parse — no stack
       # required. Fails with a list of uncovered files + fix instructions.
       - name: E2E shard coverage guard
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-e2e-shard-coverage.py
 
       # Incident guard (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422 shipped
@@ -115,11 +150,11 @@ jobs:
       # whole time. Same pattern as the E2E shard guard above: every manual DDL file
       # must either be referenced in deploy.yml or be an explicit, reasoned exception.
       - name: Prod DDL wiring guard
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-prod-ddl-wiring.py
 
       - name: Docs-only short-circuit
-        if: steps.filter.outputs.code != 'true'
+        if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping quality work, satisfying required status."
 
       - name: Remove ci-failed label on success
@@ -178,8 +213,11 @@ jobs:
           ref: ${{ inputs.ref || github.sha }}
           fetch-depth: 2
 
+      # PR-only filter + explicit non-PR scope — see the matching pair of steps
+      # in the `quality` job above for the full rationale.
       - name: Detect non-docs changes
         id: filter
+        if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
           filters: |
@@ -188,39 +226,49 @@ jobs:
               - '!**.md'
               - '!.github/CODEOWNERS'
 
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE"
+
       - uses: pnpm/action-setup@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           version: 7.32.4
 
       - uses: actions/setup-node@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           node-version: '20'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm build
 
       # Push schema directly to fresh CI Postgres (no migration history needed).
       - name: Push DB schema
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: pnpm --filter @crm/api db:push
 
       # Seed canonical users (stable UUIDs) so integration specs can satisfy FK
       # constraints without per-test inserts of baseline data.
       - name: Seed DB
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: pnpm --filter @crm/api db:seed
 
       # Insert QA fixtures required by two integration specs:
@@ -238,7 +286,7 @@ jobs:
       # employee_contracts has partial unique index WHERE status != 'CANCELLED' —
       # ON CONFLICT DO NOTHING is safe on a fresh CI DB.
       - name: Insert integration test fixtures (QA SENIORs + DRAFT contracts)
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         env:
           PGPASSWORD: password
         run: |
@@ -308,14 +356,14 @@ jobs:
       # --reporter=verbose shows each test name so CI logs confirm real execution
       # (not silent skip via dbAvailable guard).
       - name: Run integration tests
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: |
           pnpm --filter @crm/api exec vitest run \
             --reporter=verbose \
             integration.spec
 
       - name: Docs-only short-circuit
-        if: steps.filter.outputs.code != 'true'
+        if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping integration tests, satisfying required status."
 
       - name: Label PR on integration failure
@@ -347,6 +395,8 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # `actions: write` — required by the `gh workflow run` dispatches below.
+      actions: write
     steps:
       - name: Squash and merge PR
         env:
@@ -355,6 +405,21 @@ jobs:
           REPO: ${{ github.repository }}
         run: |
           gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+
+      # This is the *second* merge path (auto-merge-on-label.yml is the one
+      # that fires in practice, because ci.yml deliberately does not listen to
+      # `labeled`; this job only wins when `merge-approved` was already on the
+      # PR while CI ran). It squashes with GITHUB_TOKEN just like the other
+      # path, so it produces no push event either — without these dispatches a
+      # PR merged here would silently get neither a deploy nor a post-merge CI
+      # run. Mirrors the two dispatch steps in auto-merge-on-label.yml.
+      - name: Dispatch production deploy + post-merge CI
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh workflow run deploy.yml --repo "$REPO" --ref main
+          gh workflow run ci.yml --repo "$REPO" --ref main
 
   e2e:
     name: E2E (${{ matrix.shard.name }})
@@ -454,8 +519,12 @@ jobs:
       # docs were touched, all work-steps skip and the shard short-circuits to
       # success — `e2e_summary` aggregator sees success and propagates to the
       # required `E2E Tests` status check.
+      #
+      # PR-only filter + explicit non-PR scope — see the matching pair of steps
+      # in the `quality` job above for the full rationale.
       - name: Detect non-docs changes
         id: filter
+        if: github.event_name == 'pull_request'
         uses: dorny/paths-filter@v3
         with:
           filters: |
@@ -464,19 +533,29 @@ jobs:
               - '!**.md'
               - '!.github/CODEOWNERS'
 
+      - name: Resolve run scope
+        id: scope
+        env:
+          EVENT: ${{ github.event_name }}
+          PR_CODE: ${{ steps.filter.outputs.code }}
+        run: |
+          if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Run scope: event=$EVENT code=$CODE"
+
       - uses: pnpm/action-setup@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           version: 7.32.4
 
       - uses: actions/setup-node@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           node-version: '20'
           cache: 'pnpm'
 
       - uses: actions/cache@v4
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           path: .turbo
           key: turbo-${{ runner.os }}-${{ github.sha }}
@@ -484,18 +563,18 @@ jobs:
 
       - uses: actions/cache@v4
         id: pw-cache
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('apps/e2e/package.json') }}
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
       # landing shard never touches document/S3 flows — skip the MinIO
       # container for that leg only (every other leg keeps it, unchanged).
       - name: Start MinIO + bucket
-        if: steps.filter.outputs.code == 'true' && matrix.shard.name != 'landing'
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: |
           docker run -d --name minio \
             --network host \
@@ -515,41 +594,41 @@ jobs:
             echo 'MinIO bucket crm-documents ready (CI)'
           "
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm build
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm --filter @crm/api db:push
 
-      - if: steps.filter.outputs.code == 'true'
+      - if: steps.scope.outputs.code == 'true'
         run: pnpm --filter @crm/api db:seed
 
       - name: Start API
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: nohup pnpm --filter @crm/api start > /tmp/api.log 2>&1 &
 
       # landing shard never navigates apps/web — skip starting it for that leg.
       - name: Start Web
-        if: steps.filter.outputs.code == 'true' && matrix.shard.name != 'landing'
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: nohup pnpm --filter @crm/web start > /tmp/web.log 2>&1 &
 
       # Every shard (including landing) needs the API. Split out of the old
       # combined "Wait for services" step so the apps/web wait can be skipped
       # for the landing leg (nothing ever listens on :3000 there).
       - name: Wait for API
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         run: timeout 60 bash -c 'until curl -sf http://localhost:3001/api/health; do sleep 2; done'
 
       - name: Wait for Web
-        if: steps.filter.outputs.code == 'true' && matrix.shard.name != 'landing'
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name != 'landing'
         run: timeout 30 bash -c 'until curl -sf http://localhost:3000; do sleep 2; done'
 
       - name: Install Playwright browsers
-        if: steps.filter.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
+        if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
 
       - name: Install Playwright system deps (cached run)
-        if: steps.filter.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
+        if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
         run: pnpm --filter @crm/e2e exec playwright install-deps chromium
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
@@ -557,7 +636,7 @@ jobs:
       # direct DB write — needs the API already answering (Wait for API,
       # above). See apps/e2e/scripts/seed-landing.ts module doc.
       - name: Seed landing vacancy fixtures
-        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name == 'landing'
         run: pnpm --filter @crm/e2e seed:landing
 
       # `vite build && node scripts/prerender.mjs` — the script drives its
@@ -569,7 +648,7 @@ jobs:
       # otherwise silently pull real prod vacancy data into a CI build
       # instead of the fixtures seeded above.
       - name: Build landing (prerender)
-        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name == 'landing'
         env:
           PRERENDER_API_ORIGIN: http://localhost:3001
         run: pnpm --filter @crm/landing build:prerender
@@ -578,17 +657,17 @@ jobs:
       # `preview.proxy['/api']` documents for local dev — proxies the built
       # SPA's /api/* calls to the API started earlier in this job.
       - name: Start landing preview
-        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name == 'landing'
         env:
           VITE_PROXY_API_TARGET: http://localhost:3001
         run: nohup pnpm --filter @crm/landing start > /tmp/landing.log 2>&1 &
 
       - name: Wait for landing preview
-        if: steps.filter.outputs.code == 'true' && matrix.shard.name == 'landing'
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name == 'landing'
         run: timeout 30 bash -c 'until curl -sf http://localhost:3002; do sleep 2; done'
 
       - name: Run E2E tests (shard ${{ matrix.shard.name }})
-        if: steps.filter.outputs.code == 'true'
+        if: steps.scope.outputs.code == 'true'
         env:
           SHARD_FILES: ${{ matrix.shard.files }}
         run: |
@@ -599,11 +678,11 @@ jobs:
           fi
 
       - name: Docs-only short-circuit
-        if: steps.filter.outputs.code != 'true'
+        if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping E2E shard ${{ matrix.shard.name }}, satisfying required status."
 
       - name: Upload Playwright report
-        if: failure() && steps.filter.outputs.code == 'true'
+        if: failure() && steps.scope.outputs.code == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: playwright-report-${{ matrix.shard.name }}-${{ github.sha }}
@@ -611,14 +690,14 @@ jobs:
           retention-days: 7
 
       - name: Print logs on failure
-        if: failure() && steps.filter.outputs.code == 'true'
+        if: failure() && steps.scope.outputs.code == 'true'
         run: |
           echo "=== API LOG ===" && cat /tmp/api.log || true
           echo "=== WEB LOG ===" && cat /tmp/web.log || true
           echo "=== LANDING LOG ===" && cat /tmp/landing.log || true
 
       - name: Stop MinIO
-        if: always() && steps.filter.outputs.code == 'true'
+        if: always() && steps.scope.outputs.code == 'true'
         run: docker rm -f minio || true
 
   # Aggregate status of all 5 E2E shards into one PR-level check.
@@ -643,12 +722,18 @@ jobs:
 
   # When E2E fails on main — open a blocking issue.
   # When E2E recovers — close it automatically.
-  # Only runs on push to main (not PRs).
+  # Only runs on main (not PRs).
+  #
+  # Condition tightened 2026-07-27 (task-infra-post-merge-ci): the previous
+  # form was `(ref == main || event == workflow_dispatch) && (event == push ||
+  # event == workflow_dispatch)`, which any workflow_dispatch satisfied — a
+  # dispatch on a *feature branch* could open the `e2e-broken` "team on hold"
+  # issue. Now the ref must actually be main, on any non-PR event.
   notify_e2e:
     name: E2E Health Gate
     runs-on: ubuntu-latest
     needs: e2e
-    if: always() && (github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch') && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
     permissions:
       issues: write
 
@@ -680,3 +765,118 @@ jobs:
             gh issue close "$OPEN" --repo "$REPO" \
               --comment "✅ E2E восстановлены на main (commit \`${{ github.sha }}\`). Команда возобновляет работу."
           fi
+
+  # ── Post-merge alert (task-infra-post-merge-ci, 2026-07-27) ───────────────
+  #
+  # `notify_e2e` above covers ONE leg (E2E) with the agent-facing `e2e-broken`
+  # "team on hold" protocol. This job covers the WHOLE post-merge run —
+  # typecheck/lint/unit, integration and E2E — and routes to the channel the
+  # assistant actually watches (issues in the private telemetry repo), so a red
+  # main cannot sit unnoticed until the next PR trips over it.
+  #
+  # Deliberately NOT a merge gate: prod deploys in parallel with this run (see
+  # deploy.yml), so by the time an alert fires the bad state is usually already
+  # live. The alert exists to trigger a fast revert/hotfix decision, and the
+  # issue body says so.
+  post_merge_alert:
+    name: Post-merge Alert
+    runs-on: ubuntu-latest
+    needs: [quality, integration, e2e_summary]
+    # `always()` so the job still runs when a leg failed. Guarded to main +
+    # non-PR so PR runs and feature-branch dispatches never open alerts.
+    if: always() && github.ref == 'refs/heads/main' && github.event_name != 'pull_request'
+    permissions:
+      issues: write
+    env:
+      # PRIVATE repo — same channel as telemetry-digest.yml, which is what the
+      # assistant polls. CI alerts carry no PII (SHA, subject, run URL), so the
+      # privacy constraint documented there is not at stake either way.
+      PRIVATE_REPO: yaremenko-maksym/cheekycheese-telemetry
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.sha }}
+          fetch-depth: 1
+
+      # Roll the three required legs into one verdict.
+      #   any failure            → failure (alert)
+      #   all success            → success (close any open alert)
+      #   anything else          → neither; a run cancelled by the next merge's
+      #                            `cancel-in-progress` is NOT a red main.
+      - name: Aggregate post-merge result
+        id: agg
+        env:
+          QUALITY: ${{ needs.quality.result }}
+          INTEGRATION: ${{ needs.integration.result }}
+          E2E: ${{ needs.e2e_summary.result }}
+        run: |
+          FAILED=""
+          [ "$QUALITY" = "failure" ] && FAILED="$FAILED quality"
+          [ "$INTEGRATION" = "failure" ] && FAILED="$FAILED integration"
+          [ "$E2E" = "failure" ] && FAILED="$FAILED e2e"
+          FAILED="${FAILED# }"
+
+          if [ -n "$FAILED" ]; then
+            RESULT=failure
+          elif [ "$QUALITY" = "success" ] && [ "$INTEGRATION" = "success" ] && [ "$E2E" = "success" ]; then
+            RESULT=success
+          else
+            RESULT=inconclusive
+          fi
+
+          echo "result=$RESULT" >> "$GITHUB_OUTPUT"
+          echo "failed_legs=${FAILED:-none}" >> "$GITHUB_OUTPUT"
+          {
+            echo "### Post-merge verdict: \`$RESULT\`"
+            echo ""
+            echo "| leg | result |"
+            echo "| --- | --- |"
+            echo "| quality | \`$QUALITY\` |"
+            echo "| integration | \`$INTEGRATION\` |"
+            echo "| e2e | \`$E2E\` |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # Commit subject read from git rather than `github.event.head_commit.*`:
+      # it works on both push and workflow_dispatch, and keeps an
+      # attacker-controlled string out of workflow-expression interpolation
+      # (it reaches the script as plain env, then as literal argv to `gh`).
+      - name: Read commit subject
+        id: commit
+        run: echo "subject=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
+
+      # Private telemetry repo when the PAT is available (assistant's channel);
+      # otherwise fall back to an issue on this public repo via GITHUB_TOKEN.
+      # The fallback matters: TELEMETRY_ISSUES_PAT is a fine-grained token with
+      # an expiry (rotation — telemetry-digest-runbook.md §2.2), and an expired
+      # PAT must degrade the alert to a different channel, never to silence.
+      - name: Resolve alert channel
+        id: channel
+        env:
+          PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+        run: |
+          if [ -n "$PAT" ]; then
+            echo "repo=$PRIVATE_REPO" >> "$GITHUB_OUTPUT"
+            echo "use_pat=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::TELEMETRY_ISSUES_PAT is not set — falling back to an issue on ${{ github.repository }}."
+            echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
+            echo "use_pat=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open / update / close the alert issue
+        env:
+          GH_TOKEN: ${{ steps.channel.outputs.use_pat == 'true' && secrets.TELEMETRY_ISSUES_PAT || github.token }}
+          ALERT_REPO: ${{ steps.channel.outputs.repo }}
+          RESULT: ${{ steps.agg.outputs.result }}
+          FAILED_LEGS: ${{ steps.agg.outputs.failed_legs }}
+          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: ./scripts/devops/post-merge-alert.sh
+
+      # Make the red main visible in the Actions UI too, not only as an issue.
+      - name: Fail the job when main is red
+        if: steps.agg.outputs.result == 'failure'
+        run: |
+          echo "::error::Post-merge CI is RED on main (failed: ${{ steps.agg.outputs.failed_legs }})."
+          exit 1
