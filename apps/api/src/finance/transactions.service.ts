@@ -3146,6 +3146,11 @@ export class TransactionsService {
             // share snapshot — used below so the distribution matches what was
             // stamped on the DROP_INCOME at creation time (deterministic).
             dropSharePercent: transactions.dropSharePercent,
+            // task-drop-share-pending-parity: the matching source discriminator
+            // (PROJECT / USER_DEFAULT) so the DROP_PENDING_PAYOUT snapshot booked
+            // below carries the SAME {value, source} pair bookCompanyObligations
+            // expects (mirrors declareUsdtProjectIncome's dropSnapshot shape).
+            dropSharePercentSource: transactions.dropSharePercentSource,
           })
           .from(transactions)
           .where(
@@ -3294,67 +3299,61 @@ export class TransactionsService {
           // override-aware resolver for legacy rows created before the snapshot
           // column existed. The "one payout = one project" rule for DROP callers
           // guarantees a single project/override applies to the whole batch.
-          const dropShareSnapshot =
-            paidIncomeTxs[0]?.dropSharePercent ??
-            resolveDropShare(
-              { dropSharePercentOverride: primaryProject.dropSharePercentOverride },
-              { dropSharePercent: dropUser.dropSharePercent },
-            ).value
-          // computeDropDistribution is PURE (no DB) — safe inside the txn. The
-          // senior share uses the resolved snapshot value (project/team override
-          // aware) rather than the raw user default, so the obligation booked
-          // below matches the snapshot.
-          const distribution = this.computeDropDistribution(
+          //
+          // task-drop-share-pending-parity: kept as a {value, source} pair (not a
+          // bare number) — this is the EXACT shape bookCompanyObligations' `drop`
+          // param expects (identical to declareUsdtProjectIncome's dropSnapshot),
+          // so the booked DROP_PENDING_PAYOUT carries the same source badge a
+          // fresh admin-USDT IOU would.
+          const dropShareSnapshot: { value: number; source: 'PROJECT' | 'USER_DEFAULT' } =
+            paidIncomeTxs[0]?.dropSharePercent != null
+              ? {
+                  value: paidIncomeTxs[0].dropSharePercent,
+                  source:
+                    paidIncomeTxs[0].dropSharePercentSource === 'PROJECT'
+                      ? 'PROJECT'
+                      : 'USER_DEFAULT',
+                }
+              : resolveDropShare(
+                  { dropSharePercentOverride: primaryProject.dropSharePercentOverride },
+                  { dropSharePercent: dropUser.dropSharePercent },
+                )
+          // computeDropDistribution is PURE (no DB) — safe inside the txn. Kept
+          // here ONLY for its "senior% + drop% > 100" guard (unchanged
+          // regression); the actual share AMOUNTS below now come from
+          // bookCompanyObligations (roundShareAmount on the SAME snapshot), so
+          // both stay pinned to identical numbers — see roundShareAmount's own
+          // docstring ("shared by computeDropDistribution ... and
+          // bookCompanyObligations ... so both price shares identically").
+          this.computeDropDistribution(
             income,
             { id: primaryProject.id, dropId: primaryProject.dropId },
-            { id: dropUser.id, dropSharePercent: dropShareSnapshot },
+            { id: dropUser.id, dropSharePercent: dropShareSnapshot.value },
             { id: senior.id, seniorSharePercent: seniorShareSnapshot.value },
           )
 
-          // Drop's slice — visible on the DROP user's balance.
+          // task-drop-share-pending-parity: the drop's slice is NO LONGER a
+          // direct PAID PAYOUT_DROP insert (that bypassed the owner's
+          // "pending until confirmed with a receipt + sender account" rule —
+          // see the task doc). It now goes through the SAME
+          // bookCompanyObligations() call as the senior share (and as
+          // declareUsdtProjectIncome's admin-USDT path): a DROP_PENDING_PAYOUT
+          // (PENDING_PAYMENT) + a paired pending_obligations row (creditor=drop,
+          // debtorType=COMPANY). An ADMIN/ACCOUNTANT later closes it via the
+          // EXISTING settleByCompany (mandatory receipt + funding-source choice),
+          // which flips this SAME row to PAYOUT_DROP/PAID in place — byte-shape
+          // identical to a freshly-booked admin-USDT drop IOU (task doc §2/§3).
           //
-          // Audit 2026-06-28 (#3): the drop is ONLY the RECEIVER of this slice —
-          // the money comes FROM the company (the senior/company funds the
-          // distribution), never from the drop itself. Previously senderId was set
-          // to `currentUser.id`; in the DROP self-service payout path currentUser
-          // IS the drop, so the row was a self-loop (sender == receiver == drop)
-          // and computeDropAggregate (received − sent) cancelled to 0 — the drop
-          // balance was ALWAYS 0. Set senderId = null + senderLabel = 'COMPANY' so
-          // the drop is purely the receiver and the slice credits their balance.
-          // (sender_id is nullable; PROD has 0 PAYOUT_DROP rows → no backfill.)
-          await dbtx.insert(transactions).values({
-            type: 'PAYOUT_DROP',
-            status: 'PAID',
-            amount: String(distribution.dropShare.amount),
-            currency: 'USDT',
-            senderId: null,
-            senderLabel: 'COMPANY',
-            receiverId: dropUser.id,
-            recipientId: dropUser.id,
-            projectId: primaryProject.id,
-            payoutRequestId: requestId,
-            txHash: effectiveTxHash,
-            createdBy: currentUser.id,
-          })
-
-          // task-drop-payout-company-account. The senior share of a drop-project
-          // income is owed by the COMPANY (not by the drop). The full `payable`
-          // already landed on the company account via the PAYOUT row's
-          // fundingSource='COMPANY_ACCOUNT' marker; the company now owes the
-          // senior their slice. Booked as a SENIOR_PENDING_PAYOUT IOU +
-          // pending_obligations (creditor=senior, debtorType=COMPANY) via the
-          // shared bookCompanyObligations helper (identical row shape to the
-          // admin-USDT flow — no ledger drift). The drop is NOT passed here (its
-          // slice is the direct PAYOUT_DROP inserted above, not a company IOU).
           // Senior IOU is skipped when the senior is an ADMIN (never owed via a
-          // company IOU — task-drop-share-override-and-receiver D4).
+          // company IOU — task-drop-share-override-and-receiver D4); drop IOU has
+          // no such skip (a drop is never an ADMIN — RBAC-distinct role).
           await this.bookCompanyObligations(dbtx, {
             incomeAmount: income,
             projectId: primaryProject.id,
             createdBy: currentUser.id,
             payoutRequestId: requestId,
             senior: { id: senior.id, role: senior.role, shareSnapshot: seniorShareSnapshot },
-            drop: null,
+            drop: { id: dropUser.id, shareSnapshot: dropShareSnapshot },
             notePrefix: 'Drop payout',
           })
         }
