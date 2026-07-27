@@ -70,3 +70,21 @@ jobs:
           # авто-мерджах не срабатывает. workflow_dispatch — документированное
           # исключение: диспатчим Deploy явно.
           gh workflow run deploy.yml --repo "$REPO" --ref main
+
+      # task-infra-post-merge-ci (2026-07-27). Ровно та же механика и ровно та
+      # же причина, что у деплоя выше — но её отсутствие было не видно:
+      # `ci.yml` УЖЕ слушает `push: branches: [main]`, просто это мёртвый
+      # триггер, потому что каждый мерж идёт сквошем от GITHUB_TOKEN. Результат:
+      # последний прогон CI на main был 2026-06-13, хотя pull_request-проверки
+      # всё это время были зелёными. Диспатчим CI на main явно, чтобы
+      # фактическое состояние main валидировалось после КАЖДОГО мержа.
+      #
+      # Без `|| true`: если диспатч не прошёл, post-merge валидации не будет —
+      # это ровно та слепая зона, которую задача и закрывает, поэтому падаем
+      # громко, а не молча.
+      - name: Dispatch post-merge CI on main
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          gh workflow run ci.yml --repo "$REPO" --ref main
