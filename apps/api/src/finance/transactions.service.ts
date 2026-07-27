@@ -44,6 +44,7 @@ import type { DrizzleTx } from '../database/types'
 import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
 import {
   consumeTxHash,
+  describeTxHashClaim,
   findConsumedTxHash,
   minorUnitsFromString,
   normalizeEthAddress,
@@ -172,17 +173,6 @@ export class TransactionsService {
   ) {}
 
   /**
-   * MED-1 (security-review PR #438) — make an UNCLAIMED credit observable.
-   *
-   * A company-account credit whose on-chain evidence carries no usable hash
-   * (an `…/address/0x…` explorer link, a non-Ethereum explorer) is legitimate
-   * legacy behaviour, so it is allowed — but it has the exact SHAPE of the
-   * HIGH-1 bug ("money moved, registry untouched"). Silent tolerance means an
-   * auditor cannot tell a legacy link from a bypass, so every occurrence is
-   * logged at WARN with the row id: greppable, and it surfaces in the same
-   * server logs the rest of the money path uses.
-   */
-  /**
    * MED-F (security-review round 4) — ONE rule for every receipt change on a
    * crediting row, shared by `attachOrReplaceReceipt` AND
    * `adminUpdateTransaction`.
@@ -266,7 +256,12 @@ export class TransactionsService {
     txHash: string,
     reason: string,
     currentUser: SessionUser,
-  ): Promise<{ txHash: string; purpose: string; referenceId: string | null }> {
+  ): Promise<{
+    txHash: string
+    purpose: string
+    referenceId: string | null
+    referentStillCredits: boolean
+  }> {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
     const normalized = normalizeOnChainTxHash(txHash)
@@ -280,11 +275,22 @@ export class TransactionsService {
       throw new BadRequestException('Укажите причину освобождения хеша (она попадёт в журнал)')
     }
 
-    return this.db.db.transaction(async (dbtx) => {
-      const released = await releaseConsumedTxHash(dbtx, normalized)
+    const result = await this.db.db.transaction(async (dbtx) => {
+      const released = await releaseConsumedTxHash(dbtx, normalized, currentUser.id, trimmedReason)
       if (!released) {
         throw new NotFoundException('Этот хеш не числится использованным')
       }
+
+      // MED-K (round 5): report whether the row that held the claim STILL
+      // credits the company account. Releasing does not un-credit anything, so
+      // an admin who releases a live credit has just made that transfer
+      // spendable a second time — they must see that consequence in the
+      // response, not discover it at reconciliation.
+      const referentStillCredits = await this.referentStillCredits(
+        dbtx,
+        released.purpose,
+        released.referenceId,
+      )
 
       // Journal INSIDE the same transaction — a release without its record must
       // be impossible. `targetId` points at the row that held the claim when
@@ -298,17 +304,144 @@ export class TransactionsService {
           purpose: released.purpose,
           referenceId: released.referenceId,
           reason: trimmedReason,
+          referentStillCredits,
         },
       })
 
-      this.logger.warn(
-        `[onchain-registry] hash RELEASED by admin ${currentUser.id} — ` +
-          `purpose=${released.purpose} referenceId=${released.referenceId ?? 'none'}. ` +
-          `The transfer can be settled again.`,
-      )
-
-      return released
+      return { ...released, referentStillCredits }
     })
+
+    // LOW (round 5): log AFTER the commit. Logging inside the transaction
+    // announced a release that a later failure would have rolled back — a log
+    // that says "released" for something that never happened is worse than no
+    // log on the one path whose whole point is traceability.
+    this.logger.warn(
+      `[onchain-registry] hash RELEASED by admin ${currentUser.id} — ` +
+        `purpose=${result.purpose} referenceId=${result.referenceId ?? 'none'} ` +
+        `referentStillCredits=${result.referentStillCredits}. ` +
+        `The transfer can be settled again.`,
+    )
+
+    return result
+  }
+
+  /**
+   * MED-K (round 5) — read-only view of a hash's registry state.
+   *
+   * Before this, a release was blind: the only way to learn who owned a claim
+   * was to call the release, which destroyed it. A typo therefore silently
+   * freed somebody ELSE's legitimate claim — the same "act without seeing"
+   * failure this whole PR is about. ADMIN/ACCOUNTANT (the roles that already
+   * see the finance ledger) can now look first.
+   */
+  async inspectOnChainHash(txHash: string, currentUser: SessionUser) {
+    if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
+      throw new ForbiddenException()
+    }
+    const normalized = normalizeOnChainTxHash(txHash)
+    if (!normalized) {
+      throw new BadRequestException(
+        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
+      )
+    }
+
+    const claim = await describeTxHashClaim(this.db.db, normalized)
+    if (!claim) {
+      return { txHash: normalized, claimed: false as const }
+    }
+
+    const referentStillCredits = await this.referentStillCredits(
+      this.db.db as unknown as DrizzleTx,
+      claim.purpose,
+      claim.referenceId,
+    )
+
+    return {
+      txHash: claim.txHash,
+      claimed: claim.releasedAt === null,
+      purpose: claim.purpose,
+      referenceId: claim.referenceId,
+      consumedByUserId: claim.consumedByUserId,
+      consumedAt: claim.createdAt.toISOString(),
+      releasedAt: claim.releasedAt ? claim.releasedAt.toISOString() : null,
+      releasedBy: claim.releasedBy,
+      releasedReason: claim.releasedReason,
+      // The decisive fact for an operator: is the money still on the books?
+      referentStillCredits,
+    }
+  }
+
+  /**
+   * Does the row that holds/held a claim still credit the company account?
+   *
+   * Mirrors the crediting terms of `computeCompanyAccountBalanceFromLedger` —
+   * the same predicates, so "still credits" here means exactly what the balance
+   * means. Used by the release response and the inspection endpoint (MED-K).
+   */
+  private async referentStillCredits(
+    dbtx: DrizzleTx,
+    purpose: string,
+    referenceId: string | null,
+  ): Promise<boolean> {
+    if (!referenceId) return false
+
+    if (purpose === 'PAYOUT') {
+      // A payout credits through its PAYOUT ledger row carrying the
+      // COMPANY_ACCOUNT funding marker.
+      const row = await dbtx.query.transactions.findFirst({
+        where: and(
+          eq(transactions.payoutRequestId, referenceId),
+          eq(transactions.type, 'PAYOUT'),
+          eq(transactions.status, 'PAID'),
+          eq(transactions.fundingSource, PAYOUT_TO_COMPANY_ACCOUNT),
+          eq(transactions.currency, 'USDT'),
+        ),
+        columns: { id: true },
+      })
+      return row !== undefined
+    }
+
+    const row = await dbtx.query.transactions.findFirst({
+      where: eq(transactions.id, referenceId),
+      columns: { type: true, status: true, currency: true, fundingSource: true },
+    })
+    if (!row || row.status !== 'PAID' || row.currency !== 'USDT') return false
+    if (row.type === 'COMPANY_DEPOSIT') return true
+    if (row.type === 'ADMIN_INCOME') {
+      return settlementConsumesTransfer({
+        kind: 'ADMIN_INCOME',
+        fundingSource: row.fundingSource,
+      })
+    }
+    return false
+  }
+
+  /**
+   * MED-J (round 5) — a released transfer is being spent again.
+   *
+   * Legitimate by construction (that is what a release is FOR), but the PAIR of
+   * events — released by X for reason R, then consumed again by Y — is what an
+   * investigation reconstructs, and only the second half is visible from the
+   * ledger. Recorded in the same transaction as the new claim.
+   */
+  private async recordReclaimAfterRelease(
+    dbtx: DrizzleTx,
+    params: { path: string; txHash: string; referenceId: string | null; actorId: string },
+  ): Promise<void> {
+    await dbtx.insert(transactionAuditLog).values({
+      actorId: params.actorId,
+      targetId: params.referenceId ?? params.actorId,
+      action: 'ONCHAIN_HASH_RECLAIMED_AFTER_RELEASE',
+      metadata: {
+        path: params.path,
+        txHash: normalizeOnChainTxHash(params.txHash),
+        referenceId: params.referenceId,
+      },
+    })
+    this.logger.warn(
+      `[onchain-registry] previously RELEASED hash consumed again — ` +
+        `path=${params.path} referenceId=${params.referenceId ?? 'none'} actorId=${params.actorId}.`,
+    )
   }
 
   /**
@@ -341,6 +474,16 @@ export class TransactionsService {
     )
   }
 
+  /**
+   * MED-1 (security-review PR #438) — make an UNCLAIMED credit observable.
+   *
+   * A company-account credit whose on-chain evidence carries no usable hash
+   * (an `…/address/0x…` explorer link, a non-Ethereum explorer) is legitimate
+   * legacy behaviour, so it is allowed — but it has the exact SHAPE of the
+   * HIGH-1 bug ("money moved, registry untouched"). Silent tolerance means an
+   * auditor cannot tell a legacy link from a bypass, so every occurrence is
+   * recorded in `transaction_audit_log` (and logged at WARN) with the row id.
+   */
   private async recordUnclaimedCredit(
     dbtx: DrizzleTx,
     params: { path: string; transactionId: string; actorId: string },
@@ -1376,17 +1519,27 @@ export class TransactionsService {
           .returning()
 
         if (settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource })) {
-          const claimed = await consumeTxHash(dbtx, {
+          const claim = await consumeTxHash(dbtx, {
             txHash: data.receiptExternalUrl ?? '',
             purpose: 'ADMIN_INCOME',
             referenceId: inserted!.id,
             consumedByUserId: currentUser.id,
           })
           // MED-1: an unclaimable receipt on a CREDITING path must be visible.
-          if (!claimed) {
+          if (!claim.claimed) {
             await this.recordUnclaimedCredit(dbtx, {
               path: 'createAdminIncome',
               transactionId: inserted!.id,
+              actorId: currentUser.id,
+            })
+          }
+          // MED-J: spending a transfer an ADMIN had released is legitimate but
+          // must be reconstructable — record the second half of the pair.
+          if (claim.reclaimedAfterRelease) {
+            await this.recordReclaimAfterRelease(dbtx, {
+              path: 'createAdminIncome',
+              txHash: data.receiptExternalUrl ?? '',
+              referenceId: inserted!.id,
               actorId: currentUser.id,
             })
           }
@@ -1586,16 +1739,24 @@ export class TransactionsService {
         // and references a transfer to that admin's OWN wallet, so burning its
         // hash would block that transfer's real payer for nothing.
         if (settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource })) {
-          const claimed = await consumeTxHash(dbtx, {
+          const claim = await consumeTxHash(dbtx, {
             txHash: data.receiptExternalUrl ?? '',
             purpose: 'ADMIN_INCOME',
             referenceId: tx!.id,
             consumedByUserId: currentUser.id,
           })
-          if (!claimed) {
+          if (!claim.claimed) {
             await this.recordUnclaimedCredit(dbtx, {
               path: 'declareUsdtProjectIncome',
               transactionId: tx!.id,
+              actorId: currentUser.id,
+            })
+          }
+          if (claim.reclaimedAfterRelease) {
+            await this.recordReclaimAfterRelease(dbtx, {
+              path: 'declareUsdtProjectIncome',
+              txHash: data.receiptExternalUrl ?? '',
+              referenceId: tx!.id,
               actorId: currentUser.id,
             })
           }
@@ -2100,52 +2261,71 @@ export class TransactionsService {
     const transition = await this.resolveReceiptHashTransition(tx, nextExtUrl)
 
     const action: 'ATTACH' | 'REPLACE' = hadReceipt ? 'REPLACE' : 'ATTACH'
-    await this.replaceReceiptAtomic(
-      id,
-      tx.receiptDocumentId,
-      nextDocId,
-      {
-        receiptDocumentId: nextDocId,
-        receiptExternalUrl: nextExtUrl,
-        // Keep the recorded hash in step with the evidence it came from.
-        ...transition.txHashPatch,
-        updatedAt: new Date(),
-      },
-      async (dbtx) => {
-        // MED-E: the new evidence must be claimed too — otherwise the row would
-        // credit the pool while its (new) transfer stayed spendable elsewhere.
-        // Inside the same transaction as the swap; a concurrent claim collides
-        // on the unique index and rolls the whole swap back.
-        if (transition.claimHash) {
-          await consumeTxHash(dbtx, {
-            txHash: transition.claimHash,
-            purpose: 'ADMIN_INCOME',
-            referenceId: id,
-            consumedByUserId: currentUser.id,
-          })
-        }
-        if (transition.staleClaim) {
-          await this.recordReceiptClaimDivergence(dbtx, {
-            path: 'attachOrReplaceReceipt',
-            transactionId: id,
+    try {
+      await this.replaceReceiptAtomic(
+        id,
+        tx.receiptDocumentId,
+        nextDocId,
+        {
+          receiptDocumentId: nextDocId,
+          receiptExternalUrl: nextExtUrl,
+          // Keep the recorded hash in step with the evidence it came from.
+          ...transition.txHashPatch,
+          updatedAt: new Date(),
+        },
+        async (dbtx) => {
+          // MED-E: the new evidence must be claimed too — otherwise the row would
+          // credit the pool while its (new) transfer stayed spendable elsewhere.
+          // Inside the same transaction as the swap; a concurrent claim collides
+          // on the unique index and rolls the whole swap back.
+          if (transition.claimHash) {
+            const claim = await consumeTxHash(dbtx, {
+              txHash: transition.claimHash,
+              purpose: 'ADMIN_INCOME',
+              referenceId: id,
+              consumedByUserId: currentUser.id,
+            })
+            if (claim.reclaimedAfterRelease) {
+              await this.recordReclaimAfterRelease(dbtx, {
+                path: 'attachOrReplaceReceipt',
+                txHash: transition.claimHash,
+                referenceId: id,
+                actorId: currentUser.id,
+              })
+            }
+          }
+          if (transition.staleClaim) {
+            await this.recordReceiptClaimDivergence(dbtx, {
+              path: 'attachOrReplaceReceipt',
+              transactionId: id,
+              actorId: currentUser.id,
+            })
+          }
+          // Audit atomically with the receipt swap.
+          await dbtx.insert(transactionAuditLog).values({
             actorId: currentUser.id,
+            targetId: id,
+            action,
+            metadata: {
+              oldDocId: tx.receiptDocumentId,
+              oldExtUrl: tx.receiptExternalUrl,
+              newDocId: nextDocId,
+              newExtUrl: nextExtUrl,
+              receiptKind: nextDocId ? 'document' : 'url',
+            },
           })
-        }
-        // Audit atomically with the receipt swap.
-        await dbtx.insert(transactionAuditLog).values({
-          actorId: currentUser.id,
-          targetId: id,
-          action,
-          metadata: {
-            oldDocId: tx.receiptDocumentId,
-            oldExtUrl: tx.receiptExternalUrl,
-            newDocId: nextDocId,
-            newExtUrl: nextExtUrl,
-            receiptKind: nextDocId ? 'document' : 'url',
-          },
-        })
-      },
-    )
+        },
+      )
+    } catch (err) {
+      // MED-L (round 5): the pre-check is a fast-fail read; under a race the
+      // claim itself is what collides. Map it to the same clean 400 every other
+      // claim site returns — a 500 on the money path is exactly the failure
+      // mode the shared `isUniqueViolation` was extracted to end.
+      if (isUniqueViolation(err)) {
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+      }
+      throw err
+    }
 
     return this.findOne(id, currentUser)
   }
@@ -2252,39 +2432,56 @@ export class TransactionsService {
         ? await this.resolveReceiptHashTransition(tx, receiptPatch.receiptExternalUrl ?? null)
         : { txHashPatch: {}, claimHash: null, staleClaim: false }
 
-    await this.db.db.transaction(async (dbtx) => {
-      await dbtx
-        .update(transactions)
-        .set({
-          ...(data.amount !== undefined && { amount: String(data.amount) }),
-          ...(data.currency !== undefined && {
-            currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
-          }),
-          ...(data.notes !== undefined && { notes: data.notes }),
-          ...receiptPatch,
-          ...transition.txHashPatch,
-          ...(data.category !== undefined && { receiverLabel: data.category }),
-          ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
-          updatedAt: new Date(),
-        })
-        .where(eq(transactions.id, id))
+    try {
+      await this.db.db.transaction(async (dbtx) => {
+        await dbtx
+          .update(transactions)
+          .set({
+            ...(data.amount !== undefined && { amount: String(data.amount) }),
+            ...(data.currency !== undefined && {
+              currency: data.currency as 'USDT' | 'USD' | 'EUR' | 'UAH',
+            }),
+            ...(data.notes !== undefined && { notes: data.notes }),
+            ...receiptPatch,
+            ...transition.txHashPatch,
+            ...(data.category !== undefined && { receiverLabel: data.category }),
+            ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
+            updatedAt: new Date(),
+          })
+          .where(eq(transactions.id, id))
 
-      if (transition.claimHash) {
-        await consumeTxHash(dbtx, {
-          txHash: transition.claimHash,
-          purpose: 'ADMIN_INCOME',
-          referenceId: id,
-          consumedByUserId: currentUser.id,
-        })
+        if (transition.claimHash) {
+          const claim = await consumeTxHash(dbtx, {
+            txHash: transition.claimHash,
+            purpose: 'ADMIN_INCOME',
+            referenceId: id,
+            consumedByUserId: currentUser.id,
+          })
+          if (claim.reclaimedAfterRelease) {
+            await this.recordReclaimAfterRelease(dbtx, {
+              path: 'adminUpdateTransaction',
+              txHash: transition.claimHash,
+              referenceId: id,
+              actorId: currentUser.id,
+            })
+          }
+        }
+        if (transition.staleClaim) {
+          await this.recordReceiptClaimDivergence(dbtx, {
+            path: 'adminUpdateTransaction',
+            transactionId: id,
+            actorId: currentUser.id,
+          })
+        }
+      })
+    } catch (err) {
+      // MED-L (round 5): same as the sibling receipt entrance — a racing claim
+      // must surface as a 400, not a 500.
+      if (isUniqueViolation(err)) {
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
-      if (transition.staleClaim) {
-        await this.recordReceiptClaimDivergence(dbtx, {
-          path: 'adminUpdateTransaction',
-          transactionId: id,
-          actorId: currentUser.id,
-        })
-      }
-    })
+      throw err
+    }
 
     return this.findOne(id, currentUser)
   }
@@ -3607,12 +3804,20 @@ export class TransactionsService {
             hasRealTxHash: normalizeOnChainTxHash(effectiveTxHash) !== null,
           })
         ) {
-          await consumeTxHash(dbtx, {
+          const claim = await consumeTxHash(dbtx, {
             txHash: effectiveTxHash,
             purpose: 'PAYOUT',
             referenceId: requestId,
             consumedByUserId: currentUser.id,
           })
+          if (claim.reclaimedAfterRelease) {
+            await this.recordReclaimAfterRelease(dbtx, {
+              path: 'applyPayoutPaidCascade',
+              txHash: effectiveTxHash,
+              referenceId: requestId,
+              actorId: currentUser.id,
+            })
+          }
         }
 
         // Mark linked SENIOR_INCOME transactions as PAID

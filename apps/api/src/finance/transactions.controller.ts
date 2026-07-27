@@ -39,6 +39,7 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
+import { ONCHAIN_HASH_RELEASE_LIMIT, RelaxableThrottle } from '../config/throttle-decorators'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { TransactionsService } from './transactions.service'
 
@@ -241,12 +242,27 @@ export class TransactionsController {
   // re-check) and always journaled with a reason — the counterweight to a
   // registry whose claims are otherwise permanent. Deliberately NOT a route on
   // `:id`: the subject is the HASH, which may outlive every row referencing it.
+  // MED-M (round 5): the most destructive handle in this module — it makes a
+  // spent transfer spendable again. Rate-limited like its neighbours (wallet
+  // update / dividends are 5/min, deposits 12), so a scripted mistake or an
+  // abused session cannot walk the registry.
   @Post('onchain-hash/release')
   @Roles('ADMIN')
+  @RelaxableThrottle(ONCHAIN_HASH_RELEASE_LIMIT)
   @HttpCode(200)
   releaseOnChainHash(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = releaseOnChainHashSchema.parse(body)
     return this.svc.releaseOnChainHash(data.txHash, data.reason, user)
+  }
+
+  // MED-K (round 5): LOOK before you release. Without this the only way to
+  // learn who owns a claim was to call the release — which destroyed it, so a
+  // typo silently freed somebody else's legitimate claim. Read-only, and it
+  // reports whether the referent still credits the company account.
+  @Get('onchain-hash/:txHash')
+  @Roles('ADMIN', 'ACCOUNTANT')
+  inspectOnChainHash(@Param('txHash') txHash: string, @CurrentUser() user: SessionUser) {
+    return this.svc.inspectOnChainHash(txHash, user)
   }
 
   @Delete(':id')

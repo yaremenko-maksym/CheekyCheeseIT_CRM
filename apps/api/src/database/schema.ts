@@ -735,11 +735,23 @@ export const consumedTxHashes = pgTable(
       onDelete: 'set null',
     }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // ── TOMBSTONE (security-review round 5, MED-J) ──────────────────────────
+    // An ADMIN release marks the claim released instead of DELETEing it.
+    // Deleting erased the evidence: the double credit stayed in the ledger
+    // while the "released → spent again" pair — the exact sequence an
+    // investigator needs — left no trace anywhere. Kept rows also let the
+    // re-claim be detected and recorded (`ONCHAIN_HASH_RECLAIMED_AFTER_RELEASE`).
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    releasedBy: uuid('released_by').references(() => users.id, { onDelete: 'set null' }),
+    releasedReason: text('released_reason'),
   },
   (t) => [
-    // THE cross-path guard. Total (not partial) — every registered hash is a
-    // real on-chain transfer, whatever consumed it.
-    uniqueIndex('uq_consumed_tx_hashes_tx_hash').on(t.txHash),
+    // THE cross-path guard. PARTIAL: uniqueness binds only ACTIVE claims, so a
+    // released tombstone stays in the table (evidence) without blocking the
+    // re-settlement the release was granted for.
+    uniqueIndex('uq_consumed_tx_hashes_active_tx_hash')
+      .on(t.txHash)
+      .where(sql`${t.releasedAt} IS NULL`),
   ],
 )
 

@@ -1,4 +1,4 @@
-import { eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import { extractOnChainTxHash } from '@crm/shared'
 
 import type { DrizzleTx } from '../database/types'
@@ -139,6 +139,19 @@ export function usdtToMinorUnits(raw: string | number | null | undefined): bigin
  */
 export type ConsumedTxPurpose = 'PAYOUT' | 'COMPANY_DEPOSIT' | 'ADMIN_INCOME'
 
+/**
+ * Outcome of a claim attempt.
+ *
+ * `reclaimedAfterRelease` is the audit signal from MED-J: this transfer had
+ * been released by an ADMIN and is now being spent again. Legitimate by design
+ * (that is what a release is FOR), but the pair of events is what an
+ * investigation reconstructs, so crediting callers record it.
+ */
+export interface ConsumeTxHashResult {
+  claimed: boolean
+  reclaimedAfterRelease: boolean
+}
+
 /** Uniform 400 message for a hash already spent by ANY path. */
 export const TX_HASH_ALREADY_CONSUMED_MESSAGE =
   'Этот хеш транзакции уже использован (выплата или пополнение счёта компании)'
@@ -225,14 +238,23 @@ export async function consumeTxHash(
     referenceId: string | null
     consumedByUserId: string | null
   },
-): Promise<boolean> {
+): Promise<ConsumeTxHashResult> {
   const normalized = normalizeOnChainTxHash(params.txHash)
   // MED-1 (security-review PR #438): report the skip so the caller can RECORD
   // it. A credit whose evidence carries no on-chain hash (an `…/address/0x…`
   // explorer link, a non-Ethereum explorer) is legitimate legacy behaviour —
   // but it is also the exact shape of the HIGH-1 bug ("money moved, registry
   // untouched"), so an auditor must be able to tell the two apart.
-  if (!normalized) return false
+  if (!normalized) return { claimed: false, reclaimedAfterRelease: false }
+
+  // MED-J (round 5): is this hash being spent AGAIN after an ADMIN released it?
+  // The release is legitimate (it exists to unstick money) but the pair
+  // "released → consumed again" is the sequence an investigator will look for,
+  // so the caller records it. Read inside the same transaction as the claim.
+  const tombstone = await dbtx.query.consumedTxHashes.findFirst({
+    where: eq(consumedTxHashes.txHash, normalized),
+    columns: { id: true, releasedAt: true },
+  })
 
   await dbtx.insert(consumedTxHashes).values({
     txHash: normalized,
@@ -240,7 +262,10 @@ export async function consumeTxHash(
     referenceId: params.referenceId,
     consumedByUserId: params.consumedByUserId,
   })
-  return true
+  return {
+    claimed: true,
+    reclaimedAfterRelease: tombstone?.releasedAt != null,
+  }
 }
 
 /**
@@ -262,11 +287,58 @@ export async function findConsumedTxHash(
   // `referenceId` matters (security-review round 4, MED-G): a guard that only
   // asks "is this hash taken?" rejects a user re-attaching their OWN receipt to
   // the very row that claimed it. Callers compare the OWNER, not the value.
+  //
+  // MED-J (round 5): only ACTIVE claims block. A released tombstone stays in
+  // the table as evidence but must not keep the transfer un-settleable — that
+  // would re-create the very lock-out the release exists to undo.
   const row = await db.query.consumedTxHashes.findFirst({
-    where: eq(consumedTxHashes.txHash, normalized),
+    where: and(eq(consumedTxHashes.txHash, normalized), isNull(consumedTxHashes.releasedAt)),
     columns: { purpose: true, referenceId: true },
   })
   return row ?? null
+}
+
+/**
+ * Full state of a hash for the read-only inspection endpoint (MED-K).
+ *
+ * Returns the ACTIVE claim when there is one, else the most recent tombstone,
+ * so an ADMIN can see what a release would touch — or what a past release
+ * already did — BEFORE acting.
+ */
+export async function describeTxHashClaim(
+  db: Pick<DrizzleTx, 'query'>,
+  txHash: string,
+): Promise<{
+  txHash: string
+  purpose: string
+  referenceId: string | null
+  consumedByUserId: string | null
+  createdAt: Date
+  releasedAt: Date | null
+  releasedBy: string | null
+  releasedReason: string | null
+} | null> {
+  const normalized = normalizeOnChainTxHash(txHash)
+  if (!normalized) return null
+
+  const rows = await db.query.consumedTxHashes.findMany({
+    where: eq(consumedTxHashes.txHash, normalized),
+  })
+  if (rows.length === 0) return null
+
+  // Prefer the active claim; otherwise the newest tombstone.
+  const active = rows.find((r) => r.releasedAt === null)
+  const chosen = active ?? rows.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0]!
+  return {
+    txHash: chosen.txHash,
+    purpose: chosen.purpose,
+    referenceId: chosen.referenceId,
+    consumedByUserId: chosen.consumedByUserId,
+    createdAt: chosen.createdAt,
+    releasedAt: chosen.releasedAt,
+    releasedBy: chosen.releasedBy,
+    releasedReason: chosen.releasedReason,
+  }
 }
 
 /**
@@ -290,17 +362,24 @@ export async function findConsumedTxHash(
 export async function releaseConsumedTxHash(
   dbtx: DrizzleTx,
   txHash: string,
+  releasedBy: string,
+  reason: string,
 ): Promise<{ txHash: string; purpose: string; referenceId: string | null } | null> {
   const normalized = normalizeOnChainTxHash(txHash)
   if (!normalized) return null
 
-  const [deleted] = await dbtx
-    .delete(consumedTxHashes)
-    .where(eq(consumedTxHashes.txHash, normalized))
+  // MED-J (round 5): TOMBSTONE, not DELETE. The row stays — carrying who
+  // released it, when and why — so the "released → spent again" pair is
+  // reconstructable. The partial unique index ignores released rows, so the
+  // transfer becomes settleable again exactly as intended.
+  const [released] = await dbtx
+    .update(consumedTxHashes)
+    .set({ releasedAt: new Date(), releasedBy, releasedReason: reason })
+    .where(and(eq(consumedTxHashes.txHash, normalized), isNull(consumedTxHashes.releasedAt)))
     .returning({
       txHash: consumedTxHashes.txHash,
       purpose: consumedTxHashes.purpose,
       referenceId: consumedTxHashes.referenceId,
     })
-  return deleted ?? null
+  return released ?? null
 }

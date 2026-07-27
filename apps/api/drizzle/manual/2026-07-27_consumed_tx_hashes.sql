@@ -71,11 +71,27 @@ CREATE TABLE IF NOT EXISTS consumed_tx_hashes (
   created_at          timestamptz NOT NULL DEFAULT now()
 );
 
--- 2. THE cross-path guard. Total (not partial): every registered row is a real
---    on-chain transfer, whichever path consumed it. Hashes are stored
---    lowercase-normalised by the app, so `0xAB…` and `0xab…` collide.
-CREATE UNIQUE INDEX IF NOT EXISTS uq_consumed_tx_hashes_tx_hash
-  ON consumed_tx_hashes (tx_hash);
+-- 2. TOMBSTONE columns (security-review round 5, MED-J). An ADMIN release marks
+--    the claim released instead of deleting it: a DELETE erased the evidence
+--    while the double credit stayed in the ledger, and the "released → spent
+--    again" pair — exactly what an investigator needs — left no trace.
+ALTER TABLE consumed_tx_hashes
+  ADD COLUMN IF NOT EXISTS released_at timestamptz,
+  ADD COLUMN IF NOT EXISTS released_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  ADD COLUMN IF NOT EXISTS released_reason text;
+
+-- 3. THE cross-path guard. PARTIAL: uniqueness binds only ACTIVE claims, so a
+--    released tombstone stays as evidence without blocking the re-settlement
+--    the release was granted for. Hashes are stored lowercase-normalised by the
+--    app, so `0xAB…` and `0xab…` collide.
+--
+--    Created BEFORE the old total index is dropped, so uniqueness is never
+--    unguarded for even a moment.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_consumed_tx_hashes_active_tx_hash
+  ON consumed_tx_hashes (tx_hash)
+  WHERE released_at IS NULL;
+
+DROP INDEX IF EXISTS uq_consumed_tx_hashes_tx_hash;
 
 -- 3. BACKFILL — historical settlements must already own their hashes, otherwise
 --    an old PAID payout's hash could still be replayed as a fresh deposit (and
@@ -94,7 +110,7 @@ SELECT DISTINCT ON (lower(pr.tx_hash))
  WHERE pr.status = 'PAID'
    AND pr.tx_hash ~* '^0x[0-9a-f]{64}$'
  ORDER BY lower(pr.tx_hash), pr.updated_at ASC
-ON CONFLICT (tx_hash) DO NOTHING;
+ON CONFLICT (tx_hash) WHERE released_at IS NULL DO NOTHING;
 
 --    DEPOSITS: `status = 'PAID'` is REQUIRED, not cosmetic symmetry with the
 --    payout filter above (security-review round 2, HIGH-4). A claim accompanies
@@ -121,7 +137,7 @@ SELECT DISTINCT ON (lower(t.tx_hash))
    AND t.status = 'PAID'
    AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
  ORDER BY lower(t.tx_hash), t.created_at ASC
-ON CONFLICT (tx_hash) DO NOTHING;
+ON CONFLICT (tx_hash) WHERE released_at IS NULL DO NOTHING;
 
 --    ADMIN_INCOME: the third crediting term (security-review rounds 2-3). Same
 --    money rule — only rows that actually credit the shared pool
@@ -148,7 +164,7 @@ SELECT DISTINCT ON (lower(m.tx_hash))
        ) m
  WHERE m.tx_hash IS NOT NULL
  ORDER BY lower(m.tx_hash), m.created_at ASC
-ON CONFLICT (tx_hash) DO NOTHING;
+ON CONFLICT (tx_hash) WHERE released_at IS NULL DO NOTHING;
 
 -- 4. AUDIT NOTICE — report (do NOT fail on) hashes that were ALREADY consumed
 --    by MORE THAN ONE crediting path before this fix. Each one is a real

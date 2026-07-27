@@ -14,7 +14,14 @@ import type {
   SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { companyAccount, transactions, userAuditLog, users } from '../database/schema'
+import {
+  companyAccount,
+  transactionAuditLog,
+  transactions,
+  userAuditLog,
+  users,
+} from '../database/schema'
+import type { DrizzleTx } from '../database/types'
 import { EtherscanService } from './etherscan.service'
 import {
   computeCompanyAccountBalanceFromLedger,
@@ -25,6 +32,7 @@ import {
   consumeTxHash,
   findConsumedTxHash,
   normalizeEthAddress,
+  normalizeOnChainTxHash,
   settlementConsumesTransfer,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
@@ -204,6 +212,32 @@ export class CompanyAccountService {
   }
 
   /**
+   * MED-J (security-review round 5) — a released transfer is being spent again
+   * on the deposit path. Mirrors `TransactionsService.recordReclaimAfterRelease`;
+   * the pair "released by an ADMIN → consumed again" is what an investigation
+   * reconstructs, and only the second half shows up in the ledger.
+   */
+  private async recordReclaimAfterRelease(
+    dbtx: DrizzleTx,
+    params: { path: string; txHash: string; referenceId: string | null; actorId: string },
+  ): Promise<void> {
+    await dbtx.insert(transactionAuditLog).values({
+      actorId: params.actorId,
+      targetId: params.referenceId ?? params.actorId,
+      action: 'ONCHAIN_HASH_RECLAIMED_AFTER_RELEASE',
+      metadata: {
+        path: params.path,
+        txHash: normalizeOnChainTxHash(params.txHash),
+        referenceId: params.referenceId,
+      },
+    })
+    this.logger.warn(
+      `[onchain-registry] previously RELEASED hash consumed again — ` +
+        `path=${params.path} referenceId=${params.referenceId ?? 'none'} actorId=${params.actorId}.`,
+    )
+  }
+
+  /**
    * POST /api/company-account/deposits — SENIOR/DROP submit a USDT deposit.
    *
    * Flow:
@@ -334,12 +368,20 @@ export class CompanyAccountService {
         // intent: a PENDING deposit blocks nothing outside its own table, and
         // the claim happens when `getDepositStatus` later flips it to PAID.
         if (settlementConsumesTransfer({ kind: 'COMPANY_DEPOSIT', credited })) {
-          await consumeTxHash(dbtx, {
+          const claim = await consumeTxHash(dbtx, {
             txHash,
             purpose: 'COMPANY_DEPOSIT',
             referenceId: inserted!.id,
             consumedByUserId: currentUser.id,
           })
+          if (claim.reclaimedAfterRelease) {
+            await this.recordReclaimAfterRelease(dbtx, {
+              path: 'submitDeposit',
+              txHash,
+              referenceId: inserted!.id,
+              actorId: currentUser.id,
+            })
+          }
         }
 
         return inserted!
@@ -442,12 +484,20 @@ export class CompanyAccountService {
 
           // `credited: true` — this branch IS the credit (the flip above).
           if (settlementConsumesTransfer({ kind: 'COMPANY_DEPOSIT', credited: true })) {
-            await consumeTxHash(dbtx, {
+            const claim = await consumeTxHash(dbtx, {
               txHash: tx.txHash ?? '',
               purpose: 'COMPANY_DEPOSIT',
               referenceId: tx.id,
               consumedByUserId: tx.senderId,
             })
+            if (claim.reclaimedAfterRelease) {
+              await this.recordReclaimAfterRelease(dbtx, {
+                path: 'getDepositStatus',
+                txHash: tx.txHash ?? '',
+                referenceId: tx.id,
+                actorId: currentUser.id,
+              })
+            }
           }
         })
       } catch (err) {
