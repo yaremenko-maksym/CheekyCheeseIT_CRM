@@ -551,9 +551,9 @@ export const transactions = pgTable(
      * IOU was booked by the drop-payout CASCADE (applyPayoutPaidCascade), i.e.
      * its money NEVER touched the shared company account (only `payable =
      * income*(1-dropShare%)` did — the drop keeps their own cut before the
-     * on-chain transfer). `false`/default for an admin-USDT-declaration-booked
-     * drop IOU (declareUsdtProjectIncome — the company genuinely DOES hold the
-     * full declared income there).
+     * on-chain transfer). `false` for an admin-USDT-declaration-booked drop
+     * IOU (declareUsdtProjectIncome — the company genuinely DOES hold the full
+     * declared income there).
      *
      * WHY a dedicated column instead of `payoutRequestId IS NOT NULL`: that FK
      * is `ON DELETE SET NULL` — a future cleanup of an unrelated
@@ -568,12 +568,28 @@ export const transactions = pgTable(
      * script (`2026-07-27_drop_share_pending_parity_backfill.sql`) stamps the
      * SAME marker on the historical rows it converts, for the identical reason.
      *
+     * NULLABLE, NO DEFAULT (security-review PR #443 round 3, LOW): a
+     * `NOT NULL DEFAULT false` column cannot distinguish "explicitly verified
+     * non-cascade" from "nobody ever set this" — an unrelated FUTURE insert
+     * path for a DROP_PENDING_PAYOUT row that forgets to stamp this field
+     * would silently inherit the PERMISSIVE default (`false`, "safe to settle
+     * from the company account") rather than failing loudly. Left nullable
+     * instead: `NULL` = unknown/unset, and the settleByCompany guard below
+     * treats `!== false` (i.e. `true` OR `null`) as BLOCK — only an EXPLICIT
+     * `false` (stamped by bookCompanyObligations for the admin-declared path)
+     * allows a COMPANY_ACCOUNT settle. A silently-forgotten stamp therefore
+     * fails SAFE (blocks) instead of failing OPEN. Not made `NOT NULL` outright
+     * (which would force every OTHER transaction type's insert call site —
+     * SALARY, EXPENSE, ADMIN_INCOME, COMPANY_DEPOSIT, …, none of which this
+     * column is meaningful for — to explicitly pass a value, and would need a
+     * backfill migration for existing rows) — that cost is disproportionate to
+     * a column only `DROP_PENDING_PAYOUT`/`PAYOUT_DROP` rows ever read.
+     *
      * ADD COLUMN DDL (apply to dev/prod manually before deploy — same
      * additive-push pattern as `idempotencyKey` above):
-     *   ALTER TABLE transactions
-     *     ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean NOT NULL DEFAULT false;
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean;
      */
-    dropCascadeOrigin: boolean('drop_cascade_origin').notNull().default(false),
+    dropCascadeOrigin: boolean('drop_cascade_origin'),
     // Snapshot of senior share percent at time of SENIOR_INCOME creation
     seniorSharePercent: integer('senior_share_percent'),
     // task-team-senior-share-override. Snapshot of *where* the percent above

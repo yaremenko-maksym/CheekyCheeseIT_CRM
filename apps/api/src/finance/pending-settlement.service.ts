@@ -296,7 +296,16 @@ export class PendingSettlementService {
     // `payoutRequestId` after the fact, so it survives that entirely.
     // Backfilled historical rows (task-drop-share-pending-parity) get the
     // SAME marker stamped by the backfill script, for the identical reason.
-    if (isDropObligation && sourceDropCascadeOrigin && debitsCompanyAccount) {
+    //
+    // `!== false` (not a truthy check) — security-review PR #443 round 3,
+    // LOW: the column is nullable with NO default (see schema.ts), so `null`
+    // means "nobody ever stamped an origin for this row" (a future insert
+    // path that forgets to set it, or any pre-marker-column legacy row this
+    // backfill never touched). Treating that as BLOCK — same as an explicit
+    // `true` — means an unknown origin fails SAFE; only an EXPLICIT `false`
+    // (admin-declared path) is treated as "known safe to debit the company
+    // account".
+    if (isDropObligation && sourceDropCascadeOrigin !== false && debitsCompanyAccount) {
       throw new BadRequestException(
         'Доля дропа из этой выплаты не проходила через счёт компании — выберите личный счёт админа',
       )
@@ -627,12 +636,15 @@ export class PendingSettlementService {
   private async resolveSource(sourceTransactionId: string): Promise<{
     project: { id: string; name: string } | null
     sourceType: string | null
-    sourceDropCascadeOrigin: boolean
+    // Nullable — `null` means "unstamped" and the HIGH-1/MED-B guard above
+    // treats that as unknown-origin (BLOCK), same as `true`. Only an
+    // explicit `false` means "verified non-cascade, safe".
+    sourceDropCascadeOrigin: boolean | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
     })
-    if (!source) return { project: null, sourceType: null, sourceDropCascadeOrigin: false }
+    if (!source) return { project: null, sourceType: null, sourceDropCascadeOrigin: null }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
       : null

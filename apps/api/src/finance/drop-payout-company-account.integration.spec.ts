@@ -703,6 +703,69 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
     expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
   })
 
+  // ── MED-1 (security-review PR #443, round 3): the guard must survive the
+  // FK being nulled — this is the ENTIRE reason MED-B replaced the
+  // payout_request_id-based predicate with the drop_cascade_origin marker.
+  // Without this test, reverting the guard back to `sourcePayoutRequestId
+  // !== null` would leave the whole suite green (HIGH-1 above never nulls
+  // the FK, so both predicates agree there).
+  it('MED-1 settle rejected via drop_cascade_origin even after payout_request_id is nulled (simulates a future payout_requests cleanup, ON DELETE SET NULL)', async () => {
+    if (!dbAvailable) return
+    const I = 1000
+    const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+    const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+    const payable = parseFloat(pr.payableAmount)
+    const HASH = '0x' + '8'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+    })
+    await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+    const afterPayout = await displayBalance()
+    const [dropObligation] = await pendingObligationsFor(DROP_A.id)
+    const dropObRow = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.sourceTransactionId, dropObligation!.sourceTransactionId),
+    })
+
+    // Simulate the exact scenario MED-B was written for: some unrelated,
+    // future cleanup of `payout_requests` fires the FK's `ON DELETE SET
+    // NULL` and nulls this row's payout_request_id — WITHOUT going through
+    // settleByCompany (which is the only code path allowed to legitimately
+    // flip this obligation).
+    await dbSvc.db
+      .update(transactions)
+      .set({ payoutRequestId: null })
+      .where(eq(transactions.id, dropObRow!.sourceTransactionId))
+
+    const sourceAfterFkLoss = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, dropObRow!.sourceTransactionId),
+    })
+    // Sanity: the FK is genuinely gone, but the marker this guard actually
+    // reads is untouched — proves the two signals have DIVERGED, which is
+    // exactly the state under which the old (payout_request_id-based) and
+    // the new (drop_cascade_origin-based) predicates disagree.
+    expect(sourceAfterFkLoss!.payoutRequestId).toBeNull()
+    expect(sourceAfterFkLoss!.dropCascadeOrigin).toBe(true)
+
+    await expect(
+      settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed1r3001',
+      }),
+    ).rejects.toThrow(/не проходила через счёт компании/)
+
+    // No money moved, obligation untouched.
+    expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
+    const stillPending = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, dropObRow!.id),
+    })
+    expect(stillPending!.status).toBe('PENDING')
+  })
+
   // ── INV3: senior-project payout unchanged
   it('INV3 senior-project payout PAID → 0 PAYOUT_DROP / SENIOR_PENDING_PAYOUT / obligation; company += payable once', async () => {
     if (!dbAvailable) return

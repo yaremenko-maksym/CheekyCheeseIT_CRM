@@ -305,6 +305,11 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
         recipientId: DROP_A.id,
         projectId: PROJECT_ID,
         payoutRequestId: null,
+        // Explicit `false` — a legacy-closed row is DEFINITIVELY non-cascade
+        // (round 3, LOW: the column is nullable/no-default, so an omitted
+        // value here would be NULL = "unknown", not the same as "verified
+        // safe"; this seed represents a row we KNOW is safe).
+        dropCascadeOrigin: false,
         createdBy: ADMIN.id,
       })
       .returning()

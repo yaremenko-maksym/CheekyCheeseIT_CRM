@@ -24,6 +24,14 @@
 -- activity on `payout_requests` can never affect it. See the column comment
 -- in `apps/api/src/database/schema.ts` for the full reasoning.
 --
+-- Nullable, no default (security-review PR #443 round 3, LOW): NULL means
+-- "unset/unknown" and the settleByCompany guard treats `<> false` (i.e. TRUE
+-- or NULL) as BLOCK — only an explicit `false` allows a COMPANY_ACCOUNT
+-- settle. A future insert path that forgets to stamp this column therefore
+-- fails SAFE, not open. See the column comment in schema.ts for why this is
+-- NOT `NOT NULL DEFAULT false` (that would force every unrelated transaction
+-- type's insert call site to specify it, plus a backfill migration).
+--
 -- Also stamped by the sibling backfill script
 -- (`2026-07-27_drop_share_pending_parity_backfill.sql`, STEP 1) on the
 -- historical rows it converts, for the identical reason — apply THIS file
@@ -44,4 +52,4 @@
 -- =============================================================================
 
 ALTER TABLE transactions
-  ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean NOT NULL DEFAULT false;
+  ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean;
