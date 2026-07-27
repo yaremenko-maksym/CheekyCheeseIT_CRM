@@ -116,6 +116,14 @@ dialog`), превью/загрузка чека (`receipt-panel`, `ReceiptInput
 - Владелец подтвердил (обычная user-testing практика проекта — ЛЮБАЯ фича
   фиксится живым тестом в браузере ДО «готово», см. `.claude/agents/memory/
 */lessons.md` "Mandatory User Testing").
+- **`cspViolationsTotal` (из `GET /api/telemetry/digest`) меньше `CSP_REPORTS_ROW_CAP`
+  (10 000, `apps/api/src/csp-reports/csp-reports.service.ts`).** Если совпало —
+  кап исчерпан, данные НЕПОЛНЫ (легитимные новые нарушения могли молча
+  отклоняться наравне с атакой), и решение о флипе на этих данных принимать
+  нельзя — сначала расследовать причину и, при необходимости, поднять кап.
+  Сигнал об исчерпании капа также приходит в `telemetry_errors` с фиксированным
+  сообщением `"csp-reports: aggregation-key row cap reached"` (не содержит
+  payload отправителя) и виден в том же дайджесте, что и сами нарушения.
 
 ## 4. Как переключить CRM на enforcing (процедура)
 
@@ -159,7 +167,20 @@ Permissions-Policy) — они остаются enforcing независимо �
 §1 таблицу) — и не откатывает `report-uri`/`report-to` (те работают
 одинаково в обоих режимах, см. §1).
 
-## 6. Связанные файлы
+## 6. Известные ограничения (security review round 2)
+
+- **`www.cheekycheese.tech` отсутствует в `CORS_ORIGINS`.** Origin-check в
+  `CspReportsService.recordViolation` сверяет `document-uri` ТОЛЬКО с
+  `FRONTEND_URL`/`CORS_ORIGINS` — сейчас это `app.cheekycheese.tech`. Если
+  лендинг когда-нибудь получит собственный `report-uri`, его отчёты будут молча
+  дропаться, пока `www.cheekycheese.tech` явно не добавят в `CORS_ORIGINS`.
+- **`document_path` в БД — САНИТИЗИРОВАННОЕ значение, не всегда буквальный роут.**
+  Control-символы и query/fragment срезаются ДО записи; в редких случаях там
+  может оказаться артефакт санитайзера. При разборе агрегатов — если значение
+  выглядит странно, свериться с сырым `document-uri` живого нарушения в DevTools,
+  а не гоняться за призраком в БД.
+
+## 7. Связанные файлы
 
 - `nginx/conf.d/csp-map.conf` — единственный источник текста политики
   (включая `report-uri`/`report-to`) + `$csp_mode`/`$csp_enforcing`/
