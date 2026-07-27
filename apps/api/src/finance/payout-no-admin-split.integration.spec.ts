@@ -14,6 +14,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
 import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import {
   companyAccount,
@@ -215,6 +216,11 @@ describe('payout settlement — NO redundant 50/50 PAYOUT_ADMIN split (real DB)'
     await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(projects).where(eq(projects.id, DROP_PROJECT_ID))
+    // task-onchain-payment-integrity: the consumed-hash registry outlives the
+    // payout it settled (by design), so a suite re-using fixed test hashes has
+    // to sweep it — otherwise the next test gets a legitimate
+    // «хеш уже использован». Runs LAST (needs the rows above gone).
+    await sweepOrphanConsumedTxHashes(dbSvc)
   }
 
   /** Company-account DISPLAY balance (GET /company-account). */
