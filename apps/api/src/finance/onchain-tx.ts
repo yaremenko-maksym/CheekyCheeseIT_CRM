@@ -83,20 +83,6 @@ export function normalizeEthAddress(raw: string | null | undefined): string | nu
 const USDT_DECIMALS = 6
 
 /**
- * Convert a decimal USDT amount to EXACT integer minor units (10^-6 USDT).
- *
- * Parses the DECIMAL STRING directly — no `parseFloat`, no multiplication by
- * 1e6 — because binary floats cannot represent most decimal fractions: e.g.
- * `740.07 * 1e6 === 740069999.9999999`, which would make an exact comparison
- * spuriously fail (and rounding it back would quietly re-introduce a
- * tolerance). Accepts the `numeric(18,6)` strings Drizzle returns
- * ("740.000000"), plain integers ("740"), and a leading minus.
- *
- * Returns null when the input is not a plain decimal number or carries more
- * than 6 decimal places (un-representable in USDT — never silently truncate an
- * amount that decides whether money moves).
- */
-/**
  * Parse an ALREADY-minor-units integer string (what
  * `DepositVerification.amountUsdtMinor` carries) into a bigint.
  *
@@ -111,6 +97,20 @@ export function minorUnitsFromString(raw: string | null | undefined): bigint | n
   return BigInt(text)
 }
 
+/**
+ * Convert a decimal USDT amount to EXACT integer minor units (10^-6 USDT).
+ *
+ * Parses the DECIMAL STRING directly — no `parseFloat`, no multiplication by
+ * 1e6 — because binary floats cannot represent most decimal fractions: e.g.
+ * `740.07 * 1e6 === 740069999.9999999`, which would make an exact comparison
+ * spuriously fail (and rounding it back would quietly re-introduce a
+ * tolerance). Accepts the `numeric(18,6)` strings Drizzle returns
+ * ("740.000000"), plain integers ("740"), and a leading minus.
+ *
+ * Returns null when the input is not a plain decimal number or carries more
+ * than 6 decimal places (un-representable in USDT — never silently truncate an
+ * amount that decides whether money moves).
+ */
 export function usdtToMinorUnits(raw: string | number | null | undefined): bigint | null {
   if (raw === null || raw === undefined) return null
   const text = typeof raw === 'number' ? String(raw) : raw.trim()

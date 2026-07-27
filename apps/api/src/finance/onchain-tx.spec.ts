@@ -144,10 +144,21 @@ describe('normalizeEthAddress — how the observed sender is stored', () => {
 })
 
 describe('consumeTxHash / findConsumedTxHash — registry plumbing', () => {
-  function makeTx() {
+  function makeTx(tombstone: { releasedAt: Date | null } | undefined = undefined) {
     const values = vi.fn().mockResolvedValue(undefined)
     const insert = vi.fn(() => ({ values }))
-    return { handle: { insert } as unknown as DrizzleTx, insert, values }
+    // MED-J (round 5): `consumeTxHash` reads any existing row for this hash to
+    // detect a claim that follows an ADMIN release.
+    const findFirst = vi.fn().mockResolvedValue(tombstone)
+    return {
+      handle: {
+        insert,
+        query: { consumedTxHashes: { findFirst } },
+      } as unknown as DrizzleTx,
+      insert,
+      values,
+      findFirst,
+    }
   }
 
   it('inserts the NORMALISED hash so case cannot bypass the unique index', async () => {
@@ -184,6 +195,30 @@ describe('consumeTxHash / findConsumedTxHash — registry plumbing', () => {
       consumedByUserId: 'user-1',
     })
     expect(insert).not.toHaveBeenCalled()
+  })
+
+  it('MED-J: reports a claim that follows an ADMIN release', async () => {
+    const { handle } = makeTx({ releasedAt: new Date('2026-07-27T00:00:00Z') })
+    const result = await consumeTxHash(handle, {
+      txHash: '0x' + 'a'.repeat(64),
+      purpose: 'COMPANY_DEPOSIT',
+      referenceId: 'ref-1',
+      consumedByUserId: 'user-1',
+    })
+    // Legitimate (that is what a release is FOR) — but the caller must record
+    // the second half of the "released → spent again" pair.
+    expect(result).toEqual({ claimed: true, reclaimedAfterRelease: true })
+  })
+
+  it('a first-time claim is not reported as a re-claim', async () => {
+    const { handle } = makeTx(undefined)
+    const result = await consumeTxHash(handle, {
+      txHash: '0x' + 'b'.repeat(64),
+      purpose: 'PAYOUT',
+      referenceId: 'ref-2',
+      consumedByUserId: 'user-1',
+    })
+    expect(result).toEqual({ claimed: true, reclaimedAfterRelease: false })
   })
 
   it('findConsumedTxHash normalises before looking up, and skips markers', async () => {

@@ -944,6 +944,121 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       expect(rows.length).toBe(1)
     })
 
+    // ── MED-J (round 5): tombstone, not deletion ─────────────────────────────
+    it('leaves a TOMBSTONE carrying who released it, when and why', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'f5'.repeat(32)
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 60,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      await svc.releaseOnChainHash(HASH, 'duplicate receipt', ADMIN)
+
+      // The row SURVIVES (a DELETE would erase the evidence while the double
+      // credit stayed in the ledger).
+      const rows = await dbSvc.db
+        .select()
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(rows.length).toBe(1)
+      expect(rows[0]!.releasedAt).not.toBeNull()
+      expect(rows[0]!.releasedBy).toBe(ADMIN.id)
+      expect(rows[0]!.releasedReason).toBe('duplicate receipt')
+      expect(rows[0]!.referenceId).toBe(income.id)
+    })
+
+    it('records the RE-CLAIM of a released transfer (the other half of the pair)', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'f6'.repeat(32)
+      await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 70,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+      await svc.releaseOnChainHash(HASH, 'mistake', ADMIN)
+
+      // Spent again — legitimate (that is what a release is FOR)…
+      scriptValid(HASH, 70)
+      const dep = await companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)
+      expect(dep.status).toBe('PAID')
+
+      // …and the second half of the pair is now reconstructable.
+      const audit = await dbSvc.db.query.transactionAuditLog.findFirst({
+        where: and(
+          eq(transactionAuditLog.targetId, dep.id),
+          eq(transactionAuditLog.action, 'ONCHAIN_HASH_RECLAIMED_AFTER_RELEASE'),
+        ),
+      })
+      expect(audit).toBeDefined()
+      expect(audit?.metadata).toMatchObject({ path: 'submitDeposit', txHash: HASH })
+
+      // Both rows coexist: the tombstone and the fresh ACTIVE claim.
+      const rows = await dbSvc.db
+        .select({ releasedAt: consumedTxHashes.releasedAt })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(rows.length).toBe(2)
+      expect(rows.filter((r) => r.releasedAt === null).length).toBe(1)
+    })
+
+    // ── MED-K (round 5): look before you release ─────────────────────────────
+    it('inspection shows the owner and whether the referent still credits', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'f7'.repeat(32)
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 45,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      const before = await svc.inspectOnChainHash(HASH, ADMIN)
+      expect(before).toMatchObject({
+        claimed: true,
+        purpose: 'ADMIN_INCOME',
+        referenceId: income.id,
+        consumedByUserId: ADMIN.id,
+        // The decisive fact: the money is still on the books, so releasing
+        // makes this transfer spendable a SECOND time.
+        referentStillCredits: true,
+      })
+
+      // The release reports the same consequence in its response.
+      const released = await svc.releaseOnChainHash(HASH, 'checked first', ADMIN)
+      expect(released.referentStillCredits).toBe(true)
+
+      // After the release the tombstone is still inspectable.
+      const after = await svc.inspectOnChainHash(HASH, ADMIN)
+      expect(after).toMatchObject({ claimed: false, releasedBy: ADMIN.id })
+    })
+
+    it('inspection reports an unknown hash and is denied to non-finance roles', async () => {
+      if (!dbAvailable) return
+      const UNKNOWN = '0x' + 'f8'.repeat(32)
+      await expect(svc.inspectOnChainHash(UNKNOWN, ADMIN)).resolves.toMatchObject({
+        claimed: false,
+      })
+      await expect(svc.inspectOnChainHash(UNKNOWN, SENIOR)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+    })
+
     it('404s on a hash nobody claimed', async () => {
       if (!dbAvailable) return
       await expect(
@@ -1082,7 +1197,7 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
          WHERE t.type = 'COMPANY_DEPOSIT'
            AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
          ORDER BY lower(t.tx_hash), t.created_at ASC
-        ON CONFLICT (tx_hash) DO NOTHING
+        ON CONFLICT (tx_hash) WHERE released_at IS NULL DO NOTHING
       `)
       const claimed = await dbSvc.db
         .select({ id: consumedTxHashes.id })

@@ -4113,6 +4113,12 @@ export class TransactionsService {
       const constraint = uniqueViolationConstraint(err)
       if (constraint !== null) {
         if (
+          // MED-J (round 5) renamed the registry index when it became PARTIAL
+          // (`…_active_tx_hash`). Both names are accepted: an allow-list that
+          // silently misses the live index turns every racing claim into a 500,
+          // which is exactly what this branch exists to prevent — and a rolling
+          // deploy can briefly have either.
+          constraint === 'uq_consumed_tx_hashes_active_tx_hash' ||
           constraint === 'uq_consumed_tx_hashes_tx_hash' ||
           constraint === 'uq_payout_requests_txhash_paid'
         ) {
