@@ -574,6 +574,43 @@ jobs:
           # apps/api/drizzle/manual/2026-07-26_csp_reports.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-26_csp_reports.sql
 
+      # ── consumed_tx_hashes DDL — GUARDED, same reason as telemetry/CSP above ──
+      # task-onchain-payment-integrity (PR #438, fix/onchain-payment-integrity):
+      # closes a cross-path double-credit hole (a single on-chain USDT transfer
+      # could credit the company account via BOTH the payout-confirmation path
+      # AND the deposit path, since each guarded hash re-use in its OWN table,
+      # blind to the other — see the DDL file's own header for the full HOLE-2
+      # writeup). This DDL-wiring PR is dispatched separately from #438 and MUST
+      # land in `main` BEFORE OR TOGETHER WITH it — #438's own DDL file header
+      # says so explicitly ("DEPENDENCY (DevOps): ... Without that wiring the
+      # new image starts writing to a table that does not exist in prod → 500
+      # on every payout/deposit"). Until #438 merges, this file does not exist
+      # in this checkout — same GUARDED shape as telemetry/CSP reports above (a
+      # missing file here is the expected steady state, not scp-action
+      # flattening the tree).
+      - name: Check for consumed_tx_hashes DDL file (guard until PR #438 merges)
+        id: consumed-tx-hashes-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql not found in checkout — task-onchain-payment-integrity (PR #438) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy consumed_tx_hashes DDL via SCP (only if present)
+        if: steps.consumed-tx-hashes-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -941,6 +978,61 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$CSP_REPORTS_FILE"
               echo "==> csp_reports DDL applied successfully"
+            fi
+
+            # ── Step 2j: consumed_tx_hashes registry + tx_from_address (idempotent, GUARDED) ──
+            # task-onchain-payment-integrity (PR #438): closes HOLE-2 (a single on-chain USDT
+            # transfer could credit the company account TWICE — once via the payout-confirmation
+            # path, once via the deposit path — because each guarded hash re-use in its OWN
+            # table, blind to the other). Same GUARDED pattern as telemetry/CSP reports above —
+            # this DDL-wiring PR is dispatched separately from, and MUST merge to `main` BEFORE
+            # OR TOGETHER WITH, #438 (its DDL file's own header says so: without this wiring the
+            # new image starts writing to `consumed_tx_hashes`, which does not exist in prod →
+            # 500 on every payout/deposit — same incident class as the 2026-07-25 vacancy-i18n
+            # gap check-prod-ddl-wiring.py now guards against). A missing file here is the
+            # expected steady state until #438 merges, not an error.
+            # Idempotent: CREATE TABLE/INDEX IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, backfill
+            # INSERT ... ON CONFLICT DO NOTHING — safe to re-run every deploy.
+            #
+            # MONEY-CRITICAL OUTPUT — do not let this go quiet: the DDL's own backfill step
+            # RAISEs a WARNING (not an ERROR — it never fails the deploy) if it finds on-chain
+            # hashes ALREADY consumed by BOTH money paths before this fix — i.e. a REAL transfer
+            # that already double-credited the company balance, owner money, not a code bug this
+            # step can fix by itself. psql sends WARNING/NOTICE to stderr, which a bare `< file`
+            # invocation still surfaces in this step's own log (stdout+stderr are the same
+            # terminal stream over this SSH session) — but "present somewhere in a very long
+            # deploy log" is not the same as "seen". Captured explicitly below and, if that
+            # WARNING fired, re-emitted as a GitHub Actions `::warning::` annotation — those
+            # surface in the Checks tab summary and the PR conversation, not just buried in step
+            # output, which is the whole point: this is the owner's money, not a normal deploy
+            # log line.
+            # Source: apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql
+            CONSUMED_TX_HASHES_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql"
+
+            if [ ! -f "$CONSUMED_TX_HASHES_FILE" ]; then
+              echo "::notice::consumed_tx_hashes DDL file not found at $CONSUMED_TX_HASHES_FILE — task-onchain-payment-integrity (PR #438) has not merged to main yet. Skipping this step; it applies automatically on the next deploy once #438 is in main."
+            else
+              echo "==> Applying consumed_tx_hashes + tx_from_address DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              if ! CONSUMED_TX_HASHES_OUTPUT=$(docker compose \
+                     -f docker-compose.prod.yml \
+                     -f docker-compose.ghcr.yml \
+                     --env-file .env.production \
+                     exec -T postgres \
+                     psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                     < "$CONSUMED_TX_HASHES_FILE" 2>&1); then
+                echo "$CONSUMED_TX_HASHES_OUTPUT"
+                echo "ERROR: consumed_tx_hashes DDL failed to apply — see psql output above."
+                exit 1
+              fi
+              echo "$CONSUMED_TX_HASHES_OUTPUT"
+
+              # money-critical: re-surface the backfill's WARNING (pre-existing cross-path
+              # double credit) as a GHA annotation so it cannot be missed in a long log.
+              DUP_WARNING_LINE=$(printf '%s\n' "$CONSUMED_TX_HASHES_OUTPUT" | grep 'WARNING:.*consumed_tx_hashes backfill' || true)
+              if [ -n "$DUP_WARNING_LINE" ]; then
+                echo "::warning::${DUP_WARNING_LINE} — see apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql's AUDIT query to identify the affected payout(s)/deposit(s); this is a real, pre-existing double credit to the company balance, not caused by this deploy."
+              fi
+              echo "==> consumed_tx_hashes + tx_from_address DDL applied successfully"
             fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
