@@ -22,9 +22,12 @@
  *      payout_request + placeholder PAYOUT row (PENDING_PAYMENT).
  *   5. DROP pays the payout_request (simulate=success) → backend inserts:
  *        * PAYOUT (placeholder, mutated to PAID with payable=950)
- *        * PAYOUT_DROP ($50, recipient = drop)
+ *        * DROP_PENDING_PAYOUT ($50, PENDING_PAYMENT, recipient = drop) —
+ *          task-drop-share-pending-parity (2026-07-27): the drop's own
+ *          slice is now a COMPANY debt requiring settle-with-receipt
+ *          (same as the senior's), not an instant PAID PAYOUT_DROP.
  *        * NO PAYOUT_ADMIN rows (removed — company account credited via PAYOUT)
- *   6. Assert via REST: 2 distribution rows (PAYOUT + PAYOUT_DROP),
+ *   6. Assert via REST: 2 distribution rows (PAYOUT + DROP_PENDING_PAYOUT),
  *      PAYOUT_ADMIN count = 0 (regression canary for the split removal).
  *
  * Cleanup: each test calls `cleanupDropViaAPI` to roll the drop user back
@@ -95,9 +98,9 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       expect(payoutRequestId).toBeTruthy()
 
       // Step 5: DROP pays the payout_request → triggers the distribution
-      // cascade (insert PAYOUT_DROP, mutate the placeholder PAYOUT to PAID).
-      // No PAYOUT_ADMIN rows are emitted — the company account is credited
-      // via PAYOUT.fundingSource='COMPANY_ACCOUNT' (Variant A).
+      // cascade (insert DROP_PENDING_PAYOUT, mutate the placeholder PAYOUT to
+      // PAID). No PAYOUT_ADMIN rows are emitted — the company account is
+      // credited via PAYOUT.fundingSource='COMPANY_ACCOUNT' (Variant A).
       // NOTE: backend returns 403 to the DROP caller because the post-pay
       // `findPayoutRequest` response read blocks DROP — the helper papers
       // over this (see `payPayoutRequestViaAPI` jsdoc) and re-reads as
@@ -124,7 +127,7 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       // resilient to incidental rows (e.g. auto-generated invoice trace).
       const dropIncomeRows = projectTxs.filter((t) => t.type === 'DROP_INCOME')
       const payoutRows = projectTxs.filter((t) => t.type === 'PAYOUT')
-      const payoutDropRows = projectTxs.filter((t) => t.type === 'PAYOUT_DROP')
+      const dropPendingRows = projectTxs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')
       const payoutAdminRows = projectTxs.filter((t) => t.type === 'PAYOUT_ADMIN')
 
       // DROP_INCOME = 1 row, PAID after `payPayoutRequest`.
@@ -138,14 +141,19 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       expect(payoutRows[0]!.status).toBe('PAID')
       expect(parseFloat(payoutRows[0]!.amount)).toBeCloseTo(950, 2)
 
-      // PAYOUT_DROP (1 row, $50, receiver = drop).
-      expect(payoutDropRows).toHaveLength(1)
-      expect(payoutDropRows[0]!.status).toBe('PAID')
-      expect(parseFloat(payoutDropRows[0]!.amount)).toBeCloseTo(50, 2)
-      expect(payoutDropRows[0]!.receiverId).toBe(dropId)
-      // Phase 2 introduces `recipientId` as the semantic alias for
-      // PAYOUT_DROP — must match the drop user id.
-      expect(payoutDropRows[0]!.recipientId).toBe(dropId)
+      // DROP_PENDING_PAYOUT (1 row, PENDING_PAYMENT, $50, receiver = drop).
+      // task-drop-share-pending-parity: the drop's slice now requires an
+      // ADMIN/ACCOUNTANT settle-with-receipt before it credits the drop —
+      // it is NOT an instant PAID PAYOUT_DROP anymore.
+      expect(dropPendingRows).toHaveLength(1)
+      expect(dropPendingRows[0]!.status).toBe('PENDING_PAYMENT')
+      expect(parseFloat(dropPendingRows[0]!.amount)).toBeCloseTo(50, 2)
+      expect(dropPendingRows[0]!.receiverId).toBe(dropId)
+      // Phase 2 introduces `recipientId` as the semantic alias for the
+      // drop-share row — must match the drop user id.
+      expect(dropPendingRows[0]!.recipientId).toBe(dropId)
+      // No instant PAYOUT_DROP before settlement.
+      expect(projectTxs.filter((t) => t.type === 'PAYOUT_DROP')).toHaveLength(0)
 
       // PAYOUT_ADMIN — 0 rows (regression canary).
       // The automatic 50/50 partner split was removed in
@@ -158,10 +166,11 @@ test.describe('Drop distribution math — real API (AC2)', () => {
         'PAYOUT_ADMIN rows must be absent after Variant-A split removal',
       ).toHaveLength(0)
 
-      // Conservation note: PAYOUT_DROP ($50) = drop's 5% share.
-      // The senior keeps $260 off-platform. The remaining $950 credits the
-      // company account via PAYOUT.fundingSource='COMPANY_ACCOUNT' —
-      // no separate PAYOUT_ADMIN distribution row is needed or emitted.
+      // Conservation note: DROP_PENDING_PAYOUT ($50) = drop's 5% share,
+      // pending confirmation. The senior keeps $260 off-platform. The
+      // remaining $950 credits the company account via
+      // PAYOUT.fundingSource='COMPANY_ACCOUNT' — no separate PAYOUT_ADMIN
+      // distribution row is needed or emitted.
     } finally {
       // Cascade-archive the drop (cleans up team + project + transactions).
       await cleanupDropViaAPI(page, dropId)

@@ -15,20 +15,27 @@
  *   6. ACCOUNTANT validates → payout_request created.
  *   7. DROP pays payout_request → cascade emits:
  *        SENIOR_PENDING_PAYOUT (PENDING_PAYMENT) — COMPANY debt
- *        PAYOUT_DROP (PAID)
+ *        DROP_PENDING_PAYOUT (PENDING_PAYMENT) — COMPANY debt (task-drop-share-pending-parity)
  *        DROP_INCOME (PAID)
- *   8. ADMIN settles COMPANY debt via by-source-transaction endpoint → SENIOR_INCOME inserted.
+ *   8. ADMIN settles BOTH the senior + drop COMPANY debts via the
+ *      by-source-transaction endpoint → SENIOR_INCOME + PAYOUT_DROP inserted in place.
  *   9. ADMIN cleanup-archives the DROP → all related projects archived.
  *
  * Real-API. Backend must be running at http://localhost:3001 (override via
  * E2E_REAL_API_BASE for an isolated scratch stand — mirrors fixtures.ts).
  *
  * Step 8 above is exercised by `task-settle-in-place` (ADR 2026-07-14,
- * PR #379): the settle now flips the SOURCE SENIOR_PENDING_PAYOUT row in
- * place instead of inserting a second SENIOR_INCOME row (see
+ * PR #379): the settle now flips the SOURCE `*_PENDING_PAYOUT` row in
+ * place instead of inserting a second transaction (see
  * drop-share-usdt-income.spec.ts / pending-settlement.spec.ts for the
- * dedicated in-place assertions — this smoke only needs the settle call to
+ * dedicated in-place assertions — this smoke only needs the settle calls to
  * keep succeeding end-to-end).
+ *
+ * task-drop-share-pending-parity (2026-07-27): the drop's own slice used to
+ * post directly as a PAID `PAYOUT_DROP` from the pay cascade (bypassing the
+ * owner's "pending until confirmed with a receipt" rule). It now books a
+ * `DROP_PENDING_PAYOUT` COMPANY debt — same shape as the senior's — and is
+ * closed by the SAME settle endpoint used below for the senior debt.
  */
 
 import { test, expect } from './fixtures'
@@ -113,7 +120,9 @@ test.describe('DROP role — end-to-end journey', () => {
         prId = created.payoutRequestId
       }
 
-      // Step 7: DROP pays → cascade emits SENIOR_PENDING_PAYOUT + PAYOUT_DROP.
+      // Step 7: DROP pays → cascade emits SENIOR_PENDING_PAYOUT + DROP_PENDING_PAYOUT
+      // (task-drop-share-pending-parity: the drop's own slice is no longer an
+      // instant PAID PAYOUT_DROP — it is a COMPANY debt now, same as the senior's).
       await loginViaApi(page, dropEmail)
       await payPayoutRequestViaAPI(page, prId!)
 
@@ -121,18 +130,29 @@ test.describe('DROP role — end-to-end journey', () => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const projectTxs = await listTransactionsByProjectViaAPI(page, projectId)
 
-      const payoutDrop = projectTxs.find((t) => t.type === 'PAYOUT_DROP' && t.status === 'PAID')
+      const dropPending = projectTxs.find(
+        (t) => t.type === 'DROP_PENDING_PAYOUT' && t.status === 'PENDING_PAYMENT',
+      )
       const pendingPayout = projectTxs.find(
         (t) => t.type === 'SENIOR_PENDING_PAYOUT' && t.status === 'PENDING_PAYMENT',
       )
-      expect(payoutDrop, 'pay cascade should emit PAYOUT_DROP (PAID)').toBeTruthy()
+      expect(
+        dropPending,
+        'pay cascade should emit DROP_PENDING_PAYOUT (PENDING_PAYMENT)',
+      ).toBeTruthy()
       expect(
         pendingPayout,
         'pay cascade should emit SENIOR_PENDING_PAYOUT (PENDING_PAYMENT)',
       ).toBeTruthy()
+      // Not yet credited — the drop's balance only moves once ADMIN/ACCOUNTANT
+      // confirms the payout with a receipt (settle step below).
+      expect(
+        projectTxs.some((t) => t.type === 'PAYOUT_DROP'),
+        'no PAYOUT_DROP should exist before the drop obligation is settled',
+      ).toBe(false)
 
-      // Step 8: ADMIN settles the COMPANY debt via the by-source-transaction endpoint
-      // (this is what the finance-page SettleSeniorPayoutDialog calls in PR #265).
+      // Step 8: ADMIN settles BOTH COMPANY debts via the by-source-transaction
+      // endpoint (this is what the finance-page SettleSeniorPayoutDialog calls).
       const senior = await findUserByEmailViaApi(page, SEED_EMAILS.seniorA)
       expect(senior).toBeTruthy()
 
@@ -152,7 +172,23 @@ test.describe('DROP role — end-to-end journey', () => {
       )
       expect(settleRes.status()).toBeLessThan(400)
 
-      // After settle: SENIOR_INCOME (PAID) appears on the project.
+      // task-drop-share-pending-parity: settle the drop's own COMPANY debt the
+      // same way — flips DROP_PENDING_PAYOUT → PAYOUT_DROP (PAID) in place.
+      const dropSourceTxId = dropPending!.id
+      const settleDropRes = await page.request.post(
+        `${REAL_API}/pending-settlements/by-source-transaction/${dropSourceTxId}/settle-company`,
+        {
+          data: {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: MAKSYM_ID,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xdroproleend2end0002',
+          },
+        },
+      )
+      expect(settleDropRes.status()).toBeLessThan(400)
+
+      // After settle: SENIOR_INCOME (PAID) + PAYOUT_DROP (PAID) appear on the project.
       const afterTxs = await listTransactionsByProjectViaAPI(page, projectId)
       const seniorIncomes = afterTxs.filter(
         (t) => t.type === 'SENIOR_INCOME' && t.status === 'PAID' && t.receiverId === senior!.id,
@@ -160,6 +196,13 @@ test.describe('DROP role — end-to-end journey', () => {
       expect(
         seniorIncomes.length,
         'settle should insert exactly one SENIOR_INCOME for the senior',
+      ).toBeGreaterThanOrEqual(1)
+      const payoutDropRows = afterTxs.filter(
+        (t) => t.type === 'PAYOUT_DROP' && t.status === 'PAID' && t.receiverId === dropId,
+      )
+      expect(
+        payoutDropRows.length,
+        'settle should flip the drop IOU into exactly one PAYOUT_DROP',
       ).toBeGreaterThanOrEqual(1)
 
       // Obligation is gone from /company list — match by sourceTransactionId (precise)
@@ -171,7 +214,11 @@ test.describe('DROP role — end-to-end journey', () => {
       }>
       expect(
         companyList.find((o) => o.sourceTransactionId === sourceTxId),
-        'obligation should be removed from /company after settle',
+        'senior obligation should be removed from /company after settle',
+      ).toBeFalsy()
+      expect(
+        companyList.find((o) => o.sourceTransactionId === dropSourceTxId),
+        'drop obligation should be removed from /company after settle',
       ).toBeFalsy()
     } finally {
       // Step 9: cleanup (archive-cascades team + projects).

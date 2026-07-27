@@ -81,7 +81,9 @@ interface CompanyObligationDto {
  *
  * The pay step books:
  *   - SENIOR_PENDING_PAYOUT (PENDING_PAYMENT) — the COMPANY debt obligation source tx
- *   - PAYOUT_DROP (PAID)
+ *   - DROP_PENDING_PAYOUT (PENDING_PAYMENT) — the drop's OWN COMPANY debt
+ *     (task-drop-share-pending-parity, 2026-07-27 — no longer an instant PAID
+ *     PAYOUT_DROP)
  *   - DROP_INCOME (PAID)
  *
  * Returns dropId, projectId, incomeTxId, seniorId so callers can probe
@@ -135,7 +137,7 @@ async function plantCompanyDebt(page: import('@playwright/test').Page): Promise<
     prId = created.payoutRequestId
   }
 
-  // Step 8: DROP pays → cascade books SENIOR_PENDING_PAYOUT + PAYOUT_DROP
+  // Step 8: DROP pays → cascade books SENIOR_PENDING_PAYOUT + DROP_PENDING_PAYOUT
   await loginViaApi(page, dropEmail)
   await payPayoutRequestViaAPI(page, prId!)
 
