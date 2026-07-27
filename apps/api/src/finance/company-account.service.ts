@@ -25,6 +25,7 @@ import {
   consumeTxHash,
   findConsumedTxHash,
   normalizeEthAddress,
+  settlementConsumesTransfer,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
 
@@ -332,7 +333,7 @@ export class CompanyAccountService {
         // payout («хеш уже использован»). A claim now accompanies MONEY, not an
         // intent: a PENDING deposit blocks nothing outside its own table, and
         // the claim happens when `getDepositStatus` later flips it to PAID.
-        if (credited) {
+        if (settlementConsumesTransfer({ kind: 'COMPANY_DEPOSIT', credited })) {
           await consumeTxHash(dbtx, {
             txHash,
             purpose: 'COMPANY_DEPOSIT',
@@ -439,12 +440,15 @@ export class CompanyAccountService {
 
           if (flipped.length === 0) return // already credited by a concurrent poll
 
-          await consumeTxHash(dbtx, {
-            txHash: tx.txHash ?? '',
-            purpose: 'COMPANY_DEPOSIT',
-            referenceId: tx.id,
-            consumedByUserId: tx.senderId,
-          })
+          // `credited: true` — this branch IS the credit (the flip above).
+          if (settlementConsumesTransfer({ kind: 'COMPANY_DEPOSIT', credited: true })) {
+            await consumeTxHash(dbtx, {
+              txHash: tx.txHash ?? '',
+              purpose: 'COMPANY_DEPOSIT',
+              referenceId: tx.id,
+              consumedByUserId: tx.senderId,
+            })
+          }
         })
       } catch (err) {
         // The hash was claimed by another settlement (e.g. a payout) between

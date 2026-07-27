@@ -144,27 +144,61 @@ export const TX_HASH_ALREADY_CONSUMED_MESSAGE =
   'Этот хеш транзакции уже использован (выплата или пополнение счёта компании)'
 
 /**
- * THE rule for when a ledger row must claim its on-chain hash:
- * **a claim accompanies MONEY, never an intent.**
- *
- * A row claims iff it actually credits the shared company account — which for
- * `ADMIN_INCOME` means `fundingSource === 'COMPANY_ACCOUNT'` (the exact
- * predicate `computeCompanyAccountBalanceFromLedger` sums). Both directions
- * matter and both were wrong before:
- *
- *   • UNDER-claiming (security-review HIGH-3): `createAdminIncome` credited the
- *     pool without claiming, so the same transfer could be credited AGAIN as a
- *     deposit. One of two writers was covered.
- *   • OVER-claiming: a PERSONAL admin income (fundingSource null) does NOT move
- *     the company balance — burning its hash would block the real payer of that
- *     transfer for nothing, the same griefing MED-3 removed from deposits.
- *
- * Deposits and payouts express the same rule inline (`if (credited)`, the
- * post-verification claim); this helper exists because the admin-income side
- * has TWO writers that must not drift apart.
+ * A settlement that may consume an on-chain transfer, discriminated by the
+ * ledger path that writes it. One variant per crediting term in
+ * `computeCompanyAccountBalanceFromLedger` — see `settlementConsumesTransfer`.
  */
-export function claimsOnChainHash(fundingSource: string | null | undefined): boolean {
-  return fundingSource === 'COMPANY_ACCOUNT'
+export type OnChainSettlement =
+  /** `CompanyAccountService.submitDeposit` / `getDepositStatus`. */
+  | { kind: 'COMPANY_DEPOSIT'; credited: boolean }
+  /** `TransactionsService.applyPayoutPaidCascade` (on-chain pay + manual confirm). */
+  | { kind: 'PAYOUT'; hasRealTxHash: boolean }
+  /** `createAdminIncome` / `declareUsdtProjectIncome`. */
+  | { kind: 'ADMIN_INCOME'; fundingSource: string | null | undefined }
+
+/**
+ * THE rule for when a settlement must claim its on-chain hash.
+ *
+ * A claim means "this transfer is spent — no other path may settle against it".
+ * The condition is NOT the same for the three paths, and pretending otherwise
+ * is dangerous, so the discriminated union forces each call site to state which
+ * path it is and hand over the fact that decides it:
+ *
+ *   • `COMPANY_DEPOSIT` — claims when the deposit is actually CREDITED. The
+ *     balance term has NO `fundingSource` condition (deposits are the pool's
+ *     own inflow), so a `fundingSource`-based rule would be false for every
+ *     deposit. An unverified PENDING deposit claims nothing — otherwise anyone
+ *     could burn a stranger's transfer off the public explorer (MED-3).
+ *   • `PAYOUT` — claims whenever a REAL on-chain hash settled it, INCLUDING the
+ *     manual ADMIN_USDT / CASH confirmations whose `fundingSource` is null and
+ *     which therefore never touch the company balance. Deliberate: the transfer
+ *     happened once and settled this payout, so it must not also be spendable
+ *     as a deposit. Synthetic markers (`0xSIM…`/`0xMANUAL…`) carry no transfer
+ *     and are filtered by `consumeTxHash` itself.
+ *   • `ADMIN_INCOME` — claims only when the income lands in the company pool
+ *     (`fundingSource='COMPANY_ACCOUNT'`, the exact balance predicate). A
+ *     PERSONAL admin declaration references a transfer to that admin's OWN
+ *     wallet, not to the company wallet — burning it would block that
+ *     transfer's real payer for nothing.
+ *
+ * Security-review history: under-claiming here was HIGH-3 (`createAdminIncome`
+ * credited the pool without claiming, so the transfer could be credited again
+ * as a deposit); over-claiming is the mirror defect (griefing). The predicate
+ * was briefly expressed as `claimsOnChainHash(fundingSource)` — accurate for
+ * admin income, but read as a GLOBAL rule it would have returned false for
+ * every deposit and silently re-opened the hole it had just closed. Hence the
+ * per-path shape: the type system now refuses a call that does not say which
+ * path it is.
+ */
+export function settlementConsumesTransfer(settlement: OnChainSettlement): boolean {
+  switch (settlement.kind) {
+    case 'COMPANY_DEPOSIT':
+      return settlement.credited
+    case 'PAYOUT':
+      return settlement.hasRealTxHash
+    case 'ADMIN_INCOME':
+      return settlement.fundingSource === 'COMPANY_ACCOUNT'
+  }
 }
 
 /**
@@ -176,8 +210,10 @@ export function claimsOnChainHash(fundingSource: string | null | undefined): boo
  * Letting the DB decide (rather than a preceding SELECT) is what makes two
  * concurrent requests with the same hash resolve to exactly one winner.
  *
- * No-ops for synthetic markers (`normalizeOnChainTxHash` → null): they are not
- * on-chain transfers, so there is nothing to double-spend.
+ * Returns `true` when a claim row was written, `false` when the input carried
+ * no on-chain hash (synthetic `0xSIM…`/`0xMANUAL…` markers, or a receipt link
+ * without a hash). Callers on CREDITING paths must record that `false` — see
+ * `TransactionsService.recordUnclaimedCredit`.
  */
 export async function consumeTxHash(
   dbtx: DrizzleTx,
@@ -186,24 +222,15 @@ export async function consumeTxHash(
     purpose: ConsumedTxPurpose
     referenceId: string | null
     consumedByUserId: string | null
-    /**
-     * MED-1 (security-review PR #438): called when there was nothing to claim.
-     *
-     * A credit whose evidence carries no on-chain hash (e.g. an
-     * `…/address/0x…` explorer link, or a non-Ethereum explorer) is legitimate
-     * legacy behaviour — but it is ALSO the shape of the HIGH-1 bug ("credit
-     * without claim"), so it must be OBSERVABLE rather than silent: an auditor
-     * has to be able to tell "legacy link" from "bypass". Callers on crediting
-     * paths pass a logger here.
-     */
-    onSkipped?: (reason: 'no-on-chain-hash') => void
   },
-): Promise<void> {
+): Promise<boolean> {
   const normalized = normalizeOnChainTxHash(params.txHash)
-  if (!normalized) {
-    params.onSkipped?.('no-on-chain-hash')
-    return
-  }
+  // MED-1 (security-review PR #438): report the skip so the caller can RECORD
+  // it. A credit whose evidence carries no on-chain hash (an `…/address/0x…`
+  // explorer link, a non-Ethereum explorer) is legitimate legacy behaviour —
+  // but it is also the exact shape of the HIGH-1 bug ("money moved, registry
+  // untouched"), so an auditor must be able to tell the two apart.
+  if (!normalized) return false
 
   await dbtx.insert(consumedTxHashes).values({
     txHash: normalized,
@@ -211,6 +238,7 @@ export async function consumeTxHash(
     referenceId: params.referenceId,
     consumedByUserId: params.consumedByUserId,
   })
+  return true
 }
 
 /**

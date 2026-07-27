@@ -2,6 +2,8 @@ import { BadRequestException, Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray, sql } from 'drizzle-orm'
+import { readFileSync } from 'fs'
+import { join } from 'path'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -20,6 +22,7 @@ import {
   consumedTxHashes,
   payoutRequests,
   projects,
+  transactionAuditLog,
   transactions,
   users,
 } from '../database/schema'
@@ -253,6 +256,12 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       .onConflictDoNothing()
 
     // ADMIN-owned project so `createAdminIncome` (HIGH-3) is authorised.
+    //
+    // ARCHIVED on purpose: `crm_qa` is shared between spec files, and other
+    // suites assert on GLOBAL counters (hr-summary's `activeProjects` delta).
+    // An archived project is excluded from every "active projects" query, so
+    // this fixture cannot perturb them whatever the file order — while the
+    // admin-income path itself does not gate on `archivedAt`.
     await db
       .insert(projects)
       .values({
@@ -263,6 +272,7 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
         rate: 50,
         startDate: new Date('2026-01-01T00:00:00Z'),
         seniorId: ADMIN.id,
+        archivedAt: new Date('2026-01-02T00:00:00Z'),
       })
       .onConflictDoNothing()
 
@@ -294,6 +304,10 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
     if (!dbAvailable) return
     try {
       await clearAll()
+      // Remove the fixture project EXPLICITLY (not via the users cascade): a
+      // stray non-archived project shifts the global project counts other
+      // suites assert on (hr-summary activeProjects deltas).
+      await dbSvc.db.delete(projects).where(eq(projects.id, ADMIN_PROJECT_ID))
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
     } catch {
       // non-fatal
@@ -585,6 +599,91 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
     })
   })
 
+  // ── MED-E (security-review round 3): receipt swap cannot re-point a credit ─
+  // A company-funded ADMIN_INCOME is credited on the strength of its receipt,
+  // whose hash is claimed. Swapping that receipt afterwards was unchecked, so
+  // the row could be re-pointed at a transfer another settlement had already
+  // spent — two crediting rows, one transfer.
+  describe('MED-E: receipt swap on a credited admin income', () => {
+    it('REFUSES a new receipt whose hash is already spent elsewhere', async () => {
+      if (!dbAvailable) return
+      const INCOME_HASH = '0x' + 'e1'.repeat(32)
+      const DEPOSIT_HASH = '0x' + 'e2'.repeat(32)
+
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 700,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${INCOME_HASH}`,
+        },
+        ADMIN,
+      )
+      // A separate, legitimate deposit consumes the OTHER transfer.
+      scriptValid(DEPOSIT_HASH, 700)
+      await companySvc.submitDeposit({ txHashOrLink: DEPOSIT_HASH }, SENIOR)
+      const afterBoth = await balance()
+
+      // Re-pointing the income's evidence at the deposit's transfer is refused.
+      await expect(
+        svc.attachOrReplaceReceipt(
+          income.id,
+          { receiptExternalUrl: `https://etherscan.io/tx/${DEPOSIT_HASH}` },
+          ADMIN,
+        ),
+      ).rejects.toThrowError(/уже использован/)
+
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBe(INCOME_HASH) // evidence unchanged
+      expect(await balance()).toBeCloseTo(afterBoth, 6)
+    })
+
+    it('ALLOWS an honest correction and claims the new transfer', async () => {
+      if (!dbAvailable) return
+      const WRONG_HASH = '0x' + 'e3'.repeat(32)
+      const RIGHT_HASH = '0x' + 'e4'.repeat(32)
+
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 400,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${WRONG_HASH}`,
+        },
+        ADMIN,
+      )
+
+      await svc.attachOrReplaceReceipt(
+        income.id,
+        { receiptExternalUrl: `https://etherscan.io/tx/${RIGHT_HASH}` },
+        ADMIN,
+      )
+
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBe(RIGHT_HASH) // evidence AND recorded hash move together
+
+      // The corrected transfer is now claimed…
+      const claimed = await dbSvc.db
+        .select({ purpose: consumedTxHashes.purpose })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, RIGHT_HASH))
+      expect(claimed.length).toBe(1)
+      expect(claimed[0]!.purpose).toBe('ADMIN_INCOME')
+
+      // …so it can no longer be credited a second time as a deposit.
+      scriptValid(RIGHT_HASH, 400)
+      await expect(
+        companySvc.submitDeposit({ txHashOrLink: RIGHT_HASH }, SENIOR),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+  })
+
   // ── HIGH-4 (security-review round 2): the prod backfill must skip PENDING ──
   // The migration back-fills historic settlements into the registry. Claiming a
   // PENDING deposit would BRICK it: `consumeTxHash` is a bare INSERT, so the
@@ -592,19 +691,51 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
   // re-open the griefing MED-3 closed. This test runs the migration's own
   // deposit predicate against real data.
   describe('HIGH-4: backfill claims only PAID deposits', () => {
-    /** Mirrors apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql (deposits). */
-    async function runDepositBackfill() {
-      await dbSvc.db.execute(sql`
-        INSERT INTO consumed_tx_hashes (tx_hash, purpose, reference_id, consumed_by_user_id)
-        SELECT DISTINCT ON (lower(t.tx_hash))
-               lower(t.tx_hash), 'COMPANY_DEPOSIT', t.id, t.sender_id
-          FROM transactions t
-         WHERE t.type = 'COMPANY_DEPOSIT'
-           AND t.status = 'PAID'
-           AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
-         ORDER BY lower(t.tx_hash), t.created_at ASC
-        ON CONFLICT (tx_hash) DO NOTHING
-      `)
+    /**
+     * Run the REAL migration file — not a hand-copied excerpt.
+     *
+     * LOW (security-review round 3): a transcribed SQL snippet drifts silently
+     * from the file that actually ships to production, and this backfill is
+     * exactly where a drift would be invisible AND expensive (see the bricking
+     * test below). Executing the file means these tests fail if the shipped
+     * predicate changes. The script is idempotent by construction, so running
+     * it mid-suite is safe.
+     */
+    async function runMigrationFile(keepHashes: string[]) {
+      const before = await dbSvc.db.select({ id: consumedTxHashes.id }).from(consumedTxHashes)
+      const preExisting = new Set(before.map((r) => r.id))
+
+      // Read the SHIPPED file and execute its BACKFILL statements — the part
+      // under test. Extracting them (instead of transcribing) is what makes a
+      // drift between this test and production impossible. The DDL
+      // (CREATE TABLE/INDEX, ALTER) and the audit DO-block are deliberately
+      // skipped: they are not what these tests assert, and running DDL mid-suite
+      // takes ACCESS EXCLUSIVE locks on `transactions` for every other spec.
+      const sqlPath = join(__dirname, '../../drizzle/manual/2026-07-27_consumed_tx_hashes.sql')
+      const backfillStatements = readFileSync(sqlPath, 'utf8')
+        .split(/;\s*\n/)
+        .filter((stmt) => /INSERT\s+INTO\s+consumed_tx_hashes/i.test(stmt))
+      expect(backfillStatements.length).toBe(3) // payout + deposit + admin-income
+      for (const stmt of backfillStatements) {
+        await dbSvc.db.execute(sql.raw(`${stmt};`))
+      }
+
+      // The script is GLOBAL by design — it back-fills EVERY historic
+      // settlement in the database. Run mid-suite it therefore also claims
+      // fixtures left behind by OTHER spec files (crm_qa is shared and rows
+      // survive between files), whose fixed test hashes would then hit a
+      // legitimate «уже использован» when those suites settle them. Keep only
+      // the rows this test asserts on and undo the collateral, so exercising
+      // the REAL file stays side-effect-free for everyone else.
+      const after = await dbSvc.db
+        .select({ id: consumedTxHashes.id, txHash: consumedTxHashes.txHash })
+        .from(consumedTxHashes)
+      const collateral = after
+        .filter((r) => !preExisting.has(r.id) && !keepHashes.includes(r.txHash))
+        .map((r) => r.id)
+      if (collateral.length > 0) {
+        await dbSvc.db.delete(consumedTxHashes).where(inArray(consumedTxHashes.id, collateral))
+      }
     }
 
     it('a back-filled PENDING deposit still reaches PAID (not bricked)', async () => {
@@ -625,7 +756,7 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       expect(dep.status).toBe('PENDING')
 
       // The migration runs (as it will on prod, with this row already present).
-      await runDepositBackfill()
+      await runMigrationFile([HASH])
       const claimedByBackfill = await dbSvc.db
         .select({ id: consumedTxHashes.id })
         .from(consumedTxHashes)
@@ -706,7 +837,7 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       // Simulate a pre-migration world: drop the claim the app just made, then
       // let the backfill restore it.
       await dbSvc.db.delete(consumedTxHashes).where(eq(consumedTxHashes.txHash, HASH))
-      await runDepositBackfill()
+      await runMigrationFile([HASH])
 
       const rows = await dbSvc.db
         .select({ referenceId: consumedTxHashes.referenceId })
@@ -714,6 +845,94 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
         .where(eq(consumedTxHashes.txHash, HASH))
       expect(rows.length).toBe(1)
       expect(rows[0]!.referenceId).toBe(dep.id)
+    })
+
+    // ── MED-D: the THIRD backfill term (admin income) had no coverage at all ──
+    // It extracts the hash from a free-text receipt URL with `regexp_match` on
+    // live money rows — the least verifiable statement in the script.
+    it('back-fills a company-funded ADMIN_INCOME from its explorer receipt', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'c5'.repeat(32)
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 900,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      // Pre-migration world: the app's own claim is removed, the backfill must
+      // restore it from the receipt link alone.
+      await dbSvc.db.delete(consumedTxHashes).where(eq(consumedTxHashes.txHash, HASH))
+      await runMigrationFile([HASH])
+
+      const rows = await dbSvc.db
+        .select({ purpose: consumedTxHashes.purpose, referenceId: consumedTxHashes.referenceId })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(rows.length).toBe(1)
+      expect(rows[0]!.purpose).toBe('ADMIN_INCOME')
+      expect(rows[0]!.referenceId).toBe(income.id)
+    })
+
+    it('does NOT back-fill a PERSONAL admin income (it never credited the pool)', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'c6'.repeat(32)
+      // No fundingSource → personal declaration; the transfer belongs to the
+      // admin's own wallet and must stay spendable by its real payer.
+      await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 120,
+          currency: 'USDT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      await runMigrationFile([HASH])
+
+      const rows = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(rows.length).toBe(0)
+    })
+
+    it('does NOT back-fill an admin income whose receipt carries no hash', async () => {
+      if (!dbAvailable) return
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 130,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          // An address link passes receipt validation but carries no tx hash.
+          receiptExternalUrl: 'https://etherscan.io/address/0xabc',
+        },
+        ADMIN,
+      )
+      // Nothing to keep — this row must produce no claim at all.
+      await runMigrationFile([])
+
+      const rows = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.referenceId, income.id))
+      expect(rows.length).toBe(0)
+
+      // …and the credit-without-claim is RECORDED (MED-1), not silent.
+      const audit = await dbSvc.db.query.transactionAuditLog.findFirst({
+        where: and(
+          eq(transactionAuditLog.targetId, income.id),
+          eq(transactionAuditLog.action, 'CREDIT_WITHOUT_ONCHAIN_CLAIM'),
+        ),
+      })
+      expect(audit).toBeDefined()
+      expect(audit?.metadata).toMatchObject({ path: 'createAdminIncome' })
     })
   })
 

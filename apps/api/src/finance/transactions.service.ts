@@ -43,11 +43,12 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
 import {
-  claimsOnChainHash,
   consumeTxHash,
   findConsumedTxHash,
   minorUnitsFromString,
   normalizeEthAddress,
+  normalizeOnChainTxHash,
+  settlementConsumesTransfer,
   usdtToMinorUnits,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
@@ -180,15 +181,25 @@ export class TransactionsService {
    * logged at WARN with the row id: greppable, and it surfaces in the same
    * server logs the rest of the money path uses.
    */
-  private logUnclaimedCredit(
-    path: string,
-    transactionId: string,
-    reason: string,
-    actorId: string,
-  ): void {
+  private async recordUnclaimedCredit(
+    dbtx: DrizzleTx,
+    params: { path: string; transactionId: string; actorId: string },
+  ): Promise<void> {
+    // LOW (round 3): a WARN line drowns in a busy log and cannot be queried, so
+    // the fact is ALSO persisted — in the SAME transaction as the credit, so
+    // the trail can never disagree with the ledger.
+    await dbtx.insert(transactionAuditLog).values({
+      actorId: params.actorId,
+      targetId: params.transactionId,
+      action: 'CREDIT_WITHOUT_ONCHAIN_CLAIM',
+      metadata: {
+        path: params.path,
+        reason: 'receipt-link-carries-no-tx-hash',
+      },
+    })
     this.logger.warn(
       `[onchain-registry] company-account credit WITHOUT an on-chain claim — ` +
-        `path=${path} transactionId=${transactionId} reason=${reason} actorId=${actorId}. ` +
+        `path=${params.path} transactionId=${params.transactionId} actorId=${params.actorId}. ` +
         `The receipt link carries no 0x+64hex tx hash, so the transfer stays spendable ` +
         `by another settlement path. Verify the receipt.`,
     )
@@ -1174,11 +1185,11 @@ export class TransactionsService {
     // The receipt is MANDATORY and explorer-only for a company-funded income,
     // so the hash is physically available: extract it, record it, claim it in
     // the SAME transaction as the credit.
-    const onChainTxHash = isCompanyFunded
-      ? extractOnChainTxHash(data.receiptExternalUrl)
-      : // A personal (non-company-funded) admin income does NOT move the company
-        // balance, so it must NOT burn the transfer — see `claimsOnChainHash`.
-        null
+    // LOW (round 3): RECORD the hash whenever the receipt carries one — both
+    // writers now follow the same rule, and attribution is useful even on a
+    // personal income. CLAIMING is the separate decision below
+    // (`settlementConsumesTransfer`): recording ≠ spending.
+    const onChainTxHash = extractOnChainTxHash(data.receiptExternalUrl)
 
     let tx: typeof transactions.$inferSelect
     try {
@@ -1204,16 +1215,21 @@ export class TransactionsService {
           })
           .returning()
 
-        if (claimsOnChainHash(fundingSource)) {
-          await consumeTxHash(dbtx, {
+        if (settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource })) {
+          const claimed = await consumeTxHash(dbtx, {
             txHash: data.receiptExternalUrl ?? '',
             purpose: 'ADMIN_INCOME',
             referenceId: inserted!.id,
             consumedByUserId: currentUser.id,
-            // MED-1: make an unclaimable receipt link OBSERVABLE (see helper).
-            onSkipped: (reason) =>
-              this.logUnclaimedCredit('createAdminIncome', inserted!.id, reason, currentUser.id),
           })
+          // MED-1: an unclaimable receipt on a CREDITING path must be visible.
+          if (!claimed) {
+            await this.recordUnclaimedCredit(dbtx, {
+              path: 'createAdminIncome',
+              transactionId: inserted!.id,
+              actorId: currentUser.id,
+            })
+          }
         }
 
         return inserted!
@@ -1405,19 +1421,24 @@ export class TransactionsService {
         // 400 rather than a 500.
         //
         // HIGH-3 (round 2): the claim is tied to the CREDITING condition, not
-        // to the row type — `claimsOnChainHash(fundingSource)`. A personal
-        // admin declaration (fundingSource null) never touches the company
-        // balance, so burning its hash would block that transfer's real payer
-        // for nothing.
-        if (claimsOnChainHash(fundingSource)) {
-          await consumeTxHash(dbtx, {
+        // to the row type — `settlementConsumesTransfer`. A personal admin
+        // declaration (fundingSource null) never touches the company balance
+        // and references a transfer to that admin's OWN wallet, so burning its
+        // hash would block that transfer's real payer for nothing.
+        if (settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource })) {
+          const claimed = await consumeTxHash(dbtx, {
             txHash: data.receiptExternalUrl ?? '',
             purpose: 'ADMIN_INCOME',
             referenceId: tx!.id,
             consumedByUserId: currentUser.id,
-            onSkipped: (reason) =>
-              this.logUnclaimedCredit('declareUsdtProjectIncome', tx!.id, reason, currentUser.id),
           })
+          if (!claimed) {
+            await this.recordUnclaimedCredit(dbtx, {
+              path: 'declareUsdtProjectIncome',
+              transactionId: tx!.id,
+              actorId: currentUser.id,
+            })
+          }
         }
 
         await this.bookCompanyObligations(dbtx, {
@@ -1904,13 +1925,54 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(nextDocId, currentUser)
     }
 
+    // ── SECURITY (security-review round 3, MED-E): keep "evidence ↔ claim" honest.
+    //
+    // A company-funded ADMIN_INCOME is credited on the strength of its explorer
+    // receipt, and that receipt's hash is claimed in the registry. Swapping the
+    // receipt afterwards used to be unchecked, so the row could be re-pointed at
+    // a transfer that ANOTHER settlement had already consumed — leaving two
+    // crediting rows justified by ONE on-chain transfer, which is exactly the
+    // invariant this PR exists to hold.
+    //
+    // The guard refuses only that case: a NEW hash that is already spent by a
+    // DIFFERENT row. Honest corrections still work — a link with no hash, an
+    // unclaimed hash, or re-attaching this row's own hash all pass.
+    const nextHash = extractOnChainTxHash(nextExtUrl)
+    const rowConsumesTransfer =
+      tx.type === 'ADMIN_INCOME' &&
+      settlementConsumesTransfer({ kind: 'ADMIN_INCOME', fundingSource: tx.fundingSource })
+    if (rowConsumesTransfer && nextHash && nextHash !== normalizeOnChainTxHash(tx.txHash)) {
+      const consumed = await findConsumedTxHash(this.db.db, nextHash)
+      if (consumed) {
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+      }
+    }
+
     const action: 'ATTACH' | 'REPLACE' = hadReceipt ? 'REPLACE' : 'ATTACH'
     await this.replaceReceiptAtomic(
       id,
       tx.receiptDocumentId,
       nextDocId,
-      { receiptDocumentId: nextDocId, receiptExternalUrl: nextExtUrl, updatedAt: new Date() },
+      {
+        receiptDocumentId: nextDocId,
+        receiptExternalUrl: nextExtUrl,
+        // Keep the recorded hash in step with the evidence it came from.
+        ...(rowConsumesTransfer ? { txHash: nextHash } : {}),
+        updatedAt: new Date(),
+      },
       async (dbtx) => {
+        // MED-E: the new evidence must be claimed too — otherwise the row would
+        // credit the pool while its (new) transfer stayed spendable elsewhere.
+        // Inside the same transaction as the swap; a concurrent claim collides
+        // on the unique index and rolls the whole swap back.
+        if (rowConsumesTransfer && nextHash && nextHash !== normalizeOnChainTxHash(tx.txHash)) {
+          await consumeTxHash(dbtx, {
+            txHash: nextHash,
+            purpose: 'ADMIN_INCOME',
+            referenceId: id,
+            consumedByUserId: currentUser.id,
+          })
+        }
         // Audit atomically with the receipt swap.
         await dbtx.insert(transactionAuditLog).values({
           actorId: currentUser.id,
@@ -3345,12 +3407,25 @@ export class TransactionsService {
         // hash consumes that transfer too, otherwise the same hash could still
         // be re-spent as a deposit. Synthetic markers (0xSIM…/0xMANUAL…) are
         // no-ops — see `consumeTxHash`.
-        await consumeTxHash(dbtx, {
-          txHash: effectiveTxHash,
-          purpose: 'PAYOUT',
-          referenceId: requestId,
-          consumedByUserId: currentUser.id,
-        })
+        //
+        // The condition is `hasRealTxHash`, NOT "credits the balance": a manual
+        // ADMIN_USDT / CASH confirmation leaves `fundingSource` null and never
+        // touches the company balance, yet it DID spend a real transfer, which
+        // must therefore not also be claimable as a deposit. See
+        // `settlementConsumesTransfer` for why the three paths differ.
+        if (
+          settlementConsumesTransfer({
+            kind: 'PAYOUT',
+            hasRealTxHash: normalizeOnChainTxHash(effectiveTxHash) !== null,
+          })
+        ) {
+          await consumeTxHash(dbtx, {
+            txHash: effectiveTxHash,
+            purpose: 'PAYOUT',
+            referenceId: requestId,
+            consumedByUserId: currentUser.id,
+          })
+        }
 
         // Mark linked SENIOR_INCOME transactions as PAID
         await dbtx
@@ -3646,16 +3721,16 @@ export class TransactionsService {
       if (constraint !== null) {
         if (
           constraint === 'uq_consumed_tx_hashes_tx_hash' ||
-          constraint === 'uq_payout_requests_txhash_paid' ||
-          // Unattributed violation (driver reported no constraint name): the
-          // only unique indexes this transaction can trip are the two above, so
-          // the hash-reuse message stays the correct fallback.
-          constraint === ''
+          constraint === 'uq_payout_requests_txhash_paid'
         ) {
           throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
         }
+        // LOW (round 3): an UNATTRIBUTED violation (no constraint name) is NOT
+        // assumed to be a hash reuse. Guessing produces a confident, wrong
+        // explanation on the money path — exactly the failure mode MED-2 fixed
+        // in the verifier. Log what we know and rethrow.
         this.logger.error(
-          `[payout-cascade] unexpected unique violation on "${constraint}" — rethrowing ` +
+          `[payout-cascade] unique violation on "${constraint || '<unattributed>'}" — rethrowing ` +
             `instead of reporting it as a tx-hash reuse (payout ${requestId})`,
         )
       }

@@ -140,6 +140,10 @@ SELECT DISTINCT ON (lower(m.tx_hash))
          WHERE t.type = 'ADMIN_INCOME'
            AND t.status = 'PAID'
            AND t.funding_source = 'COMPANY_ACCOUNT'
+           -- MED-B: the balance term carries a currency guard on EVERY term
+           -- (BIZ-23 defence-in-depth). Mirror it exactly — a non-USDT row does
+           -- not credit the pool, so its transfer must not be burned.
+           AND t.currency = 'USDT'
            AND t.receipt_external_url IS NOT NULL
        ) m
  WHERE m.tx_hash IS NOT NULL
@@ -147,26 +151,45 @@ SELECT DISTINCT ON (lower(m.tx_hash))
 ON CONFLICT (tx_hash) DO NOTHING;
 
 -- 4. AUDIT NOTICE — report (do NOT fail on) hashes that were ALREADY consumed
---    by both paths before this fix. Each one is a real transfer that credited
---    the company balance twice; the owner decides how to correct the ledger.
+--    by MORE THAN ONE crediting path before this fix. Each one is a real
+--    transfer that credited the company balance twice; the owner decides how to
+--    correct the ledger.
+--
+--    MED-C: all THREE crediting terms participate (payout / deposit /
+--    admin-income). Leaving admin-income out would hide exactly the pair HIGH-3
+--    made possible — an honestly registered client inflow re-credited as a
+--    deposit — from the deploy log, which is the one place an operator looks.
 DO $$
 DECLARE
   dup_count integer;
 BEGIN
+  WITH claimed AS (
+    SELECT lower(pr.tx_hash) AS h, 'PAYOUT' AS src
+      FROM payout_requests pr
+     WHERE pr.status = 'PAID' AND pr.tx_hash ~* '^0x[0-9a-f]{64}$'
+    UNION ALL
+    SELECT lower(t.tx_hash), 'COMPANY_DEPOSIT'
+      FROM transactions t
+     WHERE t.type = 'COMPANY_DEPOSIT'
+       AND t.status = 'PAID'
+       AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
+    UNION ALL
+    SELECT lower((regexp_match(t.receipt_external_url, '0x[0-9a-fA-F]{64}'))[1]), 'ADMIN_INCOME'
+      FROM transactions t
+     WHERE t.type = 'ADMIN_INCOME'
+       AND t.status = 'PAID'
+       AND t.funding_source = 'COMPANY_ACCOUNT'
+       AND t.currency = 'USDT'
+       AND t.receipt_external_url ~* '0x[0-9a-f]{64}'
+  )
   SELECT count(*) INTO dup_count
     FROM (
-      SELECT lower(pr.tx_hash) AS h
-        FROM payout_requests pr
-       WHERE pr.status = 'PAID' AND pr.tx_hash ~* '^0x[0-9a-f]{64}$'
-      INTERSECT
-      SELECT lower(t.tx_hash)
-        FROM transactions t
-       WHERE t.type = 'COMPANY_DEPOSIT' AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
-    ) AS both_paths;
+      SELECT h FROM claimed WHERE h IS NOT NULL GROUP BY h HAVING count(DISTINCT src) > 1
+    ) AS multi_path;
 
   IF dup_count > 0 THEN
     RAISE WARNING
-      'consumed_tx_hashes backfill: % on-chain hash(es) were consumed by BOTH a PAID payout AND a COMPANY_DEPOSIT — the company balance is inflated by those transfers. Run the audit query in this script and report to the owner.',
+      'consumed_tx_hashes backfill: % on-chain hash(es) were consumed by MORE THAN ONE crediting path (payout / deposit / admin-income) — the company balance is inflated by those transfers. Run the audit query in this script and report to the owner.',
       dup_count;
   ELSE
     RAISE NOTICE 'consumed_tx_hashes backfill: no cross-path duplicate hashes found.';

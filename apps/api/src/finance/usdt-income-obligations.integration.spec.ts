@@ -1018,6 +1018,76 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
       expect(after?.status).toBe('PENDING')
     })
 
+    // ── MED-D (round 3): the PERSONAL-declaration branch had NO coverage. ────
+    // Every other test here declares to the company pool, so the branch where
+    // the claim is deliberately skipped (round-3 change) was never exercised —
+    // a regression there would have burned an unrelated transfer silently.
+    it('a PERSONAL declaration (receiver = an ADMIN) does NOT claim the hash', async () => {
+      if (!dbAvailable) return
+      const PERSONAL_HASH = '0x' + 'ae'.repeat(32)
+      const income = await declare(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 500,
+          // Receiver is an ADMIN, not the company pool → fundingSource stays
+          // null, the company balance is untouched, so the transfer (which went
+          // to that admin's OWN wallet) must remain spendable by its real payer.
+          receiverId: ADMIN_KOSTYA.id,
+          receiptExternalUrl: `https://etherscan.io/tx/${PERSONAL_HASH}`,
+        },
+        ADMIN_MAKSYM,
+      )
+      expect(income.status).toBe('PAID')
+
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.fundingSource).toBeNull() // personal, not the pool
+      // Attribution is still recorded…
+      expect(row?.txHash).toBe(PERSONAL_HASH)
+      // …but nothing is claimed.
+      const rows = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, PERSONAL_HASH))
+      expect(rows.length).toBe(0)
+    })
+
+    it('a personal declaration leaves the transfer usable by the payout path', async () => {
+      if (!dbAvailable) return
+      const SHARED_HASH = '0x' + 'af'.repeat(32)
+      await declare(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 500,
+          receiverId: ADMIN_KOSTYA.id,
+          receiptExternalUrl: `https://etherscan.io/tx/${SHARED_HASH}`,
+        },
+        ADMIN_MAKSYM,
+      )
+
+      // The same hash may still settle a payout — no false «уже использован».
+      const [payoutIncome] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'DROP_INCOME',
+          status: 'VALIDATED',
+          amount: '1000',
+          currency: 'USDT',
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: USDT_DROP_PROJECT,
+          dropSharePercent: 5,
+          createdBy: DROP.id,
+        })
+        .returning()
+      const pr = await svc.createPayoutRequest([payoutIncome!.id], DROP)
+      const confirmed = await svc.manualConfirmPayout(pr.id, 'COMPANY_ACCOUNT', ADMIN_MAKSYM, {
+        txHash: SHARED_HASH,
+      })
+      expect(confirmed.status).toBe('PAID')
+    })
+
     it('a receipt link WITHOUT a real hash claims nothing (legacy links keep working)', async () => {
       if (!dbAvailable) return
       const income = await declare(
