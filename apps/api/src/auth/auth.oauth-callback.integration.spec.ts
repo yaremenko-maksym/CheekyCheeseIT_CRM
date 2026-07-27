@@ -34,6 +34,10 @@ import { JwtAuthGuard } from './jwt.guard'
  *       NO jwt cookie, DB binding unchanged (MED code-review #297)
  *   C4  invalid state cookie → 302 to /login?error=invalid_state, no cookie
  *   C5  email not in DB → 302 to /login?error=unauthorized, no cookie
+ *   C6  archived (fired) user → 302 to /login?error=account_disabled, NO jwt
+ *       cookie (LOW, security-audit authz-hardening — previously only the
+ *       NEXT request's JwtAuthGuard rejected an archived user; the callback
+ *       itself issued a valid 7-day session on first login)
  *
  * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job)
  *   → every test returns early, suite stays green in no-DB environments.
@@ -59,7 +63,11 @@ const MISMATCH_EMAIL = 'auth-oauth-mismatch@test.spec'
 const MISMATCH_BOUND_SUB = 'google-sub-oauth-already-bound-XYZ'
 const MISMATCH_INCOMING_SUB = 'google-sub-oauth-attacker-ABC'
 
-const TEST_USER_IDS = [FRESH_USER_ID, BOUND_USER_ID, MISMATCH_USER_ID]
+const ARCHIVED_USER_ID = 'a17a0002-0000-0000-0000-000000000004'
+const ARCHIVED_EMAIL = 'auth-oauth-archived@test.spec'
+const ARCHIVED_GOOGLE_SUB = 'google-sub-oauth-archived-004'
+
+const TEST_USER_IDS = [FRESH_USER_ID, BOUND_USER_ID, MISMATCH_USER_ID, ARCHIVED_USER_ID]
 
 // Shared valid state token injected as cookie by tests that need it.
 const VALID_STATE = 'deadbeefcafe0123deadbeefcafe0123'
@@ -217,6 +225,14 @@ describe('AuthController.googleCallback — real DB integration (audit MED)', ()
           displayName: 'OAuth Mismatch',
           role: 'SENIOR',
           googleId: MISMATCH_BOUND_SUB,
+        }),
+        makeRow({
+          id: ARCHIVED_USER_ID,
+          email: ARCHIVED_EMAIL,
+          displayName: 'OAuth Archived',
+          role: 'SENIOR',
+          googleId: ARCHIVED_GOOGLE_SUB,
+          archivedAt: new Date(),
         }),
       ])
       .onConflictDoNothing()
@@ -386,6 +402,34 @@ describe('AuthController.googleCallback — real DB integration (audit MED)', ()
     expect(res.headers['location']).toBe(`${FRONTEND_URL}/login?error=unauthorized`)
 
     // No JWT session must be set — controller may clear oauth_state cookie (Max-Age=0), that is fine.
+    const setCookie = res.headers['set-cookie']
+    const cookieStr = Array.isArray(setCookie) ? setCookie.join(';') : (setCookie ?? '')
+    expect(cookieStr).not.toContain('jwt=')
+  })
+
+  it('C6: archived (fired) user → 302 to /login?error=account_disabled, NO jwt cookie (LOW)', async () => {
+    if (!dbAvailable) return
+
+    exchangeGoogleCode.mockResolvedValue({
+      access_token: 'access-token-archived',
+      id_token: 'id-token',
+      expires_in: 3600,
+    })
+    getGoogleUserInfo.mockResolvedValue({
+      id: ARCHIVED_GOOGLE_SUB,
+      email: ARCHIVED_EMAIL,
+      name: 'OAuth Archived',
+      picture: 'p',
+    })
+
+    const res = await callCallback({ code: 'auth-code-archived', state: VALID_STATE })
+
+    expect(res.statusCode).toBe(302)
+    expect(res.headers['location']).toBe(`${FRONTEND_URL}/login?error=account_disabled`)
+
+    // No jwt cookie must be set — an archived user must never receive a
+    // session, not even for the ~60s until JwtAuthGuard's cache would have
+    // caught up on the NEXT request.
     const setCookie = res.headers['set-cookie']
     const cookieStr = Array.isArray(setCookie) ? setCookie.join(';') : (setCookie ?? '')
     expect(cookieStr).not.toContain('jwt=')

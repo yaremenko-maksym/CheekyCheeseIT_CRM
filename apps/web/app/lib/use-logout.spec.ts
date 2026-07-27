@@ -13,12 +13,12 @@ import { createElement, type ReactNode } from 'react'
 
 // Mocks via vi.hoisted so the factories can reference them under vitest 4's
 // hoisting, and the captured fns carry a param signature (no spread → no TS2556).
-const { delMock, getMock } = vi.hoisted(() => ({
+const { delMock, postMock } = vi.hoisted(() => ({
   delMock: vi.fn((_key?: string) => Promise.resolve()),
-  getMock: vi.fn((_url?: string) => Promise.resolve({ data: {} })),
+  postMock: vi.fn((_url?: string) => Promise.resolve({ data: {} })),
 }))
 vi.mock('idb-keyval', () => ({ del: delMock }))
-vi.mock('@/lib/axios', () => ({ api: { get: getMock } }))
+vi.mock('@/lib/axios', () => ({ api: { post: postMock } }))
 
 import { useLogout } from './use-logout'
 import { PERSIST_KEY } from './persister'
@@ -31,7 +31,7 @@ function makeWrapper(qc: QueryClient) {
 describe('useLogout', () => {
   beforeEach(() => {
     delMock.mockClear()
-    getMock.mockClear()
+    postMock.mockClear()
     // Stub the hard-redirect target so happy-dom does not attempt navigation.
     Object.defineProperty(window, 'location', {
       configurable: true,
@@ -47,7 +47,7 @@ describe('useLogout', () => {
     result.current()
 
     await vi.waitFor(() => {
-      expect(getMock).toHaveBeenCalledWith('/auth/logout')
+      expect(postMock).toHaveBeenCalledWith('/auth/logout')
       expect(clearSpy).toHaveBeenCalledTimes(1)
       expect(delMock).toHaveBeenCalledWith(PERSIST_KEY)
     })
@@ -57,7 +57,7 @@ describe('useLogout', () => {
   })
 
   it('still clears client state when the logout request fails (best-effort)', async () => {
-    getMock.mockImplementationOnce(() => Promise.reject(new Error('network')))
+    postMock.mockImplementationOnce(() => Promise.reject(new Error('network')))
     const qc = new QueryClient()
     const clearSpy = vi.spyOn(qc, 'clear')
 

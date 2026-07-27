@@ -103,6 +103,15 @@ export class AuthController {
       return
     }
 
+    // LOW (security-audit authz-hardening): an archived (fired) user was
+    // handed a full 7-day session here — only the NEXT request's
+    // JwtAuthGuard (DB re-hydration, up to CACHE_TTL_MS stale) rejected them.
+    // Reject at issuance so a fired user never gets a session at all.
+    if (user.archivedAt) {
+      await reply.redirect(`${this.frontendUrl}/login?error=account_disabled`, 302)
+      return
+    }
+
     if (!user.googleId) {
       await this.usersService.updateGoogleId(user.id, googleUser.id)
     } else if (user.googleId !== googleUser.id) {
@@ -287,6 +296,11 @@ export class AuthController {
     const user = await this.usersService.findByEmail(googleUser.email)
     if (!user) throw new UnauthorizedException('Email not authorized')
 
+    // LOW (security-audit authz-hardening): mirrors the same check in
+    // googleCallback — an archived (fired) user must never receive a
+    // session, not even a 401-request's worth of DB re-hydration lag.
+    if (user.archivedAt) throw new UnauthorizedException('Account disabled')
+
     if (!user.googleId) {
       await this.usersService.updateGoogleId(user.id, googleUser.sub)
     } else if (user.googleId !== googleUser.sub) {
@@ -312,7 +326,14 @@ export class AuthController {
     return { ok: true }
   }
 
-  @Get('logout')
+  // LOW (security-audit authz-hardening): was `@Get('logout') @Public()` —
+  // a plain `<img src="…/api/auth/logout">` on ANY third-party page forces a
+  // logout of the current session (cross-site GET carries cookies by
+  // default). POST is not a full CSRF fix on its own, but it defeats the
+  // trivial <img>/<link>/background-fetch GET vector; the frontend already
+  // calls this via axios (use-logout.ts), not a browser navigation, so a
+  // method-only change is fully backward compatible with the real client.
+  @Post('logout')
   @Public()
   async logout(@Res() reply: FastifyReply) {
     reply.clearCookie(JWT_COOKIE, { path: '/' })
