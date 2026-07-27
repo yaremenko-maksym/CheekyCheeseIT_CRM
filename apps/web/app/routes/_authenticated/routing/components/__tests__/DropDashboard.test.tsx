@@ -63,8 +63,14 @@ vi.mock('@/routes/_authenticated/finance/components/dialogs/CreateTransactionDia
   },
 }))
 
-vi.mock('@/routes/_authenticated/finance/components/dialogs/PayoutDialog', () => ({
-  PayoutDialog: ({ open, preselectedTxIds }: { open: boolean; preselectedTxIds?: string[] }) => {
+vi.mock('@/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal', () => ({
+  CompanySharePayoutModal: ({
+    open,
+    preselectedTxIds,
+  }: {
+    open: boolean
+    preselectedTxIds?: string[]
+  }) => {
     payoutDialogSpy(open, preselectedTxIds)
     return open ? <div data-testid="mock-payout-dialog" /> : null
   },
