@@ -80,8 +80,10 @@ const TX = {
 } as never
 
 // settle-drop-btn: SAME shape as TX above, only type flips to DROP_PENDING_PAYOUT
-// (mirrors the company-IOU-to-a-drop row). Used to pin that the dialog is
-// REUSED as-is for the drop mirror — only the recipient-facing copy adapts.
+// (mirrors the company-IOU-to-a-drop row). `payoutRequestId` is absent (like
+// an admin-USDT-declaration-booked drop IOU) — used to pin that the dialog is
+// REUSED as-is for the drop mirror — only the recipient-facing copy adapts,
+// and the HIGH-1 gate below does NOT engage for this shape.
 const DROP_TX = {
   id: 'drop-pending-1',
   type: 'DROP_PENDING_PAYOUT',
@@ -91,6 +93,23 @@ const DROP_TX = {
   receiverName: 'Drop Person',
   projectName: 'USDT Project',
   createdAt: '2026-06-01T00:00:00.000Z',
+} as never
+
+// security-review PR #443 (HIGH-1): SAME shape as DROP_TX, but with
+// `payoutRequestId` set — the deterministic marker of a CASCADE-originated
+// drop obligation (task-drop-share-pending-parity), whose share never landed
+// on the shared company account. This is the shape that must disable/block
+// «Счёт компании».
+const CASCADE_DROP_TX = {
+  id: 'cascade-drop-pending-1',
+  type: 'DROP_PENDING_PAYOUT',
+  status: 'PENDING_PAYMENT',
+  amount: '50',
+  currency: 'USDT',
+  receiverName: 'Cascade Drop Person',
+  projectName: 'Drop Project',
+  payoutRequestId: 'payout-req-1',
+  createdAt: '2026-07-27T00:00:00.000Z',
 } as never
 
 function renderDialog(tx: unknown = TX) {
@@ -229,5 +248,68 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     await fillReceipt()
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Выплата синьору проведена'))
+  })
+})
+
+// security-review PR #443 (HIGH-1): a cascade-originated drop obligation
+// (payoutRequestId != null) must never settle from «Счёт компании» — that
+// money never landed on the shared company pool. Pins the UI mirror of the
+// server-side settleByCompany guard (pending-settlement.service.ts).
+describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obligation', () => {
+  beforeEach(() => {
+    settleMock.mockClear()
+  })
+
+  it('disables «Счёт компании» and shows the reason for a cascade drop obligation', async () => {
+    renderDialog(CASCADE_DROP_TX)
+    const companyBtn = await screen.findByTestId('settle-senior-account-company')
+    expect(companyBtn).toBeDisabled()
+    expect(screen.getByTestId('settle-senior-company-disabled-reason')).toHaveTextContent(
+      /доля дропа из этой выплаты не проходила через счёт компании/i,
+    )
+  })
+
+  it('does NOT disable «Счёт компании» for a non-cascade drop obligation (admin-USDT origin)', async () => {
+    renderDialog(DROP_TX)
+    const companyBtn = await screen.findByTestId('settle-senior-account-company')
+    expect(companyBtn).not.toBeDisabled()
+  })
+
+  it('does not default to «Счёт компании» for a cascade drop obligation — no company balance hint on open', async () => {
+    renderDialog(CASCADE_DROP_TX)
+    await screen.findByTestId('settle-senior-account-company')
+    expect(screen.queryByTestId('settle-senior-company-balance-hint')).not.toBeInTheDocument()
+  })
+
+  it('blocks submit with an inline error while no admin partner is picked yet (even with a valid receipt)', async () => {
+    renderDialog(CASCADE_DROP_TX)
+    await screen.findByTestId('settle-senior-account-company')
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    expect(settleMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('settle-senior-error-account')).toBeInTheDocument()
+  })
+
+  it('clicking the disabled «Счёт компании» button does nothing — still blocked on submit', async () => {
+    renderDialog(CASCADE_DROP_TX)
+    const companyBtn = await screen.findByTestId('settle-senior-account-company')
+    fireEvent.click(companyBtn)
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    expect(settleMock).not.toHaveBeenCalled()
+    expect(screen.getByTestId('settle-senior-error-account')).toBeInTheDocument()
+  })
+
+  it('selecting an admin partner clears the block and settles ADMIN_PERSONAL', async () => {
+    renderDialog(CASCADE_DROP_TX)
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [id, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(id).toBe('cascade-drop-pending-1')
+    expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
+    expect(payload.payerAdminId).toBe('maksym-id')
+    expect(screen.queryByTestId('settle-senior-error-account')).not.toBeInTheDocument()
   })
 })

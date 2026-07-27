@@ -41,6 +41,32 @@ import * as schema from '../database/schema'
  *          settleByCompany (receipt + funding source) → the drop's aggregate
  *          balance (getDropSelfSummary) returns to EXACTLY what it was before
  *          the backfill ran — the row is "неотличима от свежесозданной IOU".
+ *   AC6-f  (security-review PR #443, MED-3) A self-loop row (sender_id =
+ *          receiver_id — the pre-Audit-2026-06-28 shape) is EXCLUDED from
+ *          selection: it stays PAYOUT_DROP/PAID/self-loop untouched, because
+ *          converting + settling it would NOT be a neutral round-trip (the
+ *          settle flip always breaks the self-loop by stamping a real
+ *          sender — see the migration header for the full reasoning).
+ *   AC6-verify (security-review PR #443, MED-1) The fail-loud verify rolls
+ *          back the WHOLE transaction on a targets≠obligations mismatch —
+ *          INCLUDING the backup insert, since backup now runs INSIDE the same
+ *          transaction as the conversion (closes the pre-MED-1 window where a
+ *          row created between the (separate) backup step and the target
+ *          capture could be converted without ever being backed up).
+ *
+ * Test-vs-prod transaction model (security-review PR #443, MED-2): this spec
+ * executes the WHOLE migration file as one `pool.query(text)` call — under
+ * node-postgres's simple-query protocol that is one round trip, but the
+ * migration's OWN explicit `BEGIN ... COMMIT` (STEP 1) still governs
+ * atomicity exactly as it does when prod applies the same file via
+ * `psql -v ON_ERROR_STOP=1 < file` (statement-by-statement): Postgres commits
+ * or rolls back everything between BEGIN and COMMIT as one unit regardless of
+ * how many client round trips fed it those statements. Now that STEP 1
+ * contains BOTH the backup insert and the conversion (MED-1), this test's
+ * atomicity assertions (AC6-verify) hold identically in both transport
+ * models — the earlier discrepancy this note used to flag (backup surviving
+ * a rollback only in the test's model) no longer exists, because backup no
+ * longer claims to survive a rollback in EITHER model.
  *
  * Run against a scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
@@ -217,6 +243,40 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
         projectId: PROJECT_ID,
         payoutRequestId: null,
         createdBy: ADMIN.id,
+      })
+      .returning()
+    return { txId: tx!.id }
+  }
+
+  /** Seed a PRE-audit-2026-06-28 self-loop Path-B row: sender_id = receiver_id
+   * = the drop (the shape `computeDropAggregate` nets to exactly 0 today).
+   * Carries a real payout_request_id (same origin as `seedPathBRow`), so ONLY
+   * the self-loop clause distinguishes it — must still be excluded. */
+  async function seedSelfLoopPathBRow(amount: string): Promise<{ txId: string }> {
+    const [pr] = await dbSvc.db
+      .insert(payoutRequests)
+      .values({
+        seniorId: DROP_A.id,
+        incomeAmount: amount,
+        payableAmount: amount,
+        contractAddress: '0x' + 'e'.repeat(40),
+        status: 'PAID',
+      })
+      .returning()
+    const [tx] = await dbSvc.db
+      .insert(transactions)
+      .values({
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount,
+        currency: 'USDT',
+        senderId: DROP_A.id,
+        senderLabel: 'DPCA Self Loop',
+        receiverId: DROP_A.id,
+        recipientId: DROP_A.id,
+        projectId: PROJECT_ID,
+        payoutRequestId: pr!.id,
+        createdBy: DROP_A.id,
       })
       .returning()
     return { txId: tx!.id }
@@ -448,9 +508,15 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
     // obligations=1 — the mismatch the fail-loud assert exists to catch.
     const { txId: goodId } = await seedPathBRow('10')
     const { txId: corruptId } = await seedPathBRow('20')
+    // receiverId=NULL trips the 1d obligation-insert guard (no creditor to
+    // book for). senderId is ALSO stamped (to ADMIN, distinct from the now-
+    // null receiverId) so this does NOT accidentally look like a self-loop
+    // row (AC6-f's `sender_id IS DISTINCT FROM receiver_id` exclusion would
+    // otherwise swallow a null/null pair as "not distinct" and skip this row
+    // entirely, defeating the corruption this test relies on).
     await dbSvc.db
       .update(transactions)
-      .set({ receiverId: null, recipientId: null })
+      .set({ receiverId: null, recipientId: null, senderId: ADMIN.id })
       .where(eq(transactions.id, corruptId))
 
     await expect(runBackfill()).rejects.toThrow(/drop-share-pending-parity verify failed/)
@@ -474,5 +540,47 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
       .from(pendingObligations)
       .where(inArray(pendingObligations.sourceTransactionId, [goodId, corruptId]))
     expect(obligations).toHaveLength(0)
+
+    // security-review PR #443 (MED-1): backup now runs INSIDE the same
+    // transaction as the conversion — a rolled-back run must leave NO backup
+    // rows either (backup and conversion are atomic TOGETHER, not "backup
+    // survives independently").
+    const backupRows = await _pool!.query(
+      `SELECT id FROM _drop_share_pending_parity_backup_20260727 WHERE id = ANY($1::uuid[])`,
+      [[goodId, corruptId]],
+    )
+    expect(backupRows.rowCount).toBe(0)
+  })
+
+  it('AC6-f (MED-3): a self-loop Path-B row (sender_id = receiver_id — pre-Audit-2026-06-28 shape) is EXCLUDED from selection and left untouched', async () => {
+    if (!dbAvailable) return
+    const { txId: selfLoopId } = await seedSelfLoopPathBRow('88')
+    const beforeBalance = await dropBalance()
+
+    await runBackfill()
+
+    const after = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, selfLoopId),
+    })
+    // Untouched — still the original self-loop PAYOUT_DROP/PAID shape.
+    expect(after!.type).toBe('PAYOUT_DROP')
+    expect(after!.status).toBe('PAID')
+    expect(after!.senderId).toBe(DROP_A.id)
+    expect(after!.receiverId).toBe(DROP_A.id)
+
+    // No obligation booked for it, not backed up (never selected at all).
+    const obligation = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.sourceTransactionId, selfLoopId),
+    })
+    expect(obligation).toBeUndefined()
+    const backupRow = await _pool!.query(
+      `SELECT id FROM _drop_share_pending_parity_backup_20260727 WHERE id = $1`,
+      [selfLoopId],
+    )
+    expect(backupRow.rowCount).toBe(0)
+
+    // Balance-neutral before AND after (self-loop rows already net to 0 —
+    // the backfill must not disturb that, unlike a real Path-B row).
+    expect(await dropBalance()).toBeCloseTo(beforeBalance, 6)
   })
 })

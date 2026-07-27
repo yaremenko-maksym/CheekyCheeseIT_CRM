@@ -225,14 +225,23 @@ export class PendingSettlementService {
       throw new BadRequestException('Долг уже закрыт или отменён')
     }
 
-    // We only need the source IOU's TYPE (the drop-vs-senior discriminator).
-    // The flipped row keeps its own projectId booked on the IOU — no re-stamp.
-    const { sourceType } = await this.resolveSource(obligation.sourceTransactionId)
+    // We only need the source IOU's TYPE (the drop-vs-senior discriminator)
+    // and, since PR #443 (HIGH-1), its `payoutRequestId` (cascade-vs-declaration
+    // discriminator — see the guard below). The flipped row keeps its own
+    // projectId booked on the IOU — no re-stamp.
+    const { sourceType, sourcePayoutRequestId } = await this.resolveSource(
+      obligation.sourceTransactionId,
+    )
 
     // task-drop-share-override-and-receiver (D5). Branch by the source IOU type:
-    //   - DROP_PENDING_PAYOUT → a NEW branch: settle by inserting a PAYOUT_DROP
-    //     (PAID) that credits the drop's balance (computeDropAggregate.received).
-    //     NO senior invoice (Q6 — a drop settlement is an internal payout).
+    //   - DROP_PENDING_PAYOUT → settle by flipping the SOURCE row in place to
+    //     PAYOUT_DROP (PAID — task-settle-in-place, ADR 2026-07-14; NOT a
+    //     second inserted row) that credits the drop's balance
+    //     (computeDropAggregate.received). NO senior invoice (Q6 — a drop
+    //     settlement is an internal payout). Booked either by
+    //     declareUsdtProjectIncome (payoutRequestId=null) or, since PR #443
+    //     (task-drop-share-pending-parity), by the drop-payout cascade itself
+    //     (payoutRequestId set — see the HIGH-1 funding-source guard above).
     //   - anything else (SENIOR_PENDING_PAYOUT / legacy) → existing SENIOR_INCOME
     //     branch + autoCreateForSeniorPayout. UNCHANGED.
     // pending_obligations does not store the creditor role, so the source
@@ -256,6 +265,31 @@ export class PendingSettlementService {
     // + COMPANY_ACCOUNT marker)? Only when funded by the company AND it is a
     // COMPANY debt (legacy DROP debts never touch the company balance).
     const debitsCompanyAccount = useCompanyAccount && isCompanyDebt
+
+    // SECURITY (HIGH-1, security-review PR #443): a cascade-originated drop
+    // obligation (applyPayoutPaidCascade → bookCompanyObligations, `drop`
+    // param) must NEVER settle from COMPANY_ACCOUNT — in BOTH branches that
+    // can drive `debitsCompanyAccount` true (an explicit
+    // funding.fundingSource='COMPANY_ACCOUNT', AND the legacy no-funding
+    // default, which resolves useCompanyAccount=isCompanyDebt=true for any
+    // COMPANY debt). The drop's slice paid by the cascade NEVER touched the
+    // company pool — the PAYOUT row backing this payout_request only credited
+    // `payable = income*(1-dropShare%)` (the company never receives the
+    // drop's own cut; the drop keeps it before the on-chain transfer).
+    // Debiting the company account here would subtract money the company
+    // never held, silently understating the balance by exactly the drop's
+    // share on every such settle (and, over time, falsely tripping the
+    // "insufficient funds" gate below for otherwise-legitimate payouts).
+    // The admin-declared USDT path (declareUsdtProjectIncome) is NOT
+    // affected: that flow never sets payoutRequestId, and there the company
+    // genuinely DOES hold the full declared income when toCompanyPool=true.
+    // Backfilled historical rows (task-drop-share-pending-parity) keep their
+    // payout_request_id, so they are covered by the SAME condition.
+    if (isDropObligation && sourcePayoutRequestId !== null && debitsCompanyAccount) {
+      throw new BadRequestException(
+        'Доля дропа из этой выплаты не проходила через счёт компании — выберите личный счёт админа',
+      )
+    }
 
     let senderId: string | null = null
     let senderLabel = 'COMPANY'
@@ -571,21 +605,28 @@ export class PendingSettlementService {
    * Walk source transaction → projectId so the SENIOR_INCOME row keeps the
    * project pointer for audit. Failures are non-fatal: a missing source or
    * missing project just yields `null`.
+   *
+   * security-review PR #443 (HIGH-1): also returns the source row's
+   * `payoutRequestId` — the deterministic cascade-vs-declaration discriminator
+   * `settleByCompany` uses below to refuse a COMPANY_ACCOUNT-funded settle on
+   * a cascade-originated drop obligation (see the HIGH-1 guard for why).
    */
   private async resolveSource(sourceTransactionId: string): Promise<{
     project: { id: string; name: string } | null
     sourceType: string | null
+    sourcePayoutRequestId: string | null
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
     })
-    if (!source) return { project: null, sourceType: null }
+    if (!source) return { project: null, sourceType: null, sourcePayoutRequestId: null }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
       : null
     return {
       project: project ? { id: project.id, name: project.name } : null,
       sourceType: source.type,
+      sourcePayoutRequestId: source.payoutRequestId,
     }
   }
 

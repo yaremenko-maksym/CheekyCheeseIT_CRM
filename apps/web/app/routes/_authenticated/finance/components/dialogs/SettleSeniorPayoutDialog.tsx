@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { TransactionDto } from '@crm/shared'
@@ -63,6 +63,20 @@ function extractErrorMessage(err: unknown): string {
  * transaction's type), so only the recipient-facing copy (title / description /
  * success toast) adapts to «дропу» below. Everything else (funding picker,
  * mutation, invalidations) is identical for both row types.
+ *
+ * security-review PR #443 (HIGH-1): a DROP_PENDING_PAYOUT row booked by the
+ * drop-payout CASCADE (`tx.payoutRequestId != null` — task-drop-share-pending-parity)
+ * never had its share land on the shared company account (the cascade only
+ * credits `payable = income*(1-dropShare%)`; the drop keeps their own cut
+ * before the on-chain transfer). «Счёт компании» would silently debit money
+ * the company never held. The server is the authority (see the HIGH-1 guard
+ * in pending-settlement.service.ts's settleByCompany — it rejects this with a
+ * 400 regardless of what the UI does); this dialog mirrors that decision so
+ * an ADMIN/ACCOUNTANT never even reaches the rejected request: for such a
+ * row the «Счёт компании» option is disabled and the default account is
+ * empty (forces an explicit ADMIN-partner pick, not a guessed one). A drop
+ * obligation booked by declareUsdtProjectIncome (`payoutRequestId == null` —
+ * the company genuinely holds the full declared income) is unaffected.
  */
 export function SettleSeniorPayoutDialog({
   tx,
@@ -72,19 +86,31 @@ export function SettleSeniorPayoutDialog({
   onClose: () => void
 }) {
   const qc = useQueryClient()
-  // account = COMPANY_ACCOUNT_VALUE (Счёт компании, default) OR an ADMIN partner id.
+  // account = COMPANY_ACCOUNT_VALUE (Счёт компании, default) OR an ADMIN
+  // partner id OR '' (no valid selection — forced for a cascade-originated
+  // drop obligation, see the HIGH-1 note above; the accountant must actively
+  // pick an admin partner, never guessed).
   const [account, setAccount] = useState<string>(COMPANY_ACCOUNT_VALUE)
   // task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
   // this dialog had NO receipt/hash field at all before; explorer-only since
   // a settle obligation is always denominated in USDT (task-remove-settle-currency).
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [receiptError, setReceiptError] = useState<string | null>(null)
+  const [accountError, setAccountError] = useState<string | null>(null)
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
   // settle-drop-btn: only the copy below depends on this — the mutation body /
   // funding logic is identical for both SENIOR_PENDING_PAYOUT and
   // DROP_PENDING_PAYOUT source rows.
   const isDropPayout = tx?.type === 'DROP_PENDING_PAYOUT'
+  // HIGH-1: cascade-originated drop obligation — `payoutRequestId` is the
+  // deterministic discriminator the server ALSO reads (resolveSource /
+  // settleByCompany). declareUsdtProjectIncome-booked drop IOUs carry
+  // payoutRequestId=null and are unaffected.
+  const isCascadeDropObligation = isDropPayout && tx?.payoutRequestId != null
+  const companyAccountDisabledReason = isCascadeDropObligation
+    ? 'Доля дропа из этой выплаты не проходила через счёт компании — выберите личный счёт админа'
+    : undefined
   const dialogTitle = isDropPayout ? 'Выплатить дропу' : 'Выплатить синьору'
   const dialogDescription = isDropPayout ? 'Выплата дропу его доли' : 'Выплата синьору его доли'
   const successMessage = isDropPayout ? 'Выплата дропу проведена' : 'Выплата синьору проведена'
@@ -93,7 +119,21 @@ export function SettleSeniorPayoutDialog({
     setAccount(COMPANY_ACCOUNT_VALUE)
     setReceipt(emptyReceiptState())
     setReceiptError(null)
+    setAccountError(null)
   }
+
+  // HIGH-1: when the dialog opens for a NEW cascade-originated drop
+  // obligation, force the default OFF «Счёт компании» — an explicit admin
+  // pick is required (see the docstring above for why an auto-picked admin
+  // partner would be worse than forcing the choice).
+  // Deliberately keyed on tx identity only (isCascadeDropObligation is itself
+  // derived from tx, so it is intentionally omitted) — re-running per new tx
+  // is correct; re-running on every render would fight the user's own pick.
+  useEffect(() => {
+    if (tx && isCascadeDropObligation) {
+      setAccount('')
+    }
+  }, [tx?.id])
 
   const mutation = useMutation({
     mutationFn: () => {
@@ -142,7 +182,18 @@ export function SettleSeniorPayoutDialog({
   // task-remove-settle-currency: the effective currency is always USDT — a
   // settle obligation is never denominated in anything else (matches the
   // backend default in pending-settlement.service.ts).
+  // HIGH-1: additionally blocks submit when no valid account is selected yet
+  // (empty string — the forced-off default for a cascade-drop obligation) or,
+  // defensively, if `isCompany` were somehow still true for one (the button
+  // is disabled in the UI, but this is the same belt-and-suspenders pattern
+  // as the receipt gate — never trust only the disabled attribute).
   function handleSubmit() {
+    if (isCascadeDropObligation && (!account || isCompany)) {
+      setAccountError(
+        companyAccountDisabledReason ?? 'Выберите личный счёт админа для этой выплаты',
+      )
+      return
+    }
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
     const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, 'USDT')
@@ -199,11 +250,21 @@ export function SettleSeniorPayoutDialog({
               is always USDT — see pending-settlement.service.ts). */}
           <FundingSourceFields
             account={account}
-            onSelectAccount={setAccount}
+            onSelectAccount={(v) => {
+              setAccount(v)
+              setAccountError(null)
+            }}
             enabled={!!tx}
             testIdPrefix="settle-senior"
             hideCurrency
+            disableCompanyAccount={isCascadeDropObligation}
+            disableCompanyAccountReason={companyAccountDisabledReason}
           />
+          {accountError && (
+            <p className="text-xs text-destructive" data-testid="settle-senior-error-account">
+              {accountError}
+            </p>
+          )}
 
           {/* task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
               this dialog had no receipt/hash field before. Always explorer-only —

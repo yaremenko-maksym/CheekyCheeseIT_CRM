@@ -2922,9 +2922,11 @@ export class TransactionsService {
    * pending_obligations row (creditor=<senior|drop>, debtorType='COMPANY',
    * sourceTransactionId=IOU), later closed via settleByCompany.
    *
-   * Shared by BOTH the drop-payout cascade (senior IOU only — the drop is paid
-   * directly via PAYOUT_DROP there, so `drop` is omitted) and
-   * declareUsdtProjectIncome (both IOUs), so the IOU row shape never drifts.
+   * Shared by BOTH the drop-payout cascade (task-drop-share-pending-parity:
+   * since PR #443, BOTH the senior AND the drop IOU are booked here — the
+   * drop's own slice is no longer paid directly via an instant PAYOUT_DROP)
+   * and declareUsdtProjectIncome (both IOUs), so the IOU row shape never
+   * drifts between the two booking paths.
    *
    *   - Senior IOU: booked only when a senior is supplied AND `senior.role !==
    *     'ADMIN'` (an admin partner is never owed via a company IOU).

@@ -47,12 +47,14 @@ import * as schema from '../database/schema'
  *     - drop:   DROP_PENDING_PAYOUT → PAYOUT_DROP (PAID), credits the drop.
  *       Settled here with ADMIN_PERSONAL funding — the drop's slice never
  *       landed on the company pool (only `payable` = I*(1-d%) did; the drop
- *       self-keeps its cut before the on-chain transfer), so a
- *       COMPANY_ACCOUNT-funded settle would debit money the company never
- *       received. ADMIN_PERSONAL is the funding choice that matches reality
+ *       self-keeps its cut before the on-chain transfer). security-review
+ *       PR #443 (HIGH-1): settleByCompany now REJECTS a COMPANY_ACCOUNT-funded
+ *       settle on a cascade-originated drop obligation with a 400 — see
+ *       pending-settlement.service.ts's HIGH-1 guard and the dedicated test
+ *       below. ADMIN_PERSONAL is the only funding choice that matches reality
  *       and leaves the shared balance untouched — same principle already
  *       relied on for an admin-declared income that lands in a specific
- *       admin's personal wallet (see pending-settlement.service.ts).
+ *       admin's personal wallet.
  *   Net company after both settles = income*(1−d%−s%).
  *
  * Invariants proven (against the REAL cascade + REAL balance derivation):
@@ -67,6 +69,9 @@ import * as schema from '../database/schema'
  *   INV4  display balance (getAccount) == gate balance (ledger SSOT) — no drift,
  *         no double-counting at any step.
  *   AC4   settling the drop obligation WITHOUT a receipt is rejected.
+ *   HIGH-1 settling the drop obligation with COMPANY_ACCOUNT funding is
+ *         rejected (400) — the money never touched the company pool; company
+ *         balance is unchanged by the rejected attempt.
  *   RBAC  DROP cannot bundle another's DROP_INCOME (createPayoutRequest → 400);
  *         settleByCompany only ADMIN/ACCOUNTANT (DROP/SENIOR → 403).
  *
@@ -633,6 +638,69 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
       where: eq(pendingObligations.id, dropObRow!.id),
     })
     expect(stillPending!.status).toBe('PENDING')
+  })
+
+  // ── HIGH-1 (security-review PR #443): settling a cascade-originated drop
+  // obligation with COMPANY_ACCOUNT funding must be REJECTED — that money
+  // never touched the company pool (only `payable = I*(1-d%)` did). Without
+  // this guard the settle would silently debit money the company never held,
+  // understating the balance by exactly the drop's share on every such
+  // settle. Proves the server is the authority, independent of the UI.
+  it('HIGH-1 settle drop obligation (cascade origin) with COMPANY_ACCOUNT → 400; company balance unchanged; obligation stays PENDING', async () => {
+    if (!dbAvailable) return
+    const I = 1000
+    const before = await displayBalance()
+    const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+    const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+    const payable = parseFloat(pr.payableAmount)
+    const HASH = '0x' + '9'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+    })
+    await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+    const afterPayout = await displayBalance()
+    const [dropObligation] = await pendingObligationsFor(DROP_A.id)
+    const dropObRow = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.sourceTransactionId, dropObligation!.sourceTransactionId),
+    })
+
+    // Explicit COMPANY_ACCOUNT (WITH a valid receipt — the receipt gate is
+    // NOT what should block this; the HIGH-1 guard runs before it).
+    await expect(
+      settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+        fundingSource: 'COMPANY_ACCOUNT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccounthigh1001',
+      }),
+    ).rejects.toThrow(/не проходила через счёт компании/)
+
+    // Legacy no-funding call ALSO defaults to COMPANY_ACCOUNT for a COMPANY
+    // debt (useCompanyAccount=isCompanyDebt) — the guard covers this branch too.
+    await expect(settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT)).rejects.toThrow(
+      /не проходила через счёт компании/,
+    )
+
+    // No money moved, obligation untouched — the rejected attempts are pure no-ops.
+    expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
+    expect(await displayBalance()).toBeCloseTo(before + payable, 6)
+    const stillPending = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, dropObRow!.id),
+    })
+    expect(stillPending!.status).toBe('PENDING')
+
+    // Sanity: the SAME obligation settles fine via ADMIN_PERSONAL (the guard
+    // targets the funding CHOICE, not the obligation itself).
+    const settled = await settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_MAKSYM.id,
+      receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccounthigh1002',
+    })
+    expect(settled.obligation.status).toBe('PAID')
+    expect(await displayBalance()).toBeCloseTo(afterPayout, 6)
   })
 
   // ── INV3: senior-project payout unchanged
