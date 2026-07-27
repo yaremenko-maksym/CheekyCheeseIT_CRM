@@ -673,6 +673,62 @@ export const transactions = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Consumed on-chain tx hashes — task-onchain-payment-integrity (CROSS-PATH)
+// ---------------------------------------------------------------------------
+//
+// SECURITY INVARIANT: a REAL on-chain transfer may settle AT MOST ONE thing in
+// this system — either one payout, or one company deposit. Never both, never
+// twice.
+//
+// Why a dedicated table: before this, each money path guarded its own hash
+// re-use in its OWN table and was blind to the other —
+//   • payPayoutRequest / manualConfirmPayout scanned `payout_requests`
+//     (backstop `uq_payout_requests_txhash_paid`),
+//   • submitDeposit scanned `transactions WHERE type='COMPANY_DEPOSIT'`
+//     (backstop `uq_transactions_company_deposit_tx_hash`).
+// Both indexes are partial and DISJOINT, so ONE transfer could legally land in
+// both tables and `computeCompanyAccountBalanceFromLedger` summed BOTH terms →
+// the company balance was credited TWICE for a single transfer (phantom money
+// that then funds salary/expense/dividend gates). Fixing one path could never
+// close it: the two paths must share ONE registry.
+//
+// The row is inserted INSIDE the same DB transaction that performs the credit,
+// so a concurrent double-spend is decided by the unique index (23505 → clean
+// 400), not by a check-then-act read that can go stale.
+//
+// Only REAL on-chain hashes (0x + 64 hex) are registered; synthetic audit
+// markers (`0xSIM…` dev-simulate, `0xMANUAL…` off-chain confirmations) are
+// unique by construction and reference no on-chain transfer — see
+// `normalizeOnChainTxHash` in `finance/onchain-tx.ts` (single source of truth
+// for the shape rule + lowercase normalisation).
+export const consumedTxHashes = pgTable(
+  'consumed_tx_hashes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // ALWAYS lowercase-normalised (`normalizeOnChainTxHash`). Storing the
+    // normalised form lets the uniqueness be a plain column index — no
+    // expression index — while `0xAB…` and `0xab…` still collide.
+    txHash: varchar('tx_hash', { length: 66 }).notNull(),
+    // Which money path consumed it: 'PAYOUT' | 'COMPANY_DEPOSIT'.
+    purpose: varchar('purpose', { length: 32 }).notNull(),
+    // payout_requests.id or transactions.id. Deliberately NOT an FK: the
+    // registry must outlive its referent (a deleted payout must not free the
+    // hash for re-use).
+    referenceId: uuid('reference_id'),
+    // Who submitted the hash (audit trail for abuse investigation).
+    consumedByUserId: uuid('consumed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // THE cross-path guard. Total (not partial) — every registered hash is a
+    // real on-chain transfer, whatever consumed it.
+    uniqueIndex('uq_consumed_tx_hashes_tx_hash').on(t.txHash),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Company Account (USDT) — task-company-account-backend
 // ---------------------------------------------------------------------------
 //
