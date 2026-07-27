@@ -1,6 +1,10 @@
 #!/bin/bash
 # check-nginx-perimeter.sh — curl proof suite for the nginx-edge perimeter:
-# request body limits (MED-1) + origin-exposure hardening (MED-5).
+# request body limits (MED-1) + the default_server catch-all (MED-5, part
+# 1). A source-IP allow/deny gate (MED-5, part 2) was ATTEMPTED alongside
+# this file and REVERTED after security review — see "Cloudflare-only
+# source-IP gate" below for why, and the "real-visitor regression guard"
+# check this script now carries specifically because of that finding.
 #
 # Companion to scripts/devops/check-security-headers.sh /
 # check-locale-routing.sh (same harness style: PASS/FAIL counters, safe to
@@ -25,18 +29,55 @@
 #   nginx's generic HTML page; nginx remains the backstop against
 #   genuinely oversized/abusive bodies.
 #
-#   MED-5: neither port 80 nor 443 had an explicit `default_server`, and
-#   no `allow`/`deny` gate existed anywhere — the origin's real IP (DNS
-#   history, Certificate Transparency logs) let anyone curl it directly,
-#   bypassing Cloudflare's WAF/bot-management entirely. Fixed with
-#   nginx/conf.d/default-server.conf (`return 444;` catch-all for any Host
-#   that matches neither real vhost) + nginx/conf.d/origin-access.conf
-#   (Cloudflare-only `allow`/`deny` gate, reusing the SAME CIDR list
-#   already used for `set_real_ip_from`, + explicit `allow` for
-#   loopback/Docker-bridge ranges so our OWN health checks / deploy.yml
-#   smoke tests keep working). See origin-access.conf's header comment for
-#   what remains OWNER-side (host firewall, Cloudflare Authenticated
-#   Origin Pulls) — this script cannot verify either of those.
+#   MED-5 (default_server): neither port 80 nor 443 had an explicit
+#   `default_server` — per nginx's fallback rule, crm.conf's blocks
+#   (alphabetically first) silently served ANY unmatched Host, including
+#   none at all (`curl http://<origin-ip>/`). Fixed with
+#   nginx/conf.d/default-server.conf (`return 444;` catch-all).
+#
+#   Cloudflare-only source-IP gate (REVERTED, security review round 1):
+#   the first version of this PR added a plain `allow <cloudflare
+#   ranges>; deny all;` gate. nginx's realip module runs in the
+#   POST_READ/PREACCESS phases — BEFORE ngx_http_access_module's ACCESS
+#   phase — and, when `set_real_ip_from`/`real_ip_header
+#   CF-Connecting-IP` match, it REWRITES `$remote_addr` (and the
+#   connection's own stored address, which `allow`/`deny` reads) to the
+#   value of the client-SUPPLIED `CF-Connecting-IP` header. A plain
+#   `allow`/`deny` gate therefore filters on an attacker-controlled
+#   header, not the actual TCP peer:
+#     - a REAL visitor via Cloudflare: TCP peer is a Cloudflare edge IP
+#       (in-range), CF-Connecting-IP is the visitor's own public IP
+#       (essentially never in Cloudflare's range) → realip rewrites
+#       $remote_addr to that → allow/deny denies it. Verified live: 403,
+#       nginx error.log `access forbidden by rule, client: 203.0.113.7`
+#       (the simulated CF-Connecting-IP value).
+#     - an ATTACKER connecting directly from an IP that happens to be
+#       inside Cloudflare's published range, sending NO CF-Connecting-IP
+#       header at all: realip has nothing to substitute, $remote_addr
+#       stays the real (in-range) peer address → allow/deny ALLOWS it.
+#       Verified live: 200.
+#   i.e. the gate blocked real visitors and passed the exact traffic it
+#   was meant to stop — merging it would have taken both domains down
+#   entirely. A corrected version (comparing `$realip_remote_addr` — the
+#   PRE-substitution peer address — via `geo`, not the mutated
+#   `$remote_addr`) is tracked as a separate, follow-up PR; see that PR's
+#   own header comment for the "if directive not allowed here" gotcha
+#   discovered along the way (a bare `if{}` snippet cannot live in
+#   conf.d/ — nginx.conf's wildcard `include /etc/nginx/conf.d/*.conf;`
+#   also sweeps it up directly at http level, where `if` is invalid).
+#
+# ── real-visitor regression guard (why it's in THIS script) ────────────────
+#   The `allow`/`deny` gate above is gone from this branch, so nothing
+#   currently blocks real Cloudflare-forwarded visitors. But the ROOT
+#   CAUSE that made the bug possible — nobody had a check that simulates
+#   "a real visitor arriving via Cloudflare" — would let it (or an
+#   equivalent regression) come back silently. `check_visitor_not_blocked`
+#   below sends a `CF-Connecting-IP` header on every request (exactly what
+#   Cloudflare would forward for a genuine visitor) and asserts the
+#   response is NOT a 403 — this stays green today (no gate to trip it)
+#   and becomes the tripwire the moment ANY future source-IP gate
+#   (including the corrected follow-up PR) regresses to filtering on the
+#   post-realip `$remote_addr` again.
 #
 # ── What this script CAN safely verify against ANY origin (local OR prod) ──
 #   1. Body-size checks (`--target /api/health`, below): a real,
@@ -48,35 +89,9 @@
 #      against production repeatedly.
 #   2. default_server catch-all (`return 444;` on an unrecognised Host) —
 #      also safe anywhere, does not depend on source IP.
-#
-# ── What this script CANNOT verify (documented, not scripted) ──────────────
-#   The Cloudflare-only `allow`/`deny` gate (origin-access.conf) cannot be
-#   meaningfully tested from THIS harness: run locally, curl's source IP is
-#   loopback/Docker-bridge — explicitly ALLOWED (that's required so this
-#   very script, and deploy.yml's own post-deploy smoke tests, keep
-#   working); run from a GitHub Actions runner or the VPS itself, same
-#   problem. A genuine "does it deny a real non-Cloudflare source" proof
-#   requires curling the origin's real IP from a vantage point OUTSIDE
-#   Cloudflare/this host — verified manually instead (methodology below),
-#   not automated here.
-#
-#   Manual verification methodology used for the PR that introduced this
-#   file (repeatable any time origin-access.conf changes):
-#     1. Build the real image: `docker build -f nginx/Dockerfile -t
-#        crm-nginx-test --build-arg VITE_API_URL=/api .`
-#     2. Run it normally (real origin-access.conf) — confirm a direct curl
-#        gets a normal 200 (proves `allow` matches SOMETHING — in the
-#        author's environment this happened to be a genuine Cloudflare
-#        edge IP via a WARP-routed connection, visible in
-#        `docker logs <container>`'s access log).
-#     3. Re-run with a bind-mounted override of origin-access.conf
-#        containing ONLY `deny all;` (no allow lines) at a different
-#        published port — confirm the SAME curl now gets 403. This proves
-#        the `include`, the server-level placement (covers every
-#        location), and `deny all` itself are all correctly wired,
-#        independent of which specific IP ranges are listed (nginx's own
-#        access module is mature/well-tested — what needed proving was
-#        THIS config's wiring, not the module itself).
+#   3. The real-visitor regression guard — also safe anywhere; it's a
+#      plain GET with an extra header, no different from any real request
+#      Cloudflare forwards.
 #
 # Usage:
 #   scripts/devops/check-nginx-perimeter.sh [origin]
@@ -89,6 +104,14 @@ set -u
 ORIGIN="${1:-${ORIGIN:-http://localhost:8080}}"
 LANDING_HOST="cheekycheese.tech"
 CRM_HOST="app.cheekycheese.tech"
+
+# TEST-NET-3 (RFC 5737) — reserved for documentation/examples, never a real
+# routable address. Stands in for "some real visitor's public IP" in the
+# CF-Connecting-IP regression guard below; the exact value doesn't matter,
+# only that it is NOT inside any Cloudflare-published range (so a
+# realip-substituted allow/deny gate, if one existed, would reject it —
+# which is precisely the bug this guard exists to catch).
+SIMULATED_VISITOR_IP='203.0.113.7'
 
 PASS=0
 FAIL=0
@@ -106,46 +129,60 @@ payload() {
   printf '%s' "$path"
 }
 
-# nginx's stock error page for client_max_body_size rejections — exact
-# title string, safe to grep for without false-positiving on real API JSON.
-NGINX_413_SIGNATURE='413 Request Entity Too Large'
+# nginx's stock error-page template is IDENTICAL across every status code it
+# generates itself (413, 502, 503, 504, ...) — only the number/reason phrase
+# in the <title>/<h1> changes; the footer `<center>nginx</center>` is
+# constant. Grepping for the 413-specific title string alone would silently
+# count a 502 (upstream unreachable) or 504 (upstream timeout) as "reached
+# the app" — found in security review round 1: `check_passes_nginx()`
+# checked ONLY for the absence of the 413 title, so any OTHER nginx-generated
+# error page (e.g. the API container being down) fell through as a false
+# PASS. Matching the constant footer instead closes the whole class, not
+# just the one status code this test happens to exercise.
+NGINX_ERROR_PAGE_SIGNATURE='<center>nginx</center>'
 
-# Args: description, host, size-in-MB. Asserts the response is NOT nginx's
-# own HTML 413 page — i.e. the body reached the upstream (whatever status
-# the upstream itself returned: 200 from a local stub, 404 "Cannot POST"
-# from the real Nest app, a real 413 JSON from the real app's own size
-# check — anything EXCEPT nginx's blunt HTML page counts as a pass here).
+# Args: description, host, size-in-MB. Asserts the response reached the
+# REAL upstream — i.e. neither nginx's own error-page template (see above)
+# NOR a non-2xx/4xx-from-the-app status that nginx itself could have
+# generated. Whatever the upstream itself returned (200 from a local stub,
+# 404 "Cannot POST" from the real Nest app, a real 413 JSON from the app's
+# own size check) counts as a pass; only nginx's own generated pages don't.
 check_passes_nginx() {
   local desc="$1" host="$2" mb="$3"
-  local body
-  body="$(curl -sS -k --max-time 20 -H "Host: $host" --data-binary @"$(payload "$mb")" \
-    "$ORIGIN/api/health" 2>/dev/null)"
+  local out body code
+  out="$(curl -sS -k --max-time 20 -H "Host: $host" --data-binary @"$(payload "$mb")" \
+    -w '\n%{http_code}' "$ORIGIN/api/health" 2>/dev/null)"
+  code="${out##*$'\n'}"
+  body="${out%$'\n'"$code"}"
 
-  if [[ "$body" != *"$NGINX_413_SIGNATURE"* ]]; then
+  if [[ "$body" != *"$NGINX_ERROR_PAGE_SIGNATURE"* ]]; then
     PASS=$((PASS + 1))
-    printf 'PASS  %-70s upstream responded (not nginx HTML): %.80s\n' "$desc" "$body"
+    printf 'PASS  %-70s HTTP %s, upstream responded: %.70s\n' "$desc" "$code" "$body"
   else
     FAIL=$((FAIL + 1))
-    printf 'FAIL  %-70s got nginx'"'"'s own HTML 413 — client_max_body_size too low\n' "$desc"
+    printf 'FAIL  %-70s HTTP %s, got nginx'"'"'s OWN error page: %.70s\n' "$desc" "$code" "$body"
   fi
 }
 
-# Args: description, host, size-in-MB. Asserts the response IS nginx's own
-# HTML 413 — i.e. this body is big enough that nginx's cap (the backstop
-# against genuinely oversized/abusive bodies) should reject it outright,
-# never reaching the upstream at all.
+# Args: description, host, size-in-MB. Asserts nginx's own client_max_body_size
+# backstop fired — the response IS nginx's generated error-page template,
+# with a 413 status specifically (not just "some nginx page" — 413 is the
+# only status this specific test could legitimately produce, so pinning it
+# catches a misconfigured/wrong-cause block too).
 check_blocked_by_nginx() {
   local desc="$1" host="$2" mb="$3"
-  local body
-  body="$(curl -sS -k --max-time 20 -H "Host: $host" --data-binary @"$(payload "$mb")" \
-    "$ORIGIN/api/health" 2>/dev/null)"
+  local out body code
+  out="$(curl -sS -k --max-time 20 -H "Host: $host" --data-binary @"$(payload "$mb")" \
+    -w '\n%{http_code}' "$ORIGIN/api/health" 2>/dev/null)"
+  code="${out##*$'\n'}"
+  body="${out%$'\n'"$code"}"
 
-  if [[ "$body" == *"$NGINX_413_SIGNATURE"* ]]; then
+  if [[ "$code" == "413" && "$body" == *"$NGINX_ERROR_PAGE_SIGNATURE"* ]]; then
     PASS=$((PASS + 1))
-    printf 'PASS  %-70s nginx backstop fired, as expected\n' "$desc"
+    printf 'PASS  %-70s nginx backstop fired (413), as expected\n' "$desc"
   else
     FAIL=$((FAIL + 1))
-    printf 'FAIL  %-70s expected nginx'"'"'s HTML 413 backstop, got: %.80s\n' "$desc" "$body"
+    printf 'FAIL  %-70s expected nginx'"'"'s 413 backstop, got HTTP %s: %.70s\n' "$desc" "$code" "$body"
   fi
 }
 
@@ -178,6 +215,30 @@ check_connection_closed() {
   fi
 }
 
+# Args: description, host. Real-visitor regression guard (see header
+# comment) — sends CF-Connecting-IP exactly as Cloudflare would for a
+# genuine visitor and asserts the request is NOT rejected with a 403. Does
+# NOT assert a specific success status (the real app behind /api/health
+# always 200s regardless of this header; a local stub might differ) — only
+# that nothing in the perimeter is filtering on this attacker-controlled
+# header the way the reverted gate did.
+check_visitor_not_blocked() {
+  local desc="$1" host="$2"
+  local code
+  code="$(curl -sS -k --max-time 10 -o /dev/null -w '%{http_code}' \
+    -H "Host: $host" -H "CF-Connecting-IP: $SIMULATED_VISITOR_IP" "$ORIGIN/api/health" 2>/dev/null)"
+
+  if [[ "$code" != "403" ]]; then
+    PASS=$((PASS + 1))
+    printf 'PASS  %-70s HTTP %s, visitor not blocked\n' "$desc" "$code"
+  else
+    FAIL=$((FAIL + 1))
+    printf 'FAIL  %-70s got HTTP 403 — a source-IP gate is filtering on the\n' "$desc"
+    printf '      client-supplied CF-Connecting-IP header instead of the real TCP\n'
+    printf '      peer (the exact bug reverted from this PR — see header comment).\n'
+  fi
+}
+
 echo "== check-nginx-perimeter.sh — origin: $ORIGIN =="
 echo
 
@@ -197,12 +258,12 @@ check_blocked_by_nginx "Landing: 8 MB body hits nginx's own cap (backstop)" "$LA
 check_connection_closed "default_server: unrecognised Host gets 444 (CRM path)" "not-a-real-host.invalid"
 check_connection_closed "default_server: no Host override (curl default) gets 444" ""
 
+# ── real-visitor regression guard (security review round 1 finding) ───────
+check_visitor_not_blocked "CRM: real visitor via Cloudflare (CF-Connecting-IP) is not blocked" "$CRM_HOST"
+check_visitor_not_blocked "Landing: real visitor via Cloudflare (CF-Connecting-IP) is not blocked" "$LANDING_HOST"
+
 echo
 echo "== $PASS passed, $FAIL failed =="
-echo
-echo "NOTE: the Cloudflare-only allow/deny gate (origin-access.conf) is NOT"
-echo "covered above — see this script's header comment for why and how it"
-echo "was verified manually instead."
 if [ "$FAIL" -gt 0 ]; then
   exit 1
 fi

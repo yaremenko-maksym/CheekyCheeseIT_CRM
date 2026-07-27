@@ -1093,11 +1093,19 @@ jobs:
             # security audit 2026-07-27 (MED-1/MED-5): same FATAL pattern as the
             # security-headers check immediately above — this is the "did nginx
             # end up serving the config we think it did" class of check, not a
-            # soft warning. Only the body-size + default_server sub-checks run
-            # here (POSTs to the real, public, GET-only /api/health — never
-            # touches the DB/S3/business logic); the Cloudflare-only allow/deny
-            # gate is NOT (and cannot be, from loopback) verified by this
-            # invocation — see the script's own header comment.
+            # soft warning. Covers body-size limits, the default_server
+            # catch-all, AND a real-visitor regression guard (sends
+            # CF-Connecting-IP like Cloudflare would and asserts it is NOT
+            # rejected) — POSTs to the real, public, GET-only /api/health,
+            # never touches the DB/S3/business logic. See the script's own
+            # header comment for why that regression guard exists: a
+            # source-IP allow/deny gate was attempted in the same PR that
+            # introduced this script and reverted after security review
+            # (nginx's realip module rewrites $remote_addr to the
+            # client-supplied CF-Connecting-IP BEFORE the access-control
+            # phase runs, so a naive gate blocks real visitors and passes
+            # attackers who omit that header) — that corrected gate is a
+            # separate follow-up PR, not part of this check yet.
             echo "==> Smoke test — nginx perimeter (body limits, default_server), via local nginx (FATAL)"
             NGINX_PERIMETER_SCRIPT="/opt/crm/scripts/devops/check-nginx-perimeter.sh"
             if [ ! -f "$NGINX_PERIMETER_SCRIPT" ]; then
@@ -1108,11 +1116,13 @@ jobs:
             if bash "$NGINX_PERIMETER_SCRIPT" http://127.0.0.1; then
               echo "nginx perimeter check PASSED"
             else
-              echo "ERROR: nginx is not enforcing the expected request-body limits and/or the"
-              echo "default_server catch-all is missing. This means a regression of the class fixed"
-              echo "in the 2026-07-27 security audit (client_max_body_size silently reverted to"
-              echo "nginx's 1 MB default, or an unmatched Host falling through to a real vhost again)"
-              echo "shipped — see scripts/devops/check-nginx-perimeter.sh's own header comment."
+              echo "ERROR: nginx is not enforcing the expected request-body limits, the default_server"
+              echo "catch-all is missing, and/or real Cloudflare-forwarded visitors are being blocked."
+              echo "This means a regression of the class fixed in the 2026-07-27 security audit"
+              echo "(client_max_body_size silently reverted to nginx's 1 MB default, an unmatched Host"
+              echo "falling through to a real vhost again, or a source-IP gate filtering on the"
+              echo "client-supplied CF-Connecting-IP header) shipped — see"
+              echo "scripts/devops/check-nginx-perimeter.sh's own header comment."
               exit 1
             fi
 
