@@ -62,6 +62,44 @@ import { IS_PUBLIC_KEY } from './public.decorator'
 /** Cache TTL for DB-hydrated user records. 60 s balances freshness vs DB load. */
 const CACHE_TTL_MS = 60_000
 
+/**
+ * MED-1 (security-review round 2, authz-hardening): bounds how long the
+ * legacy plain `jwt` cookie is still accepted in PRODUCTION alongside the
+ * hardened `__Host-jwt` name.
+ *
+ * Without a cutoff, the fallback below is a session-fixation surface for as
+ * long as the app runs: a plain `jwt` cookie can be set from ANY sibling
+ * subdomain of the registrable domain (XSS on the public landing, a taken-
+ * over subdomain, MITM on a plain-http sibling — see auth.controller.ts's
+ * `issueJwtCookie` doc for the full `__Host-` rationale) and this guard
+ * would honor it exactly like a real session. Since the token itself is
+ * signed, this cannot forge someone else's session — but it CAN plant the
+ * attacker's own session into an unsuspecting victim's browser (login-CSRF
+ * / session fixation), and a per-domain cookie-jar eviction from a sibling
+ * origin can knock out an already-issued `__Host-jwt` and leave only the
+ * planted `jwt` behind for an ALREADY-logged-in victim too.
+ *
+ * This constant is a FIXED calendar date, not `Date.now()` measured at
+ * process boot — computing it from boot time would reset (and re-open the
+ * window) on every restart, which defeats the entire point of a cutoff.
+ * ≤ COOKIE_MAX_AGE (7 days, auth.controller.ts) after this fix ships to
+ * prod: no legacy-named `jwt` cookie issued before this deploy can still be
+ * un-expired past that date. `auth.controller.ts`'s `issueJwtCookie` also
+ * actively clears the legacy name on every NEW `__Host-jwt` session, so in
+ * practice the window closes even sooner, per-browser, as users log in.
+ *
+ * If the actual production rollout of this fix slips past the date below,
+ * bump it (still ≤ 7 days from the REAL rollout date) in the same PR/commit
+ * that ships the delay — do not let it go stale silently.
+ *
+ * Scope: PRODUCTION ONLY (gated on `process.env.NODE_ENV === 'production'`
+ * below). Dev/test/CI never issue `__Host-jwt` at all (see
+ * auth.controller.ts for why `__Host-` cannot work over plain http), so the
+ * plain `jwt` cookie there is the permanent, correct name — not a "legacy"
+ * one subject to expiry.
+ */
+export const LEGACY_JWT_COOKIE_FALLBACK_CUTOFF = new Date('2026-08-03T00:00:00Z')
+
 interface CachedUser {
   role: JwtPayload['role']
   /** Snapshot of archivedAt at last DB query — non-null means the user is archived. */
@@ -92,15 +130,20 @@ export class JwtAuthGuard implements CanActivate {
     // `__Host-jwt` (browser-enforced Secure + Path=/ + no Domain — closes
     // the landing/CRM sibling-subdomain cookie-sharing surface). Every other
     // environment still issues the plain `jwt` name (see auth.controller.ts
-    // for why `__Host-` cannot work over plain http://localhost). Checking
-    // both names here — independent of NODE_ENV — means (a) dev/test/CI
-    // keep working unchanged, and (b) a user whose browser still holds a
-    // pre-hardening `jwt` cookie right after this deploy stays logged in
-    // until it expires/they log out, rather than being logged out mid-flight
-    // by this guard specifically (the finding flagged this rename as an
-    // EXPECTED one-time re-login for prod, but the fallback avoids doubling
-    // that disruption for anyone who authenticates in the deploy window).
-    const token = request.cookies?.['__Host-jwt'] ?? request.cookies?.['jwt']
+    // for why `__Host-` cannot work over plain http://localhost).
+    //
+    // MED-1 (security-review round 2): the legacy-name fallback is now
+    // BOUNDED — see `LEGACY_JWT_COOKIE_FALLBACK_CUTOFF`'s doc for the full
+    // rationale. `process.env.NODE_ENV` is read directly here (same pattern
+    // as throttle-decorators.ts) rather than via injected ConfigService, to
+    // avoid widening this guard's constructor signature — it is constructed
+    // directly (no DI) across ~20 test files.
+    const hostToken = request.cookies?.['__Host-jwt']
+    const legacyToken = request.cookies?.['jwt']
+    const isProduction = process.env.NODE_ENV === 'production'
+    const legacyFallbackAllowed =
+      !isProduction || Date.now() < LEGACY_JWT_COOKIE_FALLBACK_CUTOFF.getTime()
+    const token = hostToken ?? (legacyFallbackAllowed ? legacyToken : undefined)
     if (!token) throw new UnauthorizedException()
 
     // ── AC3: verify with explicit algorithm allowlist ────────────────────

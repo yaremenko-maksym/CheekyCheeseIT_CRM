@@ -18,7 +18,7 @@ import { NotFoundException, UnauthorizedException } from '@nestjs/common'
 import { JwtService } from '@nestjs/jwt'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it, vi } from 'vitest'
-import type { FastifyReply } from 'fastify'
+import type { FastifyReply, FastifyRequest } from 'fastify'
 import type { Env } from '../config/env'
 import type { UsersService } from '../users/users.service'
 import { AuthController } from './auth.controller'
@@ -44,6 +44,7 @@ function makeAuthService(): AuthService {
   return {
     buildGoogleAuthUrl: vi.fn(),
     exchangeGoogleCode: vi.fn(),
+    getGoogleUserInfo: vi.fn(),
     verifyGoogleIdToken: vi.fn(),
   } as unknown as AuthService
 }
@@ -86,30 +87,37 @@ function makeReply(): FastifyReply & { _cookies: Record<string, string> } {
 
 /**
  * Extended FastifyReply stub that ALSO records `setCookie` options (for
- * asserting `secure`) and `clearCookie` calls (for asserting logout clears
- * every legacy name), plus a no-op `redirect` so handlers using `@Res()`
- * (not `passthrough`) can run to completion without a real Fastify reply.
+ * asserting `secure`) and `clearCookie` calls WITH their options (for
+ * asserting logout's Set-Cookie deletion actually carries `secure: true` in
+ * prod — security-review round 2 HIGH-1: a stub that only recorded the
+ * cleared cookie NAME, not its opts, is exactly what let the missing
+ * `secure` attribute on `clearCookie` slip through the first time; the real
+ * bug was that `reply.clearCookie(name, {path:'/'})` (no `secure`) makes
+ * @fastify/cookie emit a `__Host-*` deletion header the browser discards
+ * whole — so the cookie never actually gets cleared in production).
+ * `redirect` is a no-op so handlers using `@Res()` (not `passthrough`) can
+ * run to completion without a real Fastify reply.
  */
 function makeFullReply(): FastifyReply & {
   _cookies: Record<string, { value: string; opts: Record<string, unknown> }>
-  _cleared: string[]
+  _cleared: Record<string, Record<string, unknown>>
 } {
   const reply = {
     _cookies: {} as Record<string, { value: string; opts: Record<string, unknown> }>,
-    _cleared: [] as string[],
+    _cleared: {} as Record<string, Record<string, unknown>>,
     setCookie(name: string, value: string, opts: Record<string, unknown>) {
       this._cookies[name] = { value, opts }
       return this
     },
-    clearCookie(name: string) {
-      this._cleared.push(name)
+    clearCookie(name: string, opts: Record<string, unknown> = {}) {
+      this._cleared[name] = opts
       return this
     },
     redirect: vi.fn().mockResolvedValue(undefined),
   }
   return reply as unknown as FastifyReply & {
     _cookies: Record<string, { value: string; opts: Record<string, unknown> }>
-    _cleared: string[]
+    _cleared: Record<string, Record<string, unknown>>
   }
 }
 
@@ -298,7 +306,14 @@ describe('AuthController — cookie hardening (__Host- prefix, prod only)', () =
     expect(reply._cookies['__Host-jwt']).toBeUndefined()
   })
 
-  it('PROD: logout clears BOTH __Host-jwt and the legacy jwt name', async () => {
+  it('PROD: logout clears BOTH __Host-jwt and jwt WITH secure:true (HIGH-1 regression guard)', async () => {
+    // security-review round 2 HIGH-1: @fastify/cookie's clearCookie(name, opts)
+    // builds its Set-Cookie header ONLY from the opts passed to THIS call (the
+    // plugin is registered with only `{secret}` in main.ts — no parseOptions
+    // fallback). A `__Host-*` deletion response without `secure: true` gets
+    // silently discarded by the browser per the cookie-prefix rules, so the
+    // cookie survives and "logout" does nothing. This is the exact regression
+    // the previous round's stub (name-only, no opts) could not catch.
     const controller = new AuthController(
       makeAuthService(),
       makeUsersService(TEST_USER),
@@ -309,7 +324,58 @@ describe('AuthController — cookie hardening (__Host- prefix, prod only)', () =
 
     await controller.logout(reply)
 
-    expect(reply._cleared).toContain('__Host-jwt')
-    expect(reply._cleared).toContain('jwt')
+    expect(Object.keys(reply._cleared)).toContain('__Host-jwt')
+    expect(Object.keys(reply._cleared)).toContain('jwt')
+    // The regression: secure MUST be true on the __Host-jwt clear in prod.
+    expect(reply._cleared['__Host-jwt']!['secure']).toBe(true)
+    expect(reply._cleared['__Host-jwt']!['path']).toBe('/')
+    // Clearing the legacy name is defense-in-depth for browsers still
+    // holding a pre-hardening cookie — its own opts must be well-formed too.
+    expect(reply._cleared['jwt']!['secure']).toBe(true)
+  })
+
+  it('DEV regression: logout clears jwt with secure:false (no __Host- name to clear)', async () => {
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+    const reply = makeFullReply()
+
+    await controller.logout(reply)
+
+    expect(Object.keys(reply._cleared)).toEqual(['jwt'])
+    expect(reply._cleared['jwt']!['secure']).toBe(false)
+  })
+
+  it('PROD: googleCallback clears __Host-oauth_state WITH secure:true (HIGH-1 regression guard)', async () => {
+    const authService = makeAuthService()
+    ;(authService.exchangeGoogleCode as ReturnType<typeof vi.fn>).mockResolvedValue({
+      access_token: 'at',
+      id_token: 'it',
+      expires_in: 3600,
+    })
+    ;(authService.getGoogleUserInfo as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+    const request = {
+      cookies: { '__Host-oauth_state': 'state-value' },
+    } as unknown as FastifyRequest
+
+    await controller.googleCallback('code', 'state-value', request, reply)
+
+    expect(Object.keys(reply._cleared)).toContain('__Host-oauth_state')
+    expect(reply._cleared['__Host-oauth_state']!['secure']).toBe(true)
   })
 })

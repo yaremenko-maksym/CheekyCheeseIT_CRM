@@ -41,6 +41,20 @@ const STATE_COOKIE_LEGACY = 'oauth_state'
 const JWT_COOKIE_LEGACY = 'jwt'
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 // 7 days in seconds
 
+interface SetCookieOpts {
+  httpOnly: true
+  sameSite: 'lax'
+  secure: boolean
+  maxAge: number
+  path: '/'
+}
+interface ClearCookieOpts {
+  httpOnly: true
+  sameSite: 'lax'
+  secure: boolean
+  path: '/'
+}
+
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name)
@@ -63,6 +77,21 @@ export class AuthController {
   // legacy plain name, matching `secure: this.isProduction` below 1:1.
   private readonly jwtCookieName: string
   private readonly stateCookieName: string
+  // security-review round 2 (HIGH-1 regression fix): `clearCookie(name, opts)`
+  // in @fastify/cookie builds its Set-Cookie header ONLY from the opts passed
+  // to that call (+ the plugin's `parseOptions`, which main.ts does not set —
+  // it registers `cookie` with only `{ secret }`). A `__Host-*` deletion
+  // response therefore needs `secure: true` on the CLEAR call too, or the
+  // browser silently drops the entire Set-Cookie header per the `__Host-`
+  // prefix rules — the cookie survives and "logout" becomes cosmetic. Both
+  // this options object and `jwtSetCookieOpts` below are built ONCE in the
+  // constructor (from the same `isProduction`) instead of being repeated
+  // ad-hoc at each call site, so a future edit to one attribute cannot drift
+  // between set/clear the way the original bug did.
+  private readonly jwtSetCookieOpts: SetCookieOpts
+  private readonly jwtClearCookieOpts: ClearCookieOpts
+  private readonly stateSetCookieOpts: SetCookieOpts
+  private readonly stateClearCookieOpts: ClearCookieOpts
 
   constructor(
     private authService: AuthService,
@@ -74,6 +103,53 @@ export class AuthController {
     this.isProduction = this.config.get('NODE_ENV', { infer: true }) === 'production'
     this.jwtCookieName = this.isProduction ? '__Host-jwt' : JWT_COOKIE_LEGACY
     this.stateCookieName = this.isProduction ? '__Host-oauth_state' : STATE_COOKIE_LEGACY
+    this.jwtSetCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+    }
+    this.jwtClearCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      path: '/',
+    }
+    this.stateSetCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      maxAge: 600,
+      path: '/',
+    }
+    this.stateClearCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      path: '/',
+    }
+  }
+
+  /**
+   * Sets the JWT session cookie under the current name (`__Host-jwt` in
+   * prod, plain `jwt` elsewhere) and, in production, ALSO clears the legacy
+   * plain `jwt` name in the same response.
+   *
+   * MED-1 (security-review round 2): the legacy-name fallback read in
+   * jwt.guard.ts is a session-fixation surface for as long as a browser can
+   * still be holding a pre-hardening `jwt` cookie. Actively clearing it
+   * every time we mint a NEW `__Host-jwt` session means the window shrinks
+   * on its own as users authenticate — combined with the hard cutoff date in
+   * jwt.guard.ts (`LEGACY_JWT_COOKIE_FALLBACK_CUTOFF`), the fallback cannot
+   * stay open indefinitely for any single browser, only for the bounded
+   * period before that browser's next login.
+   */
+  private issueJwtCookie(reply: FastifyReply, token: string): void {
+    reply.setCookie(this.jwtCookieName, token, this.jwtSetCookieOpts)
+    if (this.jwtCookieName !== JWT_COOKIE_LEGACY) {
+      reply.clearCookie(JWT_COOKIE_LEGACY, this.jwtClearCookieOpts)
+    }
   }
 
   @Get('google')
@@ -82,13 +158,7 @@ export class AuthController {
     const state = randomBytes(16).toString('hex')
     const authUrl = this.authService.buildGoogleAuthUrl(state)
 
-    reply.setCookie(this.stateCookieName, state, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: 600,
-      path: '/',
-    })
+    reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
     await reply.redirect(authUrl, 302)
   }
 
@@ -107,7 +177,9 @@ export class AuthController {
       return
     }
 
-    reply.clearCookie(this.stateCookieName, { path: '/' })
+    // HIGH-1 fix (security-review round 2): full opts, not just `{path:'/'}` —
+    // see `issueJwtCookie` doc for why a `__Host-*` deletion needs `secure`.
+    reply.clearCookie(this.stateCookieName, this.stateClearCookieOpts)
 
     let googleUser: { id: string; email: string; name: string; picture: string }
     try {
@@ -151,13 +223,7 @@ export class AuthController {
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(this.jwtCookieName, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     await reply.redirect(`${this.frontendUrl}/`, 302)
   }
@@ -240,13 +306,7 @@ export class AuthController {
     })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(this.jwtCookieName, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     return { ok: true }
   }
@@ -289,13 +349,7 @@ export class AuthController {
     })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(this.jwtCookieName, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     return { ok: true }
   }
@@ -337,13 +391,7 @@ export class AuthController {
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(this.jwtCookieName, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     return { ok: true }
   }
@@ -362,9 +410,16 @@ export class AuthController {
     // name unconditionally — a user whose browser still holds a
     // pre-hardening `jwt` cookie (issued before this deploy) must still be
     // fully logged out. Clearing a cookie that was never set is a no-op.
-    reply.clearCookie(this.jwtCookieName, { path: '/' })
+    //
+    // HIGH-1 fix (security-review round 2): MUST use `jwtClearCookieOpts`
+    // (full opts incl. `secure`), not a bare `{path:'/'}` — see
+    // `issueJwtCookie`'s doc for why a bare clear silently no-ops on
+    // `__Host-jwt` in production (the browser drops any `__Host-*`
+    // Set-Cookie header that lacks `Secure`, so the "deletion" response
+    // itself gets discarded and the cookie survives).
+    reply.clearCookie(this.jwtCookieName, this.jwtClearCookieOpts)
     if (this.jwtCookieName !== JWT_COOKIE_LEGACY) {
-      reply.clearCookie(JWT_COOKIE_LEGACY, { path: '/' })
+      reply.clearCookie(JWT_COOKIE_LEGACY, this.jwtClearCookieOpts)
     }
     await reply.redirect(`${this.frontendUrl}/login`, 302)
   }
@@ -383,13 +438,10 @@ export class AuthController {
     // MED #2: JWT cookie stores only minimal identity (no PII).
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
-    reply.setCookie(this.jwtCookieName, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: false,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    // devLogin can only reach this line when `this.isProduction === false`
+    // (checked above), so `issueJwtCookie`'s `secure: this.isProduction`
+    // evaluates identically to the previous hardcoded `secure: false` here.
+    this.issueJwtCookie(reply, token)
 
     return { ok: true, user: jwtPayload }
   }
