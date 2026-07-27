@@ -42,6 +42,7 @@ function makeTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
     receiptExternalUrl: null,
     notes: null,
     salaryMonth: null,
+    txDate: null,
     txHash: null,
     rejectionReason: null,
     payoutRequestId: null,
