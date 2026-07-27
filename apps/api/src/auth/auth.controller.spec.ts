@@ -62,6 +62,7 @@ const TEST_USER = {
 function makeUsersService(foundUser: typeof TEST_USER | null): UsersService {
   return {
     findByEmail: vi.fn().mockResolvedValue(foundUser),
+    updateGoogleId: vi.fn().mockResolvedValue(undefined),
   } as unknown as UsersService
 }
 
@@ -81,6 +82,35 @@ function makeReply(): FastifyReply & { _cookies: Record<string, string> } {
     },
   }
   return reply as unknown as FastifyReply & { _cookies: Record<string, string> }
+}
+
+/**
+ * Extended FastifyReply stub that ALSO records `setCookie` options (for
+ * asserting `secure`) and `clearCookie` calls (for asserting logout clears
+ * every legacy name), plus a no-op `redirect` so handlers using `@Res()`
+ * (not `passthrough`) can run to completion without a real Fastify reply.
+ */
+function makeFullReply(): FastifyReply & {
+  _cookies: Record<string, { value: string; opts: Record<string, unknown> }>
+  _cleared: string[]
+} {
+  const reply = {
+    _cookies: {} as Record<string, { value: string; opts: Record<string, unknown> }>,
+    _cleared: [] as string[],
+    setCookie(name: string, value: string, opts: Record<string, unknown>) {
+      this._cookies[name] = { value, opts }
+      return this
+    },
+    clearCookie(name: string) {
+      this._cleared.push(name)
+      return this
+    },
+    redirect: vi.fn().mockResolvedValue(undefined),
+  }
+  return reply as unknown as FastifyReply & {
+    _cookies: Record<string, { value: string; opts: Record<string, unknown> }>
+    _cleared: string[]
+  }
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -159,5 +189,127 @@ describe('AuthController.devLogin — R1 production guard', () => {
     await expect(controller.devLogin({ email: 'any@example.com' }, reply)).rejects.toThrow(
       UnauthorizedException,
     )
+  })
+})
+
+/**
+ * Cookie hardening — security-audit authz-hardening "плюс" finding.
+ *
+ * PROBLEM: the session cookie was named `jwt` with no `__Host-` prefix and
+ * no `Domain` restriction. The public landing (cheekycheese.tech) and the
+ * CRM (app.cheekycheese.tech) are siblings under the same registrable
+ * domain, so a cookie without the `__Host-` prefix can be set/overridden
+ * from a sibling subdomain (Domain-scoped cookie spoofing). `__Host-`
+ * forces the browser to enforce Secure + Path=/ + no Domain attribute.
+ *
+ * `__Host-` requires HTTPS (Secure) — dev runs over plain http, where a
+ * `secure: true` cookie is silently dropped by the browser. So the prefix
+ * is used ONLY when NODE_ENV=production; every other environment keeps the
+ * legacy plain name (pinned by the R1-b / dev-mode cases below — no
+ * regression for local dev, CI, or existing integration specs that inject
+ * a plain `jwt`-named cookie).
+ */
+describe('AuthController — cookie hardening (__Host- prefix, prod only)', () => {
+  it('PROD: initiateGoogleAuth sets __Host-oauth_state (Secure) instead of oauth_state', async () => {
+    const authService = makeAuthService()
+    ;(authService.buildGoogleAuthUrl as ReturnType<typeof vi.fn>).mockReturnValue(
+      'https://accounts.google.com/o/oauth2/auth?...',
+    )
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.initiateGoogleAuth(reply)
+
+    expect(reply._cookies['__Host-oauth_state']).toBeDefined()
+    expect(reply._cookies['__Host-oauth_state']!.opts['secure']).toBe(true)
+    // The legacy plain name must NOT be used in production.
+    expect(reply._cookies['oauth_state']).toBeUndefined()
+  })
+
+  it('DEV regression: initiateGoogleAuth still sets plain oauth_state (not __Host-)', async () => {
+    const authService = makeAuthService()
+    ;(authService.buildGoogleAuthUrl as ReturnType<typeof vi.fn>).mockReturnValue(
+      'https://accounts.google.com/o/oauth2/auth?...',
+    )
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+    const reply = makeFullReply()
+
+    await controller.initiateGoogleAuth(reply)
+
+    expect(reply._cookies['oauth_state']).toBeDefined()
+    expect(reply._cookies['oauth_state']!.opts['secure']).toBe(false)
+    expect(reply._cookies['__Host-oauth_state']).toBeUndefined()
+  })
+
+  it('PROD: googleOneTap sets __Host-jwt (Secure) instead of jwt', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    const result = await controller.googleOneTap({ credential: 'cred' }, reply)
+
+    expect(result).toEqual({ ok: true })
+    expect(reply._cookies['__Host-jwt']).toBeDefined()
+    expect(reply._cookies['__Host-jwt']!.opts['secure']).toBe(true)
+    expect(reply._cookies['jwt']).toBeUndefined()
+  })
+
+  it('DEV regression: googleOneTap still sets plain jwt (not __Host-)', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+    const reply = makeFullReply()
+
+    await controller.googleOneTap({ credential: 'cred' }, reply)
+
+    expect(reply._cookies['jwt']).toBeDefined()
+    expect(reply._cookies['jwt']!.opts['secure']).toBe(false)
+    expect(reply._cookies['__Host-jwt']).toBeUndefined()
+  })
+
+  it('PROD: logout clears BOTH __Host-jwt and the legacy jwt name', async () => {
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.logout(reply)
+
+    expect(reply._cleared).toContain('__Host-jwt')
+    expect(reply._cleared).toContain('jwt')
   })
 })

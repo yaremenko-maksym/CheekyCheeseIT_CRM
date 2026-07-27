@@ -88,7 +88,19 @@ export class JwtAuthGuard implements CanActivate {
     if (isPublic) return true
 
     const request = ctx.switchToHttp().getRequest<FastifyRequest>()
-    const token = request.cookies?.['jwt']
+    // Cookie hardening (security-audit authz-hardening): production issues
+    // `__Host-jwt` (browser-enforced Secure + Path=/ + no Domain — closes
+    // the landing/CRM sibling-subdomain cookie-sharing surface). Every other
+    // environment still issues the plain `jwt` name (see auth.controller.ts
+    // for why `__Host-` cannot work over plain http://localhost). Checking
+    // both names here — independent of NODE_ENV — means (a) dev/test/CI
+    // keep working unchanged, and (b) a user whose browser still holds a
+    // pre-hardening `jwt` cookie right after this deploy stays logged in
+    // until it expires/they log out, rather than being logged out mid-flight
+    // by this guard specifically (the finding flagged this rename as an
+    // EXPECTED one-time re-login for prod, but the fallback avoids doubling
+    // that disruption for anyone who authenticates in the deploy window).
+    const token = request.cookies?.['__Host-jwt'] ?? request.cookies?.['jwt']
     if (!token) throw new UnauthorizedException()
 
     // ── AC3: verify with explicit algorithm allowlist ────────────────────

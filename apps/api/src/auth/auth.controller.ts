@@ -34,8 +34,11 @@ import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
 import { Public } from './public.decorator'
 
-const STATE_COOKIE = 'oauth_state'
-const JWT_COOKIE = 'jwt'
+// Plain (legacy) cookie names — used as the pre-hardening name AND, in
+// non-production environments, as the live name (see comment below on why
+// `__Host-` cannot be used outside prod).
+const STATE_COOKIE_LEGACY = 'oauth_state'
+const JWT_COOKIE_LEGACY = 'jwt'
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 // 7 days in seconds
 
 @Controller('auth')
@@ -43,6 +46,23 @@ export class AuthController {
   private readonly logger = new Logger(AuthController.name)
   private readonly frontendUrl: string
   private readonly isProduction: boolean
+  // Cookie hardening (security-audit authz-hardening, "плюс" finding): the
+  // `__Host-` prefix makes the browser itself enforce Secure + Path=/ + no
+  // Domain attribute on this cookie — a session cookie with `Domain` set
+  // (or none, relying on default-domain matching) is shared with any
+  // subdomain of the registrable domain, which matters here because the
+  // public landing (cheekycheese.tech) and the CRM (app.cheekycheese.tech)
+  // are siblings under the same registrable domain. `__Host-` closes that
+  // sharing/spoofing surface at the browser level.
+  //
+  // `__Host-` REQUIRES the Secure attribute, which requires HTTPS — dev runs
+  // over plain http://localhost, where a `secure: true` cookie would simply
+  // never be stored by the browser (silent login failure, not a security
+  // trade-off worth making for local dev). So the prefixed name is used
+  // ONLY in production; every other environment (dev, test, CI) keeps the
+  // legacy plain name, matching `secure: this.isProduction` below 1:1.
+  private readonly jwtCookieName: string
+  private readonly stateCookieName: string
 
   constructor(
     private authService: AuthService,
@@ -52,6 +72,8 @@ export class AuthController {
   ) {
     this.frontendUrl = this.config.get('FRONTEND_URL', { infer: true })!
     this.isProduction = this.config.get('NODE_ENV', { infer: true }) === 'production'
+    this.jwtCookieName = this.isProduction ? '__Host-jwt' : JWT_COOKIE_LEGACY
+    this.stateCookieName = this.isProduction ? '__Host-oauth_state' : STATE_COOKIE_LEGACY
   }
 
   @Get('google')
@@ -60,7 +82,7 @@ export class AuthController {
     const state = randomBytes(16).toString('hex')
     const authUrl = this.authService.buildGoogleAuthUrl(state)
 
-    reply.setCookie(STATE_COOKIE, state, {
+    reply.setCookie(this.stateCookieName, state, {
       httpOnly: true,
       sameSite: 'lax',
       secure: this.isProduction,
@@ -79,13 +101,13 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
-    const storedState = request.cookies?.[STATE_COOKIE]
+    const storedState = request.cookies?.[this.stateCookieName]
     if (!storedState || storedState !== state || !code) {
       await reply.redirect(`${this.frontendUrl}/login?error=invalid_state`, 302)
       return
     }
 
-    reply.clearCookie(STATE_COOKIE, { path: '/' })
+    reply.clearCookie(this.stateCookieName, { path: '/' })
 
     let googleUser: { id: string; email: string; name: string; picture: string }
     try {
@@ -129,7 +151,7 @@ export class AuthController {
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
+    reply.setCookie(this.jwtCookieName, token, {
       httpOnly: true,
       sameSite: 'lax',
       secure: this.isProduction,
@@ -218,7 +240,7 @@ export class AuthController {
     })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
+    reply.setCookie(this.jwtCookieName, token, {
       httpOnly: true,
       sameSite: 'lax',
       secure: this.isProduction,
@@ -267,7 +289,7 @@ export class AuthController {
     })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
+    reply.setCookie(this.jwtCookieName, token, {
       httpOnly: true,
       sameSite: 'lax',
       secure: this.isProduction,
@@ -315,7 +337,7 @@ export class AuthController {
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
+    reply.setCookie(this.jwtCookieName, token, {
       httpOnly: true,
       sameSite: 'lax',
       secure: this.isProduction,
@@ -336,7 +358,14 @@ export class AuthController {
   @Post('logout')
   @Public()
   async logout(@Res() reply: FastifyReply) {
-    reply.clearCookie(JWT_COOKIE, { path: '/' })
+    // Cookie hardening: clear BOTH the current name and the legacy plain
+    // name unconditionally — a user whose browser still holds a
+    // pre-hardening `jwt` cookie (issued before this deploy) must still be
+    // fully logged out. Clearing a cookie that was never set is a no-op.
+    reply.clearCookie(this.jwtCookieName, { path: '/' })
+    if (this.jwtCookieName !== JWT_COOKIE_LEGACY) {
+      reply.clearCookie(JWT_COOKIE_LEGACY, { path: '/' })
+    }
     await reply.redirect(`${this.frontendUrl}/login`, 302)
   }
 
@@ -354,7 +383,7 @@ export class AuthController {
     // MED #2: JWT cookie stores only minimal identity (no PII).
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
-    reply.setCookie(JWT_COOKIE, token, {
+    reply.setCookie(this.jwtCookieName, token, {
       httpOnly: true,
       sameSite: 'lax',
       secure: false,
