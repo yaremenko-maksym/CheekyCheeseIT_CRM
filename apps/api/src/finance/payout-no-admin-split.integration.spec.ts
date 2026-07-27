@@ -39,8 +39,11 @@ import * as schema from '../database/schema'
  *
  * Invariants proven (all against the REAL cascade + REAL balance derivation):
  *   AC1  senior on-chain payout PAID  → 0 PAYOUT_ADMIN; balance += payable ONCE.
- *   AC2  drop-project payout PAID     → 0 PAYOUT_ADMIN; PAYOUT_DROP slice intact;
- *                                       balance += payable ONCE.
+ *   AC2  drop-project payout PAID     → 0 PAYOUT_ADMIN; drop slice booked as a
+ *                                       PENDING DROP_PENDING_PAYOUT (task-drop-
+ *                                       share-pending-parity — no longer an
+ *                                       instant PAYOUT_DROP); balance += payable
+ *                                       ONCE.
  *   AC3  manual COMPANY_ACCOUNT       → 0 PAYOUT_ADMIN; balance credited ONCE.
  *   AC4  manual CASH / ADMIN_USDT     → 0 PAYOUT_ADMIN; balance UNCHANGED (the
  *                                       company account is not the recipient).
@@ -245,12 +248,12 @@ describe('payout settlement — NO redundant 50/50 PAYOUT_ADMIN split (real DB)'
     return rows.length
   }
 
-  /** PAYOUT_DROP rows (amount strings) for a given payout request. */
-  async function payoutDropRows(requestId: string): Promise<string[]> {
+  /** Rows of a given `type` (amount strings) for a payout request. */
+  async function rowsByType(requestId: string, type: string): Promise<string[]> {
     const rows = await dbSvc.db
       .select({ amount: transactions.amount })
       .from(transactions)
-      .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT_DROP')))
+      .where(and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, type)))
     return rows.map((r) => r.amount)
   }
 
@@ -441,7 +444,7 @@ describe('payout settlement — NO redundant 50/50 PAYOUT_ADMIN split (real DB)'
   })
 
   // ── AC2: drop-project payout → 0 PAYOUT_ADMIN, PAYOUT_DROP intact, +payable ──
-  it('AC2 drop-project payout PAID → 0 PAYOUT_ADMIN; PAYOUT_DROP drop-slice intact; balance += payable (once)', async () => {
+  it('AC2 drop-project payout PAID → 0 PAYOUT_ADMIN; DROP_PENDING_PAYOUT drop-slice pending; balance += payable (once)', async () => {
     if (!dbAvailable) return
     const before = await displayBalance()
     // income 1000, dropShare 5% → 50 to drop, payable 950 transferred to company.
@@ -461,11 +464,15 @@ describe('payout settlement — NO redundant 50/50 PAYOUT_ADMIN split (real DB)'
     // CORE: no auto partner split (the drop-branch partnerShares loop is gone).
     expect(await payoutAdminCount(requestId)).toBe(0)
 
-    // The DROP's distribution slice is untouched: exactly one PAYOUT_DROP row of
-    // (income * dropSharePercent/100) = 1000 * 5% = 50.
-    const dropRows = await payoutDropRows(requestId)
+    // task-drop-share-pending-parity (2026-07-27): the DROP's distribution
+    // slice is booked as a PENDING_PAYMENT DROP_PENDING_PAYOUT COMPANY debt
+    // (income * dropSharePercent/100 = 1000 * 5% = 50), NOT an instant PAID
+    // PAYOUT_DROP — it requires an ADMIN/ACCOUNTANT settle-with-receipt (see
+    // drop-payout-company-account.integration.spec.ts for the settle flow).
+    const dropRows = await rowsByType(requestId, 'DROP_PENDING_PAYOUT')
     expect(dropRows).toHaveLength(1)
     expect(parseFloat(dropRows[0]!)).toBeCloseTo(50, 6)
+    expect(await rowsByType(requestId, 'PAYOUT_DROP')).toHaveLength(0)
 
     // Company account credited the recorded payable (the PAYOUT row), once.
     expect(await displayBalance()).toBeCloseTo(before + payable, 6)

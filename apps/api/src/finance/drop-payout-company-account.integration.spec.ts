@@ -33,23 +33,40 @@ import * as schema from '../database/schema'
  *   createPayoutRequest (bundle own VALIDATED DROP_INCOME) → payPayoutRequest
  *   (on-chain confirm to the COMPANY wallet). The cascade then books:
  *     - PAYOUT row PAID, fundingSource=COMPANY_ACCOUNT → company += payable ONCE.
- *     - PAYOUT_DROP = income * dropShare% (the drop's slice).
+ *     - DROP_PENDING_PAYOUT (PENDING_PAYMENT, debtor=COMPANY) + a
+ *       pending_obligation (creditor=drop, COMPANY) for income * dropShare%
+ *       (task-drop-share-pending-parity, 2026-07-27 — the drop's own slice is
+ *       no longer an instant PAID PAYOUT_DROP; it requires the SAME
+ *       settle-with-receipt confirmation as the senior's share below).
  *     - SENIOR_PENDING_PAYOUT (PENDING_PAYMENT, debtor=COMPANY) + a
  *       pending_obligation (creditor=senior, COMPANY) for income * seniorShare%.
  *     - ZERO PAYOUT_ADMIN (the legacy 50/50 split is gone).
  *
- *   settleByCompany (ADMIN/ACCOUNTANT) then closes the obligation → SENIOR_INCOME
- *   += seniorShare, company −= seniorShare. Net company = income*(1−d%−s%).
+ *   settleByCompany (ADMIN/ACCOUNTANT) then closes each obligation in place:
+ *     - senior: SENIOR_PENDING_PAYOUT → SENIOR_INCOME (PAID), company −= s%.
+ *     - drop:   DROP_PENDING_PAYOUT → PAYOUT_DROP (PAID), credits the drop.
+ *       Settled here with ADMIN_PERSONAL funding — the drop's slice never
+ *       landed on the company pool (only `payable` = I*(1-d%) did; the drop
+ *       self-keeps its cut before the on-chain transfer), so a
+ *       COMPANY_ACCOUNT-funded settle would debit money the company never
+ *       received. ADMIN_PERSONAL is the funding choice that matches reality
+ *       and leaves the shared balance untouched — same principle already
+ *       relied on for an admin-declared income that lands in a specific
+ *       admin's personal wallet (see pending-settlement.service.ts).
+ *   Net company after both settles = income*(1−d%−s%).
  *
  * Invariants proven (against the REAL cascade + REAL balance derivation):
- *   INV1  drop payout PAID → company += payable (once); PAYOUT_DROP = I*d%;
+ *   INV1  drop payout PAID → company += payable (once); DROP_PENDING_PAYOUT
+ *         (PENDING_PAYMENT) = I*d% — NOT yet a PAYOUT_DROP;
  *         SENIOR_PENDING_PAYOUT + obligation = I*s%; 0 PAYOUT_ADMIN.
- *   INV2  settleByCompany → senior SENIOR_INCOME += I*s%; company −= I*s%;
- *         net company = I*(1−d%−s%).
- *   INV3  senior payout (senior-project) unchanged → 0 PAYOUT_DROP / pending,
- *         company += payable once.
+ *   INV2  settleByCompany(senior) → SENIOR_INCOME += I*s%; company −= I*s%.
+ *         settleByCompany(drop, ADMIN_PERSONAL) → PAYOUT_DROP += I*d%; company
+ *         balance UNCHANGED by the drop settle. Net company = I*(1−d%−s%).
+ *   INV3  senior payout (senior-project) unchanged → 0 DROP_PENDING_PAYOUT /
+ *         PAYOUT_DROP / pending, company += payable once.
  *   INV4  display balance (getAccount) == gate balance (ledger SSOT) — no drift,
  *         no double-counting at any step.
+ *   AC4   settling the drop obligation WITHOUT a receipt is rejected.
  *   RBAC  DROP cannot bundle another's DROP_INCOME (createPayoutRequest → 400);
  *         settleByCompany only ADMIN/ACCOUNTANT (DROP/SENIOR → 403).
  *
@@ -419,8 +436,8 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
     await _pool?.end()
   }, 15_000)
 
-  // ── INV1: drop payout → company += payable; PAYOUT_DROP; SENIOR_PENDING + obligation; 0 PAYOUT_ADMIN
-  it('INV1 drop payout PAID → company += I*(1-d%) once; PAYOUT_DROP=I*d%; SENIOR_PENDING_PAYOUT + obligation=I*s%; 0 PAYOUT_ADMIN', async () => {
+  // ── INV1: drop payout → company += payable; DROP_PENDING_PAYOUT; SENIOR_PENDING + obligation; 0 PAYOUT_ADMIN
+  it('INV1 drop payout PAID → company += I*(1-d%) once; DROP_PENDING_PAYOUT=I*d% (pending, NOT PAYOUT_DROP yet); SENIOR_PENDING_PAYOUT + obligation=I*s%; 0 PAYOUT_ADMIN', async () => {
     if (!dbAvailable) return
     const I = 1000
     const before = await displayBalance()
@@ -449,12 +466,21 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
     // No legacy partner split.
     expect(await rowsByType(pr.id, 'PAYOUT_ADMIN')).toHaveLength(0)
 
-    // Drop's slice = I * d% = 50.
-    const dropRows = await rowsByType(pr.id, 'PAYOUT_DROP')
-    expect(dropRows).toHaveLength(1)
-    expect(parseFloat(dropRows[0]!)).toBeCloseTo((I * DROP_SHARE) / 100, 6)
+    // task-drop-share-pending-parity: the drop's slice is NOT an instant
+    // PAYOUT_DROP anymore — it is a PENDING_PAYMENT COMPANY debt, same shape
+    // as the senior's, until an ADMIN/ACCOUNTANT settles it with a receipt.
+    expect(await rowsByType(pr.id, 'PAYOUT_DROP')).toHaveLength(0)
+    const dropPendingRows = await rowsByType(pr.id, 'DROP_PENDING_PAYOUT')
+    expect(dropPendingRows).toHaveLength(1)
+    expect(parseFloat(dropPendingRows[0]!)).toBeCloseTo((I * DROP_SHARE) / 100, 6)
 
-    // Senior IOU row + obligation = I * s% = 260.
+    const dropObligations = await pendingObligationsFor(DROP_A.id)
+    expect(dropObligations).toHaveLength(1)
+    expect(parseFloat(dropObligations[0]!.amount)).toBeCloseTo((I * DROP_SHARE) / 100, 6)
+    expect(dropObligations[0]!.debtorType).toBe('COMPANY')
+    expect(dropObligations[0]!.status).toBe('PENDING')
+
+    // Senior IOU row + obligation = I * s% = 260 (unchanged by this task).
     const expectedSenior = (I * SENIOR_SHARE) / 100
     const pendingRows = await rowsByType(pr.id, 'SENIOR_PENDING_PAYOUT')
     expect(pendingRows).toHaveLength(1)
@@ -514,6 +540,99 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
 
     // No drift after settlement.
     expect(await displayBalance()).toBeCloseTo(await gateBalance(), 6)
+  })
+
+  // ── INV2b (task-drop-share-pending-parity, AC1-3): drop settle → PAYOUT_DROP,
+  // drop's OWN balance moves only after settle; company balance untouched by
+  // an ADMIN_PERSONAL-funded drop settle (the money never sat in the pool).
+  it('INV2b settleByCompany(drop, ADMIN_PERSONAL) → PAYOUT_DROP += I*d%; drop balance 0 before / +I*d% after; company balance unchanged', async () => {
+    if (!dbAvailable) return
+    const I = 1000
+    const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+    const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+    const payable = parseFloat(pr.payableAmount)
+    const HASH = '0x' + 'a'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+    })
+    await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+    const dropShare = (I * DROP_SHARE) / 100
+
+    // AC3: drop's own balance does NOT move while the obligation is PENDING.
+    const beforeDropSettle = (await svc.getDropSelfSummary(DROP_A)).balance
+    const beforeCompanyBalance = await displayBalance()
+
+    const [dropObligation] = await pendingObligationsFor(DROP_A.id)
+    expect(dropObligation).toBeTruthy()
+    const dropObRow = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.sourceTransactionId, dropObligation!.sourceTransactionId),
+    })
+
+    // ADMIN_PERSONAL — see the file-header note: the drop's slice never
+    // touched the company pool, so this is the funding choice that matches
+    // reality and keeps the shared balance untouched.
+    const settled = await settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_MAKSYM.id,
+      receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountinv2b001',
+    })
+    expect(settled.obligation.status).toBe('PAID')
+
+    const payoutDrop = settled.created.find((c) => c.type === 'PAYOUT_DROP')
+    expect(payoutDrop).toBeTruthy()
+    expect(parseFloat(payoutDrop!.amount)).toBeCloseTo(dropShare, 6)
+    // In-place flip (task-settle-in-place): the flipped row reuses the SAME
+    // id as the source DROP_PENDING_PAYOUT — no second transaction.
+    expect(payoutDrop!.id).toBe(dropObRow!.sourceTransactionId)
+
+    // AC3: drop balance increases by EXACTLY the same amount a direct
+    // PAYOUT_DROP would have credited (regression on the distribution math).
+    const afterDropSettle = (await svc.getDropSelfSummary(DROP_A)).balance
+    expect(afterDropSettle - beforeDropSettle).toBeCloseTo(dropShare, 6)
+
+    // ADMIN_PERSONAL settle never touches the shared company account.
+    expect(await displayBalance()).toBeCloseTo(beforeCompanyBalance, 6)
+    expect(await displayBalance()).toBeCloseTo(await gateBalance(), 6)
+  })
+
+  // ── AC4: settling the drop obligation WITHOUT a receipt is rejected ────────
+  it('AC4 settle drop obligation WITHOUT a receipt → BadRequest; obligation stays PENDING', async () => {
+    if (!dbAvailable) return
+    const I = 1000
+    const incomeId = await seedValidatedDropIncome(DROP_PROJECT_A, DROP_A, String(I))
+    const pr = await svc.createPayoutRequest([incomeId], DROP_A)
+    const payable = parseFloat(pr.payableAmount)
+    const HASH = '0x' + 'b'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+    })
+    await svc.payPayoutRequest(pr.id, HASH, DROP_A)
+
+    const [dropObligation] = await pendingObligationsFor(DROP_A.id)
+    const dropObRow = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.sourceTransactionId, dropObligation!.sourceTransactionId),
+    })
+
+    await expect(
+      settleSvc.settleByCompany(dropObRow!.id, ACCOUNTANT, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_MAKSYM.id,
+      }),
+    ).rejects.toThrow(/Чек обязателен/)
+
+    const stillPending = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, dropObRow!.id),
+    })
+    expect(stillPending!.status).toBe('PENDING')
   })
 
   // ── INV3: senior-project payout unchanged
