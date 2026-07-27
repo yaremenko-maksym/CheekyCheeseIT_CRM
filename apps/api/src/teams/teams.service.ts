@@ -190,8 +190,19 @@ export class TeamsService {
     }
   }
 
+  // HIGH-1 (security-audit authz-hardening): `team.members` returns EVERY row,
+  // including soft-deleted ones (`leftAt != null` — set by removeMember).
+  // Without the `leftAt === null` filter a member removed from the team keeps
+  // being recognized as an active HR (or, in assertAccess/findAll below, as
+  // any active member) for as long as their JWT is valid (up to 7 days) —
+  // they retain read/write access, can rename the team, remove other members,
+  // and reactivate their own row via addMember. The DROP branch of
+  // assertAccess already filtered on `leftAt === null` correctly; this is now
+  // the norm for every membership check in this file.
   private isHrOfTeam(team: TeamWithMembers, userId: string) {
-    return team.members.some((m) => m.userId === userId && m.user?.role === 'HR')
+    return team.members.some(
+      (m) => m.userId === userId && m.user?.role === 'HR' && m.leftAt === null,
+    )
   }
 
   private async fetchAllProjects(): Promise<ProjectWithMembers[]> {
@@ -296,8 +307,10 @@ export class TeamsService {
     } else if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
       // SENIOR/JUNIOR: show teams where they are a static member
       // For JUNIORs derived from projects, also include teams where their senior is
+      // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
+      // must not keep the team visible. Mirrors the DROP branch above.
       filtered = allTeams.filter((t) => {
-        if (t.members.some((m) => m.userId === currentUser.id)) return true
+        if (t.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return true
         if (currentUser.role === 'JUNIOR') {
           // Check if this team's senior has an active project with this junior
           const senior = t.members.find((m) => m.user?.role === 'SENIOR')
@@ -645,6 +658,13 @@ export class TeamsService {
     // duplicates; reactivate a soft-deleted row instead of inserting a second
     // one (mirrors UsersService.upsertTeamMemberTx). Without this, re-adding a
     // previously removed member would 400 ("User is already a member").
+    //
+    // HIGH-1: reactivating a soft-deleted row is intentionally gated by the
+    // SAME guard as the rest of this method (:611-613 role check + :619-621
+    // isHrOfTeam, now leftAt-filtered) — only ADMIN or an ACTIVE HR of THIS
+    // team can ever reach this line. A removed HR calling addMember on
+    // themselves (the attack chain this fix closes) is rejected by the
+    // isHrOfTeam check above and never gets here.
     const existing = await this.db.db.query.teamMembers.findFirst({
       where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
     })
@@ -759,7 +779,9 @@ export class TeamsService {
       throw new ForbiddenException()
     }
 
-    if (team.members.some((m) => m.userId === currentUser.id)) return
+    // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
+    // must not keep granting access. Mirrors the DROP branch above.
+    if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
 
     // For JUNIORs: check if they have an active project with this team's senior
     if (currentUser.role === 'JUNIOR') {
