@@ -87,6 +87,67 @@ test.describe('Instant page navigation (no page-transition)', () => {
       .toBe('MAIN')
   })
 
+  // fix/landing-focus-race regression — a browser BACK navigation that lands
+  // on a hash URL must still focus the TARGET SECTION, not <main>, under the
+  // exact same forward-then-immediate-back contention the previous test
+  // exercises. Reuses that proven repro shape (real `goBack()`, no artificial
+  // synchronization) but starts from `/#contact` instead of bare `/`, so the
+  // "back" destination naturally carries the hash — the browser history
+  // entry for `/` was recorded WITH the hash, `goBack()` restores it exactly.
+  // This is a genuine A→B→A' round trip back to the SAME pathname the
+  // now-fixed race is about (see `RootDocument`'s module doc) — unlike a
+  // one-directional cross-page hash click (which the OLD pre-fix code
+  // already handled fine, since a single net pathname change never hit its
+  // `prev === pathname` bail-out), this specifically exercises focus
+  // landing correctly on the hash target AFTER the round-trip settles.
+  test('browser back navigation to a hash URL focuses the target section, not <main> (design-review round 1 MED-1)', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/#contact')
+    await page.getByRole('link', { name: 'See open roles' }).click()
+    await page.waitForURL('**/careers/')
+    await page.goBack()
+    await page.waitForURL(/\/#contact$/)
+    await page.waitForSelector('footer', { state: 'visible' })
+    await expect
+      .poll(async () => page.evaluate(() => document.activeElement?.id), { timeout: 2000 })
+      .toBe('contact')
+  })
+
+  // fix/landing-focus-race regression — dedicated probe for `shouldFocusRef`
+  // STICKINESS specifically (`RootDocument`'s module doc), independent of
+  // the round-trip test above. Dispatches the SAME cross-page hash link
+  // TWICE, synchronously in a single `page.evaluate()` (no `await` between
+  // the two `dispatchEvent` calls — a real `.click()` × 2 would let
+  // Playwright's actionability check wait for the first navigation to
+  // settle before the second dispatches, defeating the repro), so BOTH
+  // `onBeforeNavigate` calls land before the (possibly merged) `onResolved`.
+  // The SECOND call's own pathname delta (vs `currentPathnameRef`, already
+  // updated to the destination by the FIRST call) is a no-op — only a
+  // design that treats the flag as STICKY (set true, never explicitly
+  // cleared except on consumption) carries the first click's pending
+  // focus-move through to settle; a design that overwrites the flag from
+  // each call's OWN delta would wrongly clear it here, and this test would
+  // then find focus stuck wherever it started — neither `#contact` nor
+  // `<main>`.
+  test('double-dispatched cross-page hash navigation still focuses the target section (sticky-flag regression)', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/careers/')
+    await page.evaluate(() => {
+      const contact = Array.from(document.querySelectorAll('header a')).find(
+        (a) => a.textContent?.trim() === 'Contact',
+      )
+      contact?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      contact?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    await page.waitForURL(/#contact$/)
+    await page.waitForSelector('footer', { state: 'visible' })
+    await expect
+      .poll(async () => page.evaluate(() => document.activeElement?.id), { timeout: 2000 })
+      .toBe('contact')
+  })
+
   test('hash-only navigation on the SAME route does NOT steal focus (smoothScrollToId owns it, §M.4)', async ({
     page,
   }) => {
