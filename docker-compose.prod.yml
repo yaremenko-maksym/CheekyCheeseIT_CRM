@@ -212,10 +212,30 @@ volumes:
     driver: local
 
 # ── Networks ──────────────────────────────────────────────────────────────
+# security review (PR #437 follow-up, MED-4, 2026-07-27): both networks now
+# pin an EXPLICIT subnet instead of letting Docker auto-allocate one. The
+# origin-IP gate (nginx/snippets/origin-gate.conf) needs to trust
+# host-published-port connections (deploy.yml's post-deploy smoke tests
+# curl 127.0.0.1 from the VPS shell, which Docker's userland-proxy NATs
+# through the bridge gateway, not literal 127.0.0.1 — verified live) — a
+# PREVIOUS version of this gate guessed 172.16.0.0/12 (Docker's default
+# auto-allocation range), which security review found is NOT universal
+# (their own Docker Desktop environment used 192.168.65.1, outside that
+# range — auto-allocation falls back to other private ranges once
+# 172.16.0.0/12 space is exhausted, genuinely possible on a VPS whose
+# network count grows over time). Pinning removes the guesswork:
+# nginx/cloudflare-ips.txt's LOCAL_TRUSTED covers exactly 172.30.0.0/23
+# (both subnets below), nothing broader.
 networks:
   # backend: api, postgres, redis, minio (not exposed to nginx directly except api).
   backend:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
   # frontend: nginx + api (nginx proxies /api/ to api:3001).
   frontend:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.1.0/24

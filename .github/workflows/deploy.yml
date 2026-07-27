@@ -83,6 +83,19 @@ env:
   # THIS one value and follow
   # scripts/devops/csp-report-only-rollout-runbook.md §4.
   CRM_CSP_MODE: report-only
+  # security review (PR #437 follow-up, MED-2 "soft-launch" ask,
+  # 2026-07-27): ORIGIN_GATE_MODE — SAME pattern as CRM_CSP_MODE directly
+  # above, one value threaded into the nginx build-arg (bakes the mode
+  # into the image, see nginx/Dockerfile ARG ORIGIN_GATE_MODE). "observe"
+  # (current rollout state) means nginx/snippets/origin-gate.conf's
+  # origin-IP gate logs its decision on every request (see nginx.conf's
+  # `log_format main` — grep for ` origin_gate=0 `) but never blocks;
+  # "enforce" actually returns 403. Flip only after a clean observation
+  # window finds zero `origin_gate=0` lines from real traffic — see
+  # nginx/conf.d/origin-gate-mode.conf's header comment for the full
+  # rationale and nginx/snippets/origin-gate.conf for why a naive gate is
+  # dangerous enough to warrant this staged rollout in the first place.
+  ORIGIN_GATE_MODE: observe
 
 # Default-deny: every job inherits read-only `contents` and nothing else.
 # Jobs that need more (build → packages:write, deploy → packages:read) override
@@ -199,6 +212,11 @@ jobs:
       # single source of truth for CRM's CSP delivery mode, also passed to
       # the post-deploy smoke-test step below. See nginx/Dockerfile's own
       # `ARG CRM_CSP_MODE` comment for how it's consumed at build time.
+      #
+      # security review (PR #437 follow-up, MED-2): ORIGIN_GATE_MODE — SAME
+      # pattern, this workflow's top-level `env:` block, single source of
+      # truth for the origin-IP gate's observe/enforce mode. See
+      # nginx/Dockerfile's own `ARG ORIGIN_GATE_MODE` comment.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -217,6 +235,7 @@ jobs:
             YANDEX_VERIFICATION_CONTENT=${{ secrets.YANDEX_VERIFICATION_CONTENT }}
             VITE_CONTACT_PUBLIC_EMAIL=hr@cheekycheese.tech
             CRM_CSP_MODE=${{ env.CRM_CSP_MODE }}
+            ORIGIN_GATE_MODE=${{ env.ORIGIN_GATE_MODE }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
