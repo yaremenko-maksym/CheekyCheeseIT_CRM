@@ -433,14 +433,19 @@ export function CompanySharePayoutModal({
               </div>
             </CrmDialogBody>
 
+            {/* max-sm:min-h-11: footer buttons stack full-width on mobile
+                (CrmDialogFooter default) and ARE the whole touch target here
+                (unlike the banner, where a larger outer <button> already
+                covers it) — 44px floor only below sm, desktop unaffected. */}
             <CrmDialogFooter>
-              <Button variant="outline" onClick={handleClose}>
+              <Button variant="outline" onClick={handleClose} className="max-sm:min-h-11">
                 Отмена
               </Button>
               <Button
                 data-testid="company-share-create-payout"
                 onClick={() => createMutation.mutate()}
                 disabled={selected.size === 0 || createMutation.isPending}
+                className="max-sm:min-h-11"
               >
                 {createMutation.isPending ? 'Создание...' : 'Создать выплату'}
               </Button>
@@ -450,7 +455,12 @@ export function CompanySharePayoutModal({
           <>
             <CrmDialogBody className="pb-4">
               {/* tabIndex=-1: programmatic focus target only (§5.4), not tab-reachable. */}
-              <div ref={step2Ref} tabIndex={-1} className="space-y-4 outline-none">
+              <div
+                ref={step2Ref}
+                tabIndex={-1}
+                className="space-y-4 outline-none"
+                data-testid="company-share-step2-content"
+              >
                 {!isPaid && paymentState.onChainStatus !== 'confirmed' && (
                   <div
                     role="status"
@@ -478,6 +488,7 @@ export function CompanySharePayoutModal({
                 variant="outline"
                 onClick={handleClose}
                 data-testid="company-share-close-step2"
+                className="max-sm:min-h-11"
               >
                 Закрыть
               </Button>
@@ -486,6 +497,7 @@ export function CompanySharePayoutModal({
                   data-testid="company-share-submit-payment"
                   onClick={() => paymentState.payMutation.mutate()}
                   disabled={paymentState.submitDisabled}
+                  className="max-sm:min-h-11"
                 >
                   {paymentState.payMutation.isPending ? (
                     <>
