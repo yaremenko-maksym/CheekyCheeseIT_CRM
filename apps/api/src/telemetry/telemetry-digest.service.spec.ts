@@ -10,15 +10,38 @@ import { TelemetryDigestService } from './telemetry-digest.service'
  * `telemetry.integration.spec.ts` (AC5).
  */
 
+/**
+ * A `.select()` mock shared by THREE distinct query shapes used in this
+ * file (security round 1 HIGH-2 added a 4th chain — the csp_reports COUNT
+ * query — on top of the pre-existing errors/csp-rows ones):
+ *   - errors:            select().from().where().orderBy()            [awaited directly]
+ *   - csp violation rows: select().from().where().orderBy().limit(n)  [.limit() chained]
+ *   - csp violation count: select({count}).from().where()             [awaited directly]
+ * Discriminated by whether `fields` (the `.select()` argument) contains a
+ * `count` key — mirrors the pattern already used in
+ * `telemetry-retention.cron.spec.ts`'s `makeCapDb`.
+ */
 function makeEmptyDb(): DatabaseService {
   return {
     db: {
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            orderBy: async () => [],
-          }),
-        }),
+      select: (fields?: Record<string, unknown>) => ({
+        from: () => {
+          if (fields && 'count' in fields) {
+            return { where: async () => [{ count: 0 }] }
+          }
+          return {
+            where: () => ({
+              orderBy: () => {
+                const rows: unknown[] = []
+                const result = Promise.resolve(rows) as Promise<unknown[]> & {
+                  limit: (n: number) => Promise<unknown[]>
+                }
+                result.limit = async () => rows
+                return result
+              },
+            }),
+          }
+        },
       }),
     },
   } as unknown as DatabaseService
@@ -57,6 +80,95 @@ describe('TelemetryDigestService.getDigest — orchestration', () => {
   it('returns an empty errors array when there are no NEW errors', async () => {
     const result = await svc.getDigest({ since: new Date('2026-01-01'), includeUx: false })
     expect(result.errors).toEqual([])
+  })
+
+  it('ALWAYS includes cspViolations + cspViolationsTotal, even when includeUx=false (task-csp-reports-and-flip §4)', async () => {
+    const result = await svc.getDigest({ since: new Date('2026-01-01'), includeUx: false })
+    expect(result).toHaveProperty('cspViolations')
+    expect(result.cspViolations).toEqual([])
+    expect(result.cspViolationsTotal).toBe(0)
+  })
+
+  it('sources cspViolations/cspViolationsTotal from getCspViolations', async () => {
+    const stubViolation = {
+      id: '11111111-1111-4111-8111-111111111111',
+      effectiveDirective: 'script-src',
+      blockedUri: 'https://evil.example',
+      documentPath: '/team',
+      disposition: 'report' as const,
+      userAgent: null,
+      count: 3,
+      firstSeen: '2026-07-01T00:00:00.000Z',
+      lastSeen: '2026-07-02T00:00:00.000Z',
+    }
+    vi.spyOn(svc, 'getCspViolations').mockResolvedValue({
+      items: [stubViolation],
+      totalMatching: 42,
+    })
+
+    const result = await svc.getDigest({ since: new Date('2026-01-01'), includeUx: false })
+
+    expect(result.cspViolations).toEqual([stubViolation])
+    expect(result.cspViolationsTotal).toBe(42)
+  })
+})
+
+describe('TelemetryDigestService.getCspViolations', () => {
+  it('maps DB rows to the wire shape, ordered/limited at the query level (not asserted here), and returns totalMatching separately', async () => {
+    const row = {
+      id: '22222222-2222-4222-8222-222222222222',
+      effectiveDirective: 'style-src',
+      blockedUri: 'https://cdn.example/x.css',
+      documentPath: '/finance',
+      disposition: 'enforce' as const,
+      userAgent: 'Mozilla/5.0',
+      count: 5,
+      firstSeen: new Date('2026-07-01T00:00:00Z'),
+      lastSeen: new Date('2026-07-03T00:00:00Z'),
+    }
+    const db = {
+      db: {
+        select: (fields?: Record<string, unknown>) => ({
+          from: () => {
+            if (fields && 'count' in fields) {
+              return { where: async () => [{ count: 7 }] }
+            }
+            return {
+              where: () => ({
+                orderBy: () => ({
+                  limit: async () => [row],
+                }),
+              }),
+            }
+          },
+        }),
+      },
+    } as unknown as DatabaseService
+    const svc = new TelemetryDigestService(db)
+
+    const result = await svc.getCspViolations(new Date('2026-07-01T00:00:00Z'))
+
+    expect(result.totalMatching).toBe(7)
+    expect(result.items).toEqual([
+      {
+        id: row.id,
+        effectiveDirective: 'style-src',
+        blockedUri: 'https://cdn.example/x.css',
+        documentPath: '/finance',
+        disposition: 'enforce',
+        userAgent: 'Mozilla/5.0',
+        count: 5,
+        firstSeen: '2026-07-01T00:00:00.000Z',
+        lastSeen: '2026-07-03T00:00:00.000Z',
+      },
+    ])
+  })
+
+  it('returns an empty items array and totalMatching=0 when there are no matching rows', async () => {
+    const svc = new TelemetryDigestService(makeEmptyDb())
+    const result = await svc.getCspViolations(new Date('2026-01-01'))
+    expect(result.items).toEqual([])
+    expect(result.totalMatching).toBe(0)
   })
 })
 

@@ -28,6 +28,8 @@ import { Throttle } from '@nestjs/throttler'
  *   • POST /api/users/:id/contract/ready    — falls back to global
  *   • POST /api/telemetry/errors            — TELEMETRY_ERROR_LIMIT req/min  (task-telemetry-api)
  *   • POST /api/telemetry/events            — TELEMETRY_EVENTS_LIMIT req/min (task-telemetry-api)
+ *   • POST /api/public/csp-report           — CSP_REPORT_LIMIT req/hour (task-csp-reports-and-flip:
+ *                                              PUBLIC, unauthenticated — untrusted internet input)
  *
  * In CI E2E suites (rbac-matrix-smoke, drop-role-end-to-end,
  * pending-settlement) each test onboards one or more DROP users, each
@@ -137,6 +139,17 @@ export const TELEMETRY_ERROR_LIMIT = 10
  * normal CRM use.
  */
 export const TELEMETRY_EVENTS_LIMIT = 30
+
+/**
+ * Prod cap for the public CSP-violation report endpoint (POST /public/csp-report).
+ * task-csp-reports-and-flip §2 contract: "строгий rate-limit по IP (ориентир
+ * 60/час)". PUBLIC + unauthenticated (any browser on the internet, no session)
+ * — a genuine reporting browser can legitimately fire many reports per hour
+ * while a page is loaded (one per distinct violated resource), so this is
+ * an hourly bucket (see CSP_REPORT_TTL_MS in csp-reports.controller.ts), not
+ * a per-minute one like the other endpoints in this file.
+ */
+export const CSP_REPORT_LIMIT = 60
 
 /** Default global request cap when THROTTLER_LIMIT is unset. Mirrors ThrottlerModule default in app.module.ts. */
 export const GLOBAL_LIMIT_DEFAULT = 100

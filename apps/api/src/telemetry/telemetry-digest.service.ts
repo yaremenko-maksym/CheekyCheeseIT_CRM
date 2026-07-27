@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { and, asc, desc, eq, gte, inArray, sql } from 'drizzle-orm'
 import type {
+  CspViolationItem,
   TelemetryErrorItem,
   TelemetryFeatureClick,
   TelemetryFormAbandonRate,
@@ -9,15 +10,26 @@ import type {
   TelemetryUxAggregates,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { telemetryErrors, telemetryEvents } from '../database/schema'
+import { cspReports, telemetryErrors, telemetryEvents } from '../database/schema'
 
 /** Contract: "ux? {... — за 7 дней}" — fixed 7-day rolling window, independent of `since`. */
 export const UX_WINDOW_DAYS = 7
 /** Caps the size of each UX aggregate array — a digest is a summary, not a full dump. */
 export const TOP_ROUTES_LIMIT = 20
 export const FEATURE_CLICKS_LIMIT = 20
+/**
+ * Security round 1 (HIGH-2): caps how many `csp_reports` rows the digest
+ * ever materializes in one response. Before this cap, `getCspViolations`
+ * selected the ENTIRE matching window with no `.limit()` — a table an
+ * anonymous caller can grow (HIGH-1) being read WITHOUT a limit, on an
+ * UNCONDITIONAL, hourly-automated endpoint, is a straight line to an OOM
+ * crash-loop of the whole API container. `totalMatching` (returned
+ * alongside the capped array) makes truncation visible instead of silent.
+ */
+export const CSP_VIOLATIONS_DIGEST_LIMIT = 200
 
 type TelemetryErrorRow = typeof telemetryErrors.$inferSelect
+type CspReportRow = typeof cspReports.$inferSelect
 
 export interface GetDigestParams {
   since: Date
@@ -38,6 +50,18 @@ export interface GetDigestParams {
  *
  * UX aggregates (only computed when `includeUx` — the `ux=1` query flag):
  * ALWAYS a fixed trailing 7-day window, independent of `since`.
+ *
+ * cspViolations (task-csp-reports-and-flip §4 "Видимость"): every
+ * `csp_reports` row with `last_seen >= since`, capped at
+ * `CSP_VIOLATIONS_DIGEST_LIMIT` (security round 1 HIGH-2 — this table can
+ * be grown by an anonymous caller, see csp-reports.service.ts, so an
+ * UNLIMITED select here is an OOM vector) — ALWAYS included (not gated
+ * behind `ux=1`), same as `errors`, plus a sibling `cspViolationsTotal`
+ * (the full matching count, so truncation is visible). Unlike
+ * `telemetry_errors` there is no NOTIFIED/status tracking on this table —
+ * the aggregate itself IS the summary, and the caller's advancing `since`
+ * (the GH Action workflow already calls this hourly/weekly with a fresh
+ * `since`) naturally avoids re-reporting an unchanged row.
  */
 @Injectable()
 export class TelemetryDigestService {
@@ -47,14 +71,21 @@ export class TelemetryDigestService {
 
   async getDigest(params: GetDigestParams): Promise<{
     errors: TelemetryErrorItem[]
+    cspViolations: CspViolationItem[]
+    cspViolationsTotal: number
     ux?: TelemetryUxAggregates
   }> {
-    const errors = await this.fetchAndNotifyNewErrors(params.since)
+    const [errors, csp] = await Promise.all([
+      this.fetchAndNotifyNewErrors(params.since),
+      this.getCspViolations(params.since),
+    ])
+    const cspViolations = csp.items
+    const cspViolationsTotal = csp.totalMatching
     if (!params.includeUx) {
-      return { errors }
+      return { errors, cspViolations, cspViolationsTotal }
     }
     const ux = await this.getUxAggregates()
-    return { errors, ux }
+    return { errors, cspViolations, cspViolationsTotal, ux }
   }
 
   /**
@@ -100,6 +131,49 @@ export class TelemetryDigestService {
       // 'NEW' is what the digest consumer actually cares about (it IS new).
       status: 'NEW',
       githubIssueNumber: row.githubIssueNumber,
+    }
+  }
+
+  /**
+   * Selects at most `CSP_VIOLATIONS_DIGEST_LIMIT` `csp_reports` rows with
+   * `last_seen >= since`, ordered by `count` descending (a digest is a
+   * summary — surface the worst offenders first, security round 1 HIGH-2).
+   * `totalMatching` is the FULL count of matching rows (before the limit),
+   * a separate cheap `COUNT(*)` query — this is what makes truncation
+   * visible to a digest consumer instead of silently dropping rows. See the
+   * class doc comment above for why there is no NOTIFIED-style status
+   * transition here (unlike `fetchAndNotifyNewErrors`).
+   */
+  async getCspViolations(
+    since: Date,
+  ): Promise<{ items: CspViolationItem[]; totalMatching: number }> {
+    const [countRow] = await this.db.db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(cspReports)
+      .where(gte(cspReports.lastSeen, since))
+    const totalMatching = countRow?.count ?? 0
+
+    const rows = await this.db.db
+      .select()
+      .from(cspReports)
+      .where(gte(cspReports.lastSeen, since))
+      .orderBy(desc(cspReports.count))
+      .limit(CSP_VIOLATIONS_DIGEST_LIMIT)
+
+    return { items: rows.map((row) => this.mapCspViolationRow(row)), totalMatching }
+  }
+
+  private mapCspViolationRow(row: CspReportRow): CspViolationItem {
+    return {
+      id: row.id,
+      effectiveDirective: row.effectiveDirective,
+      blockedUri: row.blockedUri,
+      documentPath: row.documentPath,
+      disposition: row.disposition,
+      userAgent: row.userAgent,
+      count: row.count,
+      firstSeen: row.firstSeen.toISOString(),
+      lastSeen: row.lastSeen.toISOString(),
     }
   }
 

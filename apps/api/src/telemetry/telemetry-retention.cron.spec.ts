@@ -1,7 +1,9 @@
 import { Logger } from '@nestjs/common'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../database/database.service'
+import { CSP_REPORTS_ROW_CAP } from '../csp-reports/csp-reports.service'
 import {
+  CSP_REPORTS_RETENTION_DAYS,
   cutoffDate,
   ERRORS_RETENTION_DAYS,
   EVENTS_RETENTION_DAYS,
@@ -50,6 +52,24 @@ describe('cutoffDate — errors retention boundary (180 days)', () => {
   it('a 181-day-old row IS older than cutoff (deleted)', () => {
     const ts = new Date(NOW.getTime() - 181 * DAY_MS)
     expect(ts.getTime() < cutoffDate(NOW, ERRORS_RETENTION_DAYS).getTime()).toBe(true)
+  })
+})
+
+// task-csp-reports-and-flip §Часть A item 5 — same 90-day window as telemetry_events.
+describe('cutoffDate — csp_reports retention boundary (90 days)', () => {
+  it('an 89-day-old row is NOT older than cutoff (kept)', () => {
+    const ts = new Date(NOW.getTime() - 89 * DAY_MS)
+    expect(ts.getTime() < cutoffDate(NOW, CSP_REPORTS_RETENTION_DAYS).getTime()).toBe(false)
+  })
+
+  it('an EXACTLY-90-day-old row is NOT older than cutoff (kept — inclusive boundary)', () => {
+    const ts = new Date(NOW.getTime() - 90 * DAY_MS)
+    expect(ts.getTime() < cutoffDate(NOW, CSP_REPORTS_RETENTION_DAYS).getTime()).toBe(false)
+  })
+
+  it('a 91-day-old row IS older than cutoff (deleted)', () => {
+    const ts = new Date(NOW.getTime() - 91 * DAY_MS)
+    expect(ts.getTime() < cutoffDate(NOW, CSP_REPORTS_RETENTION_DAYS).getTime()).toBe(true)
   })
 })
 
@@ -117,17 +137,53 @@ describe('TelemetryRetentionCronService.enforceEventsCap', () => {
   })
 })
 
+// security round 1 HIGH-1a — same shape as enforceEventsCap above.
+describe('TelemetryRetentionCronService.enforceCspReportsCap', () => {
+  it('does nothing and returns 0 when total is at or below the cap', async () => {
+    const { db, getDeleteWhereArg } = makeCapDb({ total: CSP_REPORTS_ROW_CAP, oldestIds: [] })
+    const svc = new TelemetryRetentionCronService(db)
+
+    const deleted = await svc.enforceCspReportsCap()
+
+    expect(deleted).toBe(0)
+    expect(getDeleteWhereArg()).toBeUndefined()
+  })
+
+  it('deletes exactly the excess-over-cap oldest (by last_seen) rows when total exceeds the cap', async () => {
+    const oldestIds = [1, 2, 3]
+    const { db, getDeleteWhereArg } = makeCapDb({
+      total: CSP_REPORTS_ROW_CAP + 3,
+      oldestIds,
+    })
+    const svc = new TelemetryRetentionCronService(db)
+
+    const deleted = await svc.enforceCspReportsCap()
+
+    expect(deleted).toBe(3)
+    expect(getDeleteWhereArg()).toBeDefined()
+  })
+
+  it('returns 0 when total is 0 (empty table)', async () => {
+    const { db } = makeCapDb({ total: 0, oldestIds: [] })
+    const svc = new TelemetryRetentionCronService(db)
+
+    expect(await svc.enforceCspReportsCap()).toBe(0)
+  })
+})
+
 // ---------------------------------------------------------------------------
 // Section C — purgeExpired orchestration + handleRetention (never throws)
 // ---------------------------------------------------------------------------
 
 describe('TelemetryRetentionCronService.purgeExpired — orchestration', () => {
-  it('sums eventsDeletedByAge + eventsDeletedByCap into eventsDeleted', async () => {
+  it('sums eventsDeletedByAge + eventsDeletedByCap into eventsDeleted, and cspReportsDeletedByAge + cspReportsDeletedByCap into cspReportsDeleted', async () => {
     const db = {} as unknown as DatabaseService
     const svc = new TelemetryRetentionCronService(db)
     vi.spyOn(svc, 'deleteEventsOlderThan').mockResolvedValue(5)
     vi.spyOn(svc, 'deleteErrorsOlderThan').mockResolvedValue(2)
+    vi.spyOn(svc, 'deleteCspReportsOlderThan').mockResolvedValue(4)
     vi.spyOn(svc, 'enforceEventsCap').mockResolvedValue(3)
+    vi.spyOn(svc, 'enforceCspReportsCap').mockResolvedValue(1)
 
     const result = await svc.purgeExpired(NOW)
 
@@ -136,6 +192,9 @@ describe('TelemetryRetentionCronService.purgeExpired — orchestration', () => {
       eventsDeletedByCap: 3,
       eventsDeleted: 8,
       errorsDeleted: 2,
+      cspReportsDeletedByAge: 4,
+      cspReportsDeletedByCap: 1,
+      cspReportsDeleted: 5,
     })
   })
 })
@@ -161,6 +220,9 @@ describe('TelemetryRetentionCronService.handleRetention (the @Cron entrypoint)',
       eventsDeletedByCap: 0,
       eventsDeleted: 0,
       errorsDeleted: 0,
+      cspReportsDeletedByAge: 0,
+      cspReportsDeletedByCap: 0,
+      cspReportsDeleted: 0,
     })
 
     await expect(svc.handleRetention()).resolves.toBeUndefined()

@@ -21,6 +21,7 @@ export * from './onboarding'
 export * from './vacancies'
 export * from './telemetry'
 export * from './contact'
+export * from './csp-report'
 
 // Hardcoded partner user IDs (stable across environments).
 // Valid RFC 4122 v4 UUIDs — must match migration 0028_admin_uuid_normalize.sql

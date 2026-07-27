@@ -14,23 +14,47 @@
  *
  * so there is exactly one place that knows the redaction patterns — no
  * second, drifting implementation.
+ *
+ * The individual patterns below are also exported — task-csp-reports-and-
+ * flip security round 1 (MED-4): `csp-reports/sanitize-url-field.ts` needs
+ * Bearer/password redaction WITHOUT the cookie pattern (which mangles
+ * innocuous URLs like `consent.cookiebot.com`), so it composes a NARROWER
+ * sanitizer from these same regex instances instead of re-implementing them
+ * — no second, drifting copy of the patterns themselves either.
  */
 
-const REDACTION_PATTERNS: RegExp[] = [
-  // `Authorization: Bearer <token>` / bare `Bearer <token>` mentions.
-  /Bearer\s+\S+/gi,
-  // `Cookie: foo=bar; jwt=eyJ...; other=qux` — redact the ENTIRE header
-  // value (every `;`-separated pair on the same line), not just up to the
-  // first `;`. sec MED (review round 1): a raw `/cookie[^;]+/gi` stops at
-  // the FIRST semicolon — a multi-pair Cookie header (the normal shape;
-  // browsers always send every cookie on one `Cookie:` line, `; `-joined)
-  // left every pair AFTER the first one — e.g. a JWT session cookie —
-  // completely unredacted. `[^\n]*` consumes the rest of the LINE instead,
-  // so it never bleeds into a following line of a multi-line stack trace.
-  /cookie[^\n]*/gi,
-  // `password=...` / `password: "..."` / `password='...'` in any casing.
-  /password["':=\s]+\S+/gi,
-]
+/** `Authorization: Bearer <token>` / bare `Bearer <token>` mentions. */
+export const BEARER_PATTERN = /Bearer\s+\S+/gi
+/**
+ * `Cookie: foo=bar; jwt=eyJ...; other=qux` — redact the ENTIRE header value
+ * (every `;`-separated pair on the same line), not just up to the first
+ * `;`. sec MED (review round 1): a raw `/cookie[^;]+/gi` stops at the FIRST
+ * semicolon — a multi-pair Cookie header (the normal shape; browsers always
+ * send every cookie on one `Cookie:` line, `; `-joined) left every pair
+ * AFTER the first one — e.g. a JWT session cookie — completely unredacted.
+ * `[^\n]*` consumes the rest of the LINE instead, so it never bleeds into a
+ * following line of a multi-line stack trace.
+ */
+export const COOKIE_HEADER_PATTERN = /cookie[^\n]*/gi
+/** `password=...` / `password: "..."` / `password='...'` in any casing. */
+export const PASSWORD_PATTERN = /password["':=\s]+\S+/gi
+
+const REDACTION_PATTERNS: RegExp[] = [BEARER_PATTERN, COOKIE_HEADER_PATTERN, PASSWORD_PATTERN]
+
+/**
+ * C0 controls + DEL + C1 controls (`\x00`-`\x1F`, `\x7F`-`\x9F` — CR/LF/TAB
+ * included) — task-csp-reports-and-flip security round 1 (MED-1): strips
+ * these OUTRIGHT (not redacted-in-place) from untrusted text before
+ * storage, so CRLF/control-char injection can never smuggle fake log
+ * lines or break a future markdown/table renderer. Exported for reuse by
+ * `csp-reports/sanitize-url-field.ts` and `csp-reports.service.ts`'s
+ * user-agent handling — same rationale as the exported patterns above.
+ */
+const CONTROL_CHARS_PATTERN = /[\x00-\x1F\x7F-\x9F]/g
+
+export function stripControlChars(input: string): string {
+  return input.replace(CONTROL_CHARS_PATTERN, '')
+}
 
 /** Redacts every REDACTION_PATTERNS match in `input`, replacing it with `[redacted]`. */
 export function sanitizeText(input: string): string {
