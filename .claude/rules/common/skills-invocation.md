@@ -31,10 +31,10 @@
 | Любая feature / fix — перед implementation                           | `superpowers:test-driven-development`        | Coder                   |
 | Баг / test failure / unexpected behavior                             | `superpowers:systematic-debugging`           | All                     |
 | Перед PR / completion claim                                          | `superpowers:verification-before-completion` | Coder, AutoTest, DevOps |
-| PR трогает auth / finance / wallets / transactions / company-account | `superpowers:security-review`                | Coder, Reviewer         |
+| PR трогает auth / finance / wallets / transactions / company-account | `security-review`                            | Coder, Reviewer         |
 | Начало каждого review                                                | `superpowers:requesting-code-review`         | Reviewer                |
 | Получение review feedback                                            | `superpowers:receiving-code-review`          | Coder                   |
-| После написания кода (cleanup)                                       | `superpowers:simplify`                       | Coder                   |
+| После написания кода (cleanup)                                       | `simplify`                                   | Coder                   |
 | Новая страница / сложный UI component                                | `frontend-design:frontend-design`            | Coder                   |
 | Need isolated workspace (parallel work)                              | `superpowers:using-git-worktrees`            | PM (Coder dispatch)     |
 | Implementation plan execution                                        | `superpowers:executing-plans`                | PM, Coder               |
@@ -44,31 +44,73 @@
 
 ## Project-local skills (Phase 4 lift)
 
-Project-local + импортированные skills под `.claude/skills/` (14 на диске; Phase 4 заложила 7):
+Project-local + импортированные skills под `.claude/skills/` (15 на диске; Phase 4 заложила 7):
 
-| Skill                         | Trigger                                                                                                                   |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `playwright-patterns`         | Coder / AutoTest пишут `.spec.ts` — strict-mode / Radix / retries / testids.                                              |
-| `code-review-discipline`      | Reviewer формулирует Verdict / postит review.                                                                             |
-| `dev-flow-resilience`         | Long-running ops / MCP > 5s / silent termination / cross-session waits.                                                   |
-| `ua-tax-compliance`           | Legal mode A / B / C по теме ФОП / Дія Сіті / CFC / банковские caps.                                                      |
-| `ua-crypto-compliance`        | Legal mode A / B при упоминании USDT / VASP / AML.                                                                        |
-| `ua-it-contract`              | Legal mode A / B на IT contract review (SENIOR / клиент).                                                                 |
-| `legal-escalation-patterns`   | Cross-cutting Legal escalation (когда вовлекать external lawyer).                                                         |
-| `claude-design-workflow`      | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи / handoff-артефакт (design-gate Tier 1/2). |
-| `pm-dispatching`              | PM диспатчит агента / запускает PR / CI / User Testing — загрузка `pm-snippets.md`. **(project-local)**                   |
-| `accessibility`               | UI/UX Designer / Coder: WCAG 2.2 AA — ARIA / focus / contrast / target size. **(origin: ECC)**                            |
-| `design-system`               | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection. **(origin: ECC)**                               |
-| `frontend-design-direction`   | UI/UX Designer Mode A: purpose / audience / tone / memorable detail. **(origin: community)**                              |
-| `make-interfaces-feel-better` | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas. **(origin: community)**      |
-| `codebase-audit`              | Master / PM: read-only breadth-first аудит ≥3 независимых модулей (fan-out → synth). **(project-local, 2026-06-22)**      |
+| Skill                         | Trigger                                                                                                                         |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `playwright-patterns`         | Coder / AutoTest пишут `.spec.ts` — strict-mode / Radix / retries / testids.                                                    |
+| `code-review-discipline`      | Reviewer формулирует Verdict / postит review.                                                                                   |
+| `dev-flow-resilience`         | Long-running ops / MCP > 5s / silent termination / cross-session waits.                                                         |
+| `ua-tax-compliance`           | Legal mode A / B / C по теме ФОП / Дія Сіті / CFC / банковские caps.                                                            |
+| `ua-crypto-compliance`        | Legal mode A / B при упоминании USDT / VASP / AML.                                                                              |
+| `ua-it-contract`              | Legal mode A / B на IT contract review (SENIOR / клиент).                                                                       |
+| `legal-escalation-patterns`   | Cross-cutting Legal escalation (когда вовлекать external lawyer).                                                               |
+| `claude-design-workflow`      | Оркестратор (Master / PM / ui-ux-designer) драйвит Claude Design для UI-задачи / handoff-артефакт (design-gate Tier 1/2).       |
+| `pm-dispatching`              | PM диспатчит агента / запускает PR / CI / User Testing — загрузка `pm-snippets.md`. **(project-local)**                         |
+| `accessibility`               | UI/UX Designer / Coder: WCAG 2.2 AA — ARIA / focus / contrast / target size. **(origin: ECC)**                                  |
+| `design-system`               | UI/UX Designer Mode B / C: 10-dimension visual audit + AI-slop detection. **(origin: ECC)**                                     |
+| `frontend-design-direction`   | UI/UX Designer Mode A: purpose / audience / tone / memorable detail. **(origin: community)**                                    |
+| `make-interfaces-feel-better` | UI/UX Designer Mode D / Coder polish: concentric radius / tabular-nums / motion / hit areas. **(origin: community)**            |
+| `codebase-audit`              | Master / PM: read-only breadth-first аудит ≥3 независимых модулей (fan-out → synth). **(project-local, 2026-06-22)**            |
+| `security-review`             | security-reviewer (каждый dispatch) / Coder до написания endpoint'а на auth-finance-RBAC путях. **(project-local, 2026-07-28)** |
 
 Phase 4 заложила 7 (`playwright-patterns` … `legal-escalation-patterns`); далее добавлены/импортированы:
 `pm-dispatching` (project-local snippet-loader), `claude-design-workflow` (2026-06-22) и 4 дизайн/a11y-скилла
 (`accessibility`/`design-system` — origin ECC; `frontend-design-direction`/`make-interfaces-feel-better` —
 origin community); `codebase-audit` (project-local, 2026-06-22 — read-only audit-fanout, см.
-`orchestration-routing.md` Решение 2). **Итого 14 на диске** (`ls .claude/skills/`); таблица выше —
+`orchestration-routing.md` Решение 2); `security-review` (project-local, 2026-07-28 — см. ниже).
+**Итого 15 на диске** (`ls .claude/skills/`); таблица выше —
 источник истины. Каждый — в `.claude/skills/<name>/SKILL.md`. Phase 4 deliverable: `docs/architecture/2026-06-03-phase4-deliverable.md`.
+
+## Дрейф таблицы относительно установленных паков (проверять при обновлении плагинов)
+
+**Инцидент 2026-07-28.** Таблица триггеров предписывала `superpowers:security-review`
+и `superpowers:simplify`. Обоих скиллов **нет** в установленном `superpowers@6.0.3`
+(пак несёт 14 других). То есть mandatory-триггер был невыполним ровно на тех PR
+(finance / auth), которые он и должен защищать: `Skill` падал с «not found», а по
+правилу выше это explicit failure — но по факту агенты просто продолжали без него.
+Сломанные ссылки успели расползтись по 7 рабочим файлам (`RULES.md` + 4 агентских
+дока + этот файл).
+
+**Корневая причина:** таблица писалась в Phase 4 (2026-06-03) против тогдашнего
+состава пака. Обновление upstream-пака молча инвалидирует строки — ничто не связывает
+таблицу с тем, что реально лежит на диске.
+
+**Как чинилось:** `superpowers:security-review` → project-local `security-review`
+(проектная дельта поверх OWASP, паттерны подтверждены инцидентами #110 / #159-#161 / #164);
+`superpowers:simplify` → безпрефиксный `simplify` (встроенный, существует).
+
+**Проверка при каждом обновлении плагинов** (и вообще при правке этой таблицы):
+
+```bash
+# что реально несёт пак superpowers
+ls "$(find ~/.claude/plugins -maxdepth 6 -type d -path '*superpowers*' -name skills | head -1)"
+# что лежит project-local
+ls .claude/skills/
+# все ссылки на скиллы в рабочих файлах
+grep -rn '`[a-z-]*:\?[a-z-]*`' .claude/rules/common/skills-invocation.md
+```
+
+Сверять построчно. Учитывать два подвоха:
+
+1. **Скилл может существовать, но не подходить.** Встроенный `security-review`
+   (без префикса) реально доступен субагентам, но это ревьюер рабочего диффа
+   текущей ветки: он гоняет `git diff origin/HEAD...` и падает
+   (`fatal: ambiguous argument 'origin/HEAD...'`) в агентском окружении, где
+   `origin/HEAD` не настроен. Проверено фактическим вызовом из субагента.
+2. **CI это не поймает.** Раннеры не имеют `~/.claude/plugins` оператора, поэтому
+   guard-скрипт (в духе `check-e2e-shard-coverage.py`) смог бы верифицировать только
+   project-local ссылки, а не `<pak>:<skill>`. Отсюда — процедурная проверка, а не гейт.
 
 ## Workflow surface policy (ECC alignment)
 

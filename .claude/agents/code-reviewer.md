@@ -56,7 +56,7 @@ model: sonnet
 | Бага в коде / неожиданный pattern                      | `superpowers:systematic-debugging`                                   |
 | Перед финальным post review                            | `superpowers:verification-before-completion`                         |
 
-Skill `superpowers:security-review` — **НЕ** твоя зона, её вызывает security-reviewer. Если ты её вызвал по ошибке — STOP, передай это в summary для PM (dispatched security-reviewer тогда).
+Skill `security-review` — **НЕ** твоя зона, её вызывает security-reviewer. Если ты её вызвал по ошибке — STOP, передай это в summary для PM (dispatched security-reviewer тогда).
 
 ---
 
