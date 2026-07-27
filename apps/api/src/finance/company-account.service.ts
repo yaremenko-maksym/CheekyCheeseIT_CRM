@@ -22,9 +22,9 @@ import {
 } from './company-account-balance'
 import { isUniqueViolation } from '../database/pg-errors'
 import {
-  addressesMatch,
   consumeTxHash,
   findConsumedTxHash,
+  normalizeEthAddress,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
 
@@ -206,16 +206,16 @@ export class CompanyAccountService {
    *   2. IDEMPOTENCY: if a COMPANY_DEPOSIT already exists for this hash, return
    *      it unchanged (no second row, balance never doubles).
    *   3. CROSS-PATH: reject a hash already consumed by a payout settlement.
-   *   4. verifyDeposit against the configured wallet + THE SUBMITTER'S OWN
-   *      wallet + threshold.
-   *   5. Insert a COMPANY_DEPOSIT + claim the hash in `consumed_tx_hashes`, in
-   *      ONE transaction: PAID iff (toMatches && fromMatches && confirmed),
-   *      else PENDING. amount = verified amount (0 when unknown / pending).
+   *   4. verifyDeposit against the configured wallet + threshold.
+   *   5. Insert a COMPANY_DEPOSIT (stamping the observed on-chain sender) +
+   *      claim the hash in `consumed_tx_hashes`, in ONE transaction: PAID iff
+   *      (toMatches && confirmed), else PENDING. amount = verified amount
+   *      (0 when unknown / pending).
    *
-   * SECURITY: a mismatching recipient, a MISMATCHING SENDER, or a sub-threshold
-   * confirmation count NEVER yields PAID — the deposit stays PENDING (or is
-   * rejected outright, for a sender that is known-not-you) and contributes 0 to
-   * the balance.
+   * SECURITY: a mismatching recipient or a sub-threshold confirmation count
+   * NEVER yields PAID — the deposit stays PENDING and contributes 0 to the
+   * balance. The on-chain sender is RECORDED for audit but never gates the
+   * credit (exchange withdrawals show the exchange's wallet).
    */
   async submitDeposit(
     input: { txHashOrLink: string },
@@ -257,58 +257,31 @@ export class CompanyAccountService {
       throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
     }
 
-    // ── SECURITY (task-onchain-payment-integrity, HOLE 1): WHOSE money is it.
-    // Verification used to assert the RECIPIENT only, so a SENIOR/DROP could
-    // take any stranger's transfer into the company wallet off a public
-    // explorer and credit the company account (and thus their own standing)
-    // with it. The submitter's registered wallet is the reference the on-chain
-    // sender is compared against.
-    //
-    // FAIL-CLOSED on an unset wallet — with nothing to compare against, "allow"
-    // would restore the hole in one click (clear the field, claim anything).
-    const submitter = await this.db.db.query.users.findFirst({
-      where: eq(users.id, currentUser.id),
-      columns: { walletUsdtErc20: true },
-    })
-    const submitterWallet = submitter?.walletUsdtErc20?.trim() ?? null
-    if (!submitterWallet) {
-      throw new BadRequestException(
-        'Укажите свой USDT (ERC-20) кошелёк в профиле — с него должно быть отправлено пополнение',
-      )
-    }
-
     const verification = await this.etherscan.verifyDeposit(
       txHash,
       account.walletAddress,
-      submitterWallet,
       account.confirmationThreshold,
     )
 
-    // KNOWN-not-you sender → hard 400, no row at all. Unlike a missing
-    // confirmation (which time fixes, hence a PENDING row + polling), a wrong
-    // sender can never become right, so there is nothing to poll: reject, and
-    // do not let the submitter park somebody else's hash in our tables.
-    // `fromAddress === null` (chain unreachable / not mined yet) deliberately
-    // does NOT hard-fail — it falls through to a PENDING, uncredited row.
-    if (verification.fromAddress !== null && !verification.fromMatches) {
-      throw new BadRequestException(
-        'Отправитель транзакции не совпадает с вашим USDT-кошельком — пополнение можно подтвердить только своим переводом',
-      )
-    }
-
-    // Credit (PAID + amount) ONLY when recipient matches, SENDER matches,
-    // confirmed, AND a positive amount resolved (M4). A confirmed-but-unknown-
-    // amount stays PENDING and is resolved later by getDepositStatus re-polling.
-    // (`confirmed` already embeds `fromMatches`; both are named here so the gate
-    // reads as the invariant it enforces.)
+    // Credit (PAID + amount) ONLY when recipient matches, confirmed, AND a
+    // positive amount resolved (M4). A confirmed-but-unknown-amount stays
+    // PENDING and is resolved later by getDepositStatus re-polling.
+    //
+    // NOTE ON AMOUNTS (task-onchain-payment-integrity): the payout path demands
+    // an EXACT amount because a payout carries a declared obligation to match.
+    // A deposit declares no amount — it credits whatever the chain says landed
+    // on the company wallet — so there is nothing to compare it to and no
+    // tolerance to remove here. The deposit's protections are the recipient
+    // match, the confirmation threshold, and the consumed-hash registry.
     const verifiedAmount = verification.amountUsdt ?? 0
-    const credited =
-      verification.toMatches &&
-      verification.fromMatches &&
-      addressesMatch(verification.fromAddress, submitterWallet) &&
-      verification.confirmed &&
-      verifiedAmount > 0
+    const credited = verification.toMatches && verification.confirmed && verifiedAmount > 0
     const amount = credited ? verifiedAmount : 0
+
+    // WHO SENT IT — recorded, not enforced (task-onchain-payment-integrity).
+    // A deposit from an exchange withdrawal legitimately shows the exchange's
+    // hot wallet, so gating on the sender would reject honest top-ups; instead
+    // the address is persisted and shown to ADMIN/ACCOUNTANT.
+    const onChainFromAddress = normalizeEthAddress(verification.fromAddress)
 
     let tx: typeof transactions.$inferSelect
     try {
@@ -328,6 +301,7 @@ export class CompanyAccountService {
             receiverId: null,
             receiverLabel: 'Счёт компании',
             txHash,
+            txFromAddress: onChainFromAddress,
             createdBy: currentUser.id,
           })
           .returning()
@@ -402,45 +376,28 @@ export class CompanyAccountService {
     }
 
     // PENDING → re-verify live.
-    //
-    // SECURITY (task-onchain-payment-integrity, HOLE 1): this is the THIRD path
-    // that can flip a deposit to PAID, so it needs the same sender check as
-    // `submitDeposit` — otherwise a deposit that failed the sender gate at
-    // submit time (or was created before this fix) could be credited by simply
-    // polling its status. The reference wallet belongs to the deposit's OWNER
-    // (`tx.senderId`), NOT to whoever is polling: an ADMIN/ACCOUNTANT may poll
-    // somebody else's deposit, and it must still be judged against the money's
-    // claimed sender.
-    const depositOwner = tx.senderId
-      ? await this.db.db.query.users.findFirst({
-          where: eq(users.id, tx.senderId),
-          columns: { walletUsdtErc20: true },
-        })
-      : null
-    const ownerWallet = depositOwner?.walletUsdtErc20?.trim() ?? null
-
     const verification = await this.etherscan.verifyDeposit(
       tx.txHash ?? '',
       account.walletAddress,
-      ownerWallet,
       threshold,
     )
 
     const resolvedAmount = verification.amountUsdt ?? parseFloat(tx.amount)
-    if (
-      verification.toMatches &&
-      // Sender gate — `confirmed` embeds it too; spelled out so the credit
-      // condition states the full invariant. Fails closed when the owner has no
-      // registered wallet (`ownerWallet === null` → `fromMatches === false`).
-      verification.fromMatches &&
-      addressesMatch(verification.fromAddress, ownerWallet) &&
-      verification.confirmed &&
-      resolvedAmount > 0
-    ) {
+    if (verification.toMatches && verification.confirmed && resolvedAmount > 0) {
       // M4: only credit when a positive amount resolved; otherwise stay PENDING.
+      // task-onchain-payment-integrity: this is the SECOND path that can flip a
+      // deposit to PAID, so it also records the observed on-chain sender — a
+      // deposit submitted before the tx was mined has no sender yet, and this
+      // re-poll is where it becomes known. `?? tx.txFromAddress` keeps an
+      // already-recorded value if the chain read came back empty.
       await this.db.db
         .update(transactions)
-        .set({ status: 'PAID', amount: String(resolvedAmount), updatedAt: new Date() })
+        .set({
+          status: 'PAID',
+          amount: String(resolvedAmount),
+          txFromAddress: normalizeEthAddress(verification.fromAddress) ?? tx.txFromAddress,
+          updatedAt: new Date(),
+        })
         .where(eq(transactions.id, tx.id))
       return {
         status: 'PAID',

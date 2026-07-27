@@ -492,6 +492,14 @@ export const payoutRequests = pgTable(
     // verification.
     contractAddress: varchar('contract_address', { length: 255 }).notNull(),
     txHash: varchar('tx_hash', { length: 255 }),
+    // task-onchain-payment-integrity. The on-chain SENDER of the settling
+    // transfer (ERC-20 `topics[1]`, tx-level `from` as fallback), lowercase.
+    // OBSERVED, NOT ENFORCED: staff often withdraw from an exchange, so this is
+    // frequently the exchange's hot wallet rather than their own address —
+    // gating on it would reject honest payments (owner decision). Recorded so
+    // ADMIN/ACCOUNTANT can see who actually paid; NULL for pending payouts,
+    // off-chain manual confirmations and dev-simulate settlements.
+    txFromAddress: varchar('tx_from_address', { length: 42 }),
     status: payoutRequestStatusEnum().notNull().default('PENDING'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -581,6 +589,13 @@ export const transactions = pgTable(
     }),
     // Blockchain TX hash (for PAYOUT, PAYOUT_ADMIN, COMPANY_DEPOSIT)
     txHash: varchar('tx_hash', { length: 255 }),
+    // task-onchain-payment-integrity. On-chain SENDER of that transfer
+    // (ERC-20 `topics[1]`, tx-level `from` as fallback), lowercase. Same
+    // OBSERVED-NOT-ENFORCED contract as `payout_requests.tx_from_address` —
+    // recorded for ADMIN/ACCOUNTANT audit, never a credit gate (exchange
+    // withdrawals legitimately show the exchange's wallet). NULL wherever no
+    // on-chain sender was resolved.
+    txFromAddress: varchar('tx_from_address', { length: 42 }),
     // task-company-account-backend. Funding source of a SALARY row:
     //   'COMPANY_ACCOUNT' — paid from the shared company USDT account (debits
     //                       its derived balance); always USDT.

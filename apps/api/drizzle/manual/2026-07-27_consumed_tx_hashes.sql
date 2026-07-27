@@ -1,9 +1,12 @@
 -- =============================================================================
--- consumed_tx_hashes — cross-path on-chain hash registry (prod DDL, manual apply)
+-- On-chain payment integrity — prod DDL (manual apply)
+--   1. consumed_tx_hashes  — cross-path registry (one transfer settles once)
+--   2. tx_from_address     — recorded on-chain sender (audit) on
+--                            payout_requests + transactions
 -- =============================================================================
 --
--- Context
--- -------
+-- Context — part 1 (consumed_tx_hashes)
+-- -------------------------------------
 -- task-onchain-payment-integrity (HOLE 2). One real USDT transfer could credit
 -- the company account TWICE, because the two money paths guarded hash re-use in
 -- DIFFERENT tables and were blind to each other:
@@ -42,7 +45,16 @@
 -- 2026-07-25 vacancy-i18n prod-500). DevOps owns that wiring; this PR ships the
 -- script + the note only.
 --
--- Idempotent: CREATE TABLE/INDEX IF NOT EXISTS + backfill with
+-- Context — part 2 (tx_from_address)
+-- ----------------------------------
+-- The verifier fetched the on-chain `from` and never read it, so nobody could
+-- tell WHO actually paid. It is now extracted (ERC-20 `topics[1]`, tx-level
+-- `from` as fallback) and recorded on the settling row. Deliberately NOT a
+-- gate: staff often withdraw straight from an exchange, whose hot wallet would
+-- be the sender — blocking on it would reject honest payments. The API returns
+-- it to ADMIN/ACCOUNTANT only.
+--
+-- Idempotent: CREATE TABLE/INDEX/COLUMN IF NOT EXISTS + backfill with
 -- ON CONFLICT DO NOTHING — safe to re-run.
 -- =============================================================================
 
@@ -120,9 +132,21 @@ BEGIN
   END IF;
 END $$;
 
+-- 5. Recorded on-chain SENDER (audit). Nullable, no backfill possible: historic
+--    settlements never captured it, and re-deriving would need a chain replay.
+--    Existing rows legitimately stay NULL ("unknown, predates the recording").
+ALTER TABLE payout_requests
+  ADD COLUMN IF NOT EXISTS tx_from_address varchar(42);
+
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS tx_from_address varchar(42);
+
 -- =============================================================================
 -- VERIFY (after applying):
 --   SELECT to_regclass('public.consumed_tx_hashes');            -- not null
+--   SELECT column_name FROM information_schema.columns
+--    WHERE table_name IN ('payout_requests','transactions')
+--      AND column_name = 'tx_from_address';                     -- 2 rows
 --   SELECT indexname FROM pg_indexes
 --    WHERE tablename = 'consumed_tx_hashes';                    -- uq_… present
 --   SELECT purpose, count(*) FROM consumed_tx_hashes GROUP BY 1;
@@ -139,6 +163,9 @@ END $$;
 --
 -- Rollback (feature-level):
 --   DROP TABLE IF EXISTS consumed_tx_hashes;
+--   ALTER TABLE payout_requests DROP COLUMN IF EXISTS tx_from_address;
+--   ALTER TABLE transactions    DROP COLUMN IF EXISTS tx_from_address;
 --   -- Safe: the table is write-only bookkeeping; no other table references it.
---   -- NOTE: rolling back re-opens the cross-path double-credit hole.
+--   -- NOTE: rolling back re-opens the cross-path double-credit hole and drops
+--   -- the recorded senders (they cannot be re-derived without a chain replay).
 -- =============================================================================

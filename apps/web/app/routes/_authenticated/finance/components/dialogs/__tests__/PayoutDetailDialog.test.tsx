@@ -42,6 +42,7 @@ const { PAYOUT } = vi.hoisted(() => ({
     payableAmount: '1300',
     contractAddress: '0xCompanyWallet000000000000000000000000aaaa',
     txHash: null,
+    txFromAddress: null,
     status: 'PENDING',
     transactions: [],
     createdAt: '2026-06-20T00:00:00.000Z',

@@ -43,9 +43,10 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { isUniqueViolation } from '../database/pg-errors'
 import {
-  addressesMatch,
   consumeTxHash,
   findConsumedTxHash,
+  normalizeEthAddress,
+  usdtToMinorUnits,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
 import { InvoicesService } from '../invoices/invoices.service'
@@ -69,37 +70,20 @@ import { receiptMandatoryError } from '@crm/shared'
 // computeBalance counts ONLY these PAYOUT rows, so ADMIN_USDT/CASH manual
 // confirmations (which leave fundingSource NULL) never inflate the balance.
 const PAYOUT_TO_COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
-// M4 — Tolerance for the on-chain amount vs. the recorded payableAmount.
+// M4 — On-chain amount vs. the recorded payableAmount.
 //
-// NARROWED 1% → 0.1% by task-onchain-payment-integrity. The band is NOT a
-// currency-conversion allowance: `payableAmount` is frozen IN USDT at
-// createPayoutRequest time and displayed to the payer, who transfers that exact
-// USDT figure — there is no later re-conversion on their side. What the band
-// must actually absorb is arithmetic dust: `numeric(18,6)` ↔ the float division
-// `Number(rawUint256) / 1e6` in the verifier, plus UI rounding of the displayed
-// figure. 1% of a five-figure payout is a hundred-dollar underpayment silently
-// accepted as full settlement — with the on-chain SENDER now verified, the band
-// is the last remaining "how much can I shave off" knob, so it is tightened to
-// the smallest value that still cannot reject an honest payer.
+// The ±1% tolerance band that used to live here was REMOVED by
+// task-onchain-payment-integrity (owner decision: «сумма должна быть точь-в-точь
+// как в выплате»). `payPayoutRequest` now demands EXACT equality, compared as
+// integer minor units — the rationale and the mechanics are documented at the
+// comparison itself. Nothing else referenced the constant, so no band remains
+// anywhere in the payout path.
 //
-// ABSOLUTE FLOOR: tiny payouts get `PAYOUT_AMOUNT_ABS_TOLERANCE_USDT` (1 cent)
-// instead of a relative band that would shrink below float precision.
-//
-// SYMMETRY (двусторонний): the check uses `Math.abs(onChain - payable)`, so it
-// covers BOTH an on-chain UNDERPAYMENT (sent slightly less) and an OVERPAYMENT
-// (sent slightly more) within the band — both are accepted as PAID. Kept
-// symmetric on purpose: an unbounded overpayment would credit only the frozen
-// payable and silently drift the ledger away from the real wallet balance.
-//
-// WHAT WE CREDIT: regardless of the exact on-chain figure (as long as it is
-// within the band), the company account is credited the FROZEN `payableAmount`
-// — the contractual company-share obligation, NOT the on-chain number. This is
-// deliberate: it keeps the ledger deterministic (the PAYOUT row amount == what
-// every report already shows) and prevents a malformed/manipulated on-chain
-// `value` from setting the credited figure. Outside the band → NOT PAID.
-const PAYOUT_AMOUNT_TOLERANCE = 0.001
-/** Absolute floor of the tolerance band, in USDT (1 cent). */
-const PAYOUT_AMOUNT_ABS_TOLERANCE_USDT = 0.01
+// WHAT WE CREDIT is unchanged: the company account is credited the FROZEN
+// `payableAmount` (the contractual company-share obligation), not a figure
+// derived from chain data — keeping the ledger deterministic and immune to a
+// manipulated on-chain `value`. With exact matching the two are now
+// necessarily identical anyway.
 
 // `isUniqueViolation` (+ PG_UNIQUE_VIOLATION) now lives in
 // `../database/pg-errors` — task-onchain-payment-integrity moved it there so the
@@ -386,6 +370,14 @@ export class TransactionsService {
       receiptDocumentId: tx.receiptDocumentId,
       receiptExternalUrl: tx.receiptExternalUrl,
       txHash: tx.txHash,
+      // task-onchain-payment-integrity. On-chain SENDER of the transfer behind
+      // this row (payout settlement / company deposit) — recorded for audit,
+      // never a gate. ADMIN/ACCOUNTANT only: it is investigation data, and the
+      // same masking rationale as the counterparty/validatedBy fields applies
+      // (a raw wallet address of another party must not leak to SENIOR/DROP).
+      txFromAddress: privileged
+        ? ((tx as Transaction & { txFromAddress?: string | null }).txFromAddress ?? null)
+        : null,
       // RBAC identity-masking (follow-up to createdBy masking, security review
       // PR #385; same class as counterparty masking, PR #384). `validatedBy` is
       // the audit UUID of the validator — validation is ADMIN/ACCOUNTANT-only
@@ -2767,44 +2759,21 @@ export class TransactionsService {
 
     // ── Phase 8 v2 — REAL on-chain validation (INVARIANT #1).
     // Outside dev-simulate, the payout is marked PAID ONLY when the submitted
-    // tx really sent the payable USDT to the COMPANY wallet, WAS SENT BY THIS
-    // USER, and is confirmed. EtherscanService.verifyDeposit asserts recipient +
-    // sender + confirmation count; we additionally gate on the amount being
-    // within tolerance of payable.
-    // ANY failure (recipient mismatch / SENDER mismatch / not confirmed /
-    // amount off / no wallet) throws BEFORE the status flip — the payout stays
-    // PENDING, nothing is credited to the company account.
+    // tx really sent EXACTLY the payable USDT to the COMPANY wallet and is
+    // confirmed. EtherscanService.verifyDeposit asserts recipient +
+    // confirmation count; we additionally require the transferred amount to
+    // equal `payableAmount` EXACTLY (integer minor units — see below).
+    // ANY failure (recipient mismatch / not confirmed / amount off / no wallet)
+    // throws BEFORE the status flip — the payout stays PENDING, nothing is
+    // credited to the company account.
+    // On-chain sender, resolved during verification and persisted on the payout
+    // for audit. Stays null for dev-simulate settlements (no chain data).
+    let onChainFromAddress: string | null = null
+
     if (!isSimulating) {
       const account = await this.db.db.query.companyAccount.findFirst()
       if (!account?.walletAddress) {
         throw new BadRequestException('Кошелёк компании не настроен')
-      }
-
-      // ── SECURITY (task-onchain-payment-integrity, HOLE 1): WHO SENT IT.
-      // The payer's own registered wallet is the reference the on-chain sender
-      // is compared against. Until this landed, only the RECIPIENT was checked,
-      // so the owner of a payout could take ANY stranger's transfer into the
-      // company wallet from a public explorer (amount within the ±tolerance
-      // band, and the band is reachable because they choose which incomes to
-      // group into the request) and submit it as their own payment: payout PAID,
-      // incomes PAID, company account credited — with the company's share still
-      // in their pocket.
-      //
-      // FAIL-CLOSED on an unset wallet: with nothing to compare against we
-      // cannot tell whose money it is, and "let it through when unknown" is
-      // exactly the hole being closed (it would also be trivially reachable —
-      // clear your wallet field, then claim any transfer). The payer registers
-      // the wallet in their profile and retries; nothing is lost, the payout
-      // stays PENDING.
-      const payer = await this.db.db.query.users.findFirst({
-        where: eq(users.id, currentUser.id),
-        columns: { walletUsdtErc20: true },
-      })
-      const payerWallet = payer?.walletUsdtErc20?.trim() ?? null
-      if (!payerWallet) {
-        throw new BadRequestException(
-          'Укажите свой USDT (ERC-20) кошелёк в профиле — с него должна быть отправлена транзакция',
-        )
       }
 
       // Idempotency (HOLE 2): a txHash already consumed by ANY on-chain
@@ -2832,35 +2801,49 @@ export class TransactionsService {
       const verification = await this.etherscan.verifyDeposit(
         effectiveTxHash,
         account.walletAddress,
-        payerWallet,
         account.confirmationThreshold,
       )
       if (!verification.toMatches) {
         throw new BadRequestException('Получатель транзакции не совпадает с кошельком компании')
       }
-      // HOLE 1 gate. Checked BEFORE `confirmed` (which also embeds it) so the
-      // payer gets the specific reason instead of a misleading "not confirmed".
-      // `addressesMatch` re-asserts the comparison on the reported sender —
-      // defence-in-depth against a verifier that returns an optimistic flag.
-      if (!verification.fromMatches || !addressesMatch(verification.fromAddress, payerWallet)) {
-        throw new BadRequestException(
-          'Отправитель транзакции не совпадает с вашим USDT-кошельком — выплату можно закрыть только своим переводом',
-        )
-      }
       if (!verification.confirmed) {
         throw new BadRequestException('Транзакция ещё не подтверждена в сети')
       }
-      // Amount must be within tolerance of the recorded USDT payable. A null
-      // amount (unresolved / malformed on-chain value) is treated as a
-      // mismatch — never credit a payout whose transferred amount we cannot
-      // verify.
-      const payable = parseFloat(req.payableAmount)
-      const onChain = verification.amountUsdt
-      const band = Math.max(payable * PAYOUT_AMOUNT_TOLERANCE, PAYOUT_AMOUNT_ABS_TOLERANCE_USDT)
-      const withinTolerance = onChain !== null && payable > 0 && Math.abs(onChain - payable) <= band
-      if (!withinTolerance) {
-        throw new BadRequestException('Сумма on-chain транзакции не соответствует сумме выплаты')
+
+      // ── SECURITY (task-onchain-payment-integrity): EXACT AMOUNT ────────────
+      // The transfer must move EXACTLY `payableAmount` — no percentage band.
+      //
+      // WHY the old ±1% band was a hole: the recipient (the company wallet) is
+      // published in the payout itself, so the owner of a payout could open a
+      // public explorer, pick ANY stranger's incoming transfer whose size fell
+      // inside the band, and submit it as their own payment — payout PAID,
+      // incomes PAID, company account credited, company's share still in their
+      // pocket. The band was wide enough to make such a transfer easy to find
+      // (1% of a five-figure payout is a ±$100 window), and the payer even
+      // chooses which incomes to group, steering `payableAmount` toward
+      // whatever transfer they found. Exact equality collapses that search
+      // space to "a transfer for precisely my amount" and, combined with the
+      // consumed-hash registry, each such transfer is spendable only once.
+      //
+      // HOW the comparison is done: integer minor units (10^-6 USDT) on BOTH
+      // sides — `amountUsdtMinor` is the raw uint256 sum straight from the
+      // Transfer logs, `usdtToMinorUnits` parses the `numeric(18,6)` payable
+      // string digit-by-digit. No float ever participates, so there is no
+      // representation error to "absorb" and no hidden rounding. A null on
+      // either side (unresolved / malformed) is a mismatch — never credit a
+      // payout whose transferred amount we cannot verify.
+      const payableMinor = usdtToMinorUnits(req.payableAmount)
+      const onChainMinor =
+        verification.amountUsdtMinor === null ? null : BigInt(verification.amountUsdtMinor)
+      if (payableMinor === null || payableMinor <= 0n || onChainMinor !== payableMinor) {
+        throw new BadRequestException(
+          `Сумма on-chain транзакции должна точно совпадать с суммой выплаты (${req.payableAmount} USDT)`,
+        )
       }
+
+      // Record WHO sent it (observable, non-blocking — exchange withdrawals
+      // legitimately show the exchange's wallet). Persisted by the cascade.
+      onChainFromAddress = normalizeEthAddress(verification.fromAddress)
     }
 
     // On-chain (or dev-simulate) settlement landed on the COMPANY wallet → the
@@ -2871,6 +2854,8 @@ export class TransactionsService {
       PAYOUT_TO_COMPANY_ACCOUNT,
       null,
       currentUser,
+      false,
+      onChainFromAddress,
     )
   }
 
@@ -3118,6 +3103,11 @@ export class TransactionsService {
     // SELECT left open. payPayoutRequest passes false (it runs its own pre-check;
     // the unique index uq_payout_requests_txhash_paid remains the hard backstop).
     guardTxHashReuse = false,
+    // task-onchain-payment-integrity. On-chain SENDER of the settling transfer,
+    // already normalised by the caller (null for manual/off-chain/simulate
+    // settlements). Stamped on the payout_request AND the PAYOUT ledger row —
+    // audit data, never a gate.
+    onChainFromAddress: string | null = null,
   ) {
     const requestId = req.id
 
@@ -3153,6 +3143,8 @@ export class TransactionsService {
           .update(payoutRequests)
           .set({
             txHash: effectiveTxHash,
+            // Recorded sender (audit). Null on manual/simulate settlements.
+            txFromAddress: onChainFromAddress,
             status: 'PAID',
             updatedAt: new Date(),
           })
@@ -3271,6 +3263,8 @@ export class TransactionsService {
           .set({
             status: 'PAID',
             txHash: effectiveTxHash,
+            // task-onchain-payment-integrity: recorded on-chain sender (audit).
+            txFromAddress: onChainFromAddress,
             fundingSource,
             updatedAt: new Date(),
             ...(auditNote ? { notes: auditNote } : {}),
@@ -3298,6 +3292,7 @@ export class TransactionsService {
             .update(transactions)
             .set({
               txHash: effectiveTxHash,
+              txFromAddress: onChainFromAddress,
               fundingSource,
               updatedAt: new Date(),
               ...(auditNote ? { notes: auditNote } : {}),
@@ -3317,6 +3312,25 @@ export class TransactionsService {
           }
           payoutRow = existing[0]!
         }
+
+        // ── AUDIT (task-onchain-payment-integrity): who settled this payout,
+        // with which on-chain transfer, and WHO SENT that transfer. Written in
+        // the same transaction as the credit, so the trail cannot drift from the
+        // ledger. The sender is audit data, not a gate (exchange withdrawals) —
+        // this row is what an investigator reads when a settlement looks odd.
+        await dbtx.insert(transactionAuditLog).values({
+          actorId: currentUser.id,
+          targetId: payoutRow.id,
+          action: 'PAYOUT_SETTLED',
+          metadata: {
+            payoutRequestId: requestId,
+            txHash: effectiveTxHash,
+            txFromAddress: onChainFromAddress,
+            fundingSource,
+            payableAmount: req.payableAmount,
+            ...(auditNote ? { note: auditNote } : {}),
+          },
+        })
 
         // Drop role - phase 2 (AC3). Resolve whether the linked SENIOR_INCOMEs
         // belong to a drop-project. Senior-projects (project.dropId === null)
@@ -3522,6 +3536,12 @@ export class TransactionsService {
       payableAmount: r.payableAmount,
       contractAddress: r.contractAddress,
       txHash: r.txHash,
+      // task-onchain-payment-integrity: the recorded on-chain sender is an
+      // AUDIT field — ADMIN/ACCOUNTANT only. Masked to null for the payout's
+      // own SENIOR/DROP (they gain nothing from it and it would leak other
+      // parties' wallet addresses into a non-privileged surface).
+      txFromAddress:
+        currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT' ? r.txFromAddress : null,
       status: r.status,
       createdAt: r.createdAt.toISOString(),
       updatedAt: r.updatedAt.toISOString(),
@@ -3571,6 +3591,8 @@ export class TransactionsService {
       payableAmount: req.payableAmount,
       contractAddress: req.contractAddress,
       txHash: req.txHash,
+      // Audit field — ADMIN/ACCOUNTANT only (see findPayoutRequests).
+      txFromAddress: isPrivileged ? req.txFromAddress : null,
       status: req.status,
       transactions: (req as typeof req & { transactions: TxWithRelations[] }).transactions.map(
         (tx) => this.mapTx(tx, currentUser),

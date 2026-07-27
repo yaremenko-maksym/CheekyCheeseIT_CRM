@@ -6,15 +6,20 @@ import { consumedTxHashes } from '../database/schema'
 /**
  * task-onchain-payment-integrity — shared on-chain settlement primitives.
  *
- * Single source of truth for the two rules every USDT money path must obey:
+ * Single source of truth for the rules every USDT money path must obey:
  *
- *   1. SENDER IDENTITY — an on-chain transfer only settles an obligation when
- *      it was sent BY the person claiming it (`addressesMatch`). Before this,
- *      only the RECIPIENT was checked, so any third party's transfer into the
- *      company wallet could be claimed as "my payment".
+ *   1. EXACT AMOUNT — a transfer settles a declared obligation only when the
+ *      on-chain amount equals it EXACTLY, compared as integer minor units
+ *      (`usdtToMinorUnits`), never as floats and never within a percentage
+ *      band. This is the barrier that makes "find any stranger's transfer of
+ *      roughly the right size and claim it" impractical.
  *   2. SINGLE CONSUMPTION — a real on-chain transfer settles AT MOST ONE thing
  *      across the WHOLE system (`consumeTxHash` + `consumed_tx_hashes`), not
  *      one thing per table.
+ *   3. RECORDED SENDER — the on-chain `from` is normalised and persisted
+ *      (`normalizeEthAddress`) so an investigator can see who actually paid.
+ *      It is NOT a gate: staff often withdraw straight from an exchange, whose
+ *      hot wallet would be the sender (owner decision).
  *
  * Kept in a tiny standalone module (rather than inside either service) because
  * both `transactions.service` (payouts) and `company-account.service` (deposits)
@@ -50,23 +55,53 @@ export function normalizeOnChainTxHash(raw: string | null | undefined): string |
   return trimmed.toLowerCase()
 }
 
-// ── Address comparison ───────────────────────────────────────────────────────
+// ── Address normalisation (for STORING the observed sender) ──────────────────
+
+/** `0x` + 40 hex chars. */
+const ETH_ADDRESS_RE = /^0x[0-9a-f]{40}$/i
 
 /**
- * Case-insensitive Ethereum address comparison, fail-closed on missing input.
- *
- * Returns FALSE when either side is null/empty — an unknown address never
- * "matches". This is what makes an unconfigured payer wallet reject rather than
- * silently pass (the whole point of the sender check).
+ * Normalise an Ethereum address for persistence: trimmed + lowercase, or null
+ * when absent/malformed. Lowercasing keeps stored senders comparable across
+ * sources (Etherscan returns EIP-55 mixed case; our RPC decoding lowercases).
  */
-export function addressesMatch(
-  a: string | null | undefined,
-  b: string | null | undefined,
-): boolean {
-  const left = a?.trim().toLowerCase() ?? ''
-  const right = b?.trim().toLowerCase() ?? ''
-  if (!left || !right) return false
-  return left === right
+export function normalizeEthAddress(raw: string | null | undefined): string | null {
+  const trimmed = raw?.trim() ?? ''
+  if (!ETH_ADDRESS_RE.test(trimmed)) return null
+  return trimmed.toLowerCase()
+}
+
+// ── USDT amounts — exact integer comparison ──────────────────────────────────
+
+/** USDT has 6 decimals on Ethereum mainnet (mirrors EtherscanService). */
+const USDT_DECIMALS = 6
+
+/**
+ * Convert a decimal USDT amount to EXACT integer minor units (10^-6 USDT).
+ *
+ * Parses the DECIMAL STRING directly — no `parseFloat`, no multiplication by
+ * 1e6 — because binary floats cannot represent most decimal fractions: e.g.
+ * `740.07 * 1e6 === 740069999.9999999`, which would make an exact comparison
+ * spuriously fail (and rounding it back would quietly re-introduce a
+ * tolerance). Accepts the `numeric(18,6)` strings Drizzle returns
+ * ("740.000000"), plain integers ("740"), and a leading minus.
+ *
+ * Returns null when the input is not a plain decimal number or carries more
+ * than 6 decimal places (un-representable in USDT — never silently truncate an
+ * amount that decides whether money moves).
+ */
+export function usdtToMinorUnits(raw: string | number | null | undefined): bigint | null {
+  if (raw === null || raw === undefined) return null
+  const text = typeof raw === 'number' ? String(raw) : raw.trim()
+  const m = /^(-?)(\d+)(?:\.(\d*))?$/.exec(text)
+  if (!m) return null
+  const sign = m[1] ?? ''
+  const whole = m[2] ?? '0'
+  const fraction = m[3] ?? ''
+  if (fraction.length > USDT_DECIMALS) return null
+  const padded = fraction.padEnd(USDT_DECIMALS, '0')
+  const magnitude = BigInt(`${whole}${padded}`)
+  return sign === '-' ? -magnitude : magnitude
 }
 
 // ── Consumed-hash registry ───────────────────────────────────────────────────

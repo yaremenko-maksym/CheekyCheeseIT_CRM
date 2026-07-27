@@ -215,6 +215,19 @@ export const transactionSchema = z.object({
    * is representable and typed honestly on the client.
    */
   createdBy: z.string().uuid().nullable(),
+  /**
+   * task-onchain-payment-integrity. On-chain SENDER (ERC-20 `topics[1]`, tx
+   * `from` as fallback) of the transfer behind this row — a payout settlement
+   * or a company deposit. Lowercase.
+   *
+   * OBSERVED, NOT ENFORCED: staff often withdraw USDT straight from an
+   * exchange, so this is frequently the exchange's hot wallet rather than the
+   * payer's own address; the API records it for investigation but never gates a
+   * settlement on it. AUDIT-SCOPED: returned to ADMIN/ACCOUNTANT only, null for
+   * every other viewer (same masking class as `validatedBy` / counterparty).
+   * Null on every row with no on-chain transfer behind it.
+   */
+  txFromAddress: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -238,6 +251,19 @@ export const payoutRequestSchema = z.object({
   // are converted to USDT at create time — see createPayoutRequest).
   contractAddress: z.string(),
   txHash: z.string().nullable(),
+  /**
+   * task-onchain-payment-integrity. On-chain SENDER of the settling transfer
+   * (ERC-20 `topics[1]`, tx `from` as fallback), lowercase.
+   *
+   * OBSERVED, NOT ENFORCED: staff often withdraw USDT straight from an
+   * exchange, so this is frequently the exchange's hot wallet rather than the
+   * payer's own address — the API records it for investigation but never gates
+   * a settlement on it. AUDIT-SCOPED: the API returns it to ADMIN/ACCOUNTANT
+   * only; every other role (incl. the payout's own SENIOR/DROP) receives null.
+   * Also null for pending payouts, manual off-chain confirmations and
+   * dev-simulate settlements.
+   */
+  txFromAddress: z.string().nullable(),
   status: payoutRequestStatusSchema,
   transactions: z.array(transactionSchema).optional(),
   createdAt: z.string().datetime(),
@@ -1607,6 +1633,13 @@ export const companyDepositSchema = z.object({
   createdAt: z.string().datetime(),
 })
 export type CompanyDepositDto = z.infer<typeof companyDepositSchema>
+// NOTE (task-onchain-payment-integrity): the deposit's recorded on-chain sender
+// is deliberately NOT part of this DTO. `POST /company-account/deposits` is a
+// SENIOR/DROP-only endpoint and the sender is ADMIN/ACCOUNTANT audit data, so
+// the field would be permanently null here. It is exposed where a privileged
+// viewer actually looks — on the COMPANY_DEPOSIT ledger row
+// (`transactionSchema.txFromAddress`) and on the payout
+// (`payoutRequestSchema.txFromAddress`).
 
 // GET /api/company-account/deposits/:id/status — light polling payload.
 export const depositStatusSchema = z.object({
