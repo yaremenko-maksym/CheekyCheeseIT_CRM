@@ -264,7 +264,16 @@ export class AuthController {
    *  - Target must not be the caller themselves.
    *  - No nesting: if the current JWT already has `impersonatorId`, reject.
    *
-   * no-audit — intentional owner decision (no per-action attribution required).
+   * Starting/stopping impersonation itself is not written as its own audit
+   * event (an earlier, still-current owner decision — no dedicated
+   * "impersonation started/stopped" row). That is distinct from ACTIONS
+   * taken while impersonating: `AuditInterceptor` now attributes those to
+   * the real operator (`actorId = impersonatorId ?? id`) with an
+   * `__impersonation` marker — see its own doc (security-review round 2,
+   * authz-hardening) — rather than silently recording them against the
+   * impersonated target. That per-action correction is intentionally
+   * minimal (interceptor-level only, not threaded into every service-layer
+   * audit writer) per the same owner decision against heavier machinery.
    * list excludes admins — enforced here; frontend filters UI list accordingly.
    */
   @Post('impersonate')

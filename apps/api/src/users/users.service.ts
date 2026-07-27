@@ -1493,7 +1493,17 @@ export class UsersService {
     return rows
   }
 
-  async buildProfileView(viewer: User, targetId: string) {
+  /**
+   * `actorImpersonatorId` (security-review round 2, authz-hardening):
+   * `viewer` is a DB row (no `impersonatorId` — that field only ever lives
+   * on the JWT), so unlike the other `SessionUser`-scoped fixes in this
+   * file, correcting the `requisites_read` audit attribution below needs it
+   * threaded in explicitly from the controller's `currentUser.impersonatorId`.
+   * Optional — both real callers (getMe/getProfile in UsersController) pass
+   * it; omitted call sites just fall back to `viewer.id` (unchanged
+   * pre-fix behavior).
+   */
+  async buildProfileView(viewer: User, targetId: string, actorImpersonatorId?: string) {
     const target = await this.findById(targetId)
     if (!target) throw new NotFoundException('User not found')
     const permissions = await this.accessService.getViewPermissions(viewer, target)
@@ -1653,7 +1663,7 @@ export class UsersService {
           changes[f] = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
         }
         await this.auditLogService.record({
-          actorId: viewer.id,
+          actorId: actorImpersonatorId ?? viewer.id,
           targetId: target.id,
           action: 'requisites_read',
           changes,
@@ -1718,6 +1728,15 @@ export class UsersService {
     if (actor.role !== 'ADMIN') {
       throw new ForbiddenException('Создание дропа доступно только администратору')
     }
+    // security-review round 2 (authz-hardening): attribute audit rows below
+    // to the REAL operator under impersonation, not the impersonated
+    // target — see sessionUserSchema.impersonatorId's doc for the full
+    // rationale. This endpoint is @Roles('ADMIN'), so in practice
+    // `impersonatorId` can only be set here if impersonation semantics
+    // ever change to allow it (RolesGuard checks the TARGET's role during
+    // impersonation, currently blocking this route) — kept in sync
+    // defensively rather than left to silently drift.
+    const effectiveActorId = actor.impersonatorId ?? actor.id
     if (data.hrIds.length < 1) {
       throw new BadRequestException('HR обязателен (минимум 1)')
     }
@@ -1761,7 +1780,7 @@ export class UsersService {
 
       await this.auditLogService.record(
         {
-          actorId: actor.id,
+          actorId: effectiveActorId,
           targetId: created.id,
           action: 'profile_created',
           changes: {
@@ -1781,7 +1800,7 @@ export class UsersService {
       )
       await this.teamAuditLogService.record(
         {
-          actorId: actor.id,
+          actorId: effectiveActorId,
           targetId: team.id,
           action: 'team_created',
           changes: { name: { before: null, after: team.name } },
@@ -1811,6 +1830,9 @@ export class UsersService {
     if (actor.role !== 'ADMIN') {
       throw new ForbiddenException('Архивация дропа доступна только администратору')
     }
+    // security-review round 2 (authz-hardening) — see createDrop's identical
+    // comment above for the full rationale.
+    const effectiveActorId = actor.impersonatorId ?? actor.id
     return this.db.db.transaction(async (tx) => {
       const user = await tx
         .select()
@@ -1839,7 +1861,7 @@ export class UsersService {
 
       await this.auditLogService.record(
         {
-          actorId: actor.id,
+          actorId: effectiveActorId,
           targetId: dropId,
           action: 'user_archived',
           changes: { archivedAt: { before: null, after: now.toISOString() } },

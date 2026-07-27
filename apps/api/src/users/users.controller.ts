@@ -224,7 +224,7 @@ export class UsersController {
   async getMe(@CurrentUser() currentUser: SessionUser) {
     const viewer = await this.usersService.findById(currentUser.id)
     if (!viewer) throw new ForbiddenException()
-    return this.usersService.buildProfileView(viewer, currentUser.id)
+    return this.usersService.buildProfileView(viewer, currentUser.id, currentUser.impersonatorId)
   }
 
   @Patch('me')
@@ -260,7 +260,7 @@ export class UsersController {
   ) {
     const viewer = await this.usersService.findById(currentUser.id)
     if (!viewer) throw new ForbiddenException()
-    return this.usersService.buildProfileView(viewer, id)
+    return this.usersService.buildProfileView(viewer, id, currentUser.impersonatorId)
   }
 
   @Get(':id/team')

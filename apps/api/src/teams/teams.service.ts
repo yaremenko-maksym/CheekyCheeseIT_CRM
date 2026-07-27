@@ -458,8 +458,11 @@ export class TeamsService {
     // a traceable history of financial-impact edits. Written after UPDATE so
     // the audit row is only created when the DB write succeeded.
     if (overrideChanged) {
+      // security-review round 2 (authz-hardening): attribute to the real
+      // operator under impersonation — see sessionUserSchema.impersonatorId's
+      // doc for the full rationale.
       await this.teamAuditLogService.record({
-        actorId: currentUser.id,
+        actorId: currentUser.impersonatorId ?? currentUser.id,
         targetId: id,
         action: 'team_updated',
         changes: {
@@ -791,9 +794,12 @@ export class TeamsService {
             isNull(teamMembers.leftAt),
           ),
         )
+      // security-review round 2 (authz-hardening): attribute to the real
+      // operator under impersonation — see sessionUserSchema.impersonatorId's
+      // doc for the full rationale.
       await this.teamAuditLogService.record(
         {
-          actorId: currentUser.id,
+          actorId: currentUser.impersonatorId ?? currentUser.id,
           targetId: teamId,
           action: 'team_member_removed',
           changes: {
