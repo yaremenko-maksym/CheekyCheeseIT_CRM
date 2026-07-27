@@ -183,7 +183,6 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
         found: true,
         toMatches: false,
         fromAddress: SENDER_WALLET,
-        fromMatches: true,
         confirmed: false,
         confirmations: 50,
         amountUsdt: 999,
@@ -214,7 +213,6 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
         found: true,
         toMatches: true,
         fromAddress: SENDER_WALLET,
-        fromMatches: true,
         confirmed: true,
         confirmations: 12,
         amountUsdt: 500,
@@ -226,79 +224,72 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     expect(dto.amountUsdt).toBe(500)
   })
 
-  // ── HOLE 1 (task-onchain-payment-integrity) ───────────────────────────────
-  it("SECURITY: a stranger's transfer → 400, no deposit row inserted", async () => {
-    const insertSpy = vi.fn()
-    const db = makeDb({ insert: insertSpy })
+  // ── Recorded sender (task-onchain-payment-integrity) ──────────────────────
+  it('a third-party sender (exchange withdrawal) is CREDITED and RECORDED, not blocked', async () => {
+    const insertValues = vi.fn(() => ({
+      returning: () =>
+        Promise.resolve([
+          {
+            id: 'd-ex',
+            txHash: '0x' + '1'.repeat(64),
+            amount: '500',
+            status: 'PAID',
+            createdAt: new Date(),
+          },
+        ]),
+    }))
+    const db = makeDb({ insert: vi.fn(() => ({ values: insertValues })) })
     const etherscan = {
-      // Perfectly valid deposit into the company wallet — sent by someone else.
+      // Valid deposit into the company wallet sent from an exchange hot wallet.
       verifyDeposit: vi.fn().mockResolvedValue({
         found: true,
         toMatches: true,
         fromAddress: STRANGER_WALLET,
-        fromMatches: false,
-        confirmed: false,
-        confirmations: 30,
-        amountUsdt: 500,
-      }),
-    }
-    const svc = makeService(db, etherscan)
-    await expect(
-      svc.submitDeposit({ txHashOrLink: '0x' + '1'.repeat(64) }, SENIOR),
-    ).rejects.toThrowError(/Отправитель транзакции не совпадает/)
-    expect(insertSpy).not.toHaveBeenCalled()
-  })
-
-  it('SECURITY: submitter without a registered wallet → 400 fail-closed (no chain call)', async () => {
-    const insertSpy = vi.fn()
-    const verifyDeposit = vi.fn()
-    const db = makeDb({
-      insert: insertSpy,
-      query: { users: { findFirst: vi.fn().mockResolvedValue({ walletUsdtErc20: null }) } },
-    })
-    const svc = makeService(db, { verifyDeposit })
-    await expect(
-      svc.submitDeposit({ txHashOrLink: '0x' + '2'.repeat(64) }, SENIOR),
-    ).rejects.toThrowError(/Укажите свой USDT/)
-    expect(verifyDeposit).not.toHaveBeenCalled()
-    expect(insertSpy).not.toHaveBeenCalled()
-  })
-
-  it('SECURITY: sender mismatch reported without fromMatches flag is still refused', async () => {
-    // Defence-in-depth: even an (impossible) verifier that returns
-    // fromMatches=true with a foreign fromAddress must not credit.
-    const db = makeDb({
-      insert: vi.fn(() => ({
-        values: () => ({
-          returning: () =>
-            Promise.resolve([
-              {
-                id: 'd-x',
-                txHash: '0x' + '3'.repeat(64),
-                amount: '0',
-                status: 'PENDING',
-                createdAt: new Date(),
-              },
-            ]),
-        }),
-      })),
-    })
-    const etherscan = {
-      verifyDeposit: vi.fn().mockResolvedValue({
-        found: true,
-        toMatches: true,
-        fromAddress: STRANGER_WALLET,
-        fromMatches: true, // lying flag
         confirmed: true,
         confirmations: 30,
         amountUsdt: 500,
+        amountUsdtMinor: '500000000',
       }),
     }
     const svc = makeService(db, etherscan)
-    const dto = await svc.submitDeposit({ txHashOrLink: '0x' + '3'.repeat(64) }, SENIOR)
-    // Row exists (fromAddress-vs-flag disagreement is not a user error) but is
-    // NOT credited: amount 0 / PENDING.
-    expect(dto.status).toBe('PENDING')
+    const dto = await svc.submitDeposit({ txHashOrLink: '0x' + '1'.repeat(64) }, SENIOR)
+    expect(dto.status).toBe('PAID')
+    // …and the foreign sender is persisted for the audit trail.
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ txFromAddress: STRANGER_WALLET.toLowerCase() }),
+    )
+  })
+
+  it('records a normalised (lowercase) sender address', async () => {
+    const insertValues = vi.fn(() => ({
+      returning: () =>
+        Promise.resolve([
+          {
+            id: 'd-n',
+            txHash: '0x' + '2'.repeat(64),
+            amount: '0',
+            status: 'PENDING',
+            createdAt: new Date(),
+          },
+        ]),
+    }))
+    const db = makeDb({ insert: vi.fn(() => ({ values: insertValues })) })
+    const etherscan = {
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        fromAddress: SENDER_WALLET.toUpperCase().replace('0X', '0x'),
+        confirmed: false,
+        confirmations: 2,
+        amountUsdt: null,
+        amountUsdtMinor: null,
+      }),
+    }
+    const svc = makeService(db, etherscan)
+    await svc.submitDeposit({ txHashOrLink: '0x' + '2'.repeat(64) }, SENIOR)
+    expect(insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ txFromAddress: SENDER_WALLET.toLowerCase() }),
+    )
   })
 
   // ── HOLE 2 (task-onchain-payment-integrity) ───────────────────────────────
@@ -379,18 +370,17 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
       found: true,
       toMatches: true,
       fromAddress: SENDER_WALLET,
-      fromMatches: true,
       confirmed: false,
       confirmations: 3,
       amountUsdt: null,
+      amountUsdtMinor: null,
     })
     const db = makeDb({
       insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
     })
     const svc = makeService(db, { verifyDeposit })
     await svc.submitDeposit({ txHashOrLink: `https://etherscan.io/tx/${hash}` }, SENIOR)
-    // The submitter's own wallet is passed as the expected on-chain sender.
-    expect(verifyDeposit).toHaveBeenCalledWith(hash, WALLET, SENDER_WALLET, THRESHOLD)
+    expect(verifyDeposit).toHaveBeenCalledWith(hash, WALLET, THRESHOLD)
   })
 })
 
@@ -427,7 +417,6 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
         found: true,
         toMatches: true,
         fromAddress: SENDER_WALLET,
-        fromMatches: true,
         confirmed: false,
         confirmations: 5,
         amountUsdt: null,
@@ -463,7 +452,6 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
         found: true,
         toMatches: true,
         fromAddress: SENDER_WALLET,
-        fromMatches: true,
         confirmed: true,
         confirmations: 12,
         amountUsdt: 800,
@@ -476,60 +464,33 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
     expect(updateSpy).toHaveBeenCalledOnce()
   })
 
-  // HOLE 1: polling is the THIRD path that can flip a deposit to PAID — it must
-  // apply the same sender check, judged against the DEPOSIT OWNER's wallet
-  // (not the poller's).
-  it("SECURITY: polling never credits a stranger's transfer (stays PENDING)", async () => {
-    const updateSpy = vi.fn(() => ({ set: () => ({ where: () => Promise.resolve() }) }))
+  // task-onchain-payment-integrity: polling is the SECOND path that can flip a
+  // deposit to PAID — a deposit submitted before the tx was mined has no sender
+  // recorded yet, so the re-poll must record it on the flip.
+  it('records the on-chain sender when the poll flips the deposit to PAID', async () => {
+    const setSpy = vi.fn(() => ({ where: () => Promise.resolve() }))
     const db = makeDb({
-      query: {
-        transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
-        users: { findFirst: vi.fn().mockResolvedValue({ walletUsdtErc20: SENDER_WALLET }) },
-      },
-      update: updateSpy,
+      query: { transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) } },
+      update: vi.fn(() => ({ set: setSpy })),
     })
     const etherscan = {
       verifyDeposit: vi.fn().mockResolvedValue({
         found: true,
         toMatches: true,
         fromAddress: STRANGER_WALLET,
-        fromMatches: false,
-        confirmed: false,
+        confirmed: true,
         confirmations: 40,
         amountUsdt: 800,
+        amountUsdtMinor: '800000000',
       }),
     }
     const svc = makeService(db, etherscan)
     const status = await svc.getDepositStatus('dep-1', SENIOR)
-    expect(status.status).toBe('PENDING')
-    expect(updateSpy).not.toHaveBeenCalled()
-  })
-
-  it("SECURITY: polling passes the deposit OWNER's wallet, not the poller's", async () => {
-    const verifyDeposit = vi.fn().mockResolvedValue({
-      found: true,
-      toMatches: true,
-      fromAddress: SENDER_WALLET,
-      fromMatches: true,
-      confirmed: false,
-      confirmations: 2,
-      amountUsdt: null,
-    })
-    const db = makeDb({
-      query: {
-        transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
-        users: { findFirst: vi.fn().mockResolvedValue({ walletUsdtErc20: SENDER_WALLET }) },
-      },
-      update: vi.fn(),
-    })
-    const svc = makeService(db, { verifyDeposit })
-    // ADMIN polls somebody else's deposit — the reference wallet is the owner's.
-    await svc.getDepositStatus('dep-1', ADMIN)
-    expect(verifyDeposit).toHaveBeenCalledWith(
-      pendingDeposit.txHash,
-      WALLET,
-      SENDER_WALLET,
-      THRESHOLD,
+    // A third-party sender does NOT block the credit (exchange withdrawals)…
+    expect(status.status).toBe('PAID')
+    // …it is recorded.
+    expect(setSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ txFromAddress: STRANGER_WALLET.toLowerCase() }),
     )
   })
 

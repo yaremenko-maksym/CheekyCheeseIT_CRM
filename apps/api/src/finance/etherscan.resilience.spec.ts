@@ -14,14 +14,6 @@ import { EtherscanService } from './etherscan.service'
  */
 
 const COMPANY_WALLET = '0x1111111111111111111111111111111111111111'
-/**
- * task-onchain-payment-integrity: the payer's registered wallet. Every fixture
- * here emits `from = 0x9999…` (both at tx level and in the Transfer topic), so
- * passing this as the expected sender keeps these resilience cases on the happy
- * sender path — they assert network/receipt behaviour, not the sender gate
- * (that lives in etherscan.verify-deposit.spec.ts).
- */
-const SENDER_WALLET = '0x9999999999999999999999999999999999999999'
 const TX_HASH = '0xdeadbeef000000000000000000000000000000000000000000000000000000aa'
 const USDT_CONTRACT = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
 // keccak256("Transfer(address,address,uint256)") — ERC-20 Transfer topic
@@ -164,7 +156,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
       txBlockNumber: '0x12c', // block 300 → 12 confirmations
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(true)
     expect(result.toMatches).toBe(true)
@@ -176,7 +168,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
   it('tx not found on-chain via direct lookup → found=false', async () => {
     mockDirectLookup({ txFound: false })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(false)
     expect(result.confirmed).toBe(false)
@@ -192,7 +184,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
       currentBlock: 312,
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(true)
     expect(result.amountUsdt).toBe(500) // 300 + 200 summed
@@ -207,7 +199,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
       currentBlock: 312,
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.amountUsdt).toBe(400) // only company wallet transfer
   })
@@ -219,7 +211,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
       transfers: [{ to: COMPANY_WALLET, value: '100' }],
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(true)
     expect(result.toMatches).toBe(true)
@@ -235,7 +227,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
       currentBlock: 312,
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(true)
     expect(result.toMatches).toBe(false)
@@ -295,7 +287,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
       return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     // Find the eth_getLogs call (3rd call, index 2)
     const logsUrl = capturedUrls.find((u) => u.includes('eth_getLogs'))
@@ -323,7 +315,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
     })
     // The from address in mockTransferLogs is always 0x9999... (non-zero)
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(true)
     expect(result.toMatches).toBe(true)
@@ -339,7 +331,7 @@ describe('AC1: verifyDeposit — direct txHash lookup (no 10k-window dependency)
       .fn()
       .mockRejectedValue(new DOMException('The operation was aborted.', 'AbortError'))
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(false)
     expect(result.confirmed).toBe(false)
@@ -366,7 +358,7 @@ describe('AC2: verifyDeposit — on-chain success (reverted tx must NOT credit)'
       currentBlock: 312,
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(true)
     // A reverted tx MUST NOT credit — confirmed=false even if recipient matches and threshold met
@@ -383,7 +375,7 @@ describe('AC2: verifyDeposit — on-chain success (reverted tx must NOT credit)'
       currentBlock: 312,
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     // tx seen in mempool (found=true) but no receipt yet → still pending
     expect(result.found).toBe(true)
@@ -398,7 +390,7 @@ describe('AC2: verifyDeposit — on-chain success (reverted tx must NOT credit)'
       currentBlock: 312,
     })
 
-    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+    const result = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
 
     expect(result.found).toBe(true)
     expect(result.toMatches).toBe(true)

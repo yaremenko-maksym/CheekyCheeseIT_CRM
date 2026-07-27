@@ -83,9 +83,16 @@ function makeDefaultEtherscanStub(): EtherscanService {
     verifyDeposit: vi.fn().mockResolvedValue({
       found: true,
       toMatches: true,
+      // task-onchain-payment-integrity: recorded on-chain sender (audit only).
+      fromAddress: null,
       confirmed: true,
       confirmations: 12,
+      // Deliberately null: `payPayoutRequest` demands an EXACT amount match, so
+      // this default stub can never settle a payout by accident. A spec that
+      // exercises the real on-chain payout path MUST pass its own stub with
+      // `amountUsdtMinor` equal to the payout's payable (in minor units).
       amountUsdt: null,
+      amountUsdtMinor: null,
     }),
   } as unknown as EtherscanService
 }
