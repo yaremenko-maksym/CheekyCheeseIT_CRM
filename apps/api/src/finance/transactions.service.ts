@@ -3010,6 +3010,14 @@ export class TransactionsService {
           recipientId: drop.id,
           projectId,
           payoutRequestId: payoutRequestId ?? null,
+          // security-review PR #443 (MED-B): a positive, permanent origin
+          // marker — true ⟺ this call came from the drop-payout cascade
+          // (applyPayoutPaidCascade passes payoutRequestId; the admin-USDT
+          // declaration path, declareUsdtProjectIncome, never does). Captured
+          // HERE from the caller's intent, not derived later from
+          // payoutRequestId's live FK value — see the column comment in
+          // schema.ts for why that distinction matters (ON DELETE SET NULL).
+          dropCascadeOrigin: payoutRequestId != null,
           dropSharePercent: drop.shareSnapshot.value,
           dropSharePercentSource: drop.shareSnapshot.source,
           notes: `${notePrefix} — drop IOU (debtor=COMPANY)`,

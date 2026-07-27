@@ -545,6 +545,35 @@ export const transactions = pgTable(
     payoutRequestId: uuid('payout_request_id').references(() => payoutRequests.id, {
       onDelete: 'set null',
     }),
+    /**
+     * security-review PR #443 (MED-B): a POSITIVE, permanent origin marker for
+     * a DROP_PENDING_PAYOUT / PAYOUT_DROP row — true ⟺ this row's drop-share
+     * IOU was booked by the drop-payout CASCADE (applyPayoutPaidCascade), i.e.
+     * its money NEVER touched the shared company account (only `payable =
+     * income*(1-dropShare%)` did — the drop keeps their own cut before the
+     * on-chain transfer). `false`/default for an admin-USDT-declaration-booked
+     * drop IOU (declareUsdtProjectIncome — the company genuinely DOES hold the
+     * full declared income there).
+     *
+     * WHY a dedicated column instead of `payoutRequestId IS NOT NULL`: that FK
+     * is `ON DELETE SET NULL` — a future cleanup of an unrelated
+     * `payout_requests` row would silently null it, and the settleByCompany
+     * HIGH-1 funding-source guard (pending-settlement.service.ts) would then
+     * fail OPEN (a cascade-originated row would look indistinguishable from an
+     * admin-declared one and wrongly allow a COMPANY_ACCOUNT-funded settle —
+     * debiting money the company never received). This column is stamped ONCE
+     * at INSERT time (bookCompanyObligations, transactions.service.ts) from
+     * the CALLER's intent, not derived from `payoutRequestId` afterwards —
+     * later FK activity on `payout_requests` can never touch it. The backfill
+     * script (`2026-07-27_drop_share_pending_parity_backfill.sql`) stamps the
+     * SAME marker on the historical rows it converts, for the identical reason.
+     *
+     * ADD COLUMN DDL (apply to dev/prod manually before deploy — same
+     * additive-push pattern as `idempotencyKey` above):
+     *   ALTER TABLE transactions
+     *     ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean NOT NULL DEFAULT false;
+     */
+    dropCascadeOrigin: boolean('drop_cascade_origin').notNull().default(false),
     // Snapshot of senior share percent at time of SENIOR_INCOME creation
     seniorSharePercent: integer('senior_share_percent'),
     // task-team-senior-share-override. Snapshot of *where* the percent above

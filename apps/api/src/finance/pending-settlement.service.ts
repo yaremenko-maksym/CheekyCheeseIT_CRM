@@ -226,10 +226,10 @@ export class PendingSettlementService {
     }
 
     // We only need the source IOU's TYPE (the drop-vs-senior discriminator)
-    // and, since PR #443 (HIGH-1), its `payoutRequestId` (cascade-vs-declaration
-    // discriminator — see the guard below). The flipped row keeps its own
-    // projectId booked on the IOU — no re-stamp.
-    const { sourceType, sourcePayoutRequestId } = await this.resolveSource(
+    // and, since PR #443 (HIGH-1 / MED-B), its `dropCascadeOrigin` marker
+    // (cascade-vs-declaration discriminator — see the guard below). The
+    // flipped row keeps its own projectId booked on the IOU — no re-stamp.
+    const { sourceType, sourceDropCascadeOrigin } = await this.resolveSource(
       obligation.sourceTransactionId,
     )
 
@@ -281,11 +281,22 @@ export class PendingSettlementService {
     // share on every such settle (and, over time, falsely tripping the
     // "insufficient funds" gate below for otherwise-legitimate payouts).
     // The admin-declared USDT path (declareUsdtProjectIncome) is NOT
-    // affected: that flow never sets payoutRequestId, and there the company
-    // genuinely DOES hold the full declared income when toCompanyPool=true.
-    // Backfilled historical rows (task-drop-share-pending-parity) keep their
-    // payout_request_id, so they are covered by the SAME condition.
-    if (isDropObligation && sourcePayoutRequestId !== null && debitsCompanyAccount) {
+    // affected — the company genuinely DOES hold the full declared income
+    // there when toCompanyPool=true.
+    //
+    // SECURITY (MED-B, security-review PR #443 round 2, fail-safe hardening):
+    // the discriminator is `dropCascadeOrigin` — a POSITIVE marker stamped
+    // ONCE at INSERT time (see bookCompanyObligations, transactions.service.ts,
+    // and the column comment in schema.ts) — NOT `payoutRequestId IS NOT
+    // NULL`. That FK is `ON DELETE SET NULL`: a future cleanup of an
+    // unrelated `payout_requests` row would silently null it, and a
+    // condition keyed on it would fail OPEN (a cascade-originated row would
+    // become indistinguishable from an admin-declared one and wrongly allow
+    // a COMPANY_ACCOUNT settle). `dropCascadeOrigin` is never derived from
+    // `payoutRequestId` after the fact, so it survives that entirely.
+    // Backfilled historical rows (task-drop-share-pending-parity) get the
+    // SAME marker stamped by the backfill script, for the identical reason.
+    if (isDropObligation && sourceDropCascadeOrigin && debitsCompanyAccount) {
       throw new BadRequestException(
         'Доля дропа из этой выплаты не проходила через счёт компании — выберите личный счёт админа',
       )
@@ -606,27 +617,29 @@ export class PendingSettlementService {
    * project pointer for audit. Failures are non-fatal: a missing source or
    * missing project just yields `null`.
    *
-   * security-review PR #443 (HIGH-1): also returns the source row's
-   * `payoutRequestId` — the deterministic cascade-vs-declaration discriminator
-   * `settleByCompany` uses below to refuse a COMPANY_ACCOUNT-funded settle on
-   * a cascade-originated drop obligation (see the HIGH-1 guard for why).
+   * security-review PR #443 (HIGH-1 / MED-B): also returns the source row's
+   * `dropCascadeOrigin` — the deterministic, FK-independent cascade-vs-
+   * declaration discriminator `settleByCompany` uses below to refuse a
+   * COMPANY_ACCOUNT-funded settle on a cascade-originated drop obligation
+   * (see the HIGH-1 guard for why, and the MED-B note on why this reads the
+   * dedicated marker column rather than `payoutRequestId`).
    */
   private async resolveSource(sourceTransactionId: string): Promise<{
     project: { id: string; name: string } | null
     sourceType: string | null
-    sourcePayoutRequestId: string | null
+    sourceDropCascadeOrigin: boolean
   }> {
     const source = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, sourceTransactionId),
     })
-    if (!source) return { project: null, sourceType: null, sourcePayoutRequestId: null }
+    if (!source) return { project: null, sourceType: null, sourceDropCascadeOrigin: false }
     const project = source.projectId
       ? await this.db.db.query.projects.findFirst({ where: eq(projects.id, source.projectId) })
       : null
     return {
       project: project ? { id: project.id, name: project.name } : null,
       sourceType: source.type,
-      sourcePayoutRequestId: source.payoutRequestId,
+      sourceDropCascadeOrigin: source.dropCascadeOrigin,
     }
   }
 

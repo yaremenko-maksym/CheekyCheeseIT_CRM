@@ -3,7 +3,7 @@ import { join } from 'path'
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, isNotNull } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -53,6 +53,36 @@ import * as schema from '../database/schema'
  *          transaction as the conversion (closes the pre-MED-1 window where a
  *          row created between the (separate) backup step and the target
  *          capture could be converted without ever being backed up).
+ *   AC7    (security-review PR #443, MED-B round 2) A converted row's
+ *          `drop_cascade_origin` marker is set to `true` — the permanent,
+ *          FK-independent discriminator `settleByCompany`'s HIGH-1 guard now
+ *          reads (instead of the FK-dependent `payout_request_id`, which the
+ *          `payout_requests.id` FK's `ON DELETE SET NULL` could silently
+ *          null on an unrelated future cleanup — see
+ *          `2026-07-27_drop_cascade_origin_marker.sql`).
+ *   AC8    (security-review PR #443, MED-A round 2) The precount file
+ *          (`2026-07-27_drop_share_pending_parity_precount.sql`) is a
+ *          genuinely standalone, READ-ONLY step — proven here to make ZERO
+ *          writes (row counts unchanged before/after) while still reporting
+ *          an accurate count.
+ *
+ * Test isolation (security-review PR #443, LOW-1 round 2): the backfill's
+ * selection predicate is GLOBAL (by design — mirrors the real prod script,
+ * which cannot be parameter-scoped to "just this test's rows"; the same is
+ * true of `transactions.counterparty-masking.rbac.integration.spec.ts`,
+ * which also seeds PAYOUT_DROP rows carrying a payout_request_id link and
+ * therefore ALSO matches this predicate). Serial file execution
+ * (`fileParallelism: false` on integration runs) plus that spec's own
+ * cleanup keep `crm_qa` clean between files today, but a fixture leak (this
+ * repo has precedent) would let `runBackfill()` silently convert a FOREIGN
+ * spec's rows too — the SQL's own fail-loud verify would not catch it (it
+ * only compares counts against its own `_dspp_targets` temp table, which by
+ * construction captures the WHOLE global matching set, leaked rows
+ * included). `assertNoForeignPathBRows()` below is this spec's isolation
+ * guard — scoped to `TEST_OWN_USER_IDS`, mirrors the ownership-scoping
+ * pattern already used by `clearLedger()` in this same file and by sibling
+ * specs — asserted before every test that calls `runBackfill()`, failing
+ * LOUD (not silently) if the DB is not clean.
  *
  * Test-vs-prod transaction model (security-review PR #443, MED-2): this spec
  * executes the WHOLE migration file as one `pool.query(text)` call — under
@@ -75,6 +105,10 @@ import * as schema from '../database/schema'
 
 const MIGRATION_SQL = readFileSync(
   join(__dirname, '../../drizzle/manual/2026-07-27_drop_share_pending_parity_backfill.sql'),
+  'utf-8',
+)
+const PRECOUNT_SQL = readFileSync(
+  join(__dirname, '../../drizzle/manual/2026-07-27_drop_share_pending_parity_precount.sql'),
   'utf-8',
 )
 
@@ -189,6 +223,35 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
     await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_OWN_USER_IDS))
+  }
+
+  /** Isolation guard (LOW-1, security-review PR #443 round 2) — see the file
+   * header for the full reasoning. `runBackfill()`'s predicate is global; a
+   * leaked fixture from ANOTHER spec (e.g. transactions.counterparty-masking
+   * .rbac.integration.spec.ts, which also seeds matching PAYOUT_DROP rows)
+   * would be silently swept up otherwise. Fails LOUD, scoped to
+   * TEST_OWN_USER_IDS (mirrors `clearLedger`'s own scoping). */
+  async function assertNoForeignPathBRows(): Promise<void> {
+    const rows = await dbSvc.db
+      .select({ id: transactions.id, receiverId: transactions.receiverId })
+      .from(transactions)
+      .where(
+        and(
+          eq(transactions.type, 'PAYOUT_DROP'),
+          eq(transactions.status, 'PAID'),
+          isNotNull(transactions.payoutRequestId),
+        ),
+      )
+    const foreign = rows.filter((r) => !r.receiverId || !TEST_OWN_USER_IDS.includes(r.receiverId))
+    if (foreign.length > 0) {
+      throw new Error(
+        `Test isolation violated: ${foreign.length} foreign Path-B row(s) already in the DB ` +
+          `before this spec ran (ids: ${foreign.map((r) => r.id).join(', ')}). Another ` +
+          'integration spec likely leaked fixtures matching the backfill predicate ' +
+          '(type=PAYOUT_DROP, status=PAID, payout_request_id IS NOT NULL) — clean up before ' +
+          're-running; running the backfill now would silently convert rows this spec does not own.',
+      )
+    }
   }
 
   /** Seed a historical Path-B row: a direct PAYOUT_DROP/PAID insert carrying a
@@ -351,9 +414,15 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
 
     // Cleanup any backup/session temp artefacts from a PRIOR test run against
     // this same scratch DB so the backup-table assertions below start clean.
+    // (Bound the array param explicitly — an earlier version of this call
+    // referenced $1 with no params array, which pg rejects; the surrounding
+    // .catch(() => undefined) silently swallowed that, so this cleanup was a
+    // permanent no-op. Fixed as part of LOW-1, security-review PR #443
+    // round 2, alongside the proper afterAll cleanup below.)
     await _pool!
       .query(
         `DELETE FROM _drop_share_pending_parity_backup_20260727 WHERE receiver_id = ANY($1::uuid[])`,
+        [TEST_OWN_USER_IDS],
       )
       .catch(() => undefined)
   }, 30_000)
@@ -361,6 +430,10 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   beforeEach(async () => {
     if (!dbAvailable) return
     await clearLedger()
+    // LOW-1 (security-review PR #443 round 2): fail loud, before touching the
+    // shared DB, if a foreign spec's matching fixtures leaked in — see the
+    // file header + assertNoForeignPathBRows for the full reasoning.
+    await assertNoForeignPathBRows()
   })
 
   afterAll(async () => {
@@ -369,6 +442,18 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
       await clearLedger()
       await dbSvc.db.delete(projects).where(eq(projects.id, PROJECT_ID))
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
+      // LOW-1 (security-review PR #443 round 2): this spec creates rows in
+      // `_drop_share_pending_parity_backup_20260727` (a real prod table this
+      // spec's own migration run creates/populates) — clean up OUR rows so
+      // the shared `crm_qa` scratch DB does not accumulate test residue
+      // across runs. The table itself is intentionally never dropped (same
+      // "never drop the backup" contract the real script guarantees).
+      await _pool!
+        .query(
+          `DELETE FROM _drop_share_pending_parity_backup_20260727 WHERE receiver_id = ANY($1::uuid[])`,
+          [TEST_OWN_USER_IDS],
+        )
+        .catch(() => undefined)
     } catch {
       // non-fatal
     }
@@ -389,6 +474,10 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
     expect(pathBAfter!.type).toBe('DROP_PENDING_PAYOUT')
     expect(pathBAfter!.status).toBe('PENDING_PAYMENT')
     expect(pathBAfter!.payoutRequestId).toBe(payoutRequestId) // untouched by this script
+    // AC7 (MED-B): the permanent, FK-independent origin marker is stamped —
+    // seedPathBRow creates the row with the schema default (false, matching
+    // the pre-fix historical shape); the backfill must flip it to true.
+    expect(pathBAfter!.dropCascadeOrigin).toBe(true)
 
     // Legacy-closed row (no payout_request_id — pre-refactor settle route):
     // MUST be left exactly as it was (still PAYOUT_DROP/PAID, no obligation).
@@ -397,6 +486,7 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
     })
     expect(legacyAfter!.type).toBe('PAYOUT_DROP')
     expect(legacyAfter!.status).toBe('PAID')
+    expect(legacyAfter!.dropCascadeOrigin).toBe(false)
     const legacyObligation = await dbSvc.db.query.pendingObligations.findFirst({
       where: eq(pendingObligations.sourceTransactionId, legacyId),
     })
@@ -582,5 +672,41 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
     // Balance-neutral before AND after (self-loop rows already net to 0 —
     // the backfill must not disturb that, unlike a real Path-B row).
     expect(await dropBalance()).toBeCloseTo(beforeBalance, 6)
+  })
+
+  it('AC8 (MED-A): the standalone precount file is genuinely READ-ONLY — makes zero writes, still reports an accurate count', async () => {
+    if (!dbAvailable) return
+    const { txId: pathBId } = await seedPathBRow('42')
+
+    const before = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, pathBId),
+    })
+    expect(before!.type).toBe('PAYOUT_DROP') // sanity — not yet converted
+
+    // The precount file must not throw and must not touch ANY row.
+    await expect(_pool!.query(PRECOUNT_SQL)).resolves.not.toThrow()
+
+    const after = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, pathBId),
+    })
+    expect(after!.type).toBe('PAYOUT_DROP') // UNCHANGED — precount wrote nothing
+    expect(after!.status).toBe('PAID')
+    expect(after!.updatedAt).toEqual(before!.updatedAt)
+
+    // No obligation, no backup — precount never reaches STEP 1 of the
+    // conversion file (they are two separate files).
+    const obligation = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.sourceTransactionId, pathBId),
+    })
+    expect(obligation).toBeUndefined()
+
+    // The row is STILL a valid backfill target afterward — proves precount
+    // is a true no-op, not an accidental partial mutation that happens to
+    // look inert on the fields checked above.
+    await runBackfill()
+    const converted = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, pathBId),
+    })
+    expect(converted!.type).toBe('DROP_PENDING_PAYOUT')
   })
 })

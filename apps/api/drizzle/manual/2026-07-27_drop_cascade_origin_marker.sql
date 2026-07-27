@@ -1,0 +1,47 @@
+-- =============================================================================
+-- drop_cascade_origin marker column — prod DDL (manual apply)
+-- =============================================================================
+--
+-- Context
+-- -------
+-- security-review PR #443 (MED-B, second review round). The HIGH-1
+-- funding-source guard in `settleByCompany`
+-- (apps/api/src/finance/pending-settlement.service.ts) refuses a
+-- COMPANY_ACCOUNT-funded settle on a cascade-originated drop obligation — the
+-- money never touched the shared company pool for that origin (only
+-- `payable = income*(1-dropShare%)` did). The guard used to discriminate
+-- cascade-vs-declaration origin SOLELY via `transactions.payout_request_id
+-- IS NOT NULL`. That FK is `ON DELETE SET NULL`
+-- (transactions_payout_request_id_payout_requests_id_fk) — a future cleanup
+-- of an unrelated `payout_requests` row (manual-SQL cleanups on deploy are a
+-- live practice in this repo) would SILENTLY null it, and the guard would
+-- then fail OPEN: a cascade-originated row would look indistinguishable from
+-- an admin-declared one and wrongly allow a COMPANY_ACCOUNT settle.
+--
+-- Fix: a POSITIVE, permanent origin marker stamped ONCE at INSERT time by
+-- `bookCompanyObligations` (transactions.service.ts), from the CALLER's
+-- intent — NOT derived from `payout_request_id` afterwards, so later FK
+-- activity on `payout_requests` can never affect it. See the column comment
+-- in `apps/api/src/database/schema.ts` for the full reasoning.
+--
+-- Also stamped by the sibling backfill script
+-- (`2026-07-27_drop_share_pending_parity_backfill.sql`, STEP 1) on the
+-- historical rows it converts, for the identical reason — apply THIS file
+-- (schema change) BEFORE that one (data change references the new column).
+--
+-- How to apply
+-- ------------
+--   docker compose -f docker-compose.prod.yml exec -T postgres psql \
+--     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
+--     < apps/api/drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql
+--
+-- Add to `.github/workflows/deploy.yml`'s migrate step, applied BEFORE the
+-- new api image serves traffic and BEFORE the pending-parity backfill file
+-- (this is additive schema DDL — unlike the backfill, it is safe to leave
+-- wired permanently; DevOps owns the wiring).
+--
+-- Idempotent: `ADD COLUMN IF NOT EXISTS` — safe to re-run.
+-- =============================================================================
+
+ALTER TABLE transactions
+  ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean NOT NULL DEFAULT false;

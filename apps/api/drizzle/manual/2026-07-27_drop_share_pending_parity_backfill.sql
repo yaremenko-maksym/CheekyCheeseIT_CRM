@@ -25,6 +25,13 @@
 -- confirmed (settled) retroactively instead of staying silently instant-paid
 -- forever.
 --
+-- REQUIRED apply order (security-review PR #443, MED-A — see that file's own
+-- header for why the pre-count MUST be a separate, prior step):
+--   1. `2026-07-27_drop_cascade_origin_marker.sql`   — schema: new column.
+--   2. `2026-07-27_drop_share_pending_parity_precount.sql` — READ-ONLY count;
+--      OWNER looks at the number, decides whether to proceed.
+--   3. THIS file — the actual conversion, only after step 2's go-ahead.
+--
 -- Selection predicate — BY ORIGIN, not by "missing receipt"
 -- -----------------------------------------------------------
 -- Target: type = 'PAYOUT_DROP' AND status = 'PAID' AND payout_request_id IS
@@ -72,28 +79,32 @@
 -- (company-account-balance.ts, computeDropAggregate / getDropSelfSummary) only
 -- read: `transactions.type` (drop-vs-senior discriminator via
 -- `resolveSource`), `transactions.status` (`= 'PENDING_PAYMENT'` — the flip's
--- WHERE-guard), `transactions.payout_request_id` (security-review PR #443
--- HIGH-1 — the cascade-vs-declaration funding-source guard; UNTOUCHED by this
--- script, so a converted row keeps proving its Path-B origin exactly like a
--- freshly-booked one would), and the PAIRED `pending_obligations` row
--- (creditor_user_id, debtor_type='COMPANY', source_transaction_id, amount,
--- currency, status='PENDING' — WITHOUT this row `settleByCompany` can never
--- find the obligation to close, and the row hangs pending forever). `amount`,
+-- WHERE-guard), `transactions.drop_cascade_origin` (security-review PR #443
+-- MED-B — the cascade-vs-declaration funding-source guard; this script SETS
+-- it to `true` on every converted row, see STEP 1c, so a converted row
+-- carries the SAME permanent, FK-independent origin marker a freshly-booked
+-- cascade row would — see `2026-07-27_drop_cascade_origin_marker.sql` for why
+-- this is a dedicated column and not derived from `payout_request_id`), and
+-- the PAIRED `pending_obligations` row (creditor_user_id,
+-- debtor_type='COMPANY', source_transaction_id, amount, currency,
+-- status='PENDING' — WITHOUT this row `settleByCompany` can never find the
+-- obligation to close, and the row hangs pending forever). `amount`,
 -- `currency`, `receiver_id`/`recipient_id`, `sender_id`/`sender_label`,
--- `project_id`, `created_by` are UNTOUCHED by this script — the historical
--- PAYOUT_DROP insert already stamped them identically to how
--- bookCompanyObligations stamps a fresh DROP_PENDING_PAYOUT (senderId=null,
--- senderLabel='COMPANY', receiverId/recipientId=drop — for a NON-self-loop
--- row; self-loop rows are excluded, see above). `drop_share_percent` /
--- `drop_share_percent_source` are LEFT NULL — the historical cascade never
--- stamped a snapshot on PAYOUT_DROP either, and neither field is read by
--- balance/settle code (only by the live cascade's OWN distribution math at
--- booking time, which this backfill does not re-run) — NULL here is the same
--- "no snapshot" state the codebase already handles everywhere else with a
--- `?? resolveDropShare(...)` fallback (see transactions.service.ts).
--- `txHash` is intentionally left as-is (audit trail of the ORIGINAL on-chain
--- confirm) even though a freshly-booked DROP_PENDING_PAYOUT never carries one —
--- it is not read by settleByCompany or any balance derivation, so its presence
+-- `project_id`, `created_by`, `payout_request_id` are UNTOUCHED by this
+-- script — the historical PAYOUT_DROP insert already stamped them
+-- identically to how bookCompanyObligations stamps a fresh
+-- DROP_PENDING_PAYOUT (senderId=null, senderLabel='COMPANY',
+-- receiverId/recipientId=drop — for a NON-self-loop row; self-loop rows are
+-- excluded, see above). `drop_share_percent` / `drop_share_percent_source`
+-- are LEFT NULL — the historical cascade never stamped a snapshot on
+-- PAYOUT_DROP either, and neither field is read by balance/settle code (only
+-- by the live cascade's OWN distribution math at booking time, which this
+-- backfill does not re-run) — NULL here is the same "no snapshot" state the
+-- codebase already handles everywhere else with a `??
+-- resolveDropShare(...)` fallback (see transactions.service.ts). `txHash` is
+-- intentionally left as-is (audit trail of the ORIGINAL on-chain confirm)
+-- even though a freshly-booked DROP_PENDING_PAYOUT never carries one — it is
+-- not read by settleByCompany or any balance derivation, so its presence
 -- here is harmless and keeps the pre-existing audit link.
 --
 -- Balance impact (expected, and visible to people) — DO NOT trust a stale note
@@ -110,14 +121,17 @@
 -- 2026-06-28 (#3). That note predates the ~2026-07-01 Google Sheets
 -- accounting import (~313 historical transactions) and ordinary drop-project
 -- activity since — it is NOT reliable evidence of the CURRENT count. DO NOT
--- assume no-op. STEP 0 below is a standalone, read-only, always-safe count —
--- run it FIRST (or read its RAISE NOTICE output in the deploy log) and get
--- the OWNER's explicit go-ahead if the count is non-zero, since drop balances
--- will visibly dip until each row is settled.
+-- assume no-op. `2026-07-27_drop_share_pending_parity_precount.sql` is a
+-- genuinely SEPARATE, standalone, read-only step — apply it FIRST, read the
+-- OWNER's go-ahead from its output, and only then apply this file (see the
+-- "REQUIRED apply order" note above — MED-A, second review round: the
+-- pre-count used to live as a "STEP 0" inside THIS same file, which does not
+-- give anyone a chance to look and decide before the conversion runs).
 --
 -- How to apply
 -- ------------
--- From the VPS (or any host with Docker access to the prod stack):
+-- From the VPS (or any host with Docker access to the prod stack), AFTER the
+-- schema-marker file and the precount file (see "REQUIRED apply order"):
 --
 --   docker compose -f docker-compose.prod.yml exec -T postgres psql \
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
@@ -125,8 +139,9 @@
 --
 -- Add this file to `.github/workflows/deploy.yml`'s migrate step, applied
 -- BEFORE the new api image serves traffic (same slot as the prior manual
--- scripts in this directory). DevOps owns that wiring — this PR only ships the
--- script + this note (see PR body).
+-- scripts in this directory), AFTER the schema-marker + precount files.
+-- DevOps owns that wiring — this PR only ships the scripts + this note (see
+-- PR body).
 --
 -- security-review PR #443 (MED-4) — DE-WIRE AFTER A SUCCESSFUL APPLY.
 -- Unlike the idempotent additive DDL elsewhere in this directory, this script
@@ -140,7 +155,9 @@
 -- debts on the NEXT deploy. Once the deploy log shows a successful apply
 -- (verify passed), REMOVE this file's entry from `deploy.yml`'s migrate step
 -- (mirrors the counterparty-masking prod-datafix precedent: apply once →
--- de-wire). DevOps owns the removal.
+-- de-wire). The precount file and the schema-marker file are safe to leave
+-- wired (read-only / idempotent additive DDL respectively) — only THIS file
+-- needs de-wiring. DevOps owns the removal.
 --
 -- Idempotency
 -- -----------
@@ -151,34 +168,6 @@
 -- target rows on the second pass: 0 backed up, 0 converted, 0 obligations
 -- inserted, verify asserts targets=converted=obligations=0, exits 0.
 -- =============================================================================
-
--- ─────────────────────────────────────────────────────────────────────────────
--- STEP 0 — standalone, READ-ONLY pre-count (security-review PR #443, MED-3).
---          Always safe to run in isolation — no writes. Prints the CURRENT
---          count (not a stale note) plus how many are self-loop rows (which
---          STEP 2 below deliberately excludes — see the header note).
--- ─────────────────────────────────────────────────────────────────────────────
-DO $$
-DECLARE
-  v_total integer;
-  v_amount numeric;
-  v_self_loop integer;
-BEGIN
-  SELECT count(*), COALESCE(sum(amount::numeric), 0)
-    INTO v_total, v_amount
-  FROM transactions
-  WHERE type = 'PAYOUT_DROP' AND status = 'PAID' AND payout_request_id IS NOT NULL;
-
-  SELECT count(*) INTO v_self_loop
-  FROM transactions
-  WHERE type = 'PAYOUT_DROP'
-    AND status = 'PAID'
-    AND payout_request_id IS NOT NULL
-    AND sender_id = receiver_id;
-
-  RAISE NOTICE 'drop-share-pending-parity STEP 0 (pre-count): % Path-B row(s), total amount %, of which % self-loop (excluded from conversion — see header)',
-    v_total, v_amount, v_self_loop;
-END $$;
 
 -- ─────────────────────────────────────────────────────────────────────────────
 -- STEP 1 — the ENTIRE fix (target capture + backup + convert + obligation +
@@ -229,8 +218,10 @@ END $$;
 --     future `ALTER TABLE transactions ADD COLUMN …` would otherwise break a
 --     re-run of this frozen-in-time script (backup table column count would
 --     no longer match `transactions`'s CURRENT column count). The explicit
---     list is pinned to this migration's schema snapshot and stays correct
---     regardless of later additive schema changes.
+--     list is pinned to this migration's schema snapshot (INCLUDING
+--     `drop_cascade_origin`, added by the sibling schema-marker file applied
+--     immediately before this one) and stays correct regardless of later
+--     additive schema changes.
 CREATE TABLE IF NOT EXISTS _drop_share_pending_parity_backup_20260727 (
   LIKE transactions INCLUDING ALL
 );
@@ -238,21 +229,21 @@ CREATE TABLE IF NOT EXISTS _drop_share_pending_parity_backup_20260727 (
 INSERT INTO _drop_share_pending_parity_backup_20260727 (
   id, type, status, amount, currency, sender_id, sender_label, receiver_id,
   receiver_label, recipient_id, project_id, payout_request_id,
-  senior_share_percent, senior_share_percent_source, receipt_document_id,
-  receipt_external_url, invoice_document_id, tx_hash, validated_by,
-  validated_at, rejection_reason, notes, salary_month, tx_date, created_by,
-  created_at, updated_at, funding_source, idempotency_key,
+  drop_cascade_origin, senior_share_percent, senior_share_percent_source,
+  receipt_document_id, receipt_external_url, invoice_document_id, tx_hash,
+  validated_by, validated_at, rejection_reason, notes, salary_month, tx_date,
+  created_by, created_at, updated_at, funding_source, idempotency_key,
   drop_share_percent, drop_share_percent_source
 )
 SELECT
   t.id, t.type, t.status, t.amount, t.currency, t.sender_id, t.sender_label,
   t.receiver_id, t.receiver_label, t.recipient_id, t.project_id,
-  t.payout_request_id, t.senior_share_percent, t.senior_share_percent_source,
-  t.receipt_document_id, t.receipt_external_url, t.invoice_document_id,
-  t.tx_hash, t.validated_by, t.validated_at, t.rejection_reason, t.notes,
-  t.salary_month, t.tx_date, t.created_by, t.created_at, t.updated_at,
-  t.funding_source, t.idempotency_key, t.drop_share_percent,
-  t.drop_share_percent_source
+  t.payout_request_id, t.drop_cascade_origin, t.senior_share_percent,
+  t.senior_share_percent_source, t.receipt_document_id,
+  t.receipt_external_url, t.invoice_document_id, t.tx_hash, t.validated_by,
+  t.validated_at, t.rejection_reason, t.notes, t.salary_month, t.tx_date,
+  t.created_by, t.created_at, t.updated_at, t.funding_source,
+  t.idempotency_key, t.drop_share_percent, t.drop_share_percent_source
 FROM transactions t
 JOIN _dspp_targets tgt ON tgt.id = t.id
 WHERE NOT EXISTS (
@@ -261,12 +252,20 @@ WHERE NOT EXISTS (
 
 -- 1c) Flip the historical Path-B rows into the SAME pending state
 --     `bookCompanyObligations` books today: type → DROP_PENDING_PAYOUT,
---     status → PENDING_PAYMENT. Every other column (amount, currency,
---     sender/receiver, project, createdBy, txHash, payout_request_id) is left
---     untouched — see the header note on field equivalence.
+--     status → PENDING_PAYMENT. `drop_cascade_origin` → true (security-review
+--     PR #443 MED-B): the SAME permanent, FK-independent origin marker a
+--     freshly-booked cascade row carries — WITHOUT this, the HIGH-1
+--     funding-source guard in settleByCompany would never durably recognise
+--     these converted rows as cascade-originated (relying on
+--     `payout_request_id` alone is exactly the fail-open MED-B closed — see
+--     `2026-07-27_drop_cascade_origin_marker.sql`). Every other column
+--     (amount, currency, sender/receiver, project, createdBy, txHash,
+--     payout_request_id) is left untouched — see the header note on field
+--     equivalence.
 UPDATE transactions
 SET type = 'DROP_PENDING_PAYOUT',
     status = 'PENDING_PAYMENT',
+    drop_cascade_origin = true,
     updated_at = now()
 WHERE id IN (SELECT id FROM _dspp_targets);
 
@@ -287,13 +286,13 @@ WHERE tgt.receiver_id IS NOT NULL
   );
 
 -- 1e) FAIL-LOUD verify: the number of rows actually converted (now
---     DROP_PENDING_PAYOUT/PENDING_PAYMENT) AND the number of paired PENDING
---     COMPANY obligations booked must BOTH equal the number of rows selected
---     in 1a — else RAISE EXCEPTION aborts this DO block, which aborts the
---     enclosing transaction (COMMIT below is never reached — nothing above,
---     including the backup, survives), and — because psql runs with
---     -v ON_ERROR_STOP=1 — the whole script/deploy step exits non-zero
---     instead of silently leaving a partial conversion.
+--     DROP_PENDING_PAYOUT/PENDING_PAYMENT/drop_cascade_origin=true) AND the
+--     number of paired PENDING COMPANY obligations booked must BOTH equal
+--     the number of rows selected in 1a — else RAISE EXCEPTION aborts this
+--     DO block, which aborts the enclosing transaction (COMMIT below is
+--     never reached — nothing above, including the backup, survives), and —
+--     because psql runs with -v ON_ERROR_STOP=1 — the whole script/deploy
+--     step exits non-zero instead of silently leaving a partial conversion.
 DO $$
 DECLARE
   v_targets integer;
@@ -305,7 +304,9 @@ BEGIN
   SELECT count(*) INTO v_converted
   FROM transactions t
   JOIN _dspp_targets tgt ON tgt.id = t.id
-  WHERE t.type = 'DROP_PENDING_PAYOUT' AND t.status = 'PENDING_PAYMENT';
+  WHERE t.type = 'DROP_PENDING_PAYOUT'
+    AND t.status = 'PENDING_PAYMENT'
+    AND t.drop_cascade_origin = true;
 
   SELECT count(*) INTO v_obligations
   FROM pending_obligations o
