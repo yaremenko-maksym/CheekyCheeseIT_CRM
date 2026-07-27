@@ -1,7 +1,7 @@
 import { BadRequestException, Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { and, eq, inArray } from 'drizzle-orm'
+import { and, eq, inArray, sql } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -19,6 +19,7 @@ import {
   companyAccount,
   consumedTxHashes,
   payoutRequests,
+  projects,
   transactions,
   users,
 } from '../database/schema'
@@ -82,6 +83,8 @@ const ADMIN: SessionUser = {
 const ALL = [SENIOR, SENIOR2, ADMIN]
 const TEST_USER_IDS = ALL.map((u) => u.id)
 const ACCOUNT_ID = 'cf110000-0000-4000-cc00-000000000001'
+/** ADMIN-owned project — `createAdminIncome` requires an admin owner (HIGH-3). */
+const ADMIN_PROJECT_ID = 'cf110000-0000-4000-bb00-000000000001'
 
 const verifyScript = new Map<string, ScriptedVerification>()
 const fakeEtherscan: Pick<EtherscanService, 'verifyDeposit'> = {
@@ -167,6 +170,7 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
   async function clearAll() {
     await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
     await dbSvc.db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
+    await dbSvc.db.delete(transactions).where(eq(transactions.projectId, ADMIN_PROJECT_ID))
     await dbSvc.db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
     await sweepOrphanConsumedTxHashes(dbSvc)
   }
@@ -247,6 +251,21 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
         })),
       )
       .onConflictDoNothing()
+
+    // ADMIN-owned project so `createAdminIncome` (HIGH-3) is authorised.
+    await db
+      .insert(projects)
+      .values({
+        id: ADMIN_PROJECT_ID,
+        name: 'XPath Admin Project',
+        companyName: 'XPath Client Ltd',
+        domain: 'AI',
+        rate: 50,
+        startDate: new Date('2026-01-01T00:00:00Z'),
+        seniorId: ADMIN.id,
+      })
+      .onConflictDoNothing()
+
     await clearAll()
 
     const existing = await db.query.companyAccount.findFirst()
@@ -452,6 +471,250 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       .from(consumedTxHashes)
       .where(eq(consumedTxHashes.txHash, pr!.txHash!))
     expect(registry.length).toBe(0)
+  })
+
+  // ── HIGH-3 (security-review round 2): the SECOND ADMIN_INCOME writer ──────
+  // `createAdminIncome` credits the pool with the same ledger predicate as
+  // `declareUsdtProjectIncome` (ADMIN_INCOME + PAID + USDT + COMPANY_ACCOUNT)
+  // but did not claim its hash — so an honestly registered client inflow left
+  // the transfer spendable, and any SENIOR/DROP could re-credit it as a deposit.
+  describe('HIGH-3: createAdminIncome claims its hash when it credits the pool', () => {
+    const RECEIPT_HASH = '0x' + 'c1'.repeat(32)
+
+    it('THE EXPLOIT: admin registers a client inflow, then the same hash is submitted as a deposit → rejected', async () => {
+      if (!dbAvailable) return
+      const before = await balance()
+
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 5000,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${RECEIPT_HASH}`,
+        },
+        ADMIN,
+      )
+      const afterIncome = await balance()
+      expect(afterIncome).toBeCloseTo(before + 5000, 6)
+
+      // The transfer is now spoken for…
+      const registry = await dbSvc.db
+        .select({ purpose: consumedTxHashes.purpose, referenceId: consumedTxHashes.referenceId })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, RECEIPT_HASH))
+      expect(registry.length).toBe(1)
+      expect(registry[0]!.purpose).toBe('ADMIN_INCOME')
+      expect(registry[0]!.referenceId).toBe(income.id)
+
+      // …so the second credit is refused (this used to go through).
+      scriptValid(RECEIPT_HASH, 5000)
+      await expect(
+        companySvc.submitDeposit({ txHashOrLink: RECEIPT_HASH }, SENIOR),
+      ).rejects.toBeInstanceOf(BadRequestException)
+      expect(await balance()).toBeCloseTo(afterIncome, 6) // NOT doubled
+    })
+
+    it('the hash is recorded on the income row itself (attribution)', async () => {
+      if (!dbAvailable) return
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 100,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${RECEIPT_HASH}`,
+        },
+        ADMIN,
+      )
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, income.id),
+      })
+      expect(row?.txHash).toBe(RECEIPT_HASH)
+    })
+
+    it('a PERSONAL admin income does NOT claim (it never credits the pool)', async () => {
+      if (!dbAvailable) return
+      const before = await balance()
+      // No fundingSource → legacy personal income: the company balance is
+      // untouched, so burning the transfer would grief its real payer.
+      await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 250,
+          currency: 'USDT',
+          receiptExternalUrl: `https://etherscan.io/tx/${RECEIPT_HASH}`,
+        },
+        ADMIN,
+      )
+      expect(await balance()).toBeCloseTo(before, 6) // pool untouched
+
+      const registry = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, RECEIPT_HASH))
+      expect(registry.length).toBe(0) // nothing burned
+
+      // …and the transfer remains usable by the path that really owns it.
+      const { requestId, payable } = await seedPayout(SENIOR, '1000')
+      scriptValid(RECEIPT_HASH, payable)
+      const paid = await svc.payPayoutRequest(requestId, RECEIPT_HASH, SENIOR)
+      expect(paid.status).toBe('PAID')
+    })
+
+    it('a hash already spent by a deposit cannot then be registered as admin income', async () => {
+      if (!dbAvailable) return
+      scriptValid(RECEIPT_HASH, 400)
+      const dep = await companySvc.submitDeposit({ txHashOrLink: RECEIPT_HASH }, SENIOR)
+      expect(dep.status).toBe('PAID')
+      const afterDeposit = await balance()
+
+      await expect(
+        svc.createAdminIncome(
+          {
+            projectId: ADMIN_PROJECT_ID,
+            amount: 400,
+            currency: 'USDT',
+            fundingSource: 'COMPANY_ACCOUNT',
+            receiptExternalUrl: `https://etherscan.io/tx/${RECEIPT_HASH}`,
+          },
+          ADMIN,
+        ),
+      ).rejects.toThrowError(/уже использован/)
+      expect(await balance()).toBeCloseTo(afterDeposit, 6)
+    })
+  })
+
+  // ── HIGH-4 (security-review round 2): the prod backfill must skip PENDING ──
+  // The migration back-fills historic settlements into the registry. Claiming a
+  // PENDING deposit would BRICK it: `consumeTxHash` is a bare INSERT, so the
+  // later confirm-flip would hit 23505 and roll back forever — and it would
+  // re-open the griefing MED-3 closed. This test runs the migration's own
+  // deposit predicate against real data.
+  describe('HIGH-4: backfill claims only PAID deposits', () => {
+    /** Mirrors apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql (deposits). */
+    async function runDepositBackfill() {
+      await dbSvc.db.execute(sql`
+        INSERT INTO consumed_tx_hashes (tx_hash, purpose, reference_id, consumed_by_user_id)
+        SELECT DISTINCT ON (lower(t.tx_hash))
+               lower(t.tx_hash), 'COMPANY_DEPOSIT', t.id, t.sender_id
+          FROM transactions t
+         WHERE t.type = 'COMPANY_DEPOSIT'
+           AND t.status = 'PAID'
+           AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
+         ORDER BY lower(t.tx_hash), t.created_at ASC
+        ON CONFLICT (tx_hash) DO NOTHING
+      `)
+    }
+
+    it('a back-filled PENDING deposit still reaches PAID (not bricked)', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'c2'.repeat(32)
+      const before = await balance()
+
+      // A deposit submitted before the tx confirmed → PENDING, uncredited.
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        fromAddress: EXCHANGE_WALLET,
+        confirmed: false,
+        confirmations: 2,
+        amountUsdt: 250,
+      })
+      const dep = await companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)
+      expect(dep.status).toBe('PENDING')
+
+      // The migration runs (as it will on prod, with this row already present).
+      await runDepositBackfill()
+      const claimedByBackfill = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(claimedByBackfill.length).toBe(0) // PENDING is NOT claimed
+
+      // The chain confirms → the deposit credits and claims ITSELF.
+      scriptValid(HASH, 250)
+      const status = await companySvc.getDepositStatus(dep.id, SENIOR)
+      expect(status.status).toBe('PAID')
+      expect(await balance()).toBeCloseTo(before + 250, 6)
+
+      const claimedOnCredit = await dbSvc.db
+        .select({ purpose: consumedTxHashes.purpose })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(claimedOnCredit.length).toBe(1)
+      expect(claimedOnCredit[0]!.purpose).toBe('COMPANY_DEPOSIT')
+    })
+
+    it('DEMONSTRATION: the UNFILTERED backfill would brick a PENDING deposit', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'c4'.repeat(32)
+      const before = await balance()
+
+      verifyScript.set(HASH, {
+        found: true,
+        toMatches: true,
+        fromAddress: EXCHANGE_WALLET,
+        confirmed: false,
+        confirmations: 1,
+        amountUsdt: 175,
+      })
+      const dep = await companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)
+      expect(dep.status).toBe('PENDING')
+
+      // The migration as originally written — NO `t.status = 'PAID'` filter.
+      await dbSvc.db.execute(sql`
+        INSERT INTO consumed_tx_hashes (tx_hash, purpose, reference_id, consumed_by_user_id)
+        SELECT DISTINCT ON (lower(t.tx_hash))
+               lower(t.tx_hash), 'COMPANY_DEPOSIT', t.id, t.sender_id
+          FROM transactions t
+         WHERE t.type = 'COMPANY_DEPOSIT'
+           AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
+         ORDER BY lower(t.tx_hash), t.created_at ASC
+        ON CONFLICT (tx_hash) DO NOTHING
+      `)
+      const claimed = await dbSvc.db
+        .select({ id: consumedTxHashes.id })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(claimed.length).toBe(1) // the PENDING row got claimed — the defect
+
+      // …and now the deposit can NEVER be credited: the confirm-flip claims the
+      // hash again, hits 23505, and rolls the whole flip back. Money on the
+      // company wallet stays invisible in the balance, with no way out.
+      scriptValid(HASH, 175)
+      await expect(companySvc.getDepositStatus(dep.id, SENIOR)).rejects.toBeInstanceOf(
+        BadRequestException,
+      )
+      const stillPending = await dbSvc.db.query.transactions.findFirst({
+        where: eq(transactions.id, dep.id),
+      })
+      expect(stillPending?.status).toBe('PENDING')
+      expect(await balance()).toBeCloseTo(before, 6) // never credited
+
+      // Undo the simulated bad backfill so the suite stays deterministic.
+      await dbSvc.db.delete(consumedTxHashes).where(eq(consumedTxHashes.txHash, HASH))
+    })
+
+    it('a PAID deposit IS claimed by the backfill (historic settlements stay spent)', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'c3'.repeat(32)
+      scriptValid(HASH, 300)
+      const dep = await companySvc.submitDeposit({ txHashOrLink: HASH }, SENIOR)
+      expect(dep.status).toBe('PAID')
+
+      // Simulate a pre-migration world: drop the claim the app just made, then
+      // let the backfill restore it.
+      await dbSvc.db.delete(consumedTxHashes).where(eq(consumedTxHashes.txHash, HASH))
+      await runDepositBackfill()
+
+      const rows = await dbSvc.db
+        .select({ referenceId: consumedTxHashes.referenceId })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      expect(rows.length).toBe(1)
+      expect(rows[0]!.referenceId).toBe(dep.id)
+    })
   })
 
   // ── MED-3 (security-review PR #438): an UNVERIFIED deposit burns nothing ───
