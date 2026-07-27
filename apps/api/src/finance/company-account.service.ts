@@ -20,19 +20,13 @@ import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
 } from './company-account-balance'
-
-/** Postgres SQLSTATE for unique-constraint violations. */
-const PG_UNIQUE_VIOLATION = '23505'
-
-/** Walk the cause chain (drizzle wraps pg errors) to find 23505. */
-function isUniqueViolation(err: unknown): boolean {
-  let cur: unknown = err
-  for (let depth = 0; cur != null && depth < 8; depth += 1) {
-    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
-    cur = (cur as { cause?: unknown }).cause
-  }
-  return false
-}
+import { isUniqueViolation } from '../database/pg-errors'
+import {
+  addressesMatch,
+  consumeTxHash,
+  findConsumedTxHash,
+  TX_HASH_ALREADY_CONSUMED_MESSAGE,
+} from './onchain-tx'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -45,9 +39,16 @@ function isUniqueViolation(err: unknown): boolean {
  *   - ADMIN dividend withdrawal (free amount, 50/50 accounted post-hoc)
  *
  * SECURITY INVARIANT #1: a deposit is credited (status=PAID) ONLY when the
- * on-chain recipient matches the configured company wallet AND confirmations
- * reach the threshold. Enforced in `submitDeposit` / `getDepositStatus` via
- * `EtherscanService.verifyDeposit` (which returns `toMatches` + `confirmed`).
+ * on-chain recipient matches the configured company wallet, the on-chain SENDER
+ * matches the submitter's registered wallet, AND confirmations reach the
+ * threshold. Enforced in `submitDeposit` / `getDepositStatus` via
+ * `EtherscanService.verifyDeposit` (`toMatches` + `fromMatches` + `confirmed`).
+ *
+ * SECURITY INVARIANT #2 (task-onchain-payment-integrity): a real on-chain
+ * transfer settles AT MOST ONE thing system-wide. Both this service and the
+ * payout path claim the hash in the shared `consumed_tx_hashes` registry inside
+ * the same transaction as the credit, so one transfer can no longer be spent
+ * both as a payout and as a deposit.
  */
 @Injectable()
 export class CompanyAccountService {
@@ -204,12 +205,17 @@ export class CompanyAccountService {
    *   1. Extract a tx hash from the input (bare hash OR Etherscan link).
    *   2. IDEMPOTENCY: if a COMPANY_DEPOSIT already exists for this hash, return
    *      it unchanged (no second row, balance never doubles).
-   *   3. verifyDeposit against the configured wallet + threshold.
-   *   4. Insert a COMPANY_DEPOSIT: PAID iff (toMatches && confirmed), else
-   *      PENDING. amount = verified amount (0 when unknown / pending).
+   *   3. CROSS-PATH: reject a hash already consumed by a payout settlement.
+   *   4. verifyDeposit against the configured wallet + THE SUBMITTER'S OWN
+   *      wallet + threshold.
+   *   5. Insert a COMPANY_DEPOSIT + claim the hash in `consumed_tx_hashes`, in
+   *      ONE transaction: PAID iff (toMatches && fromMatches && confirmed),
+   *      else PENDING. amount = verified amount (0 when unknown / pending).
    *
-   * SECURITY: a mismatching recipient or sub-threshold confirmation count NEVER
-   * yields PAID — the deposit stays PENDING and contributes 0 to the balance.
+   * SECURITY: a mismatching recipient, a MISMATCHING SENDER, or a sub-threshold
+   * confirmation count NEVER yields PAID — the deposit stays PENDING (or is
+   * rejected outright, for a sender that is known-not-you) and contributes 0 to
+   * the balance.
    */
   async submitDeposit(
     input: { txHashOrLink: string },
@@ -239,47 +245,123 @@ export class CompanyAccountService {
       return this.toDepositDto(existing, account.confirmationThreshold)
     }
 
+    // ── SECURITY (task-onchain-payment-integrity, HOLE 2): CROSS-PATH fast-fail.
+    // The idempotency lookup above only sees COMPANY_DEPOSIT rows. A hash that
+    // already settled a PAYOUT lives in `payout_requests` — invisible here, and
+    // the two unique indexes are disjoint — so the very same transfer used to
+    // be creditable a second time as a deposit (the balance sums both terms).
+    // The authoritative claim is `consumeTxHash` inside the insert transaction
+    // below; this read is the clean early error.
+    const consumed = await findConsumedTxHash(this.db.db, txHash)
+    if (consumed) {
+      throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+    }
+
+    // ── SECURITY (task-onchain-payment-integrity, HOLE 1): WHOSE money is it.
+    // Verification used to assert the RECIPIENT only, so a SENIOR/DROP could
+    // take any stranger's transfer into the company wallet off a public
+    // explorer and credit the company account (and thus their own standing)
+    // with it. The submitter's registered wallet is the reference the on-chain
+    // sender is compared against.
+    //
+    // FAIL-CLOSED on an unset wallet — with nothing to compare against, "allow"
+    // would restore the hole in one click (clear the field, claim anything).
+    const submitter = await this.db.db.query.users.findFirst({
+      where: eq(users.id, currentUser.id),
+      columns: { walletUsdtErc20: true },
+    })
+    const submitterWallet = submitter?.walletUsdtErc20?.trim() ?? null
+    if (!submitterWallet) {
+      throw new BadRequestException(
+        'Укажите свой USDT (ERC-20) кошелёк в профиле — с него должно быть отправлено пополнение',
+      )
+    }
+
     const verification = await this.etherscan.verifyDeposit(
       txHash,
       account.walletAddress,
+      submitterWallet,
       account.confirmationThreshold,
     )
 
-    // Credit (PAID + amount) ONLY when recipient matches, confirmed, AND a
-    // positive amount resolved (M4). A confirmed-but-unknown-amount stays
-    // PENDING and is resolved later by getDepositStatus re-polling.
+    // KNOWN-not-you sender → hard 400, no row at all. Unlike a missing
+    // confirmation (which time fixes, hence a PENDING row + polling), a wrong
+    // sender can never become right, so there is nothing to poll: reject, and
+    // do not let the submitter park somebody else's hash in our tables.
+    // `fromAddress === null` (chain unreachable / not mined yet) deliberately
+    // does NOT hard-fail — it falls through to a PENDING, uncredited row.
+    if (verification.fromAddress !== null && !verification.fromMatches) {
+      throw new BadRequestException(
+        'Отправитель транзакции не совпадает с вашим USDT-кошельком — пополнение можно подтвердить только своим переводом',
+      )
+    }
+
+    // Credit (PAID + amount) ONLY when recipient matches, SENDER matches,
+    // confirmed, AND a positive amount resolved (M4). A confirmed-but-unknown-
+    // amount stays PENDING and is resolved later by getDepositStatus re-polling.
+    // (`confirmed` already embeds `fromMatches`; both are named here so the gate
+    // reads as the invariant it enforces.)
     const verifiedAmount = verification.amountUsdt ?? 0
-    const credited = verification.toMatches && verification.confirmed && verifiedAmount > 0
+    const credited =
+      verification.toMatches &&
+      verification.fromMatches &&
+      addressesMatch(verification.fromAddress, submitterWallet) &&
+      verification.confirmed &&
+      verifiedAmount > 0
     const amount = credited ? verifiedAmount : 0
 
     let tx: typeof transactions.$inferSelect
     try {
-      const [inserted] = await this.db.db
-        .insert(transactions)
-        .values({
-          type: 'COMPANY_DEPOSIT',
-          status: credited ? 'PAID' : 'PENDING',
-          amount: String(amount),
-          currency: 'USDT',
-          senderId: currentUser.id,
-          senderLabel: currentUser.displayName,
-          receiverId: null,
-          receiverLabel: 'Счёт компании',
+      // ONE transaction: the deposit row and its claim on the on-chain hash
+      // commit together, so a concurrent payout/deposit racing for the same
+      // hash is resolved by the DB (unique index) rather than by a stale read.
+      tx = await this.db.db.transaction(async (dbtx) => {
+        const [inserted] = await dbtx
+          .insert(transactions)
+          .values({
+            type: 'COMPANY_DEPOSIT',
+            status: credited ? 'PAID' : 'PENDING',
+            amount: String(amount),
+            currency: 'USDT',
+            senderId: currentUser.id,
+            senderLabel: currentUser.displayName,
+            receiverId: null,
+            receiverLabel: 'Счёт компании',
+            txHash,
+            createdBy: currentUser.id,
+          })
+          .returning()
+
+        // Claimed even while PENDING: the hash is spoken for the moment it is
+        // attached to a deposit row (matching the pre-existing behaviour of
+        // `uq_transactions_company_deposit_tx_hash`, which already blocked
+        // re-submission regardless of status) — otherwise the window between
+        // submit and confirmation would let the same transfer settle a payout.
+        await consumeTxHash(dbtx, {
           txHash,
-          createdBy: currentUser.id,
+          purpose: 'COMPANY_DEPOSIT',
+          referenceId: inserted!.id,
+          consumedByUserId: currentUser.id,
         })
-        .returning()
-      tx = inserted!
+
+        return inserted!
+      })
     } catch (err) {
-      // M3 (idempotency race): a concurrent submit of the same hash can slip
-      // past the lookup above and collide on the partial unique index
-      // (`uq_transactions_company_deposit_tx_hash`, code 23505). Return the row
-      // the winner inserted — idempotent, never a 500.
-      if ((err as { code?: string }).code === '23505') {
+      // 23505 — two different constraints can fire here, so we disambiguate by
+      // re-reading rather than by matching constraint names:
+      //   • `uq_transactions_company_deposit_tx_hash` (M3 idempotency race): a
+      //     concurrent submit of the SAME hash slipped past the lookup above →
+      //     return the winner's row (idempotent, never a 500).
+      //   • `uq_consumed_tx_hashes_tx_hash` (HOLE 2 race): the hash was claimed
+      //     by a PAYOUT settling concurrently → no deposit row exists → 400.
+      // NB: uses the shared cause-chain check; the previous top-level `.code`
+      // read missed drizzle-wrapped violations and turned them into 500s.
+      if (isUniqueViolation(err)) {
         const winner = await this.db.db.query.transactions.findFirst({
           where: and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.txHash, txHash)),
         })
         if (winner) return this.toDepositDto(winner, account.confirmationThreshold)
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
       throw err
     }
@@ -320,14 +402,41 @@ export class CompanyAccountService {
     }
 
     // PENDING → re-verify live.
+    //
+    // SECURITY (task-onchain-payment-integrity, HOLE 1): this is the THIRD path
+    // that can flip a deposit to PAID, so it needs the same sender check as
+    // `submitDeposit` — otherwise a deposit that failed the sender gate at
+    // submit time (or was created before this fix) could be credited by simply
+    // polling its status. The reference wallet belongs to the deposit's OWNER
+    // (`tx.senderId`), NOT to whoever is polling: an ADMIN/ACCOUNTANT may poll
+    // somebody else's deposit, and it must still be judged against the money's
+    // claimed sender.
+    const depositOwner = tx.senderId
+      ? await this.db.db.query.users.findFirst({
+          where: eq(users.id, tx.senderId),
+          columns: { walletUsdtErc20: true },
+        })
+      : null
+    const ownerWallet = depositOwner?.walletUsdtErc20?.trim() ?? null
+
     const verification = await this.etherscan.verifyDeposit(
       tx.txHash ?? '',
       account.walletAddress,
+      ownerWallet,
       threshold,
     )
 
     const resolvedAmount = verification.amountUsdt ?? parseFloat(tx.amount)
-    if (verification.toMatches && verification.confirmed && resolvedAmount > 0) {
+    if (
+      verification.toMatches &&
+      // Sender gate — `confirmed` embeds it too; spelled out so the credit
+      // condition states the full invariant. Fails closed when the owner has no
+      // registered wallet (`ownerWallet === null` → `fromMatches === false`).
+      verification.fromMatches &&
+      addressesMatch(verification.fromAddress, ownerWallet) &&
+      verification.confirmed &&
+      resolvedAmount > 0
+    ) {
       // M4: only credit when a positive amount resolved; otherwise stay PENDING.
       await this.db.db
         .update(transactions)

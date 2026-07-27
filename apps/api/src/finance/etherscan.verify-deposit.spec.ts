@@ -18,6 +18,10 @@ import { EtherscanService } from './etherscan.service'
 
 const COMPANY_WALLET = '0x1111111111111111111111111111111111111111'
 const OTHER_WALLET = '0x2222222222222222222222222222222222222222'
+/** Registered wallet of the payer/submitter — the default `from` of the fixtures. */
+const SENDER_WALLET = '0x9999999999999999999999999999999999999999'
+/** A THIRD party's wallet — the attacker scenario (someone else's transfer). */
+const STRANGER_WALLET = '0x3333333333333333333333333333333333333333'
 const TX_HASH = '0xabc1230000000000000000000000000000000000000000000000000000000def'
 const USDT_CONTRACT = '0xdAC17F958D2ee523a2206206994597C13D831ec7'
 const TRANSFER_TOPIC = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
@@ -38,14 +42,15 @@ function makeService(apiKey: string, nodeEnv: string | undefined = 'test'): Ethe
  * `to` address is padded as per ABI encoding (right-aligned in 32-byte topic).
  * `value` is USDT units (e.g. 500 = 500 USDT) converted to raw uint256 (6 decimals).
  */
-function makeTransferLog(opts: { to: string; value: number; blockNumber?: string }) {
+function makeTransferLog(opts: { to: string; value: number; blockNumber?: string; from?: string }) {
+  const from = opts.from ?? SENDER_WALLET
   return {
     transactionHash: TX_HASH,
     blockNumber: opts.blockNumber ?? '0x7b', // block 123
     address: USDT_CONTRACT,
     topics: [
       TRANSFER_TOPIC,
-      '0x0000000000000000000000009999999999999999999999999999999999999999', // from
+      `0x000000000000000000000000${from.replace('0x', '').toLowerCase()}`, // from (padded)
       `0x000000000000000000000000${opts.to.replace('0x', '').toLowerCase()}`, // to (padded)
     ],
     data: `0x${BigInt(Math.round(opts.value * 1_000_000))
@@ -67,8 +72,10 @@ function mockDirectLookup(opts: {
   txBlockHex?: string
   receiptFound?: boolean
   receiptStatus?: '0x0' | '0x1'
-  logs?: Array<{ to: string; value: number }>
+  logs?: Array<{ to: string; value: number; from?: string }>
   currentBlock?: number
+  /** tx-level `from` (eth_getTransactionByHash) — defaults to SENDER_WALLET. */
+  txFrom?: string
 }) {
   const {
     txFound = true,
@@ -77,6 +84,7 @@ function mockDirectLookup(opts: {
     receiptStatus = '0x1',
     logs = [{ to: COMPANY_WALLET, value: 500 }],
     currentBlock = 135, // 12 confirmations above block 123
+    txFrom = SENDER_WALLET,
   } = opts
 
   const txResponse = txFound
@@ -85,7 +93,7 @@ function mockDirectLookup(opts: {
         result: {
           hash: TX_HASH,
           blockNumber: txBlockHex,
-          from: '0x9999999999999999999999999999999999999999',
+          from: txFrom,
           to: USDT_CONTRACT,
         },
       }
@@ -136,7 +144,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   it('SECURITY: recipient mismatch → toMatches=false, NOT confirmed (no credit)', async () => {
     // Transfer log goes to OTHER_WALLET, not COMPANY_WALLET
     mockDirectLookup({ logs: [{ to: OTHER_WALLET, value: 500 }] })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.found).toBe(true)
     expect(r.toMatches).toBe(false)
     // Even with 12 confirmations, a non-matching recipient must NEVER be confirmed.
@@ -148,7 +156,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   // Assert the first fetch URL carries the correct JSON-RPC action and txhash.
   it('H2: keyed request uses eth_getTransactionByHash with the tx hash', async () => {
     mockDirectLookup({})
-    await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     const fetchMock = globalThis.fetch as unknown as ReturnType<typeof vi.fn>
     // At least 1 call
     expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1)
@@ -162,7 +170,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   it('SECURITY: recipient match but below threshold → pending (confirmed=false)', async () => {
     // block 123, currentBlock 129 → 6 confirmations
     mockDirectLookup({ txBlockHex: '0x7b', currentBlock: 129 })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.toMatches).toBe(true)
     expect(r.confirmations).toBe(6)
     expect(r.confirmed).toBe(false)
@@ -170,7 +178,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
 
   it('recipient match AND confirmations >= threshold → confirmed=true + amount', async () => {
     mockDirectLookup({ logs: [{ to: COMPANY_WALLET, value: 750 }], currentBlock: 135 })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.toMatches).toBe(true)
     expect(r.confirmed).toBe(true)
     expect(r.confirmations).toBe(12)
@@ -181,14 +189,14 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
     // Transfer log has uppercase wallet address (minus 0x prefix which is lowercase)
     const upperWallet = COMPANY_WALLET.toUpperCase().replace('0X', '0x')
     mockDirectLookup({ logs: [{ to: upperWallet, value: 300 }], currentBlock: 135 })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.toMatches).toBe(true)
     expect(r.confirmed).toBe(true)
   })
 
   it('tx not found on-chain → found=false, not confirmed', async () => {
     mockDirectLookup({ txFound: false })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.found).toBe(false)
     expect(r.confirmed).toBe(false)
     expect(r.error).toBeDefined()
@@ -197,7 +205,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
   it('fetch error → graceful found=false (does not throw / hang)', async () => {
     // @ts-expect-error — test stub
     globalThis.fetch = vi.fn().mockRejectedValue(new Error('network down'))
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.found).toBe(false)
     expect(r.confirmed).toBe(false)
     expect(r.error).toBeDefined()
@@ -205,7 +213,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
 
   it('null company wallet → never matches / never confirmed (invariant)', async () => {
     mockDirectLookup({})
-    const r = await svc.verifyDeposit(TX_HASH, null, 12)
+    const r = await svc.verifyDeposit(TX_HASH, null, SENDER_WALLET, 12)
     expect(r.toMatches).toBe(false)
     expect(r.confirmed).toBe(false)
   })
@@ -235,7 +243,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
       const body = responses[idx++] ?? { jsonrpc: '2.0', result: null }
       return Promise.resolve({ ok: true, json: () => Promise.resolve(body) })
     })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     // NaN - NaN = NaN → Math.max(0, NaN) = 0
     expect(r.confirmations).toBe(0)
     expect(r.confirmed).toBe(false)
@@ -251,7 +259,7 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
       ],
       currentBlock: 135,
     })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.found).toBe(true)
     expect(r.toMatches).toBe(true)
     expect(r.confirmed).toBe(true)
@@ -268,15 +276,83 @@ describe('EtherscanService.verifyDeposit (keyed — real verification branch)', 
       ],
       currentBlock: 135,
     })
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.amountUsdt).toBe(500) // only the company-wallet transfer
+  })
+
+  // ── HOLE 1 (task-onchain-payment-integrity): the SENDER must be verified ───
+  // Before this, `from` was fetched and never read: any third party's transfer
+  // into the company wallet could be claimed as "my payment".
+  describe('SECURITY: on-chain sender (topics[1])', () => {
+    it("a STRANGER's transfer into the company wallet → fromMatches=false, NOT confirmed", async () => {
+      // Fully valid deposit — right recipient, right amount, 12 confirmations —
+      // but sent by somebody else. This is the exploit: the payer finds it in a
+      // public explorer and submits it as their own payment.
+      mockDirectLookup({
+        logs: [{ to: COMPANY_WALLET, value: 500, from: STRANGER_WALLET }],
+        txFrom: STRANGER_WALLET,
+        currentBlock: 135,
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+      expect(r.toMatches).toBe(true) // money DID arrive…
+      expect(r.fromMatches).toBe(false) // …but not from this payer
+      expect(r.fromAddress).toBe(STRANGER_WALLET.toLowerCase())
+      expect(r.confirmed).toBe(false) // never creditable
+    })
+
+    it('own transfer → fromMatches=true + confirmed (happy path unchanged)', async () => {
+      mockDirectLookup({
+        logs: [{ to: COMPANY_WALLET, value: 500, from: SENDER_WALLET }],
+        currentBlock: 135,
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+      expect(r.fromMatches).toBe(true)
+      expect(r.fromAddress).toBe(SENDER_WALLET.toLowerCase())
+      expect(r.confirmed).toBe(true)
+      expect(r.amountUsdt).toBe(500)
+    })
+
+    it('case-insensitive sender match (explorer/EIP-55 casing)', async () => {
+      const upperSender = SENDER_WALLET.toUpperCase().replace('0X', '0x')
+      mockDirectLookup({
+        logs: [{ to: COMPANY_WALLET, value: 500, from: SENDER_WALLET }],
+        currentBlock: 135,
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, upperSender, 12)
+      expect(r.fromMatches).toBe(true)
+      expect(r.confirmed).toBe(true)
+    })
+
+    it('null expected sender (no registered wallet) → fail-closed, never confirmed', async () => {
+      mockDirectLookup({ logs: [{ to: COMPANY_WALLET, value: 500 }], currentBlock: 135 })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, null, 12)
+      expect(r.fromMatches).toBe(false)
+      expect(r.confirmed).toBe(false)
+      // sender is still reported for diagnostics
+      expect(r.fromAddress).toBe(SENDER_WALLET.toLowerCase())
+    })
+
+    it("a stranger's transfer in the SAME tx does not top up the payer's amount", async () => {
+      // Payer sent 100; a stranger sent 400 to the same wallet in the same tx.
+      // Only the payer's 100 may count toward the payer's obligation.
+      mockDirectLookup({
+        logs: [
+          { to: COMPANY_WALLET, value: 100, from: SENDER_WALLET },
+          { to: COMPANY_WALLET, value: 400, from: STRANGER_WALLET },
+        ],
+        currentBlock: 135,
+      })
+      const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
+      expect(r.fromMatches).toBe(true)
+      expect(r.amountUsdt).toBe(100)
+    })
   })
 })
 
 describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
   it('keyless + wallet configured → auto-confirm deterministic (confirmations=threshold)', async () => {
     const svc = makeService('') // no API key
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.toMatches).toBe(true)
     expect(r.confirmed).toBe(true)
     expect(r.confirmations).toBe(12)
@@ -284,9 +360,19 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
 
   it('keyless + NULL wallet → never auto-confirms (invariant preserved)', async () => {
     const svc = makeService('')
-    const r = await svc.verifyDeposit(TX_HASH, null, 12)
+    const r = await svc.verifyDeposit(TX_HASH, null, SENDER_WALLET, 12)
     expect(r.toMatches).toBe(false)
     expect(r.confirmed).toBe(false)
+  })
+
+  // HOLE 1: the same fail-closed rule for the PAYER wallet — dev/test must not
+  // keep exercising a flow production rejects.
+  it('keyless + NULL sender wallet → never auto-confirms (fail-closed)', async () => {
+    const svc = makeService('')
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, null, 12)
+    expect(r.fromMatches).toBe(false)
+    expect(r.confirmed).toBe(false)
+    expect(r.error).toBeDefined()
   })
 
   // Audit 2026-06-28 (#13): FAIL-CLOSED when NODE_ENV is NOT explicitly dev/test.
@@ -297,7 +383,7 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
   it("keyless + NODE_ENV='staging' + wallet configured → does NOT auto-confirm (fail-closed)", async () => {
     mockDirectLookup({})
     const svc = makeService('', 'staging')
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.confirmed).toBe(false)
     expect(r.amountUsdt).toBeNull()
     expect(r.error).toBeDefined()
@@ -308,7 +394,7 @@ describe('EtherscanService.verifyDeposit (keyless — dev/test branch)', () => {
   it("keyless + NODE_ENV='production' + wallet configured → does NOT auto-confirm (fail-closed)", async () => {
     mockDirectLookup({})
     const svc = makeService('', 'production')
-    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, 12)
+    const r = await svc.verifyDeposit(TX_HASH, COMPANY_WALLET, SENDER_WALLET, 12)
     expect(r.confirmed).toBe(false)
     expect(r.amountUsdt).toBeNull()
     expect(r.error).toBeDefined()

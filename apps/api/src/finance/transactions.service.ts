@@ -41,6 +41,13 @@ import {
   type Transaction,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import { isUniqueViolation } from '../database/pg-errors'
+import {
+  addressesMatch,
+  consumeTxHash,
+  findConsumedTxHash,
+  TX_HASH_ALREADY_CONSUMED_MESSAGE,
+} from './onchain-tx'
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
@@ -64,15 +71,25 @@ import { receiptMandatoryError } from '@crm/shared'
 const PAYOUT_TO_COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
 // M4 — Tolerance for the on-chain amount vs. the recorded payableAmount.
 //
-// WHY 1%: the company-share `payableAmount` is computed and frozen at
-// createPayoutRequest time using THAT day's NBU rate (cross-currency incomes →
-// USDT). The senior's actual on-chain transfer happens later, at a slightly
-// different effective rate, minus gas/rounding. The 1% band absorbs this drift
-// so an honest payout is not rejected over a few cents.
+// NARROWED 1% → 0.1% by task-onchain-payment-integrity. The band is NOT a
+// currency-conversion allowance: `payableAmount` is frozen IN USDT at
+// createPayoutRequest time and displayed to the payer, who transfers that exact
+// USDT figure — there is no later re-conversion on their side. What the band
+// must actually absorb is arithmetic dust: `numeric(18,6)` ↔ the float division
+// `Number(rawUint256) / 1e6` in the verifier, plus UI rounding of the displayed
+// figure. 1% of a five-figure payout is a hundred-dollar underpayment silently
+// accepted as full settlement — with the on-chain SENDER now verified, the band
+// is the last remaining "how much can I shave off" knob, so it is tightened to
+// the smallest value that still cannot reject an honest payer.
+//
+// ABSOLUTE FLOOR: tiny payouts get `PAYOUT_AMOUNT_ABS_TOLERANCE_USDT` (1 cent)
+// instead of a relative band that would shrink below float precision.
 //
 // SYMMETRY (двусторонний): the check uses `Math.abs(onChain - payable)`, so it
-// covers BOTH an on-chain UNDERPAYMENT (senior sent ~1% less) and an
-// OVERPAYMENT (sent ~1% more) within the band — both are accepted as PAID.
+// covers BOTH an on-chain UNDERPAYMENT (sent slightly less) and an OVERPAYMENT
+// (sent slightly more) within the band — both are accepted as PAID. Kept
+// symmetric on purpose: an unbounded overpayment would credit only the frozen
+// payable and silently drift the ledger away from the real wallet balance.
 //
 // WHAT WE CREDIT: regardless of the exact on-chain figure (as long as it is
 // within the band), the company account is credited the FROZEN `payableAmount`
@@ -80,28 +97,15 @@ const PAYOUT_TO_COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
 // deliberate: it keeps the ledger deterministic (the PAYOUT row amount == what
 // every report already shows) and prevents a malformed/manipulated on-chain
 // `value` from setting the credited figure. Outside the band → NOT PAID.
-const PAYOUT_AMOUNT_TOLERANCE = 0.01
+const PAYOUT_AMOUNT_TOLERANCE = 0.001
+/** Absolute floor of the tolerance band, in USDT (1 cent). */
+const PAYOUT_AMOUNT_ABS_TOLERANCE_USDT = 0.01
 
-/** Postgres SQLSTATE for a unique-constraint violation. */
-const PG_UNIQUE_VIOLATION = '23505'
-
-/**
- * True when `err` (or any error in its `.cause` chain) is a Postgres
- * unique-constraint violation (SQLSTATE 23505). drizzle-orm wraps query
- * failures in a `DrizzleQueryError`, so the original pg error — the one
- * carrying `.code` — lives on `.cause`; this walks the chain rather than only
- * inspecting the top-level error. Used by the NEW-M1 txHash-reuse backstop in
- * `applyPayoutPaidCascade` to turn an index collision into a clean BadRequest.
- */
-function isUniqueViolation(err: unknown): boolean {
-  let cur: unknown = err
-  // Bounded walk — guards against a (pathological) self-referential cause chain.
-  for (let depth = 0; cur != null && depth < 8; depth += 1) {
-    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
-    cur = (cur as { cause?: unknown }).cause
-  }
-  return false
-}
+// `isUniqueViolation` (+ PG_UNIQUE_VIOLATION) now lives in
+// `../database/pg-errors` — task-onchain-payment-integrity moved it there so the
+// deposit path (`company-account.service`) detects a constraint collision the
+// SAME way this file does; the two used to disagree (that file read `.code` off
+// the top-level error only, missing drizzle-wrapped violations).
 
 /** Default drop-share percentage when `users.dropSharePercent` is NULL.
  *  Used in `computeDropDistribution` (write-path), `getSummary` (read-path
@@ -2763,22 +2767,61 @@ export class TransactionsService {
 
     // ── Phase 8 v2 — REAL on-chain validation (INVARIANT #1).
     // Outside dev-simulate, the payout is marked PAID ONLY when the submitted
-    // tx really sent the payable USDT to the COMPANY wallet and is confirmed.
-    // EtherscanService.verifyDeposit asserts recipient + confirmation count;
-    // we additionally gate on the amount being within tolerance of payable.
-    // ANY failure (recipient mismatch / not confirmed / amount off / no wallet)
-    // throws BEFORE the status flip — the payout stays PENDING, nothing is
-    // credited to the company account.
+    // tx really sent the payable USDT to the COMPANY wallet, WAS SENT BY THIS
+    // USER, and is confirmed. EtherscanService.verifyDeposit asserts recipient +
+    // sender + confirmation count; we additionally gate on the amount being
+    // within tolerance of payable.
+    // ANY failure (recipient mismatch / SENDER mismatch / not confirmed /
+    // amount off / no wallet) throws BEFORE the status flip — the payout stays
+    // PENDING, nothing is credited to the company account.
     if (!isSimulating) {
       const account = await this.db.db.query.companyAccount.findFirst()
       if (!account?.walletAddress) {
         throw new BadRequestException('Кошелёк компании не настроен')
       }
 
-      // Idempotency: a txHash already consumed by a PAID payout (any request)
-      // must not be reused to mark a second payout PAID. The on-chain transfer
-      // happened once; reusing its hash would double-credit the company
-      // account. Block before any verification/write.
+      // ── SECURITY (task-onchain-payment-integrity, HOLE 1): WHO SENT IT.
+      // The payer's own registered wallet is the reference the on-chain sender
+      // is compared against. Until this landed, only the RECIPIENT was checked,
+      // so the owner of a payout could take ANY stranger's transfer into the
+      // company wallet from a public explorer (amount within the ±tolerance
+      // band, and the band is reachable because they choose which incomes to
+      // group into the request) and submit it as their own payment: payout PAID,
+      // incomes PAID, company account credited — with the company's share still
+      // in their pocket.
+      //
+      // FAIL-CLOSED on an unset wallet: with nothing to compare against we
+      // cannot tell whose money it is, and "let it through when unknown" is
+      // exactly the hole being closed (it would also be trivially reachable —
+      // clear your wallet field, then claim any transfer). The payer registers
+      // the wallet in their profile and retries; nothing is lost, the payout
+      // stays PENDING.
+      const payer = await this.db.db.query.users.findFirst({
+        where: eq(users.id, currentUser.id),
+        columns: { walletUsdtErc20: true },
+      })
+      const payerWallet = payer?.walletUsdtErc20?.trim() ?? null
+      if (!payerWallet) {
+        throw new BadRequestException(
+          'Укажите свой USDT (ERC-20) кошелёк в профиле — с него должна быть отправлена транзакция',
+        )
+      }
+
+      // Idempotency (HOLE 2): a txHash already consumed by ANY on-chain
+      // settlement — a PAID payout OR a company deposit — must not settle this
+      // one too. The on-chain transfer happened once; re-using its hash
+      // double-credits the company account. The registry is cross-path on
+      // purpose: the previous per-table guards (payout_requests here,
+      // transactions there) were blind to each other, so one transfer could be
+      // spent in BOTH. Fast-fail read only — the authoritative claim happens
+      // inside the cascade transaction (`consumeTxHash`).
+      const consumed = await findConsumedTxHash(this.db.db, effectiveTxHash)
+      if (consumed) {
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+      }
+      // Legacy guard kept as-is: rows settled BEFORE the registry existed are
+      // backfilled by the migration, but this costs one indexed read and keeps
+      // the check meaningful even if a backfill was skipped.
       const reused = await this.db.db.query.payoutRequests.findFirst({
         where: and(eq(payoutRequests.txHash, effectiveTxHash), eq(payoutRequests.status, 'PAID')),
       })
@@ -2789,10 +2832,20 @@ export class TransactionsService {
       const verification = await this.etherscan.verifyDeposit(
         effectiveTxHash,
         account.walletAddress,
+        payerWallet,
         account.confirmationThreshold,
       )
       if (!verification.toMatches) {
         throw new BadRequestException('Получатель транзакции не совпадает с кошельком компании')
+      }
+      // HOLE 1 gate. Checked BEFORE `confirmed` (which also embeds it) so the
+      // payer gets the specific reason instead of a misleading "not confirmed".
+      // `addressesMatch` re-asserts the comparison on the reported sender —
+      // defence-in-depth against a verifier that returns an optimistic flag.
+      if (!verification.fromMatches || !addressesMatch(verification.fromAddress, payerWallet)) {
+        throw new BadRequestException(
+          'Отправитель транзакции не совпадает с вашим USDT-кошельком — выплату можно закрыть только своим переводом',
+        )
       }
       if (!verification.confirmed) {
         throw new BadRequestException('Транзакция ещё не подтверждена в сети')
@@ -2803,10 +2856,8 @@ export class TransactionsService {
       // verify.
       const payable = parseFloat(req.payableAmount)
       const onChain = verification.amountUsdt
-      const withinTolerance =
-        onChain !== null &&
-        payable > 0 &&
-        Math.abs(onChain - payable) <= payable * PAYOUT_AMOUNT_TOLERANCE
+      const band = Math.max(payable * PAYOUT_AMOUNT_TOLERANCE, PAYOUT_AMOUNT_ABS_TOLERANCE_USDT)
+      const withinTolerance = onChain !== null && payable > 0 && Math.abs(onChain - payable) <= band
       if (!withinTolerance) {
         throw new BadRequestException('Сумма on-chain транзакции не соответствует сумме выплаты')
       }
@@ -2898,6 +2949,17 @@ export class TransactionsService {
       })
       if (reused) {
         throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+      }
+    }
+    // HOLE 2 fast-fail: a real hash already spent by ANY path (incl. a company
+    // DEPOSIT, which the payout-table scan above cannot see). Applies to EVERY
+    // method — even a non-crediting ADMIN_USDT/CASH confirmation must not
+    // re-use a transfer that already settled something else. Authoritative
+    // claim happens inside `applyPayoutPaidCascade`.
+    if (hasRealTxHash) {
+      const consumed = await findConsumedTxHash(this.db.db, effectiveTxHash)
+      if (consumed) {
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
     }
     const auditNote = `Manual payout confirmation by ${currentUser.id} at ${new Date().toISOString()} (method=${method})${
@@ -3120,6 +3182,31 @@ export class TransactionsService {
             throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
           }
         }
+
+        // ── SECURITY (task-onchain-payment-integrity, HOLE 2): CROSS-PATH claim.
+        // Claim the on-chain hash in the shared `consumed_tx_hashes` registry,
+        // INSIDE this transaction, before anything is credited. This is the
+        // authoritative guard (the pre-checks above are UX fast-fails that can
+        // go stale): two concurrent settlements of the same hash — even across
+        // DIFFERENT money paths (this payout vs. a company deposit) — are
+        // decided by the unique index, so exactly one commits and the other
+        // rolls back whole. Prior to this the payout path only scanned
+        // `payout_requests` and the deposit path only `transactions`, so ONE
+        // transfer could legally settle a payout AND credit a deposit, and
+        // `computeCompanyAccountBalanceFromLedger` summed both terms — phantom
+        // money that then funded salary/expense/dividend gates.
+        //
+        // Runs for BOTH entry points (on-chain pay + manual confirm) and for
+        // EVERY method: an ADMIN_USDT/CASH confirmation that references a REAL
+        // hash consumes that transfer too, otherwise the same hash could still
+        // be re-spent as a deposit. Synthetic markers (0xSIM…/0xMANUAL…) are
+        // no-ops — see `consumeTxHash`.
+        await consumeTxHash(dbtx, {
+          txHash: effectiveTxHash,
+          purpose: 'PAYOUT',
+          referenceId: requestId,
+          consumedByUserId: currentUser.id,
+        })
 
         // Mark linked SENIOR_INCOME transactions as PAID
         await dbtx
@@ -3377,8 +3464,13 @@ export class TransactionsService {
       // drizzle-orm wraps query failures in a DrizzleQueryError, so the pg error
       // (with `.code`) lives on `.cause` — walk the cause chain to find the
       // SQLSTATE rather than only reading the top-level error.
+      //
+      // Since task-onchain-payment-integrity the same catch also covers
+      // `uq_consumed_tx_hashes_tx_hash` — the CROSS-PATH registry claim above.
+      // That is the case where the competing consumer is a company DEPOSIT
+      // rather than another payout, hence the wider wording.
       if (isUniqueViolation(err)) {
-        throw new BadRequestException('Этот хеш транзакции уже использован для другой выплаты')
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
       throw err
     }
