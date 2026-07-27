@@ -47,6 +47,14 @@ describe('adminUpdateTransaction — #6: settled company-funded edit guard', () 
           transactions: { findFirst: () => Promise.resolve(row) },
         },
         update: () => ({ set: () => ({ where: updateSpy.mockResolvedValue(undefined) }) }),
+        // MED-F (security-review round 4): the row write + registry claim now
+        // share ONE transaction; run the callback against an equivalent handle
+        // so `updateSpy` still observes the write.
+        transaction: (cb: (dbtx: unknown) => Promise<unknown>) =>
+          cb({
+            update: () => ({ set: () => ({ where: updateSpy }) }),
+            insert: () => ({ values: () => Promise.resolve() }),
+          }),
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })
@@ -214,6 +222,12 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
           documents: { findFirst: () => Promise.resolve(receiptDocStub) },
         },
         update: () => ({ set: () => ({ where: updateSpy }) }),
+        // MED-F (round 4): see the note on the sibling stub above.
+        transaction: (cb: (dbtx: unknown) => Promise<unknown>) =>
+          cb({
+            update: () => ({ set: () => ({ where: updateSpy }) }),
+            insert: () => ({ values: () => Promise.resolve() }),
+          }),
       },
     }
     const svc = makeTransactionsService({ db: dbStub as never })
