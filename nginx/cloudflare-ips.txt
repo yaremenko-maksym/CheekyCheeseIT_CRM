@@ -1,0 +1,48 @@
+# Cloudflare published edge IP ranges — CANONICAL, single source of truth.
+#
+# security review (PR #437 follow-up, 2026-07-27, MED-2): this list used to
+# be hand-duplicated in FIVE places (set_real_ip_from in 4 server blocks —
+# crm.conf x2, landing.conf x2 — plus a copy inside the reverted
+# origin-access.conf's allow list), synced only by a "keep these in sync"
+# comment. nginx/Dockerfile now generates BOTH
+# nginx/conf.d/cloudflare-real-ip-from.conf (set_real_ip_from) AND the
+# origin-gate geo block FROM THIS FILE at build time — edit ONLY this file
+# to add/remove/update a range; nothing else needs touching.
+#
+# Format: one bare CIDR per line (IPv4 then IPv6), `#`-prefixed comments and
+# blank lines ignored by the generator (scripts/devops/generate-cloudflare-
+# nginx-snippets.sh). Order does not matter functionally — kept in the same
+# order Cloudflare publishes them for easy diffing against the source.
+#
+# Source (verified against this exact list during security review,
+# 2026-07-27 — 15/15 IPv4 ranges, 7/7 IPv6 ranges matched):
+#   IPv4: https://www.cloudflare.com/ips-v4
+#   IPv6: https://www.cloudflare.com/ips-v6
+#
+# Re-verify periodically (Cloudflare adds/changes ranges infrequently but
+# without advance notice) — re-run the two curls above, diff, update this
+# file, rebuild. No automated staleness check exists yet (tracked as a
+# follow-up, see PR body — reviewer's suggestion: a scheduled CI job that
+# diffs this file against the live Cloudflare-published lists).
+103.21.244.0/22
+103.22.200.0/22
+103.31.4.0/22
+104.16.0.0/13
+104.24.0.0/14
+108.162.192.0/18
+131.0.72.0/22
+141.101.64.0/18
+162.158.0.0/15
+172.64.0.0/13
+173.245.48.0/20
+188.114.96.0/20
+190.93.240.0/20
+197.234.240.0/22
+198.41.128.0/17
+2400:cb00::/32
+2606:4700::/32
+2803:f800::/32
+2405:b500::/32
+2405:8100::/32
+2a06:98c0::/29
+2c0f:f248::/32
