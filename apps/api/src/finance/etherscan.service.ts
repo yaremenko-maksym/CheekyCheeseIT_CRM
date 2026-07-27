@@ -74,7 +74,29 @@ export interface DepositVerification {
   found: boolean
   // on-chain `to` equals the expected company wallet (case-insensitive).
   toMatches: boolean
-  // confirmations >= threshold AND on-chain receipt status = success.
+  // task-onchain-payment-integrity (HOLE 1). On-chain SENDER of the credited
+  // USDT transfer: `topics[1]` (the ERC-20 `from`) of the Transfer log that
+  // credited the company wallet, falling back to the tx-level `from` when no
+  // such log resolved. null when unresolvable / on the keyless dev path.
+  // Diagnostics only — NEVER gate on this directly, gate on `fromMatches`.
+  fromAddress: string | null
+  // task-onchain-payment-integrity (HOLE 1). true iff `fromAddress` equals the
+  // expected PAYER wallet passed by the caller (case-insensitive).
+  //
+  // WHY THIS EXISTS: verification used to assert only the RECIPIENT, so ANY
+  // third party's transfer into the company wallet (findable in a public
+  // explorer) could be submitted as "my payment" — closing a payout / crediting
+  // the company account with somebody else's money. The recipient check answers
+  // "did the money arrive?"; only this one answers "did YOU send it?".
+  //
+  // FAIL-CLOSED: false whenever either side is unknown (no registered payer
+  // wallet, unresolvable on-chain sender).
+  fromMatches: boolean
+  // Safe-to-credit gate: recipient match AND sender match AND confirmations >=
+  // threshold AND on-chain receipt status = success. `fromMatches` is folded in
+  // deliberately — a caller that forgets the explicit sender check still cannot
+  // credit. Callers SHOULD still test `fromMatches` first, to return the
+  // specific "wrong sender" error instead of a generic "not confirmed".
   confirmed: boolean
   // live confirmation count (for the progress bar). 0 when unknown.
   confirmations: number
@@ -103,6 +125,19 @@ const USDT_DECIMALS = 6
 
 /** Fetch timeout for all Etherscan calls — 10 seconds. */
 const FETCH_TIMEOUT_MS = 10_000
+
+/**
+ * Decode an address out of an indexed event topic.
+ *
+ * ERC-20 Transfer indexes `from` (topics[1]) and `to` (topics[2]) as 32-byte
+ * words with the 20-byte address right-aligned — `0x` + 24 zero nibbles + the
+ * address. Returns a lowercase `0x…40hex` string, or null for a missing /
+ * malformed topic (fail-closed: an undecodable topic never matches anything).
+ */
+function addressFromTopic(topic: string | undefined): string | null {
+  if (!topic || topic.length < 40) return null
+  return ('0x' + topic.slice(-40)).toLowerCase()
+}
 
 // ── Service ───────────────────────────────────────────────────────────────────
 
@@ -170,6 +205,7 @@ export class EtherscanService {
   private async verifyDepositDirect(
     txHash: string,
     expectedToAddress: string,
+    expectedFromAddress: string | null,
     threshold: number,
   ): Promise<DepositVerification> {
     const base = `https://api.etherscan.io/api?module=proxy&apikey=${this.apiKey}`
@@ -185,6 +221,8 @@ export class EtherscanService {
       return {
         found: false,
         toMatches: false,
+        fromAddress: null,
+        fromMatches: false,
         confirmed: false,
         confirmations: 0,
         amountUsdt: null,
@@ -212,6 +250,10 @@ export class EtherscanService {
       return {
         found: true,
         toMatches: false,
+        // tx-level sender is already known here (diagnostics); no Transfer log
+        // was read yet, and nothing can be credited anyway.
+        fromAddress: tx.from ?? null,
+        fromMatches: false,
         confirmed: false,
         confirmations: 0,
         amountUsdt: null,
@@ -230,6 +272,18 @@ export class EtherscanService {
     //   toMatches=false, silently blocking ALL legitimate deposits.
     //   We filter by transactionHash in code, then match topics[2] (to-address)
     //   against the expected company wallet for defence-in-depth.
+    //
+    // WHERE THE SENDER IS CHECKED (task-onchain-payment-integrity, HOLE 1):
+    //   The note above is about the RPC-LEVEL filter only — it stays true, we
+    //   still must not narrow the eth_getLogs request by topic1. For years no
+    //   compensating check existed anywhere else, so the sender was never
+    //   verified at all and any third party's transfer could be claimed. It is
+    //   now verified IN CODE, a few lines below: `payerLogs` matches
+    //   `topics[1]` (the ERC-20 `from`) of each credited Transfer log against
+    //   the caller-supplied `expectedFromAddress`, and the result is surfaced
+    //   as `fromMatches` (also folded into `confirmed`). Callers gate on it —
+    //   `TransactionsService.payPayoutRequest` and
+    //   `CompanyAccountService.submitDeposit` / `getDepositStatus`.
     const logsRes = await this.fetchWithTimeout(
       `${base}&action=eth_getLogs` +
         `&fromBlock=${txBlockHex}&toBlock=${txBlockHex}` +
@@ -245,17 +299,40 @@ export class EtherscanService {
     )
 
     // Find incoming transfers to the company wallet (topics[2] = padded `to` address).
-    const incomingLogs = txLogs.filter((log) => {
-      const toPadded = log.topics[2] ?? ''
-      // topics[2] is 0x + 64 hex chars with the address right-padded in the last 40.
-      const toAddr = '0x' + toPadded.slice(-40)
-      return toAddr.toLowerCase() === expectedToAddress.toLowerCase()
-    })
+    const incomingLogs = txLogs.filter(
+      (log) => addressFromTopic(log.topics[2]) === expectedToAddress.toLowerCase(),
+    )
 
     const toMatches = incomingLogs.length > 0
 
+    // ── SENDER CHECK (task-onchain-payment-integrity, HOLE 1) ────────────────
+    // Of the transfers that credited the company wallet, keep the ones actually
+    // SENT BY the expected payer (topics[1] = padded ERC-20 `from`). A tx can
+    // carry several Transfer events (batching contracts, routers), so this is a
+    // per-log match rather than a single tx-level comparison.
+    const payerLogs =
+      expectedFromAddress === null
+        ? []
+        : incomingLogs.filter(
+            (log) => addressFromTopic(log.topics[1]) === expectedFromAddress.trim().toLowerCase(),
+          )
+    const fromMatches = payerLogs.length > 0
+
+    // Reported sender: the ERC-20 `from` of the first crediting Transfer log —
+    // the token-level sender, which is what "who paid" means for USDT. Falls
+    // back to the tx-level `from` (the EOA that submitted the tx) only when no
+    // crediting log resolved. Diagnostics; the gate is `fromMatches`.
+    const fromAddress =
+      incomingLogs.length > 0 ? addressFromTopic(incomingLogs[0]?.topics[1]) : null
+
     // Sum USDT amount from Transfer event `data` field (uint256 raw amount).
-    const amountUsdt = incomingLogs.reduce((sum, log) => {
+    // Counted over the PAYER's transfers when a payer is expected: the amount
+    // that settles an obligation is what THAT payer sent, never a stranger's
+    // transfer that happens to share the tx. With no expected payer the sum
+    // stays over all crediting logs (diagnostics only — `confirmed` is false in
+    // that case because `fromMatches` is false).
+    const creditedLogs = expectedFromAddress === null ? incomingLogs : payerLogs
+    const amountUsdt = creditedLogs.reduce((sum, log) => {
       const raw = BigInt(log.data)
       return sum + Number(raw) / Math.pow(10, USDT_DECIMALS)
     }, 0)
@@ -279,8 +356,11 @@ export class EtherscanService {
     return {
       found: true,
       toMatches,
-      // confirmed requires: recipient match + threshold + on-chain success (AC2)
-      confirmed: toMatches && onChainSuccess && confirmations >= threshold,
+      fromAddress: fromAddress ?? tx.from ?? null,
+      fromMatches,
+      // confirmed requires: recipient match + SENDER match (HOLE 1) + threshold
+      // + on-chain success (AC2).
+      confirmed: toMatches && fromMatches && onChainSuccess && confirmations >= threshold,
       confirmations,
       amountUsdt: amountValid ? amountUsdt : null,
       onChainSuccess,
@@ -343,19 +423,33 @@ export class EtherscanService {
    *   (status=0x0) has found=true but confirmed=false and onChainSuccess=false,
    *   so the caller's gate `toMatches && confirmed` correctly rejects it.
    *
-   * Returns recipient-match + live confirmation count so the caller can enforce
-   * the security invariant: credit ONLY when `toMatches && confirmed`.
-   * The `confirmed` flag already embeds the onChainSuccess requirement.
+   * task-onchain-payment-integrity (HOLE 1) — SENDER check:
+   *   `expectedFromAddress` is the wallet registered for the person claiming
+   *   the transfer (`users.wallet_usdt_erc20`). The result carries
+   *   `fromMatches` (and folds it into `confirmed`) so a transfer sent by
+   *   SOMEBODY ELSE can no longer settle that person's obligation. It is a
+   *   REQUIRED parameter on purpose: every call site had to be revisited when
+   *   this landed, and a future one cannot silently skip the check.
+   *   Pass `null` only when no payer wallet is known — that fails closed
+   *   (`fromMatches: false`, nothing creditable).
+   *
+   * Returns recipient-match + sender-match + live confirmation count so the
+   * caller can enforce the security invariant: credit ONLY when
+   * `toMatches && fromMatches && confirmed`. The `confirmed` flag already
+   * embeds the fromMatches + onChainSuccess requirements.
    *
    * Threshold default 12 (mirrors company_account.confirmationThreshold).
    *
    * Dev/test (no API key): auto-confirm so the flow is testable without a real
-   * key. Integration tests inject a mock EtherscanService to exercise the
+   * key — but ONLY when BOTH wallets are configured (an unknown company wallet
+   * or an unknown payer wallet never auto-credits, mirroring the keyed path).
+   * Integration tests inject a mock EtherscanService to exercise the
    * mismatch / pending branches deterministically.
    */
   async verifyDeposit(
     txHash: string,
     expectedToAddress: string | null,
+    expectedFromAddress: string | null,
     threshold = 12,
   ): Promise<DepositVerification> {
     if (!this.apiKey) {
@@ -371,6 +465,8 @@ export class EtherscanService {
         return {
           found: false,
           toMatches: false,
+          fromAddress: null,
+          fromMatches: false,
           confirmed: false,
           confirmations: 0,
           amountUsdt: null,
@@ -385,19 +481,41 @@ export class EtherscanService {
         return {
           found: false,
           toMatches: false,
+          fromAddress: null,
+          fromMatches: false,
           confirmed: false,
           confirmations: 0,
           amountUsdt: null,
           error: 'Кошелёк компании не настроен',
         }
       }
+      // Same fail-closed rule for the PAYER wallet (HOLE 1): with no registered
+      // sender there is nothing to compare the transfer against, so the keyless
+      // dev path must not auto-confirm either — otherwise dev/test would keep
+      // exercising a flow that production rejects.
+      if (!expectedFromAddress) {
+        return {
+          found: false,
+          toMatches: false,
+          fromAddress: null,
+          fromMatches: false,
+          confirmed: false,
+          confirmations: 0,
+          amountUsdt: null,
+          error: 'Кошелёк отправителя не настроен',
+        }
+      }
       // Dev stub amount so the keyless happy-path actually credits (the M4 gate
       // requires a positive amount; without it a keyless deposit would sit at
       // N/N "confirming" forever). Real amounts come from the keyed path in
       // prod; this only affects local dev/test where no chain data exists.
+      // The stub echoes the expected payer: dev/test has no chain data, and the
+      // branch is unreachable in production (fail-closed above).
       return {
         found: true,
         toMatches: true,
+        fromAddress: expectedFromAddress.trim().toLowerCase(),
+        fromMatches: true,
         confirmed: true,
         confirmations: threshold,
         amountUsdt: 1000,
@@ -408,6 +526,8 @@ export class EtherscanService {
       return {
         found: false,
         toMatches: false,
+        fromAddress: null,
+        fromMatches: false,
         confirmed: false,
         confirmations: 0,
         amountUsdt: null,
@@ -417,7 +537,15 @@ export class EtherscanService {
 
     try {
       // BIZ-08 (AC1): use direct txHash lookup — no 10k-window dependency.
-      return await this.verifyDepositDirect(txHash, expectedToAddress, threshold)
+      // `expectedFromAddress` may be null here: the keyed path still reports the
+      // real on-chain sender for diagnostics, but `fromMatches` stays false so
+      // nothing is creditable (fail-closed).
+      return await this.verifyDepositDirect(
+        txHash,
+        expectedToAddress,
+        expectedFromAddress,
+        threshold,
+      )
     } catch (err) {
       // Graceful on fetch error (same as verifyTransaction) so the progress bar
       // does not hang: caller treats `found:false` as "still pending / retry".
@@ -425,6 +553,8 @@ export class EtherscanService {
       return {
         found: false,
         toMatches: false,
+        fromAddress: null,
+        fromMatches: false,
         confirmed: false,
         confirmations: 0,
         amountUsdt: null,
