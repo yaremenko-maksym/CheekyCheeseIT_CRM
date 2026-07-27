@@ -4,15 +4,19 @@ import { computeFingerprint } from './fingerprint'
 import {
   MESSAGE_MAX_LENGTH,
   STACK_MAX_LENGTH,
+  TELEMETRY_ERRORS_CAP_REACHED_MESSAGE,
+  TELEMETRY_ERRORS_ROW_CAP,
   TelemetryErrorsService,
 } from './telemetry-errors.service'
 
 /**
  * Unit tests for the orchestration around the upsert (sanitize/truncate/
  * fingerprint + the exact `.values()`/`.onConflictDoUpdate()` shape passed to
- * Drizzle). The ACTUAL Postgres upsert semantics (count++, RESOLVED→NEW
- * regression, unique-by-fingerprint grouping) can only be proven against a
- * real Postgres — see `telemetry.integration.spec.ts` (AC2/AC3/AC4).
+ * Drizzle) AND the row-cap budget (task-telemetry-caps — mirrors
+ * `csp-reports.service.spec.ts`'s own row-cap tests). The ACTUAL Postgres
+ * upsert semantics (count++, RESOLVED→NEW regression, unique-by-fingerprint
+ * grouping, real cap enforcement) can only be proven against a real Postgres
+ * — see `telemetry.integration.spec.ts` (AC2/AC3/AC4 + row-cap section).
  */
 
 interface InsertCall {
@@ -20,10 +24,37 @@ interface InsertCall {
   onConflict?: { target: unknown; set: Record<string, unknown> }
 }
 
-function makeDb(): { db: DatabaseService; calls: InsertCall[] } {
+/**
+ * `opts.existingRows`/`opts.rowCount` drive the two SELECTs `recordError`
+ * now issues before every upsert (`isNewFingerprint` / `getApproxRowCount`)
+ * — same discriminate-by-`fields`-shape pattern as
+ * `csp-reports.service.spec.ts`'s own `makeDb`. Defaults (`[]`/`0`) keep
+ * every PRE-EXISTING test in this file passing unchanged: every fingerprint
+ * looks "new", and the row count is always comfortably under the cap.
+ */
+function makeDb(opts: { existingRows?: unknown[]; rowCount?: number } = {}): {
+  db: DatabaseService
+  calls: InsertCall[]
+} {
   const calls: InsertCall[] = []
+  const existingRows = opts.existingRows ?? []
+  const rowCount = opts.rowCount ?? 0
   const db = {
     db: {
+      select: (fields: Record<string, unknown>) => ({
+        from: () => {
+          if ('count' in fields) {
+            // getApproxRowCount() — `.select({count}).from(table)`, no further chain.
+            return Promise.resolve([{ count: rowCount }])
+          }
+          // isNewFingerprint() — `.select({id}).from(table).where(...).limit(1)`.
+          return {
+            where: () => ({
+              limit: async () => existingRows,
+            }),
+          }
+        },
+      }),
       insert: (_table: unknown) => {
         const call: InsertCall = {}
         calls.push(call)
@@ -153,5 +184,70 @@ describe('TelemetryErrorsService.recordError', () => {
     expect(onConflict.set).toHaveProperty('count')
     expect(onConflict.set).toHaveProperty('lastSeen')
     expect(onConflict.set).toHaveProperty('status')
+  })
+})
+
+// task-telemetry-caps — row-cap budget (mirrors csp-reports.service.spec.ts).
+describe('TelemetryErrorsService.recordError — row-cap budget', () => {
+  it('AC1: refuses a NEW fingerprint once the row cap is reached, but records the fixed cap-reached signal instead of the rejected occurrence', async () => {
+    const { db, calls } = makeDb({ existingRows: [], rowCount: TELEMETRY_ERRORS_ROW_CAP })
+    const svc = new TelemetryErrorsService(db)
+
+    await svc.recordError({
+      source: 'WEB',
+      message: 'attacker-controlled unique error signature #12345',
+    })
+
+    const expectedCapFingerprint = computeFingerprint({
+      source: 'API',
+      message: TELEMETRY_ERRORS_CAP_REACHED_MESSAGE,
+    })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.values).toMatchObject({
+      fingerprint: expectedCapFingerprint,
+      message: TELEMETRY_ERRORS_CAP_REACHED_MESSAGE,
+      count: 1,
+    })
+    const values = calls[0]!.values as { message: string }
+    expect(values.message).not.toContain('attacker-controlled')
+  })
+
+  it('AC1: still allows count++ on an EXISTING fingerprint once the row cap is reached', async () => {
+    const { db, calls } = makeDb({
+      existingRows: [{ id: 'existing-row-id' }],
+      rowCount: TELEMETRY_ERRORS_ROW_CAP,
+    })
+    const svc = new TelemetryErrorsService(db)
+
+    await svc.recordError({ source: 'WEB', message: 'boom, already tracked' })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.values).toMatchObject({ message: 'boom, already tracked' })
+    expect(calls[0]!.onConflict).toBeDefined()
+  })
+
+  it('allows a new fingerprint when the row count is comfortably under the cap', async () => {
+    const { db, calls } = makeDb({ existingRows: [], rowCount: TELEMETRY_ERRORS_ROW_CAP - 1 })
+    const svc = new TelemetryErrorsService(db)
+
+    await svc.recordError({ source: 'WEB', message: 'boom' })
+
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.values).toMatchObject({ message: 'boom' })
+  })
+
+  it('AC2: the cap-reached signal always targets the SAME fixed fingerprint — repeated rejections dedupe via onConflictDoUpdate, never flooding the table', async () => {
+    const { db, calls } = makeDb({ existingRows: [], rowCount: TELEMETRY_ERRORS_ROW_CAP })
+    const svc = new TelemetryErrorsService(db)
+
+    await svc.recordError({ source: 'WEB', message: 'unique error A' })
+    await svc.recordError({ source: 'API', message: 'unique error B, totally different text' })
+
+    expect(calls).toHaveLength(2)
+    const fp1 = (calls[0]!.values as { fingerprint: string }).fingerprint
+    const fp2 = (calls[1]!.values as { fingerprint: string }).fingerprint
+    expect(fp1).toBe(fp2)
+    expect(calls[0]!.onConflict).toBeDefined()
+    expect(calls[1]!.onConflict).toBeDefined()
   })
 })
