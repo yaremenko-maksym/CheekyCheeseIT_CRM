@@ -206,6 +206,126 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     expect(requestLog.some((r) => r.method === 'DELETE')).toBe(false)
     expect(requestLog.some((r) => r.method === 'POST')).toBe(false)
   })
+
+  test('closing on step 2 keeps the created payout: it reappears as a PENDING_PAYMENT row with «Оплатить» (AC4)', async ({
+    asSenior,
+  }) => {
+    // Stateful mock: /transactions reflects the SAME server-side effect the
+    // real backend performs on createPayoutRequest — the income flips to
+    // PENDING_PAYMENT + payoutRequestId, and a new PAYOUT row appears. This
+    // proves the row genuinely "survives" the close, not just that no extra
+    // network call fired.
+    let rows: object[] = [OUTSTANDING_INCOME]
+    await asSenior.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+      r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
+    )
+    await asSenior.route(new RegExp(`${API}/payout-requests$`), (r) => {
+      if (r.request().method() === 'POST') {
+        rows = [
+          { ...OUTSTANDING_INCOME, status: 'PENDING_PAYMENT', payoutRequestId: CREATED_PAYOUT.id },
+          {
+            id: 'cta-payout-row-1',
+            type: 'PAYOUT',
+            status: 'PENDING_PAYMENT',
+            amount: CREATED_PAYOUT.payableAmount,
+            currency: 'USDT',
+            senderId: USERS.senior.id,
+            senderName: USERS.senior.displayName,
+            senderLabel: null,
+            receiverId: null,
+            receiverName: null,
+            receiverLabel: 'CheekyCheeseIT',
+            seniorSharePercent: null,
+            dropSharePercent: null,
+            projectId: PROJECT.id,
+            projectName: PROJECT.name,
+            receiptDocumentId: null,
+            receiptExternalUrl: null,
+            notes: null,
+            salaryMonth: null,
+            txDate: null,
+            txHash: null,
+            rejectionReason: null,
+            payoutRequestId: CREATED_PAYOUT.id,
+            validatedBy: null,
+            validatedAt: null,
+            createdBy: USERS.senior.id,
+            createdAt: '2026-07-27T00:00:00.000Z',
+            updatedAt: '2026-07-27T00:00:00.000Z',
+          },
+        ]
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(CREATED_PAYOUT),
+        })
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+    })
+    await asSenior.route(new RegExp(`${API}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(CREATED_PAYOUT),
+      }),
+    )
+
+    await asSenior.goto('/finance')
+    await asSenior.getByTestId('company-share-cta-strip').click()
+    await asSenior.getByTestId('company-share-create-payout').click()
+    await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
+
+    await asSenior.getByTestId('company-share-close-step2').click()
+    await expect(asSenior.getByTestId('company-share-payout-modal')).not.toBeVisible()
+
+    // The created payout is visible in the table as PENDING_PAYMENT with an
+    // «Оплатить» pill — nothing was lost by closing mid-flow.
+    await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toBeVisible()
+    await expect(asSenior.getByTestId(`row-pay-payout-cta-payout-row-1`)).toContainText('Оплатить')
+  })
+
+  test('a second click while creation is in flight does not create two payout requests (AC5)', async ({
+    asSenior,
+  }) => {
+    await mockTransactions(asSenior, [OUTSTANDING_INCOME])
+    let createCalls = 0
+    let resolveCreate: (() => void) | null = null
+    await asSenior.route(new RegExp(`${API}/payout-requests$`), async (r) => {
+      if (r.request().method() === 'POST') {
+        createCalls += 1
+        await new Promise<void>((resolve) => {
+          resolveCreate = resolve
+        })
+        return r.fulfill({
+          status: 201,
+          contentType: 'application/json',
+          body: JSON.stringify(CREATED_PAYOUT),
+        })
+      }
+      return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
+    })
+    await asSenior.route(new RegExp(`${API}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify(CREATED_PAYOUT),
+      }),
+    )
+
+    await asSenior.goto('/finance')
+    await asSenior.getByTestId('company-share-cta-strip').click()
+    const submit = asSenior.getByTestId('company-share-create-payout')
+    await submit.click()
+    // A native disabled <button> does not dispatch click events at all — the
+    // guard IS the disabled state, so asserting it (while the mutation is
+    // still in flight, before resolveCreate below) proves a second click
+    // physically cannot reach the handler.
+    await expect(submit).toBeDisabled()
+
+    resolveCreate?.()
+    await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
+    expect(createCalls).toBe(1)
+  })
 })
 
 test.describe('Company-share payout modal — responsive (AC7)', () => {
