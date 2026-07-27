@@ -474,7 +474,11 @@ export function CompanySharePayoutModal({
             </CrmDialogBody>
 
             <CrmDialogFooter>
-              <Button variant="outline" onClick={handleClose}>
+              <Button
+                variant="outline"
+                onClick={handleClose}
+                data-testid="company-share-close-step2"
+              >
                 Закрыть
               </Button>
               {!isPaid && paymentState.onChainStatus !== 'confirmed' && (
