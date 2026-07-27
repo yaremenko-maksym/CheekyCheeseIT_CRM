@@ -18,6 +18,10 @@ import type { EtherscanService } from './etherscan.service'
 
 const WALLET = '0x1111111111111111111111111111111111111111'
 const THRESHOLD = 12
+/** Registered USDT wallet of the depositing SENIOR (task-onchain-payment-integrity). */
+const SENDER_WALLET = '0x9999999999999999999999999999999999999999'
+/** Someone else's wallet — the "I claim a stranger's transfer" scenario. */
+const STRANGER_WALLET = '0x3333333333333333333333333333333333333333'
 
 const SENIOR: SessionUser = {
   id: 's-1',
@@ -41,25 +45,53 @@ const JUNIOR: SessionUser = { ...SENIOR, id: 'j-1', role: 'JUNIOR' }
 
 // A configurable fake DatabaseService.db. Each test wires only the methods it
 // needs; unimplemented paths throw so an unexpected call is visible.
+//
+// task-onchain-payment-integrity: `query` overrides are MERGED into the base
+// (previously they replaced it wholesale). Two new tables joined the deposit
+// path — `users` (the submitter's registered wallet, HOLE 1) and
+// `consumedTxHashes` (the cross-path registry, HOLE 2) — and every pre-existing
+// test would otherwise have to restate them.
 function makeDb(overrides: Record<string, unknown> = {}) {
-  const base = {
-    query: {
-      companyAccount: {
-        findFirst: vi.fn().mockResolvedValue({
-          id: 'acc-1',
-          walletAddress: WALLET,
-          confirmationThreshold: THRESHOLD,
-          updatedAt: new Date('2026-06-17T00:00:00Z'),
-        }),
-      },
-      transactions: { findFirst: vi.fn().mockResolvedValue(undefined) },
-      users: { findFirst: vi.fn().mockResolvedValue({ id: ADMIN.id, role: 'ADMIN' }) },
+  const { query: queryOverride, ...rest } = overrides as {
+    query?: Record<string, unknown>
+  } & Record<string, unknown>
+
+  const baseQuery: Record<string, unknown> = {
+    companyAccount: {
+      findFirst: vi.fn().mockResolvedValue({
+        id: 'acc-1',
+        walletAddress: WALLET,
+        confirmationThreshold: THRESHOLD,
+        updatedAt: new Date('2026-06-17T00:00:00Z'),
+      }),
     },
+    transactions: { findFirst: vi.fn().mockResolvedValue(undefined) },
+    // Default: the caller has a registered USDT wallet (SENDER_WALLET). The
+    // deposit path is fail-closed without one, so the happy-path default must
+    // supply it; the `dividend` tests that reuse this stub only read `role`.
+    users: {
+      findFirst: vi
+        .fn()
+        .mockResolvedValue({ id: ADMIN.id, role: 'ADMIN', walletUsdtErc20: SENDER_WALLET }),
+    },
+    // Default: hash not consumed by any other path.
+    consumedTxHashes: { findFirst: vi.fn().mockResolvedValue(undefined) },
+  }
+
+  const base = {
+    query: { ...baseQuery, ...(queryOverride ?? {}) },
     insert: vi.fn(),
     update: vi.fn(),
     select: vi.fn(),
+    // Default: run the callback against this same fake handle (the deposit
+    // insert + consumed-hash claim now share one transaction).
     transaction: vi.fn(),
-    ...overrides,
+    ...rest,
+  }
+  // `transaction(cb)` must execute the callback with a handle that carries the
+  // test's own insert/query stubs — otherwise the insert under test never runs.
+  if (!('transaction' in rest)) {
+    base.transaction = vi.fn((cb: (tx: unknown) => unknown) => cb(base))
   }
   return base
 }
@@ -150,6 +182,8 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
       verifyDeposit: vi.fn().mockResolvedValue({
         found: true,
         toMatches: false,
+        fromAddress: SENDER_WALLET,
+        fromMatches: true,
         confirmed: false,
         confirmations: 50,
         amountUsdt: 999,
@@ -179,6 +213,8 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
       verifyDeposit: vi.fn().mockResolvedValue({
         found: true,
         toMatches: true,
+        fromAddress: SENDER_WALLET,
+        fromMatches: true,
         confirmed: true,
         confirmations: 12,
         amountUsdt: 500,
@@ -188,6 +224,99 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     const dto = await svc.submitDeposit({ txHashOrLink: '0x' + 'b'.repeat(64) }, SENIOR)
     expect(dto.status).toBe('PAID')
     expect(dto.amountUsdt).toBe(500)
+  })
+
+  // ── HOLE 1 (task-onchain-payment-integrity) ───────────────────────────────
+  it("SECURITY: a stranger's transfer → 400, no deposit row inserted", async () => {
+    const insertSpy = vi.fn()
+    const db = makeDb({ insert: insertSpy })
+    const etherscan = {
+      // Perfectly valid deposit into the company wallet — sent by someone else.
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        fromAddress: STRANGER_WALLET,
+        fromMatches: false,
+        confirmed: false,
+        confirmations: 30,
+        amountUsdt: 500,
+      }),
+    }
+    const svc = makeService(db, etherscan)
+    await expect(
+      svc.submitDeposit({ txHashOrLink: '0x' + '1'.repeat(64) }, SENIOR),
+    ).rejects.toThrowError(/Отправитель транзакции не совпадает/)
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it('SECURITY: submitter without a registered wallet → 400 fail-closed (no chain call)', async () => {
+    const insertSpy = vi.fn()
+    const verifyDeposit = vi.fn()
+    const db = makeDb({
+      insert: insertSpy,
+      query: { users: { findFirst: vi.fn().mockResolvedValue({ walletUsdtErc20: null }) } },
+    })
+    const svc = makeService(db, { verifyDeposit })
+    await expect(
+      svc.submitDeposit({ txHashOrLink: '0x' + '2'.repeat(64) }, SENIOR),
+    ).rejects.toThrowError(/Укажите свой USDT/)
+    expect(verifyDeposit).not.toHaveBeenCalled()
+    expect(insertSpy).not.toHaveBeenCalled()
+  })
+
+  it('SECURITY: sender mismatch reported without fromMatches flag is still refused', async () => {
+    // Defence-in-depth: even an (impossible) verifier that returns
+    // fromMatches=true with a foreign fromAddress must not credit.
+    const db = makeDb({
+      insert: vi.fn(() => ({
+        values: () => ({
+          returning: () =>
+            Promise.resolve([
+              {
+                id: 'd-x',
+                txHash: '0x' + '3'.repeat(64),
+                amount: '0',
+                status: 'PENDING',
+                createdAt: new Date(),
+              },
+            ]),
+        }),
+      })),
+    })
+    const etherscan = {
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        fromAddress: STRANGER_WALLET,
+        fromMatches: true, // lying flag
+        confirmed: true,
+        confirmations: 30,
+        amountUsdt: 500,
+      }),
+    }
+    const svc = makeService(db, etherscan)
+    const dto = await svc.submitDeposit({ txHashOrLink: '0x' + '3'.repeat(64) }, SENIOR)
+    // Row exists (fromAddress-vs-flag disagreement is not a user error) but is
+    // NOT credited: amount 0 / PENDING.
+    expect(dto.status).toBe('PENDING')
+  })
+
+  // ── HOLE 2 (task-onchain-payment-integrity) ───────────────────────────────
+  it('SECURITY: hash already consumed by a PAYOUT → 400, no deposit row', async () => {
+    const insertSpy = vi.fn()
+    const verifyDeposit = vi.fn()
+    const db = makeDb({
+      insert: insertSpy,
+      query: {
+        consumedTxHashes: { findFirst: vi.fn().mockResolvedValue({ purpose: 'PAYOUT' }) },
+      },
+    })
+    const svc = makeService(db, { verifyDeposit })
+    await expect(
+      svc.submitDeposit({ txHashOrLink: '0x' + '4'.repeat(64) }, SENIOR),
+    ).rejects.toThrowError(/уже использован/)
+    expect(verifyDeposit).not.toHaveBeenCalled()
+    expect(insertSpy).not.toHaveBeenCalled()
   })
 
   it('idempotency: existing COMPANY_DEPOSIT returned, no second insert', async () => {
@@ -249,6 +378,8 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     const verifyDeposit = vi.fn().mockResolvedValue({
       found: true,
       toMatches: true,
+      fromAddress: SENDER_WALLET,
+      fromMatches: true,
       confirmed: false,
       confirmations: 3,
       amountUsdt: null,
@@ -258,7 +389,8 @@ describe('CompanyAccountService.submitDeposit — security invariant (AC3 unit)'
     })
     const svc = makeService(db, { verifyDeposit })
     await svc.submitDeposit({ txHashOrLink: `https://etherscan.io/tx/${hash}` }, SENIOR)
-    expect(verifyDeposit).toHaveBeenCalledWith(hash, WALLET, THRESHOLD)
+    // The submitter's own wallet is passed as the expected on-chain sender.
+    expect(verifyDeposit).toHaveBeenCalledWith(hash, WALLET, SENDER_WALLET, THRESHOLD)
   })
 })
 
@@ -294,6 +426,8 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
       verifyDeposit: vi.fn().mockResolvedValue({
         found: true,
         toMatches: true,
+        fromAddress: SENDER_WALLET,
+        fromMatches: true,
         confirmed: false,
         confirmations: 5,
         amountUsdt: null,
@@ -319,7 +453,8 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
           }),
         },
         transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
-        users: { findFirst: vi.fn() },
+        // The deposit owner's registered wallet — the sender reference.
+        users: { findFirst: vi.fn().mockResolvedValue({ walletUsdtErc20: SENDER_WALLET }) },
       },
       update: updateSpy,
     })
@@ -327,6 +462,8 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
       verifyDeposit: vi.fn().mockResolvedValue({
         found: true,
         toMatches: true,
+        fromAddress: SENDER_WALLET,
+        fromMatches: true,
         confirmed: true,
         confirmations: 12,
         amountUsdt: 800,
@@ -337,6 +474,63 @@ describe('CompanyAccountService.getDepositStatus — flip PENDING→PAID (AC5)',
     expect(status.status).toBe('PAID')
     expect(status.amountUsdt).toBe(800)
     expect(updateSpy).toHaveBeenCalledOnce()
+  })
+
+  // HOLE 1: polling is the THIRD path that can flip a deposit to PAID — it must
+  // apply the same sender check, judged against the DEPOSIT OWNER's wallet
+  // (not the poller's).
+  it("SECURITY: polling never credits a stranger's transfer (stays PENDING)", async () => {
+    const updateSpy = vi.fn(() => ({ set: () => ({ where: () => Promise.resolve() }) }))
+    const db = makeDb({
+      query: {
+        transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
+        users: { findFirst: vi.fn().mockResolvedValue({ walletUsdtErc20: SENDER_WALLET }) },
+      },
+      update: updateSpy,
+    })
+    const etherscan = {
+      verifyDeposit: vi.fn().mockResolvedValue({
+        found: true,
+        toMatches: true,
+        fromAddress: STRANGER_WALLET,
+        fromMatches: false,
+        confirmed: false,
+        confirmations: 40,
+        amountUsdt: 800,
+      }),
+    }
+    const svc = makeService(db, etherscan)
+    const status = await svc.getDepositStatus('dep-1', SENIOR)
+    expect(status.status).toBe('PENDING')
+    expect(updateSpy).not.toHaveBeenCalled()
+  })
+
+  it("SECURITY: polling passes the deposit OWNER's wallet, not the poller's", async () => {
+    const verifyDeposit = vi.fn().mockResolvedValue({
+      found: true,
+      toMatches: true,
+      fromAddress: SENDER_WALLET,
+      fromMatches: true,
+      confirmed: false,
+      confirmations: 2,
+      amountUsdt: null,
+    })
+    const db = makeDb({
+      query: {
+        transactions: { findFirst: vi.fn().mockResolvedValue(pendingDeposit) },
+        users: { findFirst: vi.fn().mockResolvedValue({ walletUsdtErc20: SENDER_WALLET }) },
+      },
+      update: vi.fn(),
+    })
+    const svc = makeService(db, { verifyDeposit })
+    // ADMIN polls somebody else's deposit — the reference wallet is the owner's.
+    await svc.getDepositStatus('dep-1', ADMIN)
+    expect(verifyDeposit).toHaveBeenCalledWith(
+      pendingDeposit.txHash,
+      WALLET,
+      SENDER_WALLET,
+      THRESHOLD,
+    )
   })
 
   it('non-owner non-privileged → 403', async () => {
