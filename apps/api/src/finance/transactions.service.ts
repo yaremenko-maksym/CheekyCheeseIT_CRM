@@ -50,6 +50,8 @@ import {
   usdtToMinorUnits,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
+// HIGH-1: the SINGLE hash-extraction rule, shared with the Zod write boundary.
+import { extractOnChainTxHash } from '@crm/shared'
 import { InvoicesService } from '../invoices/invoices.service'
 import { DocumentsService } from '../documents/documents.service'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
@@ -1305,11 +1307,34 @@ export class TransactionsService {
             // explorer-only, so receiptDocumentId is always null here.
             receiptDocumentId: data.receiptDocumentId ?? null,
             receiptExternalUrl: data.receiptExternalUrl ?? null,
+            // The explorer link is the on-chain evidence for this income; record
+            // the hash it points at (MED-1) so the row is attributable and the
+            // registry claim below has a visible counterpart on the ledger.
+            txHash: extractOnChainTxHash(data.receiptExternalUrl) ?? null,
             notes: data.notes ?? null,
             txDate: this.resolveTxDate(data.txDate),
             createdBy: currentUser.id,
           })
           .returning()
+
+        // ── MED-1 (security-review PR #438): ADMIN_INCOME is the THIRD term
+        // `computeCompanyAccountBalanceFromLedger` credits (alongside
+        // COMPANY_DEPOSIT and PAYOUT/COMPANY_ACCOUNT), so leaving it outside the
+        // consumed-hash registry kept the "one on-chain transfer settles exactly
+        // one thing" invariant non-global: the same transfer could be declared
+        // as admin income AND settle a payout / credit a deposit. The receipt is
+        // MANDATORY and explorer-only for USDT income, so its link carries the
+        // hash — claim it here, inside the same transaction as the credit.
+        //
+        // A no-op when the link carries no hash (nothing on-chain to consume);
+        // a collision surfaces as 23505 → the catch below turns it into a clean
+        // 400 rather than a 500.
+        await consumeTxHash(dbtx, {
+          txHash: data.receiptExternalUrl ?? '',
+          purpose: 'ADMIN_INCOME',
+          referenceId: tx!.id,
+          consumedByUserId: currentUser.id,
+        })
 
         await this.bookCompanyObligations(dbtx, {
           incomeAmount: data.amount,
@@ -1340,6 +1365,11 @@ export class TransactionsService {
           ),
         })
         if (committed) return this.findOne(committed.id, currentUser)
+        // MED-1: no row for this key ⇒ the 23505 came from the OTHER unique
+        // index in this transaction — `uq_consumed_tx_hashes_tx_hash`, i.e. the
+        // receipt link points at a transfer already settled elsewhere (a payout
+        // or a deposit). Clean 400, never a 500.
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
       throw err
     }
@@ -2737,7 +2767,16 @@ export class TransactionsService {
     // The dev/staging UI surfaces a radio group that lets the SENIOR rehearse
     // either branch without going on-chain. In production the flag is ignored —
     // real Etherscan verification owns the decision.
-    const isDevMode = process.env['NODE_ENV'] !== 'production'
+    // FAIL-CLOSED (security-review PR #438, MED-4). This used to be
+    // `NODE_ENV !== 'production'`, i.e. an UNSET or typo'd NODE_ENV ('staging',
+    // '') opened the simulate path in a real deployment: `simulateResult:
+    // 'success'` from SENIOR/DROP bypasses Etherscan entirely, synthesises a
+    // `0xSIM…` marker (which the registry rightly ignores) and STILL credits the
+    // company account — "не регистрируется И кредитует". Mirror the hardened
+    // form already used by EtherscanService (audit 2026-06-28 #13): only an
+    // explicit development/test is non-prod; everything else is production.
+    const nodeEnv = process.env['NODE_ENV']
+    const isDevMode = nodeEnv === 'development' || nodeEnv === 'test'
     const isSimulating = isDevMode && simulateResult !== undefined
     if (isSimulating && simulateResult === 'error') {
       throw new BadRequestException('Симуляция: транзакция не подтверждена')
@@ -2749,14 +2788,25 @@ export class TransactionsService {
     // deterministic stub hash so the audit trail (txHash column) is never
     // empty. The 0xSIM prefix is the convention the UI uses to skip the
     // etherscan link (see PayoutDetailDialog footer).
+    // HIGH-1 (security-review PR #438): extract via the SHARED rule — accepts a
+    // bare hash or an explorer link, lowercased. The previous
+    // `trim().length >= 10` accepted any string verbatim, so a value the
+    // registry could not recognise became the payout's `tx_hash`.
+    const extractedTxHash = extractOnChainTxHash(txHash)
+    const suppliedTxHash = txHash?.trim() ?? ''
+    if (suppliedTxHash !== '' && extractedTxHash === null) {
+      // Fail LOUD rather than settling with an unregistrable hash.
+      throw new BadRequestException(
+        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
+      )
+    }
     const effectiveTxHash =
-      txHash && txHash.trim().length >= 10
-        ? txHash.trim()
-        : isSimulating
-          ? `0xSIM${randomBytes(28).toString('hex')}`
-          : (() => {
-              throw new BadRequestException('Хеш транзакции обязателен')
-            })()
+      extractedTxHash ??
+      (isSimulating
+        ? `0xSIM${randomBytes(28).toString('hex')}`
+        : (() => {
+            throw new BadRequestException('Хеш транзакции обязателен')
+          })())
 
     // ── Phase 8 v2 — REAL on-chain validation (INVARIANT #1).
     // Outside dev-simulate, the payout is marked PAID ONLY when the submitted
@@ -2898,15 +2948,33 @@ export class TransactionsService {
     // Audit hash: use the provided on-chain hash when present, else a manual
     // marker so the audit trail (txHash column) is never empty. Manual markers
     // use a 0xMANUAL prefix (distinct from the 0xSIM dev-simulate convention).
-    const noteTxHash = options.txHash?.trim()
+    const noteTxHash = options.txHash?.trim() ?? ''
+    // ── HIGH-1 (security-review PR #438): THE EXPLOITED LINE.
+    // This was `Boolean(noteTxHash && noteTxHash.length >= 10)` and
+    // `effectiveTxHash = noteTxHash` — the raw input, unparsed. Pasting an
+    // explorer LINK (`https://etherscan.io/tx/0x…`, the very format the
+    // neighbouring deposit endpoint advertises) therefore produced a
+    // COMPANY_ACCOUNT credit whose `tx_hash` the consumed-hash registry could
+    // not recognise: `consumeTxHash` saw "not a real hash" and returned without
+    // inserting, so the SAME transfer was still free to be credited again as a
+    // deposit (and the mirror order worked too). No malice needed — one paste.
+    //
+    // Now the SHARED extractor runs first (bare hash OR link → lowercase hash),
+    // so what lands in `tx_hash` is exactly what the registry claims.
+    const extractedTxHash = extractOnChainTxHash(noteTxHash)
+    if (noteTxHash !== '' && extractedTxHash === null) {
+      // Fail LOUD: a supplied-but-unparseable hash must never silently degrade
+      // into an unregistered credit (it would also poison the audit column).
+      throw new BadRequestException(
+        'Некорректный hash транзакции — ожидается 0x + 64 hex или ссылка на Etherscan',
+      )
+    }
     // A REAL on-chain hash was supplied (vs. a synthesized 0xMANUAL marker).
     // Only a real hash references an actual on-chain transfer that could be
     // double-counted; the random 0xMANUAL/0xSIM markers are unique by
     // construction, so they need no reuse guard.
-    const hasRealTxHash = Boolean(noteTxHash && noteTxHash.length >= 10)
-    const effectiveTxHash = hasRealTxHash
-      ? noteTxHash!
-      : `0xMANUAL${randomBytes(26).toString('hex')}`
+    const hasRealTxHash = extractedTxHash !== null
+    const effectiveTxHash = extractedTxHash ?? `0xMANUAL${randomBytes(26).toString('hex')}`
 
     // Only COMPANY_ACCOUNT credits the company balance; ADMIN_USDT / CASH leave
     // fundingSource NULL so computeBalance ignores this PAYOUT row.

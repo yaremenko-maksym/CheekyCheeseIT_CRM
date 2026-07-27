@@ -44,9 +44,44 @@ interface EtherscanRpcLog {
   data: string // hex-encoded amount
 }
 
-interface RpcResponse<T> {
-  jsonrpc: string
-  result: T | null
+/**
+ * MED-2 (security-review PR #438) — Etherscan does NOT always answer with the
+ * documented shape. On a rate limit / API error it returns a STRING in
+ * `result` ("Max rate limit reached"), which is truthy: the old
+ * `as RpcResponse<T>` cast sailed past it, `receipt.status === '0x1'` came out
+ * false, and the operator was told «Транзакция отменена на блокчейне
+ * (reverted)» — a confidently WRONG diagnosis handed out exactly when the money
+ * path is degraded. Behaviour was fail-closed (no credit), the DIAGNOSIS was
+ * the bug.
+ *
+ * These guards narrow `unknown` before any field is read, so an unexpected
+ * shape produces an honest "verifier unavailable" instead of a fake chain fact.
+ */
+function isObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+/** The `result` of a well-formed JSON-RPC reply, or `UNAVAILABLE`. */
+const RPC_UNAVAILABLE = Symbol('etherscan-rpc-unavailable')
+
+/**
+ * Extract `result` from a raw JSON body.
+ *   • `null` result (tx not mined / no receipt) → `null` — a real chain answer.
+ *   • object / array result → returned for the caller to narrow.
+ *   • anything else (string error, missing key, non-object body) →
+ *     `RPC_UNAVAILABLE` — the verifier could not answer.
+ */
+function rpcResult(body: unknown): unknown | typeof RPC_UNAVAILABLE {
+  if (!isObject(body) || !('result' in body)) return RPC_UNAVAILABLE
+  const result = body['result']
+  if (result === null) return null
+  if (typeof result === 'string' || typeof result === 'number' || typeof result === 'boolean') {
+    // eth_blockNumber legitimately returns a hex STRING; every other call in
+    // this flow returns an object/array, so callers decide per call site.
+    return result
+  }
+  if (isObject(result) || Array.isArray(result)) return result
+  return RPC_UNAVAILABLE
 }
 
 // ── Public result types ───────────────────────────────────────────────────────
@@ -171,6 +206,35 @@ export class EtherscanService {
   // ── Private helpers ─────────────────────────────────────────────────────────
 
   /**
+   * MED-2 (security-review PR #438) — honest "the verifier could not answer".
+   *
+   * Returned whenever an RPC reply does not have the documented shape (rate
+   * limit → `result` is the STRING "Max rate limit reached", API error, garbage
+   * body). Fail-closed exactly like every other negative path — nothing is ever
+   * credited — but the operator now gets a TRUE diagnosis. Before this, a
+   * rate-limited reply flowed on and surfaced as «Транзакция отменена на
+   * блокчейне (reverted)»: a confident, wrong statement about the chain,
+   * delivered precisely when the money path was degraded.
+   */
+  private verifierUnavailable(raw: unknown): DepositVerification {
+    this.logger.error(
+      `Etherscan returned an unexpected RPC payload (verification unavailable): ${
+        typeof raw === 'string' ? raw : String(raw)
+      }`,
+    )
+    return {
+      found: false,
+      toMatches: false,
+      fromAddress: null,
+      confirmed: false,
+      confirmations: 0,
+      amountUsdt: null,
+      amountUsdtMinor: null,
+      error: 'Верификация недоступна: блокчейн-провайдер не ответил корректно, попробуйте позже',
+    }
+  }
+
+  /**
    * Fetch a URL with an AbortController timeout guard.
    * Throws on timeout/network error (caller wraps in try/catch).
    */
@@ -214,8 +278,13 @@ export class EtherscanService {
     const txRes = await this.fetchWithTimeout(
       `${base}&action=eth_getTransactionByHash&txhash=${txHash}`,
     )
-    const txData = (await txRes.json()) as RpcResponse<EtherscanRpcTx>
-    const tx = txData.result
+    const txResult = rpcResult(await txRes.json())
+    // MED-2: a string/garbage `result` means the VERIFIER failed (rate limit,
+    // API error) — say so, instead of inventing a chain fact.
+    if (txResult === RPC_UNAVAILABLE || typeof txResult === 'string') {
+      return this.verifierUnavailable(txResult)
+    }
+    const tx = isObject(txResult) ? (txResult as unknown as EtherscanRpcTx) : null
 
     if (!tx) {
       return {
@@ -237,8 +306,13 @@ export class EtherscanService {
     const receiptRes = await this.fetchWithTimeout(
       `${base}&action=eth_getTransactionReceipt&txhash=${txHash}`,
     )
-    const receiptData = (await receiptRes.json()) as RpcResponse<EtherscanRpcReceipt>
-    const receipt = receiptData.result
+    const receiptResult = rpcResult(await receiptRes.json())
+    if (receiptResult === RPC_UNAVAILABLE || typeof receiptResult === 'string') {
+      return this.verifierUnavailable(receiptResult)
+    }
+    const receipt = isObject(receiptResult)
+      ? (receiptResult as unknown as EtherscanRpcReceipt)
+      : null
 
     // receipt is null if tx hasn't been mined yet
     const onChainSuccess = receipt !== null ? receipt.status === '0x1' : false
@@ -295,15 +369,37 @@ export class EtherscanService {
     )
     // Etherscan eth_getLogs returns ALL Transfer events in the block for this
     // contract, not just for our tx — filter by transactionHash.
-    const logsData = (await logsRes.json()) as RpcResponse<EtherscanRpcLog[]>
-    const allLogs = Array.isArray(logsData.result) ? logsData.result : []
+    const logsResult = rpcResult(await logsRes.json())
+    // MED-2: an error string here would otherwise silently degrade to "no logs"
+    // → toMatches=false → a misleading "recipient mismatch" for the payer.
+    if (logsResult === RPC_UNAVAILABLE || typeof logsResult === 'string') {
+      return this.verifierUnavailable(logsResult)
+    }
+    const allLogs = Array.isArray(logsResult) ? (logsResult as EtherscanRpcLog[]) : []
     const txLogs = allLogs.filter(
-      (log) => log.transactionHash.toLowerCase() === txHash.toLowerCase(),
+      (log) =>
+        typeof log?.transactionHash === 'string' &&
+        log.transactionHash.toLowerCase() === txHash.toLowerCase() &&
+        // ── CONDITION 2 of the owner's verification spec: CURRENCY.
+        // The transfer must be REAL USDT — the log's emitting contract is the
+        // USDT contract. Enforced HERE in code, not merely delegated to the
+        // remote `&address=${USDT_CONTRACT}` filter on the request above.
+        //
+        // This is what stops the fake-token attack: deploy a worthless token,
+        // emit `Transfer(…, companyWallet, 740_000000)`, and every other check
+        // passes — recipient matches, amount matches to the minor unit — so
+        // without a currency check we would credit 740 REAL USDT. Today the
+        // logs come from a contract-filtered `eth_getLogs` (NOT from the tx
+        // receipt, which would carry every token's events), so the attack does
+        // not work; asserting it in code removes the dependency on that remote
+        // filter — and on nobody ever refactoring the lookup to be receipt-based.
+        typeof log?.address === 'string' &&
+        log.address.toLowerCase() === USDT_CONTRACT.toLowerCase(),
     )
 
     // Find incoming transfers to the company wallet (topics[2] = padded `to` address).
     const incomingLogs = txLogs.filter(
-      (log) => addressFromTopic(log.topics[2]) === expectedToAddress.toLowerCase(),
+      (log) => addressFromTopic(log.topics?.[2]) === expectedToAddress.toLowerCase(),
     )
 
     const toMatches = incomingLogs.length > 0
@@ -327,14 +423,23 @@ export class EtherscanService {
     const amountMinor = incomingLogs.reduce((sum, log) => sum + BigInt(log.data), 0n)
     const amountUsdt = Number(amountMinor) / Math.pow(10, USDT_DECIMALS)
 
-    const amountValid = Number.isFinite(amountUsdt) && amountUsdt > 0 && amountUsdt < 1e12
+    // LOW (review): the sanity gate is applied to the EXACT integer, not to the
+    // derived float. `Number(amountMinor)` silently loses precision above 2^53
+    // minor units (~9.007e9 USDT) while the old `< 1e12` float bound let such
+    // values through — so the bound is now the largest amount the float mirror
+    // can represent faithfully. `amountUsdtMinor` stays exact regardless.
+    const amountValid = amountMinor > 0n && amountMinor <= BigInt(Number.MAX_SAFE_INTEGER)
 
     // ── Step 4: eth_blockNumber — live confirmation count ────────────────────
     let confirmations = 0
     if (txBlockHex) {
       const headRes = await this.fetchWithTimeout(`${base}&action=eth_blockNumber`)
-      const headData = (await headRes.json()) as RpcResponse<string>
-      const headHex = headData.result ?? '0x0'
+      // eth_blockNumber legitimately returns a hex STRING; anything else means
+      // the verifier is degraded (MED-2). A bad head block would understate
+      // confirmations, which is fail-closed — but report it honestly instead.
+      const headResult = rpcResult(await headRes.json())
+      if (headResult === RPC_UNAVAILABLE) return this.verifierUnavailable(headResult)
+      const headHex = typeof headResult === 'string' ? headResult : '0x0'
       const txBlock = parseInt(txBlockHex, 16)
       const headBlock = parseInt(headHex, 16)
       // Ethereum confirmation count: 0 when tx is in the head block (same block),

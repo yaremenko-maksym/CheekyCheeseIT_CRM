@@ -1,4 +1,5 @@
 import { eq } from 'drizzle-orm'
+import { extractOnChainTxHash } from '@crm/shared'
 
 import type { DrizzleTx } from '../database/types'
 import { consumedTxHashes } from '../database/schema'
@@ -29,30 +30,35 @@ import { consumedTxHashes } from '../database/schema'
 
 // ── Hash shape / normalisation ───────────────────────────────────────────────
 
-/** A real Ethereum transaction hash: `0x` + 64 hex chars. */
-const REAL_TX_HASH_RE = /^0x[0-9a-f]{64}$/i
-
 /**
  * Normalise a submitted tx hash for the consumed-hash registry.
  *
- * Returns the lowercase hash when it is a REAL on-chain hash shape, else `null`.
+ * Delegates to `extractOnChainTxHash` from `@crm/shared` — the SINGLE rule for
+ * "what is a real on-chain hash", shared with the Zod write boundary and every
+ * entry path (`payPayoutRequest`, `manualConfirmPayout`, `submitDeposit`,
+ * `declareUsdtProjectIncome`).
  *
- * `null` means "not an on-chain transfer — nothing to consume":
- *   • `0xSIM…`    — dev-simulate marker (`payPayoutRequest`, dev only),
- *   • `0xMANUAL…` — off-chain manual-confirmation marker (`manualConfirmPayout`
- *                   with CASH / ADMIN_USDT and no real hash).
- * Both are random-by-construction audit placeholders that reference NO chain
- * transfer, so registering them would only add noise (and, worse, could collide
- * a legitimate future hash if the prefix scheme ever changed).
+ * SECURITY (security-review PR #438, HIGH-1): this used to be an ANCHORED
+ * `^0x[0-9a-f]{64}$` while `submitDeposit` extracted with a NON-anchored regex
+ * and `manualConfirmPayout` did neither (`length >= 10`). A manual confirmation
+ * pasted as an explorer LINK therefore credited the company account while this
+ * function returned null → `consumeTxHash` silently skipped the claim → the
+ * same transfer could be credited AGAIN as a deposit. Extracting here (rather
+ * than only at the entry points) keeps the registry safe even if a future
+ * caller forgets to normalise: no input format can produce a credit without a
+ * claim.
  *
- * Case-insensitivity matters: Etherscan links carry EIP-55-ish mixed case, and
+ * Still returns null — correctly — for the synthetic audit markers `0xSIM…` /
+ * `0xMANUAL…`: their prefixes are not hex, so they contain no `0x`+64hex
+ * substring. They reference no on-chain transfer, so there is nothing to
+ * double-spend.
+ *
+ * Case-insensitivity matters: explorer links carry EIP-55 mixed case, and
  * `0xAB…` / `0xab…` are the SAME transfer — without normalisation the registry
  * could be bypassed by flipping a single character's case.
  */
 export function normalizeOnChainTxHash(raw: string | null | undefined): string | null {
-  const trimmed = raw?.trim() ?? ''
-  if (!REAL_TX_HASH_RE.test(trimmed)) return null
-  return trimmed.toLowerCase()
+  return extractOnChainTxHash(raw)
 }
 
 // ── Address normalisation (for STORING the observed sender) ──────────────────
@@ -108,7 +114,9 @@ export function minorUnitsFromString(raw: string | null | undefined): bigint | n
 export function usdtToMinorUnits(raw: string | number | null | undefined): bigint | null {
   if (raw === null || raw === undefined) return null
   const text = typeof raw === 'number' ? String(raw) : raw.trim()
-  const m = /^(-?)(\d+)(?:\.(\d*))?$/.exec(text)
+  // A trailing dot with no digits ("740.") is malformed, not "740" — a decimal
+  // point that decides money must be followed by digits (review LOW).
+  const m = /^(-?)(\d+)(?:\.(\d+))?$/.exec(text)
   if (!m) return null
   const sign = m[1] ?? ''
   const whole = m[2] ?? '0'
@@ -121,8 +129,15 @@ export function usdtToMinorUnits(raw: string | number | null | undefined): bigin
 
 // ── Consumed-hash registry ───────────────────────────────────────────────────
 
-/** Money path that consumed a hash. Mirrors `consumed_tx_hashes.purpose`. */
-export type ConsumedTxPurpose = 'PAYOUT' | 'COMPANY_DEPOSIT'
+/**
+ * Money path that consumed a hash. Mirrors `consumed_tx_hashes.purpose`.
+ *
+ * `ADMIN_INCOME` joined the set in the security-review fix round: it is the
+ * THIRD term `computeCompanyAccountBalanceFromLedger` credits, so leaving it
+ * out kept the "one transfer settles one thing" invariant non-global (the same
+ * transfer could be declared as admin income AND settle a payout/deposit).
+ */
+export type ConsumedTxPurpose = 'PAYOUT' | 'COMPANY_DEPOSIT' | 'ADMIN_INCOME'
 
 /** Uniform 400 message for a hash already spent by ANY path. */
 export const TX_HASH_ALREADY_CONSUMED_MESSAGE =

@@ -790,10 +790,57 @@ export type PayPayoutRequestDto = z.infer<typeof payPayoutRequestSchema>
 export const manualPayoutMethodSchema = z.enum(['CASH', 'ADMIN_USDT', 'COMPANY_ACCOUNT'])
 export type ManualPayoutMethod = z.infer<typeof manualPayoutMethodSchema>
 
+/**
+ * A real Ethereum transaction hash ANYWHERE in the input — deliberately
+ * NON-anchored so one rule covers both a bare hash and an explorer link
+ * (`https://etherscan.io/tx/0x…`).
+ *
+ * SECURITY (security-review PR #438, HIGH-1): this is the SINGLE definition of
+ * "what is a real on-chain hash" for the whole system. It used to be three
+ * different rules — an anchored `^0x[0-9a-f]{64}$` in the consumed-hash
+ * registry, a non-anchored one in `submitDeposit`, and a bare
+ * `length >= 10` in `manualConfirmPayout` — and the gap between them WAS an
+ * exploit: a manual confirmation pasted as an explorer LINK credited the
+ * company account while the registry's anchored regex saw "not a hash" and
+ * silently skipped the claim, so the same transfer could then be credited a
+ * second time as a deposit.
+ */
+export const ON_CHAIN_TX_HASH_RE = /0x[0-9a-fA-F]{64}/
+
+/**
+ * Extract the real on-chain tx hash from a bare hash OR an explorer link,
+ * normalised to lowercase. Returns null when the input carries no real hash.
+ *
+ * `null` also (correctly) covers the synthetic audit markers `0xSIM…` /
+ * `0xMANUAL…`: their prefixes are not hex, so no `0x`+64hex substring exists.
+ * They reference no on-chain transfer and must never be registered.
+ *
+ * Lives in `@crm/shared` so the Zod write-boundary and every server path apply
+ * the IDENTICAL rule (a divergence between them is the bug this closes).
+ */
+export function extractOnChainTxHash(raw: string | null | undefined): string | null {
+  const match = ON_CHAIN_TX_HASH_RE.exec(raw?.trim() ?? '')
+  return match ? match[0].toLowerCase() : null
+}
+
 export const manualConfirmPayoutSchema = z.object({
   method: manualPayoutMethodSchema,
   note: z.string().max(1000).optional().nullable(),
-  txHash: z.string().max(255).optional().nullable(),
+  // HIGH-1 (security-review PR #438): the format is now validated at the write
+  // boundary. A supplied txHash MUST contain a real on-chain hash (bare or as
+  // an explorer link) — previously any string ≥10 chars was accepted verbatim,
+  // became the payout's `tx_hash`, and slipped past the consumed-hash registry.
+  // `.refine` (not a type-predicate) keeps the TS type `string`, per the
+  // shared-schema convention — runtime strictness, no frontend type churn.
+  txHash: z
+    .string()
+    .max(255)
+    .optional()
+    .nullable()
+    .refine((v) => v === null || v === undefined || v === '' || extractOnChainTxHash(v) !== null, {
+      message:
+        'Укажите корректный hash транзакции (0x + 64 hex) или ссылку на Etherscan — иначе оставьте поле пустым',
+    }),
 })
 export type ManualConfirmPayoutDto = z.infer<typeof manualConfirmPayoutSchema>
 

@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
-import { COMPANY_REQUISITES_MAX, receiptMandatoryError } from '@crm/shared'
+import { COMPANY_REQUISITES_MAX, extractOnChainTxHash, receiptMandatoryError } from '@crm/shared'
 import type {
   CompanyAccountDto,
   CompanyDepositDto,
@@ -225,13 +225,17 @@ export class CompanyAccountService {
       throw new ForbiddenException('Пополнять счёт компании могут SENIOR или DROP')
     }
 
-    const match = CompanyAccountService.TX_HASH_RE.exec(input.txHashOrLink)
-    if (!match) {
+    // HIGH-1 (security-review PR #438): the SHARED extractor — the same rule the
+    // registry, the Zod write boundary and the payout paths use. Note it also
+    // LOWERCASES, which the old local regex did not: a mixed-case hash used to
+    // be stored (and idempotency-matched) verbatim while the registry stored the
+    // lowercase form.
+    const txHash = extractOnChainTxHash(input.txHashOrLink)
+    if (!txHash) {
       throw new BadRequestException(
         'Не удалось извлечь hash транзакции (ожидается 0x + 64 hex или ссылка Etherscan)',
       )
     }
-    const txHash = match[0]
 
     const account = await this.getRow()
 
@@ -306,17 +310,23 @@ export class CompanyAccountService {
           })
           .returning()
 
-        // Claimed even while PENDING: the hash is spoken for the moment it is
-        // attached to a deposit row (matching the pre-existing behaviour of
-        // `uq_transactions_company_deposit_tx_hash`, which already blocked
-        // re-submission regardless of status) — otherwise the window between
-        // submit and confirmation would let the same transfer settle a payout.
-        await consumeTxHash(dbtx, {
-          txHash,
-          purpose: 'COMPANY_DEPOSIT',
-          referenceId: inserted!.id,
-          consumedByUserId: currentUser.id,
-        })
+        // ── MED-3 (security-review PR #438): claim ONLY on an actual credit.
+        // This used to run unconditionally, so an UNVERIFIED, uncredited PENDING
+        // row still burned the hash system-wide. The company wallet address is
+        // published to every payer, so any SENIOR/DROP could read a stranger's
+        // incoming transfer off the explorer, submit its hash first, and — even
+        // without ever crediting — leave the real payer unable to settle their
+        // payout («хеш уже использован»). A claim now accompanies MONEY, not an
+        // intent: a PENDING deposit blocks nothing outside its own table, and
+        // the claim happens when `getDepositStatus` later flips it to PAID.
+        if (credited) {
+          await consumeTxHash(dbtx, {
+            txHash,
+            purpose: 'COMPANY_DEPOSIT',
+            referenceId: inserted!.id,
+            consumedByUserId: currentUser.id,
+          })
+        }
 
         return inserted!
       })
@@ -390,15 +400,46 @@ export class CompanyAccountService {
       // deposit submitted before the tx was mined has no sender yet, and this
       // re-poll is where it becomes known. `?? tx.txFromAddress` keeps an
       // already-recorded value if the chain read came back empty.
-      await this.db.db
-        .update(transactions)
-        .set({
-          status: 'PAID',
-          amount: String(resolvedAmount),
-          txFromAddress: normalizeEthAddress(verification.fromAddress) ?? tx.txFromAddress,
-          updatedAt: new Date(),
+      //
+      // MED-3 (security-review PR #438): since `submitDeposit` now claims the
+      // hash ONLY when it actually credits, THIS is where a poll-credited
+      // deposit gets claimed — flip + claim in ONE transaction so the credit and
+      // the registry entry cannot diverge.
+      try {
+        await this.db.db.transaction(async (dbtx) => {
+          const flipped = await dbtx
+            .update(transactions)
+            .set({
+              status: 'PAID',
+              amount: String(resolvedAmount),
+              txFromAddress: normalizeEthAddress(verification.fromAddress) ?? tx.txFromAddress,
+              updatedAt: new Date(),
+            })
+            // LOW (review): re-assert PENDING in the WHERE so two concurrent
+            // polls cannot both flip (and both claim) the same deposit — the
+            // loser sees 0 rows and skips the claim.
+            .where(and(eq(transactions.id, tx.id), eq(transactions.status, 'PENDING')))
+            .returning({ id: transactions.id })
+
+          if (flipped.length === 0) return // already credited by a concurrent poll
+
+          await consumeTxHash(dbtx, {
+            txHash: tx.txHash ?? '',
+            purpose: 'COMPANY_DEPOSIT',
+            referenceId: tx.id,
+            consumedByUserId: tx.senderId,
+          })
         })
-        .where(eq(transactions.id, tx.id))
+      } catch (err) {
+        // The hash was claimed by another settlement (e.g. a payout) between
+        // submit and this poll → the whole flip rolls back: the deposit stays
+        // PENDING and uncredited, and the caller gets a clean 400 instead of a
+        // 500 (never a silent credit without a registry entry).
+        if (isUniqueViolation(err)) {
+          throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        }
+        throw err
+      }
       return {
         status: 'PAID',
         confirmations: verification.confirmations,
