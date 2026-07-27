@@ -840,9 +840,17 @@ jobs:
       # it works on both push and workflow_dispatch, and keeps an
       # attacker-controlled string out of workflow-expression interpolation
       # (it reaches the script as plain env, then as literal argv to `gh`).
-      - name: Read commit subject
+      # Both values come from the checked-out HEAD rather than `github.sha`:
+      # on a dispatch the checkout resolves `main` at run time, which can be a
+      # newer commit than the one that triggered it, and the alert should name
+      # the commit that was actually validated.
+      - name: Read validated commit
         id: commit
-        run: echo "subject=$(git log -1 --pretty=%s)" >> "$GITHUB_OUTPUT"
+        run: |
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "subject=$(git log -1 --pretty=%s)"
+          } >> "$GITHUB_OUTPUT"
 
       # Private telemetry repo when the PAT is available (assistant's channel);
       # otherwise fall back to an issue on this public repo via GITHUB_TOKEN.
@@ -869,7 +877,7 @@ jobs:
           ALERT_REPO: ${{ steps.channel.outputs.repo }}
           RESULT: ${{ steps.agg.outputs.result }}
           FAILED_LEGS: ${{ steps.agg.outputs.failed_legs }}
-          COMMIT_SHA: ${{ github.sha }}
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
           COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: ./scripts/devops/post-merge-alert.sh
