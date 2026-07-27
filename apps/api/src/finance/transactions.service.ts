@@ -41,8 +41,9 @@ import {
   type Transaction,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
-import { isUniqueViolation } from '../database/pg-errors'
+import { isUniqueViolation, uniqueViolationConstraint } from '../database/pg-errors'
 import {
+  claimsOnChainHash,
   consumeTxHash,
   findConsumedTxHash,
   minorUnitsFromString,
@@ -167,6 +168,31 @@ export class TransactionsService {
     private readonly nbuCurrency: NbuCurrencyService,
     private readonly etherscan: EtherscanService,
   ) {}
+
+  /**
+   * MED-1 (security-review PR #438) — make an UNCLAIMED credit observable.
+   *
+   * A company-account credit whose on-chain evidence carries no usable hash
+   * (an `…/address/0x…` explorer link, a non-Ethereum explorer) is legitimate
+   * legacy behaviour, so it is allowed — but it has the exact SHAPE of the
+   * HIGH-1 bug ("money moved, registry untouched"). Silent tolerance means an
+   * auditor cannot tell a legacy link from a bypass, so every occurrence is
+   * logged at WARN with the row id: greppable, and it surfaces in the same
+   * server logs the rest of the money path uses.
+   */
+  private logUnclaimedCredit(
+    path: string,
+    transactionId: string,
+    reason: string,
+    actorId: string,
+  ): void {
+    this.logger.warn(
+      `[onchain-registry] company-account credit WITHOUT an on-chain claim — ` +
+        `path=${path} transactionId=${transactionId} reason=${reason} actorId=${actorId}. ` +
+        `The receipt link carries no 0x+64hex tx hash, so the transfer stays spendable ` +
+        `by another settlement path. Verify the receipt.`,
+    )
+  }
 
   /**
    * Resolve the business-time of a transaction from a user-supplied input.
@@ -1134,27 +1160,75 @@ export class TransactionsService {
     const currency = (isCompanyFunded ? 'USDT' : data.currency) as 'USDT' | 'USD' | 'EUR' | 'UAH'
     const fundingSource: 'COMPANY_ACCOUNT' | null = isCompanyFunded ? 'COMPANY_ACCOUNT' : null
 
-    const [tx] = await this.db.db
-      .insert(transactions)
-      .values({
-        type: 'ADMIN_INCOME',
-        status: 'PAID',
-        amount: String(data.amount),
-        currency,
-        senderId: null,
-        senderLabel: project.companyName,
-        receiverId,
-        projectId: data.projectId,
-        receiptDocumentId: data.receiptDocumentId ?? null,
-        receiptExternalUrl: data.receiptExternalUrl ?? null,
-        notes: data.notes ?? null,
-        fundingSource,
-        txDate: this.resolveTxDate(data.txDate),
-        createdBy: currentUser.id,
-      })
-      .returning()
+    // ── SECURITY (security-review PR #438, HIGH-3): the SECOND ADMIN_INCOME
+    // writer. This path credits the company account with exactly the same
+    // ledger predicate as `declareUsdtProjectIncome`
+    // (type=ADMIN_INCOME, status=PAID, currency=USDT,
+    // fundingSource=COMPANY_ACCOUNT) but did not claim the on-chain hash, so
+    // the registry covered one of two writers. An honestly registered client
+    // inflow of 5 000 USDT left the transfer unclaimed, and any SENIOR/DROP
+    // could read that hash off the public explorer and submit it as a deposit —
+    // recipient, currency and confirmations all check out, a deposit declares
+    // no amount, the sender is not a gate — crediting the pool a second time.
+    //
+    // The receipt is MANDATORY and explorer-only for a company-funded income,
+    // so the hash is physically available: extract it, record it, claim it in
+    // the SAME transaction as the credit.
+    const onChainTxHash = isCompanyFunded
+      ? extractOnChainTxHash(data.receiptExternalUrl)
+      : // A personal (non-company-funded) admin income does NOT move the company
+        // balance, so it must NOT burn the transfer — see `claimsOnChainHash`.
+        null
 
-    return this.findOne(tx!.id, currentUser)
+    let tx: typeof transactions.$inferSelect
+    try {
+      tx = await this.db.db.transaction(async (dbtx) => {
+        const [inserted] = await dbtx
+          .insert(transactions)
+          .values({
+            type: 'ADMIN_INCOME',
+            status: 'PAID',
+            amount: String(data.amount),
+            currency,
+            senderId: null,
+            senderLabel: project.companyName,
+            receiverId,
+            projectId: data.projectId,
+            receiptDocumentId: data.receiptDocumentId ?? null,
+            receiptExternalUrl: data.receiptExternalUrl ?? null,
+            txHash: onChainTxHash,
+            notes: data.notes ?? null,
+            fundingSource,
+            txDate: this.resolveTxDate(data.txDate),
+            createdBy: currentUser.id,
+          })
+          .returning()
+
+        if (claimsOnChainHash(fundingSource)) {
+          await consumeTxHash(dbtx, {
+            txHash: data.receiptExternalUrl ?? '',
+            purpose: 'ADMIN_INCOME',
+            referenceId: inserted!.id,
+            consumedByUserId: currentUser.id,
+            // MED-1: make an unclaimable receipt link OBSERVABLE (see helper).
+            onSkipped: (reason) =>
+              this.logUnclaimedCredit('createAdminIncome', inserted!.id, reason, currentUser.id),
+          })
+        }
+
+        return inserted!
+      })
+    } catch (err) {
+      // The only unique index this transaction can violate is
+      // `uq_consumed_tx_hashes_tx_hash` — the receipt points at a transfer that
+      // already settled something else. Clean 400, never a 500.
+      if (isUniqueViolation(err)) {
+        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+      }
+      throw err
+    }
+
+    return this.findOne(tx.id, currentUser)
   }
 
   // ── Declare admin USDT project income (D3) ───────────────────────────────
@@ -1329,12 +1403,22 @@ export class TransactionsService {
         // A no-op when the link carries no hash (nothing on-chain to consume);
         // a collision surfaces as 23505 → the catch below turns it into a clean
         // 400 rather than a 500.
-        await consumeTxHash(dbtx, {
-          txHash: data.receiptExternalUrl ?? '',
-          purpose: 'ADMIN_INCOME',
-          referenceId: tx!.id,
-          consumedByUserId: currentUser.id,
-        })
+        //
+        // HIGH-3 (round 2): the claim is tied to the CREDITING condition, not
+        // to the row type — `claimsOnChainHash(fundingSource)`. A personal
+        // admin declaration (fundingSource null) never touches the company
+        // balance, so burning its hash would block that transfer's real payer
+        // for nothing.
+        if (claimsOnChainHash(fundingSource)) {
+          await consumeTxHash(dbtx, {
+            txHash: data.receiptExternalUrl ?? '',
+            purpose: 'ADMIN_INCOME',
+            referenceId: tx!.id,
+            consumedByUserId: currentUser.id,
+            onSkipped: (reason) =>
+              this.logUnclaimedCredit('declareUsdtProjectIncome', tx!.id, reason, currentUser.id),
+          })
+        }
 
         await this.bookCompanyObligations(dbtx, {
           incomeAmount: data.amount,
@@ -3551,8 +3635,29 @@ export class TransactionsService {
       // `uq_consumed_tx_hashes_tx_hash` — the CROSS-PATH registry claim above.
       // That is the case where the competing consumer is a company DEPOSIT
       // rather than another payout, hence the wider wording.
-      if (isUniqueViolation(err)) {
-        throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+      //
+      // MED (security-review round 2): SWITCH ON THE CONSTRAINT. This cascade
+      // writes to several constrained tables (payout_requests, transactions,
+      // pending_obligations), so a blanket 23505 → "хеш уже использован" would
+      // hand the user a plausible-sounding LIE whenever something else collided
+      // (e.g. the receipt-uniqueness index). Only the two hash-reuse indexes map
+      // to that message; anything else rethrows as a real error.
+      const constraint = uniqueViolationConstraint(err)
+      if (constraint !== null) {
+        if (
+          constraint === 'uq_consumed_tx_hashes_tx_hash' ||
+          constraint === 'uq_payout_requests_txhash_paid' ||
+          // Unattributed violation (driver reported no constraint name): the
+          // only unique indexes this transaction can trip are the two above, so
+          // the hash-reuse message stays the correct fallback.
+          constraint === ''
+        ) {
+          throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
+        }
+        this.logger.error(
+          `[payout-cascade] unexpected unique violation on "${constraint}" — rethrowing ` +
+            `instead of reporting it as a tx-hash reuse (payout ${requestId})`,
+        )
       }
       throw err
     }

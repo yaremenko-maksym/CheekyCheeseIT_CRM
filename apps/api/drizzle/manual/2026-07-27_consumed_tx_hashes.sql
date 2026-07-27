@@ -96,13 +96,54 @@ SELECT DISTINCT ON (lower(pr.tx_hash))
  ORDER BY lower(pr.tx_hash), pr.updated_at ASC
 ON CONFLICT (tx_hash) DO NOTHING;
 
+--    DEPOSITS: `status = 'PAID'` is REQUIRED, not cosmetic symmetry with the
+--    payout filter above (security-review round 2, HIGH-4). A claim accompanies
+--    MONEY, never an intent — the same rule the application follows since
+--    `submitDeposit` began claiming only when it actually credits. Back-filling
+--    a PENDING deposit would:
+--      (a) BRICK it. `consumeTxHash` is a bare INSERT (deliberately — a loud
+--          23505 is the guard), so when the tx later confirms,
+--          `getDepositStatus` would flip → claim → 23505 → roll back the whole
+--          flip. The deposit stays PENDING FOREVER, its money invisible in the
+--          balance, with no way out: re-submitting returns the same PENDING row
+--          by idempotency.
+--      (b) RE-OPEN GRIEFING. A pre-migration PENDING deposit carrying somebody
+--          else's hash would burn that transfer globally — the real payer gets
+--          «хеш уже использован» on both `payPayoutRequest` AND the
+--          ADMIN/ACCOUNTANT manual-confirm escape hatch.
+--    With this filter a PENDING deposit is claimed by its own `getDepositStatus`
+--    at the moment it is actually credited.
 INSERT INTO consumed_tx_hashes (tx_hash, purpose, reference_id, consumed_by_user_id)
 SELECT DISTINCT ON (lower(t.tx_hash))
        lower(t.tx_hash), 'COMPANY_DEPOSIT', t.id, t.sender_id
   FROM transactions t
  WHERE t.type = 'COMPANY_DEPOSIT'
+   AND t.status = 'PAID'
    AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
  ORDER BY lower(t.tx_hash), t.created_at ASC
+ON CONFLICT (tx_hash) DO NOTHING;
+
+--    ADMIN_INCOME: the third crediting term (security-review rounds 2-3). Same
+--    money rule — only rows that actually credit the shared pool
+--    (funding_source='COMPANY_ACCOUNT'), and only when their explorer receipt
+--    carries a real hash. Historic rows whose receipt links carry no hash
+--    legitimately claim nothing.
+INSERT INTO consumed_tx_hashes (tx_hash, purpose, reference_id, consumed_by_user_id)
+SELECT DISTINCT ON (lower(m.tx_hash))
+       lower(m.tx_hash), 'ADMIN_INCOME', m.id, m.created_by
+  FROM (
+        SELECT t.id,
+               t.created_by,
+               t.created_at,
+               (regexp_match(t.receipt_external_url, '0x[0-9a-fA-F]{64}'))[1] AS tx_hash
+          FROM transactions t
+         WHERE t.type = 'ADMIN_INCOME'
+           AND t.status = 'PAID'
+           AND t.funding_source = 'COMPANY_ACCOUNT'
+           AND t.receipt_external_url IS NOT NULL
+       ) m
+ WHERE m.tx_hash IS NOT NULL
+ ORDER BY lower(m.tx_hash), m.created_at ASC
 ON CONFLICT (tx_hash) DO NOTHING;
 
 -- 4. AUDIT NOTICE — report (do NOT fail on) hashes that were ALREADY consumed

@@ -375,7 +375,13 @@ export class EtherscanService {
     if (logsResult === RPC_UNAVAILABLE || typeof logsResult === 'string') {
       return this.verifierUnavailable(logsResult)
     }
-    const allLogs = Array.isArray(logsResult) ? (logsResult as EtherscanRpcLog[]) : []
+    // LOW (review): eth_getLogs MUST answer with an array. A non-array `result`
+    // is a degraded verifier, not "no transfers" — degrading it to `[]` would
+    // report «получатель не совпал», blaming the payer for our provider.
+    if (!Array.isArray(logsResult)) {
+      return this.verifierUnavailable(logsResult)
+    }
+    const allLogs = logsResult as EtherscanRpcLog[]
     const txLogs = allLogs.filter(
       (log) =>
         typeof log?.transactionHash === 'string' &&

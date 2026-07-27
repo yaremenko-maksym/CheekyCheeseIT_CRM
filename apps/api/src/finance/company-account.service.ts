@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import { COMPANY_REQUISITES_MAX, extractOnChainTxHash, receiptMandatoryError } from '@crm/shared'
 import type {
   CompanyAccountDto,
@@ -246,8 +246,17 @@ export class CompanyAccountService {
     // ── IDEMPOTENCY: return the existing deposit if this hash was already
     // submitted as a COMPANY_DEPOSIT (the partial unique index is the hard
     // backstop; this lookup avoids hitting it and returns the original row).
+    // LOW (security-review round 2): match case-INSENSITIVELY. `txHash` is now
+    // normalised to lowercase, but rows written before that (and any legacy
+    // mixed-case hash) would miss this exact-match lookup and fall through to
+    // the registry, where the user got a confusing «хеш уже использован» for
+    // their OWN existing deposit. Idempotency must recognise the same transfer
+    // regardless of the casing it was stored with.
     const existing = await this.db.db.query.transactions.findFirst({
-      where: and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.txHash, txHash)),
+      where: and(
+        eq(transactions.type, 'COMPANY_DEPOSIT'),
+        sql`lower(${transactions.txHash}) = ${txHash}`,
+      ),
     })
     if (existing) {
       return this.toDepositDto(existing, account.confirmationThreshold)
@@ -346,7 +355,10 @@ export class CompanyAccountService {
       // read missed drizzle-wrapped violations and turned them into 500s.
       if (isUniqueViolation(err)) {
         const winner = await this.db.db.query.transactions.findFirst({
-          where: and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.txHash, txHash)),
+          where: and(
+            eq(transactions.type, 'COMPANY_DEPOSIT'),
+            sql`lower(${transactions.txHash}) = ${txHash}`,
+          ),
         })
         if (winner) return this.toDepositDto(winner, account.confirmationThreshold)
         throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)

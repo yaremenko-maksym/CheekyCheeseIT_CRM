@@ -144,6 +144,30 @@ export const TX_HASH_ALREADY_CONSUMED_MESSAGE =
   'Этот хеш транзакции уже использован (выплата или пополнение счёта компании)'
 
 /**
+ * THE rule for when a ledger row must claim its on-chain hash:
+ * **a claim accompanies MONEY, never an intent.**
+ *
+ * A row claims iff it actually credits the shared company account — which for
+ * `ADMIN_INCOME` means `fundingSource === 'COMPANY_ACCOUNT'` (the exact
+ * predicate `computeCompanyAccountBalanceFromLedger` sums). Both directions
+ * matter and both were wrong before:
+ *
+ *   • UNDER-claiming (security-review HIGH-3): `createAdminIncome` credited the
+ *     pool without claiming, so the same transfer could be credited AGAIN as a
+ *     deposit. One of two writers was covered.
+ *   • OVER-claiming: a PERSONAL admin income (fundingSource null) does NOT move
+ *     the company balance — burning its hash would block the real payer of that
+ *     transfer for nothing, the same griefing MED-3 removed from deposits.
+ *
+ * Deposits and payouts express the same rule inline (`if (credited)`, the
+ * post-verification claim); this helper exists because the admin-income side
+ * has TWO writers that must not drift apart.
+ */
+export function claimsOnChainHash(fundingSource: string | null | undefined): boolean {
+  return fundingSource === 'COMPANY_ACCOUNT'
+}
+
+/**
  * Claim an on-chain hash for `purpose` — MUST be called INSIDE the same DB
  * transaction that performs the credit.
  *
@@ -162,10 +186,24 @@ export async function consumeTxHash(
     purpose: ConsumedTxPurpose
     referenceId: string | null
     consumedByUserId: string | null
+    /**
+     * MED-1 (security-review PR #438): called when there was nothing to claim.
+     *
+     * A credit whose evidence carries no on-chain hash (e.g. an
+     * `…/address/0x…` explorer link, or a non-Ethereum explorer) is legitimate
+     * legacy behaviour — but it is ALSO the shape of the HIGH-1 bug ("credit
+     * without claim"), so it must be OBSERVABLE rather than silent: an auditor
+     * has to be able to tell "legacy link" from "bypass". Callers on crediting
+     * paths pass a logger here.
+     */
+    onSkipped?: (reason: 'no-on-chain-hash') => void
   },
 ): Promise<void> {
   const normalized = normalizeOnChainTxHash(params.txHash)
-  if (!normalized) return
+  if (!normalized) {
+    params.onSkipped?.('no-on-chain-hash')
+    return
+  }
 
   await dbtx.insert(consumedTxHashes).values({
     txHash: normalized,

@@ -21,11 +21,32 @@ export const PG_UNIQUE_VIOLATION = '23505'
  * inspecting the top-level error.
  */
 export function isUniqueViolation(err: unknown): boolean {
+  return uniqueViolationConstraint(err) !== null
+}
+
+/**
+ * The CONSTRAINT name of a unique violation in `err`'s cause chain, or null.
+ *
+ * Security-review PR #438 (MED): a blanket `isUniqueViolation` catch inside a
+ * multi-write transaction reports whichever message the author had in mind,
+ * whatever actually collided — e.g. a payout cascade that trips the
+ * receipt-uniqueness index would tell the user «этот хеш уже использован».
+ * Callers that write to several constrained tables should switch on the
+ * constraint and rethrow anything they did not anticipate, so an unexpected
+ * collision surfaces as a real error instead of a plausible-sounding lie.
+ *
+ * Returns `''` when the driver reports a violation without a constraint name
+ * (still a violation — just unattributable).
+ */
+export function uniqueViolationConstraint(err: unknown): string | null {
   let cur: unknown = err
   // Bounded walk — guards against a (pathological) self-referential cause chain.
   for (let depth = 0; cur != null && depth < 8; depth += 1) {
-    if ((cur as { code?: unknown }).code === PG_UNIQUE_VIOLATION) return true
+    const candidate = cur as { code?: unknown; constraint?: unknown }
+    if (candidate.code === PG_UNIQUE_VIOLATION) {
+      return typeof candidate.constraint === 'string' ? candidate.constraint : ''
+    }
     cur = (cur as { cause?: unknown }).cause
   }
-  return false
+  return null
 }
