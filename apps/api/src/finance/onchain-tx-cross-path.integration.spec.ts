@@ -427,6 +427,9 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
     )
     expect(dep.status).toBe('PAID')
     const afterDeposit = await balance()
+    // Credited exactly once by the deposit (uses `before`, which the lint
+    // caught as dead — the assertion it was meant for was missing).
+    expect(afterDeposit).toBeCloseTo(before + 500, 6)
 
     await expect(
       svc.manualConfirmPayout(requestId, 'COMPANY_ACCOUNT', ADMIN, { txHash: HASH }),

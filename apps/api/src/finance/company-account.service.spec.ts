@@ -83,7 +83,11 @@ function makeDb(overrides: Record<string, unknown> = {}) {
     // Default insert resolves the drizzle chain: since MED-3 the poll-credit
     // path also claims the hash (`consumeTxHash` → insert().values()), so a
     // bare `vi.fn()` would blow up in tests that never look at inserts.
-    insert: vi.fn(() => ({ values: () => Promise.resolve() })),
+    // `consumeTxHash` now RETURNS the inserted id (round 7: it excludes its own
+    // row when looking at the preceding one), so `values()` must resolve a row.
+    insert: vi.fn(() => ({
+      values: () => ({ returning: () => Promise.resolve([{ id: 'claim-row' }]) }),
+    })),
     update: vi.fn(),
     // MED-O (round 6): after claiming, `consumeTxHash` SELECTs any released row
     // for the hash (the reclaim-after-release signal). Default: none.
