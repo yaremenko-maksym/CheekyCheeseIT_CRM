@@ -552,8 +552,20 @@ export const transactions = pgTable(
      * its money NEVER touched the shared company account (only `payable =
      * income*(1-dropShare%)` did — the drop keeps their own cut before the
      * on-chain transfer). `false` for an admin-USDT-declaration-booked drop
-     * IOU (declareUsdtProjectIncome — the company genuinely DOES hold the full
-     * declared income there).
+     * IOU (declareUsdtProjectIncome).
+     *
+     * CORRECTION (round 5): `false` is a cascade-vs-declaration discriminator,
+     * NOT a "the company account holds this money" guarantee.
+     * declareUsdtProjectIncome can route a declared income to a SPECIFIC
+     * admin's personal wallet instead of the shared pool
+     * (`toCompanyPool=false`) — the obligations it books still get `false`
+     * here even though the company pool never received that income either.
+     * Which pot actually pays is decided at SETTLE time by the ADMIN/
+     * ACCOUNTANT's funding-source choice (COMPANY_ACCOUNT vs ADMIN_PERSONAL —
+     * see settleByCompany, pending-settlement.service.ts), same as the
+     * analogous senior-obligation case. This column only rules out the ONE
+     * scenario where the money is PROVABLY never in the pool (the drop-
+     * payout self-service cascade); it does not prove the opposite.
      *
      * WHY a dedicated column instead of `payoutRequestId IS NOT NULL`: that FK
      * is `ON DELETE SET NULL` — a future cleanup of an unrelated

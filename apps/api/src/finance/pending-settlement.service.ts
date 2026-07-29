@@ -281,8 +281,14 @@ export class PendingSettlementService {
     // share on every such settle (and, over time, falsely tripping the
     // "insufficient funds" gate below for otherwise-legitimate payouts).
     // The admin-declared USDT path (declareUsdtProjectIncome) is NOT
-    // affected — the company genuinely DOES hold the full declared income
-    // there when toCompanyPool=true.
+    // affected by this guard — `dropCascadeOrigin=false` there is a
+    // cascade-vs-declaration discriminator, not a "money is in the pool"
+    // guarantee (declareUsdtProjectIncome can also route to a SPECIFIC
+    // admin's personal wallet, toCompanyPool=false — see the column comment
+    // in schema.ts, corrected round 5). Which pot actually pays a
+    // `false`-marked obligation is decided by the ADMIN/ACCOUNTANT's
+    // funding-source choice below, same as it already is for the analogous
+    // senior obligation — unchanged by this PR.
     //
     // SECURITY (MED-B, security-review PR #443 round 2, fail-safe hardening):
     // the discriminator is `dropCascadeOrigin` — a POSITIVE marker stamped

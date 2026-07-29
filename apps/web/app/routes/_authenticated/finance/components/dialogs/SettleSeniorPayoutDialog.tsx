@@ -77,8 +77,11 @@ function extractErrorMessage(err: unknown): string {
  * for such a row the «Счёт компании» option is disabled and the default
  * account is empty (forces an explicit ADMIN-partner pick, not a guessed
  * one). A drop obligation booked by declareUsdtProjectIncome
- * (`dropCascadeOrigin === false` — the company genuinely holds the full
- * declared income) is unaffected.
+ * (`dropCascadeOrigin === false`) is unaffected — `false` marks it as
+ * non-cascade, not as a guarantee the company account holds the money (a
+ * declaration can also route to a specific admin's personal wallet; see the
+ * column comment in schema.ts, corrected round 5). Which pot actually pays
+ * is the ADMIN/ACCOUNTANT's own funding-source choice below.
  *
  * MED-1 (round 4): reads `tx.dropCascadeOrigin` — the SAME marker
  * `settleByCompany` authoritatively reads — NOT `tx.payoutRequestId`. The two

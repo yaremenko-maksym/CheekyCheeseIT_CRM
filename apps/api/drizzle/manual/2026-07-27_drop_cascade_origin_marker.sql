@@ -24,6 +24,21 @@
 -- activity on `payout_requests` can never affect it. See the column comment
 -- in `apps/api/src/database/schema.ts` for the full reasoning.
 --
+-- IMPORTANT — what `false` actually means (corrected, round 5): `false` means
+-- "booked by the admin-declaration path (declareUsdtProjectIncome), not the
+-- drop-payout self-service cascade" — NOT "the shared company account
+-- definitely holds this money". declareUsdtProjectIncome can also route the
+-- declared income to a SPECIFIC admin's personal wallet
+-- (`toCompanyPool=false`), in which case the company pool never receives it
+-- either, yet the drop/senior obligations it books still carry `false` here.
+-- This marker has always been a cascade-vs-declaration discriminator, not a
+-- "money is in the pool" guarantee — the funding-SOURCE choice at settle time
+-- (COMPANY_ACCOUNT vs ADMIN_PERSONAL, picked by the ADMIN/ACCOUNTANT closing
+-- the debt) is what actually decides which pot pays, exactly as it already
+-- does for the analogous senior-obligation case. This PR does not change
+-- that behaviour — only the wording of an earlier version of this comment
+-- overstated it.
+--
 -- Nullable, no default (security-review PR #443 round 3, LOW): NULL means
 -- "unset/unknown" and the settleByCompany guard treats `<> false` (i.e. TRUE
 -- or NULL) as BLOCK — only an explicit `false` allows a COMPANY_ACCOUNT
@@ -48,44 +63,46 @@
 -- from a bare `ADD COLUMN` and then be wrongly BLOCKED from a legitimate
 -- COMPANY_ACCOUNT settle. That is worse than a refusal: the UI still
 -- pre-selects «Счёт компании», the server 400s with "выберите личный счёт
--- админа", and an ADMIN/ACCOUNTANT who follows that message pays the senior
--- (sic — a DROP obligation, see the UI/DTO note below) out of a PERSONAL
--- account instead — the shared company balance never gets debited for money
--- it is genuinely holding, permanently overstating it, with no offsetting
--- entry for the admin who paid out of pocket. STEP 2 below backfills the
--- ONLY safe value for a pre-existing row: `false` (admin-declared, money
--- genuinely in the pool) — the pending-parity backfill
+-- админа", and an ADMIN/ACCOUNTANT who follows that message pays a
+-- legitimate company debt out of a PERSONAL account instead — the shared
+-- company balance never gets debited for a debt it should have paid,
+-- permanently overstating it, with no offsetting entry for the admin who
+-- paid out of pocket. STEP 2 below backfills the ONLY correct value for a
+-- pre-existing row: `false` (admin-declaration-originated — see the
+-- corrected note above) — the pending-parity backfill
 -- (`2026-07-27_drop_share_pending_parity_backfill.sql`) is the ONLY other
 -- writer of this column and only ever sets `true`, on rows it itself flips
 -- from `PAYOUT_DROP` → `DROP_PENDING_PAYOUT`, so there is no predicate
 -- overlap between the two backfills (this one runs BEFORE that one, while
--- those rows are still `PAYOUT_DROP`, not `DROP_PENDING_PAYOUT`).
+-- those rows are still `PAYOUT_DROP`, not `DROP_PENDING_PAYOUT`) — order-
+-- independent by construction, not by sequencing discipline.
 --
--- Deploy-window gap: this file's UPDATE only catches rows that exist AT THE
--- MOMENT it runs. If the OLD api image is still serving traffic after this
--- migration applies (normal rolling-deploy overlap), it keeps calling the
--- OLD `bookCompanyObligations` — which does not know about this column at
--- all — and inserts FRESH `DROP_PENDING_PAYOUT` rows with `drop_cascade_origin
--- = NULL` until the NEW image (this PR's code) takes over. Those rows need
--- the SAME backfill, but only exist AFTER the old image stops writing.
--- Therefore: apply this file TWICE —
---   1. As part of the normal migrate step, before the new image serves
---      traffic (as always).
---   2. AGAIN, as a distinct ONE-TIME step, once the new containers are
---      confirmed up and the old image is confirmed stopped (so no more
---      unmarked rows can be created) — this second pass sweeps the deploy-
---      window stragglers.
--- After step 2 confirms `RAISE NOTICE ... backfilled=0` (nothing left to
--- catch), REMOVE the step-2 invocation from the pipeline — mirrors the
--- pending-parity backfill's own de-wire requirement (MED-4): leaving a
--- recurring "set NULL → false" sweep wired PERMANENTLY would silently patch
--- over a FUTURE bug that forgets to stamp this column on a genuinely new
--- code path, defeating the whole fail-safe point of leaving the column
--- nullable (round 3, LOW). The first invocation (schema `ADD COLUMN`) stays
--- wired forever — pure additive DDL, always safe; it is only the BACKFILL
--- UPDATE that must not become a permanent fixture. This second-pass step is
--- DevOps's to schedule in `.github/workflows/deploy.yml` — noted here as a
--- dependency, not wired by this PR (see PR body).
+-- security-review PR #443 (MED-1, round 5) — bounded by created_at instead
+-- of wired-twice-then-removed.
+-- --------------------------------------------------------------------------
+-- `deploy.yml` re-applies every wired file on EVERY deploy. An EARLIER
+-- version of this file's STEP 2 had NO upper bound on which rows it would
+-- touch — a bare `WHERE drop_cascade_origin IS NULL` self-heals the deploy-
+-- window gap (the old api image keeps calling the pre-fix
+-- `bookCompanyObligations`, unaware of this column, until the new image
+-- takes over — see the HIGH-1 note), which is good, BUT it also means any
+-- FUTURE bug that forgets to stamp the marker on a genuinely new insert path
+-- would have its `NULL` silently rewritten to the permissive `false` on the
+-- very next deploy — quietly defeating the fail-safe default (round 3, LOW)
+-- for good. The one-line fix: bound STEP 2 to rows created BEFORE the
+-- rollout window closes (`created_at < TIMESTAMP '2026-08-10'`) — comfortably
+-- past this PR's merge + deploy. Rows created before that cutoff are, by
+-- construction (HIGH-1 above), either historical or deploy-window
+-- admin-declared rows — `false` is correct for all of them, regardless of
+-- which deploy attempt or retry actually inserted them. Any row created
+-- AFTER the cutoff was written by the FIXED code (which always stamps this
+-- column explicitly — see bookCompanyObligations, transactions.service.ts)
+-- or is a genuinely new bug that SHOULD stay blocked and visible, not
+-- silently patched. This makes the file safe to leave wired in `deploy.yml`
+-- PERMANENTLY — no second, one-time, later-de-wired application is needed
+-- (an earlier version of this file asked DevOps for one; that request is
+-- withdrawn — the owner is retracting the corresponding note passed to
+-- DevOps separately).
 --
 -- security-review PR #443 (LOW, round 4) — self-healing regardless of which
 -- prior version of this file an environment last saw.
@@ -103,6 +120,23 @@
 -- stale-from-round-2 one — the whole file converges to the SAME end state
 -- regardless of history.
 --
+-- security-review PR #443 (LOW, round 5) — statement order.
+-- Each statement below auto-commits on its own (no explicit BEGIN wraps
+-- STEP 1 — every statement here is independently idempotent by design, see
+-- "Idempotent" below). On a stale-from-round-2 environment (`NOT NULL
+-- DEFAULT false`), dropping the DEFAULT before dropping NOT NULL leaves a
+-- real, momentarily-committed window where the column is NOT NULL with NO
+-- default — any concurrent insert into `transactions` that does not
+-- explicitly set this column (i.e. every insert path other than
+-- bookCompanyObligations' drop branch) would fail in that window. Dropping
+-- NOT NULL FIRST removes that window entirely: from that point on the
+-- column is already nullable, so subsequently dropping the DEFAULT never
+-- creates a state where an omitted value has nowhere to fall back to.
+-- Prod is unaffected in practice (this file has never shipped the round-2
+-- shape there), but a local/dev DB that has seen an earlier round IS
+-- affected — order matters regardless of environment, so it is fixed here
+-- rather than documented as a caveat.
+--
 -- How to apply
 -- ------------
 --   docker compose -f docker-compose.prod.yml exec -T postgres psql \
@@ -111,32 +145,37 @@
 --
 -- Add to `.github/workflows/deploy.yml`'s migrate step, applied BEFORE the
 -- new api image serves traffic and BEFORE the pending-parity backfill file.
--- DevOps owns the wiring — including the required SECOND, one-time,
--- later-de-wired application described above (this PR does not touch
--- `.github/workflows/**`).
+-- Safe to leave wired PERMANENTLY (round 5) — see the MED-1 note above for
+-- why the created_at bound makes a second, one-time, de-wired application
+-- unnecessary. DevOps owns the wiring; this PR does not touch
+-- `.github/workflows/**`.
 --
 -- Idempotent: `ADD COLUMN IF NOT EXISTS`, the two `ALTER COLUMN` no-ops, and
--- the `UPDATE ... WHERE drop_cascade_origin IS NULL` backfill (once a row is
--- backfilled it no longer matches `IS NULL`) are all safe to re-run any
--- number of times.
+-- the `UPDATE ... WHERE drop_cascade_origin IS NULL AND created_at < …`
+-- backfill (once a row is backfilled it no longer matches `IS NULL`) are all
+-- safe to re-run any number of times, on every deploy, forever.
 -- =============================================================================
 
 -- ── STEP 1 — schema: add the column, and self-heal its nullability/default
 --             regardless of which prior version of this file (if any) an
---             environment last saw (LOW, round 4). ──────────────────────────
+--             environment last saw (LOW, round 4). Order matters — NOT NULL
+--             dropped before DEFAULT (LOW, round 5; see above). ────────────
 ALTER TABLE transactions
   ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean;
 
-ALTER TABLE transactions ALTER COLUMN drop_cascade_origin DROP DEFAULT;
 ALTER TABLE transactions ALTER COLUMN drop_cascade_origin DROP NOT NULL;
+ALTER TABLE transactions ALTER COLUMN drop_cascade_origin DROP DEFAULT;
 
--- ── STEP 2 — backfill: every PRE-EXISTING DROP_PENDING_PAYOUT row with an
---             unset marker is, by construction (see the HIGH-1 note above),
---             admin-declaration-originated → `false` is the ONLY correct
---             value. Logged via RAISE NOTICE so the deploy log shows exactly
---             how many rows this pass touched (0 is a valid, expected
---             outcome — e.g. on the required second, post-cutover pass once
---             the first pass already caught everything). ───────────────────
+-- ── STEP 2 — backfill: every DROP_PENDING_PAYOUT row created before the
+--             rollout window closes, with an unset marker, is, by
+--             construction (see the HIGH-1 note above), admin-declaration-
+--             originated → `false` is the ONLY correct value. Bounded by
+--             created_at (MED-1, round 5) so this stays safe to leave wired
+--             forever — rows created by the FIXED code (or by a future bug)
+--             after the cutoff are NEVER touched. Logged via RAISE NOTICE so
+--             the deploy log shows exactly how many rows this pass touched
+--             (0 is a valid, expected outcome on every deploy after the
+--             rollout window closes). ───────────────────────────────────────
 DO $$
 DECLARE
   v_backfilled integer;
@@ -144,8 +183,9 @@ BEGIN
   UPDATE transactions
   SET drop_cascade_origin = false
   WHERE drop_cascade_origin IS NULL
-    AND type = 'DROP_PENDING_PAYOUT';
+    AND type = 'DROP_PENDING_PAYOUT'
+    AND created_at < TIMESTAMP '2026-08-10';
 
   GET DIAGNOSTICS v_backfilled = ROW_COUNT;
-  RAISE NOTICE 'drop-cascade-origin-marker: backfilled=% pre-existing DROP_PENDING_PAYOUT row(s) to false (admin-declared)', v_backfilled;
+  RAISE NOTICE 'drop-cascade-origin-marker: backfilled=% pre-cutover DROP_PENDING_PAYOUT row(s) to false (admin-declared)', v_backfilled;
 END $$;

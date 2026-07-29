@@ -137,9 +137,12 @@ export const transactionSchema = z.object({
   /**
    * security-review PR #443 (MED-1, round 4). Origin marker for a
    * DROP_PENDING_PAYOUT / PAYOUT_DROP row — `true` ⟺ booked by the
-   * drop-payout CASCADE (its slice never touched the shared company
-   * account); `false` ⟺ booked by the admin-USDT declaration path (the
-   * company genuinely holds the money); `null` ⟺ unstamped/unknown
+   * drop-payout CASCADE (its slice PROVABLY never touched the shared company
+   * account); `false` ⟺ booked by the admin-USDT declaration path
+   * (declareUsdtProjectIncome) — a cascade-vs-declaration discriminator, NOT
+   * a guarantee the company account holds the money (a declaration can also
+   * route to a specific admin's personal wallet — see the column comment in
+   * schema.ts, corrected round 5); `null` ⟺ unstamped/unknown
    * (pre-marker-column legacy row, or a future insert path that forgot to
    * set it) — treated as cascade-equivalent (block) by the server, same as
    * `true`. Exposed so `SettleSeniorPayoutDialog` can read the SAME signal
