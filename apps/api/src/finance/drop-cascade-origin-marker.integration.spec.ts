@@ -20,27 +20,45 @@ import * as schema from '../database/schema'
  *
  * Proves, against a REAL Postgres (crm_qa scratch — NEVER crm_db):
  *
- *   MARKER-a  A DROP_PENDING_PAYOUT row created BEFORE the rollout-window
- *             cutoff, with an unstamped (NULL) marker, is backfilled to
- *             `false` — the file's STEP 2.
- *   MARKER-b  A DROP_PENDING_PAYOUT row created AFTER the cutoff, with an
- *             unstamped marker, is LEFT UNTOUCHED (stays NULL) — the
- *             `created_at` bound (security-review PR #443, round 5 MED-1)
- *             that makes it safe to leave this file wired in `deploy.yml`
- *             permanently: a future insert path that forgets to stamp the
- *             column must stay blocked, not be silently patched to `false`
- *             on the next deploy.
- *   MARKER-c  Idempotent: re-applying the file a second time changes
- *             nothing further (0 additional rows touched).
+ *   MARKER-a  A DROP_PENDING_PAYOUT row created BEFORE this environment's own
+ *             first-ever application of the marker file, with an unstamped
+ *             (NULL) marker, is backfilled to `false` — the file's STEP 3.
+ *             A row created WELL AFTER the restart-window margin closes, with
+ *             an unstamped marker, is LEFT UNTOUCHED (stays NULL).
+ *   MARKER-b  security-review PR #443/#447, round 6: the cutoff is anchored
+ *             to THIS environment's own first-applied timestamp (a
+ *             self-referential state row, STEP 1 of the SQL file), NOT to a
+ *             hardcoded calendar literal — an earlier version of the SQL file
+ *             used `created_at < TIMESTAMP '2026-08-10'`, which would go
+ *             stale and silently stop protecting the restart window the
+ *             moment the real rollout happened after that date. This test
+ *             proves a row created strictly AFTER the first application, but
+ *             still inside the restart-window margin (simulating a row
+ *             written by the OLD api image between the marker's two
+ *             deploy-time passes — see PR #447's `deploy.yml` wiring), IS
+ *             backfilled by a second application — regardless of what the
+ *             wall-clock date is when any of this actually runs, because
+ *             nothing here reads the calendar at all.
+ *   MARKER-e  Same claim as MARKER-b, pushed further: even when this
+ *             environment's own first-ever application is SIMULATED to
+ *             happen on a date long after the old hardcoded literal
+ *             ('2026-08-10') this design replaces, a restart-window row
+ *             relative to THAT (late) first-apply is still backfilled —
+ *             proves the boundary tracks the actual rollout, not any
+ *             particular calendar date, including ones far in the future
+ *             relative to when this test suite happens to run.
+ *   MARKER-c  Idempotent: re-applying the file a second time changes nothing
+ *             further (0 additional rows touched), and never rewrites the
+ *             already-recorded `first_applied_at`.
  *   MARKER-d  The column converges to nullable / no default regardless of
  *             which prior shape it had (covers the round-4 LOW self-healing
  *             ALTER COLUMN statements from the SAME automated run this file
  *             is applied in, not just a one-off manual check).
  *
  * Isolation (mirrors the SAME concern already closed for the pending-parity
- * backfill spec, security-review PR #443 round 4 LOW-1): STEP 2's UPDATE
- * predicate is GLOBAL across `transactions` (type + NULL marker + date), and
- * `crm_qa` is a SHARED scratch DB other specs also write
+ * backfill spec, security-review PR #443 round 4 LOW-1): STEP 3's UPDATE
+ * predicate is GLOBAL across `transactions` (type + NULL marker + cutoff),
+ * and `crm_qa` is a SHARED scratch DB other specs also write
  * DROP_PENDING_PAYOUT rows to (e.g. senior-settle-owner.integration.spec.ts's
  * seedPendingDropIou, which also leaves the marker unstamped). A leaked
  * foreign fixture would be silently swept up by the SAME UPDATE this spec
@@ -48,6 +66,13 @@ import * as schema from '../database/schema'
  * test that applies the marker file, scoped to this spec's own
  * `TEST_OWN_USER_IDS` — same pattern as
  * `drop-share-pending-parity-backfill.integration.spec.ts`.
+ *
+ * The round-6 state table (`drop_cascade_origin_marker_state`) is a GLOBAL
+ * singleton the marker SQL file itself creates — no other spec in this repo
+ * applies that file (grep-verified), so this spec fully owns that table's
+ * lifecycle for test purposes and resets it explicitly per test via
+ * `resetMarkerState()` to control `first_applied_at` deterministically
+ * (on prod this table is intentionally NEVER reset — see the SQL file).
  *
  * Run against a scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
@@ -66,12 +91,11 @@ const TEST_OWN_USER_IDS = [DROP_A_ID, ADMIN_ID]
 // migration file, not the drop-payout cascade, so projectId is left null
 // (nullable, no FK to satisfy).
 
-// Straddles the rollout-window cutoff hard-coded in the marker file's STEP 2
-// (`created_at < TIMESTAMP '2026-08-10'`). Not imported — this is a manual
-// SQL file, not a TS module — so a drift between the two literals is a
-// visible, deliberate edit (this file's own name), not silent.
-const BEFORE_CUTOFF = new Date('2025-01-01T00:00:00.000Z')
-const AFTER_CUTOFF = new Date('2026-09-01T00:00:00.000Z')
+// A row far enough in the past to be "historical" relative to whenever this
+// spec actually runs — deliberately NOT anchored to any specific calendar
+// date near "now" (round 6: the whole point of this file is that nothing
+// here should depend on wall-clock proximity to a literal).
+const LONG_AGO = new Date('2000-01-01T00:00:00.000Z')
 
 let _pool: Pool | null = null
 let dbAvailable = true
@@ -114,6 +138,22 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
 
   async function clearOwnRows() {
     await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_OWN_USER_IDS))
+  }
+
+  /** round 6: full ownership of the marker file's own state table (see file
+   * doc comment) — dropped so the NEXT `applyMarkerFile()` call sets a fresh
+   * `first_applied_at = now()`, giving each test deterministic control over
+   * the cutoff boundary instead of inheriting whatever an earlier manual
+   * `psql` run or an earlier test in this file happened to stamp. */
+  async function resetMarkerState(): Promise<void> {
+    await _pool!.query('DROP TABLE IF EXISTS drop_cascade_origin_marker_state')
+  }
+
+  async function readFirstAppliedAt(): Promise<Date> {
+    const res = await _pool!.query(
+      'SELECT first_applied_at FROM drop_cascade_origin_marker_state LIMIT 1',
+    )
+    return new Date(res.rows[0].first_applied_at)
   }
 
   /** Isolation guard (security-review PR #443 round 5, MED-2 — same pattern
@@ -232,37 +272,108 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
     try {
       await clearOwnRows()
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
+      await resetMarkerState()
     } catch {
       // non-fatal
     }
     await _pool?.end()
   }, 15_000)
 
-  it('MARKER-a/b: backfills an unstamped row created BEFORE the cutoff to false; leaves one created AFTER the cutoff untouched (NULL)', async () => {
+  it('MARKER-a: backfills a historical unstamped row to false; leaves a row created well past the restart-window margin untouched (NULL)', async () => {
     if (!dbAvailable) return
-    const { txId: preId } = await seedUnstampedRow(BEFORE_CUTOFF)
-    const { txId: postId } = await seedUnstampedRow(AFTER_CUTOFF)
+    await resetMarkerState()
+    const { txId: historicalId } = await seedUnstampedRow(LONG_AGO)
+    // 3 days is well outside STEP 3's 24h restart-window margin regardless of
+    // when "now" actually is — this row represents a genuinely new bug in
+    // the already-deployed, already-fixed code, and must stay blocked.
+    const farFuture = new Date(Date.now() + 3 * 24 * 60 * 60 * 1000)
+    const { txId: farFutureId } = await seedUnstampedRow(farFuture)
 
     await applyMarkerFile()
 
-    const pre = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, preId) })
-    const post = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, postId) })
+    const historical = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, historicalId),
+    })
+    const farFutureRow = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, farFutureId),
+    })
 
-    expect(pre!.dropCascadeOrigin).toBe(false)
-    // MED-1 (round 5): a row created AFTER the cutoff must NEVER be silently
-    // patched — this is what makes leaving the file wired forever safe.
-    expect(post!.dropCascadeOrigin).toBeNull()
+    expect(historical!.dropCascadeOrigin).toBe(false)
+    expect(farFutureRow!.dropCascadeOrigin).toBeNull()
+  })
+
+  it("MARKER-b (round 6): a row created after this environment's own first application, but inside the restart-window margin, is backfilled on a second pass — the boundary is self-referential, not a calendar date", async () => {
+    if (!dbAvailable) return
+    await resetMarkerState()
+
+    // First pass — mirrors PR #447's deploy.yml Step 2j (schema-change pass,
+    // before the new api image is live). Stamps first_applied_at = now() in
+    // the state table, STEP 1 of the SQL file.
+    await applyMarkerFile()
+    const firstAppliedAt = await readFirstAppliedAt()
+
+    // Simulates a row written by the OLD api image during the restart
+    // window: created strictly AFTER the first pass, well inside the 24h
+    // margin.
+    const restartWindowCreatedAt = new Date(firstAppliedAt.getTime() + 60 * 60 * 1000) // +1h
+    const { txId } = await seedUnstampedRow(restartWindowCreatedAt)
+
+    // Second pass — mirrors PR #447's deploy.yml Step 3.5 (after the new
+    // containers and all health/smoke checks are green).
+    await applyMarkerFile()
+
+    const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, txId) })
+    expect(row!.dropCascadeOrigin).toBe(false)
+
+    // Re-reading first_applied_at proves the SECOND pass did not move the
+    // anchor — the cutoff used by both passes is the SAME timestamp,
+    // regardless of the wall-clock date either pass actually ran on.
+    const firstAppliedAtAfterSecondPass = await readFirstAppliedAt()
+    expect(firstAppliedAtAfterSecondPass.getTime()).toBe(firstAppliedAt.getTime())
+  })
+
+  it("MARKER-e (round 6, late-rollout proof): a restart-window row is backfilled even when this environment's own first-ever application is simulated to happen on a date long after the OLD hardcoded literal ('2026-08-10') this design replaces", async () => {
+    if (!dbAvailable) return
+    await resetMarkerState()
+
+    // Simulates the exact scenario round-6 review flagged as unprotected by
+    // the earlier calendar-literal design: the real rollout happening well
+    // past any date that could have been hardcoded in advance. Pre-seed the
+    // state table directly (STEP 1's `ON CONFLICT DO NOTHING` in
+    // applyMarkerFile() below preserves this value unchanged).
+    const simulatedLateFirstApply = new Date('2026-09-15T00:00:00.000Z')
+    await _pool!.query(
+      `CREATE TABLE IF NOT EXISTS drop_cascade_origin_marker_state (
+         singleton boolean PRIMARY KEY DEFAULT true,
+         first_applied_at timestamptz NOT NULL DEFAULT now(),
+         CONSTRAINT drop_cascade_origin_marker_state_singleton_ck CHECK (singleton)
+       )`,
+    )
+    await _pool!.query(
+      'INSERT INTO drop_cascade_origin_marker_state (singleton, first_applied_at) VALUES (true, $1)',
+      [simulatedLateFirstApply],
+    )
+
+    const restartWindowCreatedAt = new Date(simulatedLateFirstApply.getTime() + 60 * 60 * 1000) // +1h
+    const { txId } = await seedUnstampedRow(restartWindowCreatedAt)
+
+    await applyMarkerFile()
+
+    const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, txId) })
+    expect(row!.dropCascadeOrigin).toBe(false)
   })
 
   it('MARKER-c: idempotent — a second application changes nothing further', async () => {
     if (!dbAvailable) return
-    const { txId: preId } = await seedUnstampedRow(BEFORE_CUTOFF)
+    await resetMarkerState()
+    const { txId: preId } = await seedUnstampedRow(LONG_AGO)
     await applyMarkerFile()
 
     const afterFirst = await dbSvc.db.query.transactions.findFirst({
       where: eq(transactions.id, preId),
     })
     expect(afterFirst!.dropCascadeOrigin).toBe(false)
+    const firstAppliedAt = await readFirstAppliedAt()
 
     await applyMarkerFile()
 
@@ -271,6 +382,7 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
     })
     expect(afterSecond!.dropCascadeOrigin).toBe(false)
     expect(afterSecond!.updatedAt).toEqual(afterFirst!.updatedAt) // untouched — not re-written
+    expect((await readFirstAppliedAt()).getTime()).toBe(firstAppliedAt.getTime())
   })
 
   it('MARKER-d: the column converges to nullable / no default', async () => {

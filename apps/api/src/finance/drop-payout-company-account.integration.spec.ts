@@ -865,17 +865,32 @@ describe('drop payout → company account + senior obligation (real DB)', () => 
     // Once the row is EXPLICITLY marked false (mirrors the HIGH-1 marker
     // migration's own backfill), the SAME obligation settles fine from
     // COMPANY_ACCOUNT — proves the guard reacts to the marker's VALUE, not
-    // to some other property of this seeded row.
+    // to some other property of this seeded row. This obligation was
+    // seeded directly (not via a real payPayoutRequest cascade), so unlike
+    // every OTHER test in this file the company account was never credited
+    // for it — fund it explicitly first, or the balance gate legitimately
+    // (and correctly) rejects with "Недостаточно средств…" on a freshly
+    // seeded CI database (a real CI failure this test caught — round 5).
+    // Tagged with a TEST_OWN_USER_IDS creator so clearLedger() reclaims it.
+    await dbSvc.db.insert(transactions).values({
+      type: 'COMPANY_DEPOSIT',
+      status: 'PAID',
+      amount: '1000',
+      currency: 'USDT',
+      senderLabel: 'MED-2 test funding',
+      createdBy: ACCOUNTANT.id,
+    })
     await dbSvc.db
       .update(transactions)
       .set({ dropCascadeOrigin: false })
       .where(eq(transactions.id, row!.sourceTransactionId))
+    const beforeSecondSettle = await displayBalance()
     const settled = await settleSvc.settleByCompany(obligationId, ACCOUNTANT, {
       fundingSource: 'COMPANY_ACCOUNT',
       receiptExternalUrl: 'https://etherscan.io/tx/0xdropcompanyaccountmed2r4002',
     })
     expect(settled.obligation.status).toBe('PAID')
-    expect(await displayBalance()).toBeCloseTo(before - 30, 6)
+    expect(await displayBalance()).toBeCloseTo(beforeSecondSettle - 30, 6)
   })
 
   // ── INV3: senior-project payout unchanged

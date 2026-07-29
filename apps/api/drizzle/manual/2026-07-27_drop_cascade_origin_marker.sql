@@ -67,7 +67,7 @@
 -- legitimate company debt out of a PERSONAL account instead — the shared
 -- company balance never gets debited for a debt it should have paid,
 -- permanently overstating it, with no offsetting entry for the admin who
--- paid out of pocket. STEP 2 below backfills the ONLY correct value for a
+-- paid out of pocket. STEP 3 below backfills the ONLY correct value for a
 -- pre-existing row: `false` (admin-declaration-originated — see the
 -- corrected note above) — the pending-parity backfill
 -- (`2026-07-27_drop_share_pending_parity_backfill.sql`) is the ONLY other
@@ -77,32 +77,40 @@
 -- those rows are still `PAYOUT_DROP`, not `DROP_PENDING_PAYOUT`) — order-
 -- independent by construction, not by sequencing discipline.
 --
--- security-review PR #443 (MED-1, round 5) — bounded by created_at instead
--- of wired-twice-then-removed.
+-- security-review PR #443/#447 (round 6) — self-referential cutover boundary,
+-- NOT a hardcoded calendar date.
 -- --------------------------------------------------------------------------
--- `deploy.yml` re-applies every wired file on EVERY deploy. An EARLIER
--- version of this file's STEP 2 had NO upper bound on which rows it would
--- touch — a bare `WHERE drop_cascade_origin IS NULL` self-heals the deploy-
--- window gap (the old api image keeps calling the pre-fix
--- `bookCompanyObligations`, unaware of this column, until the new image
--- takes over — see the HIGH-1 note), which is good, BUT it also means any
--- FUTURE bug that forgets to stamp the marker on a genuinely new insert path
--- would have its `NULL` silently rewritten to the permissive `false` on the
--- very next deploy — quietly defeating the fail-safe default (round 3, LOW)
--- for good. The one-line fix: bound STEP 2 to rows created BEFORE the
--- rollout window closes (`created_at < TIMESTAMP '2026-08-10'`) — comfortably
--- past this PR's merge + deploy. Rows created before that cutoff are, by
--- construction (HIGH-1 above), either historical or deploy-window
--- admin-declared rows — `false` is correct for all of them, regardless of
--- which deploy attempt or retry actually inserted them. Any row created
--- AFTER the cutoff was written by the FIXED code (which always stamps this
--- column explicitly — see bookCompanyObligations, transactions.service.ts)
--- or is a genuinely new bug that SHOULD stay blocked and visible, not
--- silently patched. This makes the file safe to leave wired in `deploy.yml`
--- PERMANENTLY — no second, one-time, later-de-wired application is needed
--- (an earlier version of this file asked DevOps for one; that request is
--- withdrawn — the owner is retracting the corresponding note passed to
--- DevOps separately).
+-- An EARLIER version of STEP 3's backfill bounded itself by a HARDCODED
+-- literal (`created_at < TIMESTAMP '2026-08-10'`), picked as "comfortably
+-- past this PR's merge + deploy". Round 6 review caught the actual failure
+-- mode: if the real rollout of #443/#447 happens AFTER that literal date for
+-- ANY reason (delayed merge, held-back deploy, `APPLY_..._BACKFILL` gate left
+-- off for weeks — all realistic in this repo's own deploy runbook), the
+-- backfill NEVER fires for the restart-window rows it exists to catch. They
+-- stay NULL forever, the settleByCompany guard blocks them forever, and the
+-- exact harm STEP 3 exists to prevent (a real company debt becoming
+-- permanently unsettleable from the account that actually owes it)
+-- recurs — just later, and more quietly, because nobody expects a "days-old"
+-- migration file to have gone stale by calendar drift alone.
+--
+-- Fix: replace the calendar literal with a boundary anchored to this file's
+-- OWN first real execution on THIS database, recorded once and reused
+-- forever — self-referential, immune to how long the rollout is delayed.
+-- STEP 1 creates a tiny singleton state table and stamps
+-- `first_applied_at = now()` the FIRST time this file ever runs anywhere
+-- (`ON CONFLICT DO NOTHING` — every later run, including the deliberate
+-- second-pass application after container restart described below, reads
+-- the SAME stored timestamp back unchanged). STEP 3's cutoff is
+-- `first_applied_at + '24 hours'` — wide enough to comfortably cover the
+-- restart window between the marker's two deploy-time passes (schema-change
+-- pass before the new api image is live, and a second pass after it and all
+-- health/smoke checks are green — see PR #447's deploy.yml wiring) PLUS
+-- realistic same-day CI retries, while still being "a day", not "forever":
+-- a row created by a genuinely new bug in the ALREADY-DEPLOYED, ALREADY-
+-- FIXED code — days or weeks after this file's first run — falls outside
+-- the window and correctly stays NULL/blocked, exactly like the calendar
+-- version intended, but now provably independent of WHEN the rollout
+-- actually happens.
 --
 -- security-review PR #443 (LOW, round 4) — self-healing regardless of which
 -- prior version of this file an environment last saw.
@@ -113,7 +121,7 @@
 -- `ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean;` today is a no-op —
 -- the column already exists, so Postgres never re-evaluates its
 -- nullability/default, and the environment stays silently on the OLD
--- (permissive, `NOT NULL DEFAULT false`) semantics forever. STEP 1 below adds
+-- (permissive, `NOT NULL DEFAULT false`) semantics forever. STEP 2 below adds
 -- two `ALTER COLUMN` statements that are harmless no-ops on a
 -- correctly-nullable column (dropping an already-absent default / an
 -- already-absent NOT NULL raises no error) and self-healing on a
@@ -122,7 +130,7 @@
 --
 -- security-review PR #443 (LOW, round 5) — statement order.
 -- Each statement below auto-commits on its own (no explicit BEGIN wraps
--- STEP 1 — every statement here is independently idempotent by design, see
+-- STEP 2 — every statement here is independently idempotent by design, see
 -- "Idempotent" below). On a stale-from-round-2 environment (`NOT NULL
 -- DEFAULT false`), dropping the DEFAULT before dropping NOT NULL leaves a
 -- real, momentarily-committed window where the column is NOT NULL with NO
@@ -145,18 +153,39 @@
 --
 -- Add to `.github/workflows/deploy.yml`'s migrate step, applied BEFORE the
 -- new api image serves traffic and BEFORE the pending-parity backfill file.
--- Safe to leave wired PERMANENTLY (round 5) — see the MED-1 note above for
--- why the created_at bound makes a second, one-time, de-wired application
--- unnecessary. DevOps owns the wiring; this PR does not touch
+-- Safe to leave wired PERMANENTLY — see the round-6 note above: the cutoff is
+-- anchored to this file's own first execution, not to a calendar date, so it
+-- never goes stale no matter how long the rollout is delayed. PR #447 also
+-- wires a deliberate SECOND application of this SAME file right after the
+-- new containers are healthy, to close the restart-window gap the round-6
+-- boundary is sized for. DevOps owns the wiring; this PR does not touch
 -- `.github/workflows/**`.
 --
--- Idempotent: `ADD COLUMN IF NOT EXISTS`, the two `ALTER COLUMN` no-ops, and
--- the `UPDATE ... WHERE drop_cascade_origin IS NULL AND created_at < …`
--- backfill (once a row is backfilled it no longer matches `IS NULL`) are all
+-- Idempotent: `CREATE TABLE IF NOT EXISTS` + `ON CONFLICT DO NOTHING` (STEP 1,
+-- state is written once, ever), `ADD COLUMN IF NOT EXISTS`, the two
+-- `ALTER COLUMN` no-ops (STEP 2), and the
+-- `UPDATE ... WHERE drop_cascade_origin IS NULL AND created_at < …` backfill
+-- (STEP 3 — once a row is backfilled it no longer matches `IS NULL`) are all
 -- safe to re-run any number of times, on every deploy, forever.
 -- =============================================================================
 
--- ── STEP 1 — schema: add the column, and self-heal its nullability/default
+-- ── STEP 1 — self-referential cutover state (round 6): records THIS file's
+--             own first-ever execution timestamp on this database, once, and
+--             never again. Singleton table (`CHECK (singleton)` + PK forces
+--             at most one row). Untouched by every later run — including the
+--             deliberate second deploy-time pass — because of
+--             `ON CONFLICT DO NOTHING`. ─────────────────────────────────────
+CREATE TABLE IF NOT EXISTS drop_cascade_origin_marker_state (
+  singleton boolean PRIMARY KEY DEFAULT true,
+  first_applied_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT drop_cascade_origin_marker_state_singleton_ck CHECK (singleton)
+);
+
+INSERT INTO drop_cascade_origin_marker_state (singleton)
+VALUES (true)
+ON CONFLICT (singleton) DO NOTHING;
+
+-- ── STEP 2 — schema: add the column, and self-heal its nullability/default
 --             regardless of which prior version of this file (if any) an
 --             environment last saw (LOW, round 4). Order matters — NOT NULL
 --             dropped before DEFAULT (LOW, round 5; see above). ────────────
@@ -166,26 +195,32 @@ ALTER TABLE transactions
 ALTER TABLE transactions ALTER COLUMN drop_cascade_origin DROP NOT NULL;
 ALTER TABLE transactions ALTER COLUMN drop_cascade_origin DROP DEFAULT;
 
--- ── STEP 2 — backfill: every DROP_PENDING_PAYOUT row created before the
---             rollout window closes, with an unset marker, is, by
---             construction (see the HIGH-1 note above), admin-declaration-
---             originated → `false` is the ONLY correct value. Bounded by
---             created_at (MED-1, round 5) so this stays safe to leave wired
---             forever — rows created by the FIXED code (or by a future bug)
---             after the cutoff are NEVER touched. Logged via RAISE NOTICE so
---             the deploy log shows exactly how many rows this pass touched
---             (0 is a valid, expected outcome on every deploy after the
---             rollout window closes). ───────────────────────────────────────
+-- ── STEP 3 — backfill: every DROP_PENDING_PAYOUT row with an unset marker,
+--             created before this file's own first-applied-here timestamp
+--             plus a 24-hour restart-window margin (round 6 — replaces the
+--             earlier hardcoded calendar literal, see the note above), is,
+--             by construction (see the HIGH-1 note above), admin-
+--             declaration-originated → `false` is the ONLY correct value.
+--             Rows created by the FIXED code (or by a future bug) well after
+--             this environment's own rollout are NEVER touched. Logged via
+--             RAISE NOTICE so the deploy log shows exactly how many rows
+--             this pass touched (0 is a valid, expected outcome on every
+--             deploy after the rollout window closes). ─────────────────────
 DO $$
 DECLARE
   v_backfilled integer;
+  v_cutoff timestamptz;
 BEGIN
+  SELECT first_applied_at + INTERVAL '24 hours'
+    INTO v_cutoff
+    FROM drop_cascade_origin_marker_state;
+
   UPDATE transactions
   SET drop_cascade_origin = false
   WHERE drop_cascade_origin IS NULL
     AND type = 'DROP_PENDING_PAYOUT'
-    AND created_at < TIMESTAMP '2026-08-10';
+    AND created_at < v_cutoff;
 
   GET DIAGNOSTICS v_backfilled = ROW_COUNT;
-  RAISE NOTICE 'drop-cascade-origin-marker: backfilled=% pre-cutover DROP_PENDING_PAYOUT row(s) to false (admin-declared)', v_backfilled;
+  RAISE NOTICE 'drop-cascade-origin-marker: backfilled=% pre-cutover DROP_PENDING_PAYOUT row(s) to false (admin-declared); cutoff=%', v_backfilled, v_cutoff;
 END $$;
