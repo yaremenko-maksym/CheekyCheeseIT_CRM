@@ -85,7 +85,11 @@ function makeDb(overrides: Record<string, unknown> = {}) {
     // bare `vi.fn()` would blow up in tests that never look at inserts.
     insert: vi.fn(() => ({ values: () => Promise.resolve() })),
     update: vi.fn(),
-    select: vi.fn(),
+    // MED-O (round 6): after claiming, `consumeTxHash` SELECTs any released row
+    // for the hash (the reclaim-after-release signal). Default: none.
+    select: vi.fn(() => ({
+      from: () => ({ where: () => ({ orderBy: () => ({ limit: () => Promise.resolve([]) }) }) }),
+    })),
     // Default: run the callback against this same fake handle (the deposit
     // insert + consumed-hash claim now share one transaction).
     transaction: vi.fn(),

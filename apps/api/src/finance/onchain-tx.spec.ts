@@ -147,17 +147,18 @@ describe('consumeTxHash / findConsumedTxHash — registry plumbing', () => {
   function makeTx(tombstone: { releasedAt: Date | null } | undefined = undefined) {
     const values = vi.fn().mockResolvedValue(undefined)
     const insert = vi.fn(() => ({ values }))
-    // MED-J (round 5): `consumeTxHash` reads any existing row for this hash to
-    // detect a claim that follows an ADMIN release.
-    const findFirst = vi.fn().mockResolvedValue(tombstone)
+    // MED-J/MED-O (rounds 5-6): after the INSERT, `consumeTxHash` selects any
+    // RELEASED row for this hash to detect a claim that follows a release. The
+    // read runs after the insert on purpose — see the MED-O note in the source.
+    const limit = vi.fn().mockResolvedValue(tombstone ? [tombstone] : [])
+    const select = vi.fn(() => ({
+      from: () => ({ where: () => ({ orderBy: () => ({ limit }) }) }),
+    }))
     return {
-      handle: {
-        insert,
-        query: { consumedTxHashes: { findFirst } },
-      } as unknown as DrizzleTx,
+      handle: { insert, select } as unknown as DrizzleTx,
       insert,
       values,
-      findFirst,
+      select,
     }
   }
 
