@@ -144,13 +144,15 @@ describe('normalizeEthAddress — how the observed sender is stored', () => {
 })
 
 describe('consumeTxHash / findConsumedTxHash — registry plumbing', () => {
-  function makeTx(tombstone: { releasedAt: Date | null } | undefined = undefined) {
-    const values = vi.fn().mockResolvedValue(undefined)
+  function makeTx(previousRow: { releasedAt: Date | null } | undefined = undefined) {
+    const returning = vi.fn().mockResolvedValue([{ id: 'inserted-row' }])
+    const values = vi.fn(() => ({ returning }))
     const insert = vi.fn(() => ({ values }))
-    // MED-J/MED-O (rounds 5-6): after the INSERT, `consumeTxHash` selects any
-    // RELEASED row for this hash to detect a claim that follows a release. The
-    // read runs after the insert on purpose — see the MED-O note in the source.
-    const limit = vi.fn().mockResolvedValue(tombstone ? [tombstone] : [])
+    // MED-J/MED-O (rounds 5-6) + LOW (round 7): after the INSERT,
+    // `consumeTxHash` reads the row immediately PRECEDING ours to decide
+    // whether this claim follows an ADMIN release. The read runs after the
+    // insert on purpose — see the MED-O note in the source.
+    const limit = vi.fn().mockResolvedValue(previousRow ? [previousRow] : [])
     const select = vi.fn(() => ({
       from: () => ({ where: () => ({ orderBy: () => ({ limit }) }) }),
     }))

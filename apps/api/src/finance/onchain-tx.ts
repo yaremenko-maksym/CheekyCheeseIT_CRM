@@ -1,4 +1,4 @@
-import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNull, ne } from 'drizzle-orm'
 import { extractOnChainTxHash } from '@crm/shared'
 
 import type { DrizzleTx } from '../database/types'
@@ -253,12 +253,15 @@ export async function consumeTxHash(
   // The INSERT goes FIRST and is the serialization point: the partial unique
   // index makes a competing ACTIVE claim fail here, so whatever we observe
   // afterwards is settled fact.
-  await dbtx.insert(consumedTxHashes).values({
-    txHash: normalized,
-    purpose: params.purpose,
-    referenceId: params.referenceId,
-    consumedByUserId: params.consumedByUserId,
-  })
+  const [inserted] = await dbtx
+    .insert(consumedTxHashes)
+    .values({
+      txHash: normalized,
+      purpose: params.purpose,
+      referenceId: params.referenceId,
+      consumedByUserId: params.consumedByUserId,
+    })
+    .returning({ id: consumedTxHashes.id })
 
   // MED-J (round 5): is this hash being spent AGAIN after an ADMIN released it?
   // The release is legitimate (it exists to unstick money) but the pair
@@ -272,19 +275,24 @@ export async function consumeTxHash(
   // fresh snapshot, so a release that committed before our insert is visible
   // here; one that commits later cannot have preceded this claim anyway.
   //
-  // `isNotNull(releasedAt)` also excludes the row we just wrote (ours is
-  // active), and the explicit ORDER BY replaces an unordered `findFirst` whose
-  // correctness depended on there being at most one tombstone (LOW, round 6).
-  const [tombstone] = await dbtx
+  // LOW (round 7): inspect the row IMMEDIATELY PRECEDING ours, not "any
+  // released row ever". The previous form was sticky — once a hash had been
+  // released, every later claim carried the marker, which is noise exactly
+  // where an investigator wants signal. The predecessor is decisive on its
+  // own: a new claim can only exist because the previous one is no longer
+  // ACTIVE, so "the previous row is released" IS "this claim follows a
+  // release". The explicit ORDER BY also replaces an unordered `findFirst`
+  // whose correctness relied on there being at most one tombstone (round 6).
+  const [previous] = await dbtx
     .select({ releasedAt: consumedTxHashes.releasedAt })
     .from(consumedTxHashes)
-    .where(and(eq(consumedTxHashes.txHash, normalized), isNotNull(consumedTxHashes.releasedAt)))
-    .orderBy(desc(consumedTxHashes.releasedAt))
+    .where(and(eq(consumedTxHashes.txHash, normalized), ne(consumedTxHashes.id, inserted!.id)))
+    .orderBy(desc(consumedTxHashes.createdAt))
     .limit(1)
 
   return {
     claimed: true,
-    reclaimedAfterRelease: tombstone !== undefined,
+    reclaimedAfterRelease: previous?.releasedAt != null,
   }
 }
 

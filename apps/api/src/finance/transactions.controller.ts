@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -272,8 +273,17 @@ export class TransactionsController {
   @Get('onchain-hash')
   @Roles('ADMIN', 'ACCOUNTANT')
   @RelaxableThrottle(ONCHAIN_HASH_INSPECT_LIMIT)
-  inspectOnChainHash(@Query('txHash') txHash: string, @CurrentUser() user: SessionUser) {
-    return this.svc.inspectOnChainHash(txHash ?? '', user)
+  inspectOnChainHash(@Query('txHash') txHash: unknown, @CurrentUser() user: SessionUser) {
+    // MED-S (round 7): `?txHash=a&txHash=b` arrives as an ARRAY, and anything
+    // non-string crashed the handler on `.trim()` — a 500 on the money path,
+    // introduced by moving the hash into a query parameter. Narrow here and let
+    // the service answer with its normal 400.
+    if (typeof txHash !== 'string') {
+      throw new BadRequestException(
+        'Укажите ровно один параметр txHash (0x + 64 hex или ссылка на Etherscan)',
+      )
+    }
+    return this.svc.inspectOnChainHash(txHash, user)
   }
 
   @Delete(':id')

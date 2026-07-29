@@ -295,6 +295,7 @@ export class TransactionsService {
       settled: boolean
       status: string | null
       fundingSource: string | null
+      currency: string | null
       creditsCompanyAccount: boolean
     }
   }> {
@@ -435,6 +436,7 @@ export class TransactionsService {
     settled: boolean
     status: string | null
     fundingSource: string | null
+    currency: string | null
     creditsCompanyAccount: boolean
   }> {
     const missing = {
@@ -442,6 +444,7 @@ export class TransactionsService {
       settled: false,
       status: null,
       fundingSource: null,
+      currency: null,
       creditsCompanyAccount: false,
     }
     if (!referenceId) return missing
@@ -449,15 +452,47 @@ export class TransactionsService {
     if (purpose === 'PAYOUT') {
       const row = await dbtx.query.transactions.findFirst({
         where: and(eq(transactions.payoutRequestId, referenceId), eq(transactions.type, 'PAYOUT')),
+        // LOW-1 (round 7): deterministic pick. Several PAYOUT rows for one
+        // request should not exist, but an unordered read would leave WHICH one
+        // answers a money-path question up to chance.
+        orderBy: [desc(transactions.createdAt)],
         columns: { status: true, fundingSource: true, currency: true },
       })
-      if (!row) return missing
+
+      if (!row) {
+        // LOW-1 (round 7) — and this one is real for us: the accounting import
+        // brought over payouts settled WITHOUT the placeholder PAYOUT row this
+        // branch reads. Answering `missing` for those says "no settlement
+        // found", which an admin reads as "safe to release" — precisely the
+        // misreading MED-P set out to prevent, now on imported data. Fall back
+        // to the payout_request itself: its own status and hash prove the
+        // settlement happened even when the ledger stub does not exist.
+        const request = await dbtx.query.payoutRequests.findFirst({
+          where: eq(payoutRequests.id, referenceId),
+          columns: { status: true, txHash: true },
+        })
+        if (!request) return missing
+        return {
+          exists: true,
+          settled: request.status === 'PAID',
+          status: request.status,
+          // No stub row → no funding marker exists to read (unknown, not "did
+          // not credit"); `settled` carries the load here.
+          fundingSource: null,
+          currency: null,
+          // The balance formula sums PAYOUT ledger rows, so without one this
+          // payout contributes nothing to the pool — but it IS settled.
+          creditsCompanyAccount: false,
+        }
+      }
+
       const settled = row.status === 'PAID'
       return {
         exists: true,
         settled,
         status: row.status,
         fundingSource: row.fundingSource,
+        currency: row.currency,
         // A payout credits the pool only through the COMPANY_ACCOUNT marker;
         // CASH / ADMIN_USDT settlements are `settled` but not crediting.
         creditsCompanyAccount:
@@ -487,6 +522,10 @@ export class TransactionsService {
       settled,
       status: row.status,
       fundingSource: row.fundingSource,
+      // LOW (round 7): currency is part of the crediting predicate, so without
+      // it a non-USDT income shows `settled: true, credits: false` with nothing
+      // explaining why.
+      currency: row.currency,
       creditsCompanyAccount,
     }
   }

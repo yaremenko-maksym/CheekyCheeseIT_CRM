@@ -805,38 +805,58 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
     // touched — the same "confidently wrong message" class fixed elsewhere.
     it('admin-edit does NOT report an unrelated unique violation as a hash reuse', async () => {
       if (!dbAvailable) return
-      const HASH = '0x' + 'fc'.repeat(32)
-      const income = await svc.createAdminIncome(
-        {
-          projectId: ADMIN_PROJECT_ID,
-          amount: 55,
-          currency: 'USDT',
-          fundingSource: 'COMPANY_ACCOUNT',
-          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
-        },
-        ADMIN,
-      )
+      const takenMonth = '2031-03'
+      const freeMonth = '2031-04'
 
-      // A salary row already occupies (receiver, month); a second one collides
-      // on `uq_transactions_salary_receiver_month` — nothing to do with hashes.
-      const month = '2031-03'
+      // `uq_transactions_salary_receiver_month` is PARTIAL — it binds only rows
+      // with `type='SALARY' AND salary_month IS NOT NULL`. So the row under
+      // edit must itself be a SALARY, and it must be UNPAID: a PAID row is
+      // rejected by the settled-fields guard long before the claim handler this
+      // test is about. (Round 6 used a PAID ADMIN_INCOME and therefore proved
+      // nothing — MED-R.)
       await dbSvc.db.insert(transactions).values({
         type: 'SALARY',
         status: 'PENDING',
         amount: '100',
         currency: 'USDT',
         receiverId: SENIOR.id,
-        salaryMonth: month,
+        salaryMonth: takenMonth,
         createdBy: ADMIN.id,
       })
+      const [editable] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: '120',
+          currency: 'USDT',
+          receiverId: SENIOR.id,
+          salaryMonth: freeMonth,
+          createdBy: ADMIN.id,
+        })
+        .returning()
 
-      await expect(
-        svc.adminUpdateTransaction(income.id, { salaryMonth: month }, ADMIN),
-      ).rejects.not.toThrowError(/уже использован/)
+      // Moving it onto the taken month trips the SALARY index — a conflict that
+      // has nothing to do with any tx hash.
+      const err = await svc
+        .adminUpdateTransaction(editable!.id, { salaryMonth: takenMonth }, ADMIN)
+        .then(
+          () => null,
+          (e: unknown) => e,
+        )
+
+      expect(err).not.toBeNull()
+      // The whole point: the operator must NOT be sent hunting a hash.
+      expect(String((err as Error).message)).not.toMatch(/уже использован/)
 
       await dbSvc.db
         .delete(transactions)
-        .where(and(eq(transactions.type, 'SALARY'), eq(transactions.salaryMonth, month)))
+        .where(
+          and(
+            eq(transactions.type, 'SALARY'),
+            inArray(transactions.salaryMonth, [takenMonth, freeMonth]),
+          ),
+        )
     })
 
     it('ALLOWS an honest correction and claims the new transfer', async () => {
@@ -1113,6 +1133,53 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
           fundingSource: null,
         },
       })
+    })
+
+    // ── LOW-1 (round 7): imported payouts have no PAYOUT stub row ────────────
+    // The accounting import brought over settled payouts without the
+    // placeholder ledger row `describeReferent` reads. Reporting "not found"
+    // for those reads as "safe to release" — on REAL imported data.
+    it('an imported payout with no PAYOUT ledger row still reports settled', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'fd'.repeat(32)
+
+      // A payout_request settled the way the import left them: PAID, carrying
+      // its hash, with NO PAYOUT transaction row behind it.
+      const [imported] = await dbSvc.db
+        .insert(payoutRequests)
+        .values({
+          seniorId: SENIOR.id,
+          incomeAmount: '1000',
+          payableAmount: '740',
+          contractAddress: WALLET,
+          txHash: HASH,
+          status: 'PAID',
+        })
+        .returning()
+      await dbSvc.db.insert(consumedTxHashes).values({
+        txHash: HASH,
+        purpose: 'PAYOUT',
+        referenceId: imported!.id,
+        consumedByUserId: SENIOR.id,
+      })
+
+      const view = await svc.inspectOnChainHash(HASH, ADMIN)
+      expect(view).toMatchObject({
+        claimed: true,
+        purpose: 'PAYOUT',
+        referent: {
+          // The settlement is VISIBLE even without the stub row…
+          exists: true,
+          settled: true,
+          status: 'PAID',
+          // …and it correctly does not claim to credit the pool (no ledger row
+          // for the balance formula to sum).
+          creditsCompanyAccount: false,
+        },
+      })
+
+      await dbSvc.db.delete(consumedTxHashes).where(eq(consumedTxHashes.txHash, HASH))
+      await dbSvc.db.delete(payoutRequests).where(eq(payoutRequests.id, imported!.id))
     })
 
     it('inspection reports an unknown hash and is denied to non-finance roles', async () => {
