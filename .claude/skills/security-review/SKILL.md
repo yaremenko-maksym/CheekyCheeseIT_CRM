@@ -70,11 +70,14 @@ senior/drop/HR/accountant **вместе с email**.
 
 Правила, которые из этого следуют:
 
-- `buildProfileView` (`apps/api/src/users/users.service.ts`) — explicit allow-list
-  проекция. **Никогда не регрессировать в `{ ...target }`.**
-- Новая чувствительная колонка в `User` гейтится в ДВУХ местах: в проекции
-  **и** флагом в `getViewPermissions` (`realContacts` / `fopPii` / `adminNote` /
-  `legalName`).
+- `buildProfileView` (`apps/api/src/users/users.service.ts:1440`) — explicit
+  allow-list проекция. **Никогда не регрессировать в `{ ...target }`.** Ровно это
+  написано комментарием на месте: «use an explicit field list rather than
+  `{ ...target }` so that future DB columns do NOT leak automatically».
+- Новая чувствительная колонка в `User` гейтится в ДВУХ местах: в проекции **и**
+  флагом в `getViewPermissions` — а он в ДРУГОМ файле,
+  `apps/api/src/users/users-access.service.ts` (флаги `realContacts` / `fopPii` /
+  `adminNote` / `legalName`). Правка только одного из двух мест — типовая утечка.
 - Любая новая surface, переиспользующая management-DTO для менее привилегированного
   зрителя, маскируется allow-list'ом — и на пути списка (`findAll`), и на пути
   детали (`findOne`). Забыть один путь — типовая ошибка.
