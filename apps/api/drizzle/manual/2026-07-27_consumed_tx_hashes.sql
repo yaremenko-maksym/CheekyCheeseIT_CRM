@@ -103,12 +103,25 @@ DROP INDEX IF EXISTS uq_consumed_tx_hashes_tx_hash;
 --    ON CONFLICT. Nothing is deleted or re-credited here: this script only
 --    stops FUTURE double-spends; any pre-existing duplicate is a data question
 --    for the owner, surfaced by the NOTICE below.
+--
+--    ⚠️ NOT EXISTS IS LOAD-BEARING (security-review round 6, MED-N), and
+--    `ON CONFLICT` alone CANNOT replace it. The unique index is PARTIAL
+--    (`WHERE released_at IS NULL`), so a RELEASED tombstone is not a conflict:
+--    without this guard the insert would succeed and hand the hash a fresh
+--    ACTIVE claim. `payout_requests.tx_hash` never changes after settlement, so
+--    the row stays in this SELECT forever — meaning every single deploy would
+--    silently undo an ADMIN release, and the deposit that release was granted
+--    to unstick would re-brick (exactly the failure described at :120-125).
+--    The guard skips any hash the registry already knows, ACTIVE or RELEASED.
 INSERT INTO consumed_tx_hashes (tx_hash, purpose, reference_id, consumed_by_user_id)
 SELECT DISTINCT ON (lower(pr.tx_hash))
        lower(pr.tx_hash), 'PAYOUT', pr.id, pr.senior_id
   FROM payout_requests pr
  WHERE pr.status = 'PAID'
    AND pr.tx_hash ~* '^0x[0-9a-f]{64}$'
+   AND NOT EXISTS (
+         SELECT 1 FROM consumed_tx_hashes c WHERE c.tx_hash = lower(pr.tx_hash)
+       )
  ORDER BY lower(pr.tx_hash), pr.updated_at ASC
 ON CONFLICT (tx_hash) WHERE released_at IS NULL DO NOTHING;
 
@@ -136,6 +149,10 @@ SELECT DISTINCT ON (lower(t.tx_hash))
  WHERE t.type = 'COMPANY_DEPOSIT'
    AND t.status = 'PAID'
    AND t.tx_hash ~* '^0x[0-9a-f]{64}$'
+   -- MED-N: never resurrect a released claim (see the payout insert above).
+   AND NOT EXISTS (
+         SELECT 1 FROM consumed_tx_hashes c WHERE c.tx_hash = lower(t.tx_hash)
+       )
  ORDER BY lower(t.tx_hash), t.created_at ASC
 ON CONFLICT (tx_hash) WHERE released_at IS NULL DO NOTHING;
 
@@ -163,6 +180,10 @@ SELECT DISTINCT ON (lower(m.tx_hash))
            AND t.receipt_external_url IS NOT NULL
        ) m
  WHERE m.tx_hash IS NOT NULL
+   -- MED-N: never resurrect a released claim (see the payout insert above).
+   AND NOT EXISTS (
+         SELECT 1 FROM consumed_tx_hashes c WHERE c.tx_hash = lower(m.tx_hash)
+       )
  ORDER BY lower(m.tx_hash), m.created_at ASC
 ON CONFLICT (tx_hash) WHERE released_at IS NULL DO NOTHING;
 

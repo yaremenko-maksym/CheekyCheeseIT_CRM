@@ -118,6 +118,16 @@ export const DIVIDEND_LIMIT = 5
 export const ONCHAIN_HASH_RELEASE_LIMIT = 5
 
 /**
+ * Prod cap for on-chain hash inspection (GET /transactions/onchain-hash).
+ *
+ * Security-review PR #438 (LOW, round 6): a read, but a read of the money path
+ * — it discloses claim ownership and settlement state. Looser than the release
+ * (an operator legitimately checks several hashes while investigating), still
+ * far below the global ceiling. Never lowerable via env.
+ */
+export const ONCHAIN_HASH_INSPECT_LIMIT = 30
+
+/**
  * Prod cap for deposit status polling (GET /company-account/deposits/:id/status).
  * AC4 (BIZ-23): each request re-queries Etherscan; throttling prevents API abuse.
  * 30 req/min = once every 2 s per IP — sufficient for a progress bar with 5-10 s

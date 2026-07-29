@@ -39,7 +39,11 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
-import { ONCHAIN_HASH_RELEASE_LIMIT, RelaxableThrottle } from '../config/throttle-decorators'
+import {
+  ONCHAIN_HASH_INSPECT_LIMIT,
+  ONCHAIN_HASH_RELEASE_LIMIT,
+  RelaxableThrottle,
+} from '../config/throttle-decorators'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { TransactionsService } from './transactions.service'
 
@@ -258,11 +262,18 @@ export class TransactionsController {
   // MED-K (round 5): LOOK before you release. Without this the only way to
   // learn who owns a claim was to call the release — which destroyed it, so a
   // typo silently freed somebody else's legitimate claim. Read-only, and it
-  // reports whether the referent still credits the company account.
-  @Get('onchain-hash/:txHash')
+  // reports what releasing would mean for the referent.
+  //
+  // LOW (round 6): the hash arrives as a QUERY parameter, not a path segment.
+  // The whole point of the shared extractor is that an explorer LINK is valid
+  // input — and a link contains slashes, so as `:txHash` it never matched the
+  // route and the operator got a bare 404 instead of the 400 that explains the
+  // problem. Also throttled: it is a read, but it is a read of the money path.
+  @Get('onchain-hash')
   @Roles('ADMIN', 'ACCOUNTANT')
-  inspectOnChainHash(@Param('txHash') txHash: string, @CurrentUser() user: SessionUser) {
-    return this.svc.inspectOnChainHash(txHash, user)
+  @RelaxableThrottle(ONCHAIN_HASH_INSPECT_LIMIT)
+  inspectOnChainHash(@Query('txHash') txHash: string, @CurrentUser() user: SessionUser) {
+    return this.svc.inspectOnChainHash(txHash ?? '', user)
   }
 
   @Delete(':id')

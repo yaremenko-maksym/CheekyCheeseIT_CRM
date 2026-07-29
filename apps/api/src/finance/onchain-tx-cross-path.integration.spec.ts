@@ -798,6 +798,47 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       expect(audit).toBeDefined()
     })
 
+    // ── MED-Q (round 6): only a REGISTRY conflict may blame the hash ─────────
+    // The reviewer's counterexample: an admin edit that also sets `salaryMonth`
+    // can trip `uq_transactions_salary_receiver_month`. Reporting that as
+    // «хеш уже использован» sends the operator hunting a hash they never
+    // touched — the same "confidently wrong message" class fixed elsewhere.
+    it('admin-edit does NOT report an unrelated unique violation as a hash reuse', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'fc'.repeat(32)
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_PROJECT_ID,
+          amount: 55,
+          currency: 'USDT',
+          fundingSource: 'COMPANY_ACCOUNT',
+          receiptExternalUrl: `https://etherscan.io/tx/${HASH}`,
+        },
+        ADMIN,
+      )
+
+      // A salary row already occupies (receiver, month); a second one collides
+      // on `uq_transactions_salary_receiver_month` — nothing to do with hashes.
+      const month = '2031-03'
+      await dbSvc.db.insert(transactions).values({
+        type: 'SALARY',
+        status: 'PENDING',
+        amount: '100',
+        currency: 'USDT',
+        receiverId: SENIOR.id,
+        salaryMonth: month,
+        createdBy: ADMIN.id,
+      })
+
+      await expect(
+        svc.adminUpdateTransaction(income.id, { salaryMonth: month }, ADMIN),
+      ).rejects.not.toThrowError(/уже использован/)
+
+      await dbSvc.db
+        .delete(transactions)
+        .where(and(eq(transactions.type, 'SALARY'), eq(transactions.salaryMonth, month)))
+    })
+
     it('ALLOWS an honest correction and claims the new transfer', async () => {
       if (!dbAvailable) return
       const WRONG_HASH = '0x' + 'e3'.repeat(32)
@@ -1036,16 +1077,42 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
         consumedByUserId: ADMIN.id,
         // The decisive fact: the money is still on the books, so releasing
         // makes this transfer spendable a SECOND time.
-        referentStillCredits: true,
+        referent: { exists: true, settled: true, creditsCompanyAccount: true },
       })
 
       // The release reports the same consequence in its response.
       const released = await svc.releaseOnChainHash(HASH, 'checked first', ADMIN)
-      expect(released.referentStillCredits).toBe(true)
+      expect(released.referent).toMatchObject({ settled: true, creditsCompanyAccount: true })
 
       // After the release the tombstone is still inspectable.
       const after = await svc.inspectOnChainHash(HASH, ADMIN)
       expect(after).toMatchObject({ claimed: false, releasedBy: ADMIN.id })
+    })
+
+    // ── MED-P (round 6): "does not credit" is NOT "safe to release" ──────────
+    it('a CASH-settled payout reports settled=true with creditsCompanyAccount=false', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'fa'.repeat(32)
+      const { requestId } = await seedPayout(SENIOR, '1000')
+
+      // Manual CASH confirmation: a REAL transfer settled it, but the money
+      // never entered the pool — `fundingSource` stays null.
+      await svc.manualConfirmPayout(requestId, 'CASH', ADMIN, { txHash: HASH })
+
+      const view = await svc.inspectOnChainHash(HASH, ADMIN)
+      expect(view).toMatchObject({
+        claimed: true,
+        purpose: 'PAYOUT',
+        referent: {
+          exists: true,
+          // The transfer WAS spent…
+          settled: true,
+          // …it just never credited the company account. Releasing this claim
+          // still makes a real transfer spendable a second time.
+          creditsCompanyAccount: false,
+          fundingSource: null,
+        },
+      })
     })
 
     it('inspection reports an unknown hash and is denied to non-finance roles', async () => {
@@ -1220,6 +1287,37 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
 
       // Undo the simulated bad backfill so the suite stays deterministic.
       await dbSvc.db.delete(consumedTxHashes).where(eq(consumedTxHashes.txHash, HASH))
+    })
+
+    // ── MED-N (round 6): the backfill must never undo a release ──────────────
+    // `payout_requests.tx_hash` is immutable after settlement, so the row stays
+    // in the backfill's SELECT forever. Without the NOT EXISTS guard every
+    // deploy would hand the released hash a fresh ACTIVE claim — silently
+    // cancelling the release and re-bricking the deposit it was granted for.
+    it('a RELEASED claim survives repeated backfill runs (deploys)', async () => {
+      if (!dbAvailable) return
+      const HASH = '0x' + 'fb'.repeat(32)
+      const { requestId, payable } = await seedPayout(SENIOR, '1000')
+      scriptValid(HASH, payable)
+      await svc.payPayoutRequest(requestId, HASH, SENIOR)
+
+      await svc.releaseOnChainHash(HASH, 'settled with the wrong hash', ADMIN)
+
+      // Three consecutive deploys.
+      await runMigrationFile([HASH])
+      await runMigrationFile([HASH])
+      await runMigrationFile([HASH])
+
+      const rows = await dbSvc.db
+        .select({ releasedAt: consumedTxHashes.releasedAt })
+        .from(consumedTxHashes)
+        .where(eq(consumedTxHashes.txHash, HASH))
+      // Still exactly the tombstone — no resurrected ACTIVE claim.
+      expect(rows.length).toBe(1)
+      expect(rows.filter((r) => r.releasedAt === null).length).toBe(0)
+
+      // …and the transfer is still settleable, which is the whole point.
+      expect(await svc.inspectOnChainHash(HASH, ADMIN)).toMatchObject({ claimed: false })
     })
 
     it('a PAID deposit IS claimed by the backfill (historic settlements stay spent)', async () => {

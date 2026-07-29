@@ -67,6 +67,7 @@ import { getOwnSalaryStatus } from './salary-status.helper'
 import {
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
+  COMPANY_ACCOUNT_FUNDING_SOURCE,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { receiptMandatoryError } from '@crm/shared'
@@ -76,7 +77,11 @@ import { receiptMandatoryError } from '@crm/shared'
 // USDT account (on-chain confirm OR manual COMPANY_ACCOUNT). company-account
 // computeBalance counts ONLY these PAYOUT rows, so ADMIN_USDT/CASH manual
 // confirmations (which leave fundingSource NULL) never inflate the balance.
-const PAYOUT_TO_COMPANY_ACCOUNT = 'COMPANY_ACCOUNT'
+//
+// LOW (security-review round 6): sourced from the EXPORTED constant instead of
+// re-declaring the literal. The writer and the balance formula that reads it
+// must never drift apart, and a second copy of a string is how that starts.
+const PAYOUT_TO_COMPANY_ACCOUNT = COMPANY_ACCOUNT_FUNDING_SOURCE
 // M4 — On-chain amount vs. the recorded payableAmount.
 //
 // The ±1% tolerance band that used to live here was REMOVED by
@@ -173,6 +178,25 @@ export class TransactionsService {
   ) {}
 
   /**
+   * MED-Q (security-review round 6) — is THIS unique violation the on-chain
+   * registry, or something else entirely?
+   *
+   * Mapping any 23505 to «хеш уже использован» hands the user a confident,
+   * wrong explanation: an admin edit that also sets a salary month trips
+   * `uq_transactions_salary_receiver_month` and gets told about a tx hash they
+   * never touched. Same failure the payout cascade already avoids with an
+   * allow-list of index names — the receipt entrances now share it.
+   */
+  private isRegistryConflict(err: unknown): boolean {
+    const constraint = uniqueViolationConstraint(err)
+    return (
+      constraint === 'uq_consumed_tx_hashes_active_tx_hash' ||
+      // Pre-MED-J name; a rolling deploy can still be running the old index.
+      constraint === 'uq_consumed_tx_hashes_tx_hash'
+    )
+  }
+
+  /**
    * MED-F (security-review round 4) — ONE rule for every receipt change on a
    * crediting row, shared by `attachOrReplaceReceipt` AND
    * `adminUpdateTransaction`.
@@ -260,7 +284,19 @@ export class TransactionsService {
     txHash: string
     purpose: string
     referenceId: string | null
-    referentStillCredits: boolean
+    /**
+     * MED-P: `creditsCompanyAccount === false` does NOT mean "safe to release".
+     * A CASH / ADMIN_USDT payout is `settled: true` with
+     * `creditsCompanyAccount: false` — the transfer was really spent, it just
+     * never entered the pool. Read both fields.
+     */
+    referent: {
+      exists: boolean
+      settled: boolean
+      status: string | null
+      fundingSource: string | null
+      creditsCompanyAccount: boolean
+    }
   }> {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
 
@@ -281,16 +317,14 @@ export class TransactionsService {
         throw new NotFoundException('Этот хеш не числится использованным')
       }
 
-      // MED-K (round 5): report whether the row that held the claim STILL
-      // credits the company account. Releasing does not un-credit anything, so
-      // an admin who releases a live credit has just made that transfer
-      // spendable a second time — they must see that consequence in the
-      // response, not discover it at reconciliation.
-      const referentStillCredits = await this.referentStillCredits(
-        dbtx,
-        released.purpose,
-        released.referenceId,
-      )
+      // MED-K (round 5): report what the row that held the claim still is.
+      // Releasing does not un-credit anything, so an admin who releases a live
+      // settlement has just made that transfer spendable a second time — they
+      // must see that consequence in the response, not discover it at
+      // reconciliation. MED-P (round 6): `settled` is reported alongside
+      // `creditsCompanyAccount`, because a CASH/ADMIN_USDT payout is spent
+      // without ever crediting the pool.
+      const referent = await this.describeReferent(dbtx, released.purpose, released.referenceId)
 
       // Journal INSIDE the same transaction — a release without its record must
       // be impossible. `targetId` points at the row that held the claim when
@@ -304,11 +338,11 @@ export class TransactionsService {
           purpose: released.purpose,
           referenceId: released.referenceId,
           reason: trimmedReason,
-          referentStillCredits,
+          referent,
         },
       })
 
-      return { ...released, referentStillCredits }
+      return { ...released, referent }
     })
 
     // LOW (round 5): log AFTER the commit. Logging inside the transaction
@@ -318,7 +352,8 @@ export class TransactionsService {
     this.logger.warn(
       `[onchain-registry] hash RELEASED by admin ${currentUser.id} — ` +
         `purpose=${result.purpose} referenceId=${result.referenceId ?? 'none'} ` +
-        `referentStillCredits=${result.referentStillCredits}. ` +
+        `referentSettled=${result.referent.settled} ` +
+        `referentCreditsCompanyAccount=${result.referent.creditsCompanyAccount}. ` +
         `The transfer can be settled again.`,
     )
 
@@ -350,7 +385,7 @@ export class TransactionsService {
       return { txHash: normalized, claimed: false as const }
     }
 
-    const referentStillCredits = await this.referentStillCredits(
+    const referent = await this.describeReferent(
       this.db.db as unknown as DrizzleTx,
       claim.purpose,
       claim.referenceId,
@@ -366,54 +401,94 @@ export class TransactionsService {
       releasedAt: claim.releasedAt ? claim.releasedAt.toISOString() : null,
       releasedBy: claim.releasedBy,
       releasedReason: claim.releasedReason,
-      // The decisive fact for an operator: is the money still on the books?
-      referentStillCredits,
+      // What releasing this claim would mean. MED-P: read `settled` TOGETHER
+      // with `creditsCompanyAccount` — a CASH/ADMIN_USDT payout is settled
+      // without crediting the pool, so `creditsCompanyAccount: false` is not a
+      // green light.
+      referent,
     }
   }
 
   /**
-   * Does the row that holds/held a claim still credit the company account?
+   * Describe the row that holds/held a claim: does it still CREDIT the company
+   * account, and — if not — why not.
    *
-   * Mirrors the crediting terms of `computeCompanyAccountBalanceFromLedger` —
-   * the same predicates, so "still credits" here means exactly what the balance
-   * means. Used by the release response and the inspection endpoint (MED-K).
+   * MED-P (security-review round 6): `creditsCompanyAccount: false` is NOT a
+   * "safe to release" verdict, and presenting the bare boolean as the decisive
+   * fact invited exactly that reading. A payout confirmed manually as CASH or
+   * ADMIN_USDT legitimately has `fundingSource: null` and never touches the
+   * company balance — yet it consumed a REAL transfer, so releasing its claim
+   * still makes that transfer spendable again. The extra fields say which case
+   * you are looking at: `settled: true` with `creditsCompanyAccount: false`
+   * means "spent, just not into the pool".
+   *
+   * The crediting predicates mirror `computeCompanyAccountBalanceFromLedger`
+   * term-for-term, so "credits" here means exactly what the balance means.
    */
-  private async referentStillCredits(
+  private async describeReferent(
     dbtx: DrizzleTx,
     purpose: string,
     referenceId: string | null,
-  ): Promise<boolean> {
-    if (!referenceId) return false
+  ): Promise<{
+    exists: boolean
+    /** The referent represents a real settlement (money moved somewhere). */
+    settled: boolean
+    status: string | null
+    fundingSource: string | null
+    creditsCompanyAccount: boolean
+  }> {
+    const missing = {
+      exists: false,
+      settled: false,
+      status: null,
+      fundingSource: null,
+      creditsCompanyAccount: false,
+    }
+    if (!referenceId) return missing
 
     if (purpose === 'PAYOUT') {
-      // A payout credits through its PAYOUT ledger row carrying the
-      // COMPANY_ACCOUNT funding marker.
       const row = await dbtx.query.transactions.findFirst({
-        where: and(
-          eq(transactions.payoutRequestId, referenceId),
-          eq(transactions.type, 'PAYOUT'),
-          eq(transactions.status, 'PAID'),
-          eq(transactions.fundingSource, PAYOUT_TO_COMPANY_ACCOUNT),
-          eq(transactions.currency, 'USDT'),
-        ),
-        columns: { id: true },
+        where: and(eq(transactions.payoutRequestId, referenceId), eq(transactions.type, 'PAYOUT')),
+        columns: { status: true, fundingSource: true, currency: true },
       })
-      return row !== undefined
+      if (!row) return missing
+      const settled = row.status === 'PAID'
+      return {
+        exists: true,
+        settled,
+        status: row.status,
+        fundingSource: row.fundingSource,
+        // A payout credits the pool only through the COMPANY_ACCOUNT marker;
+        // CASH / ADMIN_USDT settlements are `settled` but not crediting.
+        creditsCompanyAccount:
+          settled && row.fundingSource === PAYOUT_TO_COMPANY_ACCOUNT && row.currency === 'USDT',
+      }
     }
 
     const row = await dbtx.query.transactions.findFirst({
       where: eq(transactions.id, referenceId),
       columns: { type: true, status: true, currency: true, fundingSource: true },
     })
-    if (!row || row.status !== 'PAID' || row.currency !== 'USDT') return false
-    if (row.type === 'COMPANY_DEPOSIT') return true
-    if (row.type === 'ADMIN_INCOME') {
-      return settlementConsumesTransfer({
-        kind: 'ADMIN_INCOME',
-        fundingSource: row.fundingSource,
-      })
+    if (!row) return missing
+
+    const settled = row.status === 'PAID'
+    const creditsCompanyAccount =
+      settled &&
+      row.currency === 'USDT' &&
+      (row.type === 'COMPANY_DEPOSIT' ||
+        (row.type === 'ADMIN_INCOME' &&
+          settlementConsumesTransfer({
+            kind: 'ADMIN_INCOME',
+            fundingSource: row.fundingSource,
+          })))
+
+    return {
+      exists: true,
+      settled,
+      status: row.status,
+      fundingSource: row.fundingSource,
+      creditsCompanyAccount,
     }
-    return false
   }
 
   /**
@@ -2321,7 +2396,10 @@ export class TransactionsService {
       // claim itself is what collides. Map it to the same clean 400 every other
       // claim site returns — a 500 on the money path is exactly the failure
       // mode the shared `isUniqueViolation` was extracted to end.
-      if (isUniqueViolation(err)) {
+      // MED-Q (round 6): ONLY the registry index earns that message; any other
+      // unique violation rethrows rather than blaming a hash the user did not
+      // touch.
+      if (this.isRegistryConflict(err)) {
         throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
       throw err
@@ -2477,7 +2555,11 @@ export class TransactionsService {
     } catch (err) {
       // MED-L (round 5): same as the sibling receipt entrance — a racing claim
       // must surface as a 400, not a 500.
-      if (isUniqueViolation(err)) {
+      // MED-Q (round 6): and ONLY a registry conflict may say so. This handler
+      // is the reviewer's counterexample: an admin edit carrying `salaryMonth`
+      // can trip `uq_transactions_salary_receiver_month`, which has nothing to
+      // do with a tx hash.
+      if (this.isRegistryConflict(err)) {
         throw new BadRequestException(TX_HASH_ALREADY_CONSUMED_MESSAGE)
       }
       throw err

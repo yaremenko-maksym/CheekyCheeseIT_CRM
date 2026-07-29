@@ -1,8 +1,9 @@
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, desc, eq, isNotNull, isNull } from 'drizzle-orm'
 import { extractOnChainTxHash } from '@crm/shared'
 
 import type { DrizzleTx } from '../database/types'
 import { consumedTxHashes } from '../database/schema'
+import { COMPANY_ACCOUNT_FUNDING_SOURCE } from './company-account-balance'
 
 /**
  * task-onchain-payment-integrity — shared on-chain settlement primitives.
@@ -212,7 +213,9 @@ export function settlementConsumesTransfer(settlement: OnChainSettlement): boole
     case 'PAYOUT':
       return settlement.hasRealTxHash
     case 'ADMIN_INCOME':
-      return settlement.fundingSource === 'COMPANY_ACCOUNT'
+      // LOW (round 6): the exported marker, not a third copy of the literal —
+      // this predicate must mean exactly what the balance formula means.
+      return settlement.fundingSource === COMPANY_ACCOUNT_FUNDING_SOURCE
   }
 }
 
@@ -247,24 +250,41 @@ export async function consumeTxHash(
   // untouched"), so an auditor must be able to tell the two apart.
   if (!normalized) return { claimed: false, reclaimedAfterRelease: false }
 
-  // MED-J (round 5): is this hash being spent AGAIN after an ADMIN released it?
-  // The release is legitimate (it exists to unstick money) but the pair
-  // "released → consumed again" is the sequence an investigator will look for,
-  // so the caller records it. Read inside the same transaction as the claim.
-  const tombstone = await dbtx.query.consumedTxHashes.findFirst({
-    where: eq(consumedTxHashes.txHash, normalized),
-    columns: { id: true, releasedAt: true },
-  })
-
+  // The INSERT goes FIRST and is the serialization point: the partial unique
+  // index makes a competing ACTIVE claim fail here, so whatever we observe
+  // afterwards is settled fact.
   await dbtx.insert(consumedTxHashes).values({
     txHash: normalized,
     purpose: params.purpose,
     referenceId: params.referenceId,
     consumedByUserId: params.consumedByUserId,
   })
+
+  // MED-J (round 5): is this hash being spent AGAIN after an ADMIN released it?
+  // The release is legitimate (it exists to unstick money) but the pair
+  // "released → consumed again" is the sequence an investigator looks for, so
+  // the caller records it.
+  //
+  // MED-O (round 6): this read happens AFTER the insert, not before. Reading
+  // first left a window — a release committing between the read and the insert
+  // produced a claim that looked first-time, silently breaking exactly the pair
+  // this signal exists to preserve. Under READ COMMITTED each statement takes a
+  // fresh snapshot, so a release that committed before our insert is visible
+  // here; one that commits later cannot have preceded this claim anyway.
+  //
+  // `isNotNull(releasedAt)` also excludes the row we just wrote (ours is
+  // active), and the explicit ORDER BY replaces an unordered `findFirst` whose
+  // correctness depended on there being at most one tombstone (LOW, round 6).
+  const [tombstone] = await dbtx
+    .select({ releasedAt: consumedTxHashes.releasedAt })
+    .from(consumedTxHashes)
+    .where(and(eq(consumedTxHashes.txHash, normalized), isNotNull(consumedTxHashes.releasedAt)))
+    .orderBy(desc(consumedTxHashes.releasedAt))
+    .limit(1)
+
   return {
     claimed: true,
-    reclaimedAfterRelease: tombstone?.releasedAt != null,
+    reclaimedAfterRelease: tombstone !== undefined,
   }
 }
 
