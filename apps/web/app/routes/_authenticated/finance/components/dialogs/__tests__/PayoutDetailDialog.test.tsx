@@ -142,6 +142,7 @@ function makeDropIncomeTx(overrides: Partial<TransactionDto> = {}): TransactionD
     salaryMonth: null,
     txDate: null,
     txHash: null,
+    txFromAddress: null,
     rejectionReason: null,
     payoutRequestId: PAYOUT.id,
     validatedBy: 'accountant-1',
