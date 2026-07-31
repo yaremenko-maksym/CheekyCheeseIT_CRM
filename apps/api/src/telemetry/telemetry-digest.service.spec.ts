@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { DatabaseService } from '../database/database.service'
-import { TelemetryDigestService } from './telemetry-digest.service'
+import { TELEMETRY_ERRORS_DIGEST_LIMIT, TelemetryDigestService } from './telemetry-digest.service'
 
 /**
  * Unit tests for the ORCHESTRATION around the digest (does it call
@@ -180,7 +180,9 @@ describe('TelemetryDigestService.fetchAndNotifyNewErrors', () => {
         select: () => ({
           from: () => ({
             where: () => ({
-              orderBy: async () => [],
+              orderBy: () => ({
+                limit: async () => [],
+              }),
             }),
           }),
         }),
@@ -223,7 +225,9 @@ describe('TelemetryDigestService.fetchAndNotifyNewErrors', () => {
         select: () => ({
           from: () => ({
             where: () => ({
-              orderBy: async () => [row],
+              orderBy: () => ({
+                limit: async () => [row],
+              }),
             }),
           }),
         }),
@@ -264,5 +268,31 @@ describe('TelemetryDigestService.fetchAndNotifyNewErrors', () => {
     ])
     expect(updateSetArg).toMatchObject({ status: 'NOTIFIED' })
     expect(updateWhereArg).toBeDefined()
+  })
+
+  // task-telemetry-caps AC3 — the select is bounded, not just "unlikely to be large".
+  it('AC3: applies an explicit `.limit(TELEMETRY_ERRORS_DIGEST_LIMIT)` — never an unbounded select', async () => {
+    let limitArg: number | undefined
+    const db = {
+      db: {
+        select: () => ({
+          from: () => ({
+            where: () => ({
+              orderBy: () => ({
+                limit: async (n: number) => {
+                  limitArg = n
+                  return []
+                },
+              }),
+            }),
+          }),
+        }),
+      },
+    } as unknown as DatabaseService
+    const svc = new TelemetryDigestService(db)
+
+    await svc.fetchAndNotifyNewErrors(new Date('2026-01-01'))
+
+    expect(limitArg).toBe(TELEMETRY_ERRORS_DIGEST_LIMIT)
   })
 })

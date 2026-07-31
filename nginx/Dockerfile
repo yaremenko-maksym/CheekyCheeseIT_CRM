@@ -346,13 +346,22 @@ RUN set -eu; \
 # `location`/`map`/njs syntax coming from build-args and everything else in
 # conf.d) — only the boilerplate TLS directives themselves are skipped, and
 # those are unrelated to and unchanged by this PR.
+#
+# MED-5 (security audit 2026-07-27, nginx/conf.d/default-server.conf): that
+# file's `listen 443 ssl default_server;` block needs the SAME cert-strip
+# treatment, but carries the extra `default_server` parameter — widened the
+# `listen 443 ssl;` match below to `listen 443 ssl.*;` (POSIX BRE `.*`,
+# works identically under GNU sed here and BSD sed in a local dry-run) so
+# it still catches this line regardless of what follows `ssl`. Dropping
+# `default_server` in the build-time-only copy is harmless: `nginx -t` only
+# needs valid syntax, not the default_server semantics.
 RUN set -eu; \
     mkdir -p /tmp/nginx-build-test/conf.d && \
     sed 's/server api:3001;/server 127.0.0.1:1;/' /etc/nginx/nginx.conf \
       | sed 's#include /etc/nginx/conf\.d/\*\.conf;#include /tmp/nginx-build-test/conf.d/*.conf;#' \
       > /tmp/nginx-build-test/nginx.conf; \
     for f in /etc/nginx/conf.d/*.conf; do \
-      sed -e '/ssl_certificate/d' -e 's/listen 443 ssl;/listen 8443;/' -e '/http2 on;/d' \
+      sed -e '/ssl_certificate/d' -e 's/listen 443 ssl.*;/listen 8443;/' -e '/http2 on;/d' \
         "$f" > "/tmp/nginx-build-test/conf.d/$(basename "$f")"; \
     done; \
     nginx -t -c /tmp/nginx-build-test/nginx.conf; \
@@ -362,7 +371,18 @@ RUN set -eu; \
 EXPOSE 80 443
 
 # Healthcheck via nginx stub_status (or just the default 200 on /).
+#
+# MED-5 (security audit 2026-07-27): explicit Host header, matching a real
+# vhost. Verified live (local Docker test) that a bare `wget
+# http://127.0.0.1/...` (Host defaults to "127.0.0.1") now hits
+# nginx/conf.d/default-server.conf's catch-all and gets `444` (connection
+# closed, no response) — wget treats that as a failure, so this
+# HEALTHCHECK would otherwise mark the container unhealthy the moment this
+# PR ships. docker-compose.prod.yml defines its OWN `healthcheck:` (with
+# the same fix) that overrides this one when running via compose — this
+# line only matters for a bare `docker run`/local test, but keeping BOTH
+# correct avoids the same trap resurfacing there.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=10s --retries=3 \
-  CMD wget -qO- http://127.0.0.1/index.html || exit 1
+  CMD wget -qO- --header="Host: app.cheekycheese.tech" http://127.0.0.1/index.html || exit 1
 
 CMD ["nginx", "-g", "daemon off;"]

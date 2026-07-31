@@ -365,6 +365,30 @@ describe('TeamsService.removeMember', () => {
     expect(auditRow.actorId).toBe('admin-1')
   })
 
+  // security-review round 2 (authz-hardening) — impersonation attribution.
+  it('under impersonation, the audit row is attributed to the REAL admin, not the impersonated HR', async () => {
+    const team = makeTeam({
+      members: [makeMember('hr-1', 'HR'), makeMember('hr-2', 'HR')],
+    })
+    const db = makeDb({ team })
+    const service = makeService(db)
+    // ADMIN 'admin-1' is impersonating HR 'hr-1' — the JWT/SessionUser carries
+    // the TARGET's identity (id='hr-1', role='HR') plus impersonatorId='admin-1'.
+    const impersonatingAsHr1: SessionUser = {
+      id: 'hr-1',
+      role: 'HR',
+      displayName: 'HR',
+      email: 'hr@cc.com',
+      avatar: null,
+      seniorSharePercent: 26,
+      impersonatorId: 'admin-1',
+    }
+    await service.removeMember('team-1', 'hr-2', impersonatingAsHr1)
+
+    const auditRow = db.db._txAuditInsertValues.mock.calls[0]![0] as { actorId: string }
+    expect(auditRow.actorId).toBe('admin-1')
+  })
+
   it('does not match a SOFT-DELETED member (already-removed row is not removable again)', async () => {
     // A previously-removed HR leaves a soft-deleted row; it must not be "found"
     // as an active member, so a second removeMember returns 404.

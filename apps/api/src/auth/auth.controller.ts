@@ -34,15 +34,64 @@ import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
 import { Public } from './public.decorator'
 
-const STATE_COOKIE = 'oauth_state'
-const JWT_COOKIE = 'jwt'
+// Plain (legacy) cookie names — used as the pre-hardening name AND, in
+// non-production environments, as the live name (see comment below on why
+// `__Host-` cannot be used outside prod).
+const STATE_COOKIE_LEGACY = 'oauth_state'
+const JWT_COOKIE_LEGACY = 'jwt'
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 // 7 days in seconds
+
+interface SetCookieOpts {
+  httpOnly: true
+  sameSite: 'lax'
+  secure: boolean
+  maxAge: number
+  path: '/'
+}
+interface ClearCookieOpts {
+  httpOnly: true
+  sameSite: 'lax'
+  secure: boolean
+  path: '/'
+}
 
 @Controller('auth')
 export class AuthController {
   private readonly logger = new Logger(AuthController.name)
   private readonly frontendUrl: string
   private readonly isProduction: boolean
+  // Cookie hardening (security-audit authz-hardening, "плюс" finding): the
+  // `__Host-` prefix makes the browser itself enforce Secure + Path=/ + no
+  // Domain attribute on this cookie — a session cookie with `Domain` set
+  // (or none, relying on default-domain matching) is shared with any
+  // subdomain of the registrable domain, which matters here because the
+  // public landing (cheekycheese.tech) and the CRM (app.cheekycheese.tech)
+  // are siblings under the same registrable domain. `__Host-` closes that
+  // sharing/spoofing surface at the browser level.
+  //
+  // `__Host-` REQUIRES the Secure attribute, which requires HTTPS — dev runs
+  // over plain http://localhost, where a `secure: true` cookie would simply
+  // never be stored by the browser (silent login failure, not a security
+  // trade-off worth making for local dev). So the prefixed name is used
+  // ONLY in production; every other environment (dev, test, CI) keeps the
+  // legacy plain name, matching `secure: this.isProduction` below 1:1.
+  private readonly jwtCookieName: string
+  private readonly stateCookieName: string
+  // security-review round 2 (HIGH-1 regression fix): `clearCookie(name, opts)`
+  // in @fastify/cookie builds its Set-Cookie header ONLY from the opts passed
+  // to that call (+ the plugin's `parseOptions`, which main.ts does not set —
+  // it registers `cookie` with only `{ secret }`). A `__Host-*` deletion
+  // response therefore needs `secure: true` on the CLEAR call too, or the
+  // browser silently drops the entire Set-Cookie header per the `__Host-`
+  // prefix rules — the cookie survives and "logout" becomes cosmetic. Both
+  // this options object and `jwtSetCookieOpts` below are built ONCE in the
+  // constructor (from the same `isProduction`) instead of being repeated
+  // ad-hoc at each call site, so a future edit to one attribute cannot drift
+  // between set/clear the way the original bug did.
+  private readonly jwtSetCookieOpts: SetCookieOpts
+  private readonly jwtClearCookieOpts: ClearCookieOpts
+  private readonly stateSetCookieOpts: SetCookieOpts
+  private readonly stateClearCookieOpts: ClearCookieOpts
 
   constructor(
     private authService: AuthService,
@@ -52,6 +101,55 @@ export class AuthController {
   ) {
     this.frontendUrl = this.config.get('FRONTEND_URL', { infer: true })!
     this.isProduction = this.config.get('NODE_ENV', { infer: true }) === 'production'
+    this.jwtCookieName = this.isProduction ? '__Host-jwt' : JWT_COOKIE_LEGACY
+    this.stateCookieName = this.isProduction ? '__Host-oauth_state' : STATE_COOKIE_LEGACY
+    this.jwtSetCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      maxAge: COOKIE_MAX_AGE,
+      path: '/',
+    }
+    this.jwtClearCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      path: '/',
+    }
+    this.stateSetCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      maxAge: 600,
+      path: '/',
+    }
+    this.stateClearCookieOpts = {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: this.isProduction,
+      path: '/',
+    }
+  }
+
+  /**
+   * Sets the JWT session cookie under the current name (`__Host-jwt` in
+   * prod, plain `jwt` elsewhere) and, in production, ALSO clears the legacy
+   * plain `jwt` name in the same response.
+   *
+   * MED-1 (security-review round 2): the legacy-name fallback read in
+   * jwt.guard.ts is a session-fixation surface for as long as a browser can
+   * still be holding a pre-hardening `jwt` cookie. Actively clearing it
+   * every time we mint a NEW `__Host-jwt` session means the window shrinks
+   * on its own as users authenticate — combined with the hard cutoff date in
+   * jwt.guard.ts (`LEGACY_JWT_COOKIE_FALLBACK_CUTOFF`), the fallback cannot
+   * stay open indefinitely for any single browser, only for the bounded
+   * period before that browser's next login.
+   */
+  private issueJwtCookie(reply: FastifyReply, token: string): void {
+    reply.setCookie(this.jwtCookieName, token, this.jwtSetCookieOpts)
+    if (this.jwtCookieName !== JWT_COOKIE_LEGACY) {
+      reply.clearCookie(JWT_COOKIE_LEGACY, this.jwtClearCookieOpts)
+    }
   }
 
   @Get('google')
@@ -60,13 +158,7 @@ export class AuthController {
     const state = randomBytes(16).toString('hex')
     const authUrl = this.authService.buildGoogleAuthUrl(state)
 
-    reply.setCookie(STATE_COOKIE, state, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: 600,
-      path: '/',
-    })
+    reply.setCookie(this.stateCookieName, state, this.stateSetCookieOpts)
     await reply.redirect(authUrl, 302)
   }
 
@@ -79,13 +171,15 @@ export class AuthController {
     @Req() request: FastifyRequest,
     @Res() reply: FastifyReply,
   ) {
-    const storedState = request.cookies?.[STATE_COOKIE]
+    const storedState = request.cookies?.[this.stateCookieName]
     if (!storedState || storedState !== state || !code) {
       await reply.redirect(`${this.frontendUrl}/login?error=invalid_state`, 302)
       return
     }
 
-    reply.clearCookie(STATE_COOKIE, { path: '/' })
+    // HIGH-1 fix (security-review round 2): full opts, not just `{path:'/'}` —
+    // see `issueJwtCookie` doc for why a `__Host-*` deletion needs `secure`.
+    reply.clearCookie(this.stateCookieName, this.stateClearCookieOpts)
 
     let googleUser: { id: string; email: string; name: string; picture: string }
     try {
@@ -100,6 +194,15 @@ export class AuthController {
     const user = await this.usersService.findByEmail(googleUser.email)
     if (!user) {
       await reply.redirect(`${this.frontendUrl}/login?error=unauthorized`, 302)
+      return
+    }
+
+    // LOW (security-audit authz-hardening): an archived (fired) user was
+    // handed a full 7-day session here — only the NEXT request's
+    // JwtAuthGuard (DB re-hydration, up to CACHE_TTL_MS stale) rejected them.
+    // Reject at issuance so a fired user never gets a session at all.
+    if (user.archivedAt) {
+      await reply.redirect(`${this.frontendUrl}/login?error=account_disabled`, 302)
       return
     }
 
@@ -120,13 +223,7 @@ export class AuthController {
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     await reply.redirect(`${this.frontendUrl}/`, 302)
   }
@@ -167,7 +264,16 @@ export class AuthController {
    *  - Target must not be the caller themselves.
    *  - No nesting: if the current JWT already has `impersonatorId`, reject.
    *
-   * no-audit — intentional owner decision (no per-action attribution required).
+   * Starting/stopping impersonation itself is not written as its own audit
+   * event (an earlier, still-current owner decision — no dedicated
+   * "impersonation started/stopped" row). That is distinct from ACTIONS
+   * taken while impersonating: `AuditInterceptor` now attributes those to
+   * the real operator (`actorId = impersonatorId ?? id`) with an
+   * `__impersonation` marker — see its own doc (security-review round 2,
+   * authz-hardening) — rather than silently recording them against the
+   * impersonated target. That per-action correction is intentionally
+   * minimal (interceptor-level only, not threaded into every service-layer
+   * audit writer) per the same owner decision against heavier machinery.
    * list excludes admins — enforced here; frontend filters UI list accordingly.
    */
   @Post('impersonate')
@@ -209,13 +315,7 @@ export class AuthController {
     })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     return { ok: true }
   }
@@ -258,13 +358,7 @@ export class AuthController {
     })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     return { ok: true }
   }
@@ -287,6 +381,11 @@ export class AuthController {
     const user = await this.usersService.findByEmail(googleUser.email)
     if (!user) throw new UnauthorizedException('Email not authorized')
 
+    // LOW (security-audit authz-hardening): mirrors the same check in
+    // googleCallback — an archived (fired) user must never receive a
+    // session, not even a 401-request's worth of DB re-hydration lag.
+    if (user.archivedAt) throw new UnauthorizedException('Account disabled')
+
     if (!user.googleId) {
       await this.usersService.updateGoogleId(user.id, googleUser.sub)
     } else if (user.googleId !== googleUser.sub) {
@@ -301,21 +400,36 @@ export class AuthController {
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
 
-    reply.setCookie(JWT_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: this.isProduction,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    this.issueJwtCookie(reply, token)
 
     return { ok: true }
   }
 
-  @Get('logout')
+  // LOW (security-audit authz-hardening): was `@Get('logout') @Public()` —
+  // a plain `<img src="…/api/auth/logout">` on ANY third-party page forces a
+  // logout of the current session (cross-site GET carries cookies by
+  // default). POST is not a full CSRF fix on its own, but it defeats the
+  // trivial <img>/<link>/background-fetch GET vector; the frontend already
+  // calls this via axios (use-logout.ts), not a browser navigation, so a
+  // method-only change is fully backward compatible with the real client.
+  @Post('logout')
   @Public()
   async logout(@Res() reply: FastifyReply) {
-    reply.clearCookie(JWT_COOKIE, { path: '/' })
+    // Cookie hardening: clear BOTH the current name and the legacy plain
+    // name unconditionally — a user whose browser still holds a
+    // pre-hardening `jwt` cookie (issued before this deploy) must still be
+    // fully logged out. Clearing a cookie that was never set is a no-op.
+    //
+    // HIGH-1 fix (security-review round 2): MUST use `jwtClearCookieOpts`
+    // (full opts incl. `secure`), not a bare `{path:'/'}` — see
+    // `issueJwtCookie`'s doc for why a bare clear silently no-ops on
+    // `__Host-jwt` in production (the browser drops any `__Host-*`
+    // Set-Cookie header that lacks `Secure`, so the "deletion" response
+    // itself gets discarded and the cookie survives).
+    reply.clearCookie(this.jwtCookieName, this.jwtClearCookieOpts)
+    if (this.jwtCookieName !== JWT_COOKIE_LEGACY) {
+      reply.clearCookie(JWT_COOKIE_LEGACY, this.jwtClearCookieOpts)
+    }
     await reply.redirect(`${this.frontendUrl}/login`, 302)
   }
 
@@ -333,13 +447,10 @@ export class AuthController {
     // MED #2: JWT cookie stores only minimal identity (no PII).
     const jwtPayload = jwtPayloadSchema.parse({ id: user.id, email: user.email, role: user.role })
     const token = this.jwtService.sign(jwtPayload)
-    reply.setCookie(JWT_COOKIE, token, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: false,
-      maxAge: COOKIE_MAX_AGE,
-      path: '/',
-    })
+    // devLogin can only reach this line when `this.isProduction === false`
+    // (checked above), so `issueJwtCookie`'s `secure: this.isProduction`
+    // evaluates identically to the previous hardcoded `secure: false` here.
+    this.issueJwtCookie(reply, token)
 
     return { ok: true, user: jwtPayload }
   }

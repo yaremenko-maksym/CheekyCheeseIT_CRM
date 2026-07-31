@@ -1,5 +1,40 @@
 name: E2E Watchdog
 
+# ОТКЛЮЧЁН 2026-07-27 (security-review PR #441). Job загейчен `if: false` —
+# workflow остаётся в репо как заготовка, но не исполняется ни при каких
+# условиях. Появится в Actions UI как "skipped" — это намеренно, та же
+# конвенция, что у `ecc-code-review.yml`.
+#
+# ПОЧЕМУ ОТКЛЮЧЁН — цепочка, которую он замыкал:
+#
+#   1. Триггер `workflow_run: workflows:[CI], branches:[main]`. До PR #441 CI
+#      на main фактически НЕ завершался (последний прогон — 2026-06-13,
+#      push-триггер был мёртв из-за GITHUB_TOKEN-сквоша), поэтому воркфлоу
+#      спал ~1.5 месяца. PR #441 включил post-merge прогон CI на main — и тем
+#      самым РАЗБУДИЛ этот watchdog: теперь он оценивается после каждого мержа.
+#   2. При красном CI он делал: `checkout` с `token: ADMIN_PAT` (при дефолтном
+#      `persist-credentials: true` owner-PAT оседает в `.git/config` раннера)
+#      → `git commit && git push` НАПРЯМУЮ в `main` (branch protection с
+#      `enforce_admins: false` owner-PAT пропускает) → `gh workflow run
+#      autotest.yml`.
+#   3. Авто-коммит в main = НАСТОЯЩЕЕ push-событие (не GITHUB_TOKEN, а PAT) →
+#      триггерит `deploy.yml` → прод переразворачивается в заведомо красном
+#      состоянии → новый post-merge CI → снова failure → снова авто-коммит.
+#      Самоподдерживающийся цикл; `concurrency` его НЕ гасит (это не
+#      параллельность, а повтор).
+#
+# Сейчас цепочка не срабатывает лишь по случайности: путь
+# `docs/specs/tasks/templates/task-fix-e2e-broken.md` (строка ниже) не
+# существует — реальный путь `.claude/tasks/templates/task-fix-e2e-broken.md`,
+# а `autotest.yml` вообще удалён. Т.е. от боевого цикла нас отделяла ОДНА
+# починенная строка. Это и есть причина отключить, а не «починить путь».
+#
+# Если возрождать — переписать так: НИКАКОГО `git push` в main из автоматики
+# (создавать PR), `persist-credentials: false`, убрать dispatch несуществующего
+# workflow, и не использовать owner-PAT там, где хватает GITHUB_TOKEN.
+# Пока живой канал сигнала о красном main — `post_merge_alert` + `notify_e2e`
+# в `ci.yml` (см. scripts/devops/post-merge-ci-runbook.md).
+
 on:
   workflow_run:
     workflows: [CI]
@@ -12,9 +47,11 @@ concurrency:
 
 jobs:
   dispatch-autotest:
-    name: Dispatch AutoTest to fix E2E
+    name: Dispatch AutoTest to fix E2E (DISABLED)
     runs-on: ubuntu-latest
-    if: github.event.workflow_run.conclusion == 'failure'
+    # `false &&` — жёсткий выключатель. НЕ снимать, не переписав шаги ниже
+    # по чек-листу в шапке файла.
+    if: false && github.event.workflow_run.conclusion == 'failure'
     permissions:
       actions: write
       contents: write

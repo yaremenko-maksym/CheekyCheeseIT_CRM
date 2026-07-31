@@ -42,7 +42,12 @@ export class TeamsService {
       return this.mapDropTeam(team, currentUser)
     }
 
-    const senior = team.members.find((m) => m.user?.role === 'SENIOR')
+    // MED-2 (security-review round 2): `leftAt === null` — a rotated-out
+    // (detached) senior's team_members row must not be treated as "the
+    // team's senior" here. Without this, a stale/duplicate SENIOR row left
+    // by a rotation could seed the wrong seniorId, deriving the wrong
+    // (or an empty) junior roster for `mapTeam`'s consumers.
+    const senior = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
 
     const juniorMembers: Array<{
       id: string
@@ -190,8 +195,41 @@ export class TeamsService {
     }
   }
 
+  // HIGH-1 (security-audit authz-hardening): `team.members` returns EVERY row,
+  // including soft-deleted ones (`leftAt != null` — set by removeMember).
+  // Without the `leftAt === null` filter a member removed from the team keeps
+  // being recognized as an active HR (or, in assertAccess/findAll below, as
+  // any active member) for as long as their JWT is valid (up to 7 days) —
+  // they retain read/write access, can rename the team, remove other members,
+  // and reactivate their own row via addMember. The DROP branch of
+  // assertAccess already filtered on `leftAt === null` correctly; this is now
+  // the norm for every membership check in this file.
   private isHrOfTeam(team: TeamWithMembers, userId: string) {
-    return team.members.some((m) => m.userId === userId && m.user?.role === 'HR')
+    return team.members.some(
+      (m) => m.userId === userId && m.user?.role === 'HR' && m.leftAt === null,
+    )
+  }
+
+  /**
+   * MED-3 (security-review round 2, authz-hardening): plain active-membership
+   * check (any role), exposed publicly for callers that need to scope an
+   * action to "a team this user actually belongs to" without loading the
+   * full team+members tree. Introduced for `UsersService.createUser`'s
+   * `teamMode='JOIN_DROP_TEAM'` path — `addSeniorToDropTeam` below
+   * explicitly delegates RBAC to its caller (see that method's own
+   * docblock), so without this check an HR actor could attach the SENIOR
+   * they are provisioning to ANY drop-team with a free senior slot, not
+   * just one they belong to — reaching into another team's payment routing.
+   */
+  async isActiveMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
+    const row = await this.db.db.query.teamMembers.findFirst({
+      where: and(
+        eq(teamMembers.teamId, teamId),
+        eq(teamMembers.userId, userId),
+        isNull(teamMembers.leftAt),
+      ),
+    })
+    return row !== undefined
   }
 
   private async fetchAllProjects(): Promise<ProjectWithMembers[]> {
@@ -296,11 +334,18 @@ export class TeamsService {
     } else if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT') {
       // SENIOR/JUNIOR: show teams where they are a static member
       // For JUNIORs derived from projects, also include teams where their senior is
+      // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
+      // must not keep the team visible. Mirrors the DROP branch above.
       filtered = allTeams.filter((t) => {
-        if (t.members.some((m) => m.userId === currentUser.id)) return true
+        if (t.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return true
         if (currentUser.role === 'JUNIOR') {
           // Check if this team's senior has an active project with this junior
-          const senior = t.members.find((m) => m.user?.role === 'SENIOR')
+          // MED-2 (security-review round 2): `leftAt === null` — a rotated-out
+          // senior's team_members row must not seed this lookup (mirrors the
+          // same fix in mapTeam). Without it, a detached senior could keep
+          // granting their old juniors visibility into a team they left, or a
+          // stale row could shadow the CURRENT senior and wrongly deny access.
+          const senior = t.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
           if (senior) {
             const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
             return seniorProjects.some((p) =>
@@ -413,8 +458,11 @@ export class TeamsService {
     // a traceable history of financial-impact edits. Written after UPDATE so
     // the audit row is only created when the DB write succeeded.
     if (overrideChanged) {
+      // security-review round 2 (authz-hardening): attribute to the real
+      // operator under impersonation — see sessionUserSchema.impersonatorId's
+      // doc for the full rationale.
       await this.teamAuditLogService.record({
-        actorId: currentUser.id,
+        actorId: currentUser.impersonatorId ?? currentUser.id,
         targetId: id,
         action: 'team_updated',
         changes: {
@@ -473,11 +521,19 @@ export class TeamsService {
 
     // Find SENIOR via team_members + users join — `with: { members: true }`
     // above doesn't include user.role, so we run a focused lookup here.
+    // MED-2 (security-review round 2): `isNull(leftAt)` — without it, a
+    // team with rotation history (a detached ex-senior row PLUS the current
+    // active senior row, both role=SENIOR) has no ORDER BY guarantee on
+    // which row `rows[0]` picks. Picking the detached one would silently
+    // restore access to the WRONG (possibly still-fired) person instead of
+    // the team's actual current senior.
     const seniorRow = await this.db.db
       .select({ userId: teamMembers.userId })
       .from(teamMembers)
       .innerJoin(users, eq(users.id, teamMembers.userId))
-      .where(and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR')))
+      .where(
+        and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
+      )
       .then((rows) => rows[0])
     if (!seniorRow) {
       throw new NotFoundException('Senior of this team not found')
@@ -626,8 +682,14 @@ export class TeamsService {
     }
 
     // Prevent adding a second SENIOR
+    // MED-2 (security-review round 2, informational — consistency, not a
+    // security fix): `leftAt === null` — without it a rotated-out senior's
+    // stale row permanently blocks ever adding a new senior to this team
+    // (conservative failure, not an access bug), even though the team is
+    // legitimately senior-less after rotation. Brought in line with every
+    // other SENIOR lookup in this file.
     if (user.role === 'SENIOR') {
-      const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR')
+      const hasSenior = team.members.some((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
       if (hasSenior) throw new BadRequestException('Team already has a senior')
     }
 
@@ -645,6 +707,13 @@ export class TeamsService {
     // duplicates; reactivate a soft-deleted row instead of inserting a second
     // one (mirrors UsersService.upsertTeamMemberTx). Without this, re-adding a
     // previously removed member would 400 ("User is already a member").
+    //
+    // HIGH-1: reactivating a soft-deleted row is intentionally gated by the
+    // SAME guard as the rest of this method (:611-613 role check + :619-621
+    // isHrOfTeam, now leftAt-filtered) — only ADMIN or an ACTIVE HR of THIS
+    // team can ever reach this line. A removed HR calling addMember on
+    // themselves (the attack chain this fix closes) is rejected by the
+    // isHrOfTeam check above and never gets here.
     const existing = await this.db.db.query.teamMembers.findFirst({
       where: and(eq(teamMembers.teamId, teamId), eq(teamMembers.userId, userId)),
     })
@@ -725,9 +794,12 @@ export class TeamsService {
             isNull(teamMembers.leftAt),
           ),
         )
+      // security-review round 2 (authz-hardening): attribute to the real
+      // operator under impersonation — see sessionUserSchema.impersonatorId's
+      // doc for the full rationale.
       await this.teamAuditLogService.record(
         {
-          actorId: currentUser.id,
+          actorId: currentUser.impersonatorId ?? currentUser.id,
           targetId: teamId,
           action: 'team_member_removed',
           changes: {
@@ -759,11 +831,18 @@ export class TeamsService {
       throw new ForbiddenException()
     }
 
-    if (team.members.some((m) => m.userId === currentUser.id)) return
+    // HIGH-1: `leftAt === null` — a soft-deleted (removed) static membership
+    // must not keep granting access. Mirrors the DROP branch above.
+    if (team.members.some((m) => m.userId === currentUser.id && m.leftAt === null)) return
 
     // For JUNIORs: check if they have an active project with this team's senior
+    // MED-2 (security-review round 2): `leftAt === null` — same fix as
+    // findAll's JUNIOR branch above; a rotated-out senior's stale row must
+    // not seed this lookup (mirror-image bug of the DROP/general branches:
+    // it could both wrongly grant access via a departed senior AND wrongly
+    // deny access by shadowing the current one).
     if (currentUser.role === 'JUNIOR') {
-      const senior = team.members.find((m) => m.user?.role === 'SENIOR')
+      const senior = team.members.find((m) => m.user?.role === 'SENIOR' && m.leftAt === null)
       if (senior) {
         const seniorProjects = allProjects.filter((p) => p.seniorId === senior.userId)
         const hasActiveProjectWithSenior = seniorProjects.some((p) =>

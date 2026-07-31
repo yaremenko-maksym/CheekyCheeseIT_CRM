@@ -42,6 +42,31 @@ export const sessionUserSchema = z.object({
    * Used by the frontend to render the impersonation banner.
    */
   impersonating: z.boolean().optional(),
+  /**
+   * Security-review round 2 (authz-hardening): the REAL admin's userId when
+   * the current session is an impersonated one — same value as
+   * `jwtPayloadSchema.impersonatorId`. Optional so it is absent from the
+   * actual `/me` HTTP response (that handler builds its return value
+   * field-by-field via `sessionUserSchema.parse()` and does not set this
+   * key — the frontend only ever sees the derived `impersonating` boolean
+   * above, never the admin's raw id).
+   *
+   * Exists on this schema so backend code that receives `@CurrentUser()`
+   * typed as `SessionUser` (the request-scoped object is actually the raw
+   * JwtPayload for every controller except `/me` — see jwt.guard.ts) can
+   * read `currentUser.impersonatorId ?? currentUser.id` to attribute audit
+   * writes to the real operator instead of the impersonated target. Mirrors
+   * `AuditInterceptor`'s fix — see that file's doc — extended here to the
+   * handful of service methods that write audit rows directly from an
+   * already-in-scope `SessionUser` (createDrop/archiveDrop in
+   * UsersService; update/removeMember in TeamsService; several methods in
+   * ProjectsService). NOT threaded into every audit-writing method in the
+   * codebase (several take a plain `actorId: string` several layers deep in
+   * transactional cascades) — that remains a documented, intentionally
+   * deferred gap per the owner's earlier decision against heavier
+   * per-action attribution machinery.
+   */
+  impersonatorId: z.string().uuid().optional(),
 })
 
 /**
@@ -60,8 +85,10 @@ export const sessionUserSchema = z.object({
  *
  * `impersonatorId` — set when an ADMIN is impersonating another user.
  * Contains the ADMIN's own userId so `POST /auth/stop-impersonating` can
- * restore the original admin session. NOT used for audit (intentional owner
- * decision — no audit trail required).
+ * restore the original admin session. Also consumed by `AuditInterceptor`
+ * and by service methods that read it off `SessionUser` (mirrored onto
+ * `sessionUserSchema` below — see that field's doc for the exact scope of
+ * which audit writers do/don't correct for impersonation).
  */
 export const jwtPayloadSchema = z.object({
   id: z
