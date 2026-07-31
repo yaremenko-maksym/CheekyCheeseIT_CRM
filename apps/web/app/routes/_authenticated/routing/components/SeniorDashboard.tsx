@@ -1,12 +1,15 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, Clock, TrendingUp } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
+import { useAuth } from '@/context/auth'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { KpiCard } from '@/routes/_authenticated/finance/components/KpiCards'
 import { financeApi } from '@/routes/_authenticated/finance/api'
+import { CompanySharePayoutStrip } from '@/routes/_authenticated/finance/components/CompanySharePayoutStrip'
+import { CompanySharePayoutModal } from '@/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal'
 import { SENIOR_SUMMARY_QUERY_KEY, useSeniorSummary } from '@/hooks/use-senior-summary'
 import { EarningsStatsBlock } from './EarningsStatsBlock'
 import { InProgressPanel } from './InProgressPanel'
@@ -62,17 +65,29 @@ const IN_PROGRESS_INCOME_STATUSES = new Set<TransactionDto['status']>(['PENDING'
 
 export function SeniorDashboard() {
   const qc = useQueryClient()
+  const { user } = useAuth()
   const { data: summary, isLoading, isError } = useSeniorSummary()
 
   // Self-scoped transactions feed — reuses the SAME query key the finance page
   // uses (['transactions']). The backend `findAll` restricts a SENIOR to rows
   // where they are sender/receiver, so this can never surface another senior's
   // transactions. NOT in the persist allow-list → never written to disk.
-  const { data: transactions = [] } = useQuery({
+  const { data: transactions = [], isLoading: txLoading } = useQuery({
     queryKey: ['transactions'],
     queryFn: () => financeApi.getTransactions(),
     staleTime: 30_000,
   })
+
+  // task-company-share-cta. Owned here (not inside InProgressPanel) so the
+  // SAME modal instance serves BOTH the CTA strip and InProgressPanel's
+  // toolbar/row triggers — see design spec §5 "one mounted Dialog".
+  const [payoutModalOpen, setPayoutModalOpen] = useState(false)
+  const [payoutPreselect, setPayoutPreselect] = useState<string[]>([])
+
+  function openPayout(ids: string[]) {
+    setPayoutPreselect(ids)
+    setPayoutModalOpen(true)
+  }
 
   // Income rows in the pipeline: own SENIOR_INCOME with PENDING or VALIDATED.
   // PAID is terminal («зелёные») and intentionally excluded. Newest first.
@@ -110,6 +125,16 @@ export function SeniorDashboard() {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div data-testid="senior-dashboard-hub" className="space-y-6">
+        {/* task-company-share-cta. Самый верх — перед KPI-гридом (design spec
+            §4.2): «заметный призыв» первым делом видит синьор с непогашенным
+            долгом. Не зависит от summary isLoading/isError — своя проверка. */}
+        <CompanySharePayoutStrip
+          transactions={transactions}
+          isLoading={txLoading}
+          currentUserId={user?.id ?? ''}
+          userSeniorSharePercent={user?.seniorSharePercent}
+          onOpen={() => openPayout([])}
+        />
         {isLoading ? (
           <div
             className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
@@ -187,10 +212,21 @@ export function SeniorDashboard() {
               validatedIncomes={validatedSeniorIncomes}
               onRefresh={handleRefresh}
               testIdPrefix="senior"
+              onOpenPayout={openPayout}
             />
           </>
         )}
       </div>
+
+      <CompanySharePayoutModal
+        open={payoutModalOpen}
+        onClose={() => {
+          setPayoutModalOpen(false)
+          handleRefresh()
+        }}
+        validatedTxs={validatedSeniorIncomes}
+        preselectedTxIds={payoutPreselect}
+      />
     </div>
   )
 }

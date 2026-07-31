@@ -1,4 +1,4 @@
-import { Global, Module } from '@nestjs/common'
+import { BadRequestException, Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -9,7 +9,9 @@ import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { CompanyAccountService } from './company-account.service'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
-import { companyAccount, transactions, users } from '../database/schema'
+import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
+import { companyAccount, consumedTxHashes, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
@@ -34,6 +36,12 @@ import * as schema from '../database/schema'
  */
 
 const WALLET = '0xfeedfacefeedfacefeedfacefeedfacefeedface'
+/**
+ * task-onchain-payment-integrity — an exchange hot wallet. The on-chain sender
+ * is RECORDED, never enforced (staff withdraw straight from exchanges), so this
+ * "foreign" sender must still credit. Lowercase = the stored/normalised form.
+ */
+const EXCHANGE_WALLET = '0x3333333333333333333333333333333333333333'
 const THRESHOLD = 12
 
 const SENIOR: SessionUser = {
@@ -63,18 +71,10 @@ const HASH_MISMATCH = '0x' + 'b'.repeat(64)
 const HASH_PENDING = '0x' + 'c'.repeat(64)
 
 // ── Controllable fake Etherscan: per-hash scripted verification ───────────────
-const verifyScript = new Map<string, DepositVerification>()
+const verifyScript = new Map<string, ScriptedVerification>()
 const fakeEtherscan: Pick<EtherscanService, 'verifyDeposit'> = {
   verifyDeposit: (txHash: string): Promise<DepositVerification> =>
-    Promise.resolve(
-      verifyScript.get(txHash) ?? {
-        found: false,
-        toMatches: false,
-        confirmed: false,
-        confirmations: 0,
-        amountUsdt: null,
-      },
-    ),
+    Promise.resolve(withDerivedMinorUnits(verifyScript.get(txHash))),
 }
 
 let _pool: Pool | null = null
@@ -144,6 +144,10 @@ describe('company-account deposits — auto-credit invariant + idempotency (real
           inArray(transactions.createdBy, TEST_USER_IDS),
         ),
       )
+    // task-onchain-payment-integrity: the consumed-hash registry outlives the
+    // deposit row by design, so re-using the fixed test hashes across tests
+    // needs an explicit sweep (see the helper's header).
+    await sweepOrphanConsumedTxHashes(dbSvc)
   }
 
   async function balance(): Promise<number> {
@@ -336,5 +340,111 @@ describe('company-account deposits — auto-credit invariant + idempotency (real
     // And the row is now PAID + the balance reflects it.
     const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, dto.id) })
     expect(row?.status).toBe('PAID')
+  })
+
+  // ── task-onchain-payment-integrity: recorded sender ─────────────────────────
+  it('records the on-chain sender on the deposit row (third-party sender is NOT blocked)', async () => {
+    if (!dbAvailable) return
+    const HASH = '0x' + '7'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      // Mixed-case exchange hot wallet: legitimate (staff withdraw from an
+      // exchange), must credit AND be stored normalised.
+      fromAddress: EXCHANGE_WALLET.toUpperCase().replace('0X', '0x'),
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: 120,
+      amountUsdtMinor: '120000000',
+    })
+
+    const dto = await svc.submitDeposit({ txHashOrLink: HASH }, SENIOR)
+    expect(dto.status).toBe('PAID')
+
+    const row = await dbSvc.db.query.transactions.findFirst({ where: eq(transactions.id, dto.id) })
+    expect(row?.txFromAddress).toBe(EXCHANGE_WALLET)
+  })
+
+  // ── task-onchain-payment-integrity, HOLE 2: CROSS-PATH double spend ─────────
+  // A hash already consumed by a PAID payout must not credit the company
+  // account a second time as a deposit. The two paths guard different tables,
+  // so before the shared registry this was a real double credit.
+  it('SECURITY: a hash already consumed by a PAYOUT cannot be submitted as a deposit', async () => {
+    if (!dbAvailable) return
+    const HASH = '0x' + '8'.repeat(64)
+    const before = await balance()
+
+    // Simulate the payout path having consumed this hash (this suite has no
+    // payout fixtures; the payout side of the pair is asserted end-to-end in
+    // onchain-tx-cross-path.integration.spec.ts).
+    await dbSvc.db
+      .insert(consumedTxHashes)
+      .values({ txHash: HASH, purpose: 'PAYOUT', referenceId: null, consumedByUserId: SENIOR.id })
+
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      fromAddress: EXCHANGE_WALLET,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: 999,
+      amountUsdtMinor: '999000000',
+    })
+
+    await expect(svc.submitDeposit({ txHashOrLink: HASH }, SENIOR)).rejects.toThrowError(
+      /уже использован/,
+    )
+    // No deposit row, no credit.
+    const rows = await dbSvc.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.txHash, HASH)))
+    expect(rows.length).toBe(0)
+    expect(await balance()).toBe(before)
+
+    await dbSvc.db.delete(consumedTxHashes).where(eq(consumedTxHashes.txHash, HASH))
+  })
+
+  // ── RACE (real DB, not a mock): two concurrent submits, one winner ──────────
+  it('RACE: two parallel submits of the same hash → exactly one row, balance credited once', async () => {
+    if (!dbAvailable) return
+    const HASH = '0x' + '6'.repeat(64)
+    const before = await balance()
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      fromAddress: EXCHANGE_WALLET,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: 300,
+      amountUsdtMinor: '300000000',
+    })
+
+    // Fired together so both pass the check-then-act lookups; the DB decides.
+    const results = await Promise.allSettled([
+      svc.submitDeposit({ txHashOrLink: HASH }, SENIOR),
+      svc.submitDeposit({ txHashOrLink: HASH }, SENIOR),
+    ])
+
+    // Neither request may 500 — a loser is either the idempotent re-read of the
+    // winner's row or a clean 400.
+    for (const r of results) {
+      if (r.status === 'rejected') {
+        expect(r.reason).toBeInstanceOf(BadRequestException)
+      }
+    }
+
+    const rows = await dbSvc.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(and(eq(transactions.type, 'COMPANY_DEPOSIT'), eq(transactions.txHash, HASH)))
+    expect(rows.length).toBe(1) // exactly one deposit row
+    expect(await balance()).toBe(before + 300) // credited ONCE
+
+    const registry = await dbSvc.db
+      .select({ id: consumedTxHashes.id })
+      .from(consumedTxHashes)
+      .where(eq(consumedTxHashes.txHash, HASH))
+    expect(registry.length).toBe(1) // the unique index held
   })
 })

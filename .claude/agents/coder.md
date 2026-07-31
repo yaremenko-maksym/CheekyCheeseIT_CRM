@@ -66,9 +66,9 @@ model: sonnet
 | Написание / правка `.spec.ts` (Playwright E2E)                 | `playwright-patterns` (CRM cookbook: strict-mode, Radix radio, testids)      |
 | TypeScript-heavy edits (`.ts`/`.tsx`) — ДО `git push`          | ECC `typescript-reviewer` (per-file self-review)                             |
 | Перед PR / completion claim                                    | `superpowers:verification-before-completion`                                 |
-| PR трогает auth / finance / wallets / transactions / контракты | `superpowers:security-review` (PM параллельно дисп. security-reviewer на PR) |
+| PR трогает auth / finance / wallets / transactions / контракты | `security-review` (PM параллельно дисп. security-reviewer на PR) |
 | Получение review feedback                                      | `superpowers:receiving-code-review`                                          |
-| После написания кода (cleanup)                                 | `superpowers:simplify`                                                       |
+| После написания кода (cleanup)                                 | `simplify`                                                       |
 | Новая страница / сложный UI component                          | `frontend-design:frontend-design`                                            |
 | Branch готова к merge (final commit)                           | `superpowers:finishing-a-development-branch`                                 |
 

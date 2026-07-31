@@ -41,7 +41,7 @@ import cookie from '@fastify/cookie'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
@@ -54,8 +54,12 @@ import { ZodExceptionFilter } from '../zod-exception.filter'
 import { TelemetryController } from './telemetry.controller'
 import { TelemetryDigestController } from './telemetry-digest.controller'
 import { TelemetryDigestTokenGuard } from './telemetry-digest-token.guard'
-import { TelemetryDigestService } from './telemetry-digest.service'
-import { TelemetryErrorsService } from './telemetry-errors.service'
+import { TELEMETRY_ERRORS_DIGEST_LIMIT, TelemetryDigestService } from './telemetry-digest.service'
+import {
+  TELEMETRY_ERRORS_CAP_REACHED_MESSAGE,
+  TELEMETRY_ERRORS_ROW_CAP,
+  TelemetryErrorsService,
+} from './telemetry-errors.service'
 import { TelemetryEventsService } from './telemetry-events.service'
 import { TelemetryExceptionFilter } from './telemetry-exception.filter'
 
@@ -531,6 +535,215 @@ describe('Telemetry — real backend integration', () => {
         lastStatus = res.statusCode
       }
       expect(lastStatus).toBe(429)
+    })
+  })
+
+  // ── task-telemetry-caps — row cap (telemetry_errors) ──────────────────────
+  //
+  // A DEDICATED app instance (own ThrottlerStorage, own connection pool —
+  // same pattern as csp-reports.integration.spec.ts's `rlApp`) so these tests
+  // never share the TELEMETRY_ERROR_LIMIT=10/60s budget the AC2/AC5/AC6 tests
+  // above already spend on the shared `app`.
+  //
+  // `getApproxRowCount` is stubbed (not a real 10 000-row fixture) — same
+  // rationale/precedent as csp-reports.integration.spec.ts's own row-cap
+  // integration tests: exercises the REAL end-to-end wiring (real HTTP
+  // pipeline, real TelemetryErrorsService, real telemetry_errors upsert)
+  // without the cost of actually filling the table.
+
+  describe('Row cap — telemetry_errors (task-telemetry-caps, security audit MED)', () => {
+    let capApp: NestFastifyApplication
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      capApp = await buildApp()
+    }, 20_000)
+
+    afterAll(async () => {
+      if (!dbAvailable) return
+      await capApp.close()
+    }, 20_000)
+
+    it('AC1: at the row cap, a NEW fingerprint is refused (no row created) — the rejected occurrence never lands in telemetry_errors', async () => {
+      if (!dbAvailable) return
+      const svc = capApp.get(TelemetryErrorsService)
+      const spy = vi
+        .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
+        .mockResolvedValue(TELEMETRY_ERRORS_ROW_CAP)
+
+      try {
+        const message = `row-cap rejected unique message ${Date.now()}`
+        const res = await capApp.inject({
+          method: 'POST',
+          url: '/api/telemetry/errors',
+          cookies: { jwt: tokenFor(EMPLOYEE) },
+          payload: { message },
+        })
+        // Contract: "ЛЮБАЯ внутренняя ошибка/отказ — 204, никогда 4xx/5xx к
+        // отправителю" (same fire-and-forget rationale as CSP's row cap).
+        expect(res.statusCode).toBe(204)
+
+        const rejectedRow = await dbSvc.db.query.telemetryErrors.findFirst({
+          where: (e, { eq: eqOp }) => eqOp(e.message, message),
+        })
+        expect(rejectedRow).toBeUndefined()
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('AC1: at the row cap, count++ on an EXISTING fingerprint still works — the ONE signal we cannot afford to lose during a real mass-error incident', async () => {
+      if (!dbAvailable) return
+      const message = `row-cap existing-fingerprint ${Date.now()}`
+
+      // Create it normally FIRST, well under the (mocked) cap threshold.
+      const first = await capApp.inject({
+        method: 'POST',
+        url: '/api/telemetry/errors',
+        cookies: { jwt: tokenFor(EMPLOYEE) },
+        payload: { message },
+      })
+      expect(first.statusCode).toBe(204)
+
+      const svc = capApp.get(TelemetryErrorsService)
+      const spy = vi
+        .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
+        .mockResolvedValue(TELEMETRY_ERRORS_ROW_CAP)
+
+      try {
+        // Same message → same fingerprint → this is a repeat of an EXISTING
+        // aggregation key, which must ALWAYS succeed, cap or no cap.
+        const second = await capApp.inject({
+          method: 'POST',
+          url: '/api/telemetry/errors',
+          cookies: { jwt: tokenFor(EMPLOYEE) },
+          payload: { message },
+        })
+        expect(second.statusCode).toBe(204)
+
+        const row = await dbSvc.db.query.telemetryErrors.findFirst({
+          where: (e, { eq: eqOp }) => eqOp(e.message, message),
+        })
+        expect(row).toBeDefined()
+        expect(row?.count).toBe(2)
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it("AC2: the cap-reached signal is recorded with a FIXED message (never the rejected occurrence's own message)", async () => {
+      if (!dbAvailable) return
+      const svc = capApp.get(TelemetryErrorsService)
+      const spy = vi
+        .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
+        .mockResolvedValue(TELEMETRY_ERRORS_ROW_CAP)
+
+      try {
+        const res = await capApp.inject({
+          method: 'POST',
+          url: '/api/telemetry/errors',
+          cookies: { jwt: tokenFor(EMPLOYEE) },
+          payload: { message: 'attacker-controlled-payload-should-never-be-stored' },
+        })
+        expect(res.statusCode).toBe(204)
+
+        const capRow = await dbSvc.db.query.telemetryErrors.findFirst({
+          where: (e, { eq: eqOp }) => eqOp(e.message, TELEMETRY_ERRORS_CAP_REACHED_MESSAGE),
+        })
+        expect(capRow).toBeDefined()
+        expect(capRow?.source).toBe('API')
+        expect(capRow?.message).not.toContain('attacker-controlled-payload')
+      } finally {
+        spy.mockRestore()
+      }
+    })
+
+    it('AC2: repeated cap-reached rejections dedupe into ONE row with a growing count — the signal never floods the table itself', async () => {
+      if (!dbAvailable) return
+      const svc = capApp.get(TelemetryErrorsService)
+      const spy = vi
+        .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
+        .mockResolvedValue(TELEMETRY_ERRORS_ROW_CAP)
+
+      try {
+        const before = await dbSvc.db.query.telemetryErrors.findFirst({
+          where: (e, { eq: eqOp }) => eqOp(e.message, TELEMETRY_ERRORS_CAP_REACHED_MESSAGE),
+        })
+        const countBefore = before?.count ?? 0
+
+        const r1 = await capApp.inject({
+          method: 'POST',
+          url: '/api/telemetry/errors',
+          cookies: { jwt: tokenFor(EMPLOYEE) },
+          payload: { message: `row-cap dedup unique A ${Date.now()}` },
+        })
+        const r2 = await capApp.inject({
+          method: 'POST',
+          url: '/api/telemetry/errors',
+          cookies: { jwt: tokenFor(EMPLOYEE) },
+          payload: { message: `row-cap dedup unique B, totally different text ${Date.now()}` },
+        })
+        expect(r1.statusCode).toBe(204)
+        expect(r2.statusCode).toBe(204)
+
+        const rows = await dbSvc.db.query.telemetryErrors.findMany({
+          where: (e, { eq: eqOp }) => eqOp(e.message, TELEMETRY_ERRORS_CAP_REACHED_MESSAGE),
+        })
+        expect(rows).toHaveLength(1)
+        expect(rows[0]!.count).toBe(countBefore + 2)
+      } finally {
+        spy.mockRestore()
+      }
+    })
+  })
+
+  // ── task-telemetry-caps — AC3/AC4: digest select limit + shape regression ─
+
+  describe('AC3/AC4 — digest select limit for telemetry_errors (task-telemetry-caps)', () => {
+    it('returns at most TELEMETRY_ERRORS_DIGEST_LIMIT errors when N > limit rows match `since`, and the response shape is unchanged', async () => {
+      if (!dbAvailable) return
+      // `since` captured BEFORE the fixture insert, and every fixture row
+      // dated strictly AFTER it — isolates this assertion from any `NEW`
+      // rows earlier tests in this file may have left behind.
+      const since = new Date()
+      const insertAt = new Date(since.getTime() + 1_000)
+      const marker = `digest-limit-${Date.now()}`
+      const fixtureCount = TELEMETRY_ERRORS_DIGEST_LIMIT + 20
+      const rows = Array.from({ length: fixtureCount }, (_, i) => ({
+        fingerprint: `${marker}-fp-${i}`,
+        source: 'API' as const,
+        message: `${marker} error ${i}`,
+        route: null,
+        userId: null,
+        userRole: null,
+        meta: {},
+        count: 1,
+        firstSeen: insertAt,
+        lastSeen: insertAt,
+        status: 'NEW' as const,
+      }))
+      await dbSvc.db.insert(telemetryErrors).values(rows)
+
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/telemetry/digest?since=${encodeURIComponent(since.toISOString())}`,
+        headers: { 'x-telemetry-token': DIGEST_TOKEN },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as {
+        errors: unknown[]
+        cspViolations: unknown[]
+        cspViolationsTotal: number
+      }
+
+      // AC3 — bounded, not "unlikely to be large": exactly the cap, proving
+      // truncation actually happened (fixtureCount > limit).
+      expect(body.errors.length).toBe(TELEMETRY_ERRORS_DIGEST_LIMIT)
+
+      // AC4 — response shape unchanged (no new sibling field for errors,
+      // unlike cspViolations/cspViolationsTotal — the private-issues digest
+      // workflow parses this shape and a silent field drift breaks it quietly).
+      expect(Object.keys(body).sort()).toEqual(['cspViolations', 'cspViolationsTotal', 'errors'])
     })
   })
 })

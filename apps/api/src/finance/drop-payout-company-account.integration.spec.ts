@@ -14,6 +14,7 @@ import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
+import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import {
   companyAccount,
@@ -147,18 +148,10 @@ const DROP_SHARE = 5
 const SENIOR_SHARE = 26
 
 // ── Controllable fake Etherscan: per-hash scripted verification ──────────────
-const verifyScript = new Map<string, DepositVerification>()
+const verifyScript = new Map<string, ScriptedVerification>()
 const fakeEtherscan: Pick<EtherscanService, 'verifyDeposit'> = {
   verifyDeposit: (txHash: string): Promise<DepositVerification> =>
-    Promise.resolve(
-      verifyScript.get(txHash) ?? {
-        found: false,
-        toMatches: false,
-        confirmed: false,
-        confirmations: 0,
-        amountUsdt: null,
-      },
-    ),
+    Promise.resolve(withDerivedMinorUnits(verifyScript.get(txHash))),
 }
 
 // Fixed-rate NBU stub (USDT incomes → identity; never hits network).

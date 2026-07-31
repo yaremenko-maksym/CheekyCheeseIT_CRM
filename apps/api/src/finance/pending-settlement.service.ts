@@ -766,6 +766,12 @@ export class PendingSettlementService {
       receiptDocumentId: row.receiptDocumentId ?? null,
       receiptExternalUrl: row.receiptExternalUrl ?? null,
       txHash: row.txHash ?? null,
+      // task-onchain-payment-integrity: the recorded on-chain sender is
+      // ADMIN/ACCOUNTANT-only audit data. This mapper serves the settlement
+      // endpoints (no viewer in scope) and the rows it returns are
+      // company-obligation settlements, not on-chain transfers — always null,
+      // matching the masking applied in `TransactionsService.mapTx`.
+      txFromAddress: null,
       validatedBy: row.validatedBy ?? null,
       validatedAt: toIso(row.validatedAt),
       rejectionReason: row.rejectionReason ?? null,

@@ -2,9 +2,9 @@ import type { ExecutionContext } from '@nestjs/common'
 import { UnauthorizedException } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { JwtService } from '@nestjs/jwt'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { UsersService } from '../users/users.service'
-import { JwtAuthGuard } from './jwt.guard'
+import { JwtAuthGuard, LEGACY_JWT_COOKIE_FALLBACK_CUTOFF } from './jwt.guard'
 import { IS_PUBLIC_KEY } from './public.decorator'
 
 // ── Test helpers ────────────────────────────────────────────────────────────
@@ -302,5 +302,91 @@ describe('JwtAuthGuard — AC2: DB role re-hydration + archived user rejection',
 
     // Only 1 DB call — the second rejection came from the cache.
     expect(mockFindById).toHaveBeenCalledTimes(1)
+  })
+})
+
+// ── MED-1 (security-review round 2): bounded legacy-cookie fallback ───────
+//
+// The `__Host-jwt` / `jwt` fallback read is a session-fixation surface for
+// as long as it accepts the legacy name unconditionally (a `jwt` cookie set
+// from ANY sibling subdomain of the registrable domain — XSS on the
+// landing, subdomain takeover, MITM on a plain-http sibling — is honored
+// exactly like a real session). It must be bounded:
+//   1. PRODUCTION ONLY — dev/test/CI never issue `__Host-jwt` at all, so a
+//      plain `jwt` cookie there is the permanent correct name, not a
+//      "legacy" one to expire (pinned by the "original behavior" describe
+//      block above, which stays green with NODE_ENV left at its test-env
+//      default throughout this whole file).
+//   2. Even in production, only until `LEGACY_JWT_COOKIE_FALLBACK_CUTOFF`
+//      (≤ COOKIE_MAX_AGE / 7 days after this fix ships — no legacy-named
+//      cookie can be older than that).
+describe('JwtAuthGuard — MED-1: legacy jwt-cookie fallback is bounded to production + cutoff', () => {
+  const jwtService = new JwtService({ secret: TEST_SECRET })
+  const originalNodeEnv = process.env.NODE_ENV
+
+  afterEach(() => {
+    process.env.NODE_ENV = originalNodeEnv
+    vi.useRealTimers()
+  })
+
+  function makeCtxWithRequest(cookies: Record<string, string>): ExecutionContext {
+    const request: Record<string, unknown> = { cookies }
+    return {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => ({}),
+      getClass: () => ({}),
+    } as unknown as ExecutionContext
+  }
+
+  it('PROD, before cutoff: legacy `jwt` cookie (no __Host-jwt) still authenticates', async () => {
+    process.env.NODE_ENV = 'production'
+    vi.useFakeTimers()
+    vi.setSystemTime(LEGACY_JWT_COOKIE_FALLBACK_CUTOFF.getTime() - 1000)
+
+    const payload = { id: '00000000-0000-0000-0000-000000000005', email: 'e@b.com', role: 'ADMIN' }
+    const token = jwtService.sign(payload)
+    const ctx = makeCtxWithRequest({ jwt: token })
+
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), undefined)
+    await expect(guard.canActivate(ctx)).resolves.toBe(true)
+  })
+
+  it('PROD, AFTER cutoff: legacy `jwt` cookie (no __Host-jwt) is rejected — 401, not silently accepted', async () => {
+    process.env.NODE_ENV = 'production'
+    vi.useFakeTimers()
+    vi.setSystemTime(LEGACY_JWT_COOKIE_FALLBACK_CUTOFF.getTime() + 1000)
+
+    const payload = { id: '00000000-0000-0000-0000-000000000006', email: 'f@b.com', role: 'ADMIN' }
+    const token = jwtService.sign(payload)
+    const ctx = makeCtxWithRequest({ jwt: token })
+
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), undefined)
+    await expect(guard.canActivate(ctx)).rejects.toThrow(UnauthorizedException)
+  })
+
+  it('PROD, AFTER cutoff: __Host-jwt (the real prod name) still authenticates fine', async () => {
+    process.env.NODE_ENV = 'production'
+    vi.useFakeTimers()
+    vi.setSystemTime(LEGACY_JWT_COOKIE_FALLBACK_CUTOFF.getTime() + 1000)
+
+    const payload = { id: '00000000-0000-0000-0000-000000000007', email: 'g@b.com', role: 'ADMIN' }
+    const token = jwtService.sign(payload)
+    const ctx = makeCtxWithRequest({ '__Host-jwt': token })
+
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), undefined)
+    await expect(guard.canActivate(ctx)).resolves.toBe(true)
+  })
+
+  it('DEV/TEST, past the cutoff date: legacy `jwt` cookie STILL authenticates (not a "legacy" name outside prod)', async () => {
+    process.env.NODE_ENV = 'test'
+    vi.useFakeTimers()
+    vi.setSystemTime(LEGACY_JWT_COOKIE_FALLBACK_CUTOFF.getTime() + 365 * 24 * 60 * 60 * 1000)
+
+    const payload = { id: '00000000-0000-0000-0000-000000000008', email: 'h@b.com', role: 'ADMIN' }
+    const token = jwtService.sign(payload)
+    const ctx = makeCtxWithRequest({ jwt: token })
+
+    const guard = new JwtAuthGuard(jwtService, makeReflector(false), undefined)
+    await expect(guard.canActivate(ctx)).resolves.toBe(true)
   })
 })

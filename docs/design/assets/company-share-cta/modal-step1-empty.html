@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="ru" class="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>company-share-cta — modal step 1 (empty selection)</title>
+    <link rel="stylesheet" href="./tokens.css" />
+  </head>
+  <body>
+    <div class="dialog-overlay">
+      <div class="dialog-shell" role="dialog" aria-modal="true">
+        <div class="dialog-header">
+          <div class="stepper" role="status" aria-label="Шаг 1 из 2: выбор проектов">
+            <div class="stepper-seg">
+              <span class="stepper-dot active">1</span>
+              <span class="stepper-label active">Выбор</span>
+            </div>
+            <span class="stepper-line"></span>
+            <div class="stepper-seg">
+              <span class="stepper-dot">2</span>
+              <span class="stepper-label">Оплата</span>
+            </div>
+          </div>
+          <h2 class="text-lg font-semibold" style="margin: 0">Оплата доли CheekyCheeseIT</h2>
+          <p class="text-xs text-muted" style="margin: 4px 0 0">
+            Выберите проекты и приходы, которые войдут в заявку на выплату
+          </p>
+        </div>
+
+        <div class="dialog-body pb-4">
+          <div class="space-y-3">
+            <div class="project-row">
+              <label class="project-row-header">
+                <input type="checkbox" aria-label="Выбрать все приходы проекта AI Tutor Platform" />
+                <span class="flex-1 min-w-0 flex items-center justify-between gap-2">
+                  <span class="font-medium text-sm truncate">AI Tutor Platform</span>
+                  <span class="tabular-nums text-sm font-medium shrink-0">640,00 USDT</span>
+                </span>
+              </label>
+              <label class="income-row">
+                <input type="checkbox" aria-label="Приход от 03.07.2026" />
+                <span class="flex-1 min-w-0 flex items-center justify-between gap-2">
+                  <span class="text-xs text-muted truncate">Приход от 03.07.2026</span>
+                  <span class="tabular-nums text-xs shrink-0">400,00 USDT</span>
+                </span>
+              </label>
+              <label class="income-row">
+                <input type="checkbox" aria-label="Приход от 18.07.2026" />
+                <span class="flex-1 min-w-0 flex items-center justify-between gap-2">
+                  <span class="text-xs text-muted truncate">Приход от 18.07.2026</span>
+                  <span class="tabular-nums text-xs shrink-0">240,00 USDT</span>
+                </span>
+              </label>
+            </div>
+
+            <div class="project-row">
+              <label class="project-row-header">
+                <input type="checkbox" aria-label="Выбрать все приходы проекта E-Commerce Bridge" />
+                <span class="flex-1 min-w-0 flex items-center justify-between gap-2">
+                  <span class="font-medium text-sm truncate">E-Commerce Bridge, sp. z o.o.</span>
+                  <span class="tabular-nums text-sm font-medium shrink-0">360,00 USDT</span>
+                </span>
+              </label>
+              <label class="income-row">
+                <input type="checkbox" aria-label="Приход от 05.07.2026" />
+                <span class="flex-1 min-w-0 flex items-center justify-between gap-2">
+                  <span class="text-xs text-muted truncate">Приход от 05.07.2026</span>
+                  <span class="tabular-nums text-xs shrink-0">360,00 USDT</span>
+                </span>
+              </label>
+            </div>
+          </div>
+          <!-- Ничего не выбрано — блок «Итого» скрыт целиком (паттерн текущего
+               PayoutDialog: `{selected.size > 0 && (...)}`), а не показан с нулём. -->
+        </div>
+
+        <div class="dialog-footer">
+          <button type="button" class="btn btn-outline btn-lg-touch">Отмена</button>
+          <button
+            type="button"
+            class="btn btn-default btn-lg-touch btn-disabled"
+            disabled
+            aria-disabled="true"
+          >
+            Создать выплату
+          </button>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

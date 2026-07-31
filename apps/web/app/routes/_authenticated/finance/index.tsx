@@ -51,17 +51,19 @@ import { ValidateDialog } from './components/dialogs/ValidateDialog'
 import { EditSeniorIncomeDialog } from './components/dialogs/EditSeniorIncomeDialog'
 import { PaySalaryDialog } from './components/dialogs/PaySalaryDialog'
 import { SettleSeniorPayoutDialog } from './components/dialogs/SettleSeniorPayoutDialog'
-// PayoutDialog (batch payout) — re-activated by feat/finance-payout-flow (#7).
-// SENIOR manually creates a payout request by selecting one or more VALIDATED
+// CompanySharePayoutModal (batch payout) — re-activated by
+// feat/finance-payout-flow (#7), replaced task-company-share-cta. SENIOR
+// manually creates a payout request by selecting one or more VALIDATED
 // SENIOR_INCOME rows. The old auto-create path on ACCOUNTANT validate has been
 // removed to eliminate duplicate payouts.
-import { PayoutDialog } from './components/dialogs/PayoutDialog'
+import { CompanySharePayoutModal } from './components/dialogs/CompanySharePayoutModal'
 import { PayoutDetailDialog } from './components/dialogs/PayoutDetailDialog'
 import { TransactionDetailDialog } from './components/dialogs/TransactionDetailDialog'
 import { AdminEditTransactionDialog } from './components/dialogs/AdminEditTransactionDialog'
 import { AttachReceiptSheet } from './components/dialogs/AttachReceiptSheet'
 import { DropFinancePage } from './components/DropFinancePage'
 import { ConfirmPayoutDialog } from '@/components/finance/ConfirmPayoutDialog'
+import { CompanySharePayoutStrip } from './components/CompanySharePayoutStrip'
 
 /**
  * Deep-link search params for /finance.
@@ -849,6 +851,24 @@ function FinancePage() {
           SENIOR_PENDING_PAYOUT row in the table via the «Выплатить» button
           (ADMIN/ACCOUNTANT only), mirroring the salary pay flow. */}
 
+          {/* task-company-share-cta. First element, right above the
+              transactions table (design spec §4.2 — «буквально вверху
+              списка»). SENIOR only — task boundary excludes ADMIN/ACCOUNTANT
+              here since /finance's `transactions` query is UNSCOPED for them
+              (would otherwise show every senior's outstanding share). */}
+          {isSenior && (
+            <CompanySharePayoutStrip
+              transactions={transactions}
+              isLoading={txLoading}
+              currentUserId={userId}
+              userSeniorSharePercent={user?.seniorSharePercent}
+              onOpen={() => {
+                setPreselectedPayoutTxId(undefined)
+                setPayoutDialogOpen(true)
+              }}
+            />
+          )}
+
           {/* Transactions table */}
           <Card>
             <CardContent className="p-0">
@@ -887,9 +907,10 @@ function FinancePage() {
           <PaySalaryDialog tx={paySalaryTx} onClose={() => setPaySalaryTx(null)} />
           {/* task-senior-settle-owner: senior IOU pay dialog (salary-style funding). */}
           <SettleSeniorPayoutDialog tx={settleSeniorTx} onClose={() => setSettleSeniorTx(null)} />
-          {/* feat/finance-payout-flow (#7): PayoutDialog re-activated. SENIOR
+          {/* feat/finance-payout-flow (#7): batch-payout re-activated, now
+          via CompanySharePayoutModal (task-company-share-cta). SENIOR
           selects one or more VALIDATED SENIOR_INCOME rows → single payout. */}
-          <PayoutDialog
+          <CompanySharePayoutModal
             open={payoutDialogOpen}
             onClose={() => {
               setPayoutDialogOpen(false)

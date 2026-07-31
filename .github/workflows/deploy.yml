@@ -445,7 +445,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql,scripts/devops/check-security-headers.sh'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql,scripts/devops/check-security-headers.sh,scripts/devops/check-nginx-perimeter.sh'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
@@ -473,6 +473,13 @@ jobs:
           #   steps below it, not the VPS filesystem's normal state, which is
           #   compose files + DDL only. This is the ONLY reason a script file
           #   is in this SCP list at all.)
+          # scripts/devops/check-nginx-perimeter.sh → /opt/crm/scripts/devops/check-nginx-perimeter.sh
+          #   (security audit 2026-07-27, MED-1/MED-5: same rationale/pattern as
+          #   check-security-headers.sh immediately above — verifies nginx's
+          #   client_max_body_size + default_server catch-all on every deploy,
+          #   so a future config edit that silently reintroduces the 1 MB
+          #   default (or drops the unmatched-Host catch-all) fails the deploy
+          #   instead of shipping unnoticed.)
           # The deploy step reads from those full paths via /opt/crm.
           #
           # incident (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422 shipped
@@ -574,6 +581,94 @@ jobs:
           # apps/api/drizzle/manual/2026-07-26_csp_reports.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-07-26_csp_reports.sql
 
+      # ── consumed_tx_hashes DDL — GUARDED, same reason as telemetry/CSP above ──
+      # task-onchain-payment-integrity (PR #438, fix/onchain-payment-integrity):
+      # closes a cross-path double-credit hole (a single on-chain USDT transfer
+      # could credit the company account via BOTH the payout-confirmation path
+      # AND the deposit path, since each guarded hash re-use in its OWN table,
+      # blind to the other — see the DDL file's own header for the full HOLE-2
+      # writeup). This DDL-wiring PR is dispatched separately from #438 and MUST
+      # land in `main` BEFORE OR TOGETHER WITH it — #438's own DDL file header
+      # says so explicitly ("DEPENDENCY (DevOps): ... Without that wiring the
+      # new image starts writing to a table that does not exist in prod → 500
+      # on every payout/deposit"). Until #438 merges, this file does not exist
+      # in this checkout — same GUARDED shape as telemetry/CSP reports above (a
+      # missing file here is the expected steady state, not scp-action
+      # flattening the tree).
+      - name: Check for consumed_tx_hashes DDL file (guard until PR #438 merges)
+        id: consumed-tx-hashes-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql not found in checkout — task-onchain-payment-integrity (PR #438) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy consumed_tx_hashes DDL via SCP (only if present)
+        if: steps.consumed-tx-hashes-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql
+
+      # ── Drop-share pending-parity DDL (3 files) — GUARDED, same reason as telemetry/CSP ──
+      # task-infra-drop-share-pending-parity-ddl (this infra-PR) wires the deploy-side
+      # application of THREE manual DDL files that security-review PR #443
+      # (fix/drop-share-pending-parity) actually adds — DevOps zone-of-write excludes
+      # apps/api/**, so this PR cannot carry byte-identical copies the way e.g.
+      # 2026-07-22_vacancies.sql did. See this PR's body for the explicit merge-order note
+      # (lands BEFORE or ALONGSIDE #443, never after). A missing file here is the expected
+      # steady state until #443 merges, not an error — soft-skip via ::notice per file,
+      # mirroring telemetry's/CSP's guard above, but combined into ONE check + ONE
+      # conditional scp (not 3 check/scp pairs) to avoid unnecessary step bloat for what is
+      # otherwise the identical guard semantics repeated three times.
+      #
+      # Required APPLY order (marker → precount → backfill) and the backfill's own
+      # explicit opt-in gate are enforced in the deploy job below (Steps 2k/2l + the
+      # post-health-check gated step) — this scp step only copies whatever is present; it
+      # does not decide what gets applied or when. See
+      # scripts/devops/drop-share-pending-parity-backfill-runbook.md for the full picture.
+      - name: Check for drop-share-pending-parity DDL files (guard until PR #443 merges)
+        id: dspp-ddl-check
+        run: |
+          FILES="apps/api/drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql apps/api/drizzle/manual/2026-07-27_drop_share_pending_parity_precount.sql apps/api/drizzle/manual/2026-07-27_drop_share_pending_parity_backfill.sql"
+          PRESENT=""
+          for f in $FILES; do
+            if [ -f "$f" ]; then
+              PRESENT="${PRESENT:+$PRESENT,}$f"
+            else
+              echo "::notice::$f not found in checkout — PR #443 (fix/drop-share-pending-parity) has not merged to main yet. Skipping copy; the deploy job's matching steps also notice-skip applying it. See scripts/devops/drop-share-pending-parity-backfill-runbook.md."
+            fi
+          done
+          if [ -n "$PRESENT" ]; then
+            echo "source_list=$PRESENT" >> "$GITHUB_OUTPUT"
+            echo "any_exist=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "any_exist=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy drop-share-pending-parity DDL via SCP (only files present)
+        if: steps.dspp-ddl-check.outputs.any_exist == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: '${{ steps.dspp-ddl-check.outputs.source_list }}'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target — whichever of the
+          # three files exist land at:
+          # /opt/crm/apps/api/drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql
+          # /opt/crm/apps/api/drizzle/manual/2026-07-27_drop_share_pending_parity_precount.sql
+          # /opt/crm/apps/api/drizzle/manual/2026-07-27_drop_share_pending_parity_backfill.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -601,14 +696,40 @@ jobs:
           # string, see the write-env job's header comment). Single source
           # of truth: this workflow's top-level `env:` block.
           CRM_CSP_MODE: ${{ env.CRM_CSP_MODE }}
+          # security-review PR #443 (MED-A / MED-2, second review round) — see the big
+          # banner comment above the gated backfill step near the bottom of this script for
+          # the full reasoning. This is a repository VARIABLE (Settings → Secrets and
+          # variables → Actions → Variables tab — NOT a secret: it carries no sensitive
+          # value, just a boolean go/no-go flag), read fresh on every run regardless of
+          # trigger type (push/schedule/workflow_dispatch all see the same value) — unlike a
+          # workflow_dispatch input, which only exists on manually-dispatched runs and would
+          # be silently absent on the push-triggered deploy that normally follows a merge.
+          # Defaults to the EMPTY STRING when the variable has never been set (GitHub returns
+          # '' for an undefined vars.* reference, never an error) — the `== 'true'` comparison
+          # below treats that, and any value other than the literal string 'true', as OFF.
+          APPLY_DROP_SHARE_BACKFILL: ${{ vars.APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL == 'true' }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE
+          envs: IMAGE_TAG,GH_ACTOR,GHCR_TOKEN,CRM_CSP_MODE,APPLY_DROP_SHARE_BACKFILL
           script: |
             set -euo pipefail
             cd /opt/crm
+
+            # security-review PR #443 (this infra-PR's task): fresh per-run scratch file that
+            # accumulates the RAISE NOTICE output of the drop-share-pending-parity marker +
+            # precount (+ backfill, on a gated run) DDL steps below, so the "Fetch
+            # drop-share-pending-parity DDL summary" step further down in this job (a
+            # SEPARATE, small ssh-action step with capture_stdout: true) can surface it in the
+            # job's $GITHUB_STEP_SUMMARY instead of it being buried in this step's (very long)
+            # live log — these are real money numbers, see
+            # scripts/devops/drop-share-pending-parity-backfill-runbook.md. Truncated as early
+            # as possible in this script (before ANY step that could fail) so a partial/failed
+            # run still leaves a fresh, not-stale, file for the summary step (which runs with
+            # `if: always()`) to read — never a leftover from a PREVIOUS run's numbers
+            # misattributed to this one.
+            : > /opt/crm/.last-ddl-summary.txt
 
             echo "==> Logging in to GHCR"
             echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GH_ACTOR" --password-stdin
@@ -943,6 +1064,165 @@ jobs:
               echo "==> csp_reports DDL applied successfully"
             fi
 
+            # ── Step 2j: consumed_tx_hashes registry + tx_from_address (idempotent, GUARDED) ──
+            # task-onchain-payment-integrity (PR #438): closes HOLE-2 (a single on-chain USDT
+            # transfer could credit the company account TWICE — once via the payout-confirmation
+            # path, once via the deposit path — because each guarded hash re-use in its OWN
+            # table, blind to the other). Same GUARDED pattern as telemetry/CSP reports above —
+            # this DDL-wiring PR is dispatched separately from, and MUST merge to `main` BEFORE
+            # OR TOGETHER WITH, #438 (its DDL file's own header says so: without this wiring the
+            # new image starts writing to `consumed_tx_hashes`, which does not exist in prod →
+            # 500 on every payout/deposit — same incident class as the 2026-07-25 vacancy-i18n
+            # gap check-prod-ddl-wiring.py now guards against). A missing file here is the
+            # expected steady state until #438 merges, not an error.
+            # Idempotent: CREATE TABLE/INDEX IF NOT EXISTS, ADD COLUMN IF NOT EXISTS, backfill
+            # INSERT ... ON CONFLICT DO NOTHING — safe to re-run every deploy.
+            #
+            # MONEY-CRITICAL OUTPUT — do not let this go quiet: the DDL's own backfill step
+            # RAISEs a WARNING (not an ERROR — it never fails the deploy) if it finds on-chain
+            # hashes ALREADY consumed by BOTH money paths before this fix — i.e. a REAL transfer
+            # that already double-credited the company balance, owner money, not a code bug this
+            # step can fix by itself. psql sends WARNING/NOTICE to stderr, which a bare `< file`
+            # invocation still surfaces in this step's own log (stdout+stderr are the same
+            # terminal stream over this SSH session) — but "present somewhere in a very long
+            # deploy log" is not the same as "seen". Captured explicitly below and, if that
+            # WARNING fired, re-emitted as a GitHub Actions `::warning::` annotation — those
+            # surface in the Checks tab summary and the PR conversation, not just buried in step
+            # output, which is the whole point: this is the owner's money, not a normal deploy
+            # log line.
+            # Source: apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql
+            CONSUMED_TX_HASHES_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql"
+
+            if [ ! -f "$CONSUMED_TX_HASHES_FILE" ]; then
+              echo "::notice::consumed_tx_hashes DDL file not found at $CONSUMED_TX_HASHES_FILE — task-onchain-payment-integrity (PR #438) has not merged to main yet. Skipping this step; it applies automatically on the next deploy once #438 is in main."
+            else
+              echo "==> Applying consumed_tx_hashes + tx_from_address DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              if ! CONSUMED_TX_HASHES_OUTPUT=$(docker compose \
+                     -f docker-compose.prod.yml \
+                     -f docker-compose.ghcr.yml \
+                     --env-file .env.production \
+                     exec -T postgres \
+                     psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                     < "$CONSUMED_TX_HASHES_FILE" 2>&1); then
+                echo "$CONSUMED_TX_HASHES_OUTPUT"
+                echo "ERROR: consumed_tx_hashes DDL failed to apply — see psql output above."
+                exit 1
+              fi
+              echo "$CONSUMED_TX_HASHES_OUTPUT"
+
+              # money-critical: re-surface the backfill's WARNING (pre-existing cross-path
+              # double credit) as a GHA annotation so it cannot be missed in a long log.
+              DUP_WARNING_LINE=$(printf '%s\n' "$CONSUMED_TX_HASHES_OUTPUT" | grep 'WARNING:.*consumed_tx_hashes backfill' || true)
+              if [ -n "$DUP_WARNING_LINE" ]; then
+                echo "::warning::${DUP_WARNING_LINE} — see apps/api/drizzle/manual/2026-07-27_consumed_tx_hashes.sql's AUDIT query to identify the affected payout(s)/deposit(s); this is a real, pre-existing double credit to the company balance, not caused by this deploy."
+              fi
+              echo "==> consumed_tx_hashes + tx_from_address DDL applied successfully"
+            fi
+
+            # ── Step 2k: drop_cascade_origin marker column, FIRST PASS (idempotent, GUARDED) ──
+            # security-review PR #443 (MED-B, round 2; semantics revised HIGH-1, round 4):
+            # this infra-PR merges BEFORE (or alongside) fix/drop-share-pending-parity (PR
+            # #443) — DevOps zone-of-write excludes apps/api/**, so this PR cannot carry a
+            # copy of the file itself, same reason as telemetry's Step 2f / csp_reports's
+            # Step 2i above. A missing file here is the expected steady state until #443
+            # merges, not an error — soft-skip via ::notice, not the fail-loud check every
+            # ALREADY-present DDL file above uses. (Numbered 2k, not 2j — #438's
+            # consumed_tx_hashes wiring above already claims 2j.)
+            #
+            # security-review PR #443/#447 (round 6) — self-referential cutover boundary, not
+            # a hardcoded calendar date. The marker file's STEP 1 records this database's own
+            # first-ever application timestamp in a singleton state table
+            # (`drop_cascade_origin_marker_state`, `ON CONFLICT DO NOTHING` — every later pass
+            # reads the same value back unchanged). STEP 2 adds the column and converges its
+            # nullability/default. STEP 3's backfill is bounded by
+            # `created_at < first_applied_at + INTERVAL '24 hours'` — anchored to THIS
+            # environment's own rollout, not to a calendar date, so it is correct no matter how
+            # long the rollout is delayed. The window is wide enough to cover BOTH deploy-time
+            # passes (this Step 2k before the cutover, Step 3.5 after the health checks) plus
+            # same-day retries, and narrow enough that a row created by a future insert path
+            # that forgets to stamp the column — days or weeks after this environment's
+            # rollout — is never touched and correctly stays NULL/blocked. Every PRE-EXISTING
+            # `DROP_PENDING_PAYOUT` row is, by construction, admin-declaration-originated (the
+            # drop-payout cascade only started producing DROP_PENDING_PAYOUT rows in THIS PR;
+            # before it, the cascade inserted PAYOUT_DROP directly), so `false` is the only
+            # correct backfill value for it. Without this, the `<> false` guard in
+            # `settleByCompany` (pending-settlement.service.ts) would wrongly BLOCK a
+            # legitimate COMPANY_ACCOUNT settle on money the company is genuinely holding — see
+            # the file's own header for the full walk-through.
+            #
+            # This FIRST pass — safe to leave wired PERMANENTLY once present, per the file's
+            # own header and the round-4/round-6 review discussion (unlike the backfill further
+            # down this script). Runs as an ORDINARY step (not gated behind
+            # APPLY_DROP_SHARE_BACKFILL) — see
+            # scripts/devops/drop-share-pending-parity-backfill-runbook.md for why only the
+            # BACKFILL (Step 4) needs the explicit opt-in, not this or the precount below.
+            #
+            # Deploy-window gap this FIRST pass alone does NOT close: it only catches rows
+            # that exist AT THE MOMENT it runs — before Step 3 restarts api/nginx, the OLD
+            # (previous-deploy) image is still serving and can still insert fresh unmarked
+            # rows. Step 3.5, further down this script (after Step 3's health checks), is the
+            # required SECOND application that sweeps those stragglers — see that step's own
+            # comment for the full reasoning and why it, like this FIRST pass, is safe and
+            # intended to stay wired PERMANENTLY (security-review PR #443, round 5/6): the
+            # marker file's STEP 1 anchor (`first_applied_at`, stamped once, ever, per
+            # database) never moves, so the `first_applied_at + 24 hours` cutoff in STEP 3
+            # stays fixed forever — it can never expand to catch a row a future, correctly-
+            # stamping code path inserts days or weeks after this environment's own rollout,
+            # no matter how many times either pass re-runs.
+            # Source: apps/api/drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql
+            DROP_CASCADE_MARKER_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-27_drop_cascade_origin_marker.sql"
+
+            if [ ! -f "$DROP_CASCADE_MARKER_FILE" ]; then
+              echo "::notice::drop_cascade_origin marker DDL not found at $DROP_CASCADE_MARKER_FILE — PR #443 (fix/drop-share-pending-parity) has not merged to main yet. Skipping this and the precount step below; both apply automatically once #443 is in main. See scripts/devops/drop-share-pending-parity-backfill-runbook.md."
+              echo "=== drop_cascade_origin marker — SKIPPED (file not present; PR #443 not merged yet) ===" >> /opt/crm/.last-ddl-summary.txt
+            else
+              echo "==> Applying drop_cascade_origin marker DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              {
+                echo "=== drop_cascade_origin marker (2026-07-27_drop_cascade_origin_marker.sql) ==="
+                docker compose \
+                  -f docker-compose.prod.yml \
+                  -f docker-compose.ghcr.yml \
+                  --env-file .env.production \
+                  exec -T postgres \
+                  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                  < "$DROP_CASCADE_MARKER_FILE" 2>&1
+              } | tee -a /opt/crm/.last-ddl-summary.txt
+              echo "==> drop_cascade_origin marker DDL applied successfully"
+            fi
+
+            # ── Step 2l: drop-share pending-parity PRE-COUNT (read-only, GUARDED) ────────────
+            # security-review PR #443 (MED-A, second review round): a genuinely SEPARATE,
+            # PRIOR step from the backfill — 100% read-only (no CREATE/INSERT/UPDATE of any
+            # kind), so it is safe and intended to run on EVERY deploy once #443 is in main,
+            # completely independent of the APPLY_DROP_SHARE_BACKFILL gate below. This is
+            # exactly how the owner gets to see the number BEFORE anything changes: the
+            # backfill defaults to OFF (see the gated step near the end of this script), so a
+            # normal deploy — including the very first one after #443 merges — applies ONLY
+            # the marker above and this count, never the mutation. The RAISE NOTICE output is
+            # captured into /opt/crm/.last-ddl-summary.txt (reset at the top of this script)
+            # and surfaced in the job summary by a separate step later in this job — not
+            # buried in this (very long) live log.
+            # Source: apps/api/drizzle/manual/2026-07-27_drop_share_pending_parity_precount.sql
+            PRECOUNT_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-27_drop_share_pending_parity_precount.sql"
+
+            if [ ! -f "$PRECOUNT_FILE" ]; then
+              echo "::notice::drop-share pending-parity precount DDL not found at $PRECOUNT_FILE — PR #443 has not merged to main yet. Skipping. See scripts/devops/drop-share-pending-parity-backfill-runbook.md."
+              echo "=== drop-share pending-parity PRE-COUNT — SKIPPED (file not present; PR #443 not merged yet) ===" >> /opt/crm/.last-ddl-summary.txt
+            else
+              echo "==> Applying drop-share pending-parity PRE-COUNT (read-only) — user=${PGUSER} db=${PGDB}"
+              {
+                echo "=== drop-share pending-parity PRE-COUNT (2026-07-27_drop_share_pending_parity_precount.sql) ==="
+                docker compose \
+                  -f docker-compose.prod.yml \
+                  -f docker-compose.ghcr.yml \
+                  --env-file .env.production \
+                  exec -T postgres \
+                  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                  < "$PRECOUNT_FILE" 2>&1
+              } | tee -a /opt/crm/.last-ddl-summary.txt
+              echo "==> drop-share pending-parity PRE-COUNT complete"
+            fi
+
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
             # --remove-orphans cleans up any containers from old service names.
@@ -1083,10 +1363,248 @@ jobs:
               exit 1
             fi
 
+            # security audit 2026-07-27 (MED-1/MED-5): same FATAL pattern as the
+            # security-headers check immediately above — this is the "did nginx
+            # end up serving the config we think it did" class of check, not a
+            # soft warning. Covers body-size limits, the default_server
+            # catch-all, AND a real-visitor regression guard (sends
+            # CF-Connecting-IP like Cloudflare would and asserts it is NOT
+            # rejected) — POSTs to the real, public, GET-only /api/health,
+            # never touches the DB/S3/business logic. See the script's own
+            # header comment for why that regression guard exists: a
+            # source-IP allow/deny gate was attempted in the same PR that
+            # introduced this script and reverted after security review
+            # (nginx's realip module rewrites $remote_addr to the
+            # client-supplied CF-Connecting-IP BEFORE the access-control
+            # phase runs, so a naive gate blocks real visitors and passes
+            # attackers who omit that header) — that corrected gate is a
+            # separate follow-up PR, not part of this check yet.
+            echo "==> Smoke test — nginx perimeter (body limits, default_server), via local nginx (FATAL)"
+            NGINX_PERIMETER_SCRIPT="/opt/crm/scripts/devops/check-nginx-perimeter.sh"
+            if [ ! -f "$NGINX_PERIMETER_SCRIPT" ]; then
+              echo "ERROR: guard script not found at $NGINX_PERIMETER_SCRIPT — scp-action may have flattened the tree (see copy-compose job)."
+              ls -la /opt/crm/scripts/devops/ 2>/dev/null || true
+              exit 1
+            fi
+            if bash "$NGINX_PERIMETER_SCRIPT" http://127.0.0.1; then
+              echo "nginx perimeter check PASSED"
+            else
+              echo "ERROR: nginx is not enforcing the expected request-body limits, the default_server"
+              echo "catch-all is missing, and/or real Cloudflare-forwarded visitors are being blocked."
+              echo "This means a regression of the class fixed in the 2026-07-27 security audit"
+              echo "(client_max_body_size silently reverted to nginx's 1 MB default, an unmatched Host"
+              echo "falling through to a real vhost again, or a source-IP gate filtering on the"
+              echo "client-supplied CF-Connecting-IP header) shipped — see"
+              echo "scripts/devops/check-nginx-perimeter.sh's own header comment."
+              exit 1
+            fi
+
+            # ── Step 3.5: drop_cascade_origin marker — SECOND PASS (idempotent, PERMANENT) ────
+            # security-review PR #443 (HIGH-1, round 4; confirmed safe-forever, round 5/6): Step
+            # 2k's application of this SAME file only catches rows that exist AT THE MOMENT it
+            # runs — which is BEFORE Step 3 restarts api/nginx. While the pull/restart/health-
+            # check sequence in Step 3 is in flight, the OLD api container (the PREVIOUS
+            # deploy's image, unaware of this column) is still the one answering real traffic
+            # and can still insert FRESH admin-declared DROP_PENDING_PAYOUT rows with
+            # drop_cascade_origin = NULL — the exact row shape Step 2k's UPDATE exists to
+            # sweep, just created a moment too late for that sweep to see them. Left uncaught
+            # until the NEXT deploy (which could be days later — the marker's own scheduled
+            # weekly rebuild is the only guaranteed upper bound), each such row would be
+            # wrongly BLOCKED from a legitimate COMPANY_ACCOUNT settle by the `<> false` guard
+            # in `settleByCompany` — the same "company owes a real person and can't pay them
+            # from the account that is actually holding the money" class of harm HIGH-1 exists
+            # to prevent, just re-opened by the deploy window itself for however long the next
+            # deploy takes to arrive.
+            #
+            # security-review PR #443/#447 (round 6) — image ROLLBACK is only PARTIALLY
+            # covered, not fully. The same gap re-opens on an image ROLLBACK to a pre-#443
+            # build (old image running again, unaware of the column) — but a rollback
+            # happening MORE than 24h after this environment's first marker application falls
+            # OUTSIDE STEP 3's `first_applied_at + 24h` window: rows the rolled-back image
+            # books stay NULL and must be stamped manually (see the runbook). This second pass
+            # closes the cutover-window race of THIS deploy, not an arbitrarily-late rollback.
+            #
+            # Fix: re-apply the SAME marker file — its STEP 1 (state-table anchor) and STEP 2
+            # (schema) are both no-ops by now (state already stamped, column/nullability/
+            # default already converged, by Step 2k above); its STEP 3 UPDATE is idempotent
+            # (`WHERE ... IS NULL` — a row it already fixed no longer matches) — AFTER Step 3's
+            # `docker compose up -d` AND after every FATAL health/smoke-check above have
+            # already passed. By this point the api container has been recreated from the NEW
+            # image and has answered a healthy `/api/health` — the OLD image is confirmed
+            # stopped and no further stragglers from THIS cutover can be created.
+            #
+            # Round 5/6: safe to leave BOTH passes wired PERMANENTLY (no de-wire needed, unlike
+            # Step 4 below) — once this environment's own `first_applied_at + 24h` has elapsed,
+            # STEP 3 is a permanent 0-row no-op (`first_applied_at` is never re-stamped), so it
+            # can never mask a future regression that forgets to stamp the column.
+            #
+            # NOT gated behind APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL (unlike Step 4 below):
+            # this is a mechanical closing of a narrow, well-understood deploy-window race — it
+            # needs no owner judgment call on volume/risk the way the backfill's historical
+            # data mutation does, and gating it behind an opt-in would just leave the race open
+            # by default on every normal deploy, for however long until someone opts in. Runs
+            # UNCONDITIONALLY (same file-presence guard as Step 2k — soft-skip until #443
+            # merges), same as Step 2k itself — no per-run business decision needed here.
+            if [ ! -f "$DROP_CASCADE_MARKER_FILE" ]; then
+              echo "::notice::drop_cascade_origin marker DDL not found at $DROP_CASCADE_MARKER_FILE — PR #443 has not merged to main yet. Skipping the second pass (same reason as Step 2k above)."
+              echo "=== drop_cascade_origin marker — SECOND PASS — SKIPPED (file not present; PR #443 not merged yet) ===" >> /opt/crm/.last-ddl-summary.txt
+            else
+              echo "==> Applying drop_cascade_origin marker DDL SECOND PASS (idempotent, sweeps deploy-window stragglers; new guarded api image already live+healthy) — user=${PGUSER} db=${PGDB}"
+              {
+                echo "=== drop_cascade_origin marker — SECOND PASS, post-cutover sweep (2026-07-27_drop_cascade_origin_marker.sql) ==="
+                docker compose \
+                  -f docker-compose.prod.yml \
+                  -f docker-compose.ghcr.yml \
+                  --env-file .env.production \
+                  exec -T postgres \
+                  psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                  < "$DROP_CASCADE_MARKER_FILE" 2>&1
+              } | tee -a /opt/crm/.last-ddl-summary.txt
+              echo "==> drop_cascade_origin marker SECOND PASS applied successfully"
+            fi
+
+            # ═══════════════════════════════════════════════════════════════════════════════
+            # Step 4: drop-share pending-parity BACKFILL — ONE-TIME MONEY-STATUS MUTATION.
+            # TODO(DE-WIRE-AFTER-USE): remove this ENTIRE step from deploy.yml (and this
+            # banner) in a follow-up PR the run after it applies successfully on prod. See
+            # scripts/devops/drop-share-pending-parity-backfill-runbook.md §4 for the exact
+            # removal procedure — mirrors the settle-phantom-cleanup precedent (PR #382 wire-in
+            # → PR #383 de-wire after one successful apply). Do NOT leave this step enabled
+            # indefinitely: unlike every DDL step above (idempotent-forever), a re-run against
+            # a future, unrelated PAID/PAYOUT_DROP/payout_request_id-carrying row would
+            # silently re-open an already-settled debt — see the SQL file's own header
+            # ("DE-WIRE AFTER A SUCCESSFUL APPLY" / security-review MED-4).
+            # ═══════════════════════════════════════════════════════════════════════════════
+            #
+            # WHY THIS RUNS HERE — AFTER Step 3's health checks (and Step 3.5), not with the
+            # other DDL above
+            # -------------------------------------------------------------------------------
+            # security-review PR #443 (MED-2, second review round): every DDL step above (2a
+            # through 2l) runs BEFORE the new api/nginx containers start (Step 3) — safe for
+            # idempotent additive DDL, because nothing about their content depends on which
+            # api code is currently live. The backfill is different: it converts historical
+            # rows into a state (DROP_PENDING_PAYOUT/PENDING_PAYMENT/drop_cascade_origin=true)
+            # that only a settleByCompany call GUARDED against a COMPANY_ACCOUNT-funded close
+            # (the HIGH-1 fix in pending-settlement.service.ts, PR #443) can safely close. If
+            # this step ran BEFORE Step 3 (like the other DDL), there would be a window — for
+            # however long Step 3 takes to pull/restart/health-check — where the OLD api
+            # container (pre-#443, WITHOUT that guard) is still the one actually serving
+            # traffic while the converted rows already exist: a real settle request in that
+            # window could close one of them via COMPANY_ACCOUNT with no guard to stop it,
+            # exactly the double-debit bug PR #443 exists to prevent. Placing this step here —
+            # after Step 3's `docker compose up -d`, after Step 3.5's marker second-pass sweep,
+            # AND after the FATAL API/landing/security-headers health checks above have already
+            # passed — guarantees the NEW guarded api image is the one live and answering
+            # requests before any row is converted.
+            #
+            # This is DELIBERATELY layered with, not a replacement for, the default-OFF gate
+            # below: the intended flow is genuinely TWO separate deploy runs — "Deploy N"
+            # (this PR + PR #443 merged, gate OFF, marker first-pass + precount + container
+            # cutover + marker second-pass sweep, new guarded image goes live) → owner reads
+            # the precount number from Deploy N's job summary → "Deploy N+1" (gate flipped ON
+            # via the repo variable, a deliberate LATER run) → backfill actually applies, by
+            # which point the guarded image has already been live and healthy for an entire
+            # prior deploy, not just the tail end of this one. The ordering fix above is
+            # defense-in-depth for the (should-never-happen, but cheap to close) edge case of
+            # the gate being flipped ON before Deploy N even exists — it does not on its own
+            # satisfy "owner saw the number and decided", which is what the gate is for. See
+            # scripts/devops/drop-share-pending-parity-backfill-runbook.md §3 for the full
+            # two-deploy procedure, and §4 for why Step 3.5 (unlike this gated step) is safe
+            # to leave wired permanently, unconditionally, with no gate and no de-wire.
+            #
+            # THE GATE — defaults OFF
+            # ------------------------
+            # $APPLY_DROP_SHARE_BACKFILL is threaded in via this step's `env:`/`envs:` above,
+            # sourced from the repo variable `APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL`
+            # (Settings → Secrets and variables → Actions → Variables — NOT a secret). Unset
+            # or anything other than the literal string 'true' → OFF. A normal deploy (push
+            # after merge, the weekly rebuild, or a manual workflow_dispatch without touching
+            # the variable) therefore applies ONLY the marker + precount above, however long
+            # #443 has been merged — never this step, until the owner deliberately opts in.
+            if [ "$APPLY_DROP_SHARE_BACKFILL" != "true" ]; then
+              echo "::notice::APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL is OFF (default) — skipping the drop-share pending-parity BACKFILL (one-time data-fix) this run. Marker + precount already ran/skipped independently above. See scripts/devops/drop-share-pending-parity-backfill-runbook.md §3 to opt in for a dedicated run."
+              echo "=== drop-share pending-parity BACKFILL — SKIPPED (gate APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL is off; default) ===" >> /opt/crm/.last-ddl-summary.txt
+            else
+              BACKFILL_FILE="/opt/crm/apps/api/drizzle/manual/2026-07-27_drop_share_pending_parity_backfill.sql"
+              if [ ! -f "$BACKFILL_FILE" ]; then
+                echo "::notice::Gate is ON but drop-share pending-parity backfill DDL not found at $BACKFILL_FILE — PR #443 has not merged to main yet. Nothing to apply this run; flip the gate off again until #443 is in main (see the runbook)."
+                echo "=== drop-share pending-parity BACKFILL — SKIPPED (gate ON but file not present yet; PR #443 not merged) ===" >> /opt/crm/.last-ddl-summary.txt
+              else
+                echo "==> APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL is ON — applying drop-share pending-parity BACKFILL (one-time data-fix, new guarded api image already live+healthy) — user=${PGUSER} db=${PGDB}"
+                {
+                  echo "=== drop-share pending-parity BACKFILL (2026-07-27_drop_share_pending_parity_backfill.sql) — APPLIED THIS RUN ==="
+                  docker compose \
+                    -f docker-compose.prod.yml \
+                    -f docker-compose.ghcr.yml \
+                    --env-file .env.production \
+                    exec -T postgres \
+                    psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                    < "$BACKFILL_FILE" 2>&1
+                } | tee -a /opt/crm/.last-ddl-summary.txt
+                echo "==> drop-share pending-parity BACKFILL applied successfully."
+                echo "==> ############################################################################"
+                echo "==> ACTION REQUIRED: de-wire this step from deploy.yml now (see"
+                echo "==> scripts/devops/drop-share-pending-parity-backfill-runbook.md §4) and flip"
+                echo "==> APPLY_DROP_SHARE_PENDING_PARITY_BACKFILL back to false/unset right away so a"
+                echo "==> future accidental deploy cannot re-run this mutation before the removal PR lands."
+                echo "==> ############################################################################"
+              fi
+            fi
+
             echo "==> Cleaning dangling images"
             docker image prune -f || true
 
             echo "==> Deploy complete. IMAGE_TAG=${IMAGE_TAG}"
+
+      # ── Drop-share pending-parity DDL summary → job summary (money numbers, not buried) ──
+      # security-review PR #443 (this infra-PR's task): the marker/precount/backfill RAISE
+      # NOTICE output above was captured into /opt/crm/.last-ddl-summary.txt (reset near the
+      # top of the previous step's script, appended to by each of the three DDL blocks) —
+      # these are real numbers about the owner's money and must not be left to scroll off in
+      # a several-hundred-line deploy log. Two small steps, not folded into the giant SSH
+      # step above: `capture_stdout` only exists as a per-step ssh-action option, and
+      # enabling it on the whole "Pull, up, migrate, health-check" step would buffer (rather
+      # than live-stream) its entire multi-minute output, hiding progress during the health-
+      # check retry loops — an unrelated regression for a summary-only feature. `if: always()`
+      # on both — even a failed main deploy step should still surface whatever was captured
+      # before the failure (e.g. a fail-loud verify exception in the backfill still has the
+      # marker/precount NOTICE output ahead of it in the file).
+      - name: Fetch drop-share-pending-parity DDL summary via SSH
+        id: dspp_ddl_summary
+        if: always()
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          capture_stdout: true
+          script: |
+            if [ -f /opt/crm/.last-ddl-summary.txt ]; then
+              cat /opt/crm/.last-ddl-summary.txt
+            else
+              echo "(no output captured — the main deploy step likely failed before reaching its scratch-file reset; see the 'Pull, up, migrate, health-check via SSH' step's own log for the actual failure)"
+            fi
+
+      - name: Publish drop-share-pending-parity DDL summary to job summary
+        if: always()
+        env:
+          # Passed via `env:` (never interpolated directly into the `run:` script string) —
+          # same injection-prevention convention as every secret-handling step in this
+          # workflow (see the write-env job's header comment) — even though this content is
+          # our own DB engine's NOTICE output, not attacker-controlled.
+          DDL_SUMMARY: ${{ steps.dspp_ddl_summary.outputs.stdout }}
+        run: |
+          {
+            echo "## Drop-share pending-parity — DDL output (money-affecting, PR #443)"
+            echo ""
+            echo "Marker (both passes, permanent) + pre-count run on every deploy once PR #443"
+            echo "is merged (unconditional). The BACKFILL only runs when explicitly gated on —"
+            echo "see \`scripts/devops/drop-share-pending-parity-backfill-runbook.md\`."
+            echo ""
+            echo '```'
+            printf '%s\n' "$DDL_SUMMARY"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # ── 5. IndexNow ping (AC B6) ─────────────────────────────────────────
       # task-infra-locale-edge: runs on the RUNNER, not via SSH — it only

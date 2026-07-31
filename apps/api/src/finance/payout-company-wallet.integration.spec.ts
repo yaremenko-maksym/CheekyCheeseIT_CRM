@@ -11,9 +11,17 @@ import { DatabaseService } from '../database/database.service'
 import { CompanyAccountService } from './company-account.service'
 import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
+import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
 import type { NbuCurrencyService } from './nbu-currency.service'
-import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
+import {
+  companyAccount,
+  payoutRequests,
+  transactionAuditLog,
+  transactions,
+  users,
+} from '../database/schema'
 import * as schema from '../database/schema'
 
 /**
@@ -44,6 +52,10 @@ import * as schema from '../database/schema'
 
 const WALLET = '0xC0FFEE0000000000000000000000000000000abc'
 const THRESHOLD = 12
+/** The payer's own wallet (task-onchain-payment-integrity — recorded, not enforced). */
+const SENDER_WALLET = '0x9999999999999999999999999999999999999999'
+/** An exchange hot wallet — the legitimate "sender ≠ payer" case. Lowercase (stored form). */
+const EXCHANGE_WALLET = '0x3333333333333333333333333333333333333333'
 
 const SENIOR: SessionUser = {
   id: 'ca110000-0000-4000-aa00-000000000001',
@@ -88,18 +100,10 @@ const TEST_USER_IDS = ALL.map((u) => u.id)
 const ACCOUNT_ID = 'ca110000-0000-4000-cc00-000000000001'
 
 // ── Controllable fake Etherscan: per-hash scripted verification ──────────────
-const verifyScript = new Map<string, DepositVerification>()
+const verifyScript = new Map<string, ScriptedVerification>()
 const fakeEtherscan: Pick<EtherscanService, 'verifyDeposit'> = {
   verifyDeposit: (txHash: string): Promise<DepositVerification> =>
-    Promise.resolve(
-      verifyScript.get(txHash) ?? {
-        found: false,
-        toMatches: false,
-        confirmed: false,
-        confirmations: 0,
-        amountUsdt: null,
-      },
-    ),
+    Promise.resolve(withDerivedMinorUnits(verifyScript.get(txHash))),
 }
 
 // Fixed-rate NBU stub (USDT incomes → identity conversion; never hits network).
@@ -184,6 +188,11 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
     await dbSvc.db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
     await dbSvc.db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
+    // task-onchain-payment-integrity: the consumed-hash registry OUTLIVES its
+    // referent by design, so a suite re-using fixed test hashes must sweep it —
+    // otherwise the next test using the same HASH gets a legitimate
+    // «хеш уже использован» rejection. Runs LAST (needs the rows above gone).
+    await sweepOrphanConsumedTxHashes(dbSvc)
   }
 
   async function balance(): Promise<number> {
@@ -365,8 +374,11 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     expect(await balance()).toBe(before)
   })
 
-  // ── AC3: amount within 1% tolerance → PAID ──────────────────────────────────
-  it('on-chain confirm: amount within 1% tolerance → PAID, balance += payable', async () => {
+  // ── EXACT AMOUNT (task-onchain-payment-integrity) ───────────────────────────
+  // The ±1% band is GONE. This test used to assert the opposite (a +0.5%
+  // transfer was accepted as full settlement) — that band was the search space
+  // an attacker used to find a stranger's transfer of roughly the right size.
+  it('SECURITY: amount 0.5% off (inside the OLD ±1% band) → rejected, no credit', async () => {
     if (!dbAvailable) return
     const before = await balance()
     const { requestId, payable } = await seedPayout(SENIOR, '1000') // 740
@@ -374,16 +386,132 @@ describe('payout → company wallet — on-chain confirm + manual-confirm RBAC (
     verifyScript.set(HASH, {
       found: true,
       toMatches: true,
+      fromAddress: SENDER_WALLET,
       confirmed: true,
       confirmations: THRESHOLD,
-      amountUsdt: payable * 1.005, // +0.5% — inside the 1% band
+      amountUsdt: payable * 1.005, // +0.5% — accepted BEFORE this task
+    })
+
+    await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toThrowError(
+      /точно совпадать/,
+    )
+    const pr = await dbSvc.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, requestId),
+    })
+    expect(pr?.status).toBe('PENDING')
+    expect(await balance()).toBe(before)
+  })
+
+  it('SECURITY: amount one MINOR UNIT short (0.000001 USDT) → rejected', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + 'e'.repeat(64)
+    // Script the minor-units figure directly — one unit below payable.
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      fromAddress: SENDER_WALLET,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+      amountUsdtMinor: (BigInt(Math.round(payable * 1_000_000)) - 1n).toString(),
+    })
+
+    await expect(svc.payPayoutRequest(requestId, HASH, SENIOR)).rejects.toThrowError(
+      /точно совпадать/,
+    )
+    expect(await balance()).toBe(before)
+  })
+
+  it('EXACT amount to the minor unit → PAID (no tolerance needed for an honest payer)', async () => {
+    if (!dbAvailable) return
+    const before = await balance()
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + 'f'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      fromAddress: SENDER_WALLET,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+      amountUsdtMinor: BigInt(Math.round(payable * 1_000_000)).toString(),
     })
 
     const result = await svc.payPayoutRequest(requestId, HASH, SENIOR)
     expect(result.status).toBe('PAID')
-    // Balance credits the RECORDED payable (the PAYOUT row amount), not the
-    // slightly-different on-chain figure — no double count, deterministic.
     expect(await balance()).toBeCloseTo(before + payable, 6)
+  })
+
+  // ── RECORDED SENDER (task-onchain-payment-integrity) ────────────────────────
+  // The on-chain `from` is OBSERVED, not enforced: staff often withdraw from an
+  // exchange, so the sender is the exchange's hot wallet. It must not block the
+  // settlement, and it must be persisted + visible to ADMIN/ACCOUNTANT only.
+  it('a THIRD-PARTY sender settles the payout and is RECORDED (not blocked)', async () => {
+    if (!dbAvailable) return
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + '9'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      fromAddress: EXCHANGE_WALLET.toUpperCase().replace('0X', '0x'), // mixed case
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+      amountUsdtMinor: BigInt(Math.round(payable * 1_000_000)).toString(),
+    })
+
+    const result = await svc.payPayoutRequest(requestId, HASH, SENIOR)
+    expect(result.status).toBe('PAID')
+
+    // Persisted on the payout_request, normalised to lowercase…
+    const pr = await dbSvc.db.query.payoutRequests.findFirst({
+      where: eq(payoutRequests.id, requestId),
+    })
+    expect(pr?.txFromAddress).toBe(EXCHANGE_WALLET)
+    // …and on the PAYOUT ledger row.
+    const payoutRow = await dbSvc.db.query.transactions.findFirst({
+      where: and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+    })
+    expect(payoutRow?.txFromAddress).toBe(EXCHANGE_WALLET)
+
+    // …and written to the audit log with the settling hash.
+    const audit = await dbSvc.db.query.transactionAuditLog.findFirst({
+      where: and(
+        eq(transactionAuditLog.targetId, payoutRow!.id),
+        eq(transactionAuditLog.action, 'PAYOUT_SETTLED'),
+      ),
+    })
+    expect(audit?.metadata).toMatchObject({ txHash: HASH, txFromAddress: EXCHANGE_WALLET })
+  })
+
+  it('RBAC: the recorded sender is ADMIN/ACCOUNTANT-only in the DTO', async () => {
+    if (!dbAvailable) return
+    const { requestId, payable } = await seedPayout(SENIOR, '1000')
+    const HASH = '0x' + '8'.repeat(64)
+    verifyScript.set(HASH, {
+      found: true,
+      toMatches: true,
+      fromAddress: EXCHANGE_WALLET,
+      confirmed: true,
+      confirmations: THRESHOLD,
+      amountUsdt: payable,
+      amountUsdtMinor: BigInt(Math.round(payable * 1_000_000)).toString(),
+    })
+    await svc.payPayoutRequest(requestId, HASH, SENIOR)
+
+    // Owner (SENIOR) — masked.
+    expect((await svc.findPayoutRequest(requestId, SENIOR)).txFromAddress).toBeNull()
+    // ADMIN / ACCOUNTANT — disclosed.
+    expect((await svc.findPayoutRequest(requestId, ADMIN)).txFromAddress).toBe(EXCHANGE_WALLET)
+    expect((await svc.findPayoutRequest(requestId, ACCOUNTANT)).txFromAddress).toBe(EXCHANGE_WALLET)
+
+    // Same masking in the LIST projection.
+    const asSenior = await svc.findPayoutRequests(SENIOR)
+    expect(asSenior.find((r) => r.id === requestId)?.txFromAddress).toBeNull()
+    const asAdmin = await svc.findPayoutRequests(ADMIN)
+    expect(asAdmin.find((r) => r.id === requestId)?.txFromAddress).toBe(EXCHANGE_WALLET)
   })
 
   // ── AC6: idempotency — re-confirm of a PAID payout throws, no double credit ──

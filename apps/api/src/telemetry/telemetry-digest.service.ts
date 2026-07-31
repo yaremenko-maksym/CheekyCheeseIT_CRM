@@ -28,6 +28,36 @@ export const FEATURE_CLICKS_LIMIT = 20
  */
 export const CSP_VIOLATIONS_DIGEST_LIMIT = 200
 
+/**
+ * task-telemetry-caps (security audit, MED — "выборка в дайджесте не
+ * ограничена сверху"): same rationale as `CSP_VIOLATIONS_DIGEST_LIMIT`
+ * above, for `telemetry_errors`. Before this cap, `fetchAndNotifyNewErrors`
+ * selected EVERY `status='NEW'` row matching `since` with no `.limit()` —
+ * this table is reachable by any authenticated employee (and every 5xx the
+ * API itself throws), so an unbounded select here on an unconditional,
+ * automated endpoint was an OOM vector once row-cap growth (see
+ * `TELEMETRY_ERRORS_ROW_CAP` in `telemetry-errors.service.ts`) is factored
+ * in. Deliberately NOT paired with a `totalMatching` sibling field (unlike
+ * `cspViolations`) — the digest response SHAPE must not change (AC4); rows
+ * left over past the cap simply stay `status='NEW'` and are picked up by the
+ * next digest run (same `asc(lastSeen)` ordering as before — oldest first).
+ */
+export const TELEMETRY_ERRORS_DIGEST_LIMIT = 200
+
+/**
+ * task-telemetry-caps item 2 ("явный .limit() на всех выборках") + item 3
+ * ("проверить... telemetry_events"): `route`/`target` on `telemetry_events`
+ * are free-text client input (see `telemetryEventSchema` — NOT an enum), so
+ * a GROUP BY on either has no inherent upper bound either. `getTopRoutesByRole`
+ * and `getFeatureClicks` already capped this (`TOP_ROUTES_LIMIT`/
+ * `FEATURE_CLICKS_LIMIT`); `getFormAbandonRates`/`getMedianDurations` did
+ * not — closed the same way, ordered by event volume descending (worst/
+ * busiest routes first) before the cap so truncation drops the LEAST
+ * meaningful groups.
+ */
+export const FORM_ABANDON_RATES_LIMIT = 100
+export const MEDIAN_DURATIONS_LIMIT = 100
+
 type TelemetryErrorRow = typeof telemetryErrors.$inferSelect
 type CspReportRow = typeof cspReports.$inferSelect
 
@@ -89,10 +119,14 @@ export class TelemetryDigestService {
   }
 
   /**
-   * Selects every `status='NEW'` error with `last_seen >= since`, maps them
-   * to the wire shape, THEN marks them `NOTIFIED` (guarded by
-   * `status='NEW'` again in the UPDATE's WHERE — a concurrent second digest
-   * call racing this one can only notify each row once).
+   * Selects at most `TELEMETRY_ERRORS_DIGEST_LIMIT` `status='NEW'` errors
+   * with `last_seen >= since` (task-telemetry-caps — an unbounded select on
+   * a row-capped-but-still-large table was an OOM vector, see the constant's
+   * doc comment above), maps them to the wire shape, THEN marks them
+   * `NOTIFIED` (guarded by `status='NEW'` again in the UPDATE's WHERE — a
+   * concurrent second digest call racing this one can only notify each row
+   * once). Ordering is unchanged (oldest `last_seen` first) — any row beyond
+   * the cap simply stays `NEW` and is picked up by the next digest run.
    */
   async fetchAndNotifyNewErrors(since: Date): Promise<TelemetryErrorItem[]> {
     const rows = await this.db.db
@@ -100,6 +134,7 @@ export class TelemetryDigestService {
       .from(telemetryErrors)
       .where(and(eq(telemetryErrors.status, 'NEW'), gte(telemetryErrors.lastSeen, since)))
       .orderBy(asc(telemetryErrors.lastSeen))
+      .limit(TELEMETRY_ERRORS_DIGEST_LIMIT)
 
     if (rows.length === 0) return []
 
@@ -265,6 +300,11 @@ export class TelemetryDigestService {
         ),
       )
       .groupBy(telemetryEvents.route)
+      // task-telemetry-caps item 2/3 — `route` is free-text client input
+      // (see FORM_ABANDON_RATES_LIMIT's doc comment), so this GROUP BY had
+      // no inherent upper bound. Busiest routes first, then cap.
+      .orderBy(desc(sql`count(*)`))
+      .limit(FORM_ABANDON_RATES_LIMIT)
 
     return rows.map((row) => {
       const total = row.abandonCount + row.submitCount
@@ -292,6 +332,10 @@ export class TelemetryDigestService {
         ),
       )
       .groupBy(telemetryEvents.route)
+      // task-telemetry-caps item 2/3 — same unbounded-`route`-cardinality
+      // rationale as `getFormAbandonRates` above.
+      .orderBy(desc(sql`count(*)`))
+      .limit(MEDIAN_DURATIONS_LIMIT)
 
     return rows.map((row) => ({ route: row.route, medianDurationMs: row.medianDurationMs }))
   }
