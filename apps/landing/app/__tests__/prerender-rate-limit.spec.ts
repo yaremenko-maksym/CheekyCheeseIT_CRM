@@ -56,6 +56,19 @@ describe('createRateLimiter', () => {
     expect(sleepFn).not.toHaveBeenCalled()
   })
 
+  it('prunes a request exactly windowMs old (the `<=` boundary the source pins) — not just requests strictly older than the window', async () => {
+    const { limiter, sleepFn, advance } = buildFakeLimiter({ windowMs: 60_000, budget: 3 })
+    limiter.record()
+    limiter.record()
+    limiter.record()
+    // Exactly 60_000ms later — the boundary itself, not comfortably past it
+    // (the 61_000 case above). pruneOlderThanWindow() uses `<=` specifically
+    // so this age counts as "fully aged out" (see that function's doc).
+    advance(60_000)
+    await limiter.waitForBudget(3)
+    expect(sleepFn).not.toHaveBeenCalled()
+  })
+
   it('loops (re-checking the window) until enough old requests have aged out — not just a single wait', async () => {
     const { limiter, sleepFn } = buildFakeLimiter({ windowMs: 10_000, budget: 2 })
     limiter.record() // t=0

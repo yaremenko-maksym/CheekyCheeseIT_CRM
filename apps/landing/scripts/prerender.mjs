@@ -47,6 +47,15 @@ const PORT = Number(process.env['PRERENDER_PORT'] ?? 4173)
 // duplication rationale as SITE_ORIGIN above (plain Node ESM script, cannot
 // import a `.ts` module with `as const`/type syntax without a build step).
 // task-landing-i18n.md — owner scope-change 2026-07-25: 5 locales.
+//
+// NOT JUST a route list any more (2026-07-31 rate-limit fix) —
+// `estimateRequestWeight()` below derives a vacancy route's expected request
+// count from `LOCALES.length` (mirroring NON_DEFAULT_LOCALES.length in
+// app/lib/api.ts's fetchVacancyHreflangExcludes()). A 6th locale added here
+// without a matching change on the app side would UNDER-count that weight,
+// silently thinning the rate-limit pacing's safety margin — currently ~40
+// requests of slack (RATE_LIMIT_BUDGET 60 vs a real 6-per-vacancy-route
+// count), so one added locale does not bite today, but keep this in sync.
 const LOCALES = ['en', 'uk', 'ru', 'es', 'pt']
 const DEFAULT_LOCALE = 'en'
 
@@ -562,16 +571,25 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
     // re-validates the window instead of assuming it's still clear.
     await apiRateLimiter.waitForBudget(estimateRequestWeight(route))
     const page = await browser.newPage()
-    // URLs that returned HTTP 429 during THIS attempt — belt-and-suspenders
-    // 429 DETECTION (AC1): the actual thrown error below is almost always a
-    // downstream symptom (e.g. "expected a non-empty ItemList JSON-LD",
-    // since app/lib/api.ts's fetchVacancies() swallows non-2xx into `[]`
-    // rather than throwing) — this listener is what lets the catch block
-    // report the REAL cause instead of that misleading symptom.
+    // URLs that returned HTTP 429 during THIS attempt, RESTRICTED to `/api/`
+    // — belt-and-suspenders 429 DETECTION (AC1): the actual thrown error
+    // below is almost always a downstream symptom (e.g. "expected a
+    // non-empty ItemList JSON-LD", since app/lib/api.ts's fetchVacancies()
+    // swallows non-2xx into `[]` rather than throwing) — this listener is
+    // what lets the catch block report the REAL cause instead of that
+    // misleading symptom. The `/api/` filter matters: this page also loads
+    // fonts/analytics/the Cloudflare Turnstile widget, none of which are
+    // apps/api's ThrottlerModule — a 429 on one of THOSE is unrelated to
+    // rate limiting, a full-window backoff wouldn't fix it, and reporting it
+    // as "throttled by apps/api's global ThrottlerModule" would itself be
+    // the exact misleading-diagnosis failure mode this PR exists to remove.
+    // Same filter `preparePage()`'s own request-tracking listener uses.
     /** @type {string[]} */
     const rateLimitedUrls = []
     page.on('response', (response) => {
-      if (response.status() === 429) rateLimitedUrls.push(response.url())
+      if (response.status() === 429 && response.url().includes('/api/')) {
+        rateLimitedUrls.push(response.url())
+      }
     })
     try {
       await preparePage(page)
@@ -585,6 +603,29 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
         assertCanonicalSelf(html, route)
         assertAlternatesMatch(html, route)
         assertNoHomeJsonLdLeak(html, route)
+      }
+      if (rateLimitedUrls.length > 0) {
+        // Every assertion above passed, but at least one `/api/` request
+        // during THIS SAME page load was still rate-limited — the
+        // assertions do not cover every field a 429 can silently degrade.
+        // Concretely: `home`'s `requireJsonLd` is 'organization+website',
+        // which says nothing about vacancy content, so a 429'd
+        // `fetchVacancies('en')` there would otherwise ship a "green"
+        // capture with an empty/stale Careers-teaser section — the exact
+        // silent-regression shape this PR exists to close, just on the one
+        // route whose own assertions happen not to catch it (`careers` and
+        // `vacancy` routes already fail loud here via `assertJsonLd`/
+        // `assertAlternatesMatch` — see their own doc comments). Rather
+        // than special-case just `home`, treat ANY capture that observed a
+        // 429 as untrustworthy uniformly (thrown here, caught by the SAME
+        // branch below as a genuine failure) — simpler than guessing which
+        // future page types' assertions do or don't fully cover their data,
+        // and the cost is bounded (MAX_CAPTURE_ATTEMPTS, real backoff).
+        throw new Error(
+          `prerender: capture for ${label} passed all assertions but observed HTTP 429 on ` +
+            `${rateLimitedUrls.length} request(s) during the same page load (e.g. ` +
+            `${rateLimitedUrls[0]}) — discarding it rather than risking silently rate-limit-degraded data.`,
+        )
       }
       return html
     } catch (err) {
