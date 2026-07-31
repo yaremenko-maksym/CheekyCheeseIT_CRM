@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Briefcase, Clock, Wallet } from 'lucide-react'
@@ -7,6 +7,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { KpiCard } from '@/routes/_authenticated/finance/components/KpiCards'
 import { financeApi } from '@/routes/_authenticated/finance/api'
+import { CompanySharePayoutModal } from '@/routes/_authenticated/finance/components/dialogs/CompanySharePayoutModal'
 import { useDropSummary, DROP_SUMMARY_QUERY_KEY } from '@/hooks/use-drop-summary'
 import { useDropProjects } from '@/hooks/use-drop-incomes'
 import { InProgressPanel } from './InProgressPanel'
@@ -95,6 +96,17 @@ export function DropDashboard() {
     [incomeTxs],
   )
 
+  // task-company-share-cta. §9: DROP keeps its existing «Создать выплату»
+  // entry points working through `CompanySharePayoutModal` — the CTA strip
+  // is explicitly NOT added here (owner scoped the banner to SENIOR only).
+  const [payoutModalOpen, setPayoutModalOpen] = useState(false)
+  const [payoutPreselect, setPayoutPreselect] = useState<string[]>([])
+
+  function openPayout(ids: string[]) {
+    setPayoutPreselect(ids)
+    setPayoutModalOpen(true)
+  }
+
   function handleRefresh() {
     void qc.invalidateQueries({ queryKey: ['transactions'] })
     void qc.invalidateQueries({ queryKey: ['payout-requests'] })
@@ -171,10 +183,21 @@ export function DropDashboard() {
               validatedIncomes={validatedIncomes}
               onRefresh={handleRefresh}
               testIdPrefix="drop"
+              onOpenPayout={openPayout}
             />
           </>
         )}
       </div>
+
+      <CompanySharePayoutModal
+        open={payoutModalOpen}
+        onClose={() => {
+          setPayoutModalOpen(false)
+          handleRefresh()
+        }}
+        validatedTxs={validatedIncomes}
+        preselectedTxIds={payoutPreselect}
+      />
     </div>
   )
 }
