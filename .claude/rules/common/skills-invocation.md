@@ -104,10 +104,16 @@ grep -rn '`[a-z-]*:\?[a-z-]*`' .claude/rules/common/skills-invocation.md
 Сверять построчно. Учитывать два подвоха:
 
 1. **Скилл может существовать, но не подходить.** Встроенный `security-review`
-   (без префикса) реально доступен субагентам, но это ревьюер рабочего диффа
-   текущей ветки: он гоняет `git diff origin/HEAD...` и падает
+   — это **slash-команда** `/security-review` (в исходнике Claude Code —
+   `commands/security-review.ts`), а не bundled skill. Её промпт гоняет
+   `git diff origin/HEAD...` и падает
    (`fatal: ambiguous argument 'origin/HEAD...'`) в агентском окружении, где
-   `origin/HEAD` не настроен. Проверено фактическим вызовом из субагента.
+   `origin/HEAD` не настроен — проверено фактическим вызовом из субагента.
+   **Коллизии имён нет:** slash-команды и `Skill(<name>)` — разные реестры
+   инвокации, поэтому `Skill('security-review')` однозначно резолвится в наш
+   project-local `.claude/skills/security-review/`. Для сравнения, `simplify`
+   из строки таблицы — наоборот, настоящий bundled skill
+   (`skills/bundled/simplify.ts`), поэтому на него ссылаться можно.
 2. **CI это не поймает.** Раннеры не имеют `~/.claude/plugins` оператора, поэтому
    guard-скрипт (в духе `check-e2e-shard-coverage.py`) смог бы верифицировать только
    project-local ссылки, а не `<pak>:<skill>`. Отсюда — процедурная проверка, а не гейт.
