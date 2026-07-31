@@ -125,7 +125,19 @@ services:
       api:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -qO- http://127.0.0.1/index.html || exit 1']
+      # MED-5 (security audit 2026-07-27): explicit Host header, matching a
+      # real vhost. nginx/conf.d/default-server.conf now returns a bare
+      # connection-close (444) for any request whose Host matches neither
+      # real domain — Host: 127.0.0.1 (wget's default when the URL carries
+      # no Host override) would hit that catch-all and fail this
+      # healthcheck. See that file's header comment for the "why" (before
+      # this PR, an unmatched Host silently fell through to the CRM vhost
+      # instead, which is exactly the MED-5 finding).
+      test:
+        [
+          'CMD-SHELL',
+          'wget -qO- --header="Host: app.cheekycheese.tech" http://127.0.0.1/index.html || exit 1',
+        ]
       interval: 15s
       timeout: 5s
       retries: 3
