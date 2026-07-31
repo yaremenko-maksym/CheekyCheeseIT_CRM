@@ -35,8 +35,8 @@ export const Route = createRootRoute({
  * not a change to any previously-tested path. The SAME-page case (already on
  * `/`, clicking a hash link) is `smoothScrollToId`'s own concern (via the
  * SAME `focusHashTarget` helper) — this function is never even reached for
- * it (`shouldFocusOnResolveRef` below is `false` for a same-pathname hash
- * change, see the module doc).
+ * it (`RootDocument`'s `onBeforeNavigate` handler below never marks a
+ * same-pathname hash change as focus-worthy, see its module doc).
  */
 function focusMainLandmark(): void {
   const hash = window.location.hash.slice(1)
@@ -64,50 +64,102 @@ function focusMainLandmark(): void {
  *
  * What's left, and MUST keep working (task AC3) — focus-management only
  * (WCAG 2.4.3), the one piece of the old orchestrator that wasn't actually
- * about the transition motion itself. Still keyed off
- * `onBeforeNavigate`/`onResolved` (not a plain `useEffect` on
- * `router.state.location.pathname`): the hash-only guard below is
- * load-bearing — a same-pathname hash navigation (nav "Contact" while
- * already on `/`) is `smoothScrollToId`'s case exclusively (§M.4 in the
- * design doc) and must NOT steal focus for what is purely an in-page
- * scroll (`onResolved` still fires for it, `onBeforeNavigate` is the only
- * point that reliably distinguishes it). The actual `focusMainLandmark()`
- * call is deferred to a `useEffect` keyed on `resolvedPathname` state, NOT
- * called synchronously inside the `onResolved` subscriber — `setState`
- * there only SCHEDULES a re-render; calling `focusMainLandmark()` right
- * after it runs BEFORE React has committed that render, so
+ * about the transition motion itself. Still keyed off `onResolved` (not a
+ * plain `useEffect` on `router.state.location.pathname`) — the actual
+ * `focusMainLandmark()` call is deferred to a `useEffect` keyed on `navEpoch`
+ * state, NOT called synchronously inside the `onResolved` subscriber —
+ * `setState` there only SCHEDULES a re-render; calling `focusMainLandmark()`
+ * right after it runs BEFORE React has committed that render, so
  * `document.querySelector('main')` at that instant can still find the OLD
- * page's `<main>` (or none at all) — this was a real, E2E-reproduced race
- * in the page-transition-era version of this file (`docs/design/
+ * page's `<main>` (or none at all) — this was a real, E2E-reproduced race in
+ * the page-transition-era version of this file (`docs/design/
  * landing-redesign.md` §M v3 addendum has the original root-cause writeup);
- * the same two-step fix (subscribe to `onResolved`, defer the actual DOM
- * call to an effect) is kept here even though transition-direction is no
- * longer part of what's being tracked.
+ * the same two-step fix (subscribe to `onResolved`, defer the actual DOM call
+ * to an effect) is kept here even though transition-direction is no longer
+ * part of what's being tracked.
+ *
+ * fix/landing-focus-race (task-landing-e2e-in-ci.md's Part 2) — a
+ * forward-then-IMMEDIATE-back round trip (A→B→A, e.g. a keyboard/AT user who
+ * clicks a link then hits back right away, no human-speed pause) used to
+ * silently swallow BOTH focus moves. Two real, independently-confirmed
+ * causes (live-instrumented repro trace is in the PR), fixed together:
+ *
+ *   1. `onBeforeNavigate`'s own hash-only/same-route detection compared
+ *      `toLocation.pathname` against `fromLocation.pathname`, where
+ *      `fromLocation` is `@tanstack/react-router`'s `resolvedLocation`
+ *      store — which the router only updates to match the new `location`
+ *      INSIDE the `onResolved` `useLayoutEffect` (`Transitioner.tsx`), i.e.
+ *      one React commit AFTER the navigation `fromLocation` is supposedly
+ *      describing. A back-navigation started before that commit flushes
+ *      sees a STALE `resolvedLocation` that can equal the new destination's
+ *      pathname — a false positive that misclassifies a genuine cross-page
+ *      back-navigation as a same-route hash change.
+ *   2. Even once (1) is worked around, back-to-back navigations can get
+ *      MERGED by the router itself: a new `load()` call cancels the
+ *      previous one's in-flight matches (`beforeLoad()`'s `cancelMatches()`)
+ *      before it ever individually settles, so `onResolved` (keyed off
+ *      `isAnyPending` transitioning true→false) can fire only ONCE for the
+ *      whole A→B→A round trip — reporting whatever `router.state.location`
+ *      happens to be at that instant (the FINAL, back-navigated pathname).
+ *      Comparing that single settled pathname against "where we started"
+ *      nets to zero for a round trip that returns to the origin route, so
+ *      ANY design that decides focus-worthiness from `onResolved`'s settled
+ *      pathname alone — including comparing it to a self-owned ref instead
+ *      of the library's `resolvedLocation` — reproduces the exact same
+ *      false-negative, just via a different mechanism.
+ *
+ * Fix: decide focus-worthiness at `onBeforeNavigate` time instead (per
+ * ATTEMPTED navigation, before any merging/cancellation can hide it), using
+ * a pathname WE track ourselves (`currentPathnameRef`) rather than the
+ * library's lagging `resolvedLocation` — updated eagerly, synchronously, on
+ * every `onBeforeNavigate` call, regardless of whether that attempt ever
+ * gets to resolve on its own. A sticky `shouldFocusRef` flag is set the
+ * moment ANY attempt in a rapid sequence turns out to be cross-route, and is
+ * only consumed (reset + effect triggered) whenever `onResolved` NEXT fires
+ * — however many attempts got merged into that one settle. This correctly
+ * handles all three cases:
+ *   - Real cross-page nav: `toLocation.pathname` differs from the ref →
+ *     flag set → next `onResolved` triggers the focus effect.
+ *   - Hash-only nav on the SAME route (`smoothScrollToId`'s case, §M.4):
+ *     pathname unchanged (hash isn't part of `pathname`) → flag untouched.
+ *   - A→B→A immediate round trip: BOTH the forward and the back
+ *     `onBeforeNavigate` calls see a real pathname change (against the
+ *     ref, not each other) and set the flag — even if the router later
+ *     merges their resolution into a single `onResolved`, that one firing
+ *     still finds the flag set and correctly triggers a focus move to
+ *     whatever `<main>` is ACTUALLY in the DOM once things settle.
+ * `navEpoch` (state, a monotonically increasing counter rather than a
+ * boolean) stays as the effect TRIGGER — cheap insurance against React
+ * batching two `onResolved`-consuming updates into one commit (`prev + 1`
+ * can never collapse back to a prior value the way comparing raw pathnames
+ * in state could, see the earlier `resolvedPathname` version of this file).
  */
 function RootDocument() {
   const router = useRouter()
-  const shouldFocusOnResolveRef = useRef(false)
   const isFirstRenderRef = useRef(true)
-  const [resolvedPathname, setResolvedPathname] = useState(router.state.location.pathname)
+  // Our OWN tracking of "the pathname of the most recently ATTEMPTED
+  // navigation" — updated eagerly inside `onBeforeNavigate`, never derived
+  // from the router's own (lagging) `resolvedLocation` store. See module doc.
+  const currentPathnameRef = useRef(router.state.location.pathname)
+  // Sticky: true if ANY navigation attempt since the last `onResolved`
+  // consumption turned out to be cross-route. Survives multiple
+  // `onBeforeNavigate` calls landing before a single, possibly-merged
+  // `onResolved` finally fires (the A→B→A case, see module doc).
+  const shouldFocusRef = useRef(false)
+  const [navEpoch, setNavEpoch] = useState(0)
 
   useEffect(() => {
-    const unsubscribeBefore = router.subscribe(
-      'onBeforeNavigate',
-      ({ toLocation, fromLocation }) => {
-        // Hash-only change on the SAME route — see module doc.
-        shouldFocusOnResolveRef.current = !(
-          fromLocation && toLocation.pathname === fromLocation.pathname
-        )
-      },
-    )
+    const unsubscribeBefore = router.subscribe('onBeforeNavigate', ({ toLocation }) => {
+      if (toLocation.pathname !== currentPathnameRef.current) {
+        shouldFocusRef.current = true
+        currentPathnameRef.current = toLocation.pathname
+      }
+    })
 
     const unsubscribeResolved = router.subscribe('onResolved', () => {
-      if (!shouldFocusOnResolveRef.current) return
-      shouldFocusOnResolveRef.current = false
-      const pathname = router.state.location.pathname
-      // Guard against a no-op update in case `onResolved` ever fires more
-      // than once for the same commit.
-      setResolvedPathname((prev) => (prev === pathname ? prev : pathname))
+      if (!shouldFocusRef.current) return
+      shouldFocusRef.current = false
+      setNavEpoch((prev) => prev + 1)
     })
 
     return () => {
@@ -118,14 +170,14 @@ function RootDocument() {
 
   // Deferred to a real commit (see module doc) — skips the very first run
   // (initial mount, nothing navigated yet, browser owns focus as normal;
-  // `resolvedPathname`'s initial value never came from a real navigation).
+  // `navEpoch`'s initial value never came from a real navigation).
   useEffect(() => {
     if (isFirstRenderRef.current) {
       isFirstRenderRef.current = false
       return
     }
     focusMainLandmark()
-  }, [resolvedPathname])
+  }, [navEpoch])
 
   return (
     <LazyMotion features={domMin}>

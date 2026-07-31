@@ -66,51 +66,16 @@ test.describe('Instant page navigation (no page-transition)', () => {
       .toBe('MAIN')
   })
 
-  // task-landing-e2e-in-ci.md — known flaky test, ROOT-CAUSED (not masked).
-  //
-  // Was previously flagged "pre-existing flake" without proof twice; that is
-  // not acceptable for a CI-gated suite (zero-tolerance to flaky). Root cause
-  // is now confirmed empirically and is a REAL race in app code, OUTSIDE
-  // this spec's/apps/e2e's zone-of-write — `apps/landing/app/routes/
-  // __root.tsx`'s `RootDocument()` focus-management effect (lines ~93-128):
-  //
-  //   router.subscribe('onResolved', () => {
-  //     ...
-  //     setResolvedPathname((prev) => (prev === pathname ? prev : pathname))
-  //   })
-  //
-  // This "no-op guard" is commented as protecting against `onResolved`
-  // firing twice for the SAME commit — but it also silently swallows a
-  // legitimate A→B→A round trip (forward nav then an IMMEDIATE back nav,
-  // exactly what this test does): under CPU pressure slow enough that React
-  // hasn't flushed the FIRST navigation's `setResolvedPathname('/careers/')`
-  // before the SECOND (`setResolvedPathname('/')`) is queued, React 18
-  // batches both into a single commit whose net pathname change vs. the
-  // component's actual last-committed `prev` is ZERO (back to the mount-time
-  // value) — the guard's `prev === pathname` check bails out, the
-  // `useEffect(() => focusMainLandmark(), [resolvedPathname])` never fires
-  // for EITHER hop, and focus silently stays on whatever was focused before
-  // navigation even started (the originally-clicked "See open roles" link).
-  //
-  // Reproduced locally with proof (10/10 green under `--workers=1`, matching
-  // CI's `playwright.config.ts` `workers: process.env['CI'] ? 1 : '50%'` —
-  // but ~1 in 10-30 under contention with `--repeat-each=30` at default
-  // parallel workers): every failure has `expect(activeElement.tagName)`
-  // report `"A"`, and the Playwright error-context DOM snapshot on every
-  // captured failure shows `link "See open roles" [active]` — i.e. focus
-  // genuinely never moved, not a timing/assertion issue on this spec's side.
-  // CI's GHA runners are resource-constrained even at `workers: 1`, which is
-  // consistent with the higher in-CI failure rate this test was flagged
-  // with (3-5/5) vs. this lighter local repro.
-  //
-  // Retrying/relaxing the timeout here would MASK a real accessibility bug
-  // (WCAG 2.4.3 focus-not-obvious) instead of fixing it — not acceptable
-  // (golden rule: root-cause or `test.fixme`, never paper over). Fix belongs
-  // in `__root.tsx` (Coder's zone, not apps/e2e/**) — e.g. track navigations
-  // with a monotonically increasing epoch/counter instead of comparing
-  // pathnames, so a net-zero round trip is never conflated with "no new
-  // navigation happened".
-  test.fixme('browser back navigation still works and re-focuses <main>', async ({ page }) => {
+  // fix/landing-focus-race — was `test.fixme` (task-landing-e2e-in-ci.md):
+  // a real race in `apps/landing/app/routes/__root.tsx`'s `RootDocument()`
+  // could swallow a forward-then-immediate-back (A→B→A) round trip entirely.
+  // See that file's module doc (on `RootDocument`) for the full root-cause
+  // writeup and the fix. Re-enabled once the fix landed; proof of both the
+  // original failure (under contention) and the post-fix stability is in the
+  // PR that re-enabled this test, not here — this comment intentionally
+  // stays short so it doesn't go stale the way the pre-fix writeup would
+  // have.
+  test('browser back navigation still works and re-focuses <main>', async ({ page }) => {
     await gotoStable(page, '/')
     await page.getByRole('link', { name: 'See open roles' }).click()
     await page.waitForURL('**/careers/')
@@ -120,6 +85,67 @@ test.describe('Instant page navigation (no page-transition)', () => {
     await expect
       .poll(async () => page.evaluate(() => document.activeElement?.tagName), { timeout: 2000 })
       .toBe('MAIN')
+  })
+
+  // fix/landing-focus-race regression — a browser BACK navigation that lands
+  // on a hash URL must still focus the TARGET SECTION, not <main>, under the
+  // exact same forward-then-immediate-back contention the previous test
+  // exercises. Reuses that proven repro shape (real `goBack()`, no artificial
+  // synchronization) but starts from `/#contact` instead of bare `/`, so the
+  // "back" destination naturally carries the hash — the browser history
+  // entry for `/` was recorded WITH the hash, `goBack()` restores it exactly.
+  // This is a genuine A→B→A' round trip back to the SAME pathname the
+  // now-fixed race is about (see `RootDocument`'s module doc) — unlike a
+  // one-directional cross-page hash click (which the OLD pre-fix code
+  // already handled fine, since a single net pathname change never hit its
+  // `prev === pathname` bail-out), this specifically exercises focus
+  // landing correctly on the hash target AFTER the round-trip settles.
+  test('browser back navigation to a hash URL focuses the target section, not <main> (design-review round 1 MED-1)', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/#contact')
+    await page.getByRole('link', { name: 'See open roles' }).click()
+    await page.waitForURL('**/careers/')
+    await page.goBack()
+    await page.waitForURL(/\/#contact$/)
+    await page.waitForSelector('footer', { state: 'visible' })
+    await expect
+      .poll(async () => page.evaluate(() => document.activeElement?.id), { timeout: 2000 })
+      .toBe('contact')
+  })
+
+  // fix/landing-focus-race regression — dedicated probe for `shouldFocusRef`
+  // STICKINESS specifically (`RootDocument`'s module doc), independent of
+  // the round-trip test above. Dispatches the SAME cross-page hash link
+  // TWICE, synchronously in a single `page.evaluate()` (no `await` between
+  // the two `dispatchEvent` calls — a real `.click()` × 2 would let
+  // Playwright's actionability check wait for the first navigation to
+  // settle before the second dispatches, defeating the repro), so BOTH
+  // `onBeforeNavigate` calls land before the (possibly merged) `onResolved`.
+  // The SECOND call's own pathname delta (vs `currentPathnameRef`, already
+  // updated to the destination by the FIRST call) is a no-op — only a
+  // design that treats the flag as STICKY (set true, never explicitly
+  // cleared except on consumption) carries the first click's pending
+  // focus-move through to settle; a design that overwrites the flag from
+  // each call's OWN delta would wrongly clear it here, and this test would
+  // then find focus stuck wherever it started — neither `#contact` nor
+  // `<main>`.
+  test('double-dispatched cross-page hash navigation still focuses the target section (sticky-flag regression)', async ({
+    page,
+  }) => {
+    await gotoStable(page, '/careers/')
+    await page.evaluate(() => {
+      const contact = Array.from(document.querySelectorAll('header a')).find(
+        (a) => a.textContent?.trim() === 'Contact',
+      )
+      contact?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+      contact?.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }))
+    })
+    await page.waitForURL(/#contact$/)
+    await page.waitForSelector('footer', { state: 'visible' })
+    await expect
+      .poll(async () => page.evaluate(() => document.activeElement?.id), { timeout: 2000 })
+      .toBe('contact')
   })
 
   test('hash-only navigation on the SAME route does NOT steal focus (smoothScrollToId owns it, §M.4)', async ({

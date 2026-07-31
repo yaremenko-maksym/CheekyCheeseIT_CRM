@@ -78,6 +78,13 @@
   color: d73a4a
   description: 'E2E failing on main — команда на паузе, watchdog issue открыт'
 
+# Primary home of this label is the private telemetry repo (post_merge_alert
+# job in ci.yml); declared here for the fallback channel used when
+# TELEMETRY_ISSUES_PAT is absent. See scripts/devops/post-merge-ci-runbook.md.
+- name: ci-main-broken
+  color: b60205
+  description: 'Post-merge CI красный на main — нужен откат или хотфикс'
+
 - name: pm-blocker
   color: FF0000
   description: 'Agent создал .blocked.md — PM нужен резолв'

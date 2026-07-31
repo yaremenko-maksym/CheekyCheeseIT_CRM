@@ -12,7 +12,7 @@ export function useLogout(): () => void {
   const queryClient = useQueryClient()
   return () => {
     void api
-      .get('/auth/logout')
+      .post('/auth/logout')
       .catch(() => {})
       .finally(async () => {
         // 1. Сбросить TanStack Query in-memory кеш

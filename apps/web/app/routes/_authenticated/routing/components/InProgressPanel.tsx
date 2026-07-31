@@ -12,7 +12,6 @@ import {
   fmtDate,
 } from '@/routes/_authenticated/finance/constants'
 import { CreateTransactionDialog } from '@/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog'
-import { PayoutDialog } from '@/routes/_authenticated/finance/components/dialogs/PayoutDialog'
 import { PayoutDetailDialog } from '@/routes/_authenticated/finance/components/dialogs/PayoutDetailDialog'
 
 /**
@@ -54,6 +53,16 @@ export interface InProgressPanelProps {
   onRefresh: () => void
   /** data-testid prefix to namespace testids (e.g. "senior" or "drop"). */
   testIdPrefix: string
+  /**
+   * task-company-share-cta. The toolbar batch button and the per-row
+   * «Создать выплату» pill both need to open `CompanySharePayoutModal`, which
+   * the dashboard (SeniorDashboard/DropDashboard) now owns — it also drives
+   * the modal from `CompanySharePayoutStrip` (SENIOR only). `ids` is the
+   * preselected transaction id list: `[]` for the batch button (generic
+   * multi-select — the modal defaults that to "select all"), `[txId]` for a
+   * single row.
+   */
+  onOpenPayout: (ids: string[]) => void
 }
 
 export function InProgressPanel({
@@ -62,21 +71,18 @@ export function InProgressPanel({
   validatedIncomes,
   onRefresh,
   testIdPrefix,
+  onOpenPayout,
 }: InProgressPanelProps) {
   const [showCreate, setShowCreate] = useState(false)
-  const [payoutOpen, setPayoutOpen] = useState(false)
-  const [payoutPreselect, setPayoutPreselect] = useState<string[]>([])
   const [payoutDetailOpen, setPayoutDetailOpen] = useState(false)
   const [payoutDetailId, setPayoutDetailId] = useState<string | null>(null)
 
   function openPayoutForTx(txId: string) {
-    setPayoutPreselect([txId])
-    setPayoutOpen(true)
+    onOpenPayout([txId])
   }
 
   function openPayoutBatch() {
-    setPayoutPreselect([])
-    setPayoutOpen(true)
+    onOpenPayout([])
   }
 
   function openPayoutDetail(payoutRequestId: string) {
@@ -213,15 +219,6 @@ export function InProgressPanel({
           setShowCreate(false)
           onRefresh()
         }}
-      />
-      <PayoutDialog
-        open={payoutOpen}
-        onClose={() => {
-          setPayoutOpen(false)
-          onRefresh()
-        }}
-        validatedTxs={validatedIncomes}
-        preselectedTxIds={payoutPreselect}
       />
       <PayoutDetailDialog
         open={payoutDetailOpen}

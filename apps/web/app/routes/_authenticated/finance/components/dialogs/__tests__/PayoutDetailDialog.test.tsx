@@ -18,8 +18,8 @@
  * a network. The payout query data is injected via the mocked useQuery.
  */
 import { render, screen } from '@testing-library/react'
-import { describe, expect, it, vi, beforeEach } from 'vitest'
-import type { PayoutRequestDto } from '@crm/shared'
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
+import type { PayoutRequestDto, TransactionDto } from '@crm/shared'
 
 // ── Mutable auth role so each test can pick the persona ─────────────────────
 let currentRole = 'SENIOR'
@@ -44,7 +44,10 @@ const { PAYOUT } = vi.hoisted(() => ({
     txHash: null,
     txFromAddress: null,
     status: 'PENDING',
-    transactions: [],
+    // Explicit TransactionDto[] (not inferred never[] from `[]` under
+    // `satisfies`) — the DROP re-audit describe block below reassigns this
+    // per-test with real fixtures.
+    transactions: [] as TransactionDto[],
     createdAt: '2026-06-20T00:00:00.000Z',
     updatedAt: '2026-06-20T00:00:00.000Z',
   } satisfies PayoutRequestDto,
@@ -111,5 +114,90 @@ describe('PayoutDetailDialog — manual-confirm section RBAC (WS2)', () => {
     currentRole = 'ADMIN'
     renderDialog()
     expect(screen.getByText(/кредитует баланс счёта компании/i)).toBeInTheDocument()
+  })
+})
+
+function makeDropIncomeTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
+  return {
+    id: 'drop-income-1',
+    type: 'DROP_INCOME',
+    status: 'PENDING_PAYMENT',
+    amount: '500',
+    currency: 'USDT',
+    senderId: null,
+    senderName: null,
+    senderLabel: 'Client Co',
+    receiverId: 'drop-1-id',
+    receiverName: 'Drop',
+    receiverLabel: null,
+    seniorSharePercent: null,
+    seniorSharePercentSource: null,
+    dropSharePercent: 5,
+    dropSharePercentSource: 'USER_DEFAULT',
+    projectId: '00000000-0000-4000-b000-000000000001',
+    projectName: 'Drop Project',
+    receiptDocumentId: null,
+    receiptExternalUrl: null,
+    notes: null,
+    salaryMonth: null,
+    txDate: null,
+    txHash: null,
+    rejectionReason: null,
+    payoutRequestId: PAYOUT.id,
+    validatedBy: 'accountant-1',
+    validatedAt: '2026-07-01T00:00:00.000Z',
+    createdBy: 'drop-1-id',
+    createdAt: '2026-07-01T00:00:00.000Z',
+    updatedAt: '2026-07-01T00:00:00.000Z',
+    ...overrides,
+  }
+}
+
+function makePayoutLedgerTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
+  return {
+    ...makeDropIncomeTx(),
+    id: 'payout-ledger-row',
+    type: 'PAYOUT',
+    projectId: null,
+    projectName: null,
+    seniorSharePercent: null,
+    dropSharePercent: null,
+    senderId: 'drop-1-id',
+    receiverId: null,
+    receiverLabel: 'CheekyCheeseIT',
+    ...overrides,
+  }
+}
+
+describe('PayoutDetailDialog — «Транзакции в выплате» list, DROP payouts (fidelity-review re-audit)', () => {
+  // PayoutPaymentForm's income-list filter was SENIOR_INCOME-only (PR #56
+  // legacy) — silently empty for a DROP's own payout, same root cause as the
+  // step-2 summary line's project-count bug (both derive from
+  // `payout.transactions`, which is type-mixed). Fixed to the generic
+  // `isIncomeTransaction` filter; this pins the DROP half with an exact
+  // VALUE assertion, not just "the section exists".
+  const originalTransactions = PAYOUT.transactions
+
+  afterEach(() => {
+    // vi.hoisted const object — restore the shared fixture's mutable field
+    // so this describe block cannot leak state into other test files.
+    PAYOUT.transactions = originalTransactions
+  })
+
+  it('shows the DROP_INCOME rows with the correct count — not empty, not the SENIOR_INCOME-only count', () => {
+    currentRole = 'DROP'
+    PAYOUT.transactions = [
+      makeDropIncomeTx({ id: 'drop-income-1' }),
+      makeDropIncomeTx({ id: 'drop-income-2', amount: '300' }),
+      // The PAYOUT ledger row itself — must NOT be counted as a 3rd row.
+      makePayoutLedgerTx(),
+    ]
+    renderDialog()
+    expect(screen.getByTestId('payout-detail-transactions-count')).toHaveTextContent(
+      'Транзакции в выплате (2)',
+    )
+    expect(screen.getByTestId('payout-detail-tx-drop-income-1')).toBeInTheDocument()
+    expect(screen.getByTestId('payout-detail-tx-drop-income-2')).toBeInTheDocument()
+    expect(screen.queryByTestId('payout-detail-tx-payout-ledger-row')).not.toBeInTheDocument()
   })
 })

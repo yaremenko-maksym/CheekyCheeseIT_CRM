@@ -250,6 +250,16 @@ export class UsersService {
     teamMode?: 'CREATE_NEW' | 'JOIN_DROP_TEAM'
     /** Required when `teamMode='JOIN_DROP_TEAM'`. */
     dropTeamId?: string
+    /**
+     * MED-3 (security-review round 2, authz-hardening): identity of the
+     * caller, used ONLY to scope `teamMode='JOIN_DROP_TEAM'` for an HR actor
+     * to a drop-team they actually belong to (see the check below). Optional
+     * so every existing unit test that constructs `data` directly (bypassing
+     * the controller) keeps working unchanged — the real production caller
+     * (UsersController.createUser) always supplies both.
+     */
+    actorRole?: AppRole
+    actorId?: string
   }): Promise<User> {
     // ut-12: ADMIN creation is reserved to the seed pool — block here as a
     // defense-in-depth measure even if the controller / Roles guard let it slip.
@@ -268,6 +278,21 @@ export class UsersService {
       }
       if (!data.dropTeamId) {
         throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+      }
+      // MED-3 (security-review round 2): `TeamsService.addSeniorToDropTeam`
+      // explicitly delegates RBAC to its caller (see that method's own
+      // docblock) — without this check, an HR actor could attach the SENIOR
+      // they are provisioning to ANY drop-team with a free senior slot, not
+      // just their own, reaching into another team's payment routing. ADMIN
+      // is exempt (full control, as everywhere else in this method).
+      if (data.actorRole === 'HR') {
+        const isMember = await this.teamsService.isActiveMemberOfTeam(
+          data.dropTeamId,
+          data.actorId ?? '',
+        )
+        if (!isMember) {
+          throw new ForbiddenException('HR может присоединять синьора только к своей drop-команде')
+        }
       }
     }
     const existing = await this.findByEmail(data.email)
@@ -412,6 +437,23 @@ export class UsersService {
       data.role !== 'ADMIN'
     ) {
       throw new ForbiddenException('Cannot change own ADMIN role')
+    }
+    // MED (security-audit authz-hardening): mirror changeRole's privilege-
+    // escalation guards here. PATCH /:id/role already forbids elevating
+    // anyone to ADMIN (fixed pool) and moving a user to DROP (must go
+    // through POST /users/drops, which atomically provisions the mandatory
+    // drop-team). Without this, the SAME `role` field on the general
+    // PATCH /:id body bypassed both invariants — this only fires on an
+    // ACTUAL role change (data.role !== existing.role) so the routine
+    // round-trip of resubmitting the current role (e.g. an ADMIN self-edit,
+    // or editing a DROP user's other fields) is unaffected.
+    if (data.role !== undefined && data.role !== existing.role) {
+      if (data.role === 'ADMIN') {
+        throw new ForbiddenException('Назначение роли ADMIN запрещено — пул фиксирован')
+      }
+      if (data.role === 'DROP') {
+        throw new ForbiddenException('Изменение роли на DROP — через POST /api/users/drops')
+      }
     }
     // ut-17: Telegram channel of the team is a SENIOR-only field. The pair
     // invariant SENIOR ≡ team means setting it for any other role would be a
@@ -1346,10 +1388,13 @@ export class UsersService {
         .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
       seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
     } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+      // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
+      // HR/ACCOUNTANT membership must not resolve a team roster anymore.
+      // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
       const memberships = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
-        .where(eq(teamMembers.userId, userId))
+        .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
       if (memberships.length === 0) return []
       const teamIds = memberships.map((m) => m.teamId)
       const seniorsInTeams = await this.db.db
@@ -1391,11 +1436,22 @@ export class UsersService {
 
     // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
     // Teams are linked to senior via team_members (the SENIOR is itself a member).
+    // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
+    // a detached (rotated-out) senior's team_members row must not resolve a
+    // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
+    // roster returned to the caller (stale-member leak, distinct from the
+    // team-access class of bug already fixed in teams.service.ts).
     const seniorMemberships = await this.db.db
       .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
       .innerJoin(users, eq(teamMembers.userId, users.id))
-      .where(and(inArray(teamMembers.userId, seniorIds), eq(users.role, 'SENIOR')))
+      .where(
+        and(
+          inArray(teamMembers.userId, seniorIds),
+          eq(users.role, 'SENIOR'),
+          isNull(teamMembers.leftAt),
+        ),
+      )
     const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
 
     const memberIds = new Set<string>()
@@ -1403,7 +1459,7 @@ export class UsersService {
       const tmRows = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
-        .where(inArray(teamMembers.teamId, teamIds))
+        .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
       tmRows.forEach((r) => memberIds.add(r.userId))
     }
 
@@ -1437,7 +1493,17 @@ export class UsersService {
     return rows
   }
 
-  async buildProfileView(viewer: User, targetId: string) {
+  /**
+   * `actorImpersonatorId` (security-review round 2, authz-hardening):
+   * `viewer` is a DB row (no `impersonatorId` — that field only ever lives
+   * on the JWT), so unlike the other `SessionUser`-scoped fixes in this
+   * file, correcting the `requisites_read` audit attribution below needs it
+   * threaded in explicitly from the controller's `currentUser.impersonatorId`.
+   * Optional — both real callers (getMe/getProfile in UsersController) pass
+   * it; omitted call sites just fall back to `viewer.id` (unchanged
+   * pre-fix behavior).
+   */
+  async buildProfileView(viewer: User, targetId: string, actorImpersonatorId?: string) {
     const target = await this.findById(targetId)
     if (!target) throw new NotFoundException('User not found')
     const permissions = await this.accessService.getViewPermissions(viewer, target)
@@ -1597,7 +1663,7 @@ export class UsersService {
           changes[f] = { before: REDACTED_TOKEN, after: REDACTED_TOKEN }
         }
         await this.auditLogService.record({
-          actorId: viewer.id,
+          actorId: actorImpersonatorId ?? viewer.id,
           targetId: target.id,
           action: 'requisites_read',
           changes,
@@ -1662,6 +1728,15 @@ export class UsersService {
     if (actor.role !== 'ADMIN') {
       throw new ForbiddenException('Создание дропа доступно только администратору')
     }
+    // security-review round 2 (authz-hardening): attribute audit rows below
+    // to the REAL operator under impersonation, not the impersonated
+    // target — see sessionUserSchema.impersonatorId's doc for the full
+    // rationale. This endpoint is @Roles('ADMIN'), so in practice
+    // `impersonatorId` can only be set here if impersonation semantics
+    // ever change to allow it (RolesGuard checks the TARGET's role during
+    // impersonation, currently blocking this route) — kept in sync
+    // defensively rather than left to silently drift.
+    const effectiveActorId = actor.impersonatorId ?? actor.id
     if (data.hrIds.length < 1) {
       throw new BadRequestException('HR обязателен (минимум 1)')
     }
@@ -1705,7 +1780,7 @@ export class UsersService {
 
       await this.auditLogService.record(
         {
-          actorId: actor.id,
+          actorId: effectiveActorId,
           targetId: created.id,
           action: 'profile_created',
           changes: {
@@ -1725,7 +1800,7 @@ export class UsersService {
       )
       await this.teamAuditLogService.record(
         {
-          actorId: actor.id,
+          actorId: effectiveActorId,
           targetId: team.id,
           action: 'team_created',
           changes: { name: { before: null, after: team.name } },
@@ -1755,6 +1830,9 @@ export class UsersService {
     if (actor.role !== 'ADMIN') {
       throw new ForbiddenException('Архивация дропа доступна только администратору')
     }
+    // security-review round 2 (authz-hardening) — see createDrop's identical
+    // comment above for the full rationale.
+    const effectiveActorId = actor.impersonatorId ?? actor.id
     return this.db.db.transaction(async (tx) => {
       const user = await tx
         .select()
@@ -1783,7 +1861,7 @@ export class UsersService {
 
       await this.auditLogService.record(
         {
-          actorId: actor.id,
+          actorId: effectiveActorId,
           targetId: dropId,
           action: 'user_archived',
           changes: { archivedAt: { before: null, after: now.toISOString() } },

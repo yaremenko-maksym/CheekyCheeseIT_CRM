@@ -108,6 +108,16 @@ export class UsersController {
     if (currentUser.role === 'HR' && dto.role !== 'SENIOR') {
       throw new ForbiddenException('HR может создавать только синьоров')
     }
+    // MED (security-audit authz-hardening): an HR actor's ONLY established
+    // provisioning ability is team/index.tsx's HrCreateSeniorDialog, which
+    // deliberately exposes seniorSharePercent (and only that field) to HR.
+    // Every other finance/PII field below was previously forwarded verbatim
+    // from the raw request body — a rogue/compromised HR account could set
+    // its OWN wallet, a 100% share, an inflated salary, or a spoofed
+    // legalFullName on the account it is provisioning. For an HR actor those
+    // fields are forced to the server defaults regardless of what the body
+    // contains; ADMIN is unaffected (full control, as before).
+    const isHrActor = currentUser.role === 'HR'
     return this.usersService.createUser({
       email: dto.email,
       displayName: dto.displayName,
@@ -117,21 +127,26 @@ export class UsersController {
       avatarUrl: dto.avatarUrl ?? null,
       techStack: dto.techStack ?? null,
       ...(dto.seniorSharePercent !== undefined && { seniorSharePercent: dto.seniorSharePercent }),
-      monthlySalary: dto.monthlySalary ?? null,
-      ...(dto.salaryCurrency !== undefined && { salaryCurrency: dto.salaryCurrency }),
+      monthlySalary: isHrActor ? null : (dto.monthlySalary ?? null),
+      ...(!isHrActor && dto.salaryCurrency !== undefined && { salaryCurrency: dto.salaryCurrency }),
       hrIds: dto.hrIds ?? [],
       accountantId: dto.accountantId ?? null,
       projectId: dto.projectId ?? null,
-      ...(dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod }),
-      walletUsdtErc20: dto.walletUsdtErc20 ?? null,
-      walletUsdtLabel: dto.walletUsdtLabel ?? null,
-      bankUahRecipient: dto.bankUahRecipient ?? null,
-      bankUahIban: dto.bankUahIban ?? null,
-      bankUahRnokpp: dto.bankUahRnokpp ?? null,
-      bankUahBankName: dto.bankUahBankName ?? null,
+      ...(!isHrActor && dto.paymentMethod !== undefined && { paymentMethod: dto.paymentMethod }),
+      walletUsdtErc20: isHrActor ? null : (dto.walletUsdtErc20 ?? null),
+      walletUsdtLabel: isHrActor ? null : (dto.walletUsdtLabel ?? null),
+      bankUahRecipient: isHrActor ? null : (dto.bankUahRecipient ?? null),
+      bankUahIban: isHrActor ? null : (dto.bankUahIban ?? null),
+      bankUahRnokpp: isHrActor ? null : (dto.bankUahRnokpp ?? null),
+      bankUahBankName: isHrActor ? null : (dto.bankUahBankName ?? null),
       ...(dto.teamMode !== undefined && { teamMode: dto.teamMode }),
       ...(dto.dropTeamId !== undefined && { dropTeamId: dto.dropTeamId }),
-      ...(dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
+      ...(!isHrActor && dto.legalFullName !== undefined && { legalFullName: dto.legalFullName }),
+      // MED-3 (security-review round 2): lets the service scope
+      // teamMode=JOIN_DROP_TEAM to a drop-team the HR actor actually
+      // belongs to (see UsersService.createUser's check).
+      actorRole: currentUser.role,
+      actorId: currentUser.id,
     })
   }
 
@@ -209,7 +224,7 @@ export class UsersController {
   async getMe(@CurrentUser() currentUser: SessionUser) {
     const viewer = await this.usersService.findById(currentUser.id)
     if (!viewer) throw new ForbiddenException()
-    return this.usersService.buildProfileView(viewer, currentUser.id)
+    return this.usersService.buildProfileView(viewer, currentUser.id, currentUser.impersonatorId)
   }
 
   @Patch('me')
@@ -245,7 +260,7 @@ export class UsersController {
   ) {
     const viewer = await this.usersService.findById(currentUser.id)
     if (!viewer) throw new ForbiddenException()
-    return this.usersService.buildProfileView(viewer, id)
+    return this.usersService.buildProfileView(viewer, id, currentUser.impersonatorId)
   }
 
   @Get(':id/team')
