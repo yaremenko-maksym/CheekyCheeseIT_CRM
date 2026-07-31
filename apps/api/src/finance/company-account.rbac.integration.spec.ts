@@ -14,6 +14,7 @@ import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { ZodExceptionFilter } from '../zod-exception.filter'
 import { DatabaseService } from '../database/database.service'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 import { CompanyAccountController } from './company-account.controller'
 import { CompanyAccountService } from './company-account.service'
 import { EtherscanService } from './etherscan.service'
@@ -218,6 +219,11 @@ describe('company-account — real backend RBAC integration (real DB, no mocks)'
     await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
     await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
     await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+    // task-onchain-payment-integrity: this suite POSTs deposits with fixed
+    // hashes; the consumed-hash registry outlives the deleted deposit rows by
+    // design, so without this sweep the SECOND run of the suite would get a
+    // legitimate 400 «хеш уже использован» instead of the expected 201.
+    await sweepOrphanConsumedTxHashes(dbSvc)
 
     await db
       .insert(users)

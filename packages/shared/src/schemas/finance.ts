@@ -215,6 +215,19 @@ export const transactionSchema = z.object({
    * is representable and typed honestly on the client.
    */
   createdBy: z.string().uuid().nullable(),
+  /**
+   * task-onchain-payment-integrity. On-chain SENDER (ERC-20 `topics[1]`, tx
+   * `from` as fallback) of the transfer behind this row — a payout settlement
+   * or a company deposit. Lowercase.
+   *
+   * OBSERVED, NOT ENFORCED: staff often withdraw USDT straight from an
+   * exchange, so this is frequently the exchange's hot wallet rather than the
+   * payer's own address; the API records it for investigation but never gates a
+   * settlement on it. AUDIT-SCOPED: returned to ADMIN/ACCOUNTANT only, null for
+   * every other viewer (same masking class as `validatedBy` / counterparty).
+   * Null on every row with no on-chain transfer behind it.
+   */
+  txFromAddress: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 })
@@ -238,6 +251,19 @@ export const payoutRequestSchema = z.object({
   // are converted to USDT at create time — see createPayoutRequest).
   contractAddress: z.string(),
   txHash: z.string().nullable(),
+  /**
+   * task-onchain-payment-integrity. On-chain SENDER of the settling transfer
+   * (ERC-20 `topics[1]`, tx `from` as fallback), lowercase.
+   *
+   * OBSERVED, NOT ENFORCED: staff often withdraw USDT straight from an
+   * exchange, so this is frequently the exchange's hot wallet rather than the
+   * payer's own address — the API records it for investigation but never gates
+   * a settlement on it. AUDIT-SCOPED: the API returns it to ADMIN/ACCOUNTANT
+   * only; every other role (incl. the payout's own SENIOR/DROP) receives null.
+   * Also null for pending payouts, manual off-chain confirmations and
+   * dev-simulate settlements.
+   */
+  txFromAddress: z.string().nullable(),
   status: payoutRequestStatusSchema,
   transactions: z.array(transactionSchema).optional(),
   createdAt: z.string().datetime(),
@@ -764,10 +790,78 @@ export type PayPayoutRequestDto = z.infer<typeof payPayoutRequestSchema>
 export const manualPayoutMethodSchema = z.enum(['CASH', 'ADMIN_USDT', 'COMPANY_ACCOUNT'])
 export type ManualPayoutMethod = z.infer<typeof manualPayoutMethodSchema>
 
+/**
+ * A real Ethereum transaction hash ANYWHERE in the input — deliberately
+ * NON-anchored so one rule covers both a bare hash and an explorer link
+ * (`https://etherscan.io/tx/0x…`).
+ *
+ * SECURITY (security-review PR #438, HIGH-1): this is the SINGLE definition of
+ * "what is a real on-chain hash" for the whole system. It used to be three
+ * different rules — an anchored `^0x[0-9a-f]{64}$` in the consumed-hash
+ * registry, a non-anchored one in `submitDeposit`, and a bare
+ * `length >= 10` in `manualConfirmPayout` — and the gap between them WAS an
+ * exploit: a manual confirmation pasted as an explorer LINK credited the
+ * company account while the registry's anchored regex saw "not a hash" and
+ * silently skipped the claim, so the same transfer could then be credited a
+ * second time as a deposit.
+ */
+export const ON_CHAIN_TX_HASH_RE = /0x[0-9a-fA-F]{64}/
+
+/**
+ * Extract the real on-chain tx hash from a bare hash OR an explorer link,
+ * normalised to lowercase. Returns null when the input carries no real hash.
+ *
+ * `null` also (correctly) covers the synthetic audit markers `0xSIM…` /
+ * `0xMANUAL…`: their prefixes are not hex, so no `0x`+64hex substring exists.
+ * They reference no on-chain transfer and must never be registered.
+ *
+ * Lives in `@crm/shared` so the Zod write-boundary and every server path apply
+ * the IDENTICAL rule (a divergence between them is the bug this closes).
+ */
+export function extractOnChainTxHash(raw: string | null | undefined): string | null {
+  const match = ON_CHAIN_TX_HASH_RE.exec(raw?.trim() ?? '')
+  return match ? match[0].toLowerCase() : null
+}
+
+/**
+ * POST /api/transactions/onchain-hash/release — ADMIN only.
+ *
+ * MED-G (security-review PR #438): the escape hatch from a mis-claimed transfer
+ * (a typo'd hash, a deposit whose hash collided). Without it a claim is
+ * permanent and the money it blocks is unreachable. `reason` is REQUIRED and
+ * lands in `transaction_audit_log` — a release is a deliberate, attributable
+ * act, never a quiet un-spend.
+ */
+export const releaseOnChainHashSchema = z.object({
+  txHash: z
+    .string()
+    .min(1)
+    .max(255)
+    .refine((v) => extractOnChainTxHash(v) !== null, {
+      message: 'Укажите корректный hash транзакции (0x + 64 hex) или ссылку на Etherscan',
+    }),
+  reason: z.string().trim().min(3, 'Опишите причину — она попадёт в журнал').max(500),
+})
+export type ReleaseOnChainHashDto = z.infer<typeof releaseOnChainHashSchema>
+
 export const manualConfirmPayoutSchema = z.object({
   method: manualPayoutMethodSchema,
   note: z.string().max(1000).optional().nullable(),
-  txHash: z.string().max(255).optional().nullable(),
+  // HIGH-1 (security-review PR #438): the format is now validated at the write
+  // boundary. A supplied txHash MUST contain a real on-chain hash (bare or as
+  // an explorer link) — previously any string ≥10 chars was accepted verbatim,
+  // became the payout's `tx_hash`, and slipped past the consumed-hash registry.
+  // `.refine` (not a type-predicate) keeps the TS type `string`, per the
+  // shared-schema convention — runtime strictness, no frontend type churn.
+  txHash: z
+    .string()
+    .max(255)
+    .optional()
+    .nullable()
+    .refine((v) => v === null || v === undefined || v === '' || extractOnChainTxHash(v) !== null, {
+      message:
+        'Укажите корректный hash транзакции (0x + 64 hex) или ссылку на Etherscan — иначе оставьте поле пустым',
+    }),
 })
 export type ManualConfirmPayoutDto = z.infer<typeof manualConfirmPayoutSchema>
 
@@ -1607,6 +1701,13 @@ export const companyDepositSchema = z.object({
   createdAt: z.string().datetime(),
 })
 export type CompanyDepositDto = z.infer<typeof companyDepositSchema>
+// NOTE (task-onchain-payment-integrity): the deposit's recorded on-chain sender
+// is deliberately NOT part of this DTO. `POST /company-account/deposits` is a
+// SENIOR/DROP-only endpoint and the sender is ADMIN/ACCOUNTANT audit data, so
+// the field would be permanently null here. It is exposed where a privileged
+// viewer actually looks — on the COMPANY_DEPOSIT ledger row
+// (`transactionSchema.txFromAddress`) and on the payout
+// (`payoutRequestSchema.txFromAddress`).
 
 // GET /api/company-account/deposits/:id/status — light polling payload.
 export const depositStatusSchema = z.object({

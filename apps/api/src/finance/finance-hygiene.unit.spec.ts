@@ -440,6 +440,14 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
         update: () => ({
           set: () => ({ where: async () => {} }),
         }),
+        // MED-F (security-review round 4): adminUpdateTransaction now writes the
+        // row and (for a crediting admin income) its registry claim inside ONE
+        // transaction, so the fake must run the callback against a handle.
+        transaction: async (cb: (dbtx: unknown) => Promise<unknown>) =>
+          cb({
+            update: () => ({ set: () => ({ where: async () => {} }) }),
+            insert: () => ({ values: async () => {} }),
+          }),
       },
     } as never
     const nbu = { getRates: async () => makeRates() } as never
@@ -501,6 +509,12 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
             where: () => Promise.resolve(),
           }),
         }),
+        // MED-F (round 4): row write + registry claim share ONE transaction.
+        transaction: async (cb: (dbtx: unknown) => Promise<unknown>) =>
+          cb({
+            update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+            insert: () => ({ values: () => Promise.resolve() }),
+          }),
       },
     } as never
     const svc = new TransactionsService(
@@ -541,6 +555,12 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
             where: () => Promise.resolve(),
           }),
         }),
+        // MED-F (round 4): row write + registry claim share ONE transaction.
+        transaction: async (cb: (dbtx: unknown) => Promise<unknown>) =>
+          cb({
+            update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+            insert: () => ({ values: () => Promise.resolve() }),
+          }),
       },
     } as never
     const svc = new TransactionsService(

@@ -13,6 +13,8 @@ import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import type { DepositVerification, EtherscanService } from './etherscan.service'
+import { withDerivedMinorUnits, type ScriptedVerification } from './__test-helpers__/etherscan-fake'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import {
   companyAccount,
@@ -113,18 +115,10 @@ const ACCOUNT_ID = 'cb220000-0000-4000-cc00-000000000001'
 const DROP_PROJECT_ID = 'cb220000-0000-4000-dd00-000000000001'
 
 // ── Controllable fake Etherscan: per-hash scripted verification ──────────────
-const verifyScript = new Map<string, DepositVerification>()
+const verifyScript = new Map<string, ScriptedVerification>()
 const fakeEtherscan: Pick<EtherscanService, 'verifyDeposit'> = {
   verifyDeposit: (txHash: string): Promise<DepositVerification> =>
-    Promise.resolve(
-      verifyScript.get(txHash) ?? {
-        found: false,
-        toMatches: false,
-        confirmed: false,
-        confirmations: 0,
-        amountUsdt: null,
-      },
-    ),
+    Promise.resolve(withDerivedMinorUnits(verifyScript.get(txHash))),
 }
 
 // Fixed-rate NBU stub (USDT incomes → identity conversion; never hits network).
@@ -222,6 +216,11 @@ describe('payout settlement — NO redundant 50/50 PAYOUT_ADMIN split (real DB)'
     await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_OWN_USER_IDS))
     await dbSvc.db.delete(projects).where(eq(projects.id, DROP_PROJECT_ID))
+    // task-onchain-payment-integrity: the consumed-hash registry outlives the
+    // payout it settled (by design), so a suite re-using fixed test hashes has
+    // to sweep it — otherwise the next test gets a legitimate
+    // «хеш уже использован». Runs LAST (needs the rows above gone).
+    await sweepOrphanConsumedTxHashes(dbSvc)
   }
 
   /** Company-account DISPLAY balance (GET /company-account). */

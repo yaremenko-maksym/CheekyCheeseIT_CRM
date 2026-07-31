@@ -42,6 +42,7 @@ const { PAYOUT } = vi.hoisted(() => ({
     payableAmount: '1300',
     contractAddress: '0xCompanyWallet000000000000000000000000aaaa',
     txHash: null,
+    txFromAddress: null,
     status: 'PENDING',
     // Explicit TransactionDto[] (not inferred never[] from `[]` under
     // `satisfies`) — the DROP re-audit describe block below reassigns this
@@ -141,6 +142,7 @@ function makeDropIncomeTx(overrides: Partial<TransactionDto> = {}): TransactionD
     salaryMonth: null,
     txDate: null,
     txHash: null,
+    txFromAddress: null,
     rejectionReason: null,
     payoutRequestId: PAYOUT.id,
     validatedBy: 'accountant-1',

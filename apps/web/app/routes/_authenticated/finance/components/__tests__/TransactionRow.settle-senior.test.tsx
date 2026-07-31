@@ -81,6 +81,7 @@ function makeTx(overrides: Partial<TransactionDto> = {}): TransactionDto {
     receiptDocumentId: null,
     receiptExternalUrl: null,
     txHash: null,
+    txFromAddress: null,
     validatedBy: null,
     validatedAt: null,
     rejectionReason: null,

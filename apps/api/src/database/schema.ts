@@ -492,6 +492,14 @@ export const payoutRequests = pgTable(
     // verification.
     contractAddress: varchar('contract_address', { length: 255 }).notNull(),
     txHash: varchar('tx_hash', { length: 255 }),
+    // task-onchain-payment-integrity. The on-chain SENDER of the settling
+    // transfer (ERC-20 `topics[1]`, tx-level `from` as fallback), lowercase.
+    // OBSERVED, NOT ENFORCED: staff often withdraw from an exchange, so this is
+    // frequently the exchange's hot wallet rather than their own address —
+    // gating on it would reject honest payments (owner decision). Recorded so
+    // ADMIN/ACCOUNTANT can see who actually paid; NULL for pending payouts,
+    // off-chain manual confirmations and dev-simulate settlements.
+    txFromAddress: varchar('tx_from_address', { length: 42 }),
     status: payoutRequestStatusEnum().notNull().default('PENDING'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
@@ -581,6 +589,13 @@ export const transactions = pgTable(
     }),
     // Blockchain TX hash (for PAYOUT, PAYOUT_ADMIN, COMPANY_DEPOSIT)
     txHash: varchar('tx_hash', { length: 255 }),
+    // task-onchain-payment-integrity. On-chain SENDER of that transfer
+    // (ERC-20 `topics[1]`, tx-level `from` as fallback), lowercase. Same
+    // OBSERVED-NOT-ENFORCED contract as `payout_requests.tx_from_address` —
+    // recorded for ADMIN/ACCOUNTANT audit, never a credit gate (exchange
+    // withdrawals legitimately show the exchange's wallet). NULL wherever no
+    // on-chain sender was resolved.
+    txFromAddress: varchar('tx_from_address', { length: 42 }),
     // task-company-account-backend. Funding source of a SALARY row:
     //   'COMPANY_ACCOUNT' — paid from the shared company USDT account (debits
     //                       its derived balance); always USDT.
@@ -669,6 +684,74 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_admin_income_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'ADMIN_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
+  ],
+)
+
+// ---------------------------------------------------------------------------
+// Consumed on-chain tx hashes — task-onchain-payment-integrity (CROSS-PATH)
+// ---------------------------------------------------------------------------
+//
+// SECURITY INVARIANT: a REAL on-chain transfer may settle AT MOST ONE thing in
+// this system — either one payout, or one company deposit. Never both, never
+// twice.
+//
+// Why a dedicated table: before this, each money path guarded its own hash
+// re-use in its OWN table and was blind to the other —
+//   • payPayoutRequest / manualConfirmPayout scanned `payout_requests`
+//     (backstop `uq_payout_requests_txhash_paid`),
+//   • submitDeposit scanned `transactions WHERE type='COMPANY_DEPOSIT'`
+//     (backstop `uq_transactions_company_deposit_tx_hash`).
+// Both indexes are partial and DISJOINT, so ONE transfer could legally land in
+// both tables and `computeCompanyAccountBalanceFromLedger` summed BOTH terms →
+// the company balance was credited TWICE for a single transfer (phantom money
+// that then funds salary/expense/dividend gates). Fixing one path could never
+// close it: the two paths must share ONE registry.
+//
+// The row is inserted INSIDE the same DB transaction that performs the credit,
+// so a concurrent double-spend is decided by the unique index (23505 → clean
+// 400), not by a check-then-act read that can go stale.
+//
+// Only REAL on-chain hashes (0x + 64 hex) are registered; synthetic audit
+// markers (`0xSIM…` dev-simulate, `0xMANUAL…` off-chain confirmations) are
+// unique by construction and reference no on-chain transfer — see
+// `normalizeOnChainTxHash` in `finance/onchain-tx.ts` (single source of truth
+// for the shape rule + lowercase normalisation).
+export const consumedTxHashes = pgTable(
+  'consumed_tx_hashes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    // ALWAYS lowercase-normalised (`normalizeOnChainTxHash`). Storing the
+    // normalised form lets the uniqueness be a plain column index — no
+    // expression index — while `0xAB…` and `0xab…` still collide.
+    txHash: varchar('tx_hash', { length: 66 }).notNull(),
+    // Which money path consumed it: 'PAYOUT' | 'COMPANY_DEPOSIT'.
+    purpose: varchar('purpose', { length: 32 }).notNull(),
+    // payout_requests.id or transactions.id. Deliberately NOT an FK: the
+    // registry must outlive its referent (a deleted payout must not free the
+    // hash for re-use).
+    referenceId: uuid('reference_id'),
+    // Who submitted the hash (audit trail for abuse investigation).
+    consumedByUserId: uuid('consumed_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    // ── TOMBSTONE (security-review round 5, MED-J) ──────────────────────────
+    // An ADMIN release marks the claim released instead of DELETEing it.
+    // Deleting erased the evidence: the double credit stayed in the ledger
+    // while the "released → spent again" pair — the exact sequence an
+    // investigator needs — left no trace anywhere. Kept rows also let the
+    // re-claim be detected and recorded (`ONCHAIN_HASH_RECLAIMED_AFTER_RELEASE`).
+    releasedAt: timestamp('released_at', { withTimezone: true }),
+    releasedBy: uuid('released_by').references(() => users.id, { onDelete: 'set null' }),
+    releasedReason: text('released_reason'),
+  },
+  (t) => [
+    // THE cross-path guard. PARTIAL: uniqueness binds only ACTIVE claims, so a
+    // released tombstone stays in the table (evidence) without blocking the
+    // re-settlement the release was granted for.
+    uniqueIndex('uq_consumed_tx_hashes_active_tx_hash')
+      .on(t.txHash)
+      .where(sql`${t.releasedAt} IS NULL`),
   ],
 )
 

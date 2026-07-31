@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -28,6 +29,7 @@ import {
   dropIncomesQuerySchema,
   incomeComplianceQuerySchema,
   manualConfirmPayoutSchema,
+  releaseOnChainHashSchema,
   payPayoutRequestSchema,
   paySalarySchema,
   updateProjectFinanceSettingsSchema,
@@ -38,6 +40,11 @@ import {
 import { CurrentUser } from '../auth/current-user.decorator'
 import { Roles } from '../common/decorators/roles.decorator'
 import { RolesGuard } from '../common/guards/roles.guard'
+import {
+  ONCHAIN_HASH_INSPECT_LIMIT,
+  ONCHAIN_HASH_RELEASE_LIMIT,
+  RelaxableThrottle,
+} from '../config/throttle-decorators'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { TransactionsService } from './transactions.service'
 
@@ -233,6 +240,50 @@ export class TransactionsController {
     @CurrentUser() user: SessionUser,
   ) {
     return this.svc.attachOrReplaceReceipt(id, attachReceiptSchema.parse(body), user)
+  }
+
+  // MED-G (security-review PR #438): release a mis-claimed on-chain hash so the
+  // transfer can be settled again. ADMIN only (RolesGuard + a service-side
+  // re-check) and always journaled with a reason — the counterweight to a
+  // registry whose claims are otherwise permanent. Deliberately NOT a route on
+  // `:id`: the subject is the HASH, which may outlive every row referencing it.
+  // MED-M (round 5): the most destructive handle in this module — it makes a
+  // spent transfer spendable again. Rate-limited like its neighbours (wallet
+  // update / dividends are 5/min, deposits 12), so a scripted mistake or an
+  // abused session cannot walk the registry.
+  @Post('onchain-hash/release')
+  @Roles('ADMIN')
+  @RelaxableThrottle(ONCHAIN_HASH_RELEASE_LIMIT)
+  @HttpCode(200)
+  releaseOnChainHash(@Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = releaseOnChainHashSchema.parse(body)
+    return this.svc.releaseOnChainHash(data.txHash, data.reason, user)
+  }
+
+  // MED-K (round 5): LOOK before you release. Without this the only way to
+  // learn who owns a claim was to call the release — which destroyed it, so a
+  // typo silently freed somebody else's legitimate claim. Read-only, and it
+  // reports what releasing would mean for the referent.
+  //
+  // LOW (round 6): the hash arrives as a QUERY parameter, not a path segment.
+  // The whole point of the shared extractor is that an explorer LINK is valid
+  // input — and a link contains slashes, so as `:txHash` it never matched the
+  // route and the operator got a bare 404 instead of the 400 that explains the
+  // problem. Also throttled: it is a read, but it is a read of the money path.
+  @Get('onchain-hash')
+  @Roles('ADMIN', 'ACCOUNTANT')
+  @RelaxableThrottle(ONCHAIN_HASH_INSPECT_LIMIT)
+  inspectOnChainHash(@Query('txHash') txHash: unknown, @CurrentUser() user: SessionUser) {
+    // MED-S (round 7): `?txHash=a&txHash=b` arrives as an ARRAY, and anything
+    // non-string crashed the handler on `.trim()` — a 500 on the money path,
+    // introduced by moving the hash into a query parameter. Narrow here and let
+    // the service answer with its normal 400.
+    if (typeof txHash !== 'string') {
+      throw new BadRequestException(
+        'Укажите ровно один параметр txHash (0x + 64 hex или ссылка на Etherscan)',
+      )
+    }
+    return this.svc.inspectOnChainHash(txHash, user)
   }
 
   @Delete(':id')
