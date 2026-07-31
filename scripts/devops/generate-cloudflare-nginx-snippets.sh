@@ -59,6 +59,25 @@ LOCAL_TRUSTED='127.0.0.1
 ::1
 172.30.0.0/23'
 
+# security review (PR #439 follow-up, MED-1, 2026-07-31): the pin above is
+# BUILD-TIME static — it documents and enforces the INTENDED topology, but
+# deploy.yml's `docker compose up -d` never recreates an already-existing
+# network, so on any deploy where frontend/backend already exist with a
+# DIFFERENT (Docker-auto-allocated) subnet, this pin can silently fail to
+# apply. nginx/docker-entrypoint.d/25-origin-gate-runtime-trust.sh runs at
+# CONTAINER STARTUP (every deploy, unconditionally) and discovers THIS
+# container's actual default-route gateway straight from the kernel,
+# writing it to /etc/nginx/origin-gate-runtime-trusted.conf — `include`d
+# into the geo block below ALONGSIDE the static pin, so the FATAL
+# post-deploy smoke tests (deploy.yml) trust whichever address traffic
+# ACTUALLY arrives from, regardless of whether the static pin took effect
+# on this particular deploy. See that script's header comment for the full
+# rationale. The file is created empty (comment-only, matches no address)
+# by the Dockerfile at BUILD time so `nginx -t` has something to include
+# before the entrypoint has ever run; the entrypoint overwrites it at
+# every container start.
+RUNTIME_TRUSTED_INCLUDE='/etc/nginx/origin-gate-runtime-trusted.conf'
+
 {
   echo '# GENERATED — do NOT edit by hand.'
   echo '# Source: nginx/cloudflare-ips.txt, via scripts/devops/generate-cloudflare-nginx-snippets.sh'
@@ -89,6 +108,17 @@ LOCAL_TRUSTED='127.0.0.1
   printf '%s\n' "$LOCAL_TRUSTED" | while IFS= read -r cidr; do
     echo "    $cidr 1;"
   done
+  # MED-1 follow-up (see LOCAL_TRUSTED comment above): runtime-discovered
+  # trust entry, written at container startup by
+  # nginx/docker-entrypoint.d/25-origin-gate-runtime-trust.sh. Lives OUTSIDE
+  # conf.d/ (nginx.conf's wildcard `include conf.d/*.conf;` would otherwise
+  # ALSO try to load this file directly at http level, where a bare
+  # `<cidr> <value>;` geo-body line is invalid syntax — same class of
+  # mistake origin-gate.conf's own header comment documents for the `if`
+  # snippet). Build-time placeholder (empty/comment-only) written by
+  # nginx/Dockerfile so `nginx -t` has a valid, existing file to include
+  # before the entrypoint has ever run.
+  echo "    include $RUNTIME_TRUSTED_INCLUDE;"
   grep -v '^[[:space:]]*#' "$CF_IPS_FILE" | grep -v '^[[:space:]]*$' | while IFS= read -r cidr; do
     echo "    $cidr 1;"
   done

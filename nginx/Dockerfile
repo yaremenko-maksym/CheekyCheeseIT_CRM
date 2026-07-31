@@ -168,6 +168,33 @@ COPY scripts/devops/generate-cloudflare-nginx-snippets.sh /tmp/generate-cloudfla
 RUN sh /tmp/generate-cloudflare-nginx-snippets.sh /etc/nginx/cloudflare-ips.txt /etc/nginx/conf.d && \
     rm /tmp/generate-cloudflare-nginx-snippets.sh
 
+# security review (PR #439 follow-up, MED-1, 2026-07-31): runtime-discovered
+# origin-gate trust entry — see nginx/docker-entrypoint.d/25-origin-gate-
+# runtime-trust.sh's header comment and generate-cloudflare-nginx-snippets.sh's
+# RUNTIME_TRUSTED_INCLUDE comment for the full rationale (docker-compose.prod.
+# yml's pinned frontend/backend subnet can silently fail to apply on a deploy
+# that reuses a pre-existing network; this closes that gap independent of
+# whether the pin took effect). Placeholder created here (empty, comment-only
+# — matches no address) so the build-time `nginx -t` gate below has a valid,
+# already-existing file to `include` from origin-gate-geo.conf's geo block
+# before the entrypoint script has ever run; the entrypoint OVERWRITES this
+# file at every container start with whatever gateway is actually in use.
+RUN { \
+      echo '# GENERATED build-time placeholder — do NOT edit by hand.'; \
+      echo '# Overwritten at container startup by nginx/docker-entrypoint.d/'; \
+      echo '# 25-origin-gate-runtime-trust.sh. Empty here (matches no address) is'; \
+      echo '# correct at build time — see that script'"'"'s header comment.'; \
+    } >/etc/nginx/origin-gate-runtime-trusted.conf
+
+# security review (PR #439 follow-up, MED-1): sourced automatically by this
+# base image's own /docker-entrypoint.sh (nginx:1.27-alpine ships it, along
+# with 4 of its own numbered scripts already — verified against this exact
+# base image) — no ENTRYPOINT/CMD change needed in this Dockerfile. Must be
+# executable for the base entrypoint to pick it up (see that mechanism's own
+# `[ -x "$f" ]` check).
+COPY nginx/docker-entrypoint.d/ /docker-entrypoint.d/
+RUN chmod +x /docker-entrypoint.d/25-origin-gate-runtime-trust.sh
+
 # security review (PR #437 follow-up, MED-2 "soft-launch" ask): ORIGIN_GATE_MODE
 # — the SINGLE source of truth for whether the origin-IP gate
 # (nginx/snippets/origin-gate.conf) actually blocks (`enforce`) or only logs

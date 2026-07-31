@@ -1201,23 +1201,28 @@ jobs:
               exit 1
             fi
 
-            # security audit 2026-07-27 (MED-1/MED-5): same FATAL pattern as the
-            # security-headers check immediately above — this is the "did nginx
-            # end up serving the config we think it did" class of check, not a
-            # soft warning. Covers body-size limits, the default_server
-            # catch-all, AND a real-visitor regression guard (sends
-            # CF-Connecting-IP like Cloudflare would and asserts it is NOT
-            # rejected) — POSTs to the real, public, GET-only /api/health,
-            # never touches the DB/S3/business logic. See the script's own
-            # header comment for why that regression guard exists: a
-            # source-IP allow/deny gate was attempted in the same PR that
-            # introduced this script and reverted after security review
-            # (nginx's realip module rewrites $remote_addr to the
-            # client-supplied CF-Connecting-IP BEFORE the access-control
-            # phase runs, so a naive gate blocks real visitors and passes
-            # attackers who omit that header) — that corrected gate is a
-            # separate follow-up PR, not part of this check yet.
-            echo "==> Smoke test — nginx perimeter (body limits, default_server), via local nginx (FATAL)"
+            # security audit 2026-07-27 (MED-1/MED-5), gate added in the PR #439
+            # follow-up: same FATAL pattern as the security-headers check
+            # immediately above — this is the "did nginx end up serving the
+            # config we think it did" class of check, not a soft warning.
+            # Covers body-size limits, the default_server catch-all, the
+            # real-visitor regression guard (sends CF-Connecting-IP like
+            # Cloudflare would and asserts it is NOT rejected — POSTs to the
+            # real, public, GET-only /api/health, never touches the
+            # DB/S3/business logic), AND (security review, PR #439 follow-up,
+            # MED-3) a STATIC assertion that the origin gate's geo block is
+            # actually keyed on $realip_remote_addr, not $remote_addr — see
+            # that check's own header comment for why a plain HTTP probe
+            # cannot catch a reversion to the reverted-PR-#437 bug on its own.
+            #
+            # NGINX_EXEC_CMD gives that static check docker exec access to the
+            # running nginx container's compiled config (`nginx -T`) — same
+            # compose-file/env-file invocation already used for `exec -T
+            # postgres` a few steps above in this same script. Without it the
+            # check degrades to an explicit SKIP (see the script's own
+            # NGINX_EXEC_CMD handling), never a silent PASS.
+            export NGINX_EXEC_CMD="docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production exec -T nginx"
+            echo "==> Smoke test — nginx perimeter (body limits, default_server, gate wiring), via local nginx (FATAL)"
             NGINX_PERIMETER_SCRIPT="/opt/crm/scripts/devops/check-nginx-perimeter.sh"
             if [ ! -f "$NGINX_PERIMETER_SCRIPT" ]; then
               echo "ERROR: guard script not found at $NGINX_PERIMETER_SCRIPT — scp-action may have flattened the tree (see copy-compose job)."
@@ -1228,11 +1233,12 @@ jobs:
               echo "nginx perimeter check PASSED"
             else
               echo "ERROR: nginx is not enforcing the expected request-body limits, the default_server"
-              echo "catch-all is missing, and/or real Cloudflare-forwarded visitors are being blocked."
-              echo "This means a regression of the class fixed in the 2026-07-27 security audit"
+              echo "catch-all is missing, real Cloudflare-forwarded visitors are being blocked, and/or"
+              echo "the origin gate's geo block is no longer keyed on \$realip_remote_addr."
+              echo "This means a regression of the class fixed in the 2026-07-27 security audit / PR #439"
               echo "(client_max_body_size silently reverted to nginx's 1 MB default, an unmatched Host"
               echo "falling through to a real vhost again, or a source-IP gate filtering on the"
-              echo "client-supplied CF-Connecting-IP header) shipped — see"
+              echo "client-supplied CF-Connecting-IP header instead of the real TCP peer) shipped — see"
               echo "scripts/devops/check-nginx-perimeter.sh's own header comment."
               exit 1
             fi

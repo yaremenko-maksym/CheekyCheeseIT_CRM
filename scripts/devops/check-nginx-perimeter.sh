@@ -115,6 +115,7 @@ SIMULATED_VISITOR_IP='203.0.113.7'
 
 PASS=0
 FAIL=0
+SKIP=0
 
 WORKDIR="$(mktemp -d)"
 trap 'rm -rf "$WORKDIR"' EXIT
@@ -239,6 +240,89 @@ check_visitor_not_blocked() {
   fi
 }
 
+# ── gate-variable regression guard (why THIS check, not a bigger fix to ───
+# ── check_visitor_not_blocked above — security review, PR #439 follow-up, ─
+# ── MED-3, 2026-07-31) ──────────────────────────────────────────────────
+#   check_visitor_not_blocked above went VACUOUS the moment the origin
+#   gate's LOCAL_TRUSTED allow-list (nginx/cloudflare-ips.txt) started
+#   covering the docker-compose pinned subnet: this script's OWN test
+#   peer (127.0.0.1 in a local dry-run, or the VPS's own bridge-gateway
+#   address in deploy.yml's FATAL smoke test) is now itself unconditionally
+#   trusted BEFORE realip is even in the picture, so `check_visitor_not_
+#   blocked`'s assertion ("not 403") passes REGARDLESS of which nginx
+#   variable the gate is keyed on — it cannot distinguish the fix from the
+#   exact bug it exists to catch (the reverted $remote_addr gate).
+#
+#   The fundamental reason a plain curl-based check cannot fix this: nginx's
+#   realip module only ever substitutes $remote_addr for a peer that is
+#   ITSELF listed in `set_real_ip_from` (only Cloudflare's published ranges
+#   here) — for any OTHER peer (this script's own test peer, always), a
+#   forged CF-Connecting-IP header is syntactically present but semantically
+#   inert: realip never fires, so $remote_addr and $realip_remote_addr are
+#   PROVABLY IDENTICAL for every request this script (or deploy.yml) is able
+#   to send. $remote_addr-vs-$realip_remote_addr can only ever diverge for a
+#   peer that IS a genuine Cloudflare edge — i.e. only observable by running
+#   through production Cloudflare itself, which is exactly the dependency
+#   deploy.yml's FATAL smoke tests were deliberately changed to AVOID (see
+#   the "landing origin" smoke test's own LOW-3 comment). No HTTP-only test
+#   invoked the way this script is actually invoked can close this gap.
+#
+#   So: a STATIC assertion on the compiled config, not another HTTP probe.
+#   Reads the geo block's key variable straight from `nginx -T` (the
+#   authoritative, fully-resolved config nginx itself is running) and
+#   fails if it is ANYTHING other than exactly `$realip_remote_addr` —
+#   directly, deterministically catches a reversion to `$remote_addr`
+#   (or any other variable), with no dependency on network topology,
+#   trust ranges, or which peer this script happens to run from.
+#
+#   Best-effort / optional, NOT silently skipped: requires docker exec
+#   access to the running nginx container (the caller sets NGINX_EXEC_CMD,
+#   e.g. `docker compose -f docker-compose.prod.yml -f docker-compose.
+#   ghcr.yml --env-file .env.production exec -T nginx`) — deploy.yml's
+#   FATAL invocation of this script DOES have that access (same shell
+#   session already runs `docker compose ... exec -T postgres` etc. a few
+#   steps earlier) and sets it, so this check has real teeth there. A local
+#   dry-run or an external `ORIGIN=https://cheekycheese.tech` invocation
+#   without docker access explicitly SKIPs (own counter, does not fail the
+#   script) rather than silently reporting PASS for a check that never ran.
+check_gate_keyed_on_realip() {
+  local desc="Origin gate's geo block is keyed on \$realip_remote_addr (not \$remote_addr)"
+
+  if [ -z "${NGINX_EXEC_CMD:-}" ]; then
+    SKIP=$((SKIP + 1))
+    printf 'SKIP  %-70s NGINX_EXEC_CMD not set — no docker exec access from this invocation\n' "$desc"
+    return
+  fi
+
+  local geo_line
+  geo_line="$($NGINX_EXEC_CMD nginx -T 2>/dev/null | grep -m1 'geo \$[a-z_]* \$origin_gate_allowed')"
+
+  if [ -z "$geo_line" ]; then
+    FAIL=$((FAIL + 1))
+    printf 'FAIL  %-70s could not find the $origin_gate_allowed geo block via `nginx -T`\n' "$desc"
+    printf '      (NGINX_EXEC_CMD set but nginx -T returned nothing usable — check the\n'
+    printf '      command/container name, or the gate was refactored without updating\n'
+    printf '      this check).\n'
+    return
+  fi
+
+  case "$geo_line" in
+    *'geo $realip_remote_addr $origin_gate_allowed'*)
+      PASS=$((PASS + 1))
+      printf 'PASS  %-70s keyed on $realip_remote_addr\n' "$desc"
+      ;;
+    *)
+      FAIL=$((FAIL + 1))
+      printf 'FAIL  %-70s got: %s\n' "$desc" "$geo_line"
+      printf '      The origin gate is NOT keyed on $realip_remote_addr — this is the\n'
+      printf '      exact bug class reverted from PR #437 (filtering on the post-realip-\n'
+      printf '      substitution $remote_addr blocks real Cloudflare-forwarded visitors\n'
+      printf '      and passes an attacker connecting from inside a Cloudflare-owned\n'
+      printf '      range without the header). See nginx/snippets/origin-gate.conf.\n'
+      ;;
+  esac
+}
+
 echo "== check-nginx-perimeter.sh — origin: $ORIGIN =="
 echo
 
@@ -262,8 +346,13 @@ check_connection_closed "default_server: no Host override (curl default) gets 44
 check_visitor_not_blocked "CRM: real visitor via Cloudflare (CF-Connecting-IP) is not blocked" "$CRM_HOST"
 check_visitor_not_blocked "Landing: real visitor via Cloudflare (CF-Connecting-IP) is not blocked" "$LANDING_HOST"
 
+# ── gate-variable regression guard (security review round 2, MED-3) ───────
+# See check_gate_keyed_on_realip's own header comment for why this is a
+# STATIC config assertion rather than another HTTP probe.
+check_gate_keyed_on_realip
+
 echo
-echo "== $PASS passed, $FAIL failed =="
+echo "== $PASS passed, $FAIL failed, $SKIP skipped =="
 if [ "$FAIL" -gt 0 ]; then
   exit 1
 fi
