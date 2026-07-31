@@ -32,7 +32,7 @@ CI hard-блок: `check-no-skip-hooks.yml` падает на любой `--no-v
 
 **Резюме:** Если trigger applies — агент **обязан** вызвать skill через `Skill` tool, не «помнить». Если skill отсутствует — explicit failure через ошибку `Skill` tool (лучше silent skip).
 
-**Trigger highlights:** session start → `superpowers:using-superpowers`; creative task → `superpowers:brainstorming`; feature/fix → `superpowers:test-driven-development`; long-running ops → `dev-flow-resilience`; review → `code-review-discipline`; security PR → `superpowers:security-review`; .spec.ts → `playwright-patterns`; Legal mode → `ua-tax-compliance` / `ua-crypto-compliance` / `ua-it-contract` / `legal-escalation-patterns`.
+**Trigger highlights:** session start → `superpowers:using-superpowers`; creative task → `superpowers:brainstorming`; feature/fix → `superpowers:test-driven-development`; long-running ops → `dev-flow-resilience`; review → `code-review-discipline`; security PR → `security-review`; .spec.ts → `playwright-patterns`; Legal mode → `ua-tax-compliance` / `ua-crypto-compliance` / `ua-it-contract` / `legal-escalation-patterns`.
 
 См. полный trigger → skill mapping (superpowers + project-local Phase 4 lift + ECC workflow surface policy): **[`.claude/rules/common/skills-invocation.md`](rules/common/skills-invocation.md)**.
 
