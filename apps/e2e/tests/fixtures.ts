@@ -2105,9 +2105,11 @@ export async function createPayoutRequestViaAPI(
  * Mark a PENDING payout_request as PAID via PATCH /api/payout-requests/:id/pay.
  *
  * Caller must be SENIOR or DROP (the seniorId/dropId on the payout_request
- * must match the caller). The backend inserts the distribution transactions
- * (PAYOUT_DROP + 2× PAYOUT_ADMIN for drop-projects, 2× PAYOUT_ADMIN for
- * senior-projects).
+ * must match the caller). The backend books the distribution obligations:
+ * for a drop-project, SENIOR_PENDING_PAYOUT + DROP_PENDING_PAYOUT (both
+ * COMPANY debts, pending settle-with-receipt — task-drop-share-pending-parity,
+ * 2026-07-27); a senior-project books nothing extra (the PAYOUT credit alone
+ * is the whole settlement). No PAYOUT_ADMIN rows on either branch.
  *
  * Uses the dev simulate=success path so we don't need a real on-chain hash.
  */

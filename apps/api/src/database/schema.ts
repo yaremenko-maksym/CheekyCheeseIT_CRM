@@ -553,6 +553,63 @@ export const transactions = pgTable(
     payoutRequestId: uuid('payout_request_id').references(() => payoutRequests.id, {
       onDelete: 'set null',
     }),
+    /**
+     * security-review PR #443 (MED-B): a POSITIVE, permanent origin marker for
+     * a DROP_PENDING_PAYOUT / PAYOUT_DROP row — true ⟺ this row's drop-share
+     * IOU was booked by the drop-payout CASCADE (applyPayoutPaidCascade), i.e.
+     * its money NEVER touched the shared company account (only `payable =
+     * income*(1-dropShare%)` did — the drop keeps their own cut before the
+     * on-chain transfer). `false` for an admin-USDT-declaration-booked drop
+     * IOU (declareUsdtProjectIncome).
+     *
+     * CORRECTION (round 5): `false` is a cascade-vs-declaration discriminator,
+     * NOT a "the company account holds this money" guarantee.
+     * declareUsdtProjectIncome can route a declared income to a SPECIFIC
+     * admin's personal wallet instead of the shared pool
+     * (`toCompanyPool=false`) — the obligations it books still get `false`
+     * here even though the company pool never received that income either.
+     * Which pot actually pays is decided at SETTLE time by the ADMIN/
+     * ACCOUNTANT's funding-source choice (COMPANY_ACCOUNT vs ADMIN_PERSONAL —
+     * see settleByCompany, pending-settlement.service.ts), same as the
+     * analogous senior-obligation case. This column only rules out the ONE
+     * scenario where the money is PROVABLY never in the pool (the drop-
+     * payout self-service cascade); it does not prove the opposite.
+     *
+     * WHY a dedicated column instead of `payoutRequestId IS NOT NULL`: that FK
+     * is `ON DELETE SET NULL` — a future cleanup of an unrelated
+     * `payout_requests` row would silently null it, and the settleByCompany
+     * HIGH-1 funding-source guard (pending-settlement.service.ts) would then
+     * fail OPEN (a cascade-originated row would look indistinguishable from an
+     * admin-declared one and wrongly allow a COMPANY_ACCOUNT-funded settle —
+     * debiting money the company never received). This column is stamped ONCE
+     * at INSERT time (bookCompanyObligations, transactions.service.ts) from
+     * the CALLER's intent, not derived from `payoutRequestId` afterwards —
+     * later FK activity on `payout_requests` can never touch it. The backfill
+     * script (`2026-07-27_drop_share_pending_parity_backfill.sql`) stamps the
+     * SAME marker on the historical rows it converts, for the identical reason.
+     *
+     * NULLABLE, NO DEFAULT (security-review PR #443 round 3, LOW): a
+     * `NOT NULL DEFAULT false` column cannot distinguish "explicitly verified
+     * non-cascade" from "nobody ever set this" — an unrelated FUTURE insert
+     * path for a DROP_PENDING_PAYOUT row that forgets to stamp this field
+     * would silently inherit the PERMISSIVE default (`false`, "safe to settle
+     * from the company account") rather than failing loudly. Left nullable
+     * instead: `NULL` = unknown/unset, and the settleByCompany guard below
+     * treats `!== false` (i.e. `true` OR `null`) as BLOCK — only an EXPLICIT
+     * `false` (stamped by bookCompanyObligations for the admin-declared path)
+     * allows a COMPANY_ACCOUNT settle. A silently-forgotten stamp therefore
+     * fails SAFE (blocks) instead of failing OPEN. Not made `NOT NULL` outright
+     * (which would force every OTHER transaction type's insert call site —
+     * SALARY, EXPENSE, ADMIN_INCOME, COMPANY_DEPOSIT, …, none of which this
+     * column is meaningful for — to explicitly pass a value, and would need a
+     * backfill migration for existing rows) — that cost is disproportionate to
+     * a column only `DROP_PENDING_PAYOUT`/`PAYOUT_DROP` rows ever read.
+     *
+     * ADD COLUMN DDL (apply to dev/prod manually before deploy — same
+     * additive-push pattern as `idempotencyKey` above):
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS drop_cascade_origin boolean;
+     */
+    dropCascadeOrigin: boolean('drop_cascade_origin'),
     // Snapshot of senior share percent at time of SENIOR_INCOME creation
     seniorSharePercent: integer('senior_share_percent'),
     // task-team-senior-share-override. Snapshot of *where* the percent above

@@ -5,13 +5,15 @@
  *
  *   - senior 50% + drop 50% → remainder = $0, 0 PAYOUT_ADMIN rows.
  *     fix/payout-credits-company-account: the 50/50 partner split is removed.
- *     Only PAYOUT placeholder + PAYOUT_DROP still created; company account
- *     credited via PAYOUT.fundingSource='COMPANY_ACCOUNT'.
+ *     Only PAYOUT placeholder + DROP_PENDING_PAYOUT still created (the
+ *     drop's slice is a COMPANY debt now — task-drop-share-pending-parity —
+ *     not an instant PAYOUT_DROP); company account credited via
+ *     PAYOUT.fundingSource='COMPANY_ACCOUNT'.
  *   - senior 60% + drop 50% → backend 400 BadRequest at pay-time
  *     ("Sum of senior+drop shares exceeds 100%"). The income lives PENDING /
  *     VALIDATED but the payout never completes.
  *   - senior 0% + drop 0% → 0 PAYOUT_ADMIN rows; full payable ($1000) credits
- *     company account. PAYOUT_DROP $0 still emitted (drop's 0% slice).
+ *     company account. DROP_PENDING_PAYOUT $0 still emitted (drop's 0% slice).
  *
  * To avoid mutating the seed seniors across parallel runs each scenario
  * creates a *fresh* drop user with the appropriate `dropSharePercent`
@@ -91,16 +93,19 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
       const payouts = txs.filter((t) => t.type === 'PAYOUT')
-      const payoutDrops = txs.filter((t) => t.type === 'PAYOUT_DROP')
+      const dropPendings = txs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')
       const payoutAdmins = txs.filter((t) => t.type === 'PAYOUT_ADMIN')
 
       // PAYOUT placeholder = income * (1 - dropShare/100) = 1000 * 0.5 = 500.
       expect(payouts).toHaveLength(1)
       expect(parseFloat(payouts[0]!.amount)).toBeCloseTo(500, 2)
 
-      // PAYOUT_DROP = 50% of income = 500.
-      expect(payoutDrops).toHaveLength(1)
-      expect(parseFloat(payoutDrops[0]!.amount)).toBeCloseTo(500, 2)
+      // DROP_PENDING_PAYOUT = 50% of income = 500 (task-drop-share-pending-parity:
+      // pending until settled, not an instant PAYOUT_DROP).
+      expect(dropPendings).toHaveLength(1)
+      expect(dropPendings[0]!.status).toBe('PENDING_PAYMENT')
+      expect(parseFloat(dropPendings[0]!.amount)).toBeCloseTo(500, 2)
+      expect(txs.filter((t) => t.type === 'PAYOUT_DROP')).toHaveLength(0)
 
       // PAYOUT_ADMIN — 0 rows (regression canary).
       // The automatic 50/50 partner split was removed in
@@ -165,12 +170,13 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       const body = await res.text()
       expect(body).toMatch(/Sum of senior\+drop shares exceeds 100%/i)
 
-      // Sanity: no PAYOUT_DROP / PAYOUT_ADMIN rows were inserted (the failed
-      // pay is wrapped in the backend's request handling, not a DB
-      // transaction, so the placeholder PAYOUT exists from validate but
-      // the distribution rows must NOT).
+      // Sanity: no DROP_PENDING_PAYOUT / PAYOUT_DROP / PAYOUT_ADMIN rows were
+      // inserted (the whole cascade runs in ONE DB transaction — the
+      // exceeds-100% throw rolls back everything, so the distribution rows
+      // must NOT exist even though the placeholder PAYOUT survives from validate).
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
+      expect(txs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')).toHaveLength(0)
       expect(txs.filter((t) => t.type === 'PAYOUT_DROP')).toHaveLength(0)
       expect(txs.filter((t) => t.type === 'PAYOUT_ADMIN')).toHaveLength(0)
     } finally {
@@ -182,7 +188,7 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     }
   })
 
-  test('senior 0% + drop 0% → 0 PAYOUT_ADMIN, PAYOUT_DROP $0, PAYOUT $1000 credits company account', async ({
+  test('senior 0% + drop 0% → 0 PAYOUT_ADMIN, DROP_PENDING_PAYOUT $0, PAYOUT $1000 credits company account', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -218,12 +224,15 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
 
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
-      const payoutDrops = txs.filter((t) => t.type === 'PAYOUT_DROP')
+      const dropPendings = txs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')
       const payoutAdmins = txs.filter((t) => t.type === 'PAYOUT_ADMIN')
 
-      // PAYOUT_DROP = $0 (drop kept 0% share).
-      expect(payoutDrops).toHaveLength(1)
-      expect(parseFloat(payoutDrops[0]!.amount)).toBeCloseTo(0, 2)
+      // DROP_PENDING_PAYOUT = $0 (drop kept 0% share) — still booked as a
+      // (zero-amount) COMPANY debt, pending settlement.
+      expect(dropPendings).toHaveLength(1)
+      expect(dropPendings[0]!.status).toBe('PENDING_PAYMENT')
+      expect(parseFloat(dropPendings[0]!.amount)).toBeCloseTo(0, 2)
+      expect(txs.filter((t) => t.type === 'PAYOUT_DROP')).toHaveLength(0)
 
       // PAYOUT_ADMIN — 0 rows (regression canary).
       // The automatic 50/50 partner split was removed in

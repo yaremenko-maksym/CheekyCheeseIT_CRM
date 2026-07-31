@@ -133,10 +133,12 @@ test.describe('0 PAYOUT_ADMIN after payout — both cascade branches (Variant-A 
         'Drop-project payout must NOT produce PAYOUT_ADMIN rows (Variant-A split removal)',
       ).toHaveLength(0)
 
-      // Sanity: PAYOUT_DROP still created (drop's share is intact).
-      const payoutDrops = projectTxs.filter((t) => t.type === 'PAYOUT_DROP')
-      expect(payoutDrops).toHaveLength(1)
-      expect(payoutDrops[0]!.status).toBe('PAID')
+      // Sanity: DROP_PENDING_PAYOUT still created (drop's share is intact,
+      // now pending settlement — task-drop-share-pending-parity — instead of
+      // an instant PAID PAYOUT_DROP).
+      const dropPendings = projectTxs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')
+      expect(dropPendings).toHaveLength(1)
+      expect(dropPendings[0]!.status).toBe('PENDING_PAYMENT')
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)

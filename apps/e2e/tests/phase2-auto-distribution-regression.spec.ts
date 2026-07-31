@@ -1,9 +1,9 @@
 /**
  * phase2-auto-distribution-regression.spec.ts — task-drop-phase3-e2e (AC6).
  *
- * Regression guard: the Phase 2 auto-50/50 cascade (PAYOUT_DROP +
- * 2× PAYOUT_ADMIN inserted by `payPayoutRequest`) still works after Phase 3
- * (spec §8.4) introduced the alternative manual `confirmPayout` flow.
+ * Regression guard: the Phase 2 auto-distribution cascade (DROP_PENDING_PAYOUT
+ * booked by `payPayoutRequest`) still works after Phase 3 (spec §8.4)
+ * introduced the alternative manual `confirmPayout` flow.
  *
  * The two flows are mutually exclusive on a single PAYOUT row (the manual
  * confirm idempotency guard requires PENDING_PAYMENT, and `payPayoutRequest`
@@ -12,16 +12,18 @@
  *
  *   Project A — Phase 2 flow:
  *     DROP_INCOME → validate → payPayoutRequest (simulate=success) →
- *     assert 2 distribution rows (PAYOUT PAID @ $950, PAYOUT_DROP @ $50),
- *     PAYOUT_ADMIN = 0 (removed by fix/payout-credits-company-account).
+ *     assert 2 distribution rows (PAYOUT PAID @ $950, DROP_PENDING_PAYOUT
+ *     PENDING_PAYMENT @ $50 — task-drop-share-pending-parity: no longer an
+ *     instant PAYOUT_DROP), PAYOUT_ADMIN = 0 (removed by
+ *     fix/payout-credits-company-account).
  *     Mirrors drop-distribution.spec.ts but re-runs the assertions here so
  *     any Phase 3 regression in the cascade surfaces in THIS spec too.
  *
  *   Project B — Phase 3 flow:
  *     DROP_INCOME → validate → confirmPayout (Maksym) →
  *     assert 2 rows total under the PAYOUT umbrella (PAYOUT PAID +
- *     PAYOUT_CONFIRMED for Maksym). No PAYOUT_DROP / PAYOUT_ADMIN — the
- *     drop never paid via the cascade.
+ *     PAYOUT_CONFIRMED for Maksym). No DROP_PENDING_PAYOUT / PAYOUT_ADMIN —
+ *     the drop never paid via the cascade.
  *
  * Bonus assertion: the GET /api/transactions?projectId= response is
  * disjoint between the two projects (no row from A pollutes B).
@@ -50,7 +52,7 @@ function uniqueSuffix(): string {
 }
 
 test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
-  test('cascade emits PAYOUT+PAYOUT_DROP on validate+pay (0 PAYOUT_ADMIN); manual confirm path emits 2 rows; both paths co-exist', async ({
+  test('cascade emits PAYOUT+DROP_PENDING_PAYOUT on validate+pay (0 PAYOUT_ADMIN); manual confirm path emits 2 rows; both paths co-exist', async ({
     page,
   }) => {
     const suffix = uniqueSuffix()
@@ -86,7 +88,9 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
       const { payoutRequestId: payoutReqIdA } = await validateTransactionViaAPI(page, incomeTxIdA)
       expect(payoutReqIdA).toBeTruthy()
 
-      // DROP pays → cascade emits PAYOUT_DROP, flips PAYOUT to PAID.
+      // DROP pays → cascade books a DROP_PENDING_PAYOUT COMPANY debt (no
+      // longer an instant PAYOUT_DROP — task-drop-share-pending-parity),
+      // flips PAYOUT to PAID.
       // No PAYOUT_ADMIN rows emitted (removed by fix/payout-credits-company-account).
       await loginViaApi(page, dropAEmail)
       const paid = await payPayoutRequestViaAPI(page, payoutReqIdA!)
@@ -95,7 +99,7 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txA = await listTransactionsByProjectViaAPI(page, projectIdA)
       const payoutA = txA.filter((t) => t.type === 'PAYOUT')
-      const payoutDropA = txA.filter((t) => t.type === 'PAYOUT_DROP')
+      const dropPendingA = txA.filter((t) => t.type === 'DROP_PENDING_PAYOUT')
       const payoutAdminA = txA.filter((t) => t.type === 'PAYOUT_ADMIN')
       const payoutConfirmedA = txA.filter((t) => t.type === 'PAYOUT_CONFIRMED')
 
@@ -104,10 +108,13 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
       expect(payoutA[0]!.status).toBe('PAID')
       expect(parseFloat(payoutA[0]!.amount)).toBeCloseTo(950, 2)
 
-      // PAYOUT_DROP (1 row, $50 = drop's 5% share).
-      expect(payoutDropA).toHaveLength(1)
-      expect(parseFloat(payoutDropA[0]!.amount)).toBeCloseTo(50, 2)
-      expect(payoutDropA[0]!.recipientId).toBe(dropIdA)
+      // DROP_PENDING_PAYOUT (1 row, PENDING_PAYMENT, $50 = drop's 5% share) —
+      // NOT yet credited; an ADMIN/ACCOUNTANT must settle it with a receipt.
+      expect(dropPendingA).toHaveLength(1)
+      expect(dropPendingA[0]!.status).toBe('PENDING_PAYMENT')
+      expect(parseFloat(dropPendingA[0]!.amount)).toBeCloseTo(50, 2)
+      expect(dropPendingA[0]!.recipientId).toBe(dropIdA)
+      expect(txA.filter((t) => t.type === 'PAYOUT_DROP')).toHaveLength(0)
 
       // PAYOUT_ADMIN — 0 rows (regression canary).
       // fix/payout-credits-company-account removed the automatic 50/50 split.
