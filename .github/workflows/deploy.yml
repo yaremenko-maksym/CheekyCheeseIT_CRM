@@ -83,6 +83,19 @@ env:
   # THIS one value and follow
   # scripts/devops/csp-report-only-rollout-runbook.md §4.
   CRM_CSP_MODE: report-only
+  # security review (PR #437 follow-up, MED-2 "soft-launch" ask,
+  # 2026-07-27): ORIGIN_GATE_MODE — SAME pattern as CRM_CSP_MODE directly
+  # above, one value threaded into the nginx build-arg (bakes the mode
+  # into the image, see nginx/Dockerfile ARG ORIGIN_GATE_MODE). "observe"
+  # (current rollout state) means nginx/snippets/origin-gate.conf's
+  # origin-IP gate logs its decision on every request (see nginx.conf's
+  # `log_format main` — grep for ` origin_gate=0 `) but never blocks;
+  # "enforce" actually returns 403. Flip only after a clean observation
+  # window finds zero `origin_gate=0` lines from real traffic — see
+  # nginx/conf.d/origin-gate-mode.conf's header comment for the full
+  # rationale and nginx/snippets/origin-gate.conf for why a naive gate is
+  # dangerous enough to warrant this staged rollout in the first place.
+  ORIGIN_GATE_MODE: observe
 
 # Default-deny: every job inherits read-only `contents` and nothing else.
 # Jobs that need more (build → packages:write, deploy → packages:read) override
@@ -199,6 +212,11 @@ jobs:
       # single source of truth for CRM's CSP delivery mode, also passed to
       # the post-deploy smoke-test step below. See nginx/Dockerfile's own
       # `ARG CRM_CSP_MODE` comment for how it's consumed at build time.
+      #
+      # security review (PR #437 follow-up, MED-2): ORIGIN_GATE_MODE — SAME
+      # pattern, this workflow's top-level `env:` block, single source of
+      # truth for the origin-IP gate's observe/enforce mode. See
+      # nginx/Dockerfile's own `ARG ORIGIN_GATE_MODE` comment.
       - name: Build & push nginx image
         uses: docker/build-push-action@v6
         with:
@@ -217,6 +235,7 @@ jobs:
             YANDEX_VERIFICATION_CONTENT=${{ secrets.YANDEX_VERIFICATION_CONTENT }}
             VITE_CONTACT_PUBLIC_EMAIL=hr@cheekycheese.tech
             CRM_CSP_MODE=${{ env.CRM_CSP_MODE }}
+            ORIGIN_GATE_MODE=${{ env.ORIGIN_GATE_MODE }}
           tags: |
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:${{ steps.meta.outputs.image_tag }}
             ${{ env.REGISTRY }}/${{ env.IMAGE_OWNER }}/${{ env.REPO_SLUG }}-nginx:main
@@ -1363,23 +1382,28 @@ jobs:
               exit 1
             fi
 
-            # security audit 2026-07-27 (MED-1/MED-5): same FATAL pattern as the
-            # security-headers check immediately above — this is the "did nginx
-            # end up serving the config we think it did" class of check, not a
-            # soft warning. Covers body-size limits, the default_server
-            # catch-all, AND a real-visitor regression guard (sends
-            # CF-Connecting-IP like Cloudflare would and asserts it is NOT
-            # rejected) — POSTs to the real, public, GET-only /api/health,
-            # never touches the DB/S3/business logic. See the script's own
-            # header comment for why that regression guard exists: a
-            # source-IP allow/deny gate was attempted in the same PR that
-            # introduced this script and reverted after security review
-            # (nginx's realip module rewrites $remote_addr to the
-            # client-supplied CF-Connecting-IP BEFORE the access-control
-            # phase runs, so a naive gate blocks real visitors and passes
-            # attackers who omit that header) — that corrected gate is a
-            # separate follow-up PR, not part of this check yet.
-            echo "==> Smoke test — nginx perimeter (body limits, default_server), via local nginx (FATAL)"
+            # security audit 2026-07-27 (MED-1/MED-5), gate added in the PR #439
+            # follow-up: same FATAL pattern as the security-headers check
+            # immediately above — this is the "did nginx end up serving the
+            # config we think it did" class of check, not a soft warning.
+            # Covers body-size limits, the default_server catch-all, the
+            # real-visitor regression guard (sends CF-Connecting-IP like
+            # Cloudflare would and asserts it is NOT rejected — POSTs to the
+            # real, public, GET-only /api/health, never touches the
+            # DB/S3/business logic), AND (security review, PR #439 follow-up,
+            # MED-3) a STATIC assertion that the origin gate's geo block is
+            # actually keyed on $realip_remote_addr, not $remote_addr — see
+            # that check's own header comment for why a plain HTTP probe
+            # cannot catch a reversion to the reverted-PR-#437 bug on its own.
+            #
+            # NGINX_EXEC_CMD gives that static check docker exec access to the
+            # running nginx container's compiled config (`nginx -T`) — same
+            # compose-file/env-file invocation already used for `exec -T
+            # postgres` a few steps above in this same script. Without it the
+            # check degrades to an explicit SKIP (see the script's own
+            # NGINX_EXEC_CMD handling), never a silent PASS.
+            export NGINX_EXEC_CMD="docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml --env-file .env.production exec -T nginx"
+            echo "==> Smoke test — nginx perimeter (body limits, default_server, gate wiring), via local nginx (FATAL)"
             NGINX_PERIMETER_SCRIPT="/opt/crm/scripts/devops/check-nginx-perimeter.sh"
             if [ ! -f "$NGINX_PERIMETER_SCRIPT" ]; then
               echo "ERROR: guard script not found at $NGINX_PERIMETER_SCRIPT — scp-action may have flattened the tree (see copy-compose job)."
@@ -1390,11 +1414,12 @@ jobs:
               echo "nginx perimeter check PASSED"
             else
               echo "ERROR: nginx is not enforcing the expected request-body limits, the default_server"
-              echo "catch-all is missing, and/or real Cloudflare-forwarded visitors are being blocked."
-              echo "This means a regression of the class fixed in the 2026-07-27 security audit"
+              echo "catch-all is missing, real Cloudflare-forwarded visitors are being blocked, and/or"
+              echo "the origin gate's geo block is no longer keyed on \$realip_remote_addr."
+              echo "This means a regression of the class fixed in the 2026-07-27 security audit / PR #439"
               echo "(client_max_body_size silently reverted to nginx's 1 MB default, an unmatched Host"
               echo "falling through to a real vhost again, or a source-IP gate filtering on the"
-              echo "client-supplied CF-Connecting-IP header) shipped — see"
+              echo "client-supplied CF-Connecting-IP header instead of the real TCP peer) shipped — see"
               echo "scripts/devops/check-nginx-perimeter.sh's own header comment."
               exit 1
             fi

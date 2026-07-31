@@ -147,6 +147,83 @@ RUN rm /etc/nginx/conf.d/default.conf
 # Copy our nginx configuration.
 COPY nginx/nginx.conf /etc/nginx/nginx.conf
 COPY nginx/conf.d/    /etc/nginx/conf.d/
+# security review (PR #437 follow-up, HIGH-1): the origin-IP gate's
+# ENFORCEMENT snippet lives OUTSIDE conf.d/ on purpose — see its own header
+# comment for why (an `if{}` block placed under conf.d/ gets swept into
+# nginx.conf's wildcard http-level include too, where `if` is invalid, and
+# nginx refuses to start).
+COPY nginx/snippets/   /etc/nginx/snippets/
+
+# security review (PR #437 follow-up, MED-2): generates
+# nginx/conf.d/cloudflare-real-ip-from.conf (set_real_ip_from, replacing 4
+# hand-duplicated blocks) AND nginx/conf.d/origin-gate-geo.conf (the origin
+# gate's allow-list, keyed on $realip_remote_addr) from the ONE canonical
+# nginx/cloudflare-ips.txt — see that file's header comment and
+# scripts/devops/generate-cloudflare-nginx-snippets.sh's own comment for
+# the full rationale (this used to be FIVE independently-hand-typed
+# copies). Runs BEFORE the build-time `nginx -t` gate near the end of this
+# stage, so a generation bug fails the BUILD, not a later deploy.
+COPY nginx/cloudflare-ips.txt /etc/nginx/cloudflare-ips.txt
+COPY scripts/devops/generate-cloudflare-nginx-snippets.sh /tmp/generate-cloudflare-nginx-snippets.sh
+RUN sh /tmp/generate-cloudflare-nginx-snippets.sh /etc/nginx/cloudflare-ips.txt /etc/nginx/conf.d && \
+    rm /tmp/generate-cloudflare-nginx-snippets.sh
+
+# security review (PR #439 follow-up, MED-1, 2026-07-31): runtime-discovered
+# origin-gate trust entry — see nginx/docker-entrypoint.d/25-origin-gate-
+# runtime-trust.sh's header comment and generate-cloudflare-nginx-snippets.sh's
+# RUNTIME_TRUSTED_INCLUDE comment for the full rationale (docker-compose.prod.
+# yml's pinned frontend/backend subnet can silently fail to apply on a deploy
+# that reuses a pre-existing network; this closes that gap independent of
+# whether the pin took effect). Placeholder created here (empty, comment-only
+# — matches no address) so the build-time `nginx -t` gate below has a valid,
+# already-existing file to `include` from origin-gate-geo.conf's geo block
+# before the entrypoint script has ever run; the entrypoint OVERWRITES this
+# file at every container start with whatever gateway is actually in use.
+RUN { \
+      echo '# GENERATED build-time placeholder — do NOT edit by hand.'; \
+      echo '# Overwritten at container startup by nginx/docker-entrypoint.d/'; \
+      echo '# 25-origin-gate-runtime-trust.sh. Empty here (matches no address) is'; \
+      echo '# correct at build time — see that script'"'"'s header comment.'; \
+    } >/etc/nginx/origin-gate-runtime-trusted.conf
+
+# security review (PR #439 follow-up, MED-1): sourced automatically by this
+# base image's own /docker-entrypoint.sh (nginx:1.27-alpine ships it, along
+# with 4 of its own numbered scripts already — verified against this exact
+# base image) — no ENTRYPOINT/CMD change needed in this Dockerfile. Must be
+# executable for the base entrypoint to pick it up (see that mechanism's own
+# `[ -x "$f" ]` check).
+COPY nginx/docker-entrypoint.d/ /docker-entrypoint.d/
+RUN chmod +x /docker-entrypoint.d/25-origin-gate-runtime-trust.sh
+
+# security review (PR #437 follow-up, MED-2 "soft-launch" ask): ORIGIN_GATE_MODE
+# — the SINGLE source of truth for whether the origin-IP gate
+# (nginx/snippets/origin-gate.conf) actually blocks (`enforce`) or only logs
+# (`observe`, default — see nginx/conf.d/origin-gate-mode.conf's header
+# comment for the full rationale). SAME pattern/placement/validation style
+# as ARG CRM_CSP_MODE directly below — not re-exposed as ENV (baked into
+# nginx/conf.d/origin-gate-mode.conf at build time); deploy.yml threads the
+# value in from ONE `env: ORIGIN_GATE_MODE:` entry, the one place a flip
+# actually happens.
+ARG ORIGIN_GATE_MODE=observe
+
+# nginx/conf.d/origin-gate-mode.conf carries exactly one occurrence of the
+# `__ORIGIN_GATE_MODE__` placeholder — substituted here with the validated
+# ARG value. Fails the BUILD loudly (not a silent fallback) on an
+# unrecognised value or a missing placeholder — same two failure classes as
+# the CRM_CSP_MODE step below, same rationale (a silent regression to the
+# WRONG mode is exactly the class of bug a security-hardening feature must
+# never ship with).
+RUN set -eu; \
+    case "$ORIGIN_GATE_MODE" in \
+      observe|enforce) ;; \
+      *) echo "ERROR: ORIGIN_GATE_MODE must be exactly 'observe' or 'enforce', got: '$ORIGIN_GATE_MODE'. See nginx/conf.d/origin-gate-mode.conf's header comment." >&2; exit 1 ;; \
+    esac; \
+    if ! grep -q '__ORIGIN_GATE_MODE__' /etc/nginx/conf.d/origin-gate-mode.conf; then \
+      echo "ERROR: __ORIGIN_GATE_MODE__ placeholder not found in nginx/conf.d/origin-gate-mode.conf — the ORIGIN_GATE_MODE build-arg wiring is broken (file refactored without updating this step?)." >&2; \
+      exit 1; \
+    fi; \
+    sed -i "s/__ORIGIN_GATE_MODE__/$ORIGIN_GATE_MODE/" /etc/nginx/conf.d/origin-gate-mode.conf; \
+    echo "==> Origin gate mode baked in: $ORIGIN_GATE_MODE"
 
 # task-csp-reports-and-flip (Part B, security review round 2 LOW fix):
 # CRM_CSP_MODE — the SINGLE source of truth for whether CRM's CSP ships as
