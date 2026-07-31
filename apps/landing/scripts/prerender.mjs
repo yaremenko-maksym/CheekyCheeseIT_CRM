@@ -92,6 +92,142 @@ function warn(message) {
 }
 
 // ---------------------------------------------------------------------------
+// 0. Rate-limit awareness — 2026-07-31 prod outage RCA: apps/api's global
+//    ThrottlerModule (apps/api/src/app.module.ts, THROTTLER_TTL_MS/
+//    THROTTLER_LIMIT, default 100 req / 60_000 ms) caps EVERY `/api/...`
+//    request, including this script's own Node-side fetches below AND every
+//    captured route's client-side loader fetches — PublicVacanciesController
+//    carries no per-route @Throttle() override, so it sits entirely under
+//    that global bucket (deliberately — see task instructions: the FIX is
+//    the consumer, never THROTTLER_LIMIT or a @SkipThrottle()).
+//
+//    A single `/careers/:slug` capture alone fires SIX requests client-side
+//    (app/lib/api.ts: fetchVacancy + fetchVacancies + one fetchVacancies per
+//    NON_DEFAULT_LOCALES entry inside fetchVacancyHreflangExcludes — see that
+//    file's module doc) — with LOCALES.length (5) locales × N vacancies, the
+//    real request count is `5*2 + 5*6*N` (home+careers, then N vacancy pages
+//    per locale) PLUS the 5 Node-side fetchAllLocaleVacancies() calls below,
+//    all normally issued within the same ~17s unthrottled run — i.e. the same
+//    60s window. At just 3 PUBLISHED vacancies (15 vacancy routes) that is
+//    105 requests, comfortably over the limit — this is exactly what broke
+//    prod on 2026-07-31 (confirmed via 6× "429" in the failed build's log).
+//
+//    Two defenses, both keyed off REAL observed request timestamps (not a
+//    fixed guess that would silently stop being enough as vacancies grow):
+//
+//      1. `apiRateLimiter` — a sliding-window token-bucket that PACES route
+//         captures: before navigating to a route, wait until issuing its
+//         estimated request count would stay within RATE_LIMIT_BUDGET for
+//         the current window. Self-adjusting to any number of vacancies —
+//         more routes just means more waiting, never a 429 (AC3).
+//      2. Explicit 429 DETECTION + BACKOFF in captureRoute() — belt-and-
+//         suspenders in case the pacing margin is ever exceeded (clock
+//         drift, a future extra fetch call, RATE_LIMIT_BUDGET misconfigured
+//         too high, ...): a `page.on('response')` listener tags any capture
+//         attempt that actually observed a 429, and the retry loop reports
+//         that explicitly (AC1 — instead of the misleading downstream "empty
+//         ItemList" this script used to surface, which is what actually cost
+//         the build-log investigation time on 2026-07-31) and waits out a
+//         FULL throttler window before retrying (AC2), instead of retrying
+//         inside the very same window it just got throttled in.
+// ---------------------------------------------------------------------------
+
+/** Sliding-window length — mirrors THROTTLER_TTL_MS's prod default (apps/api/src/config/env.ts). Override when reproducing a 429 against a deliberately-shrunk local THROTTLER_TTL_MS (see the "0. Rate-limit awareness" doc above). */
+const RATE_LIMIT_WINDOW_MS = Number(process.env['PRERENDER_RATE_LIMIT_WINDOW_MS'] ?? 60_000)
+/** Requests this script will allow itself per RATE_LIMIT_WINDOW_MS — deliberately under THROTTLER_LIMIT's prod default (100) so normal build-time variance never brushes the real ceiling. */
+const RATE_LIMIT_BUDGET = Number(process.env['PRERENDER_RATE_LIMIT_BUDGET'] ?? 60)
+/** How long to wait after an ACTUALLY OBSERVED 429 before retrying — long enough to guarantee the throttler's window has rolled over (mirrors THROTTLER_TTL_MS's prod default), not a same-window instant retry. Configurable so a local repro against a deliberately-shrunk THROTTLER_TTL_MS doesn't have to wait a real 60s per retry. */
+const RATE_LIMIT_BACKOFF_MS = Number(process.env['PRERENDER_RATE_LIMIT_BACKOFF_MS'] ?? 61_000)
+
+/** @returns {Promise<void>} */
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * A real-request-timestamp-backed sliding-window rate limiter — `record()`
+ * is called by every ACTUAL request this run sends to the API (Node-side
+ * fetches below + every captured page's client-side fetches, wired up in
+ * `preparePage()`); `waitForBudget(weight)` blocks the caller until issuing
+ * `weight` more requests would stay within `budget` for the window ending
+ * now. Deliberately a factory (not module-level mutable state used directly)
+ * so unit tests can inject a fake clock/sleep instead of waiting on real
+ * timers — see app/__tests__/prerender-rate-limit.spec.ts.
+ *
+ * @param {{ windowMs: number, budget: number, sleepFn?: (ms: number) => Promise<void>, warnFn?: (message: string) => void, nowFn?: () => number }} opts
+ */
+function createRateLimiter({ windowMs, budget, sleepFn = sleep, warnFn = warn, nowFn = Date.now }) {
+  /** @type {number[]} epoch-ms timestamps of every request recorded so far, oldest first. */
+  const timestamps = []
+
+  /** @param {number} now */
+  function pruneOlderThanWindow(now) {
+    // `<=` (not `<`): a request exactly `windowMs` old has fully aged out of
+    // a sliding window — excluding it here (rather than on its NEXT check,
+    // one extra 250ms-floor wait later) matches `waitMs`'s own
+    // `oldest + windowMs - now` computation, which already targets exactly
+    // this boundary as "free again".
+    const cutoff = now - windowMs
+    while (timestamps.length > 0 && timestamps[0] <= cutoff) timestamps.shift()
+  }
+
+  return {
+    /** Call once per REAL request actually sent to the API. */
+    record() {
+      timestamps.push(nowFn())
+    },
+    /**
+     * Blocks (looping on real waits) until sending `weight` more requests
+     * keeps the window's total at or under `budget`.
+     *
+     * @param {number} weight
+     * @returns {Promise<void>}
+     */
+    async waitForBudget(weight) {
+      for (;;) {
+        const now = nowFn()
+        pruneOlderThanWindow(now)
+        if (timestamps.length + weight <= budget) return
+        const oldest = /** @type {number} */ (timestamps[0])
+        const waitMs = Math.max(oldest + windowMs - now, 250)
+        warnFn(
+          `pacing: ${timestamps.length} request(s) already sent in the last ${windowMs}ms ` +
+            `(budget ${budget}) — waiting ${Math.ceil(waitMs / 1000)}s before the next route, ` +
+            'to stay clear of the API global rate limit',
+        )
+        await sleepFn(waitMs)
+      }
+    },
+  }
+}
+
+const apiRateLimiter = createRateLimiter({
+  windowMs: RATE_LIMIT_WINDOW_MS,
+  budget: RATE_LIMIT_BUDGET,
+})
+
+/**
+ * Estimated request count a route's client-side loaders will fire — mirrors
+ * app/lib/api.ts's actual call shape per `pageType` (see that file's module
+ * doc): `vacancy` routes fire fetchVacancy + fetchVacancies + one
+ * fetchVacancies per NON_DEFAULT_LOCALES entry (fetchVacancyHreflangExcludes);
+ * `home`/`careers` fire one fetchVacancies each; the 404 marker (`route ===
+ * null`) fetches nothing. Only used to decide whether there is headroom
+ * BEFORE navigating (`apiRateLimiter.waitForBudget`) — the REAL count is
+ * whatever `preparePage()`'s request listener actually observes, so any
+ * drift between this estimate and reality self-corrects on the very next
+ * route rather than compounding.
+ *
+ * @param {PrerenderRoute | null} route
+ * @returns {number}
+ */
+function estimateRequestWeight(route) {
+  if (!route) return 0
+  if (route.pageType === 'vacancy') return 2 + (LOCALES.length - 1)
+  return 1
+}
+
+// ---------------------------------------------------------------------------
 // 1. Fetch the PUBLISHED vacancy list, once per locale (drives which
 //    /careers/:slug pages get prerendered + sitemap entries + hreflang
 //    exclusions — round-4 "дорезка", see `vacancyHreflangExcludes()` above
@@ -105,6 +241,7 @@ async function fetchVacanciesForLocale(locale) {
   const localeQuery = locale === DEFAULT_LOCALE ? '' : `?locale=${locale}`
   try {
     const res = await fetch(`${API_ORIGIN}/api/public/vacancies${localeQuery}`)
+    apiRateLimiter.record()
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const data = await res.json()
     if (!Array.isArray(data)) throw new Error('response is not an array')
@@ -344,6 +481,15 @@ function assertHtmlLang(html, expectedLang, label) {
  * @returns {Promise<void>}
  */
 async function preparePage(page) {
+  // Ground truth for `apiRateLimiter` — records EVERY real request this page
+  // sends to the (proxied, same-origin) `/api/...` path, so pacing decisions
+  // (`estimateRequestWeight`) are checked against what actually happened, not
+  // just the estimate. Deliberately a `request` (not `response`) listener —
+  // the limiter must react to requests being ISSUED, not to how they resolve
+  // (a request that gets a 429 still consumed a slot in the server's window).
+  page.on('request', (request) => {
+    if (request.url().includes('/api/')) apiRateLimiter.record()
+  })
   // `dist/index.html` (the SPA's one build-time HTML template) carries a
   // FIXED `<link rel="modulepreload">` list computed from Vite's static
   // analysis of the client entry graph — it includes `/`'s own dependencies
@@ -410,7 +556,23 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
   /** @type {unknown} */
   let lastError
   for (let attempt = 1; attempt <= MAX_CAPTURE_ATTEMPTS; attempt++) {
+    // PACING (AC3) — waits, if needed, until this route's estimated request
+    // count fits the current sliding window's budget. Checked on every
+    // attempt (not just the first) so a retry after a real backoff sleep
+    // re-validates the window instead of assuming it's still clear.
+    await apiRateLimiter.waitForBudget(estimateRequestWeight(route))
     const page = await browser.newPage()
+    // URLs that returned HTTP 429 during THIS attempt — belt-and-suspenders
+    // 429 DETECTION (AC1): the actual thrown error below is almost always a
+    // downstream symptom (e.g. "expected a non-empty ItemList JSON-LD",
+    // since app/lib/api.ts's fetchVacancies() swallows non-2xx into `[]`
+    // rather than throwing) — this listener is what lets the catch block
+    // report the REAL cause instead of that misleading symptom.
+    /** @type {string[]} */
+    const rateLimitedUrls = []
+    page.on('response', (response) => {
+      if (response.status() === 429) rateLimitedUrls.push(response.url())
+    })
     try {
       await preparePage(page)
       await page.goto(`${baseUrl}${url}`)
@@ -426,11 +588,25 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
       }
       return html
     } catch (err) {
-      lastError = err
-      warn(
-        `capture attempt ${attempt}/${MAX_CAPTURE_ATTEMPTS} for ${label} failed ` +
-          `(${err instanceof Error ? err.message : String(err)}) — retrying with a fresh page`,
-      )
+      if (rateLimitedUrls.length > 0) {
+        // BACKOFF (AC2) — a same-window instant retry (the `else` branch
+        // below) is guaranteed to hit the SAME throttler window again; only
+        // waiting out a full window actually gives the next attempt a
+        // realistic chance to succeed.
+        lastError = rateLimitError(label, rateLimitedUrls, err)
+        warn(
+          `capture attempt ${attempt}/${MAX_CAPTURE_ATTEMPTS} for ${label} hit HTTP 429 rate ` +
+            `limiting on ${rateLimitedUrls.length} request(s) (e.g. ${rateLimitedUrls[0]}) — waiting ` +
+            `${Math.ceil(RATE_LIMIT_BACKOFF_MS / 1000)}s (a full throttler window) before retrying`,
+        )
+        await sleep(RATE_LIMIT_BACKOFF_MS)
+      } else {
+        lastError = err
+        warn(
+          `capture attempt ${attempt}/${MAX_CAPTURE_ATTEMPTS} for ${label} failed ` +
+            `(${err instanceof Error ? err.message : String(err)}) — retrying with a fresh page`,
+        )
+      }
     } finally {
       await page.close()
     }
@@ -438,6 +614,27 @@ async function captureRoute(browser, baseUrl, url, expectNoindex, route) {
   const reason = lastError instanceof Error ? lastError.message : String(lastError)
   throw new Error(
     `prerender: could not capture a valid ${label} after ${MAX_CAPTURE_ATTEMPTS} attempts: ${reason}`,
+  )
+}
+
+/**
+ * Builds the explicit, headline "you got rate limited" error AC1 requires —
+ * replaces the misleading downstream symptom (e.g. "expected a non-empty
+ * ItemList JSON-LD") a 429'd request would otherwise surface as, while still
+ * keeping that symptom visible for context.
+ *
+ * @param {string} label
+ * @param {string[]} rateLimitedUrls
+ * @param {unknown} downstreamErr
+ * @returns {Error}
+ */
+function rateLimitError(label, rateLimitedUrls, downstreamErr) {
+  const downstreamMessage =
+    downstreamErr instanceof Error ? downstreamErr.message : String(downstreamErr)
+  return new Error(
+    `prerender: rate limited (HTTP 429) while capturing ${label} — ${rateLimitedUrls.length} ` +
+      `request(s) were throttled by apps/api's global ThrottlerModule (e.g. ${rateLimitedUrls[0]}). ` +
+      `This is NOT a real failure of this route — downstream symptom was: ${downstreamMessage}`,
   )
 }
 
@@ -906,4 +1103,7 @@ export {
   computeAlternateHrefs,
   vacancyHreflangExcludes,
   LOCALES,
+  createRateLimiter,
+  estimateRequestWeight,
+  rateLimitError,
 }
