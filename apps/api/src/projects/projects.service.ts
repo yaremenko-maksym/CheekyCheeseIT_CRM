@@ -977,8 +977,10 @@ export class ProjectsService {
 
       // Record the change in audit log so admin diffs include the override.
       if (project.seniorSharePercentOverride !== overrideEffective) {
+        // security-review round 2 (authz-hardening): attribute to the real
+        // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
         await this.projectAuditLogService.record({
-          actorId: currentUser.id,
+          actorId: currentUser.impersonatorId ?? currentUser.id,
           targetId: id,
           action: 'project_edited',
           changes: {
@@ -998,8 +1000,10 @@ export class ProjectsService {
       dropOverrideEffective !== undefined &&
       project.dropSharePercentOverride !== dropOverrideEffective
     ) {
+      // security-review round 2 (authz-hardening): attribute to the real
+      // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
       await this.projectAuditLogService.record({
-        actorId: currentUser.id,
+        actorId: currentUser.impersonatorId ?? currentUser.id,
         targetId: id,
         action: 'project_edited',
         changes: {
@@ -1056,10 +1060,12 @@ export class ProjectsService {
       if (activeJuniors.length > 0) {
         const ids = activeJuniors.map((j) => j.id)
         await tx.update(projectMembers).set({ leftAt: now }).where(inArray(projectMembers.id, ids))
+        // security-review round 2 (authz-hardening): attribute to the real
+        // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
         for (const j of activeJuniors) {
           await this.projectAuditLogService.record(
             {
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
               targetId: id,
               action: 'project_member_removed',
               changes: { userId: { before: j.userId, after: null } },
@@ -1071,7 +1077,7 @@ export class ProjectsService {
 
       await this.projectAuditLogService.record(
         {
-          actorId: currentUser.id,
+          actorId: currentUser.impersonatorId ?? currentUser.id,
           targetId: id,
           action: 'project_archived',
           changes: { archivedAt: { before: null, after: now.toISOString() } },
@@ -1143,14 +1149,20 @@ export class ProjectsService {
         // We deliberately DO NOT call `this.usersService.unarchive(...)` because
         // that opens its own `db.transaction()` — making it impossible to roll
         // back together with the project mutations below if anything throws.
-        await this.usersService.unarchivePairTx(tx, senior.id, currentUser.id)
+        // security-review round 2 (authz-hardening): attribute to the real
+        // operator under impersonation — see sessionUserSchema.impersonatorId's doc.
+        await this.usersService.unarchivePairTx(
+          tx,
+          senior.id,
+          currentUser.impersonatorId ?? currentUser.id,
+        )
       }
 
       await tx.update(projects).set({ archivedAt: null, updatedAt: now }).where(eq(projects.id, id))
 
       await this.projectAuditLogService.record(
         {
-          actorId: currentUser.id,
+          actorId: currentUser.impersonatorId ?? currentUser.id,
           targetId: id,
           action: 'project_unarchived',
           changes: { archivedAt: { before: previousArchivedAt.toISOString(), after: null } },

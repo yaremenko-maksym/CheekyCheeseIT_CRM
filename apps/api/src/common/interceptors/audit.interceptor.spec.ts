@@ -223,4 +223,78 @@ describe('AuditInterceptor — legal_name_change (п.2)', () => {
     expect(loggerErrorSpy).toHaveBeenCalledOnce()
     expect(loggerErrorSpy.mock.calls[0]![0]).toContain('Failed to persist audit record')
   })
+
+  // ── MED (security-audit authz-hardening): impersonation attribution ───────
+  //
+  // Under impersonation, req.user (the JWT payload — see jwt.guard.ts) carries
+  // `id` = the TARGET being impersonated and `impersonatorId` = the real ADMIN
+  // operator. Before the fix, actorId was always `actor?.id` — so every action
+  // an admin performed WHILE impersonating was attributed to the victim, not
+  // the admin. The fix corrects actorId to the real operator and marks the
+  // row so it is distinguishable from a real self-edit by the target.
+
+  it('IMPERSONATION: actorId is the ORIGINAL ADMIN (impersonatorId), not the impersonated target', async () => {
+    const before = makeUser({ displayName: 'Old Name' })
+    const after = makeUser({ displayName: 'New Name' })
+    usersService.findById.mockResolvedValueOnce(before).mockResolvedValueOnce(after)
+
+    // req.user.id = the impersonated TARGET; impersonatorId = the real admin.
+    const request = {
+      user: { id: 'target-uuid', role: 'SENIOR', impersonatorId: 'admin-uuid' },
+      params: { id: 'user-uuid' },
+    }
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => ({}),
+    } as unknown as ExecutionContext
+
+    const observable = await interceptor.intercept(ctx, makeCallHandler())
+    await lastValueFrom(observable)
+
+    expect(recordSpy).toHaveBeenCalledTimes(1)
+    const call = recordSpy.mock.calls[0]![0] as { actorId: string | null }
+    // The row must be attributed to the REAL operator (the admin), not the
+    // impersonated victim ('target-uuid').
+    expect(call.actorId).toBe('admin-uuid')
+  })
+
+  it('IMPERSONATION: changes carry an impersonation flag so the row is distinguishable from a real self-edit', async () => {
+    const before = makeUser({ displayName: 'Old Name' })
+    const after = makeUser({ displayName: 'New Name' })
+    usersService.findById.mockResolvedValueOnce(before).mockResolvedValueOnce(after)
+
+    const request = {
+      user: { id: 'target-uuid', role: 'SENIOR', impersonatorId: 'admin-uuid' },
+      params: { id: 'user-uuid' },
+    }
+    const ctx = {
+      switchToHttp: () => ({ getRequest: () => request }),
+      getHandler: () => ({}),
+    } as unknown as ExecutionContext
+
+    const observable = await interceptor.intercept(ctx, makeCallHandler())
+    await lastValueFrom(observable)
+
+    const call = recordSpy.mock.calls[0]![0] as { changes: Record<string, AuditChange> }
+    expect(call.changes).toHaveProperty('__impersonation')
+    expect(call.changes['__impersonation']).toEqual({ before: null, after: true })
+  })
+
+  it('REGRESSION: a normal (non-impersonated) actor gets actorId=actor.id and NO impersonation flag', async () => {
+    const before = makeUser({ displayName: 'Old Name' })
+    const after = makeUser({ displayName: 'New Name' })
+    usersService.findById.mockResolvedValueOnce(before).mockResolvedValueOnce(after)
+
+    // makeExecutionContext's request.user has no impersonatorId.
+    const ctx = makeExecutionContext('actor-uuid', 'user-uuid')
+    const observable = await interceptor.intercept(ctx, makeCallHandler())
+    await lastValueFrom(observable)
+
+    const call = recordSpy.mock.calls[0]![0] as {
+      actorId: string | null
+      changes: Record<string, AuditChange>
+    }
+    expect(call.actorId).toBe('actor-uuid')
+    expect(call.changes).not.toHaveProperty('__impersonation')
+  })
 })

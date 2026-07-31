@@ -787,20 +787,23 @@ describe('UsersService.adminUpdateUser', () => {
     expect(setArg).not.toHaveProperty('dropSharePercent')
   })
 
-  it('writes dropSharePercent when promoting to DROP in the same operation', async () => {
+  // MED (security-audit authz-hardening): promoting a user to DROP via the
+  // general PATCH /:id body used to succeed silently (this test previously
+  // asserted THAT behavior — see git history). DROP must always be created
+  // via POST /users/drops, which atomically provisions the mandatory
+  // drop-team; routing the transition through adminUpdateUser left the user
+  // without a team (broken invariant) and bypassed the same guard that
+  // PATCH /:id/role (changeRole) already enforces. See
+  // users.admin-update-role-escalation.spec.ts for the full guard coverage.
+  it('rejects promoting a user to DROP via adminUpdateUser (must use POST /users/drops)', async () => {
     const existing = makeHr()
     const updated = makeDrop({ dropSharePercent: 40 })
     const db = makeDb({ existingUser: existing, updatedUser: updated })
     const service = makeUsersService(db)
 
-    await service.adminUpdateUser('hr-1', { role: 'DROP', dropSharePercent: 40 })
-
-    const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
-    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
-    expect(setCalls?.length).toBeGreaterThan(0)
-    const setArg = setCalls[0][0] as Record<string, unknown>
-    expect(setArg).toHaveProperty('dropSharePercent', 40)
-    expect(setArg).toHaveProperty('role', 'DROP')
+    await expect(
+      service.adminUpdateUser('hr-1', { role: 'DROP', dropSharePercent: 40 }),
+    ).rejects.toThrow(ForbiddenException)
   })
 
   it('ignores seniorSharePercent for a non-SENIOR target', async () => {

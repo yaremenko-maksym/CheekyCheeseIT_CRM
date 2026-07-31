@@ -34,6 +34,9 @@ import { JwtAuthGuard } from './jwt.guard'
  *   I3  email NOT in allowlist                        → 401, NO cookie
  *   I4  googleId mismatch (bound to a different sub)  → 401, NO cookie (audit LOW #3)
  *   I5  first login binds googleId for a fresh user   → 200 + DB googleId persisted
+ *   I6  archived (fired) user                         → 401, NO cookie (LOW,
+ *       security-audit authz-hardening — see auth.oauth-callback's C6 for
+ *       the analogous googleCallback case)
  *
  * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job)
  *   → every test returns early, suite stays green in no-DB environments.
@@ -58,7 +61,11 @@ const FRESH_USER_ID = 'a17a0001-0000-0000-0000-000000000003'
 const FRESH_EMAIL = 'auth-onetap-fresh@test.spec'
 const FRESH_SUB = 'google-sub-fresh-003'
 
-const TEST_USER_IDS = [VERIFIED_USER_ID, MISMATCH_USER_ID, FRESH_USER_ID]
+const ARCHIVED_USER_ID = 'a17a0001-0000-0000-0000-000000000004'
+const ARCHIVED_EMAIL = 'auth-onetap-archived@test.spec'
+const ARCHIVED_SUB = 'google-sub-archived-004'
+
+const TEST_USER_IDS = [VERIFIED_USER_ID, MISMATCH_USER_ID, FRESH_USER_ID, ARCHIVED_USER_ID]
 
 function makeRow(overrides: Partial<User>): User {
   return {
@@ -207,6 +214,14 @@ describe('AuthController.googleOneTap — real DB integration (audit HIGH/LOW)',
           role: 'SENIOR',
           googleId: null,
         }),
+        makeRow({
+          id: ARCHIVED_USER_ID,
+          email: ARCHIVED_EMAIL,
+          displayName: 'OneTap Archived',
+          role: 'SENIOR',
+          googleId: ARCHIVED_SUB,
+          archivedAt: new Date(),
+        }),
       ])
       .onConflictDoNothing()
   }, 30_000)
@@ -337,5 +352,24 @@ describe('AuthController.googleOneTap — real DB integration (audit HIGH/LOW)',
       .where(eq(users.id, FRESH_USER_ID))
       .then((rows) => rows[0])
     expect(row?.googleId).toBe(FRESH_SUB)
+  })
+
+  it('I6: archived (fired) user → 401, no cookie (LOW)', async () => {
+    if (!dbAvailable) return
+    verifyGoogleIdToken.mockResolvedValue({
+      sub: ARCHIVED_SUB,
+      email: ARCHIVED_EMAIL,
+      name: 'OneTap Archived',
+      picture: 'p',
+    })
+
+    const res = await app.inject({
+      method: 'POST',
+      url: '/api/auth/google/one-tap',
+      payload: { credential: 'cred' },
+    })
+
+    expect(res.statusCode).toBe(401)
+    expect(res.headers['set-cookie']).toBeUndefined()
   })
 })
