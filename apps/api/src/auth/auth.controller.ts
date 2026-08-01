@@ -236,7 +236,30 @@ export class AuthController {
   @Get('me')
   async me(@CurrentUser() user: JwtPayload) {
     const fresh = await this.usersService.findById(user.id)
-    if (!fresh) return user
+    if (!fresh) {
+      // LOW (security-review round 3, follow-up to #436): unreachable in
+      // production traffic — JwtAuthGuard already re-hydrates the user from
+      // the DB (rejecting with 401 if the row is gone) before this handler
+      // ever runs; the only recipient of this branch is the user's own
+      // browser. Still, shape the fallback through `sessionUserSchema` like
+      // the normal path below instead of returning the raw `JwtPayload` —
+      // the raw shape skips `sessionUserSchema.parse()` entirely and would
+      // leak `impersonatorId` verbatim during impersonation, contradicting
+      // that field's own doc (`packages/shared/src/schemas/auth.ts`), which
+      // states `/me` never emits that key, only the derived `impersonating`
+      // boolean.
+      return sessionUserSchema.parse({
+        id: user.id,
+        email: user.email,
+        displayName: user.email,
+        avatarUrl: null,
+        avatarDocumentId: null,
+        role: user.role,
+        seniorSharePercent: 0,
+        legalFullName: null,
+        impersonating: Boolean(user.impersonatorId),
+      })
+    }
     return sessionUserSchema.parse({
       id: fresh.id,
       email: fresh.email,

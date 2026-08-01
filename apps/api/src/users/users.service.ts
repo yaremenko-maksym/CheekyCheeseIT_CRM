@@ -1404,11 +1404,25 @@ export class UsersService {
         .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
       if (memberships.length === 0) return []
       const teamIds = memberships.map((m) => m.teamId)
+      // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
+      // here too — without it a SENIOR rotated OUT of one of this HR's teams
+      // (team_members.leftAt set, TeamsService.rotateSenior) still resolves
+      // into `seniorIds` below, and their JUNIORs surface in this HR's
+      // roster. No incremental data exposure (the same fields are visible
+      // via the general user list this HR already has), but this brings the
+      // check to the same "leftAt === null is the norm for every membership
+      // check in this file" shape as everywhere else (see HIGH-1 above).
       const seniorsInTeams = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
         .innerJoin(users, eq(teamMembers.userId, users.id))
-        .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+        .where(
+          and(
+            inArray(teamMembers.teamId, teamIds),
+            eq(users.role, 'SENIOR'),
+            isNull(teamMembers.leftAt),
+          ),
+        )
       seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
     } else if (user.role === 'DROP') {
       // Drop role - phase 1: drop's "team members" are the drop-team itself
@@ -1449,7 +1463,7 @@ export class UsersService {
     // roster returned to the caller (stale-member leak, distinct from the
     // team-access class of bug already fixed in teams.service.ts).
     const seniorMemberships = await this.db.db
-      .select({ teamId: teamMembers.teamId })
+      .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
       .from(teamMembers)
       .innerJoin(users, eq(teamMembers.userId, users.id))
       .where(
@@ -1460,6 +1474,14 @@ export class UsersService {
         ),
       )
     const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
+    // LOW (security-review round 3, follow-up to #436): re-derive the
+    // senior-id set from `seniorMemberships` (already scoped to CURRENTLY
+    // active SENIOR team_members rows above) instead of reusing the raw
+    // `seniorIds` from Step 1. Keeps Step 3 correct independently of Step 1
+    // — a defense-in-depth match for the `leftAt === null` norm used
+    // everywhere else in this file, not a distinct exploitable path (Step 1
+    // above is now filtered too).
+    const activeSeniorIds = Array.from(new Set(seniorMemberships.map((m) => m.userId)))
 
     const memberIds = new Set<string>()
     if (teamIds.length > 0) {
@@ -1471,10 +1493,13 @@ export class UsersService {
     }
 
     // Step 3: Add active JUNIORs from projects of those seniors
-    const seniorProjects = await this.db.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(inArray(projects.seniorId, seniorIds))
+    const seniorProjects =
+      activeSeniorIds.length === 0
+        ? []
+        : await this.db.db
+            .select({ id: projects.id })
+            .from(projects)
+            .where(inArray(projects.seniorId, activeSeniorIds))
     const projectIds = seniorProjects.map((p) => p.id)
     if (projectIds.length > 0) {
       const juniorRows = await this.db.db

@@ -283,6 +283,57 @@ describe('AuthController — cookie hardening (__Host- prefix, prod only)', () =
     expect(reply._cookies['jwt']).toBeUndefined()
   })
 
+  // LOW (security-review round 3, follow-up to #436): AC3 — `issueJwtCookie`
+  // clears the legacy plain `jwt` cookie on every NEW `__Host-jwt` session
+  // (see its doc — this is what shrinks the MED-1 legacy-fallback window as
+  // users log in), but until now nothing asserted the CLEAR itself: the
+  // sibling test above only checks that `jwt` was not SET as a new cookie.
+  // A regression that silently dropped the `clearCookie` call from
+  // `issueJwtCookie` would have passed every existing test.
+  it('PROD: googleOneTap ALSO extinguishes the legacy jwt cookie on new session issuance', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.googleOneTap({ credential: 'cred' }, reply)
+
+    expect(reply._cleared['jwt']).toBeDefined()
+    expect(reply._cleared['jwt']!['secure']).toBe(true)
+    expect(reply._cleared['jwt']!['path']).toBe('/')
+  })
+
+  it('DEV regression: googleOneTap does NOT clear jwt (it IS the live cookie name, nothing legacy to extinguish)', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+    const reply = makeFullReply()
+
+    await controller.googleOneTap({ credential: 'cred' }, reply)
+
+    expect(reply._cleared['jwt']).toBeUndefined()
+  })
+
   it('DEV regression: googleOneTap still sets plain jwt (not __Host-)', async () => {
     const authService = makeAuthService()
     ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
