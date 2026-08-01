@@ -392,6 +392,8 @@ describe('UsersService.createUser — JUNIOR', () => {
     const service = makeUsersService(db)
 
     const result = await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: junior.email,
       displayName: junior.displayName,
       role: 'JUNIOR',
@@ -411,6 +413,8 @@ describe('UsersService.createUser — JUNIOR', () => {
     const service = makeUsersService(db)
 
     await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: junior.email,
       displayName: junior.displayName,
       role: 'JUNIOR',
@@ -428,6 +432,8 @@ describe('UsersService.createUser — JUNIOR', () => {
     const service = makeUsersService(db)
 
     await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: junior.email,
       displayName: junior.displayName,
       role: 'JUNIOR',
@@ -445,6 +451,8 @@ describe('UsersService.createUser — JUNIOR', () => {
     const service = makeUsersService(db)
 
     const result = await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: junior.email,
       displayName: junior.displayName,
       role: 'JUNIOR',
@@ -462,7 +470,13 @@ describe('UsersService.createUser — JUNIOR', () => {
     const service = makeUsersService(db)
 
     await expect(
-      service.createUser({ email: junior.email, displayName: 'Dup', role: 'JUNIOR' }),
+      service.createUser({
+        email: junior.email,
+        displayName: 'Dup',
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+      }),
     ).rejects.toThrow(ConflictException)
   })
 
@@ -472,7 +486,13 @@ describe('UsersService.createUser — JUNIOR', () => {
     const service = makeUsersService(db)
 
     await service
-      .createUser({ email: junior.email, displayName: 'Dup', role: 'JUNIOR' })
+      .createUser({
+        email: junior.email,
+        displayName: 'Dup',
+        role: 'JUNIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+      })
       .catch(() => {})
 
     const insertMock = db.db.insert as ReturnType<typeof vi.fn>
@@ -491,6 +511,8 @@ describe('UsersService.createUser — SENIOR', () => {
     const service = makeUsersService(db)
 
     const result = await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
@@ -508,6 +530,8 @@ describe('UsersService.createUser — SENIOR', () => {
     const service = makeUsersService(db)
 
     await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
@@ -526,6 +550,8 @@ describe('UsersService.createUser — SENIOR', () => {
     const service = makeUsersService(db)
 
     await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
@@ -544,6 +570,8 @@ describe('UsersService.createUser — SENIOR', () => {
     const service = makeUsersService(db)
 
     await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: senior.email,
       displayName: 'Ivan Drago',
       role: 'SENIOR',
@@ -565,7 +593,13 @@ describe('UsersService.createUser — SENIOR', () => {
     const service = makeUsersService(db)
 
     await expect(
-      service.createUser({ email: senior.email, displayName: 'Dup', role: 'SENIOR' }),
+      service.createUser({
+        email: senior.email,
+        displayName: 'Dup',
+        role: 'SENIOR',
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
+      }),
     ).rejects.toThrow(ConflictException)
   })
 })
@@ -583,6 +617,8 @@ describe('UsersService.createUser — HR / ACCOUNTANT', () => {
       const service = makeUsersService(db)
 
       const result = await service.createUser({
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
         email: user.email,
         displayName: user.displayName,
         role,
@@ -606,6 +642,8 @@ describe('UsersService.createUser — profile fields', () => {
     const service = makeUsersService(db)
 
     const result = await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: junior.email,
       displayName: junior.displayName,
       role: 'JUNIOR',
@@ -621,6 +659,8 @@ describe('UsersService.createUser — profile fields', () => {
     const service = makeUsersService(db)
 
     const result = await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
@@ -636,6 +676,8 @@ describe('UsersService.createUser — profile fields', () => {
     const service = makeUsersService(db)
 
     const result = await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: senior.email,
       displayName: senior.displayName,
       role: 'SENIOR',
@@ -650,6 +692,8 @@ describe('UsersService.createUser — profile fields', () => {
     const service = makeUsersService(db)
 
     const result = await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: hr.email,
       displayName: hr.displayName,
       role: 'HR',
@@ -672,6 +716,8 @@ describe('UsersService.createUser — avatarUrl', () => {
     const service = makeUsersService(db)
 
     await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: junior.email,
       displayName: junior.displayName,
       role: 'JUNIOR',
@@ -690,6 +736,8 @@ describe('UsersService.createUser — avatarUrl', () => {
     const service = makeUsersService(db)
 
     await service.createUser({
+      actorRole: 'ADMIN',
+      actorId: 'actor-test-id',
       email: junior.email,
       displayName: junior.displayName,
       role: 'JUNIOR',
@@ -943,6 +991,8 @@ describe('UsersService.createUser — ut-12 ADMIN block', () => {
     const { ForbiddenException } = await import('@nestjs/common')
     await expect(
       service.createUser({
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
         email: 'newadmin@example.com',
         displayName: 'New Admin',
         role: 'ADMIN',

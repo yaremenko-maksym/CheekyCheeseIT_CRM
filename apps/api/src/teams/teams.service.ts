@@ -6,10 +6,17 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common'
-import { and, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
+import {
+  projectMembers,
+  projects,
+  teamAuditLog,
+  teamMembers,
+  teams,
+  users,
+} from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { UsersService } from '../users/users.service'
 import { TeamAuditLogService } from './team-audit-log.service'
@@ -229,6 +236,82 @@ export class TeamsService {
         isNull(teamMembers.leftAt),
       ),
     })
+    return row !== undefined
+  }
+
+  /**
+   * LOW (security-review round 3, follow-up to #436): scope for
+   * `UsersService.rejoinTeam`'s self-service `teamMode='JOIN_DROP_TEAM'`
+   * path. That endpoint is invoked by the SENIOR themselves — there is no
+   * HR/ADMIN actor to scope against `isActiveMemberOfTeam` above, because
+   * the whole point of a self-service endpoint is that nobody else
+   * authorizes the request. Without ANY scope check, a teamless SENIOR
+   * could self-attach to ANY drop-team with a free senior slot company-wide,
+   * not just one they have ever been part of — combined with the accepted
+   * round-1 risk (an HR actor can provision a SENIOR on an email HR
+   * controls), this chains into another team's payment routing, just one
+   * hop further than the path #436 already closed.
+   *
+   * The correct scope for a "REjoin" is a PAST `team_members` row for this
+   * EXACT team **that was held as SENIOR**, not just any past row —
+   * `team_members` carries no per-row role snapshot, so a plain
+   * `leftAt IS NOT NULL` check (round-3 v1 of this method) cannot tell a
+   * former SENIOR apart from a former HR/ACCOUNTANT/DROP member of the SAME
+   * team who was later promoted to SENIOR (role change is ADMIN-only, but
+   * routine `TeamsController.addMember`/`removeMember` calls make HR/
+   * ACCOUNTANT/DROP membership rows trivial to create and remove — far
+   * easier than the two SENIOR-only detach paths below).
+   *
+   * MED-1 (security-review round 3, follow-up to #436) — v1 tried to verify
+   * this via NEGATIVE evidence from `team_audit_log` (treat ABSENCE of a
+   * disqualifying non-SENIOR removal row as a pass). That was wrong: the
+   * SENIOR-only detach paths (`archiveDropTeam`, `rotateSenior`) wrote no
+   * audit row of their own either, so absence of evidence proved nothing —
+   * the check's correctness quietly depended on `archiveDropTeam`'s mass,
+   * un-audited HR/Accountant/DROP detach (`.update(teamMembers).set({
+   * leftAt: now }).where(teamId = X AND leftAt IS NULL)`, no per-row
+   * `team_member_removed` write) never being reachable again from a
+   * currently-active drop-team — true only because that method always also
+   * archives the team in the same call, and nothing in this codebase
+   * un-archives a drop-team today. A future "unarchive drop-team" feature
+   * would have silently reopened the exact HR/ACCOUNTANT/DROP→SENIOR
+   * promotion chain this method exists to close, with no test or docblock
+   * flagging the dependency.
+   *
+   * MED-1 round 4 (closed same PR): flipped to POSITIVE evidence instead.
+   * `archiveDropTeam`'s senior-detach and `rotateSenior`'s senior-detach —
+   * the ONLY two paths that ever move a SENIOR out of a drop-team — now
+   * EACH write their own `team_member_removed` `team_audit_log` row with
+   * `changes.role.before = 'SENIOR'` (see those methods). This method
+   * requires that exact row to exist for `(teamId, userId)` — fail-closed:
+   * no positive proof, no rejoin. This needs no migration/backfill, is
+   * immune to rows that predate this fix or get imported some other way,
+   * and closes both today's archive-only path AND any future
+   * unarchive-drop-team path the same way, instead of depending on an
+   * incidental invariant holding forever.
+   *
+   * Accepted cost (owner-reviewed): a SENIOR detached BEFORE this change
+   * shipped has no such audit row and therefore cannot self-rejoin anymore —
+   * ADMIN/HR must reattach them via `rotateSenior` (or `createUser`'s
+   * `teamMode='JOIN_DROP_TEAM'`) instead. Acceptable for the team's current
+   * size; the alternative (a role column on `team_members` itself) needs a
+   * prod migration plus edits at every one of the half-dozen insert sites.
+   */
+  async wasFormerMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
+    const row = await this.db.db
+      .select({ id: teamAuditLog.id })
+      .from(teamAuditLog)
+      .where(
+        and(
+          eq(teamAuditLog.targetId, teamId),
+          eq(teamAuditLog.action, 'team_member_removed'),
+          sql`${teamAuditLog.changes} -> 'userId' ->> 'before' = ${userId}`,
+          sql`${teamAuditLog.changes} -> 'role' ->> 'before' = 'SENIOR'`,
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+
     return row !== undefined
   }
 
@@ -1011,6 +1094,29 @@ export class TeamsService {
         .update(teamMembers)
         .set({ leftAt: now })
         .where(eq(teamMembers.id, seniorMember.id))
+      // MED-1 (security-review round 4, follow-up to #436): record the
+      // detach with role='SENIOR' — this is now the POSITIVE evidence
+      // `TeamsService.wasFormerMemberOfTeam` requires (see its docblock).
+      // `archiveDropTeam` has no caller-supplied SessionUser in scope
+      // (called from a transactional cascade in UsersService.archiveDrop /
+      // TeamsService.archive as well as this controller path), so
+      // `actorId: null` — acceptable per review: this is an audit-trail
+      // entry proving WHAT happened (a senior was detached from THIS team),
+      // not an accountability record of WHO clicked the button (the parent
+      // `team_archived`/`user_archived` audit rows already carry the real
+      // actor for that).
+      await this.teamAuditLogService.record(
+        {
+          actorId: null,
+          targetId: teamId,
+          action: 'team_member_removed',
+          changes: {
+            userId: { before: seniorMember.userId, after: null },
+            role: { before: 'SENIOR', after: null },
+          },
+        },
+        tx,
+      )
     }
 
     // Archive drop-projects (projects.dropId === this team's drop user)
@@ -1126,6 +1232,23 @@ export class TeamsService {
           .update(teamMembers)
           .set({ leftAt: now })
           .where(eq(teamMembers.id, currentSenior.id))
+        // MED-1 (security-review round 4, follow-up to #436): record the
+        // detach with role='SENIOR' — the POSITIVE evidence
+        // `TeamsService.wasFormerMemberOfTeam` now requires (see its
+        // docblock). `currentUser` is on hand here (unlike
+        // `archiveDropTeam`), so attribute to the real actor.
+        await this.teamAuditLogService.record(
+          {
+            actorId: currentUser.impersonatorId ?? currentUser.id,
+            targetId: teamId,
+            action: 'team_member_removed',
+            changes: {
+              userId: { before: currentSenior.userId, after: null },
+              role: { before: 'SENIOR', after: null },
+            },
+          },
+          tx,
+        )
       }
 
       await tx.insert(teamMembers).values({ teamId, userId: newSeniorId })
