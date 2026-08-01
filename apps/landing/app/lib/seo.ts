@@ -192,6 +192,17 @@ export function parseRemoteLocation(location: string): RemoteLocationInfo | null
   }
 }
 
+export interface BaseSalaryJsonLd {
+  '@type': 'MonetaryAmount'
+  currency: string
+  value: {
+    '@type': 'QuantitativeValue'
+    minValue: number
+    maxValue: number
+    unitText: string
+  }
+}
+
 export interface JobPostingJsonLd {
   '@context': 'https://schema.org'
   '@type': 'JobPosting'
@@ -217,6 +228,52 @@ export interface JobPostingJsonLd {
   occupationalCategory?: string
   jobBenefits?: string
   workHours?: string
+  baseSalary?: BaseSalaryJsonLd
+}
+
+// task-vacancy-salary-range (owner decision 2026-07-31) — Google's spec
+// requires an ISO 4217 currency code
+// (https://developers.google.com/search/docs/appearance/structured-data/job-posting).
+// `USDT` (a stablecoin ticker, one of the app's 4 salary-currency options —
+// see packages/shared vacancies.ts `vacancySalaryCurrencySchema`) is NOT an
+// ISO 4217 code, so it is mapped to `USD` for THIS machine-readable field
+// only — USDT is pegged 1:1 to USD by design, so the real-world value stated
+// is identical either way. The page's own VISIBLE salary text (VacancyCard /
+// vacancy-detail-page-content) is unaffected — it still shows the vacancy's
+// actual selected currency (USDT) unchanged; only this JSON-LD field
+// substitutes the ISO-compliant peg.
+const JSONLD_SALARY_CURRENCY: Record<string, string> = {
+  USDT: 'USD',
+  USD: 'USD',
+  EUR: 'EUR',
+  UAH: 'UAH',
+}
+
+/**
+ * `null` (never emitted at all — see `buildJobPostingJsonLd`) unless ALL 4
+ * salary fields are filled in (AC3: a legacy vacancy without a range must
+ * not synthesize a fake/partial one). `salaryMin`/`salaryMax` are the
+ * numeric-string DB values (`PublicVacancyDetail['salaryMin']` etc.) —
+ * `Number()`-parsed here since JSON-LD wants real numbers, not strings.
+ */
+function buildBaseSalary(vacancy: PublicVacancyDetail): BaseSalaryJsonLd | null {
+  const { salaryMin, salaryMax, salaryCurrency, salaryPeriod } = vacancy
+  if (salaryMin === null || salaryMax === null || salaryCurrency === null || salaryPeriod === null) {
+    return null
+  }
+  const minValue = Number(salaryMin)
+  const maxValue = Number(salaryMax)
+  if (!Number.isFinite(minValue) || !Number.isFinite(maxValue)) return null
+  return {
+    '@type': 'MonetaryAmount',
+    currency: JSONLD_SALARY_CURRENCY[salaryCurrency] ?? salaryCurrency,
+    value: {
+      '@type': 'QuantitativeValue',
+      minValue,
+      maxValue,
+      unitText: salaryPeriod,
+    },
+  }
 }
 
 // task-vacancy-i18n-jobposting C3 — `industry` is DERIVED from the
@@ -244,9 +301,14 @@ const OCCUPATIONAL_CATEGORY = '15-1252.00'
 /**
  * `/careers/:slug` — JobPosting structured data for Google Jobs (task §2,
  * extended to full compliance 2026-07-24, further enriched by
- * task-vacancy-i18n-jobposting C3). Deliberately has NO salary field — by
- * product design (see `packages/shared/src/schemas/vacancies.ts` module
- * doc), not an omission.
+ * task-vacancy-i18n-jobposting C3). `baseSalary` (task-vacancy-salary-range,
+ * owner decision 2026-07-31) is included whenever the vacancy has a filled
+ * range — this used to be deliberately omitted "by product design" per an
+ * earlier module-doc note in `packages/shared/src/schemas/vacancies.ts`;
+ * Google Search Console flagged the omission and was substituting its own
+ * market estimate, so the owner reversed that decision. `buildBaseSalary`
+ * returns `null` (no key emitted at all, never a fake/partial value) for a
+ * legacy vacancy that hasn't been filled in yet (AC3).
  *
  * `descriptionHtml` — the FULL rendered vacancy description as HTML, not
  * the raw Markdown source or a truncated snippet (Google explicitly accepts
@@ -272,6 +334,7 @@ export function buildJobPostingJsonLd(
   descriptionHtml: string,
 ): JobPostingJsonLd {
   const remote = parseRemoteLocation(vacancy.location)
+  const baseSalary = buildBaseSalary(vacancy)
   return {
     '@context': 'https://schema.org',
     '@type': 'JobPosting',
@@ -303,6 +366,7 @@ export function buildJobPostingJsonLd(
     ...(vacancy.responsibilities ? { responsibilities: vacancy.responsibilities } : {}),
     ...(vacancy.jobBenefits ? { jobBenefits: vacancy.jobBenefits } : {}),
     ...(vacancy.workHours ? { workHours: vacancy.workHours } : {}),
+    ...(baseSalary ? { baseSalary } : {}),
   }
 }
 

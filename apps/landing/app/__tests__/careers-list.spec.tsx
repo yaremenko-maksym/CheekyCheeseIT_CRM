@@ -28,6 +28,10 @@ const vacancies: PublicVacancy[] = [
     location: 'Remote · EU',
     publishedAt: '2026-07-01T00:00:00.000Z',
     isFallback: false,
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    salaryPeriod: null,
   },
   {
     slug: 'backend-engineer-commerce',
@@ -38,6 +42,10 @@ const vacancies: PublicVacancy[] = [
     location: 'Remote · Global',
     publishedAt: '2026-07-02T00:00:00.000Z',
     isFallback: false,
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    salaryPeriod: null,
   },
 ]
 
