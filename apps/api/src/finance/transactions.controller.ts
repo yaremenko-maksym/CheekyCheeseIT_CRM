@@ -26,12 +26,14 @@ import {
   createSeniorIncomeSchema,
   createUsdtIncomeSchema,
   createSalarySchema,
+  deleteTransactionSchema,
   dropIncomesQuerySchema,
   incomeComplianceQuerySchema,
   manualConfirmPayoutSchema,
   releaseOnChainHashSchema,
   payPayoutRequestSchema,
   paySalarySchema,
+  restoreTransactionSchema,
   updateProjectFinanceSettingsSchema,
   updateDropIncomeSchema,
   updateSeniorIncomeSchema,
@@ -77,6 +79,10 @@ export class TransactionsController {
     @Query('projectId') projectId: string | undefined,
     @Query('seniorId') seniorId: string | undefined,
     @Query('month') month: string | undefined,
+    // task-soft-delete-and-money-audit (AC3): «показать удалённые» — the
+    // service enforces the RBAC gate (ADMIN/ACCOUNTANT only, and default
+    // false for everyone) so a non-privileged caller passing this is a no-op.
+    @Query('includeDeleted') includeDeleted: string | undefined,
   ) {
     return this.svc.findAll(user, {
       ...(type !== undefined && { type }),
@@ -84,6 +90,7 @@ export class TransactionsController {
       ...(projectId !== undefined && { projectId }),
       ...(seniorId !== undefined && { seniorId }),
       ...(month !== undefined && { month }),
+      ...(includeDeleted !== undefined && { includeDeleted: includeDeleted === 'true' }),
     })
   }
 
@@ -286,11 +293,28 @@ export class TransactionsController {
     return this.svc.inspectOnChainHash(txHash, user)
   }
 
+  // task-soft-delete-and-money-audit (security-audit finding 3, 27.07). Now a
+  // SOFT delete (marks deletedAt/deletedBy/deletionReason — the row is never
+  // physically removed). `reason` is mandatory (Zod `min(3)`); a DELETE with
+  // a body is intentional here (Fastify/axios both support it) — see
+  // `financeApi.deleteTransaction`.
   @Delete(':id')
   @Roles('ADMIN')
   @HttpCode(200)
-  adminDelete(@Param('id') id: string, @CurrentUser() user: SessionUser) {
-    return this.svc.adminDeleteTransaction(id, user)
+  adminDelete(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = deleteTransactionSchema.parse(body)
+    return this.svc.adminDeleteTransaction(id, data.reason, user)
+  }
+
+  // task-soft-delete-and-money-audit. Reverses a soft delete — ADMIN only
+  // (ACCOUNTANT can SEE a deleted row via `?includeDeleted=true` / a direct
+  // GET, but cannot restore it — RolesGuard + a service-side re-check).
+  // Reason is mandatory for the same audit-trail reason as delete.
+  @Patch(':id/restore')
+  @Roles('ADMIN')
+  restore(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
+    const data = restoreTransactionSchema.parse(body)
+    return this.svc.restoreTransaction(id, data.reason, user)
   }
 }
 
