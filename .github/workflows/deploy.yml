@@ -762,12 +762,44 @@ jobs:
 
             # ── Step 1: ensure postgres + redis are up (persistent — usually already running) ──
             # api and nginx are started AFTER DDL is applied (see Step 3).
+            #
+            # Инцидент 2026-07-31: этот шаг положил прод. Когда compose решает
+            # ПЕРЕСОЗДАТЬ postgres/redis (менялись compose-файлы или
+            # .env.production — а они переписываются каждым деплоем), он гасит
+            # их и пересоздаёт сеть `crm_backend`. Но `api` этой командой не
+            # управляется (стартует позже, на Step 3) и остаётся подключённым к
+            # сети → `network crm_backend has active endpoints (crm-api-1)` →
+            # шаг падает, ОСТАВИВ postgres и redis лежать. `/api/health` при
+            # этом отвечает 200 (в базу не ходит), а всё остальное — 500.
+            # Следующий прогон падал уже иначе (`container ... is not connected
+            # to the network`), потому что состояние стека рассогласовано.
+            #
+            # Поэтому: пробуем как раньше (инкрементально, без простоя), а при
+            # неудаче — сбрасываем стек целиком и поднимаем заново.
+            #
+            # !!! `down` — БЕЗ `-v` / `--volumes`. Это не стилистика: том
+            # `postgres_data` (и `redis_data`/`minio_data`) объявлен именованным
+            # в `docker-compose.prod.yml`, поэтому `down` сносит только
+            # контейнеры и сети, а данные переживают. Добавление `-v` сюда
+            # УНИЧТОЖИТ БОЕВУЮ БАЗУ. Никогда не добавлять.
             echo "==> Ensuring postgres and redis are up"
-            docker compose \
+            if ! docker compose \
               -f docker-compose.prod.yml \
               -f docker-compose.ghcr.yml \
               --env-file .env.production \
-              up -d postgres redis
+              up -d postgres redis; then
+              echo "::warning::compose up failed — вероятно рассогласованная сеть crm_backend (см. инцидент 2026-07-31). Сбрасываю стек: контейнеры и сети пересоздаются, именованные тома НЕ трогаются."
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                down --remove-orphans
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                up -d postgres redis
+            fi
 
             echo "==> Waiting for postgres to be healthy"
             for i in $(seq 1 30); do
