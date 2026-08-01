@@ -252,14 +252,21 @@ export class UsersService {
     dropTeamId?: string
     /**
      * MED-3 (security-review round 2, authz-hardening): identity of the
-     * caller, used ONLY to scope `teamMode='JOIN_DROP_TEAM'` for an HR actor
-     * to a drop-team they actually belong to (see the check below). Optional
-     * so every existing unit test that constructs `data` directly (bypassing
-     * the controller) keeps working unchanged — the real production caller
-     * (UsersController.createUser) always supplies both.
+     * caller, used to scope `teamMode='JOIN_DROP_TEAM'` for an HR actor to a
+     * drop-team they actually belong to (see the check below).
+     *
+     * LOW (security-review round 3, follow-up to #436): REQUIRED, not
+     * optional. The scope check below only fires `if (data.actorRole ===
+     * 'HR')` — an optional field that silently defaults to `undefined` lets
+     * a *future* caller (a new controller endpoint, a script, a refactor
+     * that drops the two lines) skip the check by simply forgetting to pass
+     * it, with no signal anywhere that protection was lost. Making both
+     * fields mandatory means a forgetful caller fails `tsc`, not authz.
+     * Every current caller already supplies both (`UsersController.createUser`
+     * from `CurrentUser()`; tests pass an explicit `actorRole: 'ADMIN'` stub).
      */
-    actorRole?: AppRole
-    actorId?: string
+    actorRole: AppRole
+    actorId: string
   }): Promise<User> {
     // ut-12: ADMIN creation is reserved to the seed pool — block here as a
     // defense-in-depth measure even if the controller / Roles guard let it slip.
@@ -1906,6 +1913,23 @@ export class UsersService {
     if (data.teamMode === 'JOIN_DROP_TEAM') {
       if (!data.dropTeamId) {
         throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+      }
+      // LOW (security-review round 3, follow-up to #436): this is a
+      // self-service call — the SENIOR is the caller, so there is no
+      // HR/ADMIN actor to scope against (unlike createUser's HR check
+      // above `isActiveMemberOfTeam`). Without a check here a teamless
+      // SENIOR could self-attach to ANY drop-team with a free slot, not
+      // just one they used to belong to — see
+      // TeamsService.wasFormerMemberOfTeam's docblock for the full
+      // rationale and the chain this closes.
+      const wasFormerMember = await this.teamsService.wasFormerMemberOfTeam(
+        data.dropTeamId,
+        seniorId,
+      )
+      if (!wasFormerMember) {
+        throw new ForbiddenException(
+          'Самостоятельно присоединиться можно только к команде, в которой вы уже состояли',
+        )
       }
       await this.teamsService.addSeniorToDropTeam(data.dropTeamId, seniorId)
       return { teamId: data.dropTeamId }

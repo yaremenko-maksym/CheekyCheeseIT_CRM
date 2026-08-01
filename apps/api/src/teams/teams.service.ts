@@ -232,6 +232,39 @@ export class TeamsService {
     return row !== undefined
   }
 
+  /**
+   * LOW (security-review round 3, follow-up to #436): scope for
+   * `UsersService.rejoinTeam`'s self-service `teamMode='JOIN_DROP_TEAM'`
+   * path. That endpoint is invoked by the SENIOR themselves — there is no
+   * HR/ADMIN actor to scope against `isActiveMemberOfTeam` above, because
+   * the whole point of a self-service endpoint is that nobody else
+   * authorizes the request. Without ANY scope check, a teamless SENIOR
+   * could self-attach to ANY drop-team with a free senior slot company-wide,
+   * not just one they have ever been part of — combined with the accepted
+   * round-1 risk (an HR actor can provision a SENIOR on an email HR
+   * controls), this chains into another team's payment routing, just one
+   * hop further than the path #436 already closed.
+   *
+   * The correct scope for a "REjoin" is a PAST (non-active) `team_members`
+   * row for this EXACT team: the only ways a SENIOR reaches the teamless
+   * precondition (`UsersService.rejoinTeam`'s active-membership guard) are
+   * `TeamsService.archiveDropTeam`'s senior-detach and `TeamsService.
+   * rotateSenior` — both stamp `leftAt` on the specific team the senior was
+   * removed from. A SENIOR who was NEVER a member of the target team has no
+   * such row and must be attached by ADMIN/HR through the already-scoped
+   * paths (`UsersService.createUser` teamMode, `rotateSenior`) instead.
+   */
+  async wasFormerMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
+    const row = await this.db.db.query.teamMembers.findFirst({
+      where: and(
+        eq(teamMembers.teamId, teamId),
+        eq(teamMembers.userId, userId),
+        isNotNull(teamMembers.leftAt),
+      ),
+    })
+    return row !== undefined
+  }
+
   private async fetchAllProjects(): Promise<ProjectWithMembers[]> {
     return this.db.db.query.projects.findMany({
       with: { members: { with: { user: true } } },

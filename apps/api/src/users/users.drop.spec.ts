@@ -336,6 +336,8 @@ describe('UsersService.createUser — teamMode handling', () => {
     const { service } = makeService()
     await expect(
       service.createUser({
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
         email: 'hr@cc.com',
         displayName: 'HR Bob',
         role: 'HR',
@@ -349,6 +351,8 @@ describe('UsersService.createUser — teamMode handling', () => {
     const { service } = makeService()
     await expect(
       service.createUser({
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
         email: 'senior@cc.com',
         displayName: 'Senior Bob',
         role: 'SENIOR',
@@ -361,6 +365,8 @@ describe('UsersService.createUser — teamMode handling', () => {
     const { service } = makeService()
     await expect(
       service.createUser({
+        actorRole: 'ADMIN',
+        actorId: 'actor-test-id',
         email: 'drop@cc.com',
         displayName: 'New Drop',
         role: 'DROP',
