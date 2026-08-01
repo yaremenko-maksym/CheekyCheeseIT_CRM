@@ -560,6 +560,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       expect(res.statusCode).toBe(201)
@@ -580,6 +584,10 @@ describe('Vacancies — real backend integration', () => {
         seniority: 'SENIOR',
         employmentType: 'FULL_TIME',
         location: 'Remote',
+        salaryMin: 3000,
+        salaryMax: 5000,
+        salaryCurrency: 'USDT',
+        salaryPeriod: 'MONTH',
       }
       const first = await app.inject({
         method: 'POST',
@@ -611,6 +619,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'LEAD',
           employmentType: 'CONTRACT',
           location: 'Kyiv',
+          salaryMin: 4000,
+          salaryMax: 6000,
+          salaryCurrency: 'USD',
+          salaryPeriod: 'MONTH',
         },
       })
       const id = trackVacancy((create.json() as { id: string }).id)
@@ -667,6 +679,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'PART_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       const id = trackVacancy((create.json() as { id: string }).id)
@@ -693,6 +709,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       const id = (create.json() as { id: string }).id
@@ -741,6 +761,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       const id2 = (create2.json() as { id: string }).id
@@ -750,6 +774,175 @@ describe('Vacancies — real backend integration', () => {
         cookies: { jwt: tokenFor(ADMIN) },
       })
       expect(removed2.statusCode).toBe(204)
+    })
+  })
+
+  // ── task-vacancy-salary-range: mandatory salary range, real HTTP/DB ───────
+
+  describe('AC1/AC2/AC3 — mandatory salary range (task-vacancy-salary-range)', () => {
+    it('AC1: POST /api/vacancies without a salary range → 400 (real Zod validation via the controller)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'No Salary Role',
+          slug: `no-salary-${Date.now()}`,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          // salaryMin/salaryMax/salaryCurrency/salaryPeriod deliberately omitted
+        },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('AC1: rejects a zero/negative salaryMin even with the other 3 fields present', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'Bad Salary Role',
+          slug: `bad-salary-${Date.now()}`,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          salaryMin: 0,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
+        },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('AC2: cannot publish (DRAFT → PUBLISHED) a vacancy created without a salary range', async () => {
+      if (!dbAvailable) return
+      // Created directly against the DB (bypassing the create endpoint's own
+      // AC1 gate) — reproduces exactly the 3 legacy prod rows this task
+      // shipped alongside: already in the DB, no salary columns filled.
+      const [row] = await dbSvc.db
+        .insert(vacancies)
+        .values({
+          slug: `legacy-no-salary-${Date.now()}`,
+          title: 'Legacy Role Without Salary',
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          status: 'DRAFT',
+          createdBy: ADMIN.id,
+        })
+        .returning()
+      const id = trackVacancy(row!.id)
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+      expect(res.statusCode).toBe(400)
+
+      // Still DRAFT — the rejected publish attempt did not partially commit.
+      const stillDraft = await dbSvc.db.query.vacancies.findFirst({
+        where: (v, { eq }) => eq(v.id, id),
+      })
+      expect(stillDraft?.status).toBe('DRAFT')
+    })
+
+    it('AC2: publishing succeeds once the SAME PATCH fills in the salary range (fixing up a legacy vacancy)', async () => {
+      if (!dbAvailable) return
+      const [row] = await dbSvc.db
+        .insert(vacancies)
+        .values({
+          slug: `legacy-fillable-${Date.now()}`,
+          title: 'Legacy Role Being Fixed Up',
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          status: 'DRAFT',
+          createdBy: ADMIN.id,
+        })
+        .returning()
+      const id = trackVacancy(row!.id)
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          status: 'PUBLISHED',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
+        },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { status: string; salaryMin: string | null }
+      expect(body.status).toBe('PUBLISHED')
+      // Real Postgres numeric(12,2) output is scale-padded ("3000.00", not
+      // the raw "3000" the request sent) — unlike the mocked unit-spec
+      // harness, this is the REAL round-trip through the DB.
+      expect(body.salaryMin).toBe('3000.00')
+    })
+
+    it('AC3: a legacy PUBLISHED vacancy without a salary range keeps serving on the public detail/list endpoints (salary fields simply null)', async () => {
+      if (!dbAvailable) return
+      // Insert DIRECTLY as already-PUBLISHED (bypassing the publish-gate
+      // entirely) — this is EXACTLY the state of the 3 real prod rows this
+      // task shipped alongside (published before this change existed).
+      const slug = `legacy-published-${Date.now()}`
+      const [row] = await dbSvc.db
+        .insert(vacancies)
+        .values({
+          slug,
+          title: 'Legacy Published Role',
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+          createdBy: ADMIN.id,
+        })
+        .returning()
+      trackVacancy(row!.id)
+
+      const detail = await app.inject({
+        method: 'GET',
+        url: `/api/public/vacancies/${slug}`,
+      })
+      expect(detail.statusCode).toBe(200)
+      const body = detail.json() as {
+        salaryMin: string | null
+        salaryMax: string | null
+        salaryCurrency: string | null
+        salaryPeriod: string | null
+      }
+      expect(body.salaryMin).toBeNull()
+      expect(body.salaryMax).toBeNull()
+      expect(body.salaryCurrency).toBeNull()
+      expect(body.salaryPeriod).toBeNull()
+
+      const list = await app.inject({ method: 'GET', url: '/api/public/vacancies' })
+      expect(list.statusCode).toBe(200)
+      const listEntry = (list.json() as { slug: string; salaryMin: string | null }[]).find(
+        (v) => v.slug === slug,
+      )
+      expect(listEntry?.salaryMin).toBeNull()
     })
   })
 
@@ -772,6 +965,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       rbacVacancyId = trackVacancy((create.json() as { id: string }).id)
@@ -813,6 +1010,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       expect(res.statusCode).toBe(403)
@@ -922,6 +1123,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       trackVacancy((draft.json() as { id: string }).id)
@@ -938,6 +1143,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       const publishedId = trackVacancy((published.json() as { id: string }).id)
@@ -1016,6 +1225,10 @@ describe('Vacancies — real backend integration', () => {
             uk: { title: 'UK Заголовок', description: 'UK опис вакансії тут повністю.' },
             es: { title: 'ES Título', description: 'ES descripción completa de la vacante aquí.' },
           },
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       expect(create.statusCode).toBe(201)
@@ -1113,6 +1326,10 @@ describe('Vacancies — real backend integration', () => {
             descriptionMd: 'Full description of the role goes here.',
             domain: otherDomain ? 'AI' : domain,
             employmentType: 'FULL_TIME',
+            salaryMin: 3000,
+            salaryMax: 5000,
+            salaryCurrency: 'USDT',
+            salaryPeriod: 'MONTH',
           },
         })
         const id = trackVacancy((res.json() as { id: string }).id)
@@ -1165,6 +1382,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       const vacancyId = trackVacancy((create.json() as { id: string }).id)
@@ -1246,6 +1467,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       const vacancyId = trackVacancy((create.json() as { id: string }).id)
@@ -1391,6 +1616,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       vacancyOpenId = trackVacancy((openCreate.json() as { id: string }).id)
@@ -1407,6 +1636,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       vacancyClosed91Id = trackVacancy((closed91Create.json() as { id: string }).id)
@@ -1423,6 +1656,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       vacancyClosed89Id = trackVacancy((closed89Create.json() as { id: string }).id)
@@ -1544,6 +1781,10 @@ describe('Vacancies — real backend integration', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
         },
       })
       const created = create.json() as { id: string; slug: string }
