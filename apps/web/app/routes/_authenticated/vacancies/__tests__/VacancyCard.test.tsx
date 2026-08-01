@@ -41,6 +41,11 @@ vi.mock('@/lib/axios', () => ({
 
 import { VacancyCard } from '../components/VacancyCard'
 
+// task-vacancy-salary-range — every test in this file that isn't SPECIFICALLY
+// about the publish-gate itself expects the publish/reopen buttons enabled
+// (this suite pins the PRE-EXISTING §4.1.1 action matrix, which the salary
+// gate is layered on top of) — default to a filled range so those pins stay
+// unaffected; the gate itself has its own dedicated describe block below.
 function makeVacancy(overrides: Partial<Vacancy> = {}): Vacancy {
   return {
     id: 'vac-1',
@@ -64,6 +69,10 @@ function makeVacancy(overrides: Partial<Vacancy> = {}): Vacancy {
     responsibilities: null,
     jobBenefits: null,
     workHours: null,
+    salaryMin: '3000.00',
+    salaryMax: '5000.00',
+    salaryCurrency: 'USDT',
+    salaryPeriod: 'MONTH',
     ...overrides,
   }
 }
@@ -168,5 +177,51 @@ describe('VacancyCard — status action matrix (§4.1.1)', () => {
     await waitFor(() =>
       expect(apiPatch).toHaveBeenCalledWith('/vacancies/vac-1', { status: 'CLOSED' }),
     )
+  })
+})
+
+// task-vacancy-salary-range — the publish/reopen buttons are disabled (with
+// an explanatory Tooltip) when the vacancy has no filled salary range, and
+// clicking them does NOT PATCH the status.
+describe('VacancyCard — salary-range publish gate (task-vacancy-salary-range)', () => {
+  beforeEach(() => {
+    apiPatch.mockClear()
+  })
+
+  it('DRAFT without a salary range: publish button DISABLED, click does not PATCH', async () => {
+    renderCard(
+      makeVacancy({
+        status: 'DRAFT',
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: null,
+        salaryPeriod: null,
+      }),
+    )
+    const btn = screen.getByTestId('vacancy-publish-vac-1')
+    expect(btn).toBeDisabled()
+    fireEvent.click(btn)
+    expect(apiPatch).not.toHaveBeenCalled()
+  })
+
+  it('CLOSED without a salary range: reopen button DISABLED, click does not PATCH', async () => {
+    renderCard(
+      makeVacancy({
+        status: 'CLOSED',
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: null,
+        salaryPeriod: null,
+      }),
+    )
+    const btn = screen.getByTestId('vacancy-reopen-vac-1')
+    expect(btn).toBeDisabled()
+    fireEvent.click(btn)
+    expect(apiPatch).not.toHaveBeenCalled()
+  })
+
+  it('DRAFT WITH a filled salary range: publish button ENABLED', () => {
+    renderCard(makeVacancy({ status: 'DRAFT' }))
+    expect(screen.getByTestId('vacancy-publish-vac-1')).toBeEnabled()
   })
 })
