@@ -99,8 +99,18 @@ export const financeApi = {
   attachReceipt: (id: string, data: AttachReceiptDto) =>
     api.patch<TransactionDto>(`/transactions/${id}/receipt`, data).then((r) => r.data),
 
-  deleteTransaction: (id: string) =>
-    api.delete<{ deleted: boolean }>(`/transactions/${id}`).then((r) => r.data),
+  // task-soft-delete-and-money-audit. `reason` is mandatory (server enforces
+  // `min(3)` via deleteTransactionSchema) — it lands in transaction_audit_log.
+  // Soft-delete now: the row is marked, not physically removed.
+  deleteTransaction: (id: string, reason: string) =>
+    api
+      .delete<{ deleted: boolean }>(`/transactions/${id}`, { data: { reason } })
+      .then((r) => r.data),
+
+  // task-soft-delete-and-money-audit. ADMIN-only — reverses a soft delete.
+  // Reason is mandatory for the same audit-trail reason as delete.
+  restoreTransaction: (id: string, reason: string) =>
+    api.patch<TransactionDto>(`/transactions/${id}/restore`, { reason }).then((r) => r.data),
 
   // Payout requests
   getPayoutRequests: () => api.get<PayoutRequestDto[]>('/payout-requests').then((r) => r.data),

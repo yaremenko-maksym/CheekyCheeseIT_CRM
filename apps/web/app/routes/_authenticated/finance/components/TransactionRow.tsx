@@ -1,5 +1,14 @@
 import { forwardRef } from 'react'
-import { Edit2, CheckCircle2, ArrowRight, Trash2, Wallet, BadgeCheck, Receipt } from 'lucide-react'
+import {
+  Edit2,
+  CheckCircle2,
+  ArrowRight,
+  Trash2,
+  Wallet,
+  BadgeCheck,
+  Receipt,
+  RotateCcw,
+} from 'lucide-react'
 // NOTE: Wallet icon is still used by the «Оплатить» pill on PAYOUT rows.
 import { Link } from '@tanstack/react-router'
 import { motion } from 'framer-motion'
@@ -41,6 +50,23 @@ function StatusBadge({ status }: { status: TransactionDto['status'] }) {
       data-testid={`tx-status-badge-${status.toLowerCase()}`}
     >
       {STATUS_LABELS[status]}
+    </span>
+  )
+}
+
+// task-soft-delete-and-money-audit. Only ever rendered for ADMIN/ACCOUNTANT —
+// a deleted row can never reach this component for any other viewer (server-
+// side `findAll`/`findOne` hide it entirely, AC2). The reason is surfaced via
+// title-tooltip rather than a second visible line — keeps the row height
+// unchanged for the common (non-deleted) case.
+function DeletedBadge({ reason }: { reason: string | null | undefined }) {
+  return (
+    <span
+      className="inline-flex items-center rounded-full border border-destructive/40 bg-destructive/10 px-2 py-0.5 text-xs font-medium text-destructive whitespace-nowrap"
+      title={reason ?? undefined}
+      data-testid="tx-deleted-badge"
+    >
+      Удалено
     </span>
   )
 }
@@ -348,6 +374,13 @@ type TransactionRowProps = {
    */
   onAttachReceipt?: (tx: TransactionDto) => void
   onClick?: (tx: TransactionDto) => void
+  /**
+   * task-soft-delete-and-money-audit. ADMIN-only restore action on a deleted
+   * row (visible only after the ADMIN/ACCOUNTANT «показать удалённые» toggle
+   * — see FinancePage). Never rendered for ACCOUNTANT (they can see a
+   * deleted row but not restore it — mirrors the server-side RBAC).
+   */
+  onRestore?: (tx: TransactionDto) => void
 }
 
 // forwardRef is required because the row is rendered inside an
@@ -374,27 +407,39 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
       onConfirmPayout,
       onAttachReceipt,
       onClick,
+      onRestore,
     },
     ref,
   ) {
     const isAdmin = role === 'ADMIN'
     const isAccountant = role === 'ACCOUNTANT'
     const isSenior = role === 'SENIOR'
+    // task-soft-delete-and-money-audit. This row can only ever be a deleted
+    // one when the viewer is ADMIN/ACCOUNTANT AND explicitly toggled
+    // «показать удалённые» — every other viewer never receives it (AC2/AC3).
+    // No further mutating action is available on it (must restore first) —
+    // every `can*`/`show*` gate below is additionally guarded by `!isDeleted`.
+    const isDeleted = !!tx.deletedAt
 
     const canValidate =
-      (isAdmin || isAccountant) && tx.type === 'SENIOR_INCOME' && tx.status === 'PENDING'
+      !isDeleted &&
+      (isAdmin || isAccountant) &&
+      tx.type === 'SENIOR_INCOME' &&
+      tx.status === 'PENDING'
     // feat/finance-payout-flow (#7): SENIOR sees «Выплатить» on their own
     // VALIDATED SENIOR_INCOME rows that haven't been included in a payout yet
     // (payoutRequestId is null). Clicking opens PayoutDialog pre-selecting
     // this row; they can then add more VALIDATED rows before submitting.
     const showInitiatePayout =
+      !isDeleted &&
       isSenior &&
       tx.type === 'SENIOR_INCOME' &&
       tx.status === 'VALIDATED' &&
       !tx.payoutRequestId &&
       tx.receiverId === currentUserId
-    const canEdit = isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
-    const canPaySalary = isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
+    const canEdit =
+      !isDeleted && isSenior && tx.type === 'SENIOR_INCOME' && tx.status === 'REJECTED'
+    const canPaySalary = !isDeleted && isAdmin && tx.type === 'SALARY' && tx.status === 'PENDING'
     // task-senior-settle-in-tx-row. ADMIN/ACCOUNTANT see «Выплатить» on a
     // SENIOR_PENDING_PAYOUT row (the company's IOU to a senior from a
     // drop-project) while it is still PENDING_PAYMENT. Clicking settles the IOU
@@ -410,15 +455,21 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // below is intentionally IDENTICAL to the senior branch — no additional
     // restriction is introduced for the drop mirror.
     const canSettleSeniorPayout =
+      !isDeleted &&
       (isAdmin || isAccountant) &&
       (tx.type === 'SENIOR_PENDING_PAYOUT' || tx.type === 'DROP_PENDING_PAYOUT') &&
       tx.status === 'PENDING_PAYMENT'
     const canAdminEdit =
+      !isDeleted &&
       isAdmin &&
       tx.type !== 'PAYOUT' &&
       tx.type !== 'PAYOUT_ADMIN' &&
       (tx.status === 'PENDING_PAYMENT' || !tx.payoutRequestId)
     const canAdminDelete = canAdminEdit
+    // task-soft-delete-and-money-audit. ADMIN-only, and only on an already-
+    // deleted row (mirrors the server-side `restoreTransaction` guard —
+    // ACCOUNTANT can see the row but not restore it).
+    const canRestore = isDeleted && isAdmin
     // Inline «Оплатить» for the «Выплата» row (PAYOUT type, PENDING_PAYMENT).
     // New flow (task-payout-auto-on-validate): when ACCOUNTANT clicks
     // «Подтвердить» on a SENIOR_INCOME, the backend atomically creates a
@@ -426,6 +477,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // inline «Выплатить» pill — they just show «Ожидает выплаты» status.
     // Scoped by senderId so a SENIOR only sees the pill for their own payouts.
     const showPayPayout =
+      !isDeleted &&
       isSenior &&
       tx.type === 'PAYOUT' &&
       tx.status === 'PENDING_PAYMENT' &&
@@ -436,7 +488,10 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // PENDING_PAYMENT. The action records which admin actually received the
     // off-platform money and flips the PAYOUT to PAID (see ConfirmPayoutDialog).
     const showConfirmPayout =
-      (isAdmin || isAccountant) && tx.type === 'PAYOUT' && tx.status === 'PENDING_PAYMENT'
+      !isDeleted &&
+      (isAdmin || isAccountant) &&
+      tx.type === 'PAYOUT' &&
+      tx.status === 'PENDING_PAYMENT'
     // task-receipts-frontend. Compact row entry for attach/replace-receipt —
     // visible from ≥768px only (see `onAttachReceipt` doc above). Gated on
     // BOTH the shared RBAC/status rule AND the handler actually being wired
@@ -444,13 +499,19 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
     // read-only consumers (e.g. the dashboard's ActiveTransactionsTable) do
     // not render an inert button.
     const hasReceipt = !!(tx.receiptDocumentId || tx.receiptExternalUrl)
-    const showAttachReceipt = !!onAttachReceipt && canAttachReceipt(tx, currentUserId, role)
+    const showAttachReceipt =
+      !isDeleted && !!onAttachReceipt && canAttachReceipt(tx, currentUserId, role)
 
     return (
       <motion.tr
         ref={ref}
         initial={{ opacity: 0, y: -4 }}
-        animate={{ opacity: 1, y: 0 }}
+        // task-soft-delete-and-money-audit: a deleted row (visible only to
+        // ADMIN/ACCOUNTANT via the «показать удалённые» toggle) is dimmed —
+        // framer-motion's `animate.opacity` is an inline style, so a Tailwind
+        // opacity utility class would be silently overridden by it; the dim
+        // has to be expressed here instead.
+        animate={{ opacity: isDeleted ? 0.55 : 1, y: 0 }}
         exit={{ opacity: 0 }}
         transition={{ duration: 0.08, ease: 'easeOut' }}
         className={cn(
@@ -474,6 +535,7 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
         aria-label={onClick ? `Открыть транзакцию ${tx.type}` : undefined}
         data-testid={`tx-row-${tx.id}`}
         data-tx-type={tx.type}
+        data-tx-deleted={isDeleted ? 'true' : undefined}
       >
         <td className="py-3 px-4 whitespace-nowrap">
           <TypeBadge type={tx.type} />
@@ -553,7 +615,10 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
         </td>
 
         <td className="py-3 px-4">
-          <StatusBadge status={tx.status} />
+          <div className="flex flex-wrap items-center gap-1">
+            <StatusBadge status={tx.status} />
+            {isDeleted && <DeletedBadge reason={tx.deletionReason} />}
+          </div>
           {tx.rejectionReason && (
             <p
               className="text-xs text-destructive mt-0.5 max-w-40 truncate"
@@ -566,6 +631,21 @@ export const TransactionRow = forwardRef<HTMLTableRowElement, TransactionRowProp
 
         <td className="py-3 px-4" onClick={(e) => e.stopPropagation()}>
           <div className="flex items-center gap-1">
+            {/* task-soft-delete-and-money-audit. A deleted row shows ONLY the
+                restore action (ADMIN) — every other action above is gated
+                `!isDeleted`, so this is the sole affordance left. */}
+            {canRestore && onRestore && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10"
+                onClick={() => onRestore(tx)}
+                data-testid={`tx-row-restore-${tx.id}`}
+              >
+                <RotateCcw className="h-3.5 w-3.5 mr-1" />
+                Восстановить
+              </Button>
+            )}
             {canValidate && onValidate && (
               <Button
                 variant="ghost"
