@@ -17,6 +17,28 @@ import sharp from 'sharp'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 import { CompressionService } from './compression.service'
 
+/**
+ * task-file-storage-hardening §5 regression guard: metadata stripping must
+ * run in pass 1, unconditionally — it previously only fired in pass 2, gated
+ * behind a >5 MB threshold that a resume (hard-capped at 5 MB upstream) could
+ * never cross. Read the fields back with pdf-lib's own getters so this test
+ * fails if a future edit re-gates the strip behind size again.
+ */
+async function readPdfMetadataFields(buf: Buffer) {
+  // `updateMetadata: false` is REQUIRED here — pdf-lib's default (`true`)
+  // stamps its own Producer/ModificationDate signature on every `load()`,
+  // which would make this reader itself reintroduce the exact field the
+  // test is trying to verify is empty.
+  const doc = await PDFDocument.load(buf, { updateMetadata: false })
+  return {
+    title: doc.getTitle() ?? '',
+    author: doc.getAuthor() ?? '',
+    subject: doc.getSubject() ?? '',
+    producer: doc.getProducer() ?? '',
+    creator: doc.getCreator() ?? '',
+  }
+}
+
 const service = new CompressionService()
 
 // -----------------------------------------------------------------------------
@@ -112,6 +134,52 @@ describe('CompressionService — Pass 1 by MIME', () => {
     expect(result.finalMimeType).toBe('application/pdf')
     // pdf-lib's saved output is roughly the same size for tiny PDFs
     expect(result.sizeBytes).toBeGreaterThan(0)
+  })
+
+  // task-file-storage-hardening §5 — metadata must be stripped on a SMALL PDF
+  // (well under the old 5 MB pass-2 gate) with fields actually populated, the
+  // exact shape of a real resume upload. This is the test the audit asked
+  // for: "возьми файл с заполненным полем автора".
+  it('PDF: strips title/author/subject/producer/creator metadata in pass 1, even for a small (<5MB) file', async () => {
+    const input = await makeSimplePdf(5)
+    expect(input.length).toBeLessThan(5 * 1024 * 1024)
+    const before = await readPdfMetadataFields(input)
+    expect(before.author).toBe('CRM') // fixture sets doc.setAuthor('CRM')
+    expect(before.title).toBe('Test')
+
+    const result = await service.compress(input, 'application/pdf')
+    const after = await readPdfMetadataFields(result.buffer)
+    expect(after.title).toBe('')
+    expect(after.author).toBe('')
+    expect(after.subject).toBe('')
+    expect(after.producer).toBe('')
+    expect(after.creator).toBe('')
+  })
+
+  // Anti-bloat guard (default mode) can return the ORIGINAL buffer when
+  // pdf-lib's re-save happens to be >= the input size — for the DEFAULT
+  // (non-public) mode that is acceptable (documented, unchanged behaviour).
+  // The `neverFallbackToOriginal` mode below is what closes that gap for the
+  // public resume-apply path.
+  it('PDF: neverFallbackToOriginal keeps the sanitized (stripped) buffer even when it is not smaller than the original', async () => {
+    // A tiny, already-minimal PDF is the case most likely to trigger the
+    // anti-bloat guard (pdf-lib's object-stream re-save adds structural
+    // overhead that a 1-line PDF has no content to offset).
+    const input = await makeSimplePdf(1)
+    const before = await readPdfMetadataFields(input)
+    expect(before.author).toBe('CRM')
+
+    const result = await service.compress(input, 'application/pdf', {
+      neverFallbackToOriginal: true,
+    })
+    const after = await readPdfMetadataFields(result.buffer)
+    expect(after.author).toBe('')
+    expect(after.title).toBe('')
+    // The returned buffer must be the SANITIZED one, not byte-identical to
+    // the original applicant-submitted bytes (unless save() happened to also
+    // shrink it, which the metadata check above already rules out as a proxy
+    // — a stripped title still reads '' either way, so assert byte identity
+    // is not required for correctness, only that metadata is gone).
   })
 
   it('unknown MIME: returns original untouched', async () => {
