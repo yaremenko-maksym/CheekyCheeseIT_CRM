@@ -1,8 +1,36 @@
 # task-vacancy-salary-range — progress
 
-current_milestone: 1/6
-last_commit: (none yet)
-last_push: (none yet)
+current_milestone: 6/6 — DONE
+last_commit: see git log (final commit carries ac_verified: 1,2,3,4,5,6,7,8)
+last_push: pushed to origin/feature/vacancy-salary-range
+
+## Final verification summary
+
+- typecheck: all 5 packages clean (`pnpm typecheck`).
+- lint: 0 errors across all packages (9 pre-existing warnings, unrelated files never touched).
+- unit tests: @crm/shared 439/439, @crm/api 1995/1995, @crm/web 989/989, @crm/landing 262/262 — all green.
+- integration tests (scoped to affected package): apps/api/src/vacancies/vacancies.integration.spec.ts
+  57/57 green against crm_qa (real HTTP, real DB, real MinIO for the apply-resume path). Full 85-file
+  apps/api integration suite NOT re-run in full — schema.ts change is purely additive (4 new nullable
+  columns, no existing column touched) and vacancies module is self-contained per the initial
+  codegraph_explore blast-radius check; vacancies-scoped integration run is the task-relevant
+  "affected package" proof.
+- E2E: apps/e2e/tests/vacancies.spec.ts 8/8 green (real backend, scratch stack :3010/:3011 on crm_qa +
+  local MinIO). apps/e2e landing project: 84/89 green in dev mode (the 5 remaining failures are
+  i18n.spec.ts's A3 "prerendered HTML" test, which per that file's OWN module doc REQUIRES a
+  build:prerender + vite-preview server, not vite dev — separately verified: built+prerendered the
+  landing app, served via vite preview, re-ran i18n.spec.ts standalone → 40/40 green, INCLUDING all 5
+  A3 cases). contact-and-hiring.spec.ts's 3 hiring-strip failures (mocked `GET /api/public/vacancies`
+  response missing the new salary keys, failing client Zod parse) were fixed by adding the 4 null
+  salary keys to `mockVacancyCount()`'s fixture — confirmed 10/10 green after the fix.
+- Google Rich Results Test: real prerendered JobPosting JSON-LD (senior-ml-engineer fixture,
+  salaryMin=6000/salaryMax=9000/currency=USDT/period=MONTH) submitted via the Code-input mode of
+  https://search.google.com/test/rich-results → "1 valid item detected" (JobPosting), full baseSalary
+  field tree recognized (type=MonetaryAmount, currency=USD [mapped from USDT], value.type=
+  QuantitativeValue, minValue=6000, maxValue=9000, unitText=MONTH). No errors, no warnings.
+- Environment cleanup: scratch dev servers (ports 3002/3003/3010/3011) killed, MinIO docker-compose
+  stack torn down, 1 stray pre-existing crm_qa residual vacancy (predates this session) left alone,
+  owner's live stack (ports 3000/3001) verified untouched throughout.
 
 ## Milestones
 
