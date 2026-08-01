@@ -14,6 +14,7 @@ import {
   estimateRequestWeight,
   LOCALES,
   rateLimitError,
+  apiReachabilityVerdict,
 } from '../../scripts/prerender.mjs'
 
 describe('createRateLimiter', () => {
@@ -145,5 +146,46 @@ describe('rateLimitError', () => {
   it('handles a non-Error downstream value', () => {
     const err = rateLimitError('/', ['http://x/api/public/vacancies'], 'boom')
     expect(err.message).toContain('boom')
+  })
+})
+
+describe('apiReachabilityVerdict', () => {
+  const opts = {
+    locales: ['en', 'uk', 'ru', 'es', 'pt'],
+    allowNoApi: false,
+    apiOrigin: 'https://x',
+  }
+  // Тестам важно только null-vs-не-null по каждой локали; форма элементов
+  // списка не используется, поэтому приводим к типу самого хелпера, а не
+  // конструируем фиктивные VacancyListItem.
+  const perLocale = (lists: Array<unknown[] | null>) =>
+    Object.fromEntries(opts.locales.map((l, i) => [l, lists[i] ?? null])) as Parameters<
+      typeof apiReachabilityVerdict
+    >[0]
+
+  it('молчит, когда все локали ответили (включая пустые списки — вакансий просто нет)', () => {
+    const v = apiReachabilityVerdict(perLocale([[], [], [], [], []]), opts)
+    expect(v).toEqual({ fatal: false, message: null })
+  })
+
+  it('молчит при частичном сбое — терпимость к одной локали намеренная', () => {
+    const v = apiReachabilityVerdict(perLocale([[{}], null, [{}], null, [{}]]), opts)
+    expect(v).toEqual({ fatal: false, message: null })
+  })
+
+  it('падает, когда не ответила НИ ОДНА локаль — это API лёг, а не «нет вакансий»', () => {
+    const v = apiReachabilityVerdict(perLocale([null, null, null, null, null]), opts)
+    expect(v.fatal).toBe(true)
+    expect(v.message).toMatch(/БЕЗ SEO-разметки/)
+    expect(v.message).toMatch(/PRERENDER_ALLOW_NO_API=1/)
+  })
+
+  it('пропускает с предупреждением, когда деградация выбрана явно', () => {
+    const v = apiReachabilityVerdict(perLocale([null, null, null, null, null]), {
+      ...opts,
+      allowNoApi: true,
+    })
+    expect(v.fatal).toBe(false)
+    expect(v.message).toMatch(/осознанный выбор/)
   })
 })

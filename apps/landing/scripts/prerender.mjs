@@ -281,7 +281,72 @@ async function fetchAllLocaleVacancies() {
         ]),
     ),
   )
-  return Object.fromEntries(entries)
+  const perLocale = Object.fromEntries(entries)
+
+  // ── Инцидент 2026-07-31: молчаливая потеря SEO ─────────────────────────
+  //
+  // Терпимость к сбою фетча — намеренная (см. комментарий у
+  // `fetchVacanciesForLocale`): сбой ОДНОЙ локали не должен ронять сборку.
+  // Но когда падают ВСЕ локали, это не «вакансий нет» — это «API лежит», и
+  // разница принципиальная:
+  //
+  //   `[]`   → вакансий не опубликовано. Штатная ситуация: careers-страница
+  //            пустая, `requireJsonLd` = null, ассерт не нужен.
+  //   `null` → фетч не удался. Раньше это шло по ТОЙ ЖЕ ветке, что и `[]`:
+  //            `hasVacancies` = false → ассерт `item-list` не включался →
+  //            сборка зелёная → в прод уезжал лендинг БЕЗ JobPosting/ItemList
+  //            и без единой страницы вакансии. Молча.
+  //
+  // Ровно это и произошло: деплой собрался во время прод-инцидента, когда
+  // `/api/public/vacancies` отдавал 500, и выложил careers-страницы без
+  // разметки. Сборка при этом была зелёной, поэтому никто бы не заметил.
+  //
+  // Теперь «все локали не ответили» — жёсткая ошибка. Escape hatch оставлен
+  // осознанно: если API лежит И нужно срочно выкатить фикс, блокировать
+  // деплой лендингом нельзя (иначе получаем «чтобы починить API, сначала
+  // почини API»). В этом случае — `PRERENDER_ALLOW_NO_API=1`, и деградация
+  // становится явным решением человека, а не тихим побочным эффектом.
+  const verdict = apiReachabilityVerdict(perLocale, {
+    locales: LOCALES,
+    allowNoApi: process.env['PRERENDER_ALLOW_NO_API'] === '1',
+    apiOrigin: API_ORIGIN,
+  })
+  if (verdict.fatal) throw new Error(verdict.message)
+  if (verdict.message) warn(verdict.message)
+
+  return perLocale
+}
+
+/**
+ * Чистое решение «продолжать или падать», вынесенное из
+ * `fetchAllLocaleVacancies` ради тестируемости (сама она делает сетевой I/O).
+ *
+ * @param {PerLocaleVacancies} perLocale
+ * @param {{ locales: readonly string[], allowNoApi: boolean, apiOrigin: string }} opts
+ * @returns {{ fatal: boolean, message: string | null }}
+ */
+function apiReachabilityVerdict(perLocale, { locales, allowNoApi, apiOrigin }) {
+  const failed = locales.filter((l) => perLocale[l] === null)
+  if (failed.length !== locales.length) return { fatal: false, message: null }
+
+  const detail =
+    `не удалось получить вакансии НИ ДЛЯ ОДНОЙ из ${locales.length} локалей ` +
+    `(${apiOrigin}/api/public/vacancies) — признак недоступного API, а не отсутствия вакансий`
+
+  if (allowNoApi) {
+    return {
+      fatal: false,
+      message: `${detail}; PRERENDER_ALLOW_NO_API=1 — продолжаю БЕЗ SEO-разметки careers, это осознанный выбор.`,
+    }
+  }
+  return {
+    fatal: true,
+    message:
+      `prerender: ${detail}. Лендинг уехал бы в прод БЕЗ SEO-разметки careers и без ` +
+      `страниц вакансий. Почини API и пересобери. Если деплой нужен именно сейчас ` +
+      `(например, он и содержит фикс API) — PRERENDER_ALLOW_NO_API=1, тогда ` +
+      `деградация станет осознанным решением, а не тихим побочным эффектом.`,
+  }
 }
 
 /**
@@ -1147,4 +1212,5 @@ export {
   createRateLimiter,
   estimateRequestWeight,
   rateLimitError,
+  apiReachabilityVerdict,
 }
