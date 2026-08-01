@@ -45,6 +45,11 @@
  *         evidence before a self-service rejoin is allowed (see that
  *         method's docblock for why round 3's negative-evidence version was
  *         wrong).
+ *   AC-J (security-review round 5, MED-A, follow-up to #436): mirrors AC-I
+ *         for `archiveDropTeam` — the SECOND (and only other) path that
+ *         detaches a SENIOR from a drop-team. Unit specs elsewhere stub or
+ *         entirely omit the audit dependency, so nothing else in the suite
+ *         would catch a regression that silently dropped this write.
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
  * rmed2-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
@@ -461,6 +466,33 @@ describe('MED-2 (security-review round 2): residual leftAt-filter gaps (real DB)
     // Real production code path (not a hand-seeded fixture) must satisfy
     // the same predicate rejoin-team-scope.realdb.integration.spec.ts pins
     // against direct seeds.
+    const wasFormerMember = await teamsService.wasFormerMemberOfTeam(DROP_TEAM_ID, OLD_SENIOR_ID)
+    expect(wasFormerMember).toBe(true)
+
+    const db = drizzle(pool!, { schema })
+    const rows = await db.select().from(teamAuditLog).where(eq(teamAuditLog.targetId, DROP_TEAM_ID))
+    const seniorRemoval = rows.find(
+      (r) =>
+        r.action === 'team_member_removed' &&
+        (r.changes as Record<string, { before: unknown }>)['userId']?.before === OLD_SENIOR_ID,
+    )
+    expect(seniorRemoval).toBeDefined()
+    expect((seniorRemoval?.changes as Record<string, { before: unknown }>)['role']?.before).toBe(
+      'SENIOR',
+    )
+  })
+
+  it('AC-J (MED-A, security-review round 5): archiveDropTeam itself writes the positive team_member_removed/SENIOR evidence wasFormerMemberOfTeam now requires', async () => {
+    if (!dbAvailable) return
+    // Mirrors AC-I for the SECOND (and only other) path that ever detaches
+    // a SENIOR from a drop-team. Unlike rotateSenior, archiveDropTeam is
+    // exercised only through mocked unit specs elsewhere (teams.drop.spec.ts)
+    // — some of which construct the service with NO audit dependency at all
+    // (teams.archive.spec.ts) — so nothing there would catch a regression
+    // that silently dropped this write. This is the real production code
+    // path against a real DB, not a hand-seeded fixture.
+    await teamsService.archiveDropTeam(DROP_TEAM_ID)
+
     const wasFormerMember = await teamsService.wasFormerMemberOfTeam(DROP_TEAM_ID, OLD_SENIOR_ID)
     expect(wasFormerMember).toBe(true)
 
