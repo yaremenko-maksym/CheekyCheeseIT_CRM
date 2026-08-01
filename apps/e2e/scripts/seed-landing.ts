@@ -91,6 +91,11 @@ function toVacancyPayload(fixture: LandingVacancyFixture) {
     employmentType: fixture.employmentType,
     location: fixture.location,
     translations: fixture.translations ?? null,
+    // task-vacancy-salary-range (AC1) — required by createVacancySchema.
+    salaryMin: fixture.salaryMin,
+    salaryMax: fixture.salaryMax,
+    salaryCurrency: fixture.salaryCurrency,
+    salaryPeriod: fixture.salaryPeriod,
   }
 }
 

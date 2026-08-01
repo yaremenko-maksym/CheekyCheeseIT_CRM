@@ -82,7 +82,7 @@ function buildMinimalPdf(): Buffer {
 }
 
 /**
- * Fills the 2 free-text fields shared by the create Sheet (spec §4.2).
+ * Fills the free-text fields shared by the create Sheet (spec §4.2).
  * `scope` is the Sheet's own Locator — every field carries a stable
  * `data-testid` (VacancyFormFields.tsx) except the Markdown body, which is a
  * CodeMirror `.cm-content` contenteditable (`.fill()` verified live against
@@ -92,10 +92,16 @@ function buildMinimalPdf(): Buffer {
  * занятость) — not part of any AC here. «Уровень»/«Локация» controls no
  * longer exist (task-vacancies-form-simplify) — every vacancy defaults to
  * SENIOR/Remote via `createVacancySchema`, asserted on the card below.
+ *
+ * task-vacancy-salary-range (AC1) — salaryMin/salaryMax are now REQUIRED by
+ * createVacancySchema (currency/period default to USDT/MONTH in the form
+ * itself, no need to touch those Selects here).
  */
 async function fillVacancyForm(scope: Locator, fields: { title: string; descriptionMd: string }) {
   await scope.getByTestId('vacancy-form-title').fill(fields.title)
   await scope.locator('.cm-content').fill(fields.descriptionMd)
+  await scope.getByTestId('vacancy-form-salary-min').fill('3000')
+  await scope.getByTestId('vacancy-form-salary-max').fill('5000')
 }
 
 async function submitPublicApply(
@@ -338,6 +344,11 @@ test('DRAFT-вакансия: удаление через список полн�
       seniority: 'SENIOR',
       employmentType: 'FULL_TIME',
       location: 'Remote',
+      // task-vacancy-salary-range (AC1) — required by createVacancySchema.
+      salaryMin: 3000,
+      salaryMax: 5000,
+      salaryCurrency: 'USDT',
+      salaryPeriod: 'MONTH',
     },
   })
   expect(createRes.status()).toBe(201)
