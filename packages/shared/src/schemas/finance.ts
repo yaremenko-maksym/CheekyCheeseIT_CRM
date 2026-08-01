@@ -776,7 +776,11 @@ export type DeleteTransactionDto = z.infer<typeof deleteTransactionSchema>
 // only (ACCOUNTANT can see a deleted row but not restore it). Reason is
 // mandatory for the same audit-trail reason as delete.
 export const restoreTransactionSchema = z.object({
-  reason: z.string().trim().min(3, 'Укажите причину восстановления — она попадёт в журнал').max(500),
+  reason: z
+    .string()
+    .trim()
+    .min(3, 'Укажите причину восстановления — она попадёт в журнал')
+    .max(500),
 })
 export type RestoreTransactionDto = z.infer<typeof restoreTransactionSchema>
 
