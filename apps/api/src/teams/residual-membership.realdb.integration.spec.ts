@@ -38,6 +38,13 @@
  *         over-tightened Step 3 to also require an ACTIVE team_members row,
  *         which silently emptied this self-view during the teamless gap;
  *         reverted to pin the restored behavior.
+ *   AC-I (security-review round 4, MED-1, follow-up to #436): `rotateSenior`
+ *         itself (not a hand-seeded fixture) writes the `team_member_removed`
+ *         / `role.before='SENIOR'` audit row that
+ *         `TeamsService.wasFormerMemberOfTeam` now requires as POSITIVE
+ *         evidence before a self-service rejoin is allowed (see that
+ *         method's docblock for why round 3's negative-evidence version was
+ *         wrong).
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
  * rmed2-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
@@ -445,5 +452,28 @@ describe('MED-2 (security-review round 2): residual leftAt-filter gaps (real DB)
     const roster = await usersService.getTeamMembersForUser(OLD_SENIOR_ID)
     const ids = roster.map((m) => m.id)
     expect(ids).toContain(JUNIOR_OF_OLD_ID)
+  })
+
+  it('AC-I (MED-1, round 4): rotateSenior itself writes the positive team_member_removed/SENIOR evidence wasFormerMemberOfTeam now requires', async () => {
+    if (!dbAvailable) return
+    await teamsService.rotateSenior(DROP_TEAM_ID, NEW_SENIOR_ID, adminActor)
+
+    // Real production code path (not a hand-seeded fixture) must satisfy
+    // the same predicate rejoin-team-scope.realdb.integration.spec.ts pins
+    // against direct seeds.
+    const wasFormerMember = await teamsService.wasFormerMemberOfTeam(DROP_TEAM_ID, OLD_SENIOR_ID)
+    expect(wasFormerMember).toBe(true)
+
+    const db = drizzle(pool!, { schema })
+    const rows = await db.select().from(teamAuditLog).where(eq(teamAuditLog.targetId, DROP_TEAM_ID))
+    const seniorRemoval = rows.find(
+      (r) =>
+        r.action === 'team_member_removed' &&
+        (r.changes as Record<string, { before: unknown }>)['userId']?.before === OLD_SENIOR_ID,
+    )
+    expect(seniorRemoval).toBeDefined()
+    expect((seniorRemoval?.changes as Record<string, { before: unknown }>)['role']?.before).toBe(
+      'SENIOR',
+    )
   })
 })

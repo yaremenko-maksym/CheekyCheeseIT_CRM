@@ -7,26 +7,35 @@
  * could self-attach to ANY drop-team with a free senior slot, not just one
  * they used to belong to.
  *
- * Fix: `TeamsService.wasFormerMemberOfTeam` — the caller must have a PAST
- * (non-active) `team_members` row for the EXACT target team, i.e. they are
- * genuinely REjoining a team they were previously detached from
+ * Fix: `TeamsService.wasFormerMemberOfTeam` — the caller must have POSITIVE
+ * evidence (a `team_audit_log` row) that they were previously detached from
+ * this EXACT team WHILE HOLDING THE SENIOR ROLE — i.e. they are genuinely
+ * REjoining a team they were previously detached from as senior
  * (`archiveDropTeam`'s senior-detach or `rotateSenior`), not attaching to an
- * arbitrary team for the first time.
+ * arbitrary team for the first time, and not riding a `team_members` row
+ * left over from a DIFFERENT role they used to hold on the same team.
  *
  * COVERED:
- *   AC-A: SENIOR has NO past membership of the target drop-team →
+ *   AC-A: SENIOR has NO past membership/evidence for the target drop-team →
  *         ForbiddenException, no attach happens.
- *   AC-B: SENIOR HAS a past (leftAt-set) membership of the target drop-team
- *         → succeeds, new active team_members row created.
- *   AC-C (MED-1, security-review round 3, closed same PR): a user who was
- *         formerly HR of the target drop-team (routine addMember/
- *         removeMember — far easier than the two SENIOR-only detach paths)
- *         and was LATER promoted to SENIOR (ADMIN-only role change) must
- *         NOT pass the scope check on the strength of that HR-era
- *         `team_members` row alone — `team_members` carries no per-row role
- *         snapshot, so `wasFormerMemberOfTeam` cross-checks `team_audit_log`
- *         (which DOES record the true role on every non-SENIOR removal) and
- *         rejects when it proves the past membership was NOT as SENIOR.
+ *   AC-B: SENIOR has a past detach WITH matching positive evidence (a
+ *         `team_member_removed` row, role='SENIOR', role='SENIOR' —
+ *         mirrors what `rotateSenior`/`archiveDropTeam` write today) →
+ *         succeeds, new active team_members row created.
+ *   AC-C (MED-1, round 3): a user who was formerly HR of the target
+ *         drop-team (routine addMember/removeMember — far easier than the
+ *         two SENIOR-only detach paths) and was LATER promoted to SENIOR
+ *         (ADMIN-only role change) must NOT pass on the strength of that
+ *         HR-era evidence — the audit row's role is 'HR', not 'SENIOR'.
+ *   AC-D (MED-1, round 4 — explicit "no evidence → reject" pin): a SENIOR
+ *         with a `team_members` row (leftAt set) for the target team but NO
+ *         `team_audit_log` evidence at all — e.g. a detach that predates
+ *         this fix, or a row that reached the table through some other,
+ *         untracked path — must be rejected. This is the accepted cost the
+ *         positive-evidence flip introduces (see
+ *         `TeamsService.wasFormerMemberOfTeam`'s docblock): pre-existing
+ *         detached seniors need ADMIN/HR to reattach them via
+ *         `rotateSenior` instead of self-service rejoin.
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
  * rejoin-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
@@ -48,14 +57,16 @@ import * as schema from '../database/schema'
 
 // ── Test IDs — stable namespace rejoin- ────────────────────────────────────
 const FOREIGN_TEAM_ID = '5a100006-0000-4000-aa00-000000000001' // SENIOR never belonged here
-const FORMER_TEAM_ID = '5a100006-0000-4000-aa00-000000000002' // SENIOR used to belong here
+const FORMER_TEAM_ID = '5a100006-0000-4000-aa00-000000000002' // SENIOR used to belong here, WITH evidence
 const PROMOTED_TEAM_ID = '5a100006-0000-4000-aa00-000000000003' // was HR here, later promoted
+const LEGACY_TEAM_ID = '5a100006-0000-4000-aa00-000000000004' // pre-fix detach, NO evidence
 const SENIOR_ID = '5a100006-0000-4000-bb00-000000000001'
 const OTHER_HR_ID = '5a100006-0000-4000-bb00-000000000002' // member of FOREIGN_TEAM_ID
 const PROMOTED_USER_ID = '5a100006-0000-4000-bb00-000000000003' // ex-HR, now SENIOR
+const LEGACY_SENIOR_ID = '5a100006-0000-4000-bb00-000000000004' // detached before this fix shipped
 
-const ALL_TEAM_IDS = [FOREIGN_TEAM_ID, FORMER_TEAM_ID, PROMOTED_TEAM_ID]
-const ALL_USER_IDS = [SENIOR_ID, OTHER_HR_ID, PROMOTED_USER_ID]
+const ALL_TEAM_IDS = [FOREIGN_TEAM_ID, FORMER_TEAM_ID, PROMOTED_TEAM_ID, LEGACY_TEAM_ID]
+const ALL_USER_IDS = [SENIOR_ID, OTHER_HR_ID, PROMOTED_USER_ID, LEGACY_SENIOR_ID]
 
 let dbAvailable = true
 let pool: Pool | null = null
@@ -79,8 +90,7 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
     Object.assign(dbSvc, { pool, db })
 
     // Named `teamAuditLogService` (not `teamAuditLog`) to avoid shadowing
-    // the imported `teamAuditLog` Drizzle table used for the AC-C seed row
-    // below.
+    // the imported `teamAuditLog` Drizzle table used for the seed rows below.
     const teamAuditLogService = new TeamAuditLogService(dbSvc)
     const auditLog = new AuditLogService(dbSvc)
     const teamsService = new TeamsService(dbSvc, {} as never, teamAuditLogService)
@@ -120,6 +130,13 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
           role: 'SENIOR',
           googleId: `g-${PROMOTED_USER_ID}`,
         },
+        {
+          id: LEGACY_SENIOR_ID,
+          email: 'rejoin-legacy@test.spec',
+          displayName: 'REJOIN Legacy Senior',
+          role: 'SENIOR',
+          googleId: `g-${LEGACY_SENIOR_ID}`,
+        },
       ])
       .onConflictDoNothing()
 
@@ -129,6 +146,7 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
         { id: FOREIGN_TEAM_ID, name: 'REJOIN Foreign Drop Team', type: 'DROP' },
         { id: FORMER_TEAM_ID, name: 'REJOIN Former Drop Team', type: 'DROP' },
         { id: PROMOTED_TEAM_ID, name: 'REJOIN Promoted Drop Team', type: 'DROP' },
+        { id: LEGACY_TEAM_ID, name: 'REJOIN Legacy Drop Team', type: 'DROP' },
       ])
       .onConflictDoNothing()
 
@@ -140,10 +158,11 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
       .onConflictDoNothing()
 
     // FORMER_TEAM_ID: SENIOR had an active membership that was later
-    // detached (leftAt set) — mirrors TeamsService.rotateSenior's own
-    // detach step, leaving the team vacant (no other active SENIOR) so the
-    // scope check (not the "team already has an active senior" check) is
-    // what's being exercised.
+    // detached (leftAt set) WITH matching positive evidence — mirrors what
+    // `TeamsService.rotateSenior`/`archiveDropTeam` write as of round 4
+    // (team_member_removed, role.before='SENIOR'). Team left vacant (no
+    // other active SENIOR) so the scope check (not the "team already has an
+    // active senior" check) is what's being exercised.
     await db
       .insert(teamMembers)
       .values([
@@ -154,6 +173,17 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
         },
       ])
       .onConflictDoNothing()
+    await db.insert(teamAuditLog).values([
+      {
+        actorId: null,
+        targetId: FORMER_TEAM_ID,
+        action: 'team_member_removed',
+        changes: {
+          userId: { before: SENIOR_ID, after: null },
+          role: { before: 'SENIOR', after: null },
+        },
+      },
+    ])
 
     // AC-C (MED-1): PROMOTED_USER_ID was HR of PROMOTED_TEAM_ID, then
     // removed via the routine addMember/removeMember flow (leftAt set +
@@ -183,20 +213,31 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
         },
       },
     ])
+
+    // AC-D (MED-1, round 4): LEGACY_SENIOR_ID was detached from
+    // LEGACY_TEAM_ID as SENIOR, but BEFORE round 4 shipped — no
+    // team_audit_log row was ever written for it (that's exactly the gap
+    // round 4 closed: archiveDropTeam/rotateSenior didn't audit-log their
+    // senior-detach before this PR). No evidence exists at all for this
+    // (team, user) pair — deliberately NOT inserting into teamAuditLog here.
+    await db
+      .insert(teamMembers)
+      .values([
+        {
+          teamId: LEGACY_TEAM_ID,
+          userId: LEGACY_SENIOR_ID,
+          leftAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ])
+      .onConflictDoNothing()
   }, 30_000)
 
   afterAll(async () => {
     if (!dbAvailable || !pool) return
     try {
       const db = drizzle(pool, { schema })
-      await db.delete(teamAuditLog).where(eq(teamAuditLog.targetId, PROMOTED_TEAM_ID))
-      await db.delete(teamMembers).where(
-        // narrow via teamId — covers both the seed row and anything a test
-        // successfully inserted during the run.
-        eq(teamMembers.teamId, FORMER_TEAM_ID),
-      )
-      await db.delete(teamMembers).where(eq(teamMembers.teamId, FOREIGN_TEAM_ID))
-      await db.delete(teamMembers).where(eq(teamMembers.teamId, PROMOTED_TEAM_ID))
+      await db.delete(teamAuditLog).where(inArray(teamAuditLog.targetId, ALL_TEAM_IDS))
+      await db.delete(teamMembers).where(inArray(teamMembers.teamId, ALL_TEAM_IDS))
       await db.delete(teams).where(inArray(teams.id, ALL_TEAM_IDS))
       await db.delete(users).where(inArray(users.id, ALL_USER_IDS))
     } finally {
@@ -204,7 +245,7 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
     }
   }, 30_000)
 
-  it('AC-A: SENIOR has no past membership of the target drop-team → ForbiddenException', async () => {
+  it('AC-A: SENIOR has no past membership/evidence for the target drop-team → ForbiddenException', async () => {
     if (!dbAvailable) return
 
     await expect(
@@ -224,7 +265,7 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
     expect(members.map((m) => m.userId)).toEqual([OTHER_HR_ID])
   })
 
-  it('AC-B: SENIOR has a past (leftAt-set) membership of the target drop-team → succeeds', async () => {
+  it('AC-B: SENIOR has positive evidence (team_member_removed, role=SENIOR) → succeeds', async () => {
     if (!dbAvailable) return
 
     const result = await usersService.rejoinTeam(SENIOR_ID, {
@@ -249,7 +290,7 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
     expect(activeMembership).toHaveLength(1)
   })
 
-  it('AC-C (MED-1): ex-HR promoted to SENIOR cannot ride the HR-era leftAt row → ForbiddenException', async () => {
+  it('AC-C (MED-1): ex-HR promoted to SENIOR cannot ride HR-role evidence → ForbiddenException', async () => {
     if (!dbAvailable) return
 
     await expect(
@@ -268,6 +309,30 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
         and(
           eq(teamMembers.teamId, PROMOTED_TEAM_ID),
           eq(teamMembers.userId, PROMOTED_USER_ID),
+          isNull(teamMembers.leftAt),
+        ),
+      )
+    expect(activeMembership).toHaveLength(0)
+  })
+
+  it('AC-D (MED-1, round 4): leftAt row with NO team_audit_log evidence → ForbiddenException', async () => {
+    if (!dbAvailable) return
+
+    await expect(
+      usersService.rejoinTeam(LEGACY_SENIOR_ID, {
+        teamMode: 'JOIN_DROP_TEAM',
+        dropTeamId: LEGACY_TEAM_ID,
+      }),
+    ).rejects.toThrow(ForbiddenException)
+
+    const db = drizzle(pool!, { schema })
+    const activeMembership = await db
+      .select()
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.teamId, LEGACY_TEAM_ID),
+          eq(teamMembers.userId, LEGACY_SENIOR_ID),
           isNull(teamMembers.leftAt),
         ),
       )

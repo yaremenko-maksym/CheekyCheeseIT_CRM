@@ -262,43 +262,43 @@ export class TeamsService {
    * ACCOUNTANT/DROP membership rows trivial to create and remove — far
    * easier than the two SENIOR-only detach paths below).
    *
-   * MED-1 (security-review round 3, follow-up to #436, closed same PR):
-   * verified via NEGATIVE evidence from `team_audit_log`, because that is
-   * the only place role is actually recorded per removal event.
-   * `removeMember` HARD-BLOCKS removing a SENIOR
-   * (`'Cannot remove the senior from a team'`) and every non-SENIOR
-   * `team_members.leftAt` mutation in this codebase (removeMember, the
-   * HR/ACCOUNTANT composition-update in UsersService, the SENIOR-team
-   * archive cascade's HR/Acc detach) writes a `team_member_removed`
-   * `team_audit_log` row carrying the TRUE role in `changes.role.before`.
-   * So: if such a row exists for this (team, user) with a role OTHER than
-   * SENIOR, this specific past membership is PROVABLY not a former-SENIOR
-   * one — reject.
+   * MED-1 (security-review round 3, follow-up to #436) — v1 tried to verify
+   * this via NEGATIVE evidence from `team_audit_log` (treat ABSENCE of a
+   * disqualifying non-SENIOR removal row as a pass). That was wrong: the
+   * SENIOR-only detach paths (`archiveDropTeam`, `rotateSenior`) wrote no
+   * audit row of their own either, so absence of evidence proved nothing —
+   * the check's correctness quietly depended on `archiveDropTeam`'s mass,
+   * un-audited HR/Accountant/DROP detach (`.update(teamMembers).set({
+   * leftAt: now }).where(teamId = X AND leftAt IS NULL)`, no per-row
+   * `team_member_removed` write) never being reachable again from a
+   * currently-active drop-team — true only because that method always also
+   * archives the team in the same call, and nothing in this codebase
+   * un-archives a drop-team today. A future "unarchive drop-team" feature
+   * would have silently reopened the exact HR/ACCOUNTANT/DROP→SENIOR
+   * promotion chain this method exists to close, with no test or docblock
+   * flagging the dependency.
    *
-   * The two legitimate SENIOR-detach paths (`archiveDropTeam`'s
-   * senior-detach, `rotateSenior`) do NOT write a matching audit row today
-   * (a separate, lower-priority gap — see their own TODO), so ABSENCE of a
-   * disqualifying row is treated as a pass, not proof. This is intentionally
-   * asymmetric: it reliably CLOSES the described HR/ACCOUNTANT/DROP→SENIOR
-   * promotion chain (the "easy" attack path) without introducing a false
-   * negative for genuine historical senior-rotations that predate this
-   * check (which would have no audit row to find either way). A SENIOR who
-   * was NEVER a member of the target team has no `leftAt` row at all and
-   * fails the base check regardless.
+   * MED-1 round 4 (closed same PR): flipped to POSITIVE evidence instead.
+   * `archiveDropTeam`'s senior-detach and `rotateSenior`'s senior-detach —
+   * the ONLY two paths that ever move a SENIOR out of a drop-team — now
+   * EACH write their own `team_member_removed` `team_audit_log` row with
+   * `changes.role.before = 'SENIOR'` (see those methods). This method
+   * requires that exact row to exist for `(teamId, userId)` — fail-closed:
+   * no positive proof, no rejoin. This needs no migration/backfill, is
+   * immune to rows that predate this fix or get imported some other way,
+   * and closes both today's archive-only path AND any future
+   * unarchive-drop-team path the same way, instead of depending on an
+   * incidental invariant holding forever.
+   *
+   * Accepted cost (owner-reviewed): a SENIOR detached BEFORE this change
+   * shipped has no such audit row and therefore cannot self-rejoin anymore —
+   * ADMIN/HR must reattach them via `rotateSenior` (or `createUser`'s
+   * `teamMode='JOIN_DROP_TEAM'`) instead. Acceptable for the team's current
+   * size; the alternative (a role column on `team_members` itself) needs a
+   * prod migration plus edits at every one of the half-dozen insert sites.
    */
   async wasFormerMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
-    const row = await this.db.db.query.teamMembers.findFirst({
-      where: and(
-        eq(teamMembers.teamId, teamId),
-        eq(teamMembers.userId, userId),
-        isNotNull(teamMembers.leftAt),
-      ),
-    })
-    if (!row) return false
-
-    // MED-1: disqualify if the audit trail proves this specific past
-    // membership was held as HR/ACCOUNTANT/DROP, not SENIOR.
-    const disqualifyingRemoval = await this.db.db
+    const row = await this.db.db
       .select({ id: teamAuditLog.id })
       .from(teamAuditLog)
       .where(
@@ -306,14 +306,13 @@ export class TeamsService {
           eq(teamAuditLog.targetId, teamId),
           eq(teamAuditLog.action, 'team_member_removed'),
           sql`${teamAuditLog.changes} -> 'userId' ->> 'before' = ${userId}`,
-          sql`${teamAuditLog.changes} -> 'role' ->> 'before' IS NOT NULL`,
-          sql`${teamAuditLog.changes} -> 'role' ->> 'before' <> 'SENIOR'`,
+          sql`${teamAuditLog.changes} -> 'role' ->> 'before' = 'SENIOR'`,
         ),
       )
       .limit(1)
       .then((rows) => rows[0])
 
-    return disqualifyingRemoval === undefined
+    return row !== undefined
   }
 
   private async fetchAllProjects(): Promise<ProjectWithMembers[]> {
@@ -1095,6 +1094,29 @@ export class TeamsService {
         .update(teamMembers)
         .set({ leftAt: now })
         .where(eq(teamMembers.id, seniorMember.id))
+      // MED-1 (security-review round 4, follow-up to #436): record the
+      // detach with role='SENIOR' — this is now the POSITIVE evidence
+      // `TeamsService.wasFormerMemberOfTeam` requires (see its docblock).
+      // `archiveDropTeam` has no caller-supplied SessionUser in scope
+      // (called from a transactional cascade in UsersService.archiveDrop /
+      // TeamsService.archive as well as this controller path), so
+      // `actorId: null` — acceptable per review: this is an audit-trail
+      // entry proving WHAT happened (a senior was detached from THIS team),
+      // not an accountability record of WHO clicked the button (the parent
+      // `team_archived`/`user_archived` audit rows already carry the real
+      // actor for that).
+      await this.teamAuditLogService.record(
+        {
+          actorId: null,
+          targetId: teamId,
+          action: 'team_member_removed',
+          changes: {
+            userId: { before: seniorMember.userId, after: null },
+            role: { before: 'SENIOR', after: null },
+          },
+        },
+        tx,
+      )
     }
 
     // Archive drop-projects (projects.dropId === this team's drop user)
@@ -1210,6 +1232,23 @@ export class TeamsService {
           .update(teamMembers)
           .set({ leftAt: now })
           .where(eq(teamMembers.id, currentSenior.id))
+        // MED-1 (security-review round 4, follow-up to #436): record the
+        // detach with role='SENIOR' — the POSITIVE evidence
+        // `TeamsService.wasFormerMemberOfTeam` now requires (see its
+        // docblock). `currentUser` is on hand here (unlike
+        // `archiveDropTeam`), so attribute to the real actor.
+        await this.teamAuditLogService.record(
+          {
+            actorId: currentUser.impersonatorId ?? currentUser.id,
+            targetId: teamId,
+            action: 'team_member_removed',
+            changes: {
+              userId: { before: currentSenior.userId, after: null },
+              role: { before: 'SENIOR', after: null },
+            },
+          },
+          tx,
+        )
       }
 
       await tx.insert(teamMembers).values({ teamId, userId: newSeniorId })
