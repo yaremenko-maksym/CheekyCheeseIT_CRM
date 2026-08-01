@@ -22,10 +22,10 @@
  * BalanceService reads only the Phase 4 personal-credit types.
  */
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { pendingObligations, users } from '../database/schema'
+import { pendingObligations, transactions, users } from '../database/schema'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 
 export type BalanceCurrency = 'USDT' | 'USD' | 'EUR' | 'UAH'
@@ -120,7 +120,11 @@ export class BalanceService {
     currency: BalanceCurrency = 'USD',
   ): Promise<BalanceResult> {
     const rates = await this.nbu.getRates()
-    const allTxs = await this.db.db.query.transactions.findMany()
+    // task-soft-delete-and-money-audit (AC4): a deleted row must not move a
+    // personal balance / lifetime-earned figure derived from this ledger scan.
+    const allTxs = await this.db.db.query.transactions.findMany({
+      where: isNull(transactions.deletedAt),
+    })
 
     let cashIncome = 0
     let cryptoIncome = 0
@@ -171,7 +175,11 @@ export class BalanceService {
     currency: BalanceCurrency = 'USD',
   ): Promise<BalanceResult> {
     const rates = await this.nbu.getRates()
-    const allTxs = await this.db.db.query.transactions.findMany()
+    // task-soft-delete-and-money-audit (AC4): a deleted row must not move a
+    // personal balance / lifetime-earned figure derived from this ledger scan.
+    const allTxs = await this.db.db.query.transactions.findMany({
+      where: isNull(transactions.deletedAt),
+    })
 
     let cryptoIncome = 0
     let paidIncome = 0
@@ -270,7 +278,11 @@ export class BalanceService {
     if (!target) throw new NotFoundException('Пользователь не найден')
 
     const rates = await this.nbu.getRates()
-    const allTxs = await this.db.db.query.transactions.findMany()
+    // task-soft-delete-and-money-audit (AC4): a deleted row must not move a
+    // personal balance / lifetime-earned figure derived from this ledger scan.
+    const allTxs = await this.db.db.query.transactions.findMany({
+      where: isNull(transactions.deletedAt),
+    })
 
     // Only money that has actually moved counts — PAID is the single gate.
     const paidTxs = allTxs.filter((tx) => tx.status === 'PAID')

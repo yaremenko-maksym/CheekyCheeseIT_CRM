@@ -1,5 +1,5 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common'
-import { desc, sql } from 'drizzle-orm'
+import { desc, sql, isNull } from 'drizzle-orm'
 import type { SessionUser, AdminSummary } from '@crm/shared'
 import { adminSummarySchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -63,12 +63,16 @@ export class AdminSummaryService {
           Number,
         ),
         projectsUnpaidThisMonth:
+          // task-soft-delete-and-money-audit (AC4): `t.deleted_at is null` —
+          // without it a deleted (e.g. mistaken/fraudulent) income would still
+          // satisfy the NOT EXISTS check and wrongly mark the project "paid".
           sql<number>`count(*) filter (where ${projects.archivedAt} is null and not exists (
           select 1 from ${transactions} t
           where t.project_id = ${projects.id}
             and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
             and t.tx_date >= ${monthStart}
             and t.tx_date < ${nextMonthStart}
+            and t.deleted_at is null
         ))`.mapWith(Number),
       })
       .from(projects)
@@ -93,7 +97,10 @@ export class AdminSummaryService {
     // (same pattern as TransactionsService.findAll). Newest tx_date first; rows
     // with a NULL tx_date sort by created_at via the coalesce ordering.
     const rows = await db.query.transactions.findMany({
-      where: (tx, { inArray }) => inArray(tx.status, [...ACTIVE_TX_STATUSES]),
+      // task-soft-delete-and-money-audit (AC4): a deleted row must not appear
+      // in the ADMIN dashboard's actionable-transactions feed.
+      where: (tx, { inArray, and }) =>
+        and(inArray(tx.status, [...ACTIVE_TX_STATUSES]), isNull(tx.deletedAt)),
       with: {
         sender: { columns: { displayName: true } },
         receiver: { columns: { displayName: true } },

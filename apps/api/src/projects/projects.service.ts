@@ -473,8 +473,14 @@ export class ProjectsService {
 
     // Batch-count this drop's DROP_INCOME rows per project in one read (self-
     // scoped: receiverId = self). Avoids a per-project query.
+    // task-soft-delete-and-money-audit (AC4): a deleted income must not
+    // inflate the per-project «incomesCount» badge.
     const dropIncomes = await this.db.db.query.transactions.findMany({
-      where: and(eq(transactions.type, 'DROP_INCOME'), eq(transactions.receiverId, currentUser.id)),
+      where: and(
+        eq(transactions.type, 'DROP_INCOME'),
+        eq(transactions.receiverId, currentUser.id),
+        isNull(transactions.deletedAt),
+      ),
       columns: { projectId: true },
     })
     const incomesByProject = new Map<string, number>()

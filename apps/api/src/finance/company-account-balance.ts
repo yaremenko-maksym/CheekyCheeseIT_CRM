@@ -47,7 +47,7 @@
  * debt); legacy DROP-debt settlements + ordinary senior income leave it NULL and
  * are correctly ignored here.
  */
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../database/database.service'
 import type { DrizzleTx } from '../database/types'
 import { transactions } from '../database/schema'
@@ -99,12 +99,20 @@ export async function lockCompanyAccount(dbtx: DrizzleTx): Promise<void> {
   await dbtx.execute(sql`SELECT pg_advisory_xact_lock(${COMPANY_ACCOUNT_LOCK_KEY})`)
 }
 
-/** SUM(amount) over `where`, parsed to a finite number (0 on NULL / NaN). */
+/**
+ * SUM(amount) over `where`, parsed to a finite number (0 on NULL / NaN).
+ *
+ * task-soft-delete-and-money-audit (AC4): `isNull(deletedAt)` is ANDed in
+ * HERE, centrally — every one of the 8 terms in
+ * `computeCompanyAccountBalanceFromLedger` below calls this ONE function, so
+ * a single line closes the company-account balance for all of them at once
+ * instead of touching each `and(...)` call site individually.
+ */
 async function sumAmount(db: Db, where: ReturnType<typeof and>): Promise<number> {
   const rows = await db
     .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
     .from(transactions)
-    .where(where)
+    .where(and(where, isNull(transactions.deletedAt)))
   const total = parseFloat(rows[0]?.total ?? '0')
   return Number.isFinite(total) ? total : 0
 }

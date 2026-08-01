@@ -18,7 +18,7 @@
  * cross-module DI dependency (FinanceModule ↔ InterviewsModule).
  */
 
-import { and, eq } from 'drizzle-orm'
+import { and, eq, isNull } from 'drizzle-orm'
 import type { MySalaryStatusDto, SalaryStatus } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import { transactions } from '../database/schema'
@@ -38,6 +38,9 @@ export async function getOwnSalaryStatus(
       eq(transactions.type, 'SALARY'),
       eq(transactions.receiverId, userId),
       eq(transactions.salaryMonth, salaryMonth),
+      // task-soft-delete-and-money-audit: a deleted SALARY reminder must read
+      // back as "no salary yet", not resurface a mistakenly-booked one.
+      isNull(transactions.deletedAt),
     ),
   })
 
