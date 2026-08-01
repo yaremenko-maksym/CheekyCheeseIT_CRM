@@ -2,17 +2,41 @@ import { describe, expect, it } from 'vitest'
 import {
   applyVacancyFieldsSchema,
   createVacancySchema,
+  createVacancySalaryFieldsSchema,
   publicVacancyDetailSchema,
   publicVacancySchema,
   updateVacancySchema,
   vacancyApplicationSchema,
   vacancyLocaleSchema,
+  vacancySalaryFieldsSchema,
   vacancySchema,
   vacancySeoFieldsSchema,
   vacancyTranslationsSchema,
   VACANCY_LOCALES,
+  VACANCY_SALARY_CURRENCIES,
+  VACANCY_SALARY_PERIODS,
   VACANCY_TRANSLATION_LOCALES,
 } from './vacancies'
+
+// task-vacancy-salary-range (AC1) — spread into every createVacancySchema
+// fixture that expects success:true, now that the 4 salary fields are
+// mandatory (see module doc in vacancies.ts).
+const VALID_SALARY = {
+  salaryMin: 3000,
+  salaryMax: 5000,
+  salaryCurrency: 'USDT' as const,
+  salaryPeriod: 'MONTH' as const,
+}
+
+// Nullable read-shape fixture — for publicVacancySchema/vacancySchema
+// literals (legacy/unfilled vacancy, AC3): the 4 keys must be PRESENT
+// (`.nullable()`, not `.optional()`) with an explicit `null`.
+const NULL_SALARY = {
+  salaryMin: null,
+  salaryMax: null,
+  salaryCurrency: null,
+  salaryPeriod: null,
+}
 
 describe('vacancies schemas', () => {
   describe('createVacancySchema — slug', () => {
@@ -25,6 +49,7 @@ describe('vacancies schemas', () => {
         seniority: 'SENIOR',
         employmentType: 'FULL_TIME',
         location: 'Remote',
+        ...VALID_SALARY,
       })
       expect(result.success).toBe(true)
     })
@@ -123,6 +148,7 @@ describe('vacancies schemas', () => {
       descriptionMd: 'A great role with plenty of details to write about.',
       domain: 'AI' as const,
       employmentType: 'FULL_TIME' as const,
+      ...VALID_SALARY,
     }
 
     it('defaults seniority to SENIOR when omitted', () => {
@@ -312,6 +338,7 @@ describe('vacancies schemas', () => {
         responsibilities: null,
         jobBenefits: null,
         workHours: null,
+        ...NULL_SALARY,
       })
       expect(result.success).toBe(true)
     })
@@ -407,6 +434,7 @@ describe('vacancies schemas', () => {
       descriptionMd: 'A great role with plenty of details to write about.',
       domain: 'AI' as const,
       employmentType: 'FULL_TIME' as const,
+      ...VALID_SALARY,
     }
 
     it('omitting translations/SEO fields on create leaves them undefined (service maps undefined -> null)', () => {
@@ -507,6 +535,7 @@ describe('vacancies schemas', () => {
       employmentType: 'FULL_TIME' as const,
       location: 'Remote',
       publishedAt: new Date().toISOString(),
+      ...NULL_SALARY,
     }
 
     it('requires isFallback on the public list DTO', () => {
@@ -554,6 +583,124 @@ describe('vacancies schemas', () => {
         relatedVacancies: related,
       })
       expect(result.success).toBe(true)
+    })
+  })
+
+  // task-vacancy-salary-range — AC1 (create requires a range), AC3 (legacy
+  // rows without a range stay valid on the nullable read shape).
+  describe('createVacancySchema — salary range (AC1, owner decision 2026-07-31)', () => {
+    const base = {
+      title: 'Senior Frontend Engineer',
+      slug: 'senior-frontend-engineer',
+      descriptionMd: 'A great role with plenty of details to write about.',
+      domain: 'AI' as const,
+      employmentType: 'FULL_TIME' as const,
+    }
+
+    it('accepts a full, valid salary range', () => {
+      const result = createVacancySchema.safeParse({ ...base, ...VALID_SALARY })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.salaryMin).toBe(3000)
+        expect(result.data.salaryMax).toBe(5000)
+        expect(result.data.salaryCurrency).toBe('USDT')
+        expect(result.data.salaryPeriod).toBe('MONTH')
+      }
+    })
+
+    it('rejects a create payload with NO salary fields at all', () => {
+      const result = createVacancySchema.safeParse(base)
+      expect(result.success).toBe(false)
+    })
+
+    it.each(['salaryMin', 'salaryMax', 'salaryCurrency', 'salaryPeriod'] as const)(
+      'rejects when only "%s" is missing',
+      (omitted) => {
+        const payload: Record<string, unknown> = { ...base, ...VALID_SALARY }
+        delete payload[omitted]
+        const result = createVacancySchema.safeParse(payload)
+        expect(result.success).toBe(false)
+      },
+    )
+
+    it('rejects a zero or negative salaryMin/salaryMax', () => {
+      expect(
+        createVacancySchema.safeParse({ ...base, ...VALID_SALARY, salaryMin: 0 }).success,
+      ).toBe(false)
+      expect(
+        createVacancySchema.safeParse({ ...base, ...VALID_SALARY, salaryMin: -100 }).success,
+      ).toBe(false)
+      expect(
+        createVacancySchema.safeParse({ ...base, ...VALID_SALARY, salaryMax: 0 }).success,
+      ).toBe(false)
+    })
+
+    it('rejects an unknown currency (must be from VACANCY_SALARY_CURRENCIES)', () => {
+      const result = createVacancySchema.safeParse({
+        ...base,
+        ...VALID_SALARY,
+        salaryCurrency: 'BTC',
+      })
+      expect(result.success).toBe(false)
+    })
+
+    it('rejects an unknown period (must be from VACANCY_SALARY_PERIODS)', () => {
+      const result = createVacancySchema.safeParse({
+        ...base,
+        ...VALID_SALARY,
+        salaryPeriod: 'DECADE',
+      })
+      expect(result.success).toBe(false)
+    })
+
+    it('VACANCY_SALARY_PERIODS matches the Google JobPosting unitText enum exactly', () => {
+      expect(VACANCY_SALARY_PERIODS).toEqual(['HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR'])
+    })
+
+    it('VACANCY_SALARY_CURRENCIES matches the app-wide 4-currency list', () => {
+      expect(VACANCY_SALARY_CURRENCIES).toEqual(['USDT', 'USD', 'EUR', 'UAH'])
+    })
+  })
+
+  describe('updateVacancySchema — salary range stays optional (PATCH = no-op when omitted)', () => {
+    it('a pure status transition does NOT require salary fields (schema level — the mandatory-at-publish gate lives in VacanciesService)', () => {
+      const result = updateVacancySchema.safeParse({ status: 'PUBLISHED' })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.salaryMin).toBeUndefined()
+        expect(result.data.salaryMax).toBeUndefined()
+      }
+    })
+
+    it('still accepts an explicit full range on PATCH', () => {
+      const result = updateVacancySchema.safeParse({ ...VALID_SALARY })
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.salaryMin).toBe(3000)
+        expect(result.data.salaryCurrency).toBe('USDT')
+      }
+    })
+
+    it('rejects a negative salaryMin even on a partial PATCH', () => {
+      const result = updateVacancySchema.safeParse({ salaryMin: -1 })
+      expect(result.success).toBe(false)
+    })
+  })
+
+  describe('vacancySalaryFieldsSchema / createVacancySalaryFieldsSchema — shape', () => {
+    it('the nullable read shape requires the 4 keys present but accepts null', () => {
+      expect(vacancySalaryFieldsSchema.safeParse(NULL_SALARY).success).toBe(true)
+      expect(vacancySalaryFieldsSchema.safeParse({}).success).toBe(false)
+    })
+
+    it('the create shape rejects null (must be a real number/enum value)', () => {
+      const result = createVacancySalaryFieldsSchema.safeParse({
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: null,
+        salaryPeriod: null,
+      })
+      expect(result.success).toBe(false)
     })
   })
 })

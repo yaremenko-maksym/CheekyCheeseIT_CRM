@@ -11,8 +11,18 @@ import { z } from 'zod'
  * Vacancies are a hiring channel for new SENIORs — completely separate from
  * the interviews Kanban (that board tracks a candidate a SENIOR is already
  * placing on a project; this module tracks public applicants before they
- * exist as a user at all). No salary fields exist anywhere in this module —
- * do not add them speculatively.
+ * exist as a user at all).
+ *
+ * task-vacancy-salary-range (owner decision 2026-07-31, reversing the earlier
+ * "no salary fields, ever" stance this doc used to state here): Google Search
+ * Console flagged every vacancy's structured data as missing `baseSalary` and
+ * was substituting its OWN market estimate instead — the owner decided a
+ * public salary range is now MANDATORY on every vacancy going forward (see
+ * `vacancySalaryFieldsSchema`/`VacanciesService.assertSalaryFilled`). This is
+ * a PUBLIC hiring-ad salary range, NOT `users.monthlySalary`/CRM employee
+ * compensation — those stay completely untouched and out of scope here (see
+ * `.claude/rules/common/...` on not confusing the two; the CRM's "no
+ * employee-salary disclosure" rule is a different concern entirely).
  */
 
 // ---------------------------------------------------------------------------
@@ -101,6 +111,73 @@ export const vacancySeoFieldsSchema = z.object({
 export type VacancySeoFields = z.infer<typeof vacancySeoFieldsSchema>
 
 // ---------------------------------------------------------------------------
+// task-vacancy-salary-range — public salary range (owner decision 2026-07-31,
+// see module doc). Feeds JobPosting `baseSalary` (apps/landing `seo.ts`
+// `buildJobPostingJsonLd`) AND is shown directly on the public vacancy card/
+// detail page.
+//
+// `vacancySalaryCurrencySchema` deliberately DUPLICATES the 4-value literal
+// list also declared as the Drizzle `currency` pg enum
+// (`apps/api/src/database/schema.ts`, already shared by
+// `users.salaryCurrency`/`transactions.currency`) and as
+// `currencyEnumSchema` (`./payment-requisites`) — NOT imported from either.
+// Importing `currencyEnumSchema` here would pull `./payment-requisites`'s
+// whole module (wallet/IBAN/bank-requisites schemas) into this file's import
+// graph, and `publicVacancySchema` below is re-exported through the narrow
+// `@crm/shared/public` subpath apps/landing imports for RUNTIME parsing
+// (Lighthouse-gated bundle) — exactly the "one barrel pulls in all 28 CRM
+// domains" regression `packages/shared/src/public.ts`'s own doc comment
+// documents (PR #421 RCA). A short, independently-declared enum here keeps
+// this file's import graph self-contained (`zod` only, as before).
+// ---------------------------------------------------------------------------
+
+export const VACANCY_SALARY_PERIODS = ['HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR'] as const
+/** Matches Google's JobPosting `baseSalary.value.unitText` enum exactly (case-sensitive) — https://developers.google.com/search/docs/appearance/structured-data/job-posting */
+export const vacancySalaryPeriodSchema = z.enum(VACANCY_SALARY_PERIODS)
+export type VacancySalaryPeriod = z.infer<typeof vacancySalaryPeriodSchema>
+
+export const VACANCY_SALARY_CURRENCIES = ['USDT', 'USD', 'EUR', 'UAH'] as const
+export const vacancySalaryCurrencySchema = z.enum(VACANCY_SALARY_CURRENCIES)
+export type VacancySalaryCurrency = z.infer<typeof vacancySalaryCurrencySchema>
+
+/**
+ * Nullable READ shape — every public/admin vacancy DTO carries these 4 keys.
+ * `null` for the 3 vacancies already PUBLISHED on prod before this change
+ * (AC3: the page/JobPosting must keep working with the range simply absent)
+ * and for any brand-new DRAFT the owner hasn't filled in yet — see
+ * `createVacancySalaryFieldsSchema` below for the MANDATORY create-time shape.
+ * DB columns are nullable for the same reason (see the manual DDL).
+ */
+export const vacancySalaryFieldsSchema = z.object({
+  salaryMin: z.string().nullable(), // numeric string from DB, same convention as users.monthlySalary
+  salaryMax: z.string().nullable(),
+  salaryCurrency: vacancySalaryCurrencySchema.nullable(),
+  salaryPeriod: vacancySalaryPeriodSchema.nullable(),
+})
+export type VacancySalaryFields = z.infer<typeof vacancySalaryFieldsSchema>
+
+const SALARY_AMOUNT_MAX = 10_000_000
+
+/**
+ * MANDATORY create-time input shape (AC1) — all 4 fields required, no
+ * `.default()`. Deliberately NOT a `.refine()`'d object (min<=max ordering):
+ * `createVacancySchema` below is used both via `.shape.<field>` (CRM
+ * per-field onBlur validators) AND `.partial()` (`updateVacancySchema`) —
+ * verified live against the installed Zod version that `.partial()` THROWS
+ * on an object with a `.refine()`/`.superRefine()` check attached ("cannot be
+ * used on object schemas containing refinements"), so max>=min ordering is
+ * enforced instead by the CRM form's field validator (`VacancySalaryFields`)
+ * and, authoritatively, by `VacanciesService` — same "Zod-схема +
+ * сервис"defense-in-depth this module already uses for RBAC re-checks.
+ */
+export const createVacancySalaryFieldsSchema = z.object({
+  salaryMin: z.number().positive().max(SALARY_AMOUNT_MAX),
+  salaryMax: z.number().positive().max(SALARY_AMOUNT_MAX),
+  salaryCurrency: vacancySalaryCurrencySchema,
+  salaryPeriod: vacancySalaryPeriodSchema,
+})
+
+// ---------------------------------------------------------------------------
 // Public vacancy DTOs
 // ---------------------------------------------------------------------------
 
@@ -119,6 +196,7 @@ export const publicVacancySchema = z.object({
    * URL for this vacancy while true (duplicate-content guard, plan §3).
    */
   isFallback: z.boolean(),
+  ...vacancySalaryFieldsSchema.shape,
 })
 export type PublicVacancy = z.infer<typeof publicVacancySchema>
 
@@ -180,6 +258,10 @@ export const createVacancySchema = z.object({
   // and `VacanciesService.create()` maps `undefined -> null` explicitly.
   translations: vacancyTranslationsSchema.nullable().optional(),
   ...vacancySeoFieldsSchema.partial().shape,
+  // task-vacancy-salary-range (AC1) — REQUIRED, no `.default()`/`.optional()`:
+  // a vacancy simply cannot be created without a salary range any more (see
+  // `createVacancySalaryFieldsSchema`'s doc for why this isn't a `.refine()`).
+  ...createVacancySalaryFieldsSchema.shape,
 })
 export type CreateVacancy = z.infer<typeof createVacancySchema>
 /**
