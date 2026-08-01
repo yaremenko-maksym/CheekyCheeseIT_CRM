@@ -48,18 +48,19 @@ export function employmentTypeLabel(type: string, dict: Dictionary['vacancy']): 
  * и валюта не переводятся") — plain digits, no `Intl.NumberFormat` grouping,
  * so the figure reads identically on every one of the 5 site locales; only
  * the trailing period word is localized (`dict.salaryPeriodLabels`).
+ *
+ * `== null` (loose) — NOT `=== null` — deliberately: `vacancySalaryFieldsSchema`
+ * (`@crm/shared`) is `.nullish()`, so an older/pre-migration API response
+ * that omits these keys entirely parses to `undefined`, not `null`. See that
+ * schema's own doc for the prod incident (empty `/careers` list) this guards
+ * against — both are the same "not filled in" state on a READ path.
  */
 export function formatSalaryRange(
   vacancy: Pick<PublicVacancy, 'salaryMin' | 'salaryMax' | 'salaryCurrency' | 'salaryPeriod'>,
   dict: Dictionary['vacancy'],
 ): string | null {
   const { salaryMin, salaryMax, salaryCurrency, salaryPeriod } = vacancy
-  if (
-    salaryMin === null ||
-    salaryMax === null ||
-    salaryCurrency === null ||
-    salaryPeriod === null
-  ) {
+  if (salaryMin == null || salaryMax == null || salaryCurrency == null || salaryPeriod == null) {
     return null
   }
   const min = formatSalaryAmount(salaryMin)

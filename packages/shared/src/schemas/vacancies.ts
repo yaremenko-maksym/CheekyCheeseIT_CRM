@@ -141,18 +141,33 @@ export const vacancySalaryCurrencySchema = z.enum(VACANCY_SALARY_CURRENCIES)
 export type VacancySalaryCurrency = z.infer<typeof vacancySalaryCurrencySchema>
 
 /**
- * Nullable READ shape — every public/admin vacancy DTO carries these 4 keys.
- * `null` for the 3 vacancies already PUBLISHED on prod before this change
- * (AC3: the page/JobPosting must keep working with the range simply absent)
- * and for any brand-new DRAFT the owner hasn't filled in yet — see
- * `createVacancySalaryFieldsSchema` below for the MANDATORY create-time shape.
- * DB columns are nullable for the same reason (see the manual DDL).
+ * Nullable-AND-optional READ shape — every public/admin vacancy DTO carries
+ * these 4 keys, but a parser MUST tolerate them being entirely ABSENT, not
+ * just explicitly `null`:
+ *   - `null` — the 3 vacancies already PUBLISHED on prod before this change
+ *     (AC3: the page/JobPosting must keep working with the range simply
+ *     absent), and any brand-new DRAFT the owner hasn't filled in yet.
+ *   - absent (`undefined`) — the REAL prod `GET /api/public/vacancies`
+ *     response TODAY (before this PR's API deploys) has no salary keys at
+ *     all; a plain `.nullable()` here rejects that shape outright (Zod
+ *     treats a missing key as `undefined`, which `.nullable()` alone does
+ *     NOT accept). Caught live: Lighthouse CI prerenders against the real
+ *     prod origin, `apps/landing/app/lib/api.ts` `fetchVacancies()`
+ *     `.parse()`-failed on every legacy row, fail-soft to `[]`, and
+ *     `/careers`'s ItemList JSON-LD came back empty — reproduced locally by
+ *     building `apps/landing` against a mock server emitting the exact
+ *     pre-migration shape (see PR review discussion). `.nullish()` (nullable
+ *     + optional) is the fix: the mandatory-at-create/publish rule in
+ *     `createVacancySalaryFieldsSchema` below is UNCHANGED — this is a READ
+ *     path, and per the task's own framing, absence there is a legitimate
+ *     state, never an error, on every reader (including a client one
+ *     version behind the API's own shape).
  */
 export const vacancySalaryFieldsSchema = z.object({
-  salaryMin: z.string().nullable(), // numeric string from DB, same convention as users.monthlySalary
-  salaryMax: z.string().nullable(),
-  salaryCurrency: vacancySalaryCurrencySchema.nullable(),
-  salaryPeriod: vacancySalaryPeriodSchema.nullable(),
+  salaryMin: z.string().nullish(), // numeric string from DB, same convention as users.monthlySalary
+  salaryMax: z.string().nullish(),
+  salaryCurrency: vacancySalaryCurrencySchema.nullish(),
+  salaryPeriod: vacancySalaryPeriodSchema.nullish(),
 })
 export type VacancySalaryFields = z.infer<typeof vacancySalaryFieldsSchema>
 

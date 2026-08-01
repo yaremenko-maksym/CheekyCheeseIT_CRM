@@ -255,15 +255,19 @@ const JSONLD_SALARY_CURRENCY: Record<string, string> = {
  * not synthesize a fake/partial one). `salaryMin`/`salaryMax` are the
  * numeric-string DB values (`PublicVacancyDetail['salaryMin']` etc.) —
  * `Number()`-parsed here since JSON-LD wants real numbers, not strings.
+ *
+ * `== null` (loose) — NOT `=== null` — deliberately: `vacancySalaryFieldsSchema`
+ * (`@crm/shared`) is `.nullish()`, so an older/pre-migration API response
+ * that omits these keys entirely parses to `undefined`, not `null`. Both are
+ * the same "not filled in" state on a READ path (see that schema's own doc
+ * for the prod incident this guards against) — treating only `null` as
+ * "absent" would let `undefined` fall through to `Number(undefined)` = `NaN`
+ * further down, which happens to also degrade safely today but is the wrong
+ * signal to depend on.
  */
 function buildBaseSalary(vacancy: PublicVacancyDetail): BaseSalaryJsonLd | null {
   const { salaryMin, salaryMax, salaryCurrency, salaryPeriod } = vacancy
-  if (
-    salaryMin === null ||
-    salaryMax === null ||
-    salaryCurrency === null ||
-    salaryPeriod === null
-  ) {
+  if (salaryMin == null || salaryMax == null || salaryCurrency == null || salaryPeriod == null) {
     return null
   }
   const minValue = Number(salaryMin)

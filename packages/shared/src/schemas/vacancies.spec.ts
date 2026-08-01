@@ -543,6 +543,36 @@ describe('vacancies schemas', () => {
       expect(publicVacancySchema.safeParse({ ...publicBase, isFallback: false }).success).toBe(true)
     })
 
+    // Regression pin — real prod incident caught by Lighthouse CI (PR review
+    // on task-vacancy-salary-range): the LIVE prod API (before this PR's
+    // apps/api deploys) returns vacancy list items with NO salary keys at
+    // all — not even `null`. `apps/landing/app/lib/api.ts`'s `fetchVacancies()`
+    // parses every list item through exactly this schema; if it rejected a
+    // legacy-shaped item, the whole list fail-softs to `[]` and `/careers`
+    // ships with an empty (invalid) ItemList JSON-LD. Every current/future
+    // reader of this contract MUST tolerate the 4 salary keys being entirely
+    // absent, not just explicitly `null` (see `vacancySalaryFieldsSchema`'s
+    // own doc for the mechanism).
+    it('parses a legacy-shaped list item with the 4 salary keys entirely absent (prod-incident regression pin)', () => {
+      const legacyShapedItem = {
+        slug: 'senior-frontend-engineer',
+        title: 'Senior Frontend Engineer',
+        domain: 'AI' as const,
+        seniority: 'SENIOR' as const,
+        employmentType: 'FULL_TIME' as const,
+        location: 'Remote',
+        publishedAt: new Date().toISOString(),
+        isFallback: false,
+        // no salaryMin/salaryMax/salaryCurrency/salaryPeriod keys at all
+      }
+      const result = publicVacancySchema.safeParse(legacyShapedItem)
+      expect(result.success).toBe(true)
+      if (result.success) {
+        expect(result.data.salaryMin).toBeUndefined()
+        expect(result.data.salaryMax).toBeUndefined()
+      }
+    })
+
     it('detail DTO caps relatedVacancies at 3', () => {
       const related = Array.from({ length: 4 }, (_, i) => ({
         ...publicBase,
@@ -688,9 +718,22 @@ describe('vacancies schemas', () => {
   })
 
   describe('vacancySalaryFieldsSchema / createVacancySalaryFieldsSchema — shape', () => {
-    it('the nullable read shape requires the 4 keys present but accepts null', () => {
+    it('the read shape is nullish — accepts explicit null AND entirely absent keys', () => {
       expect(vacancySalaryFieldsSchema.safeParse(NULL_SALARY).success).toBe(true)
-      expect(vacancySalaryFieldsSchema.safeParse({}).success).toBe(false)
+      // Reproduces the real prod incident this test pins: the LIVE
+      // /api/public/vacancies response (before this PR's API deploys) omits
+      // these 4 keys entirely, not even `null` — a plain `.nullable()` here
+      // rejected that shape, `fetchVacancies()` fail-soft to `[]`, and
+      // /careers's prerendered ItemList JSON-LD came back empty (caught by
+      // Lighthouse CI pointed at the real prod origin). `.nullish()` fixes
+      // it: an empty object (all 4 keys absent) must parse successfully.
+      expect(vacancySalaryFieldsSchema.safeParse({}).success).toBe(true)
+    })
+
+    it('still rejects a genuinely invalid value when a key IS present (not just absence tolerance)', () => {
+      expect(vacancySalaryFieldsSchema.safeParse({ salaryCurrency: 'BTC' }).success).toBe(false)
+      expect(vacancySalaryFieldsSchema.safeParse({ salaryPeriod: 'DECADE' }).success).toBe(false)
+      expect(vacancySalaryFieldsSchema.safeParse({ salaryMin: 3000 }).success).toBe(false) // must be a string
     })
 
     it('the create shape rejects null (must be a real number/enum value)', () => {

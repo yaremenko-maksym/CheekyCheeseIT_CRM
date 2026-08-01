@@ -240,11 +240,14 @@ export interface VacancyPublishGate {
 export function getVacancyPublishGate(
   vacancy: Pick<Vacancy, 'salaryMin' | 'salaryMax' | 'salaryCurrency' | 'salaryPeriod'>,
 ): VacancyPublishGate {
+  // `!= null` (loose) — NOT `!== null` — deliberately: the shared salary
+  // fields schema is `.nullish()` (nullable AND optional), so a field can be
+  // `undefined` as well as `null` on a READ DTO. Both mean "not filled in".
   const hasSalaryRange =
-    vacancy.salaryMin !== null &&
-    vacancy.salaryMax !== null &&
-    vacancy.salaryCurrency !== null &&
-    vacancy.salaryPeriod !== null
+    vacancy.salaryMin != null &&
+    vacancy.salaryMax != null &&
+    vacancy.salaryCurrency != null &&
+    vacancy.salaryPeriod != null
   return {
     canPublish: hasSalaryRange,
     tooltip: 'Укажите вилку зарплаты в форме редактирования перед публикацией',
