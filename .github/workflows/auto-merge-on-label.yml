@@ -37,9 +37,49 @@ jobs:
     permissions:
       contents: write
       pull-requests: write
+      # `issues: write` added task-infra-silent-failures (2026-08-01) for the
+      # "Explain why auto-merge cannot proceed" step's `gh pr comment` below —
+      # `gh pr comment` hits the Issues comments endpoint under the hood (PRs
+      # are issues in GitHub's data model), and `pull-requests: write` alone
+      # is not documented as sufficient/reliable for it.
+      issues: write
       actions: write
     steps:
+      # task-infra-silent-failures (2026-08-01) — GITHUB_TOKEN can NEVER be
+      # granted the `workflows` permission (GitHub-enforced, not something a
+      # `permissions:` block can unlock — only a PAT with the `workflow`
+      # OAuth scope can create/update .github/workflows/**; confirmed against
+      # current GitHub docs/community guidance). Squashing a PR that touches
+      # those files used to fail at the "Squash and merge" step below with a
+      # raw GraphQL "refusing to allow a GitHub App to create or update
+      # workflow ... without workflows permission" error — a plain step
+      # failure, indistinguishable in the PR checks list from a real CI
+      # failure. PR #437 and #449 (2026-07-31) sat with `merge-approved`
+      # for hours, misdiagnosed as broken CI, before someone merged by hand.
+      #
+      # Fix considered and rejected: mint a `workflow`-scoped PAT for this
+      # bot. That would let ANY `merge-approved` PR auto-merge changes to
+      # CI/CD pipeline files completely unsupervised — exactly the blast
+      # radius GitHub's restriction exists to prevent (devops.md golden rule
+      # #7: workflow-file changes need a human owner to apply them). Instead:
+      # detect this case up front and skip straight to an honest, clearly
+      # worded explanation, before spending up to 30 min waiting on checks.
+      - name: Detect pipeline-file changes
+        id: pipeline_files
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          FILES=$(gh pr diff "$PR_NUMBER" --repo "$REPO" --name-only)
+          if printf '%s\n' "$FILES" | grep -q '^\.github/workflows/'; then
+            echo "touches_workflows=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "touches_workflows=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Wait for required checks
+        if: steps.pipeline_files.outputs.touches_workflows == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -54,12 +94,52 @@ jobs:
 
       - name: Squash and merge
         id: squash
+        if: steps.pipeline_files.outputs.touches_workflows == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
         run: |
           gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+
+      # Deliberately exits 0 — this is an expected boundary of the
+      # automation, not a failure. A red "Squash merge if CI green" check
+      # next to green required checks is exactly the misdiagnosis this fix
+      # closes (see comment above `Detect pipeline-file changes`); a PR
+      # comment + `::notice::` communicates the same "needs action" signal
+      # without a spurious red X.
+      - name: Explain why auto-merge cannot proceed (pipeline files)
+        if: steps.pipeline_files.outputs.touches_workflows == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          # printf-built body (not a heredoc): a YAML `run: |` block requires
+          # every source line at consistent indentation, which a heredoc's
+          # verbatim `<<'EOF'` body cannot satisfy without baking literal
+          # leading whitespace into the comment — markdown reads 4+ leading
+          # spaces as a code block, which would mangle every line below.
+          # Same style `scripts/devops/post-merge-alert.sh` already uses for
+          # its multi-line issue bodies.
+          #
+          # shellcheck disable=SC2016  # backticks below are markdown, not
+          #                            # command substitution.
+          BODY=$(
+            printf '⚠️ **Автомерж недоступен: PR трогает файлы конвейера (`.github/workflows/**`).**\n\n'
+            printf '`GITHUB_TOKEN`, которым работает эта автоматика, принципиально не может\n'
+            printf 'создавать/обновлять файлы в `.github/workflows/**` — это ограничение GitHub\n'
+            printf '(нужен PAT с scope `workflow`, который `permissions:`-блок выдать не может).\n'
+            printf 'Выдавать такой PAT авто-мерджу мы намеренно не стали: это встроенная защита\n'
+            printf 'GitHub от бесконтрольного изменения CI/CD пайплайна автоматикой — обходить\n'
+            printf 'её ради удобства было бы понижением безопасности, а не багфиксом.\n\n'
+            printf '**Это НЕ сбой проверок** — required checks зелёные, это ожидаемая граница\n'
+            printf 'автоматики именно на файлах конвейера.\n\n'
+            printf 'Смерджите этот PR вручную (owner UI-мерж или `gh pr merge --squash`), когда\n'
+            printf 'будете готовы. Лейбл `merge-approved` можно оставить как есть.\n'
+          )
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          echo "::notice::PR #$PR_NUMBER touches .github/workflows/** — GITHUB_TOKEN cannot merge these (no 'workflows' permission, not grantable via permissions:). Manual merge required by the repo owner. This is NOT a CI failure."
 
       # ВАЖНО (review PR #441, HIGH): оба диспатча ниже гейтятся ЯВНО по
       # результату сквоша, а не по дефолтному `success()` всех предыдущих шагов.

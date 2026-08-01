@@ -4,7 +4,8 @@
 > состояния `main` после мержа + оповещение о красном main.
 > Workflows: `.github/workflows/ci.yml` (jobs `quality` / `integration` /
 > `e2e` / `post_merge_alert`), `.github/workflows/auto-merge-on-label.yml`.
-> Скрипт алерта: `scripts/devops/post-merge-alert.sh`.
+> Скрипт алерта: `scripts/devops/post-merge-alert.sh` (shared с
+> `.github/workflows/deploy-alert.yml`, см. §4.3) + `scripts/devops/resolve-alert-channel.sh`.
 
 ---
 
@@ -209,6 +210,23 @@ push-событие (PAT, не GITHUB_TOKEN) → триггерит деплой
 Одно исправлено: условие `notify_e2e` раньше выполнялось при **любом**
 `workflow_dispatch` — то есть диспатч на фиче-ветке мог открыть «команда на
 паузе». Теперь требуется `github.ref == 'refs/heads/main'`.
+
+### 4.3 Отношение к `deploy-broken` (Deploy Alert)
+
+task-infra-silent-failures (2026-08-01) добавил `.github/workflows/deploy-alert.yml` —
+тот же канал (приватный `cheekycheese-telemetry`, фолбэк на публичный репо) и та
+же open/comment/close-по-метке механика, что у `post_merge_alert` здесь, но
+триггер — `workflow_run: workflows: ['Deploy']`, а не сам прогон `ci.yml`.
+Причина отдельного файла: `Deploy` упал 2026-07-27 21:22 и оставался красным
+до 2026-07-31 без единого сигнала — `post_merge_alert` про CI, к деплою
+отношения не имеет. Общий код вынесен в `scripts/devops/post-merge-alert.sh`
+(`KIND=ci|deploy` switch) и `scripts/devops/resolve-alert-channel.sh` — два
+вызывающих job'а, один источник истины на канал/механику.
+
+Проверено по совету из §4.2 выше (кто ещё подписан на `workflow_run`): на
+момент добавления единственный другой листенер этого события в репо —
+отключённый (`if: false`) `e2e-watchdog.yml`, слушающий `workflows: [CI]`
+(другое имя воркфлоу) — коллизии нет.
 
 ---
 
