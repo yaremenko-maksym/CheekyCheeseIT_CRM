@@ -254,7 +254,13 @@ describe('buildJobPostingJsonLd', () => {
 
     it('passes EUR/UAH through unchanged (already ISO 4217)', () => {
       const eurJsonLd = buildJobPostingJsonLd(
-        { ...vacancy, salaryMin: '2500', salaryMax: '4000', salaryCurrency: 'EUR', salaryPeriod: 'MONTH' },
+        {
+          ...vacancy,
+          salaryMin: '2500',
+          salaryMax: '4000',
+          salaryCurrency: 'EUR',
+          salaryPeriod: 'MONTH',
+        },
         descriptionHtml,
       )
       expect(eurJsonLd.baseSalary?.currency).toBe('EUR')

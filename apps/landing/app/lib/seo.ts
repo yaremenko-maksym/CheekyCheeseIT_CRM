@@ -258,7 +258,12 @@ const JSONLD_SALARY_CURRENCY: Record<string, string> = {
  */
 function buildBaseSalary(vacancy: PublicVacancyDetail): BaseSalaryJsonLd | null {
   const { salaryMin, salaryMax, salaryCurrency, salaryPeriod } = vacancy
-  if (salaryMin === null || salaryMax === null || salaryCurrency === null || salaryPeriod === null) {
+  if (
+    salaryMin === null ||
+    salaryMax === null ||
+    salaryCurrency === null ||
+    salaryPeriod === null
+  ) {
     return null
   }
   const minValue = Number(salaryMin)

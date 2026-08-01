@@ -54,7 +54,12 @@ export function formatSalaryRange(
   dict: Dictionary['vacancy'],
 ): string | null {
   const { salaryMin, salaryMax, salaryCurrency, salaryPeriod } = vacancy
-  if (salaryMin === null || salaryMax === null || salaryCurrency === null || salaryPeriod === null) {
+  if (
+    salaryMin === null ||
+    salaryMax === null ||
+    salaryCurrency === null ||
+    salaryPeriod === null
+  ) {
     return null
   }
   const min = formatSalaryAmount(salaryMin)

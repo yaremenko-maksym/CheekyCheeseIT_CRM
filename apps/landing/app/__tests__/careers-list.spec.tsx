@@ -104,7 +104,13 @@ describe('CareersList', () => {
   // when filled, and is simply absent for a legacy vacancy without one.
   it('shows the salary range on the card when set, omits it when unset (AC3/AC5)', async () => {
     renderList([
-      { ...vacancies[0]!, salaryMin: '3000', salaryMax: '5000', salaryCurrency: 'USDT', salaryPeriod: 'MONTH' },
+      {
+        ...vacancies[0]!,
+        salaryMin: '3000',
+        salaryMax: '5000',
+        salaryCurrency: 'USDT',
+        salaryPeriod: 'MONTH',
+      },
       vacancies[1]!, // no salary range — stays unset
     ])
     expect(await screen.findByText('3000–5000 USDT · per month')).toBeTruthy()
