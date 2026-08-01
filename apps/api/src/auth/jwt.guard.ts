@@ -11,6 +11,7 @@ import type { FastifyRequest } from 'fastify'
 import { jwtPayloadSchema, type JwtPayload } from '@crm/shared'
 import type { UsersService } from '../users/users.service'
 import { IS_PUBLIC_KEY } from './public.decorator'
+import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './jwt-cookie.constants'
 
 /**
  * Globally registered (APP_GUARD in AppModule) — runs FIRST so it populates
@@ -97,8 +98,19 @@ const CACHE_TTL_MS = 60_000
  * auth.controller.ts for why `__Host-` cannot work over plain http), so the
  * plain `jwt` cookie there is the permanent, correct name — not a "legacy"
  * one subject to expiry.
+ *
+ * BUMPED (security-review round 3, follow-up to #436, this file's own PR):
+ * #436 (which introduced this cutoff) merged/deployed to prod 2026-07-31.
+ * The original `2026-08-03T00:00:00Z` gave only ~2-3 days of grace from that
+ * rollout — well under the ≤7-day ceiling this doc already allows — and this
+ * follow-up PR (pure refactor + test coverage of the SAME cutoff, no new
+ * rollout of the hardening logic itself) risked merging on/after that date,
+ * which would have made the fallback fail-closed for any browser that
+ * hadn't re-logged-in yet, before the full grace window had even elapsed.
+ * Bumped to the full `COOKIE_MAX_AGE` (7 days) from the confirmed rollout
+ * date: `2026-07-31 + 7d = 2026-08-07T00:00:00Z`.
  */
-export const LEGACY_JWT_COOKIE_FALLBACK_CUTOFF = new Date('2026-08-03T00:00:00Z')
+export const LEGACY_JWT_COOKIE_FALLBACK_CUTOFF = new Date('2026-08-07T00:00:00Z')
 
 interface CachedUser {
   role: JwtPayload['role']
@@ -138,8 +150,8 @@ export class JwtAuthGuard implements CanActivate {
     // as throttle-decorators.ts) rather than via injected ConfigService, to
     // avoid widening this guard's constructor signature — it is constructed
     // directly (no DI) across ~20 test files.
-    const hostToken = request.cookies?.['__Host-jwt']
-    const legacyToken = request.cookies?.['jwt']
+    const hostToken = request.cookies?.[JWT_COOKIE_HARDENED]
+    const legacyToken = request.cookies?.[JWT_COOKIE_LEGACY]
     const isProduction = process.env.NODE_ENV === 'production'
     const legacyFallbackAllowed =
       !isProduction || Date.now() < LEGACY_JWT_COOKIE_FALLBACK_CUTOFF.getTime()
