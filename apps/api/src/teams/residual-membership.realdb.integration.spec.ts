@@ -26,6 +26,18 @@
  *         today — rotateSenior is DROP-only and unarchive targets
  *         SENIOR-type pair-archive — but the query itself must be correct
  *         if that ever changes; seeded directly to pin the SQL).
+ *   AC-G (security-review round 3, follow-up to #436): after a DROP-team
+ *         senior rotation, the team's ACTIVE HR must NOT see the
+ *         rotated-out (now teamless) senior in their `getTeamMembersForUser`
+ *         roster (Step 1's `seniorsInTeams` query, HR/ACCOUNTANT branch —
+ *         the actual leak the round-3 `isNull(leftAt)` fix closes).
+ *   AC-H (security-review round 3, MED-3, follow-up to #436): a rotated-out
+ *         (teamless) senior viewing their OWN "Команда" tab must STILL see
+ *         the JUNIOR of their still-active (non-archived — rotation does
+ *         not archive projects) project. An earlier round of the AC-G fix
+ *         over-tightened Step 3 to also require an ACTIVE team_members row,
+ *         which silently emptied this self-view during the teamless gap;
+ *         reverted to pin the restored behavior.
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
  * rmed2-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
@@ -413,5 +425,25 @@ describe('MED-2 (security-review round 2): residual leftAt-filter gaps (real DB)
     // ...and the stale/detached senior must be untouched — still archived,
     // never even considered by the query.
     expect(staleUser?.archivedAt).not.toBeNull()
+  })
+
+  it('AC-G: after DROP-team senior rotation, the team HR does NOT see the rotated-out senior', async () => {
+    if (!dbAvailable) return
+    await teamsService.rotateSenior(DROP_TEAM_ID, NEW_SENIOR_ID, adminActor)
+
+    const roster = await usersService.getTeamMembersForUser(DROP_HR_ID)
+    const ids = roster.map((m) => m.id)
+    expect(ids).not.toContain(OLD_SENIOR_ID)
+    // Sanity: the NEW (current) senior IS present.
+    expect(ids).toContain(NEW_SENIOR_ID)
+  })
+
+  it('AC-H: a rotated-out (teamless) senior still sees the JUNIOR of their own active project', async () => {
+    if (!dbAvailable) return
+    await teamsService.rotateSenior(DROP_TEAM_ID, NEW_SENIOR_ID, adminActor)
+
+    const roster = await usersService.getTeamMembersForUser(OLD_SENIOR_ID)
+    const ids = roster.map((m) => m.id)
+    expect(ids).toContain(JUNIOR_OF_OLD_ID)
   })
 })
