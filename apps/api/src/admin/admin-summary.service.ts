@@ -57,7 +57,24 @@ export class AdminSummaryService {
     // activeProjects + projectsUnpaidThisMonth share a single scan over projects.
     // projectsUnpaidThisMonth uses a NOT EXISTS correlated subquery against the
     // income types whose tx_date falls in [monthStart, nextMonthStart).
-    const [projRow] = await db
+    //
+    // BUG FIX (found as a byproduct of task-soft-delete-and-money-audit's AC4
+    // regression test — pre-existing, unrelated to soft-delete): the
+    // correlation predicate used to read `where t.project_id = ${projects.id}`.
+    // Drizzle's `sql` template renders an interpolated column reference by its
+    // bare SQL name when the outer query has no explicit alias — `${projects.id}`
+    // compiled to unqualified `"id"`. Inside the NESTED subquery (`from
+    // transactions t`), Postgres resolves an unqualified `"id"` to the
+    // NEAREST scope, i.e. `t.id` (transactions.id) — NOT the intended outer
+    // `projects.id`. The predicate silently became `t.project_id = t.id`,
+    // which is (practically) never true, so `NOT EXISTS (...)` was ALWAYS
+    // true and `projectsUnpaidThisMonth` counted EVERY active project as
+    // unpaid regardless of any matching income — a real correctness bug the
+    // existing integration test's `toBeGreaterThanOrEqual(0)` assertion could
+    // never have caught. Fixed by referencing the outer table's real
+    // (unaliased) SQL name literally — `.from(projects)` has no alias, so
+    // `projects.id` in raw SQL text unambiguously means the outer row.
+    const projQuery = db
       .select({
         activeProjects: sql<number>`count(*) filter (where ${projects.archivedAt} is null)`.mapWith(
           Number,
@@ -68,7 +85,7 @@ export class AdminSummaryService {
           // satisfy the NOT EXISTS check and wrongly mark the project "paid".
           sql<number>`count(*) filter (where ${projects.archivedAt} is null and not exists (
           select 1 from ${transactions} t
-          where t.project_id = ${projects.id}
+          where t.project_id = projects.id
             and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
             and t.tx_date >= ${monthStart}
             and t.tx_date < ${nextMonthStart}
@@ -76,6 +93,7 @@ export class AdminSummaryService {
         ))`.mapWith(Number),
       })
       .from(projects)
+    const [projRow] = await projQuery
 
     // employees — every user, every role (incl. DROP).
     const [userRow] = await db
