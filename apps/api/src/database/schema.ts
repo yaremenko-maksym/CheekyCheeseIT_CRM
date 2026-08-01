@@ -706,8 +706,45 @@ export const transactions = pgTable(
       .references(() => users.id, { onDelete: 'cascade' }),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+    /**
+     * task-soft-delete-and-money-audit (security-audit finding 3, 27.07).
+     * Soft-delete triple — `adminDeleteTransaction` now marks a row instead of
+     * physically removing it (`DELETE FROM transactions` is gone). All three
+     * are NULL on an active row and set together at delete time, cleared
+     * together at restore time (`restoreTransaction`, ADMIN-only).
+     *
+     * Visibility (owner requirement, 27.07): a deleted row is visible ONLY to
+     * ADMIN/ACCOUNTANT, and even then hidden from the default list — see the
+     * `TransactionsService.findAll` `includeDeleted` toggle. Every other role
+     * gets a 404 (never 403) both in the list and on a direct `GET
+     * /transactions/:id` — a 403 would leak that the row exists.
+     *
+     * ON DELETE SET NULL on `deletedBy` (not RESTRICT/CASCADE): keeps the
+     * deleted row's audit trail intact even if the deleting ADMIN's user row
+     * is later removed — mirrors `validatedBy`/`createdBy` above.
+     *
+     * ADD COLUMN + INDEX DDL (apply to dev/prod manually before deploy — same
+     * additive-push pattern as `idempotencyKey` above; migration file:
+     * apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql):
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deleted_at timestamptz;
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deleted_by uuid
+     *     REFERENCES users(id) ON DELETE SET NULL;
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS deletion_reason varchar(500);
+     *   CREATE INDEX IF NOT EXISTS idx_transactions_active_created_at
+     *     ON transactions (created_at) WHERE deleted_at IS NULL;
+     */
+    deletedAt: timestamp('deleted_at', { withTimezone: true }),
+    deletedBy: uuid('deleted_by').references(() => users.id, { onDelete: 'set null' }),
+    deletionReason: varchar('deletion_reason', { length: 500 }),
   },
   (t) => [
+    // task-soft-delete-and-money-audit: supports the `WHERE deleted_at IS
+    // NULL` predicate every hot read (findAll default list, every balance /
+    // summary aggregate) now carries. Partial so the index stays small — it
+    // never needs to cover the (presumably rare) deleted rows.
+    index('idx_transactions_active_created_at')
+      .on(t.createdAt)
+      .where(sql`${t.deletedAt} IS NULL`),
     // PR-3: 1:1 receipt ↔ income invariant — one receipt document can be linked
     // to at most one transaction. Partial index (WHERE IS NOT NULL) so that
     // multiple transactions with no receipt (NULL) are still allowed.

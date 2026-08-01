@@ -249,6 +249,20 @@ export const transactionSchema = z.object({
   txFromAddress: z.string().nullable(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
+  /**
+   * task-soft-delete-and-money-audit (security-audit finding 3, 27.07). Soft-
+   * delete marker — the row is never physically removed. Visibility: only
+   * ADMIN/ACCOUNTANT can ever receive a non-null value here (every other
+   * viewer gets a 404 for a deleted transaction, both in the list and by
+   * direct id — see TransactionsService.findAll/findOne). `.optional()`
+   * alongside `.nullable()` keeps every pre-existing fixture/mock DTO across
+   * the codebase valid without a rewrite (mirrors `dropCascadeOrigin` above).
+   */
+  deletedAt: z.string().datetime().nullable().optional(),
+  /** Audit UUID of the ADMIN/ACCOUNTANT who deleted the row. Same visibility as `deletedAt`. */
+  deletedBy: z.string().uuid().nullable().optional(),
+  /** Mandatory at delete time (see `deleteTransactionSchema`) — never blank on a deleted row. */
+  deletionReason: z.string().nullable().optional(),
 })
 export type TransactionDto = z.infer<typeof transactionSchema>
 
@@ -747,6 +761,24 @@ export const validateTransactionSchema = z.object({
   rejectionReason: z.string().max(500).optional().nullable(),
 })
 export type ValidateTransactionDto = z.infer<typeof validateTransactionSchema>
+
+// task-soft-delete-and-money-audit. Soft-delete a transaction — ADMIN only.
+// The reason is MANDATORY (owner requirement: "через полгода «почему это
+// удалили» без причины не восстановить") and lands verbatim in
+// `transaction_audit_log.metadata.reason` — same shape/message convention as
+// the existing `releaseOnChainHashSchema.reason`.
+export const deleteTransactionSchema = z.object({
+  reason: z.string().trim().min(3, 'Укажите причину удаления — она попадёт в журнал').max(500),
+})
+export type DeleteTransactionDto = z.infer<typeof deleteTransactionSchema>
+
+// task-soft-delete-and-money-audit. Restore a soft-deleted transaction — ADMIN
+// only (ACCOUNTANT can see a deleted row but not restore it). Reason is
+// mandatory for the same audit-trail reason as delete.
+export const restoreTransactionSchema = z.object({
+  reason: z.string().trim().min(3, 'Укажите причину восстановления — она попадёт в журнал').max(500),
+})
+export type RestoreTransactionDto = z.infer<typeof restoreTransactionSchema>
 
 // Create payout request (senior bundles their VALIDATED incomes)
 export const createPayoutRequestSchema = z.object({
