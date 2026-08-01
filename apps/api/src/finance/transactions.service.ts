@@ -2551,8 +2551,7 @@ export class TransactionsService {
     // task-soft-delete-and-money-audit (AC5): "receiver" on this endpoint is
     // `category` → `receiverLabel` (see the `.set({ ...receiverLabel: data.category })`
     // below) — the counterparty-facing label an ADMIN edit can change.
-    const receiverLabelChanged =
-      data.category !== undefined && data.category !== tx.receiverLabel
+    const receiverLabelChanged = data.category !== undefined && data.category !== tx.receiverLabel
 
     if (tx.status === 'PAID' && (amountChanged || currencyChanged || salaryMonthChanged)) {
       throw new BadRequestException(
@@ -5904,9 +5903,7 @@ export class TransactionsService {
    */
   private assertNotDeleted(tx: { deletedAt: Date | null }): void {
     if (tx.deletedAt) {
-      throw new BadRequestException(
-        'Транзакция удалена — восстановите её перед этим действием',
-      )
+      throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
     }
   }
 
