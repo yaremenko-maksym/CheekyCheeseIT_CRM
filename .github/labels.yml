@@ -85,6 +85,16 @@
   color: b60205
   description: 'Post-merge CI красный на main — нужен откат или хотфикс'
 
+# task-infra-silent-failures (2026-08-01). Same fallback-channel reasoning as
+# ci-main-broken above — primary home is the private telemetry repo (alert
+# job in deploy-alert.yml), declared here too so the label survives on this
+# repo's fallback path (labels-sync.yml does a full skip-delete:false sync —
+# an undeclared label created ad hoc would be deleted on the next sync run,
+# breaking the open/comment/close dedup in scripts/devops/post-merge-alert.sh).
+- name: deploy-broken
+  color: b60205
+  description: 'Deploy workflow красный на прод — нужен откат или хотфикс'
+
 - name: pm-blocker
   color: FF0000
   description: 'Agent создал .blocked.md — PM нужен резолв'
