@@ -33,14 +33,13 @@ import { UsersService } from '../users/users.service'
 import { AuthService } from './auth.service'
 import { CurrentUser } from './current-user.decorator'
 import { Public } from './public.decorator'
-import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './jwt-cookie.constants'
+import {
+  JWT_COOKIE_HARDENED,
+  JWT_COOKIE_LEGACY,
+  STATE_COOKIE_HARDENED,
+  STATE_COOKIE_LEGACY,
+} from './cookie-names'
 
-// Plain (legacy) state-cookie name — used as the pre-hardening name AND, in
-// non-production environments, as the live name (see comment below on why
-// `__Host-` cannot be used outside prod). The JWT cookie's equivalent names
-// live in `jwt-cookie.constants.ts` — shared with jwt.guard.ts so the two
-// never drift apart (LOW, security-review round 3, follow-up to #436).
-const STATE_COOKIE_LEGACY = 'oauth_state'
 const COOKIE_MAX_AGE = 7 * 24 * 60 * 60 // 7 days in seconds
 
 interface SetCookieOpts {
@@ -104,7 +103,7 @@ export class AuthController {
     this.frontendUrl = this.config.get('FRONTEND_URL', { infer: true })!
     this.isProduction = this.config.get('NODE_ENV', { infer: true }) === 'production'
     this.jwtCookieName = this.isProduction ? JWT_COOKIE_HARDENED : JWT_COOKIE_LEGACY
-    this.stateCookieName = this.isProduction ? '__Host-oauth_state' : STATE_COOKIE_LEGACY
+    this.stateCookieName = this.isProduction ? STATE_COOKIE_HARDENED : STATE_COOKIE_LEGACY
     this.jwtSetCookieOpts = {
       httpOnly: true,
       sameSite: 'lax',

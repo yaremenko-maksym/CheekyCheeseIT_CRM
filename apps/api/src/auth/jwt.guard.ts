@@ -11,7 +11,7 @@ import type { FastifyRequest } from 'fastify'
 import { jwtPayloadSchema, type JwtPayload } from '@crm/shared'
 import type { UsersService } from '../users/users.service'
 import { IS_PUBLIC_KEY } from './public.decorator'
-import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './jwt-cookie.constants'
+import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './cookie-names'
 
 /**
  * Globally registered (APP_GUARD in AppModule) — runs FIRST so it populates

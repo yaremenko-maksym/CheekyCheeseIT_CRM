@@ -18,6 +18,15 @@
  *         ForbiddenException, no attach happens.
  *   AC-B: SENIOR HAS a past (leftAt-set) membership of the target drop-team
  *         → succeeds, new active team_members row created.
+ *   AC-C (MED-1, security-review round 3, closed same PR): a user who was
+ *         formerly HR of the target drop-team (routine addMember/
+ *         removeMember — far easier than the two SENIOR-only detach paths)
+ *         and was LATER promoted to SENIOR (ADMIN-only role change) must
+ *         NOT pass the scope check on the strength of that HR-era
+ *         `team_members` row alone — `team_members` carries no per-row role
+ *         snapshot, so `wasFormerMemberOfTeam` cross-checks `team_audit_log`
+ *         (which DOES record the true role on every non-SENIOR removal) and
+ *         rejects when it proves the past membership was NOT as SENIOR.
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
  * rejoin-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
@@ -34,17 +43,19 @@ import { UsersService } from './users.service'
 import { AuditLogService } from './audit-log.service'
 import { TeamsService } from '../teams/teams.service'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
-import { teamMembers, teams, users } from '../database/schema'
+import { teamAuditLog, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 
 // ── Test IDs — stable namespace rejoin- ────────────────────────────────────
 const FOREIGN_TEAM_ID = '5a100006-0000-4000-aa00-000000000001' // SENIOR never belonged here
 const FORMER_TEAM_ID = '5a100006-0000-4000-aa00-000000000002' // SENIOR used to belong here
+const PROMOTED_TEAM_ID = '5a100006-0000-4000-aa00-000000000003' // was HR here, later promoted
 const SENIOR_ID = '5a100006-0000-4000-bb00-000000000001'
 const OTHER_HR_ID = '5a100006-0000-4000-bb00-000000000002' // member of FOREIGN_TEAM_ID
+const PROMOTED_USER_ID = '5a100006-0000-4000-bb00-000000000003' // ex-HR, now SENIOR
 
-const ALL_TEAM_IDS = [FOREIGN_TEAM_ID, FORMER_TEAM_ID]
-const ALL_USER_IDS = [SENIOR_ID, OTHER_HR_ID]
+const ALL_TEAM_IDS = [FOREIGN_TEAM_ID, FORMER_TEAM_ID, PROMOTED_TEAM_ID]
+const ALL_USER_IDS = [SENIOR_ID, OTHER_HR_ID, PROMOTED_USER_ID]
 
 let dbAvailable = true
 let pool: Pool | null = null
@@ -67,15 +78,18 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
     const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
     Object.assign(dbSvc, { pool, db })
 
-    const teamAuditLog = new TeamAuditLogService(dbSvc)
+    // Named `teamAuditLogService` (not `teamAuditLog`) to avoid shadowing
+    // the imported `teamAuditLog` Drizzle table used for the AC-C seed row
+    // below.
+    const teamAuditLogService = new TeamAuditLogService(dbSvc)
     const auditLog = new AuditLogService(dbSvc)
-    const teamsService = new TeamsService(dbSvc, {} as never, teamAuditLog)
+    const teamsService = new TeamsService(dbSvc, {} as never, teamAuditLogService)
     usersService = new UsersService(
       dbSvc,
       {} as never,
       auditLog,
       {} as never,
-      teamAuditLog,
+      teamAuditLogService,
       {} as never,
       teamsService,
     )
@@ -98,6 +112,14 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
           role: 'HR',
           googleId: `g-${OTHER_HR_ID}`,
         },
+        {
+          // Current role is SENIOR — the promotion already happened.
+          id: PROMOTED_USER_ID,
+          email: 'rejoin-promoted@test.spec',
+          displayName: 'REJOIN Promoted (ex-HR)',
+          role: 'SENIOR',
+          googleId: `g-${PROMOTED_USER_ID}`,
+        },
       ])
       .onConflictDoNothing()
 
@@ -106,6 +128,7 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
       .values([
         { id: FOREIGN_TEAM_ID, name: 'REJOIN Foreign Drop Team', type: 'DROP' },
         { id: FORMER_TEAM_ID, name: 'REJOIN Former Drop Team', type: 'DROP' },
+        { id: PROMOTED_TEAM_ID, name: 'REJOIN Promoted Drop Team', type: 'DROP' },
       ])
       .onConflictDoNothing()
 
@@ -131,18 +154,49 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
         },
       ])
       .onConflictDoNothing()
+
+    // AC-C (MED-1): PROMOTED_USER_ID was HR of PROMOTED_TEAM_ID, then
+    // removed via the routine addMember/removeMember flow (leftAt set +
+    // team_member_removed audit row with role.before='HR' — exactly what
+    // TeamsController.removeMember writes today). Role was changed to
+    // SENIOR only afterward (not modeled here — the users row above already
+    // reflects the post-promotion state, which is all wasFormerMemberOfTeam
+    // can ever observe).
+    await db
+      .insert(teamMembers)
+      .values([
+        {
+          teamId: PROMOTED_TEAM_ID,
+          userId: PROMOTED_USER_ID,
+          leftAt: new Date('2026-01-01T00:00:00Z'),
+        },
+      ])
+      .onConflictDoNothing()
+    await db.insert(teamAuditLog).values([
+      {
+        actorId: null,
+        targetId: PROMOTED_TEAM_ID,
+        action: 'team_member_removed',
+        changes: {
+          userId: { before: PROMOTED_USER_ID, after: null },
+          role: { before: 'HR', after: null },
+        },
+      },
+    ])
   }, 30_000)
 
   afterAll(async () => {
     if (!dbAvailable || !pool) return
     try {
       const db = drizzle(pool, { schema })
+      await db.delete(teamAuditLog).where(eq(teamAuditLog.targetId, PROMOTED_TEAM_ID))
       await db.delete(teamMembers).where(
         // narrow via teamId — covers both the seed row and anything a test
         // successfully inserted during the run.
         eq(teamMembers.teamId, FORMER_TEAM_ID),
       )
       await db.delete(teamMembers).where(eq(teamMembers.teamId, FOREIGN_TEAM_ID))
+      await db.delete(teamMembers).where(eq(teamMembers.teamId, PROMOTED_TEAM_ID))
       await db.delete(teams).where(inArray(teams.id, ALL_TEAM_IDS))
       await db.delete(users).where(inArray(users.id, ALL_USER_IDS))
     } finally {
@@ -193,5 +247,30 @@ describe('LOW (security-review round 3): rejoinTeam JOIN_DROP_TEAM scope (real D
     // A NEW active membership row was created (the seed row's leftAt is
     // still set — this is a distinct row, not a resurrection of the old one).
     expect(activeMembership).toHaveLength(1)
+  })
+
+  it('AC-C (MED-1): ex-HR promoted to SENIOR cannot ride the HR-era leftAt row → ForbiddenException', async () => {
+    if (!dbAvailable) return
+
+    await expect(
+      usersService.rejoinTeam(PROMOTED_USER_ID, {
+        teamMode: 'JOIN_DROP_TEAM',
+        dropTeamId: PROMOTED_TEAM_ID,
+      }),
+    ).rejects.toThrow(ForbiddenException)
+
+    // No new active membership was created.
+    const db = drizzle(pool!, { schema })
+    const activeMembership = await db
+      .select()
+      .from(teamMembers)
+      .where(
+        and(
+          eq(teamMembers.teamId, PROMOTED_TEAM_ID),
+          eq(teamMembers.userId, PROMOTED_USER_ID),
+          isNull(teamMembers.leftAt),
+        ),
+      )
+    expect(activeMembership).toHaveLength(0)
   })
 })

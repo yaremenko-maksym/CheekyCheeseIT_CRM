@@ -293,10 +293,12 @@ export class UsersService {
       // just their own, reaching into another team's payment routing. ADMIN
       // is exempt (full control, as everywhere else in this method).
       if (data.actorRole === 'HR') {
-        const isMember = await this.teamsService.isActiveMemberOfTeam(
-          data.dropTeamId,
-          data.actorId ?? '',
-        )
+        // LOW (security-review round 3, follow-up to #436): `actorId` is a
+        // required field now (see its docblock) — the `?? ''` fallback here
+        // was dead code protecting against an `undefined` that can no
+        // longer occur, and (worse) would have silently passed an empty
+        // string to `isActiveMemberOfTeam` instead of failing loudly.
+        const isMember = await this.teamsService.isActiveMemberOfTeam(data.dropTeamId, data.actorId)
         if (!isMember) {
           throw new ForbiddenException('HR может присоединять синьора только к своей drop-команде')
         }
@@ -1463,7 +1465,7 @@ export class UsersService {
     // roster returned to the caller (stale-member leak, distinct from the
     // team-access class of bug already fixed in teams.service.ts).
     const seniorMemberships = await this.db.db
-      .select({ teamId: teamMembers.teamId, userId: teamMembers.userId })
+      .select({ teamId: teamMembers.teamId })
       .from(teamMembers)
       .innerJoin(users, eq(teamMembers.userId, users.id))
       .where(
@@ -1474,14 +1476,6 @@ export class UsersService {
         ),
       )
     const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
-    // LOW (security-review round 3, follow-up to #436): re-derive the
-    // senior-id set from `seniorMemberships` (already scoped to CURRENTLY
-    // active SENIOR team_members rows above) instead of reusing the raw
-    // `seniorIds` from Step 1. Keeps Step 3 correct independently of Step 1
-    // — a defense-in-depth match for the `leftAt === null` norm used
-    // everywhere else in this file, not a distinct exploitable path (Step 1
-    // above is now filtered too).
-    const activeSeniorIds = Array.from(new Set(seniorMemberships.map((m) => m.userId)))
 
     const memberIds = new Set<string>()
     if (teamIds.length > 0) {
@@ -1492,14 +1486,29 @@ export class UsersService {
       tmRows.forEach((r) => memberIds.add(r.userId))
     }
 
-    // Step 3: Add active JUNIORs from projects of those seniors
-    const seniorProjects =
-      activeSeniorIds.length === 0
-        ? []
-        : await this.db.db
-            .select({ id: projects.id })
-            .from(projects)
-            .where(inArray(projects.seniorId, activeSeniorIds))
+    // Step 3: Add active JUNIORs from projects of those seniors.
+    //
+    // MED-3 (security-review round 3, follow-up to #436, reverted same PR):
+    // an earlier round of this fix derived this list from `seniorMemberships`
+    // above (i.e. required an ACTIVE team_members row) instead of the raw
+    // `seniorIds` from Step 1. That silently narrowed the SENIOR self-view
+    // case: rotation/archive-drop-team detaches a senior from their team
+    // WITHOUT archiving their projects (`TeamsService.rotateSenior`,
+    // `archiveDropTeam` — see their own docs), so a teamless senior still
+    // legitimately owns active projects with active JUNIOR members during
+    // that gap, and this method is also how a SENIOR views their OWN "team"
+    // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
+    // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
+    // actually closes). Restored to raw `seniorIds`: the real vulnerability
+    // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
+    // closed at its actual source — the `isNull(teamMembers.leftAt)` filter
+    // added to Step 1's `seniorsInTeams` query above, which is the only
+    // branch that ever populated `seniorIds` with someone other than the
+    // viewer themselves or their own currently-active project seniors.
+    const seniorProjects = await this.db.db
+      .select({ id: projects.id })
+      .from(projects)
+      .where(inArray(projects.seniorId, seniorIds))
     const projectIds = seniorProjects.map((p) => p.id)
     if (projectIds.length > 0) {
       const juniorRows = await this.db.db

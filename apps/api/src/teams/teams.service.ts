@@ -6,10 +6,17 @@ import {
   NotFoundException,
   forwardRef,
 } from '@nestjs/common'
-import { and, eq, isNotNull, isNull } from 'drizzle-orm'
+import { and, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import type { ArchiveImpact, SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
+import {
+  projectMembers,
+  projects,
+  teamAuditLog,
+  teamMembers,
+  teams,
+  users,
+} from '../database/schema'
 import type { DrizzleTx } from '../database/types'
 import { UsersService } from '../users/users.service'
 import { TeamAuditLogService } from './team-audit-log.service'
@@ -245,14 +252,39 @@ export class TeamsService {
    * controls), this chains into another team's payment routing, just one
    * hop further than the path #436 already closed.
    *
-   * The correct scope for a "REjoin" is a PAST (non-active) `team_members`
-   * row for this EXACT team: the only ways a SENIOR reaches the teamless
-   * precondition (`UsersService.rejoinTeam`'s active-membership guard) are
-   * `TeamsService.archiveDropTeam`'s senior-detach and `TeamsService.
-   * rotateSenior` — both stamp `leftAt` on the specific team the senior was
-   * removed from. A SENIOR who was NEVER a member of the target team has no
-   * such row and must be attached by ADMIN/HR through the already-scoped
-   * paths (`UsersService.createUser` teamMode, `rotateSenior`) instead.
+   * The correct scope for a "REjoin" is a PAST `team_members` row for this
+   * EXACT team **that was held as SENIOR**, not just any past row —
+   * `team_members` carries no per-row role snapshot, so a plain
+   * `leftAt IS NOT NULL` check (round-3 v1 of this method) cannot tell a
+   * former SENIOR apart from a former HR/ACCOUNTANT/DROP member of the SAME
+   * team who was later promoted to SENIOR (role change is ADMIN-only, but
+   * routine `TeamsController.addMember`/`removeMember` calls make HR/
+   * ACCOUNTANT/DROP membership rows trivial to create and remove — far
+   * easier than the two SENIOR-only detach paths below).
+   *
+   * MED-1 (security-review round 3, follow-up to #436, closed same PR):
+   * verified via NEGATIVE evidence from `team_audit_log`, because that is
+   * the only place role is actually recorded per removal event.
+   * `removeMember` HARD-BLOCKS removing a SENIOR
+   * (`'Cannot remove the senior from a team'`) and every non-SENIOR
+   * `team_members.leftAt` mutation in this codebase (removeMember, the
+   * HR/ACCOUNTANT composition-update in UsersService, the SENIOR-team
+   * archive cascade's HR/Acc detach) writes a `team_member_removed`
+   * `team_audit_log` row carrying the TRUE role in `changes.role.before`.
+   * So: if such a row exists for this (team, user) with a role OTHER than
+   * SENIOR, this specific past membership is PROVABLY not a former-SENIOR
+   * one — reject.
+   *
+   * The two legitimate SENIOR-detach paths (`archiveDropTeam`'s
+   * senior-detach, `rotateSenior`) do NOT write a matching audit row today
+   * (a separate, lower-priority gap — see their own TODO), so ABSENCE of a
+   * disqualifying row is treated as a pass, not proof. This is intentionally
+   * asymmetric: it reliably CLOSES the described HR/ACCOUNTANT/DROP→SENIOR
+   * promotion chain (the "easy" attack path) without introducing a false
+   * negative for genuine historical senior-rotations that predate this
+   * check (which would have no audit row to find either way). A SENIOR who
+   * was NEVER a member of the target team has no `leftAt` row at all and
+   * fails the base check regardless.
    */
   async wasFormerMemberOfTeam(teamId: string, userId: string): Promise<boolean> {
     const row = await this.db.db.query.teamMembers.findFirst({
@@ -262,7 +294,26 @@ export class TeamsService {
         isNotNull(teamMembers.leftAt),
       ),
     })
-    return row !== undefined
+    if (!row) return false
+
+    // MED-1: disqualify if the audit trail proves this specific past
+    // membership was held as HR/ACCOUNTANT/DROP, not SENIOR.
+    const disqualifyingRemoval = await this.db.db
+      .select({ id: teamAuditLog.id })
+      .from(teamAuditLog)
+      .where(
+        and(
+          eq(teamAuditLog.targetId, teamId),
+          eq(teamAuditLog.action, 'team_member_removed'),
+          sql`${teamAuditLog.changes} -> 'userId' ->> 'before' = ${userId}`,
+          sql`${teamAuditLog.changes} -> 'role' ->> 'before' IS NOT NULL`,
+          sql`${teamAuditLog.changes} -> 'role' ->> 'before' <> 'SENIOR'`,
+        ),
+      )
+      .limit(1)
+      .then((rows) => rows[0])
+
+    return disqualifyingRemoval === undefined
   }
 
   private async fetchAllProjects(): Promise<ProjectWithMembers[]> {
