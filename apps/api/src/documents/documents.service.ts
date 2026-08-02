@@ -179,13 +179,15 @@ export class DocumentsService {
     }
 
     try {
-      await this.s3.upload(s3Key, compressed.buffer, compressed.finalMimeType)
+      await this.s3.upload(s3Key, compressed.buffer, compressed.finalMimeType, meta.category)
       // Upload the thumbnail in the same try-block so a thumb-only failure
       // still compensates the DB row (the row already references the thumb
       // key, so it would be inconsistent without it).
       if (thumbnailBuffer && thumbnailS3Key) {
         try {
-          await this.s3.upload(thumbnailS3Key, thumbnailBuffer, 'image/jpeg')
+          // Same category as the main object — a thumbnail of a sensitive
+          // scan/resume is still sensitive (task-file-storage-hardening §3).
+          await this.s3.upload(thumbnailS3Key, thumbnailBuffer, 'image/jpeg', meta.category)
         } catch (thumbErr) {
           // Thumbnail upload failure is *non-fatal* but we clear the
           // thumbnail key from the row so the UI doesn't 404 trying to
@@ -271,7 +273,7 @@ export class DocumentsService {
     }
 
     try {
-      await this.s3.upload(s3Key, params.file, params.mimeType)
+      await this.s3.upload(s3Key, params.file, params.mimeType, params.category)
     } catch (err) {
       this.logger.error(
         `S3 upload failed for internal docId=${docId}: ${(err as Error).message} — rolling back DB row`,

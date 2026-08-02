@@ -10,7 +10,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { ConfigService } from '@nestjs/config'
 import { DeleteObjectCommand, ListObjectsV2Command, PutObjectCommand } from '@aws-sdk/client-s3'
-import { DEFAULT_PRESIGN_TTL_SEC, S3Service } from './s3.service'
+import { cacheControlForCategory, DEFAULT_PRESIGN_TTL_SEC, S3Service } from './s3.service'
 
 // Hoisted mocks
 const sendSpy = vi.fn()
@@ -52,17 +52,17 @@ beforeEach(() => {
 })
 
 describe('S3Service.upload', () => {
-  it('sends PutObjectCommand with immutable Cache-Control + SSE AES256', async () => {
+  it('sends PutObjectCommand with immutable Cache-Control (AVATAR) + SSE AES256', async () => {
     const service = new S3Service(makeConfig())
     sendSpy.mockResolvedValue(undefined)
 
-    await service.upload('documents/RESUME/x/y.jpg', Buffer.from('abc'), 'image/jpeg')
+    await service.upload('documents/AVATAR/x/y.jpg', Buffer.from('abc'), 'image/jpeg', 'AVATAR')
 
     expect(sendSpy).toHaveBeenCalledTimes(1)
     const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
     expect(cmd).toBeInstanceOf(PutObjectCommand)
     expect(cmd.input.Bucket).toBe('crm-documents')
-    expect(cmd.input.Key).toBe('documents/RESUME/x/y.jpg')
+    expect(cmd.input.Key).toBe('documents/AVATAR/x/y.jpg')
     expect(cmd.input.ContentType).toBe('image/jpeg')
     expect(cmd.input.CacheControl).toBe('public, max-age=31536000, immutable')
     expect(cmd.input.ServerSideEncryption).toBe('AES256')
@@ -72,7 +72,7 @@ describe('S3Service.upload', () => {
     const service = new S3Service(makeConfig({ S3_USE_SSE: false }))
     sendSpy.mockResolvedValue(undefined)
 
-    await service.upload('k', Buffer.from('abc'), 'image/jpeg')
+    await service.upload('k', Buffer.from('abc'), 'image/jpeg', 'AVATAR')
     const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
     expect(cmd.input.ServerSideEncryption).toBeUndefined()
   })
@@ -91,23 +91,61 @@ describe('S3Service.upload', () => {
     )
     sendSpy.mockResolvedValue(undefined)
 
-    await service.upload('documents/RESUME/x/y.pdf', Buffer.from('pdf'), 'application/pdf')
+    await service.upload(
+      'documents/RESUME/x/y.pdf',
+      Buffer.from('pdf'),
+      'application/pdf',
+      'RESUME',
+    )
 
     const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
     expect(cmd.input.ServerSideEncryption).toBeUndefined()
-    // Cache-Control must still be set regardless of SSE mode
-    expect(cmd.input.CacheControl).toBe('public, max-age=31536000, immutable')
+    // Cache-Control must still be set regardless of SSE mode — RESUME is a
+    // sensitive category, so it gets the strict header, not the public one.
+    expect(cmd.input.CacheControl).toBe('private, no-store')
   })
 
   it('sends SSE AES256 when S3_USE_SSE=true (AWS S3 prod path)', async () => {
     const service = new S3Service(makeConfig({ S3_USE_SSE: true }))
     sendSpy.mockResolvedValue(undefined)
 
-    await service.upload('documents/CONTRACT/x/y.pdf', Buffer.from('pdf'), 'application/pdf')
+    await service.upload(
+      'documents/CONTRACT/x/y.pdf',
+      Buffer.from('pdf'),
+      'application/pdf',
+      'CONTRACT',
+    )
 
     const cmd = sendSpy.mock.calls[0]![0] as PutObjectCommand
     expect(cmd.input.ServerSideEncryption).toBe('AES256')
-    expect(cmd.input.CacheControl).toBe('public, max-age=31536000, immutable')
+    expect(cmd.input.CacheControl).toBe('private, no-store')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-file-storage-hardening §3 — Cache-Control is category-dependent:
+// sensitive categories (CONTRACT/RECEIPT/INVOICE/RESUME/SCAN) must never ship
+// the public/immutable header the bucket used to send for EVERY object,
+// regardless of category — the presigned URL's short TTL was meaningless
+// while the bytes themselves stayed cacheable in the browser (and any
+// intermediate proxy) for a full year.
+// ---------------------------------------------------------------------------
+
+describe('cacheControlForCategory', () => {
+  it.each(['CONTRACT', 'RECEIPT', 'INVOICE', 'RESUME', 'SCAN'] as const)(
+    '%s → private, no-store',
+    (category) => {
+      expect(cacheControlForCategory(category)).toBe('private, no-store')
+    },
+  )
+
+  it.each(['AVATAR', 'LOGO'] as const)('%s → public, immutable, 1 year', (category) => {
+    expect(cacheControlForCategory(category)).toBe('public, max-age=31536000, immutable')
+  })
+
+  it('defaults to the strict (private, no-store) option for a missing category', () => {
+    expect(cacheControlForCategory(null)).toBe('private, no-store')
+    expect(cacheControlForCategory(undefined)).toBe('private, no-store')
   })
 })
 
@@ -159,6 +197,27 @@ describe('S3Service.getPresignedDownloadUrl', () => {
     expect(cd).toContain('filename="')
     // RFC 5987 UTF-8 slot: percent-encoded original
     expect(cd).toContain(`filename*=UTF-8''${encodeURIComponent('Договор Иванов.pdf')}`)
+  })
+
+  // task-file-storage-hardening §7 (minor): a raw `"` in a caller-controlled
+  // filename used to reach the quoted `filename="..."` parameter unescaped —
+  // this closes it centrally so every caller (not just ApplicationsService's
+  // own ad hoc guard) is protected.
+  it('strips quote/backslash/CR/LF from downloadAs before building either Content-Disposition slot', async () => {
+    const service = new S3Service(makeConfig())
+    getSignedUrlSpy.mockResolvedValue('url')
+
+    const malicious = 'evil".pdf"; filename="pwned'
+    await service.getPresignedDownloadUrl('k', undefined, malicious, 'attachment')
+
+    const [, command] = getSignedUrlSpy.mock.calls[0]!
+    const cd = (command as { input: { ResponseContentDisposition?: string } }).input
+      .ResponseContentDisposition
+    expect(cd).toBeDefined()
+    // No unescaped quote survives inside either disposition slot — the
+    // stripped filename can no longer break out of the quoted parameter.
+    expect(cd).not.toContain('".pdf"; filename="pwned')
+    expect(cd).toContain('filename="evil.pdf; filename=pwned"')
   })
 
   it('explicit disposition="attachment" still forces a Save dialog (for dedicated download endpoints)', async () => {
@@ -296,5 +355,30 @@ describe('S3Service.listObjects — Prefix-scoped listing (MED-A)', () => {
 
     const result = await service.listObjects()
     expect(result.nextContinuationToken).toBeUndefined()
+  })
+
+  // task-file-storage-hardening §4: the reconciler needs to scan the
+  // vacancy-applications/ prefix too (resumes were never covered by the
+  // documents/-only default). The prefix is an explicit 3rd argument, not a
+  // widened default, so every caller stays auditable.
+  it('accepts an explicit prefix override (task-file-storage-hardening §4)', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue({ Contents: [], NextContinuationToken: undefined })
+
+    await service.listObjects(undefined, 'vacancy-applications/')
+
+    const cmd = sendSpy.mock.calls[0]![0] as ListObjectsV2Command
+    expect(cmd.input.Prefix).toBe('vacancy-applications/')
+  })
+
+  it('combines an explicit prefix with a continuation token', async () => {
+    const service = new S3Service(makeConfig())
+    sendSpy.mockResolvedValue({ Contents: [], NextContinuationToken: undefined })
+
+    await service.listObjects('token-page-2', 'vacancy-applications/')
+
+    const cmd = sendSpy.mock.calls[0]![0] as ListObjectsV2Command
+    expect(cmd.input.Prefix).toBe('vacancy-applications/')
+    expect(cmd.input.ContinuationToken).toBe('token-page-2')
   })
 })
