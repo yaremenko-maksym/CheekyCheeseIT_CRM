@@ -257,8 +257,11 @@ describe('ApplicationsService.apply()', () => {
     const result = await h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
     expect(result).toEqual({ ok: true })
     expect(h.s3.upload).toHaveBeenCalledTimes(1)
-    const [key] = h.s3.upload.mock.calls[0] as [string, Buffer, string]
+    const [key, , , category] = h.s3.upload.mock.calls[0] as [string, Buffer, string, string]
     expect(key).toMatch(/^vacancy-applications\/vac-1\/.+\.pdf$/)
+    // task-file-storage-hardening §3 — category is always passed so
+    // S3Service can set the private/no-store cache header.
+    expect(category).toBe('RESUME')
     expect(h.notifications.create).toHaveBeenCalledTimes(2)
     expect(h.notifications.create).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -267,6 +270,49 @@ describe('ApplicationsService.apply()', () => {
         link: '/vacancies/vac-1',
       }),
     )
+  })
+
+  // task-file-storage-hardening §5 — the anti-bloat fallback must never
+  // silently undo the pass-1 PDF metadata strip for this ONE public/
+  // anonymous call site.
+  it('compresses with neverFallbackToOriginal: true (never stores the unsanitized original)', async () => {
+    await h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
+    expect(h.compression.compress).toHaveBeenCalledWith(PDF_MAGIC_BUF, 'application/pdf', {
+      neverFallbackToOriginal: true,
+    })
+  })
+
+  // task-file-storage-hardening §6 — enumeration oracle: the duplicate check
+  // must run AFTER file-shape validation, so a probe with no file (or a
+  // wrong-MIME file) always gets the SAME generic validation error
+  // regardless of whether that email already applied — closing the free,
+  // file-less version of "did person X apply to vacancy Y".
+  describe('enumeration-oracle ordering (§6)', () => {
+    it('missing file still 400s even when the email already applied (duplicate row exists) — NOT 429', async () => {
+      h = makeHarness({ duplicateRow: { id: 'existing-app' } })
+      await expect(
+        h.svc.apply('senior-frontend-engineer', VALID_FIELDS, null, '1.2.3.4'),
+      ).rejects.toThrow(BadRequestException)
+    })
+
+    it('wrong MIME still 415s even when the email already applied — NOT 429', async () => {
+      h = makeHarness({ duplicateRow: { id: 'existing-app' } })
+      await expect(
+        h.svc.apply(
+          'senior-frontend-engineer',
+          VALID_FIELDS,
+          pdfFile({ mimetype: 'image/png' }),
+          '1.2.3.4',
+        ),
+      ).rejects.toThrow(UnsupportedMediaTypeException)
+    })
+
+    it('a fully valid resubmission (real PDF, matching MIME) still gets the honest 429 duplicate error', async () => {
+      h = makeHarness({ duplicateRow: { id: 'existing-app' } })
+      const call = h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
+      await expect(call).rejects.toBeInstanceOf(HttpException)
+      await expect(call).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS })
+    })
   })
 
   it('happy path: notification title includes candidate name and vacancy title, never the raw email', async () => {
@@ -299,9 +345,12 @@ describe('ApplicationsService.apply()', () => {
 // F5 (sec MED-5) — Content-Disposition filename sanitization on the
 // admin/HR resume-download endpoint.
 describe('ApplicationsService.getResumeUrl()', () => {
-  const ADMIN_ACTOR = { role: 'ADMIN' } as unknown as SessionUser
+  const ADMIN_ACTOR = { id: 'admin-1', role: 'ADMIN' } as unknown as SessionUser
 
-  function makeResumeHarness(fullName: string) {
+  function makeResumeHarness(
+    fullName: string,
+    opts: { resumeS3Key?: string | null; insertShouldThrow?: boolean } = {},
+  ) {
     const s3 = {
       getPresignedDownloadUrl: vi
         .fn()
@@ -314,8 +363,10 @@ describe('ApplicationsService.getResumeUrl()', () => {
       id: 'app-1',
       vacancyId: 'vac-1',
       fullName,
-      resumeS3Key: 'vacancy-applications/vac-1/app-1.pdf',
+      resumeS3Key:
+        opts.resumeS3Key === undefined ? 'vacancy-applications/vac-1/app-1.pdf' : opts.resumeS3Key,
     }
+    const insertedRows: Record<string, unknown>[] = []
     const db = {
       db: {
         query: {
@@ -323,6 +374,13 @@ describe('ApplicationsService.getResumeUrl()', () => {
             findFirst: vi.fn().mockResolvedValue(row),
           },
         },
+        insert: (_table: unknown) => ({
+          values: (vals: Record<string, unknown>) => {
+            if (opts.insertShouldThrow) return Promise.reject(new Error('DB down'))
+            insertedRows.push(vals)
+            return Promise.resolve(undefined)
+          },
+        }),
       },
     }
     const svc = new ApplicationsService(
@@ -333,7 +391,7 @@ describe('ApplicationsService.getResumeUrl()', () => {
       {} as unknown as TurnstileService,
       {} as unknown as NotificationsService,
     )
-    return { svc, s3 }
+    return { svc, s3, insertedRows }
   }
 
   it('strips ", backslash, CR and LF from the candidate fullName before building the download filename', async () => {
@@ -358,5 +416,113 @@ describe('ApplicationsService.getResumeUrl()', () => {
       string,
     ]
     expect(downloadAs).toBe("O'Brien-Petrenko Jr..pdf")
+  })
+
+  // task-file-storage-hardening §2 — resumeS3Key is null once the 180-day
+  // file-only retention purge has run: the application row survives, only
+  // the file is gone. 404, and the presigned-URL call is never made.
+  it('resumeS3Key=null (already retention-purged) → 404, no presign attempted', async () => {
+    const { svc, s3 } = makeResumeHarness('Ivan Petrenko', { resumeS3Key: null })
+    await expect(svc.getResumeUrl(ADMIN_ACTOR, 'vac-1', 'app-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled()
+  })
+
+  // task-file-storage-hardening §7 — access-log entry on every successful
+  // resume download; the URL itself must never be recorded.
+  describe('access-log (§7)', () => {
+    it('writes an access-log row with actor/application/category, WITHOUT the URL', async () => {
+      const { svc, insertedRows } = makeResumeHarness('Ivan Petrenko')
+      await svc.getResumeUrl(ADMIN_ACTOR, 'vac-1', 'app-1')
+
+      expect(insertedRows).toHaveLength(1)
+      const row = insertedRows[0]!
+      expect(row['actorId']).toBe('admin-1')
+      expect(row['targetId']).toBe('app-1')
+      expect(row['action']).toBe('DOWNLOAD')
+      expect(row['metadata']).toEqual({ category: 'RESUME', source: 'vacancy_application' })
+      // Never carries the URL / anything URL-shaped.
+      expect(JSON.stringify(row)).not.toContain('https://stub/x')
+    })
+
+    it('a failing access-log write does not block the download (best-effort)', async () => {
+      const { svc, s3 } = makeResumeHarness('Ivan Petrenko', { insertShouldThrow: true })
+      const result = await svc.getResumeUrl(ADMIN_ACTOR, 'vac-1', 'app-1')
+      expect(result.url).toBe('https://stub/x')
+      expect(s3.getPresignedDownloadUrl).toHaveBeenCalledTimes(1)
+    })
+  })
+})
+
+// task-file-storage-hardening §4 — orphan-safe delete ordering: R2 object
+// FIRST (throwing deleteOrThrow), DB row only after it succeeds. Mirrors
+// VacanciesRetentionCronService's own ordering rationale.
+describe('ApplicationsService.remove()', () => {
+  const ADMIN_ACTOR = { id: 'admin-1', role: 'ADMIN' } as unknown as SessionUser
+
+  function makeRemoveHarness(opts: { resumeS3Key?: string | null; deleteShouldThrow?: boolean }) {
+    const deletedKeys: string[] = []
+    const deletedApplicationIds: string[] = []
+    const s3 = {
+      deleteOrThrow: vi.fn().mockImplementation((key: string) => {
+        if (opts.deleteShouldThrow) return Promise.reject(new Error('R2 unreachable'))
+        deletedKeys.push(key)
+        return Promise.resolve(undefined)
+      }),
+    }
+    const vacanciesService = {
+      getRowOrThrow: vi.fn().mockResolvedValue({ id: 'vac-1' }),
+    }
+    const row = {
+      id: 'app-1',
+      vacancyId: 'vac-1',
+      resumeS3Key:
+        opts.resumeS3Key === undefined ? 'vacancy-applications/vac-1/app-1.pdf' : opts.resumeS3Key,
+    }
+    const db = {
+      db: {
+        query: {
+          vacancyApplications: {
+            findFirst: vi.fn().mockResolvedValue(row),
+          },
+        },
+        delete: (_table: unknown) => ({
+          where: async (_pred: unknown) => {
+            deletedApplicationIds.push(row.id)
+            return undefined
+          },
+        }),
+      },
+    }
+    const svc = new ApplicationsService(
+      db as unknown as DatabaseService,
+      vacanciesService as unknown as VacanciesService,
+      s3 as unknown as S3Service,
+      {} as unknown as CompressionService,
+      {} as unknown as TurnstileService,
+      {} as unknown as NotificationsService,
+    )
+    return { svc, s3, deletedKeys, deletedApplicationIds }
+  }
+
+  it('deletes R2 object then the DB row, in that order', async () => {
+    const { svc, deletedKeys, deletedApplicationIds } = makeRemoveHarness({})
+    await svc.remove(ADMIN_ACTOR, 'vac-1', 'app-1')
+    expect(deletedKeys).toEqual(['vacancy-applications/vac-1/app-1.pdf'])
+    expect(deletedApplicationIds).toEqual(['app-1'])
+  })
+
+  it('a failed R2 delete leaves the DB row untouched (no orphan-inducing swallow)', async () => {
+    const { svc, deletedApplicationIds } = makeRemoveHarness({ deleteShouldThrow: true })
+    await expect(svc.remove(ADMIN_ACTOR, 'vac-1', 'app-1')).rejects.toThrow('R2 unreachable')
+    expect(deletedApplicationIds).toHaveLength(0)
+  })
+
+  it('resumeS3Key already null (retention-purged) → skips S3 entirely, still deletes the row', async () => {
+    const { svc, s3, deletedApplicationIds } = makeRemoveHarness({ resumeS3Key: null })
+    await svc.remove(ADMIN_ACTOR, 'vac-1', 'app-1')
+    expect(s3.deleteOrThrow).not.toHaveBeenCalled()
+    expect(deletedApplicationIds).toEqual(['app-1'])
   })
 })

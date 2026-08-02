@@ -1754,6 +1754,129 @@ describe('Vacancies — real backend integration', () => {
     })
   })
 
+  // ── task-file-storage-hardening §2 (owner decision 2026-08-01): 180-day
+  // file-only retention — real SQL boundary (179/180/181 days) against
+  // Postgres. Unlike AC9 above, status/vacancy-closed state is irrelevant
+  // here — a NEW application on a still-PUBLISHED (evergreen) vacancy is
+  // exactly the case this rule exists to bound. ─────────────────────────────
+
+  describe('§2 — file-only retention boundary (179/180/181 days)', () => {
+    const NOW = new Date('2026-08-01T00:00:00Z')
+    const daysAgo = (n: number) => new Date(NOW.getTime() - n * 24 * 60 * 60 * 1000)
+
+    let vacancyEvergreenId: string
+    const appIds = {
+      d179: 'b1c2d3e4-f5a6-4002-8000-000000000001',
+      d180: 'b1c2d3e4-f5a6-4002-8000-000000000002',
+      d181: 'b1c2d3e4-f5a6-4002-8000-000000000003',
+    }
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      const db = dbSvc.db
+
+      const create = await app.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'File Retention Boundary Role (evergreen, never closed)',
+          slug: `file-retention-evergreen-${Date.now()}`,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
+        },
+      })
+      vacancyEvergreenId = trackVacancy((create.json() as { id: string }).id)
+      // Leave PUBLISHED/open — status/closedAt is irrelevant to this rule.
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${vacancyEvergreenId}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+
+      // Every row here is `status: 'NEW'` — deliberately NOT REJECTED and NOT
+      // on a closed vacancy, so AC9's 90-day row-purge rule never touches
+      // them. Only the 180-day file-only rule can act on these.
+      await db.insert(vacancyApplications).values([
+        {
+          id: appIds.d179,
+          vacancyId: vacancyEvergreenId,
+          fullName: 'File Boundary 179',
+          email: 'file-boundary-179@test.spec',
+          resumeS3Key: `vacancy-applications/${vacancyEvergreenId}/${appIds.d179}.pdf`,
+          resumeSizeBytes: 1024,
+          status: 'NEW',
+          createdAt: daysAgo(179),
+        },
+        {
+          id: appIds.d180,
+          vacancyId: vacancyEvergreenId,
+          fullName: 'File Boundary 180',
+          email: 'file-boundary-180@test.spec',
+          resumeS3Key: `vacancy-applications/${vacancyEvergreenId}/${appIds.d180}.pdf`,
+          resumeSizeBytes: 1024,
+          status: 'NEW',
+          createdAt: daysAgo(180),
+        },
+        {
+          id: appIds.d181,
+          vacancyId: vacancyEvergreenId,
+          fullName: 'File Boundary 181',
+          email: 'file-boundary-181@test.spec',
+          resumeS3Key: `vacancy-applications/${vacancyEvergreenId}/${appIds.d181}.pdf`,
+          resumeSizeBytes: 1024,
+          status: 'NEW',
+          createdAt: daysAgo(181),
+        },
+      ])
+    }, 20_000)
+
+    it('clears resumeS3Key/resumeSizeBytes only for the >180-day row, keeps 179d/180d untouched; the ROW always survives', async () => {
+      if (!dbAvailable) return
+      const cron = app.get(VacanciesRetentionCronService)
+      const purged = await cron.purgeExpiredResumeFiles(NOW)
+      expect(purged).toBe(1)
+
+      const rows = await dbSvc.db.query.vacancyApplications.findMany({
+        where: (a, { inArray: ia }) => ia(a.id, Object.values(appIds)),
+      })
+      expect(rows).toHaveLength(3) // all 3 application ROWS still exist
+
+      const byId = Object.fromEntries(rows.map((r) => [r.id, r]))
+      expect(byId[appIds.d179]!.resumeS3Key).not.toBeNull()
+      expect(byId[appIds.d180]!.resumeS3Key).not.toBeNull()
+      expect(byId[appIds.d181]!.resumeS3Key).toBeNull()
+      expect(byId[appIds.d181]!.resumeSizeBytes).toBeNull()
+      // Contact info is untouched — only the file is scrubbed.
+      expect(byId[appIds.d181]!.email).toBe('file-boundary-181@test.spec')
+    })
+
+    it('idempotency: running the purge again for the same instant clears nothing more', async () => {
+      if (!dbAvailable) return
+      const cron = app.get(VacanciesRetentionCronService)
+      const purgedSecondRun = await cron.purgeExpiredResumeFiles(NOW)
+      expect(purgedSecondRun).toBe(0)
+    })
+
+    it('getResumeUrl 404s for the file-purged application (admin/HR endpoint)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/vacancies/${vacancyEvergreenId}/applications/${appIds.d181}/resume-url`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(404)
+    })
+  })
+
   // ── F2 (task-fix-pr-390-round3 / MED-2): per-route multipart limits on the
   // REAL PublicVacanciesController.apply() pipeline — direct tests were
   // missing entirely; round-2 review only had indirect coverage via AC6's
