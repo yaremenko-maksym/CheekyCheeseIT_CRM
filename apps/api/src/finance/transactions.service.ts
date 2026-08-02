@@ -71,10 +71,7 @@ import {
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { receiptMandatoryError } from '@crm/shared'
-import {
-  assertTransactionVisible,
-  assertTransactionWritable,
-} from './transaction-visibility.util'
+import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -2654,9 +2651,7 @@ export class TransactionsService {
           .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          throw new BadRequestException(
-            'Транзакция удалена — восстановите её перед этим действием',
-          )
+          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
         }
 
         // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
@@ -2967,9 +2962,7 @@ export class TransactionsService {
           .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          throw new BadRequestException(
-            'Транзакция удалена — восстановите её перед этим действием',
-          )
+          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
         }
 
         await dbtx.insert(transactionAuditLog).values({
@@ -2999,9 +2992,7 @@ export class TransactionsService {
           .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
           .returning({ id: transactions.id })
         if (updated.length === 0) {
-          throw new BadRequestException(
-            'Транзакция удалена — восстановите её перед этим действием',
-          )
+          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
         }
 
         await dbtx.insert(transactionAuditLog).values({
