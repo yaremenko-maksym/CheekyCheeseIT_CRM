@@ -58,6 +58,17 @@ KNOWN_NOT_WIRED = {
     # part of every deploy going forward — the backup table it wrote
     # (_settle_phantom_backup_20260715) is kept, never dropped, per the incident
     # runbook convention (apply-then-de-wire, don't re-run forever).
+    "2026-07-27_drop_share_pending_parity_backfill.sql",  # deliberately DE-WIRED,
+    # never applied — task-infra-drop-share-backfill-dewire, 2026-08-01. Application
+    # is not required: the drop-share pending-parity PRE-COUNT (the permanent,
+    # read-only sibling wired into deploy.yml — see the "PRE-COUNT" step) ran on the
+    # first prod deploy after PR #443 merged (run 30691783655) and printed 0 Path-B
+    # rows — nothing on prod was ever created via the pre-#443 bypass, so there was
+    # nothing for this backfill to migrate, and the guarded settle code shipped in
+    # the same PR #443 means no new such rows can appear going forward. See
+    # scripts/devops/drop-share-pending-parity-backfill-runbook.md for the full
+    # history. Not re-wired if this file is ever touched again for unrelated
+    # reasons — it stays a historical artifact.
 }
 
 

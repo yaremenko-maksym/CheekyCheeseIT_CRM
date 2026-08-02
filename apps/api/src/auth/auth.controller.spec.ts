@@ -19,6 +19,7 @@ import { JwtService } from '@nestjs/jwt'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it, vi } from 'vitest'
 import type { FastifyReply, FastifyRequest } from 'fastify'
+import type { JwtPayload } from '@crm/shared'
 import type { Env } from '../config/env'
 import type { UsersService } from '../users/users.service'
 import { AuthController } from './auth.controller'
@@ -63,6 +64,7 @@ const TEST_USER = {
 function makeUsersService(foundUser: typeof TEST_USER | null): UsersService {
   return {
     findByEmail: vi.fn().mockResolvedValue(foundUser),
+    findById: vi.fn().mockResolvedValue(foundUser),
     updateGoogleId: vi.fn().mockResolvedValue(undefined),
   } as unknown as UsersService
 }
@@ -283,6 +285,57 @@ describe('AuthController — cookie hardening (__Host- prefix, prod only)', () =
     expect(reply._cookies['jwt']).toBeUndefined()
   })
 
+  // LOW (security-review round 3, follow-up to #436): AC3 — `issueJwtCookie`
+  // clears the legacy plain `jwt` cookie on every NEW `__Host-jwt` session
+  // (see its doc — this is what shrinks the MED-1 legacy-fallback window as
+  // users log in), but until now nothing asserted the CLEAR itself: the
+  // sibling test above only checks that `jwt` was not SET as a new cookie.
+  // A regression that silently dropped the `clearCookie` call from
+  // `issueJwtCookie` would have passed every existing test.
+  it('PROD: googleOneTap ALSO extinguishes the legacy jwt cookie on new session issuance', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('production'),
+    )
+    const reply = makeFullReply()
+
+    await controller.googleOneTap({ credential: 'cred' }, reply)
+
+    expect(reply._cleared['jwt']).toBeDefined()
+    expect(reply._cleared['jwt']!['secure']).toBe(true)
+    expect(reply._cleared['jwt']!['path']).toBe('/')
+  })
+
+  it('DEV regression: googleOneTap does NOT clear jwt (it IS the live cookie name, nothing legacy to extinguish)', async () => {
+    const authService = makeAuthService()
+    ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
+      sub: 'google-sub',
+      email: TEST_USER.email,
+      name: TEST_USER.displayName,
+      picture: 'p',
+    })
+    const controller = new AuthController(
+      authService,
+      makeUsersService(TEST_USER),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+    const reply = makeFullReply()
+
+    await controller.googleOneTap({ credential: 'cred' }, reply)
+
+    expect(reply._cleared['jwt']).toBeUndefined()
+  })
+
   it('DEV regression: googleOneTap still sets plain jwt (not __Host-)', async () => {
     const authService = makeAuthService()
     ;(authService.verifyGoogleIdToken as ReturnType<typeof vi.fn>).mockResolvedValue({
@@ -377,5 +430,85 @@ describe('AuthController — cookie hardening (__Host- prefix, prod only)', () =
 
     expect(Object.keys(reply._cleared)).toContain('__Host-oauth_state')
     expect(reply._cleared['__Host-oauth_state']!['secure']).toBe(true)
+  })
+})
+
+/**
+ * AuthController.me — LOW (security-review round 3, follow-up to #436).
+ *
+ * `me()`'s `!fresh` branch (DB row gone between JwtAuthGuard's own lookup
+ * and this handler's re-query) used to `return user` — the raw JwtPayload,
+ * skipping `sessionUserSchema.parse()` entirely. During impersonation that
+ * raw payload carries `impersonatorId` verbatim, contradicting the schema's
+ * own documented invariant that `/me` never emits that key. Unreachable in
+ * production traffic (see the handler's doc), but worth pinning: a future
+ * refactor that touches this branch should not silently reopen the leak.
+ */
+describe('AuthController.me — fallback shape when DB row is gone', () => {
+  it('normal path: returns full sessionUser shape (regression pin)', async () => {
+    const seniorWithShare = { ...TEST_USER, seniorSharePercent: 26 }
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(seniorWithShare),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+
+    const result = await controller.me({
+      id: TEST_USER.id,
+      email: TEST_USER.email,
+      role: TEST_USER.role,
+    })
+
+    expect(result.id).toBe(TEST_USER.id)
+    expect(result.displayName).toBe(TEST_USER.displayName)
+    expect(result).not.toHaveProperty('impersonatorId')
+  })
+
+  it('!fresh fallback: shapes the response through sessionUserSchema, no raw JwtPayload leak', async () => {
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(null), // findById resolves undefined/null → !fresh branch
+      makeJwtService(),
+      makeConfig('development'),
+    )
+
+    const jwtUser: JwtPayload = {
+      id: TEST_USER.id,
+      email: TEST_USER.email,
+      role: TEST_USER.role,
+    }
+
+    const result = await controller.me(jwtUser)
+
+    expect(result.id).toBe(TEST_USER.id)
+    expect(result.email).toBe(TEST_USER.email)
+    expect(result.role).toBe(TEST_USER.role)
+    expect(result.impersonating).toBe(false)
+  })
+
+  it('!fresh fallback under impersonation: never leaks impersonatorId, only the derived boolean', async () => {
+    const controller = new AuthController(
+      makeAuthService(),
+      makeUsersService(null),
+      makeJwtService(),
+      makeConfig('development'),
+    )
+
+    const adminId = '99999999-8888-7777-6666-555544443333'
+    const jwtUser: JwtPayload = {
+      id: TEST_USER.id,
+      email: TEST_USER.email,
+      role: TEST_USER.role,
+      impersonatorId: adminId,
+    }
+
+    const result = await controller.me(jwtUser)
+
+    expect(result.impersonating).toBe(true)
+    // The raw JwtPayload shape (what the old `return user` branch produced)
+    // carried `impersonatorId` as an own key — the schema-shaped response
+    // must not.
+    expect(result).not.toHaveProperty('impersonatorId')
   })
 })

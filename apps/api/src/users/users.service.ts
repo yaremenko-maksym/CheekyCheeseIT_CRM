@@ -252,14 +252,21 @@ export class UsersService {
     dropTeamId?: string
     /**
      * MED-3 (security-review round 2, authz-hardening): identity of the
-     * caller, used ONLY to scope `teamMode='JOIN_DROP_TEAM'` for an HR actor
-     * to a drop-team they actually belong to (see the check below). Optional
-     * so every existing unit test that constructs `data` directly (bypassing
-     * the controller) keeps working unchanged — the real production caller
-     * (UsersController.createUser) always supplies both.
+     * caller, used to scope `teamMode='JOIN_DROP_TEAM'` for an HR actor to a
+     * drop-team they actually belong to (see the check below).
+     *
+     * LOW (security-review round 3, follow-up to #436): REQUIRED, not
+     * optional. The scope check below only fires `if (data.actorRole ===
+     * 'HR')` — an optional field that silently defaults to `undefined` lets
+     * a *future* caller (a new controller endpoint, a script, a refactor
+     * that drops the two lines) skip the check by simply forgetting to pass
+     * it, with no signal anywhere that protection was lost. Making both
+     * fields mandatory means a forgetful caller fails `tsc`, not authz.
+     * Every current caller already supplies both (`UsersController.createUser`
+     * from `CurrentUser()`; tests pass an explicit `actorRole: 'ADMIN'` stub).
      */
-    actorRole?: AppRole
-    actorId?: string
+    actorRole: AppRole
+    actorId: string
   }): Promise<User> {
     // ut-12: ADMIN creation is reserved to the seed pool — block here as a
     // defense-in-depth measure even if the controller / Roles guard let it slip.
@@ -286,10 +293,12 @@ export class UsersService {
       // just their own, reaching into another team's payment routing. ADMIN
       // is exempt (full control, as everywhere else in this method).
       if (data.actorRole === 'HR') {
-        const isMember = await this.teamsService.isActiveMemberOfTeam(
-          data.dropTeamId,
-          data.actorId ?? '',
-        )
+        // LOW (security-review round 3, follow-up to #436): `actorId` is a
+        // required field now (see its docblock) — the `?? ''` fallback here
+        // was dead code protecting against an `undefined` that can no
+        // longer occur, and (worse) would have silently passed an empty
+        // string to `isActiveMemberOfTeam` instead of failing loudly.
+        const isMember = await this.teamsService.isActiveMemberOfTeam(data.dropTeamId, data.actorId)
         if (!isMember) {
           throw new ForbiddenException('HR может присоединять синьора только к своей drop-команде')
         }
@@ -1397,11 +1406,25 @@ export class UsersService {
         .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
       if (memberships.length === 0) return []
       const teamIds = memberships.map((m) => m.teamId)
+      // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
+      // here too — without it a SENIOR rotated OUT of one of this HR's teams
+      // (team_members.leftAt set, TeamsService.rotateSenior) still resolves
+      // into `seniorIds` below, and their JUNIORs surface in this HR's
+      // roster. No incremental data exposure (the same fields are visible
+      // via the general user list this HR already has), but this brings the
+      // check to the same "leftAt === null is the norm for every membership
+      // check in this file" shape as everywhere else (see HIGH-1 above).
       const seniorsInTeams = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
         .innerJoin(users, eq(teamMembers.userId, users.id))
-        .where(and(inArray(teamMembers.teamId, teamIds), eq(users.role, 'SENIOR')))
+        .where(
+          and(
+            inArray(teamMembers.teamId, teamIds),
+            eq(users.role, 'SENIOR'),
+            isNull(teamMembers.leftAt),
+          ),
+        )
       seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
     } else if (user.role === 'DROP') {
       // Drop role - phase 1: drop's "team members" are the drop-team itself
@@ -1463,7 +1486,25 @@ export class UsersService {
       tmRows.forEach((r) => memberIds.add(r.userId))
     }
 
-    // Step 3: Add active JUNIORs from projects of those seniors
+    // Step 3: Add active JUNIORs from projects of those seniors.
+    //
+    // MED-3 (security-review round 3, follow-up to #436, reverted same PR):
+    // an earlier round of this fix derived this list from `seniorMemberships`
+    // above (i.e. required an ACTIVE team_members row) instead of the raw
+    // `seniorIds` from Step 1. That silently narrowed the SENIOR self-view
+    // case: rotation/archive-drop-team detaches a senior from their team
+    // WITHOUT archiving their projects (`TeamsService.rotateSenior`,
+    // `archiveDropTeam` — see their own docs), so a teamless senior still
+    // legitimately owns active projects with active JUNIOR members during
+    // that gap, and this method is also how a SENIOR views their OWN "team"
+    // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
+    // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
+    // actually closes). Restored to raw `seniorIds`: the real vulnerability
+    // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
+    // closed at its actual source — the `isNull(teamMembers.leftAt)` filter
+    // added to Step 1's `seniorsInTeams` query above, which is the only
+    // branch that ever populated `seniorIds` with someone other than the
+    // viewer themselves or their own currently-active project seniors.
     const seniorProjects = await this.db.db
       .select({ id: projects.id })
       .from(projects)
@@ -1906,6 +1947,23 @@ export class UsersService {
     if (data.teamMode === 'JOIN_DROP_TEAM') {
       if (!data.dropTeamId) {
         throw new BadRequestException('dropTeamId обязателен при teamMode=JOIN_DROP_TEAM')
+      }
+      // LOW (security-review round 3, follow-up to #436): this is a
+      // self-service call — the SENIOR is the caller, so there is no
+      // HR/ADMIN actor to scope against (unlike createUser's HR check
+      // above `isActiveMemberOfTeam`). Without a check here a teamless
+      // SENIOR could self-attach to ANY drop-team with a free slot, not
+      // just one they used to belong to — see
+      // TeamsService.wasFormerMemberOfTeam's docblock for the full
+      // rationale and the chain this closes.
+      const wasFormerMember = await this.teamsService.wasFormerMemberOfTeam(
+        data.dropTeamId,
+        seniorId,
+      )
+      if (!wasFormerMember) {
+        throw new ForbiddenException(
+          'Самостоятельно присоединиться можно только к команде, в которой вы уже состояли',
+        )
       }
       await this.teamsService.addSeniorToDropTeam(data.dropTeamId, seniorId)
       return { teamId: data.dropTeamId }

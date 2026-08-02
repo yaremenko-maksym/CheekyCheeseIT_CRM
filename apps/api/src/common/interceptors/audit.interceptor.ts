@@ -23,8 +23,18 @@ export class AuditInterceptor implements NestInterceptor {
     // MED (security-audit authz-hardening): `req.user` here is the JWT
     // payload JwtAuthGuard populates (see jwt.guard.ts) — under impersonation
     // its `id` is the TARGET being impersonated and `impersonatorId` is the
-    // REAL admin operator (SessionUser doesn't carry impersonatorId at all;
-    // it only derives a boolean `impersonating` flag for the frontend).
+    // REAL admin operator.
+    //
+    // LOW (security-review round 3, follow-up to #436): the comment used to
+    // say `SessionUser` doesn't carry `impersonatorId` at all — that stopped
+    // being true in #436, which added an optional `impersonatorId` field to
+    // `sessionUserSchema` (see its doc in `@crm/shared`) so service methods
+    // that only have a `SessionUser` in scope (not this interceptor's raw
+    // `JwtPayload`) can do the same `impersonatorId ?? id` correction. The
+    // `/me` HTTP response still never emits that key — only the derived
+    // `impersonating` boolean the frontend reads — so the observable
+    // behaviour this comment originally described (the field never reaches
+    // the browser) is unchanged; only the in-process type carried it.
     const req = context
       .switchToHttp()
       .getRequest<{ user?: JwtPayload; params: Record<string, string> }>()

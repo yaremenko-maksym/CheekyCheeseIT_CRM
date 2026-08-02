@@ -1,0 +1,120 @@
+name: Deploy Alert
+
+# task-infra-silent-failures (2026-08-01) — `Deploy` (.github/workflows/deploy.yml)
+# failed 2026-07-27 21:22 and stayed red until 2026-07-31: prod silently kept
+# serving the previous image while every merge to `main` in that window never
+# reached prod, and nobody knew until someone happened to read run history.
+#
+# `ci.yml`'s `post_merge_alert` job (task-infra-post-merge-ci, 2026-07-27)
+# already solved the exact same problem for post-merge CI. This workflow is
+# the SAME channel and the SAME mechanic — one open/comment/close issue keyed
+# by label, via `scripts/devops/post-merge-alert.sh` (now shared between both
+# callers via its `KIND` switch, see that script's header) — pointed at
+# `Deploy` instead of at CI. It has to live in its OWN workflow file rather
+# than as a new job inside `ci.yml`: `workflow_run` only fires for the
+# workflow it names in `on:`, so reacting to `Deploy` completing needs a
+# workflow whose trigger names it. This also keeps `deploy.yml` itself
+# untouched — PR #454 is mid-flight on that file.
+#
+# Deliberately NOT a merge/deploy gate — same reasoning as `post_merge_alert`:
+# this reacts AFTER `Deploy` already finished, so a failure alert here means
+# the bad state may already be (partially) live. The issue body says so.
+on:
+  workflow_run:
+    workflows: ['Deploy']
+    types: [completed]
+
+# Keyed by the specific run id — two different `Deploy` runs finishing close
+# together get separate groups (no cross-cancellation); this only exists to
+# make a hypothetical duplicate delivery of the same `workflow_run` event
+# queue instead of racing, not to cancel superseded work.
+concurrency:
+  group: deploy-alert-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  alert:
+    name: Alert on deploy failure
+    runs-on: ubuntu-latest
+    # `Deploy` only ever runs against `main` — `push: branches: [main]`, the
+    # auto-merge dispatch step's `--ref main` (auto-merge-on-label.yml), and
+    # the Sunday `schedule` (deploy.yml only schedules the default branch) —
+    # see deploy.yml's own trigger-model comment. This guard is
+    # belt-and-braces, mirroring `post_merge_alert`'s `github.ref == main`
+    # check, so a hypothetical future trigger path can never open a
+    # prod-deploy alert for a non-production run.
+    if: >-
+      github.event.workflow_run.head_branch == 'main' &&
+      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'success')
+    permissions:
+      issues: write
+      actions: read
+    env:
+      # Same channel as ci.yml's post_merge_alert — the private repo the
+      # assistant actually watches. Deploy-failure alerts carry no PII (SHA,
+      # subject, failed job names, run URL), same as the CI alert, so the
+      # privacy constraint documented in post-merge-alert.sh is not at stake
+      # either way.
+      PRIVATE_REPO: yaremenko-maksym/cheekycheese-telemetry
+    steps:
+      # Needed only to reach the two scripts below — pinned to `main`
+      # (not the workflow_run's own ref) same as `post_merge_alert`.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      - name: Resolve alert channel
+        id: channel
+        env:
+          PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+          PUBLIC_REPO: ${{ github.repository }}
+        run: ./scripts/devops/resolve-alert-channel.sh
+
+      # `deploy.yml` has 4 sequential jobs (build / write-env / copy-compose /
+      # deploy) — naming which one actually failed saves a click into the run
+      # for triage, mirroring the granularity `post_merge_alert` gives for
+      # quality/integration/e2e. Non-fatal on API hiccups: alerting that
+      # Deploy is red matters more than which job inside it failed, so a
+      # transient `gh run view` failure falls back to a generic label instead
+      # of losing the alert entirely.
+      - name: Read failed job names
+        id: jobs
+        if: github.event.workflow_run.conclusion == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          if FAILED=$(gh run view "$RUN_ID" --repo "$REPO" --json jobs \
+            --jq '[.jobs[] | select(.conclusion=="failure") | .name] | join(", ")' 2>/dev/null); then
+            echo "failed_legs=${FAILED:-deploy}" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::could not read job list for run $RUN_ID — falling back to a generic label"
+            echo "failed_legs=deploy" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open / update / close the alert issue
+        env:
+          GH_TOKEN: ${{ steps.channel.outputs.use_pat == 'true' && secrets.TELEMETRY_ISSUES_PAT || github.token }}
+          ALERT_REPO: ${{ steps.channel.outputs.repo }}
+          RESULT: ${{ github.event.workflow_run.conclusion }}
+          FAILED_LEGS: ${{ steps.jobs.outputs.failed_legs }}
+          COMMIT_SHA: ${{ github.event.workflow_run.head_sha }}
+          # `display_title` defaults to the head commit's first line
+          # (deploy.yml sets no custom `run-name:`) — same single-line
+          # "subject" semantics `post_merge_alert` reads via `git log -1
+          # --pretty=%s`, without an extra checkout-dependent step.
+          COMMIT_SUBJECT: ${{ github.event.workflow_run.display_title }}
+          RUN_URL: ${{ github.event.workflow_run.html_url }}
+          KIND: deploy
+          LABEL: deploy-broken
+        run: ./scripts/devops/post-merge-alert.sh
+
+      # Make a red deploy visible in the Actions UI too, not only as an
+      # issue — mirrors `post_merge_alert`'s final step.
+      - name: Fail the job when Deploy is red
+        if: github.event.workflow_run.conclusion == 'failure'
+        run: |
+          echo "::error::Deploy is RED (run: ${{ github.event.workflow_run.html_url }})."
+          exit 1

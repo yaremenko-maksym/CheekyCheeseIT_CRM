@@ -654,6 +654,18 @@ jobs:
           PRERENDER_API_ORIGIN: http://localhost:3001
         run: pnpm --filter @crm/landing build:prerender
 
+      # task-infra-silent-failures (2026-08-01) — independent, non-Coder-zone
+      # witness on top of prerender.mjs's own JSON-LD assertions: inspects the
+      # already-built dist/ output directly instead of trusting the build not
+      # to have silently regressed. Placed right here (not a separate job) so
+      # it runs against the exact vacancy set "Seed landing vacancy fixtures"
+      # just seeded, before the preview server below serves it to Playwright.
+      # See scripts/devops/check-landing-seo-coverage.mjs module doc for why
+      # this exists on top of, not instead of, the seeding above.
+      - name: Verify landing build shipped real vacancy SEO markup
+        if: steps.scope.outputs.code == 'true' && matrix.shard.name == 'landing'
+        run: node scripts/devops/check-landing-seo-coverage.mjs
+
       # Same VITE_PROXY_API_TARGET override apps/landing/vite.config.ts's
       # `preview.proxy['/api']` documents for local dev — proxies the built
       # SPA's /api/* calls to the API started earlier in this job.
@@ -892,36 +904,19 @@ jobs:
 
       # Private telemetry repo when the PAT works (assistant's channel);
       # otherwise fall back to an issue on this public repo via GITHUB_TOKEN.
-      #
-      # Канал выбирается по РАБОТОСПОСОБНОСТИ токена, а не по его наличию
-      # (review PR #441, MED). `TELEMETRY_ISSUES_PAT` — fine-grained токен с
-      # датой истечения (ротация — telemetry-digest-runbook.md §2.2). Протухший
-      # PAT это НЕПУСТАЯ строка: проверка `-n "$PAT"` считала бы его валидным,
-      # `gh issue list` в скрипте отдавал бы 401, `set -euo pipefail` ронял бы
-      # скрипт ДО создания issue — и алерт исчезал бы в тишину, ровно вопреки
-      # тому, что обещают рунбук и комментарий выше. Поэтому — реальная проба.
+      # Channel is chosen by whether the token actually WORKS, not merely
+      # whether it's set (review PR #441, MED — a fine-grained PAT past its
+      # expiry is a non-empty string). Extracted to
+      # scripts/devops/resolve-alert-channel.sh (task-infra-silent-failures,
+      # 2026-08-01) so deploy-alert.yml's identical alert job reuses the
+      # exact same probe instead of a second, divergence-prone copy — see
+      # that script's header for the full rationale.
       - name: Resolve alert channel
         id: channel
         env:
           PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
-        run: |
-          # $PRIVATE_REPO приходит из job-level `env:` — уже в окружении шага.
-          use_pat=false
-          if [ -z "$PAT" ]; then
-            echo "::warning::TELEMETRY_ISSUES_PAT is not set — falling back to an issue on ${{ github.repository }}."
-          elif GH_TOKEN="$PAT" gh issue list --repo "$PRIVATE_REPO" --limit 1 >/dev/null 2>&1; then
-            use_pat=true
-          else
-            echo "::warning::TELEMETRY_ISSUES_PAT is set but cannot reach $PRIVATE_REPO (expired / revoked / insufficient scope) — falling back to an issue on ${{ github.repository }}. See telemetry-digest-runbook.md §2.2 (rotation)."
-          fi
-
-          if [ "$use_pat" = "true" ]; then
-            echo "repo=$PRIVATE_REPO" >> "$GITHUB_OUTPUT"
-          else
-            echo "repo=${{ github.repository }}" >> "$GITHUB_OUTPUT"
-          fi
-          echo "use_pat=$use_pat" >> "$GITHUB_OUTPUT"
-          echo "Alert channel: use_pat=$use_pat"
+          PUBLIC_REPO: ${{ github.repository }}
+        run: ./scripts/devops/resolve-alert-channel.sh
 
       - name: Open / update / close the alert issue
         env:
@@ -932,6 +927,7 @@ jobs:
           COMMIT_SHA: ${{ steps.commit.outputs.sha }}
           COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          KIND: ci
         run: ./scripts/devops/post-merge-alert.sh
 
       # Make the red main visible in the Actions UI too, not only as an issue.
