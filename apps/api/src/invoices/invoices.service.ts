@@ -81,6 +81,11 @@ import { DocumentsService } from '../documents/documents.service'
 import { S3Service } from '../documents/s3.service'
 import { NotificationsService } from '../notifications/notifications.service'
 import {
+  assertTransactionVisible,
+  assertTransactionWritable,
+  TRANSACTION_NOT_DELETED,
+} from '../finance/transaction-visibility.util'
+import {
   InvoicePdfService,
   COMPANY_BRAND_NAME,
   type InvoiceCompanyInfo,
@@ -144,6 +149,11 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
     })
     if (!tx) return // tx gone — nothing to do (defensive)
+    // security-review PR #456: defensive no-op, mirrors `!tx` above — a
+    // system-triggered lookup must never THROW mid-payment-flow, it just
+    // skips generating an invoice for a row that is not (or no longer)
+    // visible.
+    if (tx.deletedAt) return
     if (tx.type !== 'SENIOR_INCOME') return
     await this.autoCreate(tx)
   }
@@ -178,6 +188,8 @@ export class InvoicesService {
       where: eq(transactions.id, payoutTxId),
     })
     if (!payoutTx) return
+    // security-review PR #456: defensive no-op — see autoCreateForSeniorPayout.
+    if (payoutTx.deletedAt) return
     if (payoutTx.type !== 'PAYOUT') return
     if (!payoutTx.payoutRequestId) {
       this.logger.warn(`autoCreateForPayout: PAYOUT tx=${payoutTxId} has no payoutRequestId`)
@@ -191,10 +203,15 @@ export class InvoicesService {
     }
 
     // Fetch all linked income rows that contributed to this payout.
+    // security-review PR #456: `adminDeleteTransaction` already refuses to
+    // delete any row with `payoutRequestId` set, so this filter is
+    // defensive-only today — added for uniform coverage across the module
+    // (transaction-read-guard.spec.ts checks every read in this file).
     const linkedIncomes = await this.db.db.query.transactions.findMany({
       where: and(
         eq(transactions.payoutRequestId, payoutTx.payoutRequestId),
         inArray(transactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+        TRANSACTION_NOT_DELETED,
       ),
     })
     if (linkedIncomes.length === 0) {
@@ -374,6 +391,8 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
     })
     if (!tx) return
+    // security-review PR #456: defensive no-op — see autoCreateForSeniorPayout.
+    if (tx.deletedAt) return
     if (tx.type !== 'SALARY') return
     await this.autoCreate(tx)
   }
@@ -513,6 +532,15 @@ export class InvoicesService {
     const baseConditions = [
       inArray(transactions.type, ['SENIOR_INCOME', 'SALARY', 'PAYOUT']),
       isNotNull(transactions.invoiceDocumentId),
+      // security-review PR #456 (HIGH-1): the module had NO deleted-row filter
+      // anywhere — a soft-deleted SENIOR_INCOME/SALARY/PAYOUT stayed fully
+      // visible here (amount + counterparty name) to its non-privileged
+      // counterparty. Excluded for EVERYONE (no ADMIN/ACCOUNTANT
+      // `includeDeleted` toggle like `TransactionsService.findAll` — an admin
+      // inspecting a deleted row's invoice uses the Finance ▸ Transactions
+      // view instead; adding a parallel toggle here was out of scope for a
+      // security fix).
+      TRANSACTION_NOT_DELETED,
     ]
 
     // ---- RBAC ----
@@ -611,6 +639,12 @@ export class InvoicesService {
       project: { name: string } | null
     }
 
+    // security-review PR #456 (HIGH-1): MUST run before assertCanViewInvoice
+    // (ownership) — same ordering rule as TransactionsService.findOne. Without
+    // it a deleted transaction's counterparty got a normal 200 with the full
+    // invoice DTO instead of a 404.
+    assertTransactionVisible(tx, viewer)
+
     // task-aggregate-invoice-per-payout: PAYOUT rows now carry invoices too.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не предусмотрен для этого типа транзакции')
@@ -671,6 +705,11 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
     })
     if (!tx) throw new NotFoundException('Транзакция не найдена')
+    // security-review PR #456 (HIGH-1): a deleted transaction's invoice was
+    // fully signable by its (non-privileged) counterparty — the write side of
+    // the same bug getInvoice had on the read side. Non-privileged + deleted
+    // → 404 (hides existence); privileged + deleted → 400 (blocks the sign).
+    assertTransactionWritable(tx, viewer)
     // task-aggregate-invoice-per-payout: PAYOUT rows now sign too.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не предусмотрен для этого типа транзакции')
@@ -782,10 +821,13 @@ export class InvoicesService {
     let payoutAggregatedAmount: string | null = null
     let payoutAggregatedCurrency: string | null = null
     if (tx.type === 'PAYOUT' && tx.payoutRequestId) {
+      // security-review PR #456: defensive-only, see autoCreateForPayout's
+      // identical linkedIncomes filter above.
       const linkedIncomes = await this.db.db.query.transactions.findMany({
         where: and(
           eq(transactions.payoutRequestId, tx.payoutRequestId),
           inArray(transactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+          TRANSACTION_NOT_DELETED,
         ),
       })
       const names: string[] = []
@@ -891,6 +933,11 @@ export class InvoicesService {
       where: eq(transactions.id, transactionId),
     })
     if (!tx) throw new NotFoundException('Инвойс не найден')
+    // security-review PR #456 (HIGH-1): this is a PUBLIC, unauthenticated
+    // endpoint (the PDF's QR code) — `currentUser: null` is always treated as
+    // non-privileged, so a deleted transaction's invoice is never publicly
+    // verifiable even though it was already gated on SIGNED status below.
+    assertTransactionVisible(tx, null)
     // task-aggregate-invoice-per-payout: PAYOUT rows are valid invoice anchors.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не найден')
