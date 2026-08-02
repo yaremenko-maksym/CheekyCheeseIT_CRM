@@ -1414,6 +1414,36 @@ export const transactionAuditLog = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Document Access Log — task-file-storage-hardening §7. Mirrors
+// transaction_audit_log's shape (no FK-cascade to the referenced row — a
+// scan/resume can be hard-deleted or retention-purged and the access trail
+// must outlive it). Records WHO fetched a presigned download/preview link
+// for a sensitive document (RESUME/SCAN from `documents`, or a vacancy
+// application resume) and WHEN — never the URL itself (`metadata` only
+// carries the category + a source discriminator). Answers "who downloaded
+// this scan" after the fact; write-only from the app's perspective in this
+// PR (no read endpoint — an ADMIN can query the table directly for now).
+// ---------------------------------------------------------------------------
+
+export const documentAccessLog = pgTable(
+  'document_access_log',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    actorId: uuid('actor_id').references(() => users.id, { onDelete: 'set null' }),
+    // documents.id OR vacancy_applications.id — intentionally NO FK
+    // reference, same rationale as transaction_audit_log.targetId.
+    targetId: uuid('target_id').notNull(),
+    action: text('action').notNull(), // 'DOWNLOAD' | 'PREVIEW'
+    metadata: jsonb('metadata').notNull().default({}),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    index('document_access_log_target_id_idx').on(t.targetId),
+    index('document_access_log_created_at_idx').on(t.createdAt),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Vacancies (task-vacancies-api)
 // ---------------------------------------------------------------------------
 //
@@ -1491,8 +1521,14 @@ export const vacancyApplications = pgTable(
     coverLetter: text('cover_letter'),
     // Immutable R2/S3 object key —
     // `vacancy-applications/<vacancyId>/<applicationId>.pdf`.
-    resumeS3Key: text('resume_s3_key').notNull(),
-    resumeSizeBytes: integer('resume_size_bytes').notNull(),
+    // task-file-storage-hardening §2 (owner decision 2026-08-01, 6-month
+    // resume retention): NULLABLE — `VacanciesRetentionCronService` clears
+    // both this and `resumeSizeBytes` once an application turns 180 days old
+    // (any status, including the evergreen NEW/VIEWED ones that used to keep
+    // their file forever alongside the vacancy). The application ROW stays
+    // (hiring-history value), only the file+size are scrubbed.
+    resumeS3Key: text('resume_s3_key'),
+    resumeSizeBytes: integer('resume_size_bytes'),
     status: vacancyApplicationStatusEnum('status').notNull().default('NEW'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },

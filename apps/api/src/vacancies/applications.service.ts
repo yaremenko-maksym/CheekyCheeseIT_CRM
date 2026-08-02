@@ -46,7 +46,7 @@ import {
 } from '../documents/compression.service'
 import { S3Service } from '../documents/s3.service'
 import { DatabaseService } from '../database/database.service'
-import { users, vacancyApplications } from '../database/schema'
+import { documentAccessLog, users, vacancyApplications } from '../database/schema'
 import { NotificationsService } from '../notifications/notifications.service'
 import { TurnstileService } from './turnstile.service'
 import { VacanciesService } from './vacancies.service'
@@ -142,7 +142,44 @@ export class ApplicationsService {
     // ---- Vacancy lookup (PUBLISHED only — 404 otherwise, mirrors GET detail) ----
     const vacancy = await this.vacanciesService.getPublishedRowBySlug(slug)
 
-    // ---- 4. Duplicate: same email + vacancy within 24h → 429 ----
+    // ---- 4. Size ----
+    if (!file) {
+      throw new BadRequestException('Файл резюме обязателен')
+    }
+    if (file.buffer.length > RESUME_MAX_BYTES) {
+      throw new PayloadTooLargeException(
+        `Файл резюме больше ${Math.floor(RESUME_MAX_BYTES / 1024 / 1024)} MB`,
+      )
+    }
+
+    // ---- 5. MIME + magic-bytes (PDF only) ----
+    if (file.mimetype !== RESUME_MIME) {
+      throw new UnsupportedMediaTypeException('Резюме должно быть в формате PDF')
+    }
+    const detectedMime = detectMimeFromBuffer(file.buffer)
+    if (detectedMime !== RESUME_MIME) {
+      throw new UnsupportedMediaTypeException(
+        'Содержимое файла не соответствует формату PDF (magic-byte не распознан)',
+      )
+    }
+
+    // ---- 6. Duplicate: same email + vacancy within 24h → 429 ----
+    // task-file-storage-hardening §6 (enumeration oracle): this check used to
+    // run BEFORE the file-presence/size/MIME checks above, so a request sent
+    // with NO file at all still reached it — an anonymous caller could send
+    // `email` + a valid Turnstile token with no file and read off the status
+    // code (429 = "this email already applied" vs 400 = "file required") to
+    // establish whether a specific person had applied to a specific vacancy,
+    // without ever needing a real resume. Running the duplicate check only
+    // AFTER every file-shape check means a bare "no file" / wrong-MIME probe
+    // always gets the SAME generic validation error regardless of duplicate
+    // status — closing the free, file-less version of the oracle. (A probe
+    // that also supplies a syntactically valid throwaway PDF can still
+    // observe the 429; fully closing that would mean silently accepting
+    // duplicates like the honeypot branch does, which would also swallow a
+    // legitimate user's genuine "I meant to resubmit" attempt with no
+    // feedback — not worth the UX cost for a residual signal that already
+    // requires possessing a real-shaped PDF instead of an empty request.)
     const since = new Date(Date.now() - DUPLICATE_WINDOW_MS)
     const duplicate = await this.db.db.query.vacancyApplications.findFirst({
       where: and(
@@ -158,31 +195,19 @@ export class ApplicationsService {
       )
     }
 
-    // ---- 5. Size ----
-    if (!file) {
-      throw new BadRequestException('Файл резюме обязателен')
-    }
-    if (file.buffer.length > RESUME_MAX_BYTES) {
-      throw new PayloadTooLargeException(
-        `Файл резюме больше ${Math.floor(RESUME_MAX_BYTES / 1024 / 1024)} MB`,
-      )
-    }
-
-    // ---- 6. MIME + magic-bytes (PDF only) ----
-    if (file.mimetype !== RESUME_MIME) {
-      throw new UnsupportedMediaTypeException('Резюме должно быть в формате PDF')
-    }
-    const detectedMime = detectMimeFromBuffer(file.buffer)
-    if (detectedMime !== RESUME_MIME) {
-      throw new UnsupportedMediaTypeException(
-        'Содержимое файла не соответствует формату PDF (magic-byte не распознан)',
-      )
-    }
-
     // ---- 7. Compress (strip PDF metadata) ----
+    // `neverFallbackToOriginal: true` (task-file-storage-hardening §5): this
+    // is the ONE call site in the codebase that stores an anonymous public
+    // submission verbatim on the default anti-bloat fallback path. Without
+    // this flag, CompressionService's anti-bloat guard would silently return
+    // the applicant's ORIGINAL bytes whenever pdf-lib's object-stream re-save
+    // happens to be >= the input size — undoing the pass-1 metadata strip
+    // above and storing the exact unsanitized file the applicant uploaded.
     let compressed: Awaited<ReturnType<CompressionService['compress']>>
     try {
-      compressed = await this.compression.compress(file.buffer, RESUME_MIME)
+      compressed = await this.compression.compress(file.buffer, RESUME_MIME, {
+        neverFallbackToOriginal: true,
+      })
     } catch (err) {
       if (err instanceof CompressionError) {
         throw new UnsupportedMediaTypeException(err.message)
@@ -213,7 +238,7 @@ export class ApplicationsService {
     if (!row) throw new Error('Failed to insert vacancy application')
 
     try {
-      await this.s3.upload(s3Key, compressed.buffer, compressed.finalMimeType)
+      await this.s3.upload(s3Key, compressed.buffer, compressed.finalMimeType, 'RESUME')
     } catch (err) {
       this.logger.error(
         `apply(): R2 upload failed for applicationId=${applicationId} — rolling back DB row: ${(err as Error).message}`,
@@ -263,20 +288,30 @@ export class ApplicationsService {
   }
 
   /**
-   * Deletes the DB row AND the R2 object. S3Service.delete is idempotent/non-throwing.
-   *
-   * Intentionally `delete()` (swallow), NOT `deleteOrThrow` (task-fix-pr-390-round3
-   * / F1): this is an interactive ADMIN/HR action — the caller sees the result
-   * immediately and can re-run delete from the UI if the R2 object somehow
-   * survives, so there is no unattended retry loop to protect (unlike the
-   * retention cron, which needed the reject signal to keep the DB row around).
+   * Deletes the R2 object FIRST, then the DB row — mirrors
+   * `VacanciesRetentionCronService.purgeExpiredApplications()`'s ordering
+   * (task-file-storage-hardening §4). This used to delete the DB row first
+   * and call the SWALLOWING `S3Service.delete()` second: a transient R2
+   * failure then left the row gone but the PII resume orphaned in storage —
+   * nothing left referenced that key any more, so it would sit there
+   * forever (the reconciler treats anything past its grace window and
+   * absent from the DB as an orphan to DELETE, not as "retry me"; see
+   * DocumentsReconciliationService). Deleting R2 FIRST with the throwing
+   * `deleteOrThrow` means a failed object delete leaves the row (and its
+   * file) untouched — the caller sees the request fail and can retry from
+   * the UI, exactly the same recovery path the cron gets automatically on
+   * its next run. `resumeS3Key` may already be `null` here (the application
+   * survived past the 180-day file-only retention purge, §2) — skip the S3
+   * call entirely in that case, there is nothing left to delete.
    */
   async remove(actor: SessionUser, vacancyId: string, applicationId: string): Promise<void> {
     this.assertAdminOrHr(actor)
     const row = await this.getApplicationOrThrow(vacancyId, applicationId)
 
+    if (row.resumeS3Key) {
+      await this.s3.deleteOrThrow(row.resumeS3Key)
+    }
     await this.db.db.delete(vacancyApplications).where(eq(vacancyApplications.id, applicationId))
-    await this.s3.delete(row.resumeS3Key)
   }
 
   async getResumeUrl(
@@ -286,6 +321,32 @@ export class ApplicationsService {
   ): Promise<VacancyApplicationResumeUrl> {
     this.assertAdminOrHr(actor)
     const row = await this.getApplicationOrThrow(vacancyId, applicationId)
+
+    // task-file-storage-hardening §2: `resumeS3Key` is null once the 180-day
+    // file-only retention purge has already run for this application — the
+    // application row itself survives (contact info stays for hiring
+    // history), only the resume file is gone. 404 is the natural status: the
+    // resource this endpoint serves genuinely no longer exists.
+    if (!row.resumeS3Key) {
+      throw new NotFoundException('Резюме удалено по истечении срока хранения')
+    }
+
+    // task-file-storage-hardening §7: best-effort access-log entry — "who
+    // downloaded this resume and when" was previously unanswerable. Never
+    // records the presigned URL itself, only the actor/application/category.
+    // A logging failure must not block the actual download.
+    try {
+      await this.db.db.insert(documentAccessLog).values({
+        actorId: actor.id,
+        targetId: row.id,
+        action: 'DOWNLOAD',
+        metadata: { category: 'RESUME', source: 'vacancy_application' },
+      })
+    } catch (err) {
+      this.logger.warn(
+        `getResumeUrl: failed to write access-log row for applicationId=${row.id}: ${(err as Error).message}`,
+      )
+    }
 
     return this.s3.getPresignedDownloadUrl(
       row.resumeS3Key,
