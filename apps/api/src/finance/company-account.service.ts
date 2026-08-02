@@ -5,7 +5,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common'
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, isNull, sql } from 'drizzle-orm'
 import { COMPANY_REQUISITES_MAX, extractOnChainTxHash, receiptMandatoryError } from '@crm/shared'
 import type {
   CompanyAccountDto,
@@ -36,6 +36,7 @@ import {
   settlementConsumesTransfer,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
+import { assertTransactionVisible, assertTransactionNotDeleted } from './transaction-visibility.util'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -379,7 +380,9 @@ export class CompanyAccountService {
               path: 'submitDeposit',
               txHash,
               referenceId: inserted!.id,
-              actorId: currentUser.id,
+              // security-review PR #456 (MED-2): impersonator-aware attribution —
+              // consistent with every other transaction_audit_log write.
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
         }
@@ -424,6 +427,11 @@ export class CompanyAccountService {
       where: and(eq(transactions.id, id), eq(transactions.type, 'COMPANY_DEPOSIT')),
     })
     if (!tx) throw new NotFoundException('Депозит не найден')
+    // security-review PR #456 (HIGH-2): MUST run before the owner/privileged
+    // check below — an owner whose deposit was soft-deleted must get the SAME
+    // 404 a stranger would, not a normal 200 with amount/status. Without it a
+    // deleted deposit's own author kept full read access forever.
+    assertTransactionVisible(tx, currentUser)
 
     const isOwner = tx.senderId === currentUser.id
     const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
@@ -443,6 +451,13 @@ export class CompanyAccountService {
         amountUsdt: parseFloat(tx.amount),
       }
     }
+
+    // security-review PR #456 (HIGH-2): only ADMIN/ACCOUNTANT can reach this
+    // point with a deleted row (assertTransactionVisible above already 404'd
+    // everyone else). Block the re-poll from progressing a deleted PENDING
+    // deposit to PAID — ADMIN must restore it first, same invariant as every
+    // other write endpoint on `transactions`.
+    assertTransactionNotDeleted(tx)
 
     // PENDING → re-verify live.
     const verification = await this.etherscan.verifyDeposit(
@@ -477,10 +492,21 @@ export class CompanyAccountService {
             // LOW (review): re-assert PENDING in the WHERE so two concurrent
             // polls cannot both flip (and both claim) the same deposit — the
             // loser sees 0 rows and skips the claim.
-            .where(and(eq(transactions.id, tx.id), eq(transactions.status, 'PENDING')))
+            // security-review PR #456 (MED-1): also re-assert deleted_at IS
+            // NULL — the in-memory `assertTransactionNotDeleted` check above
+            // ran against a read from BEFORE this transaction opened; a
+            // concurrent admin delete could still land in between. DB-level
+            // recheck closes that window.
+            .where(
+              and(
+                eq(transactions.id, tx.id),
+                eq(transactions.status, 'PENDING'),
+                isNull(transactions.deletedAt),
+              ),
+            )
             .returning({ id: transactions.id })
 
-          if (flipped.length === 0) return // already credited by a concurrent poll
+          if (flipped.length === 0) return // already credited (or deleted) by a concurrent call
 
           // `credited: true` — this branch IS the credit (the flip above).
           if (settlementConsumesTransfer({ kind: 'COMPANY_DEPOSIT', credited: true })) {
@@ -495,7 +521,8 @@ export class CompanyAccountService {
                 path: 'getDepositStatus',
                 txHash: tx.txHash ?? '',
                 referenceId: tx.id,
-                actorId: currentUser.id,
+                // security-review PR #456 (MED-2): impersonator-aware attribution.
+                actorId: currentUser.impersonatorId ?? currentUser.id,
               })
             }
           }

@@ -47,6 +47,7 @@ import {
 import { DatabaseService } from '../database/database.service'
 import { documents, invoiceSignatures, teamMembers, transactions, users } from '../database/schema'
 import { S3Service, presignTtlForCategory } from './s3.service'
+import { TRANSACTION_NOT_DELETED } from '../finance/transaction-visibility.util'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 
 /** What the controller hands us after parsing the multipart request. */
@@ -393,12 +394,15 @@ export class DocumentsService {
 
     // PR-2: receipt badge — derived from the linked transaction's status.
     // LEFT JOIN transactions on receipt_document_id = documents.id for RECEIPT rows.
+    // security-review PR #456 (HIGH-1): `t.deleted_at IS NULL` — without it a
+    // soft-deleted transaction's status kept driving the RECEIPT badge for a
+    // document whose owning transaction no longer "exists" for this viewer.
     const receiptTxStatus = sql<string | null>`(
       CASE
         WHEN ${documents.category} = 'RECEIPT'
         THEN (
           SELECT t.status FROM ${transactions} t
-          WHERE t.receipt_document_id = ${documents.id}
+          WHERE t.receipt_document_id = ${documents.id} AND t.deleted_at IS NULL
           LIMIT 1
         )
         ELSE NULL
@@ -416,7 +420,16 @@ export class DocumentsService {
       })
       .from(documents)
       .leftJoin(users, eq(users.id, documents.uploadedBy))
-      .leftJoin(transactions, eq(transactions.invoiceDocumentId, documents.id))
+      // security-review PR #456 (HIGH-1): AND the not-deleted predicate INTO
+      // the join condition (not a separate WHERE) — a soft-deleted
+      // transaction must LEFT-JOIN to NULL here, exactly as if the FK were
+      // dangling, so `transactions.id`/`pendingSig`/`invoiceSigned` all
+      // correctly resolve to "no invoice" instead of leaking the deleted
+      // row's id and driving the «Требует подписи» badge for it.
+      .leftJoin(
+        transactions,
+        and(eq(transactions.invoiceDocumentId, documents.id), TRANSACTION_NOT_DELETED),
+      )
       .where(where)
       .orderBy(desc(documents.createdAt))
 
