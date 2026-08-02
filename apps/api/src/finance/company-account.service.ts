@@ -36,7 +36,10 @@ import {
   settlementConsumesTransfer,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
-import { assertTransactionVisible, assertTransactionNotDeleted } from './transaction-visibility.util'
+import {
+  assertTransactionVisible,
+  assertTransactionNotDeleted,
+} from './transaction-visibility.util'
 
 /**
  * task-company-account-backend — the shared company USDT account.
