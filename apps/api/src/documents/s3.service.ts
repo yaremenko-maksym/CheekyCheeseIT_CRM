@@ -85,6 +85,17 @@ export function presignTtlForCategory(category: DocumentCategory | null | undefi
   return DEFAULT_PRESIGN_TTL_SEC
 }
 
+/**
+ * Whether `category` is one of the 5 sensitive categories (CONTRACT/RECEIPT/
+ * INVOICE/RESUME/SCAN). Exported so callers outside this file (e.g.
+ * DocumentsService's access-log gate, task-file-storage-hardening §7) share
+ * the SAME classification `presignTtlForCategory`/`cacheControlForCategory`
+ * already use, instead of re-declaring the category list a third time.
+ */
+export function isSensitiveCategory(category: DocumentCategory | null | undefined): boolean {
+  return Boolean(category && SENSITIVE_CATEGORIES.has(category))
+}
+
 /** `Cache-Control` for AVATAR/LOGO — public, effectively forever (fresh key per upload). */
 const PUBLIC_IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable'
 

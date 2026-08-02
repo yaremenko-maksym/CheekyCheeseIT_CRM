@@ -748,6 +748,131 @@ describe('DocumentsService.getDownloadUrl', () => {
 })
 
 // =============================================================================
+// task-file-storage-hardening §1 (owner decision 2026-08-01) — SENIOR/HR
+// resume+scan access is now TEAM-SCOPED, not "any employee". These pin the
+// per-role matrix AC ("Синьор не получает скан и резюме сотрудника вне своей
+// команды: 404, не 403"). `hrSeniorIds` doubles as the generic teamMembers
+// fixture here (the harness's teamMembersBuilder answers ANY
+// select().from(teamMembers) query the same way, regardless of which
+// service method issued it — see the harness's own doc comment) — it feeds
+// BOTH getHrSeniorIds (CONTRACT) and the new getTeammateIds (RESUME/SCAN).
+// =============================================================================
+
+describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-hardening §1)', () => {
+  it('SENIOR can download RESUME of a teammate', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      hrSeniorIds: [JUNIOR.id],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(SENIOR, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+
+  it('SENIOR CANNOT download RESUME of a non-teammate → 404, not 403', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      hrSeniorIds: [],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('SENIOR CANNOT download SCAN of another SENIOR outside their team → 404 (the exact audit finding)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'SCAN' }],
+      hrSeniorIds: [],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('SENIOR can download SCAN of a teammate SENIOR (teammate set is not role-restricted)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'SCAN' }],
+      hrSeniorIds: [SENIOR2.id],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(SENIOR, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+
+  it('HR can download SCAN of a teammate', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+      hrSeniorIds: [JUNIOR.id],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(HR, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+
+  it('HR CANNOT download SCAN of a non-teammate → 404', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+      hrSeniorIds: [],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('HR CANNOT download RESUME of a non-teammate → 404', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      hrSeniorIds: [],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('ACCOUNTANT still sees ANY SCAN regardless of team (owner decision — kept broad, PR body rationale)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(ACCOUNTANT, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+
+  it('ACCOUNTANT still has NO resume access (unaffected by this task — never granted)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(ACCOUNTANT, 'd1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+  })
+
+  it("JUNIOR cannot download a teammate's SCAN either (own-only, unaffected by this task)", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'SCAN' }],
+      hrSeniorIds: [JUNIOR.id],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it("DROP cannot download another user's RESUME (own-only, unaffected by this task)", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(DROP, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('ADMIN still downloads ANY resume/scan regardless of team (unaffected by this task)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      hrSeniorIds: [],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(ADMIN, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+})
+
+// =============================================================================
 // Presigned inline preview URL
 // =============================================================================
 

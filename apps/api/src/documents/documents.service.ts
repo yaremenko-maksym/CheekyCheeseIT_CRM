@@ -45,8 +45,15 @@ import {
   type StatusBadge,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { documents, invoiceSignatures, teamMembers, transactions, users } from '../database/schema'
-import { S3Service, presignTtlForCategory } from './s3.service'
+import {
+  documentAccessLog,
+  documents,
+  invoiceSignatures,
+  teamMembers,
+  transactions,
+  users,
+} from '../database/schema'
+import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 
 /** What the controller hands us after parsing the multipart request. */
@@ -642,6 +649,7 @@ export class DocumentsService {
     // Use category-based TTL: sensitive categories (CONTRACT/RECEIPT/INVOICE/
     // RESUME/SCAN) get 30 min; AVATAR/LOGO keep 24h default.
     const ttl = presignTtlForCategory(doc.category as DocumentCategory)
+    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'DOWNLOAD')
     // s3/documents hygiene: force Content-Disposition: attachment so the browser
     // always downloads the file rather than opening it inline (e.g. a PDF opened
     // inline in a new tab could be shared via URL — attachment forces Save dialog).
@@ -666,11 +674,42 @@ export class DocumentsService {
     const doc = await this.findActiveOrThrow(docId, actor)
     const downloadAs = doc.originalName ?? doc.name
     const ttl = presignTtlForCategory(doc.category as DocumentCategory)
+    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'PREVIEW')
     // disposition='inline' tells the browser to render the PDF in-place
     // rather than offering a Save dialog (contrast with getDownloadUrl which
     // uses 'attachment' to force a download prompt for the explicit download
     // button flow).
     return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs, 'inline')
+  }
+
+  /**
+   * task-file-storage-hardening §7: best-effort access-log entry — "who
+   * downloaded/previewed this document and when" was previously
+   * unanswerable. Only sensitive categories are logged (CONTRACT/RECEIPT/
+   * INVOICE/RESUME/SCAN) — AVATAR/LOGO fetch constantly as part of ordinary
+   * list rendering and carry no meaningful "who accessed this" question.
+   * Never records the presigned URL itself, only actor/document/category. A
+   * logging failure must not block the actual download/preview.
+   */
+  private async logAccess(
+    actor: SessionUser,
+    docId: string,
+    category: DocumentCategory,
+    action: 'DOWNLOAD' | 'PREVIEW',
+  ): Promise<void> {
+    if (!isSensitiveCategory(category)) return
+    try {
+      await this.db.db.insert(documentAccessLog).values({
+        actorId: actor.id,
+        targetId: docId,
+        action,
+        metadata: { category },
+      })
+    } catch (err) {
+      this.logger.warn(
+        `logAccess: failed to write access-log row for docId=${docId}: ${(err as Error).message}`,
+      )
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -925,14 +964,20 @@ export class DocumentsService {
    * no access to anything matching the filters (so we can short-circuit to
    * `[]` without a query).
    *
-   * Visibility (from pm-brief.md "RBAC матрица для GET"):
+   * Visibility (from pm-brief.md "RBAC матрица для GET", team-scoping per
+   * task-file-storage-hardening §1 / owner decision 2026-08-01 — see
+   * `docs/business/modules/documents.md` for the authoritative matrix):
    *   ADMIN: any category, any ownerId
-   *   SENIOR: resume/scan all; contract/receipt own; avatar own; logo all (read)
+   *   SENIOR: resume/scan — TEAM ONLY (active team_members overlap with the
+   *       viewer, mirrors getHrSeniorIds' membership predicate — see
+   *       getTeammateIds); contract/receipt own; avatar own; logo all (read)
    *   JUNIOR: resume/scan own; avatar own; nothing else
-   *   HR: resume/scan all; contract — for seniors in HR's teams; avatar own;
-   *       logo all (read); receipt none
-   *   ACCOUNTANT: scan all; receipt all (read); avatar own;
-   *               resume/contract/logo none
+   *   HR: resume/scan — TEAM ONLY (same predicate as SENIOR, see above);
+   *       contract — for seniors in HR's teams; avatar own; logo all (read);
+   *       receipt none
+   *   ACCOUNTANT: scan all (unscoped — owner decision, see getTeammateIds'
+   *       doc for why); receipt all (read); avatar own;
+   *       resume/contract/logo none
    */
   private async buildListWhere(
     actor: SessionUser,
@@ -1015,16 +1060,35 @@ export class DocumentsService {
     // Build a set of (category, ownerScope) tuples the actor is allowed to see.
     const visibleClauses: SQL[] = []
 
-    if (this.canSeeAll(actor.role, 'RESUME') && (!category || category === 'RESUME')) {
-      visibleClauses.push(eq(documents.category, 'RESUME'))
-    } else if (this.canSeeSelf(actor.role, 'RESUME') && (!category || category === 'RESUME')) {
-      visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
+    // task-file-storage-hardening §1: SENIOR/HR resume+scan visibility is
+    // now TEAM-SCOPED, not "any employee" — resolved once (both categories
+    // share the same teammate set) instead of per-category. `canSeeAll()`
+    // deliberately no longer returns true for SENIOR/HR on these two
+    // categories (see its own doc) — this replaces that unconditional grant.
+    const teammateIds =
+      actor.role === 'SENIOR' || actor.role === 'HR' ? await this.getTeammateIds(actor.id) : null
+
+    if (!category || category === 'RESUME') {
+      if (teammateIds) {
+        visibleClauses.push(
+          and(eq(documents.category, 'RESUME'), inArray(documents.ownerId, teammateIds))!,
+        )
+      } else if (this.canSeeSelf(actor.role, 'RESUME')) {
+        visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
+      }
     }
 
-    if (this.canSeeAll(actor.role, 'SCAN') && (!category || category === 'SCAN')) {
-      visibleClauses.push(eq(documents.category, 'SCAN'))
-    } else if (this.canSeeSelf(actor.role, 'SCAN') && (!category || category === 'SCAN')) {
-      visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
+    if (!category || category === 'SCAN') {
+      if (teammateIds) {
+        visibleClauses.push(
+          and(eq(documents.category, 'SCAN'), inArray(documents.ownerId, teammateIds))!,
+        )
+      } else if (this.canSeeAll(actor.role, 'SCAN')) {
+        // ACCOUNTANT only, by this point — see canSeeAll's doc.
+        visibleClauses.push(eq(documents.category, 'SCAN'))
+      } else if (this.canSeeSelf(actor.role, 'SCAN')) {
+        visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
+      }
     }
 
     // DROP: self-scope for RESUME and SCAN (DROP uploads RESUME/SCAN like JUNIOR self).
@@ -1106,12 +1170,16 @@ export class DocumentsService {
     return or(...visibleClauses)!
   }
 
+  /**
+   * task-file-storage-hardening §1: SENIOR/HR are DELIBERATELY absent from
+   * both branches below — their resume/scan visibility is now team-scoped
+   * (see `getTeammateIds` + its two call sites, `buildVisibilityClause` and
+   * `findActiveOrThrow`), not "sees every employee's file". Only ACCOUNTANT
+   * keeps an unconditional grant, and only for SCAN.
+   */
   private canSeeAll(role: Role, category: DocumentCategory): boolean {
-    if (category === 'RESUME') {
-      return role === 'SENIOR' || role === 'HR'
-    }
     if (category === 'SCAN') {
-      return role === 'SENIOR' || role === 'HR' || role === 'ACCOUNTANT'
+      return role === 'ACCOUNTANT'
     }
     return false
   }
@@ -1144,6 +1212,52 @@ export class DocumentsService {
     return seniors.map((r) => r.userId)
   }
 
+  /**
+   * task-file-storage-hardening §1 (owner decision 2026-08-01): "sузить
+   * доступ к резюме/сканам до команды" for SENIOR and HR. Returns every
+   * user id sharing at least one ACTIVE team_members row with `actorId`
+   * (ANY role — unlike `getHrSeniorIds`, which additionally filters to
+   * `role = 'SENIOR'` for the CONTRACT use case), PLUS `actorId` itself
+   * always — "собственные документы у всех остаются доступны всегда" must
+   * hold even for a SENIOR/HR who currently has no active team membership
+   * (e.g. between team assignments); without unconditionally including
+   * self, that edge case would silently lose visibility into their OWN
+   * resume/scan in the LIST endpoint (findActiveOrThrow's separate
+   * `doc.ownerId === actor.id` fast-path already covers the single-document
+   * fetch, but buildVisibilityClause has no such fast-path of its own).
+   *
+   * Same `leftAt IS NULL` predicate as `getHrSeniorIds` — an employee who
+   * left the team (or a SENIOR/HR whose OWN membership ended) is not a
+   * teammate for either side of that relationship.
+   *
+   * ACCOUNTANT is NOT routed through this helper (see `canSeeAll`'s doc):
+   * unlike SENIOR/HR, ACCOUNTANT's SCAN access was already an intentional,
+   * consistent part of their RBAC surface (same "read everything, write
+   * nothing" shape as RECEIPT/INVOICE — a company-wide finance-audit role,
+   * not a byproduct of nobody having scoped it). ACCOUNTANT is also
+   * typically NOT a `team_members` row at all — routing them through this
+   * predicate would return `[actorId]` only and silently break reconciling
+   * scans across the whole company, the exact regression the task asked to
+   * watch for ("сужение может сломать сверку").
+   */
+  private async getTeammateIds(actorId: string): Promise<string[]> {
+    const myTeams = await this.db.db
+      .select({ teamId: teamMembers.teamId })
+      .from(teamMembers)
+      .where(and(eq(teamMembers.userId, actorId), isNull(teamMembers.leftAt)))
+
+    const teammateIds = new Set<string>([actorId])
+    if (myTeams.length > 0) {
+      const teamIds = myTeams.map((r) => r.teamId)
+      const teammates = await this.db.db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
+      for (const r of teammates) teammateIds.add(r.userId)
+    }
+    return [...teammateIds]
+  }
+
   // -------------------------------------------------------------------------
   // Shared helpers
   // -------------------------------------------------------------------------
@@ -1164,6 +1278,22 @@ export class DocumentsService {
 
     // Cheap path: owner sees own.
     if (doc.ownerId === actor.id) return doc
+
+    // task-file-storage-hardening §1: SENIOR/HR + RESUME/SCAN is
+    // team-scoped, not "sees all" — this is the single gate that guards
+    // BOTH the list (via buildVisibilityClause) and this direct-by-id fetch
+    // (the audit's specific finding: canSeeAll used to be the ONLY gate on
+    // both surfaces, and used to say "yes" unconditionally for these two
+    // categories). Checked BEFORE `canSeeAll()` below so it can never fall
+    // through to a stale "true" for these two categories.
+    if (
+      (actor.role === 'SENIOR' || actor.role === 'HR') &&
+      (doc.category === 'RESUME' || doc.category === 'SCAN')
+    ) {
+      const teammateIds = await this.getTeammateIds(actor.id)
+      if (teammateIds.includes(doc.ownerId)) return doc
+      throw new NotFoundException('Документ не найден')
+    }
 
     // Otherwise check category visibility.
     const seesAll = this.canSeeAll(actor.role, doc.category)
