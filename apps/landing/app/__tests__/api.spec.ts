@@ -28,6 +28,10 @@ describe('fetchVacancies', () => {
         location: 'Remote',
         publishedAt: '2026-07-01T00:00:00.000Z',
         isFallback: false,
+        salaryMin: null,
+        salaryMax: null,
+        salaryCurrency: null,
+        salaryPeriod: null,
       },
     ]
     vi.stubGlobal(
@@ -85,6 +89,10 @@ describe('fetchVacancyHreflangExcludes', () => {
       location: 'Remote',
       publishedAt: '2026-07-01T00:00:00.000Z',
       isFallback,
+      salaryMin: null,
+      salaryMax: null,
+      salaryCurrency: null,
+      salaryPeriod: null,
     }
   }
 

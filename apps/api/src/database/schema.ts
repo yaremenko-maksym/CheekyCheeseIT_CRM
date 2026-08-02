@@ -196,6 +196,15 @@ export const vacancyApplicationStatusEnum = pgEnum('vacancy_application_status',
   'VIEWED',
   'REJECTED',
 ])
+// task-vacancy-salary-range — matches Google's JobPosting baseSalary.value.unitText
+// enum exactly (case-sensitive) + packages/shared's VACANCY_SALARY_PERIODS.
+export const vacancySalaryPeriodEnum = pgEnum('vacancy_salary_period', [
+  'HOUR',
+  'DAY',
+  'WEEK',
+  'MONTH',
+  'YEAR',
+])
 
 // task-telemetry-api — CRM Telemetry (prod-errors + UX-analytics).
 export const telemetrySourceEnum = pgEnum('telemetry_source', ['WEB', 'API'])
@@ -1446,6 +1455,21 @@ export const vacancies = pgTable(
     responsibilities: text('responsibilities'),
     jobBenefits: text('job_benefits'),
     workHours: text('work_hours'),
+    // task-vacancy-salary-range (owner decision 2026-07-31) — public salary
+    // range, MANDATORY going forward (enforced in packages/shared
+    // createVacancySchema + VacanciesService.assertSalaryFilled), but
+    // nullable HERE: 3 vacancies were already PUBLISHED on prod before this
+    // change and a NOT NULL constraint can't be retrofitted onto existing
+    // rows without inventing values — see the manual DDL's header comment.
+    // `salaryCurrency` reuses the EXISTING `currency` pg enum (already shared
+    // by users.salaryCurrency/transactions.currency) — a real DB-level type,
+    // unlike packages/shared's OWN independently-declared
+    // `vacancySalaryCurrencySchema` (deliberately not imported from
+    // payment-requisites.ts — see that file's doc comment for why).
+    salaryMin: numeric('salary_min', { precision: 12, scale: 2 }),
+    salaryMax: numeric('salary_max', { precision: 12, scale: 2 }),
+    salaryCurrency: currencyEnum('salary_currency'),
+    salaryPeriod: vacancySalaryPeriodEnum('salary_period'),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

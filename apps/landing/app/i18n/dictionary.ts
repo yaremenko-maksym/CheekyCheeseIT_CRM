@@ -222,6 +222,8 @@ export interface Dictionary {
     allRoles: string
     domainLabels: Record<'AI' | 'EDTECH' | 'ECOMMERCE' | 'OTHER', string>
     employmentTypeLabels: Record<'FULL_TIME' | 'PART_TIME' | 'CONTRACT', string>
+    /** task-vacancy-salary-range — period suffix for the salary range tag; numbers/currency are NOT translated. */
+    salaryPeriodLabels: Record<'HOUR' | 'DAY' | 'WEEK' | 'MONTH' | 'YEAR', string>
     breadcrumbHome: string
     breadcrumbCareers: string
     titleSuffix: string

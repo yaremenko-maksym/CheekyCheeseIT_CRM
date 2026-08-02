@@ -38,6 +38,13 @@ async function mockVacancyCount(page: Page, count: number) {
     location: 'Remote',
     publishedAt: new Date().toISOString(),
     isFallback: false,
+    // task-vacancy-salary-range — publicVacancySchema now requires these 4
+    // keys present (nullable) — the client-side Zod parse otherwise rejects
+    // this mocked response and fetchVacancies() fail-softs to [].
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    salaryPeriod: null,
   }))
   await page.route('**/api/public/vacancies*', (route) =>
     route.fulfill({

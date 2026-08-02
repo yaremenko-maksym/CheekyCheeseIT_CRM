@@ -28,6 +28,7 @@
  * change to that file.
  */
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpException,
@@ -155,6 +156,10 @@ export class VacanciesService {
   async create(actor: SessionUser, dto: CreateVacancy): Promise<Vacancy> {
     this.assertAdminOrHr(actor)
     await this.assertSlugFree(dto.slug)
+    // Defense-in-depth (AC1) — createVacancySchema already requires these 4
+    // fields at the type/parse level; re-asserted here in case a caller ever
+    // constructs a `CreateVacancy` without going through `.parse()`.
+    this.assertSalaryFilled(dto)
 
     const [row] = await this.db.db
       .insert(vacancies)
@@ -174,6 +179,12 @@ export class VacanciesService {
         responsibilities: dto.responsibilities ?? null,
         jobBenefits: dto.jobBenefits ?? null,
         workHours: dto.workHours ?? null,
+        // numeric() columns round-trip as strings — same String() convention
+        // as users.monthlySalary (UsersService.createUser).
+        salaryMin: String(dto.salaryMin),
+        salaryMax: String(dto.salaryMax),
+        salaryCurrency: dto.salaryCurrency,
+        salaryPeriod: dto.salaryPeriod,
       })
       .returning()
 
@@ -204,6 +215,11 @@ export class VacanciesService {
     if (dto.responsibilities !== undefined) updates.responsibilities = dto.responsibilities
     if (dto.jobBenefits !== undefined) updates.jobBenefits = dto.jobBenefits
     if (dto.workHours !== undefined) updates.workHours = dto.workHours
+    // numeric() columns round-trip as strings (same convention as create()).
+    if (dto.salaryMin !== undefined) updates.salaryMin = String(dto.salaryMin)
+    if (dto.salaryMax !== undefined) updates.salaryMax = String(dto.salaryMax)
+    if (dto.salaryCurrency !== undefined) updates.salaryCurrency = dto.salaryCurrency
+    if (dto.salaryPeriod !== undefined) updates.salaryPeriod = dto.salaryPeriod
 
     if (dto.status !== undefined && dto.status !== row.status) {
       const allowed = VALID_TRANSITIONS[row.status] ?? []
@@ -211,6 +227,23 @@ export class VacanciesService {
         throw new ConflictException(
           `Недопустимый переход статуса вакансии: ${row.status} → ${dto.status}`,
         )
+      }
+      if (dto.status === 'PUBLISHED') {
+        // AC2 — a vacancy cannot be (re)published without a filled salary
+        // range. `dto` overrides `row` when the SAME request also sets the
+        // fields (e.g. filling salary + publishing in one PATCH) — this is
+        // the only place `updateVacancySchema`'s optional salary fields are
+        // enforced (the schema itself stays a no-op-when-omitted PATCH, see
+        // packages/shared vacancies.ts doc). Existing PUBLISHED rows (3 on
+        // prod, AC3) are UNAFFECTED — this only fires on a STATUS TRANSITION,
+        // never on an unrelated PATCH to an already-PUBLISHED vacancy.
+        this.assertSalaryFilled({
+          salaryMin: dto.salaryMin !== undefined ? dto.salaryMin : row.salaryMin,
+          salaryMax: dto.salaryMax !== undefined ? dto.salaryMax : row.salaryMax,
+          salaryCurrency:
+            dto.salaryCurrency !== undefined ? dto.salaryCurrency : row.salaryCurrency,
+          salaryPeriod: dto.salaryPeriod !== undefined ? dto.salaryPeriod : row.salaryPeriod,
+        })
       }
       updates.status = dto.status
       if (dto.status === 'PUBLISHED') {
@@ -282,6 +315,31 @@ export class VacanciesService {
   private assertAdminOrHr(actor: SessionUser): void {
     if (actor.role !== 'ADMIN' && actor.role !== 'HR') {
       throw new ForbiddenException('Доступно только ADMIN и HR')
+    }
+  }
+
+  /**
+   * task-vacancy-salary-range (AC1/AC2) — the mandatory-salary-range gate.
+   * Called from `create()` (defense-in-depth over the Zod schema) and from
+   * `update()` ONLY when a PATCH transitions status to PUBLISHED (the
+   * effective, post-update value — see that call site's comment). Presence-
+   * only (not min<=max ordering — see `createVacancySalaryFieldsSchema`'s doc
+   * in packages/shared for why that ordering check lives in the CRM form
+   * instead of a schema-level `.refine()`).
+   */
+  private assertSalaryFilled(fields: {
+    salaryMin: number | string | null | undefined
+    salaryMax: number | string | null | undefined
+    salaryCurrency: string | null | undefined
+    salaryPeriod: string | null | undefined
+  }): void {
+    if (
+      fields.salaryMin == null ||
+      fields.salaryMax == null ||
+      fields.salaryCurrency == null ||
+      fields.salaryPeriod == null
+    ) {
+      throw new BadRequestException('Укажите вилку зарплаты: минимум, максимум, валюту и период')
     }
   }
 
@@ -382,6 +440,13 @@ export class VacanciesService {
       // Only ever called for PUBLISHED rows — publishedAt is guaranteed set.
       publishedAt: (row.publishedAt ?? row.createdAt).toISOString(),
       isFallback: localized.isFallback,
+      // task-vacancy-salary-range — `null` for the 3 vacancies already
+      // PUBLISHED on prod before this change (AC3), until the owner fills
+      // them in through the CRM.
+      salaryMin: row.salaryMin,
+      salaryMax: row.salaryMax,
+      salaryCurrency: row.salaryCurrency,
+      salaryPeriod: row.salaryPeriod,
     }
   }
 
@@ -427,6 +492,10 @@ export class VacanciesService {
       responsibilities: row.responsibilities ?? null,
       jobBenefits: row.jobBenefits ?? null,
       workHours: row.workHours ?? null,
+      salaryMin: row.salaryMin,
+      salaryMax: row.salaryMax,
+      salaryCurrency: row.salaryCurrency,
+      salaryPeriod: row.salaryPeriod,
     }
   }
 }

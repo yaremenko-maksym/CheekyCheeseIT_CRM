@@ -1,5 +1,5 @@
 import { useMemo } from 'react'
-import { ArrowLeft, Briefcase, BarChart3, MapPin } from 'lucide-react'
+import { ArrowLeft, Briefcase, BarChart3, MapPin, Wallet } from 'lucide-react'
 import type { PublicVacancyDetail } from '@crm/shared'
 import { useDocumentHead } from '@/lib/use-document-head'
 import {
@@ -11,7 +11,12 @@ import {
   markdownToPlainText,
   truncateForMetaDescription,
 } from '@/lib/seo'
-import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
+import {
+  domainLabel,
+  domainTagVariant,
+  employmentTypeLabel,
+  formatSalaryRange,
+} from '@/lib/vacancy-domain'
 import { MarketingNav } from '@/components/marketing/nav'
 import { MarketingFooter } from '@/components/marketing/footer'
 import { HiringStrip } from '@/components/marketing/hiring-strip'
@@ -151,6 +156,10 @@ function VacancyDetailContent({
   // object, pre-Block-C).
   const title = vacancy.title
   const descriptionMd = vacancy.descriptionMd
+  // task-vacancy-salary-range — `null` for a legacy vacancy without a range
+  // yet (AC3/AC5); minimal text output next to location (design tier 2 —
+  // fidelity-review pass covers the exact visual treatment).
+  const salaryRange = formatSalaryRange(vacancy, t.vacancy)
 
   // Same markdown renderer/plugins as the visible <MarkdownBody> below,
   // rendered to a clean (no wrapper/Tailwind classes) HTML string — feeds
@@ -236,6 +245,12 @@ function VacancyDetailContent({
               <MapPin aria-hidden="true" className="size-3.5" />
               {vacancy.location}
             </Tag>
+            {salaryRange && (
+              <Tag variant="neutral">
+                <Wallet aria-hidden="true" className="size-3.5" />
+                {salaryRange}
+              </Tag>
+            )}
           </div>
         </div>
 

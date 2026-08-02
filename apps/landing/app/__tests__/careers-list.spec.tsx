@@ -28,6 +28,10 @@ const vacancies: PublicVacancy[] = [
     location: 'Remote · EU',
     publishedAt: '2026-07-01T00:00:00.000Z',
     isFallback: false,
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    salaryPeriod: null,
   },
   {
     slug: 'backend-engineer-commerce',
@@ -38,6 +42,10 @@ const vacancies: PublicVacancy[] = [
     location: 'Remote · Global',
     publishedAt: '2026-07-02T00:00:00.000Z',
     isFallback: false,
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    salaryPeriod: null,
   },
 ]
 
@@ -90,5 +98,24 @@ describe('CareersList', () => {
 
     renderList([], 'ru')
     expect(await screen.findByText('Сейчас открытых вакансий нет')).toBeTruthy()
+  })
+
+  // task-vacancy-salary-range (AC5) — the salary range shows on the LIST card
+  // when filled, and is simply absent for a legacy vacancy without one.
+  it('shows the salary range on the card when set, omits it when unset (AC3/AC5)', async () => {
+    renderList([
+      {
+        ...vacancies[0]!,
+        salaryMin: '3000',
+        salaryMax: '5000',
+        salaryCurrency: 'USDT',
+        salaryPeriod: 'MONTH',
+      },
+      vacancies[1]!, // no salary range — stays unset
+    ])
+    expect(await screen.findByText('3000–5000 USDT · per month')).toBeTruthy()
+    // The second card has no salary text anywhere on the page for it.
+    const salaryMentions = screen.queryAllByText(/USDT|USD|EUR|UAH/)
+    expect(salaryMentions).toHaveLength(1)
   })
 })

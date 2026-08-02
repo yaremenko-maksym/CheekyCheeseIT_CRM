@@ -268,6 +268,13 @@ export const es: Dictionary = {
       PART_TIME: 'Tiempo parcial',
       CONTRACT: 'Contrato',
     },
+    salaryPeriodLabels: {
+      HOUR: 'por hora',
+      DAY: 'por día',
+      WEEK: 'por semana',
+      MONTH: 'por mes',
+      YEAR: 'por año',
+    },
     breadcrumbHome: 'Inicio',
     breadcrumbCareers: 'Empleo',
     titleSuffix: 'CheekyCheeseIT Careers',

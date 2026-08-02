@@ -77,6 +77,11 @@ export interface LandingVacancyFixture {
   translations?: Record<'uk' | 'ru' | 'es' | 'pt', LandingVacancyTranslation>
   /** Status the seed script must land this row on (via the DRAFT→PUBLISHED→CLOSED transition chain). */
   targetStatus: 'PUBLISHED' | 'CLOSED'
+  // task-vacancy-salary-range (AC1) — required by createVacancySchema.
+  salaryMin: number
+  salaryMax: number
+  salaryCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+  salaryPeriod: 'HOUR' | 'DAY' | 'WEEK' | 'MONTH' | 'YEAR'
 }
 
 export const LANDING_VACANCY_FIXTURES: LandingVacancyFixture[] = [
@@ -121,6 +126,10 @@ export const LANDING_VACANCY_FIXTURES: LandingVacancyFixture[] = [
       },
     },
     targetStatus: 'PUBLISHED',
+    salaryMin: 6000,
+    salaryMax: 9000,
+    salaryCurrency: 'USDT',
+    salaryPeriod: 'MONTH',
   },
   {
     slug: UNTRANSLATED_VACANCY_SLUG,
@@ -138,6 +147,10 @@ export const LANDING_VACANCY_FIXTURES: LandingVacancyFixture[] = [
     // Deliberately no `translations` — this is the "translated nowhere"
     // fixture (see module doc).
     targetStatus: 'PUBLISHED',
+    salaryMin: 5000,
+    salaryMax: 7500,
+    salaryCurrency: 'USD',
+    salaryPeriod: 'MONTH',
   },
   {
     slug: CLOSED_VACANCY_SLUG,
@@ -152,5 +165,9 @@ export const LANDING_VACANCY_FIXTURES: LandingVacancyFixture[] = [
       'GONE, not "never existed"). No real content beyond satisfying the schema minimums matters ' +
       'here.',
     targetStatus: 'CLOSED',
+    salaryMin: 4000,
+    salaryMax: 6000,
+    salaryCurrency: 'USDT',
+    salaryPeriod: 'MONTH',
   },
 ]

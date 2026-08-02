@@ -34,6 +34,7 @@ import {
 } from '@/components/ui/select'
 import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
 import { DOMAIN_LABELS, EMPLOYMENT_TYPE_LABELS, slugifyTitle, zodIssueRu } from '../constants'
+import { VacancySalaryFields } from './VacancySalaryFields'
 import { VacancySeoFields } from './VacancySeoFields'
 import {
   VacancyTranslationFields,
@@ -232,6 +233,8 @@ export function VacancyFormFields({
           )}
         </form.Field>
       </div>
+
+      <VacancySalaryFields form={form} />
 
       <form.Field
         name="descriptionMd"

@@ -26,10 +26,13 @@ import { useFormAbandonTracking } from '@/lib/telemetry'
 import {
   buildVacancyDto,
   computeVacancySubmitErrors,
+  emptySalaryFormValues,
   emptySeoFormValues,
   emptyTranslationsFormValues,
+  salaryFormValuesFromVacancy,
   seoFormValuesFromVacancy,
   translationsFormValuesFromVacancy,
+  type VacancySalaryFormValues,
   type VacancySeoFormValues,
   type VacancyTranslationFocusRequest,
   type VacancyTranslationsFormValues,
@@ -71,6 +74,10 @@ interface VacancyFormValues {
   responsibilities: VacancySeoFormValues['responsibilities']
   jobBenefits: VacancySeoFormValues['jobBenefits']
   workHours: VacancySeoFormValues['workHours']
+  salaryMin: VacancySalaryFormValues['salaryMin']
+  salaryMax: VacancySalaryFormValues['salaryMax']
+  salaryCurrency: VacancySalaryFormValues['salaryCurrency']
+  salaryPeriod: VacancySalaryFormValues['salaryPeriod']
 }
 
 function emptyValues(): VacancyFormValues {
@@ -82,6 +89,7 @@ function emptyValues(): VacancyFormValues {
     employmentType: 'FULL_TIME',
     translations: emptyTranslationsFormValues(),
     ...emptySeoFormValues(),
+    ...emptySalaryFormValues(),
   }
 }
 
@@ -94,6 +102,7 @@ function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
     employmentType: vacancy.employmentType,
     translations: translationsFormValuesFromVacancy(vacancy),
     ...seoFormValuesFromVacancy(vacancy),
+    ...salaryFormValuesFromVacancy(vacancy),
   }
 }
 

@@ -12,6 +12,8 @@ import type {
   VacancyApplicationStatus,
   VacancyDomain,
   VacancyEmploymentType,
+  VacancySalaryCurrency,
+  VacancySalaryPeriod,
   VacancySeniority,
   VacancyStatus,
   VacancyTranslationLocale,
@@ -161,6 +163,98 @@ export function buildSeoFieldsDto(values: VacancySeoFormValues): VacancySeoDto {
 }
 
 // ---------------------------------------------------------------------------
+// task-vacancy-salary-range (owner decision 2026-07-31) — the salary range
+// form fields, MANDATORY for a new vacancy (createVacancySchema) and for
+// publishing any vacancy (VacanciesService.assertSalaryFilled). Unlike
+// `VacancySeoFormValues` above, min/max are OMITTED (not sent as `null`) from
+// the PATCH dto when their text input is empty — see `buildSalaryFieldsDto`'s
+// doc for why: a legacy vacancy's still-missing range must not be force-set
+// to `null` on every unrelated field edit, whereas `create` naturally fails
+// its own "required" schema check when they're missing.
+// ---------------------------------------------------------------------------
+
+export interface VacancySalaryFormValues {
+  salaryMin: string
+  salaryMax: string
+  salaryCurrency: VacancySalaryCurrency
+  salaryPeriod: VacancySalaryPeriod
+}
+
+/** `USDT`/`MONTH` — same defaults the DB migration/manual-fill flow nudges the owner toward (owner already pays most SENIORs in USDT). */
+export function emptySalaryFormValues(): VacancySalaryFormValues {
+  return { salaryMin: '', salaryMax: '', salaryCurrency: 'USDT', salaryPeriod: 'MONTH' }
+}
+
+export function salaryFormValuesFromVacancy(
+  vacancy: Pick<Vacancy, 'salaryMin' | 'salaryMax' | 'salaryCurrency' | 'salaryPeriod'>,
+): VacancySalaryFormValues {
+  return {
+    salaryMin: vacancy.salaryMin ?? '',
+    salaryMax: vacancy.salaryMax ?? '',
+    salaryCurrency: vacancy.salaryCurrency ?? 'USDT',
+    salaryPeriod: vacancy.salaryPeriod ?? 'MONTH',
+  }
+}
+
+/**
+ * `salaryCurrency`/`salaryPeriod` are ALWAYS sent (the Select always has SOME
+ * value selected, same as domain/employmentType above) — only `salaryMin`/
+ * `salaryMax` are conditionally OMITTED when their text input is empty, so a
+ * legacy vacancy's still-missing amounts stay `undefined` (PATCH no-op) on an
+ * edit that never touched them, instead of being force-written to an invalid
+ * value. On `create`, an omitted salaryMin/salaryMax correctly fails
+ * `createVacancySchema`'s "required" check (AC1) — the same UX as an empty
+ * title/slug.
+ */
+export function buildSalaryFieldsDto(values: VacancySalaryFormValues): {
+  salaryMin?: number
+  salaryMax?: number
+  salaryCurrency: VacancySalaryCurrency
+  salaryPeriod: VacancySalaryPeriod
+} {
+  const min = values.salaryMin.trim() === '' ? NaN : Number(values.salaryMin)
+  const max = values.salaryMax.trim() === '' ? NaN : Number(values.salaryMax)
+  return {
+    ...(Number.isFinite(min) ? { salaryMin: min } : {}),
+    ...(Number.isFinite(max) ? { salaryMax: max } : {}),
+    salaryCurrency: values.salaryCurrency,
+    salaryPeriod: values.salaryPeriod,
+  }
+}
+
+// ---------------------------------------------------------------------------
+// task-vacancy-salary-range — publish gate. Mirrors `VacanciesService.
+// assertSalaryFilled` (apps/api/src/vacancies/vacancies.service.ts) so the
+// «Опубликовать»/«Восстановить» buttons are disabled+tooltipped BEFORE the
+// request round-trips to the 400 the backend would return anyway (same
+// "source of truth = backend, UI mirrors it" convention as
+// `getVacancyDeleteGate`).
+// ---------------------------------------------------------------------------
+
+export interface VacancyPublishGate {
+  canPublish: boolean
+  /** Only meaningful when `canPublish` is false — reason shown in the Tooltip. */
+  tooltip: string
+}
+
+export function getVacancyPublishGate(
+  vacancy: Pick<Vacancy, 'salaryMin' | 'salaryMax' | 'salaryCurrency' | 'salaryPeriod'>,
+): VacancyPublishGate {
+  // `!= null` (loose) — NOT `!== null` — deliberately: the shared salary
+  // fields schema is `.nullish()` (nullable AND optional), so a field can be
+  // `undefined` as well as `null` on a READ DTO. Both mean "not filled in".
+  const hasSalaryRange =
+    vacancy.salaryMin != null &&
+    vacancy.salaryMax != null &&
+    vacancy.salaryCurrency != null &&
+    vacancy.salaryPeriod != null
+  return {
+    canPublish: hasSalaryRange,
+    tooltip: 'Укажите вилку зарплаты в форме редактирования перед публикацией',
+  }
+}
+
+// ---------------------------------------------------------------------------
 // design-review round 1 (PR #422, HIGH-2) — shared Zod-issue → Russian
 // message mapping. Was a private copy inside `VacancyFormFields.tsx`; moved
 // here (single source) now that `VacancyTranslationFields.tsx` AND
@@ -209,6 +303,10 @@ export interface VacancyDtoFormValues {
   responsibilities: VacancySeoFormValues['responsibilities']
   jobBenefits: VacancySeoFormValues['jobBenefits']
   workHours: VacancySeoFormValues['workHours']
+  salaryMin: VacancySalaryFormValues['salaryMin']
+  salaryMax: VacancySalaryFormValues['salaryMax']
+  salaryCurrency: VacancySalaryFormValues['salaryCurrency']
+  salaryPeriod: VacancySalaryFormValues['salaryPeriod']
 }
 
 export function buildVacancyDto(value: VacancyDtoFormValues) {
@@ -220,6 +318,7 @@ export function buildVacancyDto(value: VacancyDtoFormValues) {
     employmentType: value.employmentType,
     translations: buildTranslationsDto(value.translations),
     ...buildSeoFieldsDto(value),
+    ...buildSalaryFieldsDto(value),
   }
 }
 
@@ -356,6 +455,20 @@ export const EMPLOYMENT_TYPE_LABELS: Record<VacancyEmploymentType, string> = {
   FULL_TIME: 'Полная занятость',
   PART_TIME: 'Частичная занятость',
   CONTRACT: 'Проектная работа',
+}
+
+// ---------------------------------------------------------------------------
+// task-vacancy-salary-range — period Select labels (Russian, translated —
+// same convention as EMPLOYMENT_TYPE_LABELS above). Currency codes are shown
+// verbatim (USDT/USD/EUR/UAH) — universal codes, not translated.
+// ---------------------------------------------------------------------------
+
+export const SALARY_PERIOD_LABELS: Record<VacancySalaryPeriod, string> = {
+  HOUR: 'Час',
+  DAY: 'День',
+  WEEK: 'Неделя',
+  MONTH: 'Месяц',
+  YEAR: 'Год',
 }
 
 // ---------------------------------------------------------------------------

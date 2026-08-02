@@ -45,7 +45,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
 import { trackFeatureClick } from '@/lib/telemetry'
-import { DeleteVacancyButton } from './components/VacancyCard'
+import { DeleteVacancyButton, VacancyPublishGate } from './components/VacancyCard'
 import { CandidateCard } from './components/CandidateCard'
 import { VacancyFormFields } from './components/VacancyFormFields'
 import {
@@ -55,14 +55,17 @@ import {
   DOMAIN_DOT_COLOR,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
+  emptySalaryFormValues,
   emptySeoFormValues,
   emptyTranslationsFormValues,
   getVacancyDeleteGate,
+  salaryFormValuesFromVacancy,
   seoFormValuesFromVacancy,
   SENIORITY_LABELS,
   translationsFormValuesFromVacancy,
   VACANCY_STATUS_BADGE,
   VACANCY_STATUS_LABELS,
+  type VacancySalaryFormValues,
   type VacancySeoFormValues,
   type VacancyTranslationFocusRequest,
   type VacancyTranslationsFormValues,
@@ -110,6 +113,10 @@ interface VacancyFormValues {
   responsibilities: VacancySeoFormValues['responsibilities']
   jobBenefits: VacancySeoFormValues['jobBenefits']
   workHours: VacancySeoFormValues['workHours']
+  salaryMin: VacancySalaryFormValues['salaryMin']
+  salaryMax: VacancySalaryFormValues['salaryMax']
+  salaryCurrency: VacancySalaryFormValues['salaryCurrency']
+  salaryPeriod: VacancySalaryFormValues['salaryPeriod']
 }
 
 function emptyFormValues(): VacancyFormValues {
@@ -121,6 +128,7 @@ function emptyFormValues(): VacancyFormValues {
     employmentType: 'FULL_TIME',
     translations: emptyTranslationsFormValues(),
     ...emptySeoFormValues(),
+    ...emptySalaryFormValues(),
   }
 }
 
@@ -133,6 +141,7 @@ function valuesFromVacancy(vacancy: Vacancy): VacancyFormValues {
     employmentType: vacancy.employmentType,
     translations: translationsFormValuesFromVacancy(vacancy),
     ...seoFormValuesFromVacancy(vacancy),
+    ...salaryFormValuesFromVacancy(vacancy),
   }
 }
 
@@ -361,18 +370,22 @@ function VacancyDetailPage() {
             </Button>
           )}
           {vacancy.status === 'CLOSED' && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
-              }
-              disabled={updateMutation.isPending}
-              data-testid="vacancy-detail-reopen"
-            >
-              <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-              Восстановить
-            </Button>
+            <VacancyPublishGate vacancy={vacancy}>
+              {(disabled) => (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
+                  }
+                  disabled={updateMutation.isPending || disabled}
+                  data-testid="vacancy-detail-reopen"
+                >
+                  <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+                  Восстановить
+                </Button>
+              )}
+            </VacancyPublishGate>
           )}
         </div>
       </div>
@@ -429,19 +442,23 @@ function VacancyDetailPage() {
                   {VACANCY_STATUS_LABELS[vacancy.status]}
                 </Badge>
                 {vacancy.status === 'DRAFT' && (
-                  <Button
-                    size="sm"
-                    className="w-full mt-2"
-                    onClick={() =>
-                      updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
-                    }
-                    disabled={updateMutation.isPending}
-                    data-testid="vacancy-detail-publish"
-                    data-track="vacancy-publish"
-                  >
-                    <ArrowUp className="mr-1.5 h-3.5 w-3.5" />
-                    Опубликовать
-                  </Button>
+                  <VacancyPublishGate vacancy={vacancy}>
+                    {(disabled) => (
+                      <Button
+                        size="sm"
+                        className="w-full mt-2"
+                        onClick={() =>
+                          updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
+                        }
+                        disabled={updateMutation.isPending || disabled}
+                        data-testid="vacancy-detail-publish"
+                        data-track="vacancy-publish"
+                      >
+                        <ArrowUp className="mr-1.5 h-3.5 w-3.5" />
+                        Опубликовать
+                      </Button>
+                    )}
+                  </VacancyPublishGate>
                 )}
               </CardContent>
             </Card>

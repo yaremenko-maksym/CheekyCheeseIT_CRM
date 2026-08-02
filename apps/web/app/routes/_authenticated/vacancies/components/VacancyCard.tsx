@@ -12,6 +12,7 @@
  *   PUBLISHED → Отклики · Редактировать · Закрыть (no delete button at all)
  *   CLOSED    → Восстановить · Редактировать · Удалить (disabled+Tooltip only if applicationsCount > 0)
  */
+import type { ReactElement } from 'react'
 import { Link } from '@tanstack/react-router'
 import {
   ArrowUp,
@@ -53,10 +54,43 @@ import {
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
   getVacancyDeleteGate,
+  getVacancyPublishGate,
   SENIORITY_LABELS,
   VACANCY_STATUS_BADGE,
   VACANCY_STATUS_LABELS,
 } from '../constants'
+
+/**
+ * task-vacancy-salary-range — wraps a «Опубликовать»/«Восстановить» button
+ * with `getVacancyPublishGate()`'s disabled+Tooltip treatment (render-prop:
+ * `children(disabled)` builds the actual `<Button>` with its own
+ * size/variant/icon/testid, only the disabled flag + tooltip wrapping are
+ * centralized here — same "disable + Tooltip when blocked" convention as
+ * `DeleteVacancyButton` below, but as a thin wrapper since the 6 call sites
+ * (mobile/desktop × list card × detail page) differ too much in JSX to
+ * usefully unify into one concrete `<Button>`).
+ */
+export function VacancyPublishGate({
+  vacancy,
+  children,
+}: {
+  vacancy: Pick<Vacancy, 'salaryMin' | 'salaryMax' | 'salaryCurrency' | 'salaryPeriod'>
+  children: (disabled: boolean) => ReactElement
+}) {
+  const { canPublish, tooltip } = getVacancyPublishGate(vacancy)
+  const button = children(!canPublish)
+  if (canPublish) return button
+  return (
+    <TooltipProvider>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="contents">{button}</span>
+        </TooltipTrigger>
+        <TooltipContent>{tooltip}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
 
 interface VacancyCardProps {
   vacancy: Vacancy
@@ -159,16 +193,22 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
          live Playwright-проходом на этом width). */}
       <div className="mt-2 flex items-center gap-1.5 sm:hidden">
         {vacancy.status === 'DRAFT' && (
-          <Button
-            className="h-11 flex-1"
-            onClick={() => updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })}
-            disabled={updateMutation.isPending}
-            data-testid={`vacancy-publish-mobile-${vacancy.id}`}
-            data-track="vacancy-publish"
-          >
-            <ArrowUp className="mr-1.5 h-4 w-4" />
-            Опубликовать
-          </Button>
+          <VacancyPublishGate vacancy={vacancy}>
+            {(disabled) => (
+              <Button
+                className="h-11 flex-1"
+                onClick={() =>
+                  updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
+                }
+                disabled={updateMutation.isPending || disabled}
+                data-testid={`vacancy-publish-mobile-${vacancy.id}`}
+                data-track="vacancy-publish"
+              >
+                <ArrowUp className="mr-1.5 h-4 w-4" />
+                Опубликовать
+              </Button>
+            )}
+          </VacancyPublishGate>
         )}
         {vacancy.status === 'PUBLISHED' && (
           <Button
@@ -187,16 +227,22 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
           </Button>
         )}
         {vacancy.status === 'CLOSED' && (
-          <Button
-            variant="outline"
-            className="h-11 flex-1"
-            onClick={() => updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })}
-            disabled={updateMutation.isPending}
-            data-testid={`vacancy-reopen-mobile-${vacancy.id}`}
-          >
-            <RotateCcw className="mr-1.5 h-4 w-4" />
-            Восстановить
-          </Button>
+          <VacancyPublishGate vacancy={vacancy}>
+            {(disabled) => (
+              <Button
+                variant="outline"
+                className="h-11 flex-1"
+                onClick={() =>
+                  updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
+                }
+                disabled={updateMutation.isPending || disabled}
+                data-testid={`vacancy-reopen-mobile-${vacancy.id}`}
+              >
+                <RotateCcw className="mr-1.5 h-4 w-4" />
+                Восстановить
+              </Button>
+            )}
+          </VacancyPublishGate>
         )}
 
         <Button
@@ -286,18 +332,22 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
 
         <div className="flex items-center gap-1.5">
           {vacancy.status === 'DRAFT' && (
-            <Button
-              size="sm"
-              onClick={() =>
-                updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
-              }
-              disabled={updateMutation.isPending}
-              data-testid={`vacancy-publish-${vacancy.id}`}
-              data-track="vacancy-publish"
-            >
-              <ArrowUp className="mr-1 h-3.5 w-3.5" />
-              Опубликовать
-            </Button>
+            <VacancyPublishGate vacancy={vacancy}>
+              {(disabled) => (
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
+                  }
+                  disabled={updateMutation.isPending || disabled}
+                  data-testid={`vacancy-publish-${vacancy.id}`}
+                  data-track="vacancy-publish"
+                >
+                  <ArrowUp className="mr-1 h-3.5 w-3.5" />
+                  Опубликовать
+                </Button>
+              )}
+            </VacancyPublishGate>
           )}
 
           {vacancy.status === 'PUBLISHED' && (
@@ -314,18 +364,22 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
           )}
 
           {vacancy.status === 'CLOSED' && (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() =>
-                updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
-              }
-              disabled={updateMutation.isPending}
-              data-testid={`vacancy-reopen-${vacancy.id}`}
-            >
-              <RotateCcw className="mr-1 h-3.5 w-3.5" />
-              Восстановить
-            </Button>
+            <VacancyPublishGate vacancy={vacancy}>
+              {(disabled) => (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    updateMutation.mutate({ id: vacancy.id, dto: { status: 'PUBLISHED' } })
+                  }
+                  disabled={updateMutation.isPending || disabled}
+                  data-testid={`vacancy-reopen-${vacancy.id}`}
+                >
+                  <RotateCcw className="mr-1 h-3.5 w-3.5" />
+                  Восстановить
+                </Button>
+              )}
+            </VacancyPublishGate>
           )}
 
           <Button

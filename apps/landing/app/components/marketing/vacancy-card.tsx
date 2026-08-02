@@ -1,8 +1,13 @@
 import { Link } from '@tanstack/react-router'
-import { BarChart3, MapPin, ArrowRight } from 'lucide-react'
+import { BarChart3, MapPin, ArrowRight, Wallet } from 'lucide-react'
 import type { PublicVacancy } from '@crm/shared'
 import { Tag } from '@/components/ui/tag'
-import { domainLabel, domainTagVariant, employmentTypeLabel } from '@/lib/vacancy-domain'
+import {
+  domainLabel,
+  domainTagVariant,
+  employmentTypeLabel,
+  formatSalaryRange,
+} from '@/lib/vacancy-domain'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
 import type { Dictionary } from '@/i18n/dictionary'
 import { careersSlugRoutePath } from '@/i18n/routes'
@@ -39,6 +44,10 @@ export function VacancyCard({
 }) {
   const t = dict
   const title = vacancy.title
+  // task-vacancy-salary-range — `null` for a legacy vacancy without a range
+  // yet (AC3/AC5); minimal text output next to the location tag (design
+  // tier 2 — fidelity-review pass covers the exact visual treatment).
+  const salaryRange = formatSalaryRange(vacancy, t.vacancy)
   return (
     <Link
       to={careersSlugRoutePath(locale)}
@@ -66,6 +75,12 @@ export function VacancyCard({
             <MapPin aria-hidden="true" className="size-3.5" />
             {vacancy.location}
           </span>
+          {salaryRange && (
+            <span className="inline-flex items-center gap-1.5">
+              <Wallet aria-hidden="true" className="size-3.5" />
+              {salaryRange}
+            </span>
+          )}
         </div>
       </div>
       <div className="mt-auto flex items-center justify-between border-t border-border/60 pt-2">

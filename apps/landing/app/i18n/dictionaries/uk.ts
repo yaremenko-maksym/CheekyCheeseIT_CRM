@@ -267,6 +267,13 @@ export const uk: Dictionary = {
       PART_TIME: 'Часткова зайнятість',
       CONTRACT: 'Контракт',
     },
+    salaryPeriodLabels: {
+      HOUR: 'на годину',
+      DAY: 'на день',
+      WEEK: 'на тиждень',
+      MONTH: 'на місяць',
+      YEAR: 'на рік',
+    },
     breadcrumbHome: 'Головна',
     breadcrumbCareers: 'Вакансії',
     titleSuffix: 'CheekyCheeseIT Careers',

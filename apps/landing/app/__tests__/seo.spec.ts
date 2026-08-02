@@ -143,6 +143,10 @@ describe('buildJobPostingJsonLd', () => {
     responsibilities: null,
     jobBenefits: null,
     workHours: null,
+    salaryMin: null,
+    salaryMax: null,
+    salaryCurrency: null,
+    salaryPeriod: null,
   }
   const descriptionHtml = '<h2>About</h2><p>Build things.</p>'
 
@@ -201,9 +205,102 @@ describe('buildJobPostingJsonLd', () => {
     expect(validThroughMs).toBeLessThanOrEqual(after + sixtyDaysMs + 1000)
   })
 
-  it('never includes a salary field (by product design, see packages/shared vacancies schema)', () => {
-    const jsonLd = buildJobPostingJsonLd(vacancy, descriptionHtml)
-    expect(JSON.stringify(jsonLd).toLowerCase()).not.toContain('salary')
+  // task-vacancy-salary-range (AC3/AC4, owner decision 2026-07-31) — baseSalary
+  // is present in the JSON-LD whenever the vacancy has a filled range, and
+  // ABSENT (not a fake/partial value) for a legacy vacancy that doesn't.
+  describe('baseSalary', () => {
+    it('omits baseSalary entirely when the vacancy has no salary range (AC3 — legacy vacancy)', () => {
+      const jsonLd = buildJobPostingJsonLd(vacancy, descriptionHtml)
+      expect(jsonLd.baseSalary).toBeUndefined()
+      expect(JSON.stringify(jsonLd)).not.toContain('baseSalary')
+    })
+
+    it('includes a Google-spec-shaped baseSalary MonetaryAmount when the range is filled', () => {
+      const jsonLd = buildJobPostingJsonLd(
+        {
+          ...vacancy,
+          salaryMin: '3000.00',
+          salaryMax: '5000.00',
+          salaryCurrency: 'USD',
+          salaryPeriod: 'MONTH',
+        },
+        descriptionHtml,
+      )
+      expect(jsonLd.baseSalary).toEqual({
+        '@type': 'MonetaryAmount',
+        currency: 'USD',
+        value: {
+          '@type': 'QuantitativeValue',
+          minValue: 3000,
+          maxValue: 5000,
+          unitText: 'MONTH',
+        },
+      })
+    })
+
+    it('maps USDT to USD for the JSON-LD currency (ISO 4217 requirement; USDT is pegged 1:1 to USD)', () => {
+      const jsonLd = buildJobPostingJsonLd(
+        {
+          ...vacancy,
+          salaryMin: '3000.00',
+          salaryMax: '5000.00',
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
+        },
+        descriptionHtml,
+      )
+      expect(jsonLd.baseSalary?.currency).toBe('USD')
+    })
+
+    it('passes EUR/UAH through unchanged (already ISO 4217)', () => {
+      const eurJsonLd = buildJobPostingJsonLd(
+        {
+          ...vacancy,
+          salaryMin: '2500',
+          salaryMax: '4000',
+          salaryCurrency: 'EUR',
+          salaryPeriod: 'MONTH',
+        },
+        descriptionHtml,
+      )
+      expect(eurJsonLd.baseSalary?.currency).toBe('EUR')
+
+      const uahJsonLd = buildJobPostingJsonLd(
+        {
+          ...vacancy,
+          salaryMin: '80000',
+          salaryMax: '120000',
+          salaryCurrency: 'UAH',
+          salaryPeriod: 'MONTH',
+        },
+        descriptionHtml,
+      )
+      expect(uahJsonLd.baseSalary?.currency).toBe('UAH')
+    })
+
+    it('passes unitText through unchanged for every Google-valid period', () => {
+      for (const period of ['HOUR', 'DAY', 'WEEK', 'MONTH', 'YEAR'] as const) {
+        const jsonLd = buildJobPostingJsonLd(
+          {
+            ...vacancy,
+            salaryMin: '10',
+            salaryMax: '20',
+            salaryCurrency: 'USD',
+            salaryPeriod: period,
+          },
+          descriptionHtml,
+        )
+        expect(jsonLd.baseSalary?.value.unitText).toBe(period)
+      }
+    })
+
+    it('omits baseSalary when only SOME of the 4 fields are set (never a fake/partial value)', () => {
+      const jsonLd = buildJobPostingJsonLd(
+        { ...vacancy, salaryMin: '3000', salaryMax: '5000' }, // currency/period still null
+        descriptionHtml,
+      )
+      expect(jsonLd.baseSalary).toBeUndefined()
+    })
   })
 
   // task-vacancy-i18n-jobposting C3 — enrichment fields.
@@ -307,6 +404,10 @@ describe('buildItemListJsonLd', () => {
       location: 'Remote',
       publishedAt: '2026-07-01T00:00:00.000Z',
       isFallback: false,
+      salaryMin: null,
+      salaryMax: null,
+      salaryCurrency: null,
+      salaryPeriod: null,
     },
     {
       slug: 'lead-ecommerce-backend',
@@ -317,6 +418,10 @@ describe('buildItemListJsonLd', () => {
       location: 'Remote',
       publishedAt: '2026-07-02T00:00:00.000Z',
       isFallback: false,
+      salaryMin: null,
+      salaryMax: null,
+      salaryCurrency: null,
+      salaryPeriod: null,
     },
   ]
 

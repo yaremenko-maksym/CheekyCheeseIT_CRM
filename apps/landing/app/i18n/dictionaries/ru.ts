@@ -267,6 +267,13 @@ export const ru: Dictionary = {
       PART_TIME: 'Частичная занятость',
       CONTRACT: 'Контракт',
     },
+    salaryPeriodLabels: {
+      HOUR: 'в час',
+      DAY: 'в день',
+      WEEK: 'в неделю',
+      MONTH: 'в месяц',
+      YEAR: 'в год',
+    },
     breadcrumbHome: 'Главная',
     breadcrumbCareers: 'Вакансии',
     titleSuffix: 'CheekyCheeseIT Careers',

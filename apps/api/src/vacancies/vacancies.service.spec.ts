@@ -15,6 +15,7 @@
  * branching logic in isolation.
  */
 import {
+  BadRequestException,
   ConflictException,
   ForbiddenException,
   HttpException,
@@ -22,7 +23,7 @@ import {
 } from '@nestjs/common'
 import type { ConfigService } from '@nestjs/config'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionUser } from '@crm/shared'
+import type { CreateVacancy, SessionUser } from '@crm/shared'
 import type { Env } from '../config/env'
 import { vacancies, vacancyApplications } from '../database/schema'
 import type { GoogleIndexingService } from './google-indexing.service'
@@ -46,6 +47,25 @@ function makeConfigStub(): ConfigService<Env, true> {
 }
 
 type VacancyRow = typeof vacancies.$inferSelect
+
+// task-vacancy-salary-range (AC1) — spread into every create() DTO fixture
+// now that the 4 salary fields are mandatory (see CreateVacancy type).
+const VALID_SALARY = {
+  salaryMin: 3000,
+  salaryMax: 5000,
+  salaryCurrency: 'USDT' as const,
+  salaryPeriod: 'MONTH' as const,
+}
+
+// Same range, but as `makeRow()`-shaped ROW overrides (numeric() columns
+// round-trip as strings — AC2 fixtures for a row that's ALREADY filled in,
+// as opposed to a dto being submitted).
+const VALID_SALARY_ROW = {
+  salaryMin: '3000.00',
+  salaryMax: '5000.00',
+  salaryCurrency: 'USDT' as const,
+  salaryPeriod: 'MONTH' as const,
+}
 
 const ADMIN: SessionUser = {
   id: 'admin-1',
@@ -96,6 +116,11 @@ function makeRow(overrides: Partial<VacancyRow> = {}): VacancyRow {
     responsibilities: overrides.responsibilities ?? null,
     jobBenefits: overrides.jobBenefits ?? null,
     workHours: overrides.workHours ?? null,
+    // task-vacancy-salary-range — null by default (AC3: legacy/unfilled row).
+    salaryMin: overrides.salaryMin ?? null,
+    salaryMax: overrides.salaryMax ?? null,
+    salaryCurrency: overrides.salaryCurrency ?? null,
+    salaryPeriod: overrides.salaryPeriod ?? null,
     createdAt: overrides.createdAt ?? new Date('2026-07-01T00:00:00Z'),
     updatedAt: overrides.updatedAt ?? new Date('2026-07-01T00:00:00Z'),
   }
@@ -177,6 +202,17 @@ function makeHarness(opts: {
               publishedAt: null,
               closedAt: null,
               createdBy: vals['createdBy'] as string,
+              translations: (vals['translations'] as VacancyRow['translations']) ?? null,
+              skills: (vals['skills'] as VacancyRow['skills']) ?? null,
+              experienceMonths: (vals['experienceMonths'] as number | null) ?? null,
+              qualifications: (vals['qualifications'] as string | null) ?? null,
+              responsibilities: (vals['responsibilities'] as string | null) ?? null,
+              jobBenefits: (vals['jobBenefits'] as string | null) ?? null,
+              workHours: (vals['workHours'] as string | null) ?? null,
+              salaryMin: (vals['salaryMin'] as string | null) ?? null,
+              salaryMax: (vals['salaryMax'] as string | null) ?? null,
+              salaryCurrency: (vals['salaryCurrency'] as VacancyRow['salaryCurrency']) ?? null,
+              salaryPeriod: (vals['salaryPeriod'] as VacancyRow['salaryPeriod']) ?? null,
               createdAt: new Date('2026-07-22T00:00:00Z'),
               updatedAt: new Date('2026-07-22T00:00:00Z'),
             }
@@ -227,10 +263,13 @@ describe('VacanciesService', () => {
         seniority: 'SENIOR',
         employmentType: 'FULL_TIME',
         location: 'Remote',
+        ...VALID_SALARY,
       })
       expect(result.slug).toBe('senior-frontend-engineer')
       expect(result.status).toBe('DRAFT')
       expect(result.applicationsCount).toBe(0)
+      expect(result.salaryMin).toBe('3000')
+      expect(result.salaryCurrency).toBe('USDT')
     })
 
     it('rejects with 409 when the slug already exists', async () => {
@@ -245,6 +284,7 @@ describe('VacanciesService', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          ...VALID_SALARY,
         }),
       ).rejects.toThrow(ConflictException)
     })
@@ -261,6 +301,7 @@ describe('VacanciesService', () => {
           seniority: 'SENIOR',
           employmentType: 'FULL_TIME',
           location: 'Remote',
+          ...VALID_SALARY,
         }),
       ).rejects.toThrow(ForbiddenException)
     })
@@ -276,14 +317,34 @@ describe('VacanciesService', () => {
         seniority: 'SENIOR',
         employmentType: 'FULL_TIME',
         location: 'Remote',
+        ...VALID_SALARY,
       })
       expect(result.slug).toBe('senior-frontend-engineer')
+    })
+
+    // AC1 (defense-in-depth) — createVacancySchema already requires these 4
+    // fields at parse-time; this proves the SERVICE also refuses to persist a
+    // vacancy without them, independent of the schema (e.g. a caller that
+    // bypasses `.parse()`).
+    it('rejects with 400 when the DTO is missing the salary range (defense-in-depth, bypassing the schema)', async () => {
+      const h = makeHarness({ findFirstQueue: [undefined] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      const dtoMissingSalary = {
+        title: 'Senior Frontend Engineer',
+        slug: 'senior-frontend-engineer',
+        descriptionMd: 'Full description here.',
+        domain: 'AI',
+        seniority: 'SENIOR',
+        employmentType: 'FULL_TIME',
+        location: 'Remote',
+      } as unknown as CreateVacancy
+      await expect(svc.create(ADMIN, dtoMissingSalary)).rejects.toThrow(BadRequestException)
     })
   })
 
   describe('update — status transitions (§4)', () => {
     it('DRAFT → PUBLISHED sets publishedAt and clears closedAt', async () => {
-      const draftRow = makeRow({ status: 'DRAFT', publishedAt: null })
+      const draftRow = makeRow({ status: 'DRAFT', publishedAt: null, ...VALID_SALARY_ROW })
       const h = makeHarness({
         findFirstQueue: [draftRow],
         applicationCounts: [],
@@ -314,6 +375,7 @@ describe('VacanciesService', () => {
         status: 'CLOSED',
         publishedAt: originalPublishedAt,
         closedAt: new Date('2026-07-01T00:00:00Z'),
+        ...VALID_SALARY_ROW,
       })
       const h = makeHarness({ findFirstQueue: [closedRow], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
@@ -351,19 +413,84 @@ describe('VacanciesService', () => {
       )
     })
 
-    it('plain field update (no status change) leaves status untouched', async () => {
+    // AC3 regression pin — `row` has NO salary (makeRow()'s default), same as
+    // the 3 vacancies already PUBLISHED on prod before this change: a plain
+    // field PATCH must NOT be blocked by the publish-gate (it only fires on
+    // an ACTUAL status transition, see assertSalaryFilled's call site).
+    it('plain field update (no status change) leaves status untouched — works even without a salary range (AC3)', async () => {
       const row = makeRow({ status: 'PUBLISHED' })
       const h = makeHarness({ findFirstQueue: [row], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       const result = await svc.update(ADMIN, row.id, { title: 'Updated Title' })
       expect(h.getUpdatedRow()?.status).toBe('PUBLISHED')
       expect(result.title).toBeDefined()
+      expect(result.salaryMin).toBeNull()
+    })
+  })
+
+  // task-vacancy-salary-range (AC2) — publishing (DRAFT→PUBLISHED or the
+  // CLOSED→PUBLISHED re-open) is blocked without a filled salary range.
+  describe('update — salary range gate on publish (AC2)', () => {
+    it('rejects DRAFT → PUBLISHED with 400 when the row has no salary range', async () => {
+      const draftRow = makeRow({ status: 'DRAFT' })
+      const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await expect(svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })).rejects.toThrow(
+        BadRequestException,
+      )
+    })
+
+    it('rejects CLOSED → PUBLISHED (re-open) with 400 when the row has no salary range (a legacy vacancy stays blocked from re-opening until filled in)', async () => {
+      const closedRow = makeRow({ status: 'CLOSED' })
+      const h = makeHarness({ findFirstQueue: [closedRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await expect(svc.update(ADMIN, closedRow.id, { status: 'PUBLISHED' })).rejects.toThrow(
+        BadRequestException,
+      )
+    })
+
+    it('rejects when only SOME of the 4 salary fields are set on the row', async () => {
+      const draftRow = makeRow({
+        status: 'DRAFT',
+        salaryMin: '3000.00',
+        salaryMax: '5000.00',
+        // salaryCurrency / salaryPeriod left null
+      })
+      const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      await expect(svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })).rejects.toThrow(
+        BadRequestException,
+      )
+    })
+
+    it('succeeds when the row ALREADY has a filled salary range', async () => {
+      const draftRow = makeRow({ status: 'DRAFT', ...VALID_SALARY_ROW })
+      const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      const result = await svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })
+      expect(result.status).toBe('PUBLISHED')
+    })
+
+    it('succeeds when the SAME PATCH fills the salary range and publishes in one request (a legacy vacancy being fixed up)', async () => {
+      const draftRow = makeRow({ status: 'DRAFT' }) // no salary on the row
+      const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      const result = await svc.update(ADMIN, draftRow.id, {
+        status: 'PUBLISHED',
+        ...VALID_SALARY,
+      })
+      expect(result.status).toBe('PUBLISHED')
+      expect(h.getUpdatedRow()?.salaryMin).toBe('3000')
     })
   })
 
   describe('update — Google Indexing hooks (task-google-indexing-api §2)', () => {
     it('DRAFT → PUBLISHED calls notifyUpdated with the careers URL (trailing slash)', async () => {
-      const draftRow = makeRow({ status: 'DRAFT', slug: 'senior-react-developer' })
+      const draftRow = makeRow({
+        status: 'DRAFT',
+        slug: 'senior-react-developer',
+        ...VALID_SALARY_ROW,
+      })
       const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await svc.update(ADMIN, draftRow.id, { status: 'PUBLISHED' })
@@ -375,7 +502,11 @@ describe('VacanciesService', () => {
     })
 
     it('CLOSED → PUBLISHED (re-open) also calls notifyUpdated (freshens the index entry again)', async () => {
-      const closedRow = makeRow({ status: 'CLOSED', slug: 'senior-react-developer' })
+      const closedRow = makeRow({
+        status: 'CLOSED',
+        slug: 'senior-react-developer',
+        ...VALID_SALARY_ROW,
+      })
       const h = makeHarness({ findFirstQueue: [closedRow], applicationCounts: [] })
       const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
       await svc.update(ADMIN, closedRow.id, { status: 'PUBLISHED' })
@@ -442,7 +573,11 @@ describe('VacanciesService', () => {
     })
 
     it('AC4: a GoogleIndexingService failure does NOT break the transition — update() still resolves and returns the new status (defense-in-depth: the real service never rejects, but the call site catches anyway)', async () => {
-      const draftRow = makeRow({ status: 'DRAFT', slug: 'senior-react-developer' })
+      const draftRow = makeRow({
+        status: 'DRAFT',
+        slug: 'senior-react-developer',
+        ...VALID_SALARY_ROW,
+      })
       const h = makeHarness({ findFirstQueue: [draftRow], applicationCounts: [] })
       ;(h.googleIndexing.notifyUpdated as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
         new Error('Google Indexing API unreachable'),
@@ -526,6 +661,34 @@ describe('VacanciesService', () => {
       expect(result.descriptionMd).toBe(row.descriptionMd)
       expect(result.isFallback).toBe(false)
       expect(result.relatedVacancies).toEqual([])
+    })
+
+    // AC3 — a legacy vacancy without a salary range still returns a valid
+    // detail DTO (all 4 keys present, `null`), nothing throws.
+    it('getPublicBySlug returns null salary fields for a legacy vacancy without a range (AC3)', async () => {
+      const row = makeRow({ status: 'PUBLISHED', publishedAt: new Date('2026-07-01T00:00:00Z') })
+      const h = makeHarness({ findFirstQueue: [row] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      const result = await svc.getPublicBySlug(row.slug)
+      expect(result.salaryMin).toBeNull()
+      expect(result.salaryMax).toBeNull()
+      expect(result.salaryCurrency).toBeNull()
+      expect(result.salaryPeriod).toBeNull()
+    })
+
+    it('getPublicBySlug returns the filled salary range when present', async () => {
+      const row = makeRow({
+        status: 'PUBLISHED',
+        publishedAt: new Date('2026-07-01T00:00:00Z'),
+        ...VALID_SALARY_ROW,
+      })
+      const h = makeHarness({ findFirstQueue: [row] })
+      const svc = new VacanciesService(h.db, h.googleIndexing, h.config)
+      const result = await svc.getPublicBySlug(row.slug)
+      expect(result.salaryMin).toBe('3000.00')
+      expect(result.salaryMax).toBe('5000.00')
+      expect(result.salaryCurrency).toBe('USDT')
+      expect(result.salaryPeriod).toBe('MONTH')
     })
 
     // task C5 — a CLOSED (formerly-live) posting is 410 Gone, distinct from

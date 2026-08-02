@@ -250,6 +250,13 @@ export const en: Dictionary = {
     allRoles: 'All roles',
     domainLabels: { AI: 'AI / ML', EDTECH: 'EdTech', ECOMMERCE: 'E-Commerce', OTHER: 'Other' },
     employmentTypeLabels: { FULL_TIME: 'Full-time', PART_TIME: 'Part-time', CONTRACT: 'Contract' },
+    salaryPeriodLabels: {
+      HOUR: 'per hour',
+      DAY: 'per day',
+      WEEK: 'per week',
+      MONTH: 'per month',
+      YEAR: 'per year',
+    },
     breadcrumbHome: 'Home',
     breadcrumbCareers: 'Careers',
     titleSuffix: 'CheekyCheeseIT Careers',

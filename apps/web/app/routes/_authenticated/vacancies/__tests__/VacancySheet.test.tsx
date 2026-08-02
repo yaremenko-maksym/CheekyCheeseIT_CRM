@@ -74,6 +74,10 @@ const EXISTING_VACANCY: Vacancy = {
   responsibilities: null,
   jobBenefits: null,
   workHours: null,
+  salaryMin: null,
+  salaryMax: null,
+  salaryCurrency: null,
+  salaryPeriod: null,
 }
 
 describe('VacancySheet — auto-slug generation (§4.2)', () => {
@@ -166,6 +170,10 @@ describe('VacancySheet — create mode submit', () => {
   // task-vacancies-form-simplify: «Уровень»/«Локация» controls are removed —
   // the payload never comes from user input for these two fields; the
   // schema's `.default()` fills them (createVacancySchema.seniority/location).
+  // task-vacancy-salary-range (AC1) — salaryMin/salaryMax/salaryCurrency/
+  // salaryPeriod are now REQUIRED by createVacancySchema; salaryCurrency/
+  // salaryPeriod default to USDT/MONTH in the form itself (never blank), but
+  // salaryMin/salaryMax must be filled in for the schema to accept the create.
   it('submits POST /vacancies with the trimmed payload — seniority/location default to SENIOR/Remote', async () => {
     renderSheet(null)
     fireEvent.change(screen.getByTestId('vacancy-form-title'), {
@@ -174,6 +182,8 @@ describe('VacancySheet — create mode submit', () => {
     fireEvent.change(screen.getByTestId('vacancy-form-description'), {
       target: { value: 'A long enough description for validation.' },
     })
+    fireEvent.change(screen.getByTestId('vacancy-form-salary-min'), { target: { value: '3000' } })
+    fireEvent.change(screen.getByTestId('vacancy-form-salary-max'), { target: { value: '5000' } })
     fireEvent.click(screen.getByTestId('vacancy-sheet-submit'))
 
     await waitFor(() => expect(apiPost).toHaveBeenCalledTimes(1))
@@ -186,12 +196,30 @@ describe('VacancySheet — create mode submit', () => {
       seniority: 'SENIOR',
       employmentType: 'FULL_TIME',
       location: 'Remote',
+      salaryMin: 3000,
+      salaryMax: 5000,
+      salaryCurrency: 'USDT',
+      salaryPeriod: 'MONTH',
     })
   })
 
   it('does NOT submit when required fields fail validation (title too short)', async () => {
     renderSheet(null)
     fireEvent.change(screen.getByTestId('vacancy-form-title'), { target: { value: 'ab' } })
+    fireEvent.click(screen.getByTestId('vacancy-sheet-submit'))
+    await new Promise((r) => setTimeout(r, 50))
+    expect(apiPost).not.toHaveBeenCalled()
+  })
+
+  it('does NOT submit when the salary range is missing (AC1)', async () => {
+    renderSheet(null)
+    fireEvent.change(screen.getByTestId('vacancy-form-title'), {
+      target: { value: 'Senior React Developer' },
+    })
+    fireEvent.change(screen.getByTestId('vacancy-form-description'), {
+      target: { value: 'A long enough description for validation.' },
+    })
+    // salaryMin/salaryMax left blank — createVacancySchema requires them.
     fireEvent.click(screen.getByTestId('vacancy-sheet-submit'))
     await new Promise((r) => setTimeout(r, 50))
     expect(apiPost).not.toHaveBeenCalled()
