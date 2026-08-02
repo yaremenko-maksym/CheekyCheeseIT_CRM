@@ -1,21 +1,52 @@
 name: Labels Sync
 
 # Применяет `.github/labels.yml` как declarative source of truth для repo labels.
-# Триггеры:
-#   - push в main с изменениями в .github/labels.yml → real sync
-#   - workflow_dispatch → dry-run по умолчанию (показывает diff в логах)
+#
+# ЗАПУСКАЕТСЯ ТОЛЬКО ВРУЧНУЮ. Это осознанное решение (2026-08-01), а не недоделка.
+#
+# ── Почему не автоматически ────────────────────────────────────────────────
+#
+# Здесь был триггер `push: branches:[main]` + `paths: .github/labels.yml`. Он
+# не отработал НИ РАЗУ за всю историю репозитория (`gh run list
+# --workflow=labels-sync.yml` был пуст), хотя labels.yml менялся в мерженых PR.
+# Причина та же, что у мёртвого push-триггера в ci.yml (см.
+# scripts/devops/post-merge-ci-runbook.md §1.1): каждый мерж — сквош от
+# GITHUB_TOKEN, а GitHub не создаёт push-события для таких пушей. Триггер
+# обещал автоматизацию, которой не было — и это хуже, чем её отсутствие.
+#
+# Лечится это, как и там, явным `workflow_dispatch` из auto-merge-on-label.yml.
+# НО здесь так делать НЕЛЬЗЯ, и вот почему:
+#
+#   `skip-delete: false` — это ПОЛНАЯ синхронизация: любая метка, которой нет
+#   в yml, удаляется из репозитория. При этом наши workflow создают метки НА
+#   ЛЕТУ через `gh label create` — `ci-failed` (ci.yml), `e2e-broken`
+#   (notify_e2e), `ci-main-broken` (post_merge_alert). Сейчас все они в yml
+#   объявлены, но стоит кому-то добавить новую метку в workflow и забыть про
+#   этот файл — на ближайшем же мерже её молча снесёт. Деструктивная операция
+#   на каждом мерже ради файла, который меняется пару раз в год, — плохой
+#   размен.
+#
+# Поэтому: меняешь labels.yml → запусти вручную сам, посмотрев diff.
+#
+# ── Как пользоваться ───────────────────────────────────────────────────────
+#
+#   gh workflow run labels-sync.yml --ref main -f dry-run=true   # сначала ЭТО
+#   gh workflow run labels-sync.yml --ref main -f dry-run=false  # потом, если diff устраивает
+#
+# Сверить, что именно будет удалено:
+#   comm -23 <(gh label list --limit 100 --json name --jq '.[].name' | sort) \
+#            <(python3 -c "import yaml;[print(x['name']) for x in yaml.safe_load(open('.github/labels.yml'))]" | sort)
+#
+# Замер 2026-08-01: расхождения НЕТ — все 21 метки совпадают, sync ничего не
+# создаст и не удалит. (Промежуточно `deploy-broken` выглядела осиротевшей —
+# жила в репо, но не в yml; PR #457 её объявил вместе с алертом на падение
+# деплоя, который её и ставит. Мораль та же, что в шапке labels.yml: метку,
+# создаваемую workflow, надо объявлять здесь же.)
 #
 # Action: crazy-max/ghaction-github-labeler@v5
-#   - skip-delete: false → labels отсутствующие в yml будут удалены из repo
-#     (полная синхронизация, не just add/update)
-#
 # См. docs/specs/tasks/task-infra-labels-yml-sync.md для контекста.
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - '.github/labels.yml'
   workflow_dispatch:
     inputs:
       dry-run:
@@ -35,8 +66,8 @@ jobs:
     name: Sync labels from .github/labels.yml
     runs-on: ubuntu-latest
     permissions:
-      issues: write           # labels — issue-level objects, нужен write
-      pull-requests: write    # apply labels на PR'ы тоже под этой perm
+      issues: write # labels — issue-level objects, нужен write
+      pull-requests: write # apply labels на PR'ы тоже под этой perm
     steps:
       - uses: actions/checkout@v4
 
@@ -47,6 +78,8 @@ jobs:
           # skip-delete=false → если label есть в repo но нет в yml — удалить.
           # Это полная sync, не upsert. Цель — yml = single source of truth.
           skip-delete: false
-          # dry-run только при ручном workflow_dispatch (default true для safety).
-          # push в main всегда применяет (это контролируемый flow через PR review).
-          dry-run: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run || false }}
+          # Прямо из инпута: `workflow_dispatch` теперь единственный триггер,
+          # поэтому прежняя проверка `github.event_name == 'workflow_dispatch'`
+          # (и ветка «push в main всегда применяет») стали мёртвыми. Дефолт
+          # инпута — `true`, то есть случайный запуск ничего не удалит.
+          dry-run: ${{ inputs.dry-run }}

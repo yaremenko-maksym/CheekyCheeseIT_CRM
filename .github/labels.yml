@@ -1,7 +1,15 @@
 # Declarative source of truth для GitHub labels.
 #
-# Применяется через GHA workflow `.github/workflows/labels-sync.yml`
-# (см. docs/specs/tasks/task-infra-labels-yml-sync.md) при push в main.
+# ⚠️ ЛЮБАЯ метка, которую workflow создаёт на лету через `gh label create`,
+# ОБЯЗАНА быть объявлена здесь. Синхронизация деструктивная (`skip-delete:
+# false`): чего нет в этом файле — удаляется из репозитория. Сейчас так
+# создаются `ci-failed` (ci.yml), `e2e-broken` (notify_e2e) и `ci-main-broken`
+# (post_merge_alert) — все три ниже есть. Добавляешь новую в workflow —
+# добавь и сюда, иначе её снесёт первым же запуском sync.
+#
+# Применяется через `.github/workflows/labels-sync.yml` — ТОЛЬКО вручную
+# (`gh workflow run labels-sync.yml --ref main -f dry-run=true` сначала).
+# Почему не автоматически — в шапке того файла.
 # Action: crazy-max/ghaction-github-labeler@v5.
 #
 # Локально проверить diff: `gh label list --json name,color,description --jq .`
