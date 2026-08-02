@@ -97,7 +97,13 @@ function makeDb(opts: {
    *  the mutation) — defaults to the post-mutation shape of `txRow`. */
   refetchRow?: Record<string, unknown>
 }) {
-  const updateSetMock = vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) })
+  // security-review PR #456 (MED-1): production now chains
+  // `.where(...).returning(...)` and checks the affected row count (delete↔
+  // write TOCTOU close) — the mock chain must expose `.returning()` too.
+  const updateWhereMock = vi.fn().mockReturnValue({
+    returning: vi.fn().mockResolvedValue([{ id: TX_ID }]),
+  })
+  const updateSetMock = vi.fn().mockReturnValue({ where: updateWhereMock })
   const dbtxUpdateMock = vi.fn().mockReturnValue({ set: updateSetMock })
   const dbtxInsertValuesMock = vi.fn().mockResolvedValue([])
   const dbtxInsertMock = vi.fn().mockReturnValue({ values: dbtxInsertValuesMock })
@@ -116,11 +122,20 @@ function makeDb(opts: {
       },
     ) // findOne's enrichment fetch(es) afterwards
 
-  const transactionMock = vi
-    .fn()
-    .mockImplementation((fn: (dbtx: unknown) => Promise<unknown>) =>
-      fn({ update: dbtxUpdateMock, insert: dbtxInsertMock }),
-    )
+  // security-review PR #456 (MED-1): the pending_obligations re-check now runs
+  // INSIDE the transaction (on `dbtx.query`, not `this.db.db.query`) to shrink
+  // the create-obligation↔delete race window — the mocked `dbtx` must expose
+  // the same `query.pendingObligations.findFirst` the outer `db` does.
+  const dbtxPendingObligationsFindFirstMock = vi.fn().mockResolvedValue(opts.obligationRow ?? null)
+  const transactionMock = vi.fn().mockImplementation((fn: (dbtx: unknown) => Promise<unknown>) =>
+    fn({
+      update: dbtxUpdateMock,
+      insert: dbtxInsertMock,
+      query: {
+        pendingObligations: { findFirst: dbtxPendingObligationsFindFirstMock },
+      },
+    }),
+  )
 
   const db = {
     db: {
@@ -240,7 +255,13 @@ describe('adminDeleteTransaction — RBAC + mandatory reason', () => {
     await expect(svc.adminDeleteTransaction(TX_ID, 'valid reason', ADMIN_USER)).rejects.toThrow(
       BadRequestException,
     )
-    expect(mocks.transactionMock).not.toHaveBeenCalled()
+    // security-review PR #456 (MED-1): the obligation re-check moved INSIDE
+    // db.transaction (right before the UPDATE) to shrink the create-obligation
+    // ↔ delete race window — the transaction callback now DOES run (and
+    // throws from inside it), it just never reaches the UPDATE/journal insert.
+    expect(mocks.transactionMock).toHaveBeenCalledTimes(1)
+    expect(mocks.dbtxUpdateMock).not.toHaveBeenCalled()
+    expect(mocks.dbtxInsertMock).not.toHaveBeenCalled()
   })
 })
 

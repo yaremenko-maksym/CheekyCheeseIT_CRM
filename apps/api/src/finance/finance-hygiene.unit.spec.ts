@@ -510,9 +510,16 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
           }),
         }),
         // MED-F (round 4): row write + registry claim share ONE transaction.
+        // security-review PR #456 (MED-1): adminUpdateTransaction's UPDATE now
+        // chains `.returning(...)` and checks the affected row count — the
+        // stub must expose `.returning()` resolving a non-empty array.
         transaction: async (cb: (dbtx: unknown) => Promise<unknown>) =>
           cb({
-            update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+            update: () => ({
+              set: () => ({
+                where: () => ({ returning: () => Promise.resolve([{ id: 'tx-paid-003' }]) }),
+              }),
+            }),
             insert: () => ({ values: () => Promise.resolve() }),
           }),
       },
@@ -556,9 +563,15 @@ describe('AC3 BIZ-18 — adminUpdateTransaction: blocks edits to PAID non-compan
           }),
         }),
         // MED-F (round 4): row write + registry claim share ONE transaction.
+        // security-review PR #456 (MED-1): see the notes-only test above —
+        // same `.returning()` chain requirement.
         transaction: async (cb: (dbtx: unknown) => Promise<unknown>) =>
           cb({
-            update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+            update: () => ({
+              set: () => ({
+                where: () => ({ returning: () => Promise.resolve([{ id: 'tx-pend-001' }]) }),
+              }),
+            }),
             insert: () => ({ values: () => Promise.resolve() }),
           }),
       },
@@ -596,8 +609,15 @@ describe('AC4 BIZ-17 — updateDropIncome: resubmit REJECTED DROP_INCOME', () =>
           },
         },
         transaction: async (cb: (dbtx: unknown) => Promise<unknown>) => {
+          // security-review PR #456 (MED-1): replaceReceiptAtomic's UPDATE
+          // (called by updateDropIncome) now chains `.returning(...)` and
+          // checks the affected row count — the stub must expose it.
           const dbtx = {
-            update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+            update: () => ({
+              set: () => ({
+                where: () => ({ returning: () => Promise.resolve([{ id: fullTx.id }]) }),
+              }),
+            }),
             delete: () => ({ where: () => Promise.resolve() }),
           }
           return cb(dbtx)

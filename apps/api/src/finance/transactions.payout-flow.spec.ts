@@ -307,9 +307,12 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     const tx = makeTx({ status: 'PENDING', type: 'SENIOR_INCOME' })
 
     const dbInsertMock = vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) })
+    // security-review PR #456 (MED-1): validateTransaction's UPDATE now
+    // chains `.returning(...)` and checks the affected row count (delete↔
+    // validate TOCTOU close) — the mock chain must expose `.returning()`.
     const dbUpdateMock = vi.fn().mockReturnValue({
       set: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
+        where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: tx.id }]) }),
       }),
     })
     // task-soft-delete-and-money-audit (AC5): validateTransaction now wraps
@@ -425,8 +428,14 @@ describe('validateTransaction — DROP_INCOME flip-only (task-drop-payout-compan
     })
 
     const dbInsertMock = vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) })
+    // security-review PR #456 (MED-1): see the SENIOR_INCOME test above —
+    // same `.returning()` chain requirement.
     const dbUpdateMock = vi.fn().mockReturnValue({
-      set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: dropTx.id }]),
+        }),
+      }),
     })
     const dbTransactionMock = vi
       .fn()
