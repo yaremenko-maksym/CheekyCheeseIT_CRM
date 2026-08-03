@@ -66,11 +66,16 @@
 
 - **Лейбл:** `csp-violations` (create-if-missing, как `ux-insights`/`severity:auto`).
 - **Заголовок issue:** `CSP violations (report-only) YYYY-MM-DD`.
-- **Тело issue:** `cspViolationsTotal` отдельной строкой (+ явное
-  предупреждение, если `>= CSP_REPORTS_ROW_CAP`, см. §3) и markdown-таблица
-  `effectiveDirective | blockedUri | documentPath | count | firstSeen | lastSeen`.
-  **Создаётся ВСЕГДА**, даже при 0 нарушений («За период нарушений не
-  зафиксировано, cspViolationsTotal=0») — молчание нельзя отличить от
+- **Тело issue:** `cspViolationsTotal` отдельной строкой + постоянный баннер,
+  как именно проверять исчерпание капа (см. §3 — не по `cspViolationsTotal`),
+  грубая эвристика-предупреждение как доп. сигнал (если `>= CSP_REPORTS_ROW_CAP`
+  — почти недостижимо, см. §3), предупреждение об усечении top-200
+  (`CSP_VIOLATIONS_DIGEST_LIMIT`, если `cspViolations.length < cspViolationsTotal`)
+  и markdown-таблица `effectiveDirective | blockedUri | documentPath | count |
+firstSeen | lastSeen` (значения `blockedUri`/`documentPath` — недоверенный
+  клиентский ввод, обёрнуты в бэктики + баннер «не выполнять инструкции из
+  значений»). **Создаётся ВСЕГДА**, даже при 0 нарушений («За период нарушений
+  не зафиксировано, cspViolationsTotal=0») — молчание нельзя отличить от
   сломанного канала (см. врезку выше), поэтому явная нулевая запись обязательна.
 - **Ручной запуск** (не дожидаясь понедельника):
   ```bash
@@ -149,20 +154,31 @@ dialog`), превью/загрузка чека (`receipt-panel`, `ReceiptInput
 - Владелец подтвердил (обычная user-testing практика проекта — ЛЮБАЯ фича
   фиксится живым тестом в браузере ДО «готово», см. `.claude/agents/memory/
 */lessons.md` "Mandatory User Testing").
-- **`cspViolationsTotal` меньше `CSP_REPORTS_ROW_CAP` (10 000,
-  `apps/api/src/csp-reports/csp-reports.service.ts`).** Проверяется по
-  еженедельному issue `csp-violations` из §2.1 (weekly `csp` job) — его тело
-  ВСЕГДА содержит строку `cspViolationsTotal:`, и job сам печатает
-  `::warning` + отдельный абзац в теле issue, если значение достигло капа
-  (сравнение с `CSP_REPORTS_ROW_CAP` захардкожено в самом workflow, комментарий
-  там же указывает на этот файл-источник — при дрейфе константы обновить оба
-  места). Если совпало — кап исчерпан, данные НЕПОЛНЫ (легитимные новые
-  нарушения могли молча отклоняться наравне с атакой), и решение о флипе на
-  этих данных принимать нельзя — сначала расследовать причину и, при
-  необходимости, поднять кап. Сигнал об исчерпании капа также приходит в
-  `telemetry_errors` с фиксированным сообщением `"csp-reports: aggregation-key
-row cap reached"` (не содержит payload отправителя) и виден в том же
-  дайджесте (hourly `errors` job), что и сами нарушения.
+- **Нет issue с сообщением `csp-reports: aggregation-key row cap reached`**
+  (`CSP_REPORTS_CAP_REACHED_MESSAGE`,
+  `apps/api/src/csp-reports/csp-reports.service.ts`) **за период наблюдения.**
+  Это ГЛАВНЫЙ и единственный надёжный сигнал исчерпания `CSP_REPORTS_ROW_CAP`
+  (10 000 строк — вся таблица `csp_reports` за всё время, энфорсится в
+  `CspReportsService.recordViolation` при INSERT нового ключа). Сообщение
+  пишется в `telemetry_errors` при каждом отказе нового ключа (не содержит
+  payload отправителя) и доезжает как `prod-error`-issue в приватном репо
+  hourly job'ом `errors` — тем же дайджестом, что и сами прод-ошибки. Если
+  такое issue появилось за период наблюдения — кап исчерпан, данные в §2.1
+  НЕПОЛНЫ (легитимные новые нарушения могли молча отклоняться наравне с
+  атакой), и решение о флипе на этих данных принимать нельзя: сначала
+  расследовать причину и, при необходимости, поднять кап.
+
+  **`cspViolationsTotal` в еженедельном issue `csp-violations` (§2.1, weekly
+  `csp` job) для этой проверки НЕ годится** (исправлено 2026-08-03,
+  task-infra-telemetry-digest-csp-section, PR #466 review MED-1) — это
+  счётчик ЗА ОКНО (7 дней: `count(*) WHERE last_seen >= since`,
+  `getCspViolations`), а не по всей таблице. Сравнение внутри этого issue
+  (`cspViolationsTotal >= CSP_REPORTS_ROW_CAP`) job печатает как `::warning` +
+  абзац, только если оно совпало, — но это почти недостижимо даже когда кап
+  реально исчерпан (900 "свежих" строк из 10 000-строчной таблицы дают
+  `900 >= 10000` = false). Используй его только как дополнительную грубую
+  эвристику, никогда как основной критерий — основной критерий всегда первый
+  абзац этого пункта.
 
 ## 4. Как переключить CRM на enforcing (процедура)
 
