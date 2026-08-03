@@ -1423,6 +1423,17 @@ export const transactionAuditLog = pgTable(
 // carries the category + a source discriminator). Answers "who downloaded
 // this scan" after the fact; write-only from the app's perspective in this
 // PR (no read endpoint — an ADMIN can query the table directly for now).
+//
+// MED-5 (security-review round 1): `actor_id` index added — "who accessed
+// what" queries filter by actor at least as often as by target ("what did
+// this person download") — and a 365-day retention purge is wired via
+// `DocumentAccessLogRetentionCronService` (apps/api/src/documents/
+// document-access-log-retention.cron.ts). No OTHER *_audit_log table in this
+// schema (user/team/project/transaction) has a retention cron either — this
+// is a new, project-local precedent, not a gap relative to an existing
+// pattern; 365 days is a reasoned default (audit trails conventionally
+// outlive the PII they describe) documented in that cron's own file header,
+// not an owner-mandated figure — revisit if the owner wants a different window.
 // ---------------------------------------------------------------------------
 
 export const documentAccessLog = pgTable(
@@ -1433,12 +1444,13 @@ export const documentAccessLog = pgTable(
     // documents.id OR vacancy_applications.id — intentionally NO FK
     // reference, same rationale as transaction_audit_log.targetId.
     targetId: uuid('target_id').notNull(),
-    action: text('action').notNull(), // 'DOWNLOAD' | 'PREVIEW'
+    action: text('action').notNull(), // 'DOWNLOAD' | 'PREVIEW' | 'THUMBNAIL'
     metadata: jsonb('metadata').notNull().default({}),
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
     index('document_access_log_target_id_idx').on(t.targetId),
+    index('document_access_log_actor_id_idx').on(t.actorId),
     index('document_access_log_created_at_idx').on(t.createdAt),
   ],
 )

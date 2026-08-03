@@ -700,18 +700,28 @@ export class DocumentsService {
 
   /**
    * task-file-storage-hardening §7: best-effort access-log entry — "who
-   * downloaded/previewed this document and when" was previously
-   * unanswerable. Only sensitive categories are logged (CONTRACT/RECEIPT/
-   * INVOICE/RESUME/SCAN) — AVATAR/LOGO fetch constantly as part of ordinary
-   * list rendering and carry no meaningful "who accessed this" question.
-   * Never records the presigned URL itself, only actor/document/category. A
-   * logging failure must not block the actual download/preview.
+   * downloaded/previewed/thumbnail-viewed this document and when" was
+   * previously unanswerable. Only sensitive categories are logged
+   * (CONTRACT/RECEIPT/INVOICE/RESUME/SCAN) — AVATAR/LOGO fetch constantly as
+   * part of ordinary list rendering and carry no meaningful "who accessed
+   * this" question. Never records the presigned URL itself, only
+   * actor/document/category. A logging failure must not block the actual
+   * download/preview/thumbnail fetch.
+   *
+   * MED-5 (security-review round 1): thumbnails are now logged too — a
+   * thumbnail of a sensitive SCAN/RESUME still exposes the same underlying
+   * image content (the earlier version of this method deliberately skipped
+   * `getThumbnailUrl` to avoid noise, but the review correctly pointed out
+   * that "who viewed this" is exactly as meaningful for a thumbnail as for
+   * the full download when the category is sensitive — the noise concern
+   * doesn't apply here the way it does for AVATAR/LOGO, which are already
+   * excluded by the `isSensitiveCategory` gate below regardless of action).
    */
   private async logAccess(
     actor: SessionUser,
     docId: string,
     category: DocumentCategory,
-    action: 'DOWNLOAD' | 'PREVIEW',
+    action: 'DOWNLOAD' | 'PREVIEW' | 'THUMBNAIL',
   ): Promise<void> {
     if (!isSensitiveCategory(category)) return
     try {
@@ -1471,6 +1481,7 @@ export class DocumentsService {
     // a leaked thumbnail URL should expire at the same time as the full file.
     const category = doc.category as DocumentCategory
     const ttl = presignTtlForCategory(category)
+    await this.logAccess(actor, doc.id, category, 'THUMBNAIL')
     return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl, undefined, 'inline', category)
   }
 }

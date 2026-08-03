@@ -28,7 +28,13 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
-import { projectMembers, projects, teamMembers, transactions } from '../database/schema'
+import {
+  documentAccessLog,
+  projectMembers,
+  projects,
+  teamMembers,
+  transactions,
+} from '../database/schema'
 import type { HrAccessService } from '../common/hr-access.service'
 
 // -----------------------------------------------------------------------------
@@ -163,6 +169,10 @@ function makeHarness(opts: HarnessOptions = {}) {
   // soft-delete filter.
   let findFirstCallCount = 0
 
+  // task-file-storage-hardening MED-5: captures rows inserted into
+  // documentAccessLog (logAccess) so tests can assert on them directly.
+  const accessLogRows: Record<string, unknown>[] = []
+
   const db = {
     db: {
       query: {
@@ -236,30 +246,42 @@ function makeHarness(opts: HarnessOptions = {}) {
         },
       }),
 
-      insert: (_table: unknown) => ({
-        values: (values: Record<string, unknown>) => ({
-          returning: async () => {
-            const row: DocRow = {
-              id: (values['id'] as string) ?? `new-${docsRows.length}`,
-              ownerId: values['ownerId'] as string,
-              projectId: (values['projectId'] as string) ?? null,
-              category: values['category'] as string,
-              name: values['name'] as string,
-              originalName: (values['originalName'] as string) ?? null,
-              s3Key: values['s3Key'] as string,
-              thumbnailS3Key: (values['thumbnailS3Key'] as string) ?? null,
-              sizeBytes: values['sizeBytes'] as number,
-              mimeType: values['mimeType'] as string,
-              uploadedBy: values['uploadedBy'] as string,
-              deletedAt: null,
-              deletedBy: null,
-              createdAt: new Date(),
-            }
-            docsRows.push(row)
-            return [row]
-          },
-        }),
-      }),
+      insert: (_table: unknown) => {
+        if (_table === documentAccessLog) {
+          return {
+            values: (values: Record<string, unknown>) => {
+              accessLogRows.push(values)
+              // logAccess() awaits this directly with no `.returning()` —
+              // a plain resolved value makes `await insert().values(...)` work.
+              return Promise.resolve(undefined)
+            },
+          }
+        }
+        return {
+          values: (values: Record<string, unknown>) => ({
+            returning: async () => {
+              const row: DocRow = {
+                id: (values['id'] as string) ?? `new-${docsRows.length}`,
+                ownerId: values['ownerId'] as string,
+                projectId: (values['projectId'] as string) ?? null,
+                category: values['category'] as string,
+                name: values['name'] as string,
+                originalName: (values['originalName'] as string) ?? null,
+                s3Key: values['s3Key'] as string,
+                thumbnailS3Key: (values['thumbnailS3Key'] as string) ?? null,
+                sizeBytes: values['sizeBytes'] as number,
+                mimeType: values['mimeType'] as string,
+                uploadedBy: values['uploadedBy'] as string,
+                deletedAt: null,
+                deletedBy: null,
+                createdAt: new Date(),
+              }
+              docsRows.push(row)
+              return [row]
+            },
+          }),
+        }
+      },
 
       update: (_table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
@@ -333,6 +355,7 @@ function makeHarness(opts: HarnessOptions = {}) {
     hrAccess,
     db,
     docsRows,
+    accessLogRows,
     getFindFirstCount: () => findFirstCallCount,
   }
 }
@@ -763,6 +786,85 @@ describe('DocumentsService.getDownloadUrl', () => {
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  // task-file-storage-hardening MED-5 (security-review round 1): the
+  // documents.ts path (getDownloadUrl/getPreviewUrl/getThumbnailUrl) had no
+  // test coverage for the access-log write at all — applications.service.ts
+  // (vacancy resumes) did, this closes the gap for the `documents` table path.
+  describe('access-log coverage on the documents path (MED-5)', () => {
+    it('getDownloadUrl writes a DOWNLOAD row to documentAccessLog, without the URL', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getDownloadUrl(SENIOR, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      const row = h.accessLogRows[0]!
+      expect(row['actorId']).toBe(SENIOR.id)
+      expect(row['targetId']).toBe('d1')
+      expect(row['action']).toBe('DOWNLOAD')
+      expect(row['metadata']).toEqual({ category: 'RESUME' })
+      expect(JSON.stringify(row)).not.toContain('signed.example')
+    })
+
+    it('getPreviewUrl writes a PREVIEW row to documentAccessLog', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'CONTRACT' }],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getPreviewUrl(SENIOR, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      expect(h.accessLogRows[0]!['action']).toBe('PREVIEW')
+      expect(h.accessLogRows[0]!['metadata']).toEqual({ category: 'CONTRACT' })
+    })
+
+    it('getThumbnailUrl writes a THUMBNAIL row for a sensitive category (MED-5 — thumbnails are logged now)', async () => {
+      const h = makeHarness({
+        docs: [
+          {
+            id: 'd1',
+            ownerId: SENIOR.id,
+            category: 'SCAN',
+            thumbnailS3Key: 'documents/SCAN/x/thumb.jpg',
+          },
+        ],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getThumbnailUrl(SENIOR, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      expect(h.accessLogRows[0]!['action']).toBe('THUMBNAIL')
+      expect(h.accessLogRows[0]!['metadata']).toEqual({ category: 'SCAN' })
+    })
+
+    it('getDownloadUrl does NOT log AVATAR (non-sensitive category, unaffected by MED-5)', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'AVATAR' }],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getDownloadUrl(SENIOR, 'd1')
+      expect(h.accessLogRows).toHaveLength(0)
+    })
+
+    it('a failing access-log write does not block the download (best-effort)', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      // Force the insert to throw by pointing the mock's documentAccessLog
+      // branch at a rejecting promise for this one test.
+      h.db.db.insert = ((_table: unknown) => {
+        if (_table === documentAccessLog) {
+          return { values: () => Promise.reject(new Error('DB down')) }
+        }
+        return { values: () => ({ returning: async () => [] }) }
+      }) as typeof h.db.db.insert
+      const result = await h.service.getDownloadUrl(SENIOR, 'd1')
+      expect(result.url).toBeTruthy()
+    })
   })
 
   it('HR can download contracts of seniors from own teams', async () => {

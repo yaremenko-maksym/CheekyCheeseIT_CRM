@@ -12,9 +12,14 @@
 --      audit trail must OUTLIVE the row it describes — a resume can be
 --      hard-deleted or retention-purged and "who downloaded this scan" must
 --      still be answerable afterwards). Records WHO fetched a presigned
---      download/preview link for a sensitive document (RESUME/SCAN/CONTRACT/
---      RECEIPT/INVOICE from `documents`, or a vacancy application resume) and
---      WHEN — `metadata` carries only `{ category, source? }`, never the URL.
+--      download/preview/thumbnail link for a sensitive document (RESUME/SCAN/
+--      CONTRACT/RECEIPT/INVOICE from `documents`, or a vacancy application
+--      resume) and WHEN — `metadata` carries only `{ category, source? }`,
+--      never the URL. `actor_id` is indexed (MED-5, security-review round 1
+--      — "who accessed what" queries filter by actor at least as often as by
+--      target) and the app purges rows older than 365 days daily
+--      (`DocumentAccessLogRetentionCronService`) — no schema-level TTL, the
+--      cron issues a plain DELETE.
 --
 --   2. `vacancy_applications.resume_s3_key` / `resume_size_bytes` — made
 --      NULLABLE (§2). Resume retention is now 180 days from `created_at`
@@ -55,13 +60,16 @@ CREATE TABLE IF NOT EXISTS document_access_log (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
   target_id uuid NOT NULL,               -- documents.id OR vacancy_applications.id (no FK)
-  action text NOT NULL,                  -- 'DOWNLOAD' | 'PREVIEW'
+  action text NOT NULL,                  -- 'DOWNLOAD' | 'PREVIEW' | 'THUMBNAIL'
   metadata jsonb NOT NULL DEFAULT '{}',
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE INDEX IF NOT EXISTS document_access_log_target_id_idx
   ON document_access_log (target_id);
+
+CREATE INDEX IF NOT EXISTS document_access_log_actor_id_idx
+  ON document_access_log (actor_id);
 
 CREATE INDEX IF NOT EXISTS document_access_log_created_at_idx
   ON document_access_log (created_at);
@@ -79,6 +87,7 @@ ALTER TABLE vacancy_applications
 -- VERIFY (after applying):
 --   SELECT to_regclass('public.document_access_log');                -- not null
 --   SELECT indexname FROM pg_indexes WHERE tablename = 'document_access_log';
+--    -- expect: _pkey, _target_id_idx, _actor_id_idx, _created_at_idx
 --   SELECT column_name, is_nullable FROM information_schema.columns
 --    WHERE table_name = 'vacancy_applications'
 --      AND column_name IN ('resume_s3_key', 'resume_size_bytes');    -- both YES
