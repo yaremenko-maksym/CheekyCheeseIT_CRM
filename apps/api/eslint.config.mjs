@@ -74,14 +74,38 @@ export default [
           ],
         },
       ],
-      // security-review PR #456 round 2 ("форма F"): a relational `with: {...}`
-      // traversal reaches raw `transactions` rows WITHOUT ever importing the
-      // `transactions` table symbol — `projectsRelations`/`payoutRequestsRelations`
-      // both declare a `transactions: many(transactions)` relation (schema.ts), so
-      // `db.query.projects.findMany({ with: { transactions: true } })` is a live
-      // path the import-ban above cannot see (there is no import to flag). No file
-      // in this ban group uses a `transactions`-keyed relational include today
-      // (verified: zero matches) — this is a preventive close, not a live-bug fix.
+      // security-review PR #456 round 2 ("форма F") + round 3 (MED-1): TWO
+      // separate ways to reach raw `transactions` rows WITHOUT ever importing
+      // the `transactions` table symbol, so the import-ban above cannot see
+      // either one — it can only flag an import statement, and neither of
+      // these needs one:
+      //
+      //   1. Relational include: `projectsRelations`/`payoutRequestsRelations`
+      //      both declare `transactions: many(transactions)` (schema.ts), so
+      //      `db.query.projects.findMany({ with: { transactions: true } })`
+      //      reaches the raw table through the relation's STRING key, not an
+      //      import (round 2, "форма F").
+      //   2. Drizzle relational query API property access:
+      //      `db.query.transactions.findMany({})` needs `db` (already
+      //      imported everywhere) and nothing else — `.transactions` is a
+      //      property lookup on `db.query`, not a symbol import. Round 3's
+      //      review reproduced this LIVE against this exact rule (0 errors,
+      //      compiles clean) and confirmed it is the MORE likely regression
+      //      path of the two, not the less likely one: the idiom already
+      //      lives in ~30 call sites across this codebase (e.g.
+      //      `invoices.service.ts:650`), and `projects.service.ts` read this
+      //      exact way before this PR (see the "round-1 sugar" comment in
+      //      `admin-summary.service.ts`).
+      //
+      // No file in this ban group uses either form today (verified: zero
+      // matches for both) — this closes two reachable paths, not two live
+      // bugs. Known residuals, NOT closed by either selector below (same tier
+      // as the honestly-documented raw-SQL-literal residual, "форма E" —
+      // dynamic `import('../database/schema')` then `.transactions`, and a
+      // re-export of `transactions` from a non-banned module re-imported
+      // under a different name): both require the same deliberate,
+      // Drizzle-convention-breaking effort as форма E, and neither has ever
+      // appeared in this codebase.
       'no-restricted-syntax': [
         'error',
         {
@@ -92,6 +116,15 @@ export default [
             'the import-ban above cannot see it (security-review PR #456 round 2, "форма F"). ' +
             'Banned here for the same reason: use `nonDeletedTransactions` via an explicit ' +
             'query-builder select/join instead of a relational traversal into this table.',
+        },
+        {
+          selector: "MemberExpression[property.name='transactions']",
+          message:
+            'A `.transactions` property access (e.g. `db.query.transactions.findMany(...)`) ' +
+            'reaches raw, unfiltered transaction rows without importing the `transactions` ' +
+            'symbol at all — the import-ban above cannot see it (security-review PR #456 ' +
+            'round 3, MED-1). Use `nonDeletedTransactions` via an explicit query-builder ' +
+            'select/join instead of the relational query API for this table.',
         },
       ],
     },

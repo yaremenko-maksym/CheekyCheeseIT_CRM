@@ -845,8 +845,22 @@ export const transactions = pgTable(
 //     be replayed past a soft-deleted duplicate — these are read-only
 //     diagnostic/idempotency paths, never a money or visibility decision,
 //     and stay on the raw table too (still finance/-only).
+// security-review PR #456 round 3 (LOW, flagged as the one worth fixing): the
+// view's filter is now defined in exactly ONE place in TypeScript —
+// `NON_DELETED_TRANSACTIONS_PREDICATE` — instead of being inlined only inside
+// the `pgView(...).as(...)` callback below. This exists so
+// `non-deleted-transactions-view-consistency.spec.ts` can compile the SAME
+// predicate object the view actually uses (not a hand-copied re-statement of
+// it) and diff its rendered SQL against
+// `drizzle/manual/2026-08-03_non_deleted_transactions_view.sql`'s WHERE
+// clause — the two sources (dev/CI: this file, via `drizzle-kit push`; prod:
+// the manual SQL file, since prod ships no drizzle-kit) have no other tie
+// keeping them in sync, and were flagged as able to "разъехаться молча" (drift
+// apart silently) if either changes without the other.
+export const NON_DELETED_TRANSACTIONS_PREDICATE = isNull(transactions.deletedAt)
+
 export const nonDeletedTransactions = pgView('non_deleted_transactions').as((qb) =>
-  qb.select().from(transactions).where(isNull(transactions.deletedAt)),
+  qb.select().from(transactions).where(NON_DELETED_TRANSACTIONS_PREDICATE),
 )
 
 // ---------------------------------------------------------------------------

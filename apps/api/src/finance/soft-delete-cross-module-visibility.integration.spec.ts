@@ -31,6 +31,17 @@
  *       poll in this file — the assertion is about the soft-delete guard,
  *       not a race with the (keyless, auto-confirming) default fake.
  *
+ * security-review PR #456 round 3, MED-2 — `fetchWritableTransactionOrThrow`'s
+ * write-half (`assertTransactionNotDeleted`) had ZERO coverage: the reviewer
+ * removed that one line and all 2019 unit + 1019 integration tests stayed
+ * green, meaning the line was deletable and nothing would notice. Closed by
+ * the `signInvoice — privileged counterparty` test below: a viewer who passes
+ * the READ gate on a deleted row (ADMIN/ACCOUNTANT bypass) must still be
+ * blocked from SIGNING it — 400, not "signs it anyway". This is the exact
+ * scenario `assertTransactionNotDeleted` exists for; a privileged
+ * non-counterparty or a non-privileged counterparty never reach it (they 404
+ * earlier), so this is the ONLY test that can exercise this specific line.
+ *
  * DB-SKIP-GUARD: dbAvailable=false → every test early-returns (no DB in CI
  * unit job).
  *
@@ -43,7 +54,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { Pool } from 'pg'
 import { inArray } from 'drizzle-orm'
-import { ForbiddenException, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -84,11 +95,26 @@ const JUNIOR_STRANGER: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
+// security-review PR #456 round 3, MED-2: needs to be BOTH privileged (passes
+// the assertTransactionVisible READ gate on a deleted row) AND the
+// transaction's own counterparty (passes signInvoice's RBAC check) — the only
+// persona shape that can reach `fetchWritableTransactionOrThrow`'s write-half.
+const ACCOUNTANT_1: SessionUser = {
+  id: 'ad200000-0000-4000-aa00-000000000004',
+  email: 'xm-accountant@test.spec',
+  displayName: 'XM Accountant',
+  avatarUrl: null,
+  role: 'ACCOUNTANT',
+  seniorSharePercent: 0,
+  legalFullName: null,
+}
 
-const ALL_USER_IDS = [ADMIN_1, SENIOR_1, JUNIOR_STRANGER].map((u) => u.id)
+const ALL_USER_IDS = [ADMIN_1, SENIOR_1, JUNIOR_STRANGER, ACCOUNTANT_1].map((u) => u.id)
 const SENIOR_INCOME_TX_ID = 'ad200001-0000-4000-b000-000000000001'
 const DEPOSIT_TX_ID = 'ad200001-0000-4000-b000-000000000002'
+const PRIVILEGED_SALARY_TX_ID = 'ad200001-0000-4000-b000-000000000003'
 const INVOICE_DOC_ID = 'ad200003-0000-4000-d000-000000000001'
+const PRIVILEGED_SALARY_DOC_ID = 'ad200003-0000-4000-d000-000000000002'
 const ACCOUNT_ID = 'ad200002-0000-4000-c000-000000000001'
 const WALLET = '0xad20000000000000000000000000000000ad20'
 const DEPOSIT_HASH = '0x' + 'a'.repeat(64)
@@ -134,11 +160,15 @@ describe('security-review PR #456 round 2 (MED-1) — cross-module visibility re
     // Surgical cleanup of leftover rows from a previous failed run.
     await db
       .delete(transactions)
-      .where(inArray(transactions.id, [SENIOR_INCOME_TX_ID, DEPOSIT_TX_ID]))
-    await db.delete(documents).where(inArray(documents.id, [INVOICE_DOC_ID]))
+      .where(
+        inArray(transactions.id, [SENIOR_INCOME_TX_ID, DEPOSIT_TX_ID, PRIVILEGED_SALARY_TX_ID]),
+      )
+    await db
+      .delete(documents)
+      .where(inArray(documents.id, [INVOICE_DOC_ID, PRIVILEGED_SALARY_DOC_ID]))
     await db.delete(users).where(inArray(users.id, ALL_USER_IDS))
 
-    for (const u of [ADMIN_1, SENIOR_1, JUNIOR_STRANGER]) {
+    for (const u of [ADMIN_1, SENIOR_1, JUNIOR_STRANGER, ACCOUNTANT_1]) {
       await db.insert(users).values({
         id: u.id,
         email: u.email,
@@ -160,6 +190,35 @@ describe('security-review PR #456 round 2 (MED-1) — cross-module visibility re
       sizeBytes: 1024,
       mimeType: 'application/pdf',
       uploadedBy: ADMIN_1.id,
+    })
+    await db.insert(documents).values({
+      id: PRIVILEGED_SALARY_DOC_ID,
+      ownerId: ACCOUNTANT_1.id,
+      category: 'INVOICE',
+      name: 'invoice-ad200001-salary.pdf',
+      s3Key: `documents/invoice/${PRIVILEGED_SALARY_TX_ID}.pdf`,
+      sizeBytes: 1024,
+      mimeType: 'application/pdf',
+      uploadedBy: ADMIN_1.id,
+    })
+
+    // security-review PR #456 round 3, MED-2: a SALARY row whose RECEIVER
+    // (=counterparty, per `getCounterpartyId`) is ACCOUNTANT_1 — i.e. an
+    // ACCOUNTANT signing their OWN salary invoice. PAYOUT can't be used for
+    // this (`adminDeleteTransaction` refuses to delete PAYOUT/PAYOUT_ADMIN/
+    // PAYOUT_CONFIRMED rows outright), so SALARY is the only type reachable
+    // through the real delete path where a privileged viewer is also the
+    // counterparty.
+    await db.insert(transactions).values({
+      id: PRIVILEGED_SALARY_TX_ID,
+      type: 'SALARY',
+      status: 'PAID',
+      amount: '1000',
+      currency: 'USD',
+      receiverId: ACCOUNTANT_1.id,
+      invoiceDocumentId: PRIVILEGED_SALARY_DOC_ID,
+      salaryMonth: '2026-08',
+      createdBy: ADMIN_1.id,
     })
 
     // A PAID SENIOR_INCOME with an invoice already generated (auto-create
@@ -215,11 +274,13 @@ describe('security-review PR #456 round 2 (MED-1) — cross-module visibility re
     const db = drizzle(_pool, { schema })
     await db
       .delete(transactions)
-      .where(inArray(transactions.id, [SENIOR_INCOME_TX_ID, DEPOSIT_TX_ID]))
+      .where(
+        inArray(transactions.id, [SENIOR_INCOME_TX_ID, DEPOSIT_TX_ID, PRIVILEGED_SALARY_TX_ID]),
+      )
       .catch(() => undefined)
     await db
       .delete(documents)
-      .where(inArray(documents.id, [INVOICE_DOC_ID]))
+      .where(inArray(documents.id, [INVOICE_DOC_ID, PRIVILEGED_SALARY_DOC_ID]))
       .catch(() => undefined)
     await db
       .delete(users)
@@ -291,6 +352,37 @@ describe('security-review PR #456 round 2 (MED-1) — cross-module visibility re
       const fakeReq = { ip: '1.2.3.4', headers: {} } as never
       await expect(svc.signInvoice(SENIOR_1, SENIOR_INCOME_TX_ID, fakeReq)).rejects.toThrow(
         NotFoundException,
+      )
+      expect(pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
+      expect(documentsService.uploadInternal).not.toHaveBeenCalled()
+      expect(s3.getObject).not.toHaveBeenCalled()
+      expect(notificationsService.create).not.toHaveBeenCalled()
+    })
+
+    it('signInvoice — privileged counterparty (ACCOUNTANT signing their own deleted SALARY) gets 400, not a silent sign', async () => {
+      if (!dbAvailable) return
+      // ACCOUNTANT passes assertTransactionVisible's privileged-viewer bypass
+      // (sees the deleted row) AND is the row's own counterparty (passes the
+      // RBAC check) — the ONLY persona shape that reaches
+      // fetchWritableTransactionOrThrow's assertTransactionNotDeleted call.
+      // A non-privileged counterparty 404s earlier (visibility gate); a
+      // privileged non-counterparty 403s earlier (RBAC check) — neither can
+      // exercise this specific line.
+      await txSvc.adminDeleteTransaction(
+        PRIVILEGED_SALARY_TX_ID,
+        'MED-2 regression proof — privileged counterparty write-gate',
+        ADMIN_1,
+      )
+
+      pdfService.generateSignableInvoicePdf.mockClear()
+      documentsService.uploadInternal.mockClear()
+      s3.getObject.mockClear()
+      notificationsService.create.mockClear()
+
+      const svc = makeInvoicesSvc()
+      const fakeReq = { ip: '1.2.3.4', headers: {} } as never
+      await expect(svc.signInvoice(ACCOUNTANT_1, PRIVILEGED_SALARY_TX_ID, fakeReq)).rejects.toThrow(
+        BadRequestException,
       )
       expect(pdfService.generateSignableInvoicePdf).not.toHaveBeenCalled()
       expect(documentsService.uploadInternal).not.toHaveBeenCalled()
