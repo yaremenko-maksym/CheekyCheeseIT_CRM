@@ -74,6 +74,26 @@ export default [
           ],
         },
       ],
+      // security-review PR #456 round 2 ("форма F"): a relational `with: {...}`
+      // traversal reaches raw `transactions` rows WITHOUT ever importing the
+      // `transactions` table symbol — `projectsRelations`/`payoutRequestsRelations`
+      // both declare a `transactions: many(transactions)` relation (schema.ts), so
+      // `db.query.projects.findMany({ with: { transactions: true } })` is a live
+      // path the import-ban above cannot see (there is no import to flag). No file
+      // in this ban group uses a `transactions`-keyed relational include today
+      // (verified: zero matches) — this is a preventive close, not a live-bug fix.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "Property[key.name='transactions']",
+          message:
+            'A relational `with: { transactions: ... }` include reaches raw, ' +
+            'unfiltered transaction rows without importing the `transactions` symbol — ' +
+            'the import-ban above cannot see it (security-review PR #456 round 2, "форма F"). ' +
+            'Banned here for the same reason: use `nonDeletedTransactions` via an explicit ' +
+            'query-builder select/join instead of a relational traversal into this table.',
+        },
+      ],
     },
   },
 ]
