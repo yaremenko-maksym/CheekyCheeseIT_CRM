@@ -92,7 +92,12 @@ function makeService(contractRows: ReturnType<typeof makeContractRow>[]) {
 
   const s3 = {} as never
   const compression = {} as never
-  return new DocumentsService(db as never, s3, compression)
+  // task-file-storage-hardening HIGH-1: DocumentsService now injects
+  // HrAccessService (getTeammateIds' team-overlap step). This suite's SENIOR
+  // actor never has an active team in these fixtures — an empty peer list
+  // is the correct/only relevant shape for tests that don't exercise §1.
+  const hrAccess = { getActiveTeamPeers: vi.fn().mockResolvedValue([]) } as never
+  return new DocumentsService(db as never, s3, compression, hrAccess)
 }
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

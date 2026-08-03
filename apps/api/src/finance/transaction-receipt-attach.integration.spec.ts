@@ -32,6 +32,7 @@ import type { TransactionsService } from './transactions.service'
 import { DocumentsService } from '../documents/documents.service'
 import { S3Service } from '../documents/s3.service'
 import { CompressionService } from '../documents/compression.service'
+import type { HrAccessService } from '../common/hr-access.service'
 import { documents, transactions, transactionAuditLog } from '../database/schema'
 import * as schema from '../database/schema'
 
@@ -154,10 +155,15 @@ describe('task-receipts-backend — attach/replace receipt (real backend integra
 
     const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
     Object.assign(dbSvc, { pool: _pool, db })
+    // task-file-storage-hardening HIGH-1: DocumentsService now injects
+    // HrAccessService — unused by the receipt-attach/replace paths this
+    // suite exercises, stubbed to satisfy the constructor signature.
+    const stubHrAccess = { getActiveTeamPeers: async () => [] } as unknown as HrAccessService
     const documentsService = new DocumentsService(
       dbSvc,
       stubS3 as S3Service,
       stubCompression as CompressionService,
+      stubHrAccess,
     )
     svc = makeTransactionsService({ db: dbSvc, documentsService })
 

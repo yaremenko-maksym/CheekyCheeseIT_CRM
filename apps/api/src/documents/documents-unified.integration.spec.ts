@@ -16,6 +16,7 @@ import { DatabaseService } from '../database/database.service'
 import { DocumentsService } from './documents.service'
 import { S3Service } from './s3.service'
 import { CompressionService } from './compression.service'
+import type { HrAccessService } from '../common/hr-access.service'
 import {
   contractTemplates,
   documents,
@@ -205,6 +206,18 @@ const stubCompression = {
   makeThumbnail: () => Promise.resolve(null),
 } as unknown as CompressionService
 
+// task-file-storage-hardening HIGH-1: DocumentsService now injects
+// HrAccessService (getTeammateIds' team-overlap step). None of this spec's
+// existing assertions exercise a SENIOR/HR viewing ANOTHER user's RESUME/SCAN
+// via team — every RESUME row here is either self-owned (self is always
+// included in getTeammateIds' result regardless of this stub) or accessed by
+// a DROP actor (a separate, unaffected branch) — so an empty peer list is a
+// safe, correct stub for this suite. Real team/project-scope coverage lives
+// in documents.service.spec.ts + documents-team-scope.integration.spec.ts.
+const stubHrAccess = {
+  getActiveTeamPeers: () => Promise.resolve([]),
+} as unknown as HrAccessService
+
 // ---------------------------------------------------------------------------
 // Test module
 // ---------------------------------------------------------------------------
@@ -220,7 +233,8 @@ const stubCompression = {
     // DocumentsService — useFactory avoids esbuild metadata issue.
     {
       provide: DocumentsService,
-      useFactory: (db: DatabaseService) => new DocumentsService(db, stubS3, stubCompression),
+      useFactory: (db: DatabaseService) =>
+        new DocumentsService(db, stubS3, stubCompression, stubHrAccess),
       inject: [DatabaseService],
     },
     // String token alias — SentinelDocumentsController uses @Inject(token) to
