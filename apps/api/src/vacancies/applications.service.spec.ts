@@ -10,8 +10,6 @@
  */
 import {
   BadRequestException,
-  HttpException,
-  HttpStatus,
   NotFoundException,
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
@@ -194,11 +192,17 @@ describe('ApplicationsService.apply()', () => {
     )
   })
 
-  it('duplicate email+vacancy within 24h → 429', async () => {
+  // task-file-storage-hardening MED-4 (security-review round 1, full oracle
+  // closure): a duplicate now mimics success exactly like the honeypot
+  // branch — no 429, no compress/persist/notify — so the response is
+  // structurally indistinguishable from a genuine first-time submission.
+  it('duplicate email+vacancy within 24h → mimics success {ok:true}, no compress/upload/notify', async () => {
     h = makeHarness({ duplicateRow: { id: 'existing-app' } })
-    const call = h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
-    await expect(call).rejects.toBeInstanceOf(HttpException)
-    await expect(call).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS })
+    const result = await h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
+    expect(result).toEqual({ ok: true })
+    expect(h.compression.compress).not.toHaveBeenCalled()
+    expect(h.s3.upload).not.toHaveBeenCalled()
+    expect(h.notifications.create).not.toHaveBeenCalled()
   })
 
   it('missing file → 400', async () => {
@@ -282,20 +286,20 @@ describe('ApplicationsService.apply()', () => {
     })
   })
 
-  // task-file-storage-hardening §6 — enumeration oracle: the duplicate check
-  // must run AFTER file-shape validation, so a probe with no file (or a
-  // wrong-MIME file) always gets the SAME generic validation error
-  // regardless of whether that email already applied — closing the free,
-  // file-less version of "did person X apply to vacancy Y".
-  describe('enumeration-oracle ordering (§6)', () => {
-    it('missing file still 400s even when the email already applied (duplicate row exists) — NOT 429', async () => {
+  // task-file-storage-hardening §6 + MED-4 (security-review round 1, full
+  // closure) — enumeration oracle: the duplicate check runs AFTER file-shape
+  // validation AND now mimics success instead of an honest 429 — so EVERY
+  // probe shape (no file, wrong MIME, or a fully valid PDF) gets a response
+  // that carries zero signal about whether that email already applied.
+  describe('enumeration-oracle ordering — fully closed (§6 + MED-4)', () => {
+    it('missing file still 400s even when the email already applied (duplicate row exists) — NOT a fake success', async () => {
       h = makeHarness({ duplicateRow: { id: 'existing-app' } })
       await expect(
         h.svc.apply('senior-frontend-engineer', VALID_FIELDS, null, '1.2.3.4'),
       ).rejects.toThrow(BadRequestException)
     })
 
-    it('wrong MIME still 415s even when the email already applied — NOT 429', async () => {
+    it('wrong MIME still 415s even when the email already applied — NOT a fake success', async () => {
       h = makeHarness({ duplicateRow: { id: 'existing-app' } })
       await expect(
         h.svc.apply(
@@ -307,11 +311,15 @@ describe('ApplicationsService.apply()', () => {
       ).rejects.toThrow(UnsupportedMediaTypeException)
     })
 
-    it('a fully valid resubmission (real PDF, matching MIME) still gets the honest 429 duplicate error', async () => {
+    it('a fully valid resubmission (real PDF, matching MIME) ALSO mimics success — no residual 429 signal', async () => {
       h = makeHarness({ duplicateRow: { id: 'existing-app' } })
-      const call = h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
-      await expect(call).rejects.toBeInstanceOf(HttpException)
-      await expect(call).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS })
+      const result = await h.svc.apply(
+        'senior-frontend-engineer',
+        VALID_FIELDS,
+        pdfFile(),
+        '1.2.3.4',
+      )
+      expect(result).toEqual({ ok: true })
     })
   })
 

@@ -23,8 +23,6 @@ import { randomUUID } from 'node:crypto'
 import {
   BadRequestException,
   ForbiddenException,
-  HttpException,
-  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -163,23 +161,26 @@ export class ApplicationsService {
       )
     }
 
-    // ---- 6. Duplicate: same email + vacancy within 24h → 429 ----
-    // task-file-storage-hardening §6 (enumeration oracle): this check used to
-    // run BEFORE the file-presence/size/MIME checks above, so a request sent
+    // ---- 6. Duplicate: same email + vacancy within 24h → mimic success ----
+    // task-file-storage-hardening §6 (enumeration oracle) + MED-4
+    // (security-review round 1, full closure): this check used to run
+    // BEFORE the file-presence/size/MIME checks above, so a request sent
     // with NO file at all still reached it — an anonymous caller could send
     // `email` + a valid Turnstile token with no file and read off the status
     // code (429 = "this email already applied" vs 400 = "file required") to
     // establish whether a specific person had applied to a specific vacancy,
-    // without ever needing a real resume. Running the duplicate check only
-    // AFTER every file-shape check means a bare "no file" / wrong-MIME probe
-    // always gets the SAME generic validation error regardless of duplicate
-    // status — closing the free, file-less version of the oracle. (A probe
-    // that also supplies a syntactically valid throwaway PDF can still
-    // observe the 429; fully closing that would mean silently accepting
-    // duplicates like the honeypot branch does, which would also swallow a
-    // legitimate user's genuine "I meant to resubmit" attempt with no
-    // feedback — not worth the UX cost for a residual signal that already
-    // requires possessing a real-shaped PDF instead of an empty request.)
+    // without ever needing a real resume. Moving the check after file-shape
+    // validation closed the FREE, file-less version — but a probe supplying
+    // a syntactically valid throwaway PDF could still observe the honest 429
+    // and learn the same fact (MED-4: "запрос с любым валидным PDF
+    // по-прежнему различает «откликался» и «нет»"). Full closure: mimic the
+    // honeypot branch's contract exactly — a duplicate resolves as
+    // `{ ok: true }` with NO further processing (no compress/persist/notify),
+    // indistinguishable in status code and response shape from a genuine
+    // first-time submission. The cost is UX (a real accidental resubmission
+    // gets a silent no-op instead of an explicit "you already applied"
+    // message) — the SAME trade-off the honeypot branch already makes, and
+    // the only way to make the response carry zero signal either way.
     const since = new Date(Date.now() - DUPLICATE_WINDOW_MS)
     const duplicate = await this.db.db.query.vacancyApplications.findFirst({
       where: and(
@@ -189,10 +190,10 @@ export class ApplicationsService {
       ),
     })
     if (duplicate) {
-      throw new HttpException(
-        'Вы уже откликались на эту вакансию за последние 24 часа',
-        HttpStatus.TOO_MANY_REQUESTS,
+      this.logger.warn(
+        'apply(): duplicate email+vacancy within 24h — mimicking success (no further processing)',
       )
+      return { ok: true }
     }
 
     // ---- 7. Compress (strip PDF metadata) ----
