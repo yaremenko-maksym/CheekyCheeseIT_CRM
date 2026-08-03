@@ -89,6 +89,19 @@ async function makeValidPdfBuffer(): Promise<Buffer> {
   return Buffer.from(bytes)
 }
 
+/**
+ * A second, genuinely DIFFERENT valid PDF (two pages instead of one) — used
+ * by the resubmission-update tests to assert the NEW stored file's size
+ * actually differs from the OLD one, not just its key.
+ */
+async function makeTwoPagePdfBuffer(): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  doc.addPage([200, 200])
+  doc.addPage([200, 200])
+  const bytes = await doc.save()
+  return Buffer.from(bytes)
+}
+
 // ---------------------------------------------------------------------------
 // Test personas
 // ---------------------------------------------------------------------------
@@ -193,6 +206,14 @@ const fakeConfigService = { get: (key: string) => fakeEnv[key] } as unknown as C
 
 const s3Store = new Map<string, Buffer>()
 
+// task-file-storage-hardening resubmission-update (owner decision
+// 2026-08-03): lets ONE specific test simulate a real deleteOrThrow
+// transport failure against this otherwise-always-succeeds stub, to prove
+// `updateDuplicateApplication`'s "record NOT updated on old-file-delete
+// failure" guarantee against the real backend module wiring (not just a
+// unit-level mock). Empty by default — every other test is unaffected.
+const deleteOrThrowFailureKeys = new Set<string>()
+
 const stubS3 = {
   upload: (key: string, body: Buffer): Promise<void> => {
     s3Store.set(key, body)
@@ -210,8 +231,14 @@ const stubS3 = {
   // F1 (task-fix-pr-390-round3 / MED-1): VacanciesRetentionCronService calls
   // deleteOrThrow, not delete — the stub has no transport to fail so both
   // behave identically here (real-transport-failure coverage is unit-level,
-  // in s3.service.spec.ts + vacancies-retention.cron.spec.ts).
+  // in s3.service.spec.ts + vacancies-retention.cron.spec.ts), EXCEPT for
+  // keys explicitly listed in `deleteOrThrowFailureKeys` (see above).
   deleteOrThrow: (key: string): Promise<void> => {
+    if (deleteOrThrowFailureKeys.has(key)) {
+      return Promise.reject(
+        new Error(`stub S3: simulated deleteOrThrow transport failure for key "${key}"`),
+      )
+    }
     s3Store.delete(key)
     return Promise.resolve()
   },
@@ -1446,6 +1473,263 @@ describe('Vacancies — real backend integration', () => {
       )
       expect(hrNotif).toBeDefined()
       expect(hrNotif!.title).toContain('Ivan Petrenko')
+    })
+  })
+
+  // task-file-storage-hardening resubmission-update (OWNER DECISION
+  // 2026-08-03, overturns round-1 MED-4's silent no-op): a genuine repeat
+  // submission (same email + vacancy within 24h) now UPDATES the existing
+  // application row in place — new resume file, new size, new cover
+  // letter, reset submission time — instead of being silently discarded.
+  // Real-backend proof: real Postgres (crm_qa) + the stub-S3's actual
+  // in-memory object store (`s3Store`), so "the old file is gone from
+  // storage" is a REAL assertion against the store, not a mocked call
+  // count — the mocked-S3 unit coverage in applications.service.spec.ts
+  // proves the CALL sequence; this proves the STORAGE end-state.
+  //
+  // Own dedicated app instance (own throttle store) — same pattern as F2
+  // below and AC8's rate-limit block: each test here fires 2 apply()
+  // requests, and VACANCY_APPLY_LIMIT=5 is shared PER APP INSTANCE, not
+  // per test — piling these onto the main `app` alongside AC6's/AC10's own
+  // apply() calls risks tripping the limit and 429-ing an unrelated test
+  // (caught exactly this way against the shared `app` during development).
+  describe('resubmission within 24h updates the existing application in place (owner decision 2026-08-03)', () => {
+    let rsApp: NestFastifyApplication
+
+    beforeAll(async () => {
+      if (!dbAvailable) return
+      rsApp = await buildApp()
+    }, 20_000)
+
+    afterAll(async () => {
+      if (!dbAvailable) return
+      if (rsApp) await rsApp.close()
+    })
+
+    it('same-email resubmission: row updated in place, NEW file present, OLD file genuinely gone, response identical to the first submission', async () => {
+      if (!dbAvailable) return
+      const slug = `resubmit-happy-${Date.now()}`
+      const create = await rsApp.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'Resubmission Happy Path Role',
+          slug,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
+        },
+      })
+      const vacancyId = trackVacancy((create.json() as { id: string }).id)
+      await rsApp.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${vacancyId}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+
+      const email = `resubmit-candidate-${Date.now()}@example.com`
+
+      // ---- First submission ----
+      const { body: body1, contentType: contentType1 } = buildMultipartBody(
+        {
+          fullName: 'Olena Corrected',
+          email,
+          coverLetter: 'first cover letter',
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+        },
+        {
+          fieldname: 'resume',
+          filename: 'resume-v1.pdf',
+          contentType: 'application/pdf',
+          buffer: await makeValidPdfBuffer(),
+        },
+      )
+      const res1 = await rsApp.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${slug}/apply`,
+        headers: { 'content-type': contentType1 },
+        payload: body1,
+      })
+      expect(res1.statusCode, res1.body).toBe(201)
+      expect(res1.json()).toEqual({ ok: true })
+
+      const rowsAfterFirst = await dbSvc.db.query.vacancyApplications.findMany({
+        where: (a, { eq }) => eq(a.vacancyId, vacancyId),
+      })
+      expect(rowsAfterFirst).toHaveLength(1)
+      const firstRow = rowsAfterFirst[0]!
+      const oldKey = firstRow.resumeS3Key
+      expect(s3Store.has(oldKey)).toBe(true)
+
+      // ---- Resubmission: SAME email, corrected resume + cover letter ----
+      const { body: body2, contentType: contentType2 } = buildMultipartBody(
+        {
+          fullName: 'Olena Corrected',
+          email,
+          coverLetter: 'corrected cover letter',
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+        },
+        {
+          fieldname: 'resume',
+          filename: 'resume-v2.pdf',
+          contentType: 'application/pdf',
+          buffer: await makeTwoPagePdfBuffer(),
+        },
+      )
+      const res2 = await rsApp.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${slug}/apply`,
+        headers: { 'content-type': contentType2 },
+        payload: body2,
+      })
+
+      // The RESPONSE is identical to the first submission — the
+      // enumeration oracle stays closed regardless of what happened
+      // server-side (owner's explicit requirement).
+      expect(res2.statusCode).toBe(res1.statusCode)
+      expect(res2.json()).toEqual(res1.json())
+      expect(res2.json()).toEqual({ ok: true })
+
+      // Still exactly ONE row for this vacancy — updated in place, not a
+      // second row.
+      const rowsAfterSecond = await dbSvc.db.query.vacancyApplications.findMany({
+        where: (a, { eq }) => eq(a.vacancyId, vacancyId),
+      })
+      expect(rowsAfterSecond).toHaveLength(1)
+      const secondRow = rowsAfterSecond[0]!
+      expect(secondRow.id).toBe(firstRow.id) // same row, not a fresh insert
+      expect(secondRow.coverLetter).toBe('corrected cover letter')
+      const newKey = secondRow.resumeS3Key
+      expect(newKey).not.toBe(oldKey)
+
+      // NEW file really present in storage, with the NEW bytes — size
+      // genuinely differs from the first (one-page vs two-page PDF).
+      const newBuf = await stubS3.getObject(newKey)
+      expect(newBuf.length).toBeGreaterThan(0)
+      expect(secondRow.resumeSizeBytes).toBe(newBuf.length)
+      expect(secondRow.resumeSizeBytes).not.toBe(firstRow.resumeSizeBytes)
+
+      // OLD file genuinely GONE from storage — not just unreferenced by
+      // the row. This is the real proof §4's orphan-reconciliation logic
+      // never needs to clean up after a resubmission.
+      expect(s3Store.has(oldKey)).toBe(false)
+      await expect(stubS3.getObject(oldKey)).rejects.toThrow()
+    })
+
+    it('when the old-file delete fails: the row keeps pointing at the OLD (still-existing) file, the just-uploaded NEW file is compensated away — never "record updated, both files present"', async () => {
+      if (!dbAvailable) return
+      const slug = `resubmit-delete-fail-${Date.now()}`
+      const create = await rsApp.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'Resubmission Delete-Fail Role',
+          slug,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
+        },
+      })
+      const vacancyId = trackVacancy((create.json() as { id: string }).id)
+      await rsApp.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${vacancyId}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+
+      const email = `resubmit-fail-candidate-${Date.now()}@example.com`
+      const { body: body1, contentType: contentType1 } = buildMultipartBody(
+        {
+          fullName: 'Ivan Faildelete',
+          email,
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+        },
+        {
+          fieldname: 'resume',
+          filename: 'resume-v1.pdf',
+          contentType: 'application/pdf',
+          buffer: await makeValidPdfBuffer(),
+        },
+      )
+      const res1 = await rsApp.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${slug}/apply`,
+        headers: { 'content-type': contentType1 },
+        payload: body1,
+      })
+      expect(res1.statusCode, res1.body).toBe(201)
+
+      const rowsAfterFirst = await dbSvc.db.query.vacancyApplications.findMany({
+        where: (a, { eq }) => eq(a.vacancyId, vacancyId),
+      })
+      const firstRow = rowsAfterFirst[0]!
+      const oldKey = firstRow.resumeS3Key
+
+      // Arrange the OLD key's deleteOrThrow to fail on the resubmission.
+      deleteOrThrowFailureKeys.add(oldKey)
+      try {
+        const { body: body2, contentType: contentType2 } = buildMultipartBody(
+          {
+            fullName: 'Ivan Faildelete',
+            email,
+            turnstileToken: 'any-token-accepted-by-dummy-secret',
+          },
+          {
+            fieldname: 'resume',
+            filename: 'resume-v2.pdf',
+            contentType: 'application/pdf',
+            buffer: await makeTwoPagePdfBuffer(),
+          },
+        )
+        const res2 = await rsApp.inject({
+          method: 'POST',
+          url: `/api/public/vacancies/${slug}/apply`,
+          headers: { 'content-type': contentType2 },
+          payload: body2,
+        })
+
+        // A real mid-flight transport failure surfaces as a real error —
+        // this is NOT one of the "mimic success" branches (it is not a
+        // duplicate silently short-circuiting; it's a genuine failure).
+        expect(res2.statusCode).toBeGreaterThanOrEqual(500)
+
+        // The forbidden end-state this test exists to rule out: "record
+        // updated AND both files present". Assert instead:
+        //  - the row is UNCHANGED (still points at the OLD key)
+        //  - the OLD file is STILL in storage (the delete genuinely
+        //    failed, wasn't silently skipped)
+        //  - the just-uploaded NEW file was compensated away, not left
+        //    dangling as an orphan
+        const rowsAfterSecond = await dbSvc.db.query.vacancyApplications.findMany({
+          where: (a, { eq }) => eq(a.vacancyId, vacancyId),
+        })
+        expect(rowsAfterSecond).toHaveLength(1)
+        expect(rowsAfterSecond[0]!.resumeS3Key).toBe(oldKey)
+        expect(s3Store.has(oldKey)).toBe(true)
+
+        const keysForVacancy = [...s3Store.keys()].filter((k) =>
+          k.startsWith(`vacancy-applications/${vacancyId}/`),
+        )
+        expect(keysForVacancy).toEqual([oldKey])
+      } finally {
+        deleteOrThrowFailureKeys.delete(oldKey)
+      }
     })
   })
 
