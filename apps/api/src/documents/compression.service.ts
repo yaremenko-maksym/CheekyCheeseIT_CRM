@@ -8,14 +8,30 @@
  *     image/heic  → heic-convert → JPEG → sharp pass-1 (final mime image/jpeg)
  *     image/png   → no alpha → JPEG (huge win); with alpha → .png({compressionLevel:9, palette:true})
  *     image/webp  → .webp({quality:80}) re-encode
- *     application/pdf → PDFDocument.load(...).save({useObjectStreams:true})
+ *     application/pdf → PDFDocument.load(...).save({useObjectStreams:true}),
+ *       Info-dict + XMP metadata stripped UNCONDITIONALLY (task-file-storage-
+ *       hardening §5/MED-3 — NOT gated behind pass 2/file size; see
+ *       `compressPdf()`'s own doc comment for why that used to matter)
  *
  *   Pass 2 (only if pass-1 result > PASS2_THRESHOLD_BYTES):
  *     JPEG (any image converted to jpeg) → resize 1600 max-side, quality 75
- *     PDF → strip metadata fields
+ *     PDF: no separate pass-2 step — compressPdf() above already ran
+ *       unconditionally in pass 1 for every PDF regardless of size
  *
- *   Anti-bloat: if final size > original, return original buffer + original
- *   mime — sharp/pdf-lib occasionally inflate tiny optimized files.
+ *   Anti-bloat (DEFAULT, every call site EXCEPT one): if final size >
+ *     original, return the ORIGINAL buffer + original mime — sharp/pdf-lib
+ *     occasionally inflate tiny optimized files. task-file-storage-hardening
+ *     §5 (LOW-2, security-review round 1 — making this exception explicit
+ *     here, not just at the one call site that sets it): the ONE exception
+ *     is `ApplicationsService.apply()` (the public, unauthenticated vacancy-
+ *     resume path), which passes `{ neverFallbackToOriginal: true }` — for
+ *     that path ONLY, falling back to the original would silently undo the
+ *     PDF metadata strip above (the original IS the anonymous applicant's
+ *     unsanitized upload). This flag is opt-IN per call, not a global
+ *     category rule — every OTHER caller (DocumentsService.upload/
+ *     uploadInternal, covering CONTRACT/RECEIPT/INVOICE/RESUME/SCAN/AVATAR/
+ *     LOGO uploaded by an authenticated staff member) keeps the default
+ *     anti-bloat fallback.
  *
  * Why we do compression on the BACKEND (not in the browser):
  *   - consistent behavior across clients (mobile / desktop / different sharps)
@@ -29,7 +45,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import sharp from 'sharp'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, PDFName, PDFRef } from 'pdf-lib'
 import heicConvert from 'heic-convert'
 
 /**
@@ -39,6 +55,20 @@ import heicConvert from 'heic-convert'
  * 10 MB hard cap.
  */
 const PASS2_THRESHOLD_BYTES = 5 * 1024 * 1024
+
+/**
+ * task-file-storage-hardening §5: PDF metadata stripping was ONLY wired into
+ * pass 2 (`stripPdfMetadata`), which only fires when pass-1 output exceeds
+ * `PASS2_THRESHOLD_BYTES` (5 MB). Resumes are hard-capped at 5 MB
+ * (`RESUME_MAX_BYTES` in applications.service.ts) BEFORE they ever reach this
+ * service, and a pdf-lib re-save does not shrink an already-small PDF below
+ * its own size — so pass 2 essentially never fired for a resume and the
+ * "we sanitize PDFs" claim was false in practice. Metadata (author/title/etc,
+ * often auto-filled by Word/Google Docs with the applicant's real name and
+ * software fingerprint) survived untouched into R2. Fix: metadata stripping
+ * now runs unconditionally in pass 1 for EVERY PDF, regardless of size — see
+ * `compressPdf()` below (merged what used to be two separate functions).
+ */
 
 export interface CompressionResult {
   buffer: Buffer
@@ -118,7 +148,11 @@ export function detectMimeFromBuffer(buf: Buffer): string | null {
 export class CompressionService {
   private readonly logger = new Logger(CompressionService.name)
 
-  async compress(buffer: Buffer, mimeType: string): Promise<CompressionResult> {
+  async compress(
+    buffer: Buffer,
+    mimeType: string,
+    opts: { neverFallbackToOriginal?: boolean } = {},
+  ): Promise<CompressionResult> {
     const original = buffer
     let processed: Buffer = original
     let finalMime = mimeType
@@ -189,9 +223,11 @@ export class CompressionService {
             .resize({ width: 1600, fit: 'inside', withoutEnlargement: true })
             .webp({ quality: 65 })
             .toBuffer()
-        } else if (finalMime === 'application/pdf') {
-          processed = await this.stripPdfMetadata(processed)
         }
+        // No PDF branch here: `compressPdf()` (pass 1, above) already strips
+        // metadata + re-saves with object streams for EVERY PDF regardless of
+        // size — see the PASS2_THRESHOLD_BYTES comment. A second pass would
+        // just re-run the identical operation for no benefit.
       }
     } catch (err) {
       // Compression pipeline failure for a known/validated MIME type.
@@ -211,6 +247,23 @@ export class CompressionService {
 
     // ----- Anti-bloat guard -----
     if (processed.length >= original.length) {
+      if (opts.neverFallbackToOriginal) {
+        // task-file-storage-hardening §5: for the ONE call site that submits
+        // publicly / anonymously (ApplicationsService.apply()), `original` is
+        // exactly the untouched bytes the applicant sent. Falling back to it
+        // here silently undoes the pass-1 PDF metadata strip above — pdf-lib's
+        // `useObjectStreams` re-save is occasionally a handful of bytes
+        // LARGER than an already-compact input PDF, so this guard used to
+        // trigger routinely and store the unsanitized file it exists to
+        // protect against. A sanitized file that's a few bytes bigger is a
+        // strictly better trade than a byte-identical copy of whatever an
+        // anonymous submitter uploaded.
+        return {
+          buffer: processed,
+          finalMimeType: finalMime,
+          sizeBytes: processed.length,
+        }
+      }
       return {
         buffer: original,
         finalMimeType: mimeType,
@@ -280,13 +333,45 @@ export class CompressionService {
     return Buffer.from(result)
   }
 
+  /**
+   * Pass-1, unconditional: re-save through pdf-lib (useObjectStreams) AND
+   * strip metadata fields that commonly carry PII (author = the applicant's
+   * real name from Word/Google Docs export, producer/creator = software
+   * fingerprint). Previously metadata-stripping lived in a separate
+   * `stripPdfMetadata()` only reachable from pass 2 — see the
+   * PASS2_THRESHOLD_BYTES comment for why that never fired for resumes.
+   * Merging the two into one always-run step closes that gap for every PDF
+   * category, not just resumes.
+   *
+   * MED-3 (security-review round 1): the 6 setters below only touch the
+   * classic `/Info` dictionary. A REAL Word/LibreOffice export commonly
+   * ALSO carries an XMP metadata packet — a separate `/Metadata` stream
+   * hung off the document Catalog holding its own (often redundant)
+   * `dc:creator`/`xmp:CreatorTool` fields — that pdf-lib has NO setter for
+   * at all. Verified empirically (attaching an XMP stream via pdf-lib's own
+   * low-level context API and round-tripping it through this exact
+   * `.load()`/`.save()` pair preserves the author string byte-for-byte in
+   * the output — see compression.service.spec.ts's dedicated "real Word-
+   * style XMP metadata" test, which builds that exact fixture instead of
+   * relying on a pdf-lib-authored PDF that would never have had a
+   * `/Metadata` stream to strip in the first place). Fix: locate the
+   * Catalog's `/Metadata` entry and fully DELETE the object — merely
+   * unlinking the Catalog reference is NOT enough, pdf-lib's writer
+   * serializes every object still registered in the document's `context`
+   * regardless of reachability, so an unlinked-but-not-deleted stream would
+   * survive in the output as an orphan (also verified empirically).
+   *
+   * Residual risk (task-file-storage-hardening §5, documented per the task's
+   * own instruction rather than silently left out): pdf-lib has no supported
+   * API to strip active content — an `/OpenAction` triggered on open,
+   * embedded `/JavaScript`, or embedded file attachments. Hand-editing the
+   * low-level PDF object graph to remove those is unsupported territory for
+   * this library and risks silently corrupting legitimate PDFs (broken
+   * xref/trailer) for an antivirus-class problem this task explicitly does
+   * NOT take on ("Антивирус в этой задаче не заводим — отдельное решение
+   * владельца"). Left as a known remainder, not attempted here.
+   */
   private async compressPdf(buf: Buffer): Promise<Buffer> {
-    const doc = await PDFDocument.load(buf, { updateMetadata: false })
-    const out = await doc.save({ useObjectStreams: true })
-    return Buffer.from(out)
-  }
-
-  private async stripPdfMetadata(buf: Buffer): Promise<Buffer> {
     const doc = await PDFDocument.load(buf, { updateMetadata: false })
     // Strip common metadata fields. These are no-ops if already empty.
     doc.setTitle('')
@@ -295,6 +380,15 @@ export class CompressionService {
     doc.setKeywords([])
     doc.setProducer('')
     doc.setCreator('')
+
+    // MED-3: strip the XMP metadata stream (Info-dict setters above never
+    // touch it) — see the doc comment above for the full rationale.
+    const metadataRef = doc.catalog.get(PDFName.of('Metadata'))
+    if (metadataRef instanceof PDFRef) {
+      doc.catalog.delete(PDFName.of('Metadata'))
+      doc.context.delete(metadataRef)
+    }
+
     const out = await doc.save({ useObjectStreams: true })
     return Buffer.from(out)
   }

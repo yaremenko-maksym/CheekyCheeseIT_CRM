@@ -28,6 +28,8 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
+import { documentAccessLog, projectMembers, projects, teamMembers } from '../database/schema'
+import type { HrAccessService } from '../common/hr-access.service'
 
 // -----------------------------------------------------------------------------
 // Magic-byte buffers for upload tests.
@@ -105,8 +107,25 @@ interface DocRow {
 interface HarnessOptions {
   /** Seed rows for findFirst/select. Each test uses 0 or 1 row. */
   docs?: Partial<DocRow>[]
-  /** Senior IDs returned for HR's team scope query (innerJoin path). */
+  /** Senior IDs returned for HR's team scope query (innerJoin path, getHrSeniorIds — unchanged). */
   hrSeniorIds?: string[]
+  /**
+   * task-file-storage-hardening HIGH-1 fix: active team peers (id + role)
+   * returned by the injected `HrAccessService.getActiveTeamPeers` mock —
+   * feeds `DocumentsService.getTeammateIds`' team-overlap step.
+   */
+  teamPeers?: { userId: string; role: string }[]
+  /**
+   * Projects owned by the SENIOR(s) `getTeammateIds` resolved — feeds its
+   * `select({id}).from(projects).where(inArray(seniorId, ...))` query.
+   */
+  seniorProjects?: { id: string; seniorId: string }[]
+  /**
+   * Active project_members rows on those projects — feeds `getTeammateIds`'
+   * JUNIOR-resolution query. This is the ONLY path a JUNIOR can appear in
+   * `getTeammateIds`' result (JUNIORs are never `team_members` rows).
+   */
+  activeProjectMembers?: { projectId: string; userId: string }[]
   /** If true, findFirst pretends the looked-up doc does not exist. */
   pretendDocMissing?: boolean
   /** If true, findFirst only returns the doc when it is NOT soft-deleted
@@ -139,6 +158,10 @@ function makeHarness(opts: HarnessOptions = {}) {
   // soft-delete filter.
   let findFirstCallCount = 0
 
+  // task-file-storage-hardening MED-5: captures rows inserted into
+  // documentAccessLog (logAccess) so tests can assert on them directly.
+  const accessLogRows: Record<string, unknown>[] = []
+
   const db = {
     db: {
       query: {
@@ -163,77 +186,83 @@ function makeHarness(opts: HarnessOptions = {}) {
 
       select: (_arg?: unknown) => ({
         from: (_table: unknown) => {
+          // task-file-storage-hardening HIGH-1 fix: routed by TABLE IDENTITY
+          // (the real imported Drizzle table objects — `_table` is the exact
+          // reference `getTeammateIds`/`getHrSeniorIds` pass to `.from()`,
+          // so `===` reliably distinguishes them) instead of the previous
+          // single-bucket heuristic that couldn't tell `projects` /
+          // `projectMembers` / `teamMembers` apart.
+          if (_table === projects) {
+            return {
+              where: async (_pred: unknown) => opts.seniorProjects ?? [],
+            }
+          }
+          if (_table === projectMembers) {
+            return {
+              where: async (_pred: unknown) => opts.activeProjectMembers ?? [],
+            }
+          }
+          if (_table === teamMembers) {
+            // `select({fields}).from(teamMembers).where(...)` (getHrSeniorIds'
+            // first query) returns a Promise directly; the innerJoin path
+            // (its second query) resolves the SENIOR-filtered list.
+            return {
+              where: async (_p: unknown) =>
+                (opts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
+              innerJoin: (_t: unknown, _on: unknown) => ({
+                where: async (_p: unknown) =>
+                  (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
+              }),
+            }
+          }
+          // Fallback (documents, etc.) — the list()-style builder. makeHarness's
+          // callers don't exercise `select().from(documents)` (list() tests use
+          // makeExtendedHarness instead), kept only as a safe default.
           const builder = {
             where: (_pred: unknown) => builder,
             innerJoin: (_t: unknown, _on: unknown) => builder,
             orderBy: async (_o: unknown) => docsRows.map((r) => ({ ...r })),
-            then: (resolve: (v: unknown) => void) => {
-              // unused — we always chain through where().orderBy()
-              resolve(undefined)
-            },
           }
-          // `select({fields}).from(teamMembers).where(...)` returns a Promise
-          // directly when not followed by orderBy. We model that path with
-          // an extra .where() that already resolves with the seniors list.
-          const teamMembersBuilder = {
-            where: async (_p: unknown) =>
-              (opts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
-            innerJoin: (_t: unknown, _on: unknown) => ({
-              where: async (_p: unknown) => (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
-            }),
-          }
-          // Detect which path by inspecting the table identity — we use a
-          // proxy so the service can call either one.
-          return new Proxy(builder, {
-            get(target: typeof builder, prop: string | symbol) {
-              if (prop === 'where' || prop === 'innerJoin') {
-                // For team_members queries the next chained .where() returns
-                // a list of userIds directly (no orderBy). The two callers
-                // we have are:
-                //   1) list(): .from(documents).where(...).orderBy(...)
-                //   2) getHrSeniorIds(): two consecutive .from(teamMembers)
-                //      flows. The proxy directs both to teamMembersBuilder.
-                if (_table && (_table as { _ }) && '_' in (_table as object)) {
-                  // We can't reliably distinguish without inspecting drizzle
-                  // internals — instead we expose both behaviors via a union
-                  // proxy: each method returns a builder that also works as
-                  // teamMembersBuilder when awaited directly. Tests only
-                  // exercise getDownloadUrl which uses getHrSeniorIds().
-                }
-              }
-              return (
-                (teamMembersBuilder as Record<string, unknown>)[prop as string] ??
-                (target as unknown as Record<string, unknown>)[prop as string]
-              )
-            },
-          })
+          return builder
         },
       }),
 
-      insert: (_table: unknown) => ({
-        values: (values: Record<string, unknown>) => ({
-          returning: async () => {
-            const row: DocRow = {
-              id: (values['id'] as string) ?? `new-${docsRows.length}`,
-              ownerId: values['ownerId'] as string,
-              projectId: (values['projectId'] as string) ?? null,
-              category: values['category'] as string,
-              name: values['name'] as string,
-              originalName: (values['originalName'] as string) ?? null,
-              s3Key: values['s3Key'] as string,
-              thumbnailS3Key: (values['thumbnailS3Key'] as string) ?? null,
-              sizeBytes: values['sizeBytes'] as number,
-              mimeType: values['mimeType'] as string,
-              uploadedBy: values['uploadedBy'] as string,
-              deletedAt: null,
-              deletedBy: null,
-              createdAt: new Date(),
-            }
-            docsRows.push(row)
-            return [row]
-          },
-        }),
-      }),
+      insert: (_table: unknown) => {
+        if (_table === documentAccessLog) {
+          return {
+            values: (values: Record<string, unknown>) => {
+              accessLogRows.push(values)
+              // logAccess() awaits this directly with no `.returning()` —
+              // a plain resolved value makes `await insert().values(...)` work.
+              return Promise.resolve(undefined)
+            },
+          }
+        }
+        return {
+          values: (values: Record<string, unknown>) => ({
+            returning: async () => {
+              const row: DocRow = {
+                id: (values['id'] as string) ?? `new-${docsRows.length}`,
+                ownerId: values['ownerId'] as string,
+                projectId: (values['projectId'] as string) ?? null,
+                category: values['category'] as string,
+                name: values['name'] as string,
+                originalName: (values['originalName'] as string) ?? null,
+                s3Key: values['s3Key'] as string,
+                thumbnailS3Key: (values['thumbnailS3Key'] as string) ?? null,
+                sizeBytes: values['sizeBytes'] as number,
+                mimeType: values['mimeType'] as string,
+                uploadedBy: values['uploadedBy'] as string,
+                deletedAt: null,
+                deletedBy: null,
+                createdAt: new Date(),
+              }
+              docsRows.push(row)
+              return [row]
+            },
+          }),
+        }
+      },
 
       update: (_table: unknown) => ({
         set: (values: Record<string, unknown>) => ({
@@ -290,13 +319,24 @@ function makeHarness(opts: HarnessOptions = {}) {
     makeThumbnail: vi.fn().mockResolvedValue(null),
   }
 
-  const service = new DocumentsService(db as never, s3 as never, compression as never)
+  const hrAccess = {
+    getActiveTeamPeers: vi.fn().mockResolvedValue(opts.teamPeers ?? []),
+  }
+
+  const service = new DocumentsService(
+    db as never,
+    s3 as never,
+    compression as never,
+    hrAccess as unknown as HrAccessService,
+  )
   return {
     service,
     s3,
     compression,
+    hrAccess,
     db,
     docsRows,
+    accessLogRows,
     getFindFirstCount: () => findFirstCallCount,
   }
 }
@@ -702,12 +742,130 @@ describe('DocumentsService.getDownloadUrl', () => {
     expect(result.url).toBeTruthy()
   })
 
+  // task-file-storage-hardening MED-2 (security-review round 1): the doc's
+  // category must reach S3Service so it can override Cache-Control on the
+  // GET response — this is what closes MED-2 for objects uploaded before
+  // the category-aware header shipped.
+  it('forwards the document category to S3Service.getPresignedDownloadUrl (MED-2)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+      honorSoftDeleteFilter: true,
+    })
+    await h.service.getDownloadUrl(SENIOR, 'd1')
+    expect(h.s3.getPresignedDownloadUrl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Number),
+      expect.anything(),
+      'attachment',
+      'RESUME',
+    )
+  })
+
   it("JUNIOR cannot download someone else's RESUME → 404 (not 403, no leak)", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  // task-file-storage-hardening MED-5 (security-review round 1): the
+  // documents.ts path (getDownloadUrl/getPreviewUrl/getThumbnailUrl) had no
+  // test coverage for the access-log write at all — applications.service.ts
+  // (vacancy resumes) did, this closes the gap for the `documents` table path.
+  describe('access-log coverage on the documents path (MED-5)', () => {
+    it('getDownloadUrl writes a DOWNLOAD row to documentAccessLog, without the URL', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getDownloadUrl(SENIOR, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      const row = h.accessLogRows[0]!
+      expect(row['actorId']).toBe(SENIOR.id)
+      expect(row['targetId']).toBe('d1')
+      expect(row['action']).toBe('DOWNLOAD')
+      expect(row['metadata']).toEqual({ category: 'RESUME' })
+      expect(JSON.stringify(row)).not.toContain('signed.example')
+    })
+
+    // security-review round 3, MED-1: `actorId` must be the REAL human
+    // (`impersonatorId ?? id`), not the impersonated account — this log is
+    // the sole compensating control the owner's ACCOUNTANT/SCAN decision
+    // leans on, so a wrong actor here quietly weakens that justification.
+    it('while impersonating: logs the IMPERSONATOR (real admin) as actorId, not the impersonated account', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      // Impersonate the doc's OWNER (SENIOR) so this test only exercises
+      // the actorId-attribution question, not team/project RBAC scoping —
+      // ownership is always self-accessible regardless of team overlap.
+      const impersonatedActor = { ...SENIOR, impersonatorId: ADMIN.id }
+      await h.service.getDownloadUrl(impersonatedActor, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      expect(h.accessLogRows[0]!['actorId']).toBe(ADMIN.id)
+      expect(h.accessLogRows[0]!['actorId']).not.toBe(SENIOR.id)
+    })
+
+    it('getPreviewUrl writes a PREVIEW row to documentAccessLog', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'CONTRACT' }],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getPreviewUrl(SENIOR, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      expect(h.accessLogRows[0]!['action']).toBe('PREVIEW')
+      expect(h.accessLogRows[0]!['metadata']).toEqual({ category: 'CONTRACT' })
+    })
+
+    it('getThumbnailUrl writes a THUMBNAIL row for a sensitive category (MED-5 — thumbnails are logged now)', async () => {
+      const h = makeHarness({
+        docs: [
+          {
+            id: 'd1',
+            ownerId: SENIOR.id,
+            category: 'SCAN',
+            thumbnailS3Key: 'documents/SCAN/x/thumb.jpg',
+          },
+        ],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getThumbnailUrl(SENIOR, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      expect(h.accessLogRows[0]!['action']).toBe('THUMBNAIL')
+      expect(h.accessLogRows[0]!['metadata']).toEqual({ category: 'SCAN' })
+    })
+
+    it('getDownloadUrl does NOT log AVATAR (non-sensitive category, unaffected by MED-5)', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'AVATAR' }],
+        honorSoftDeleteFilter: true,
+      })
+      await h.service.getDownloadUrl(SENIOR, 'd1')
+      expect(h.accessLogRows).toHaveLength(0)
+    })
+
+    it('a failing access-log write does not block the download (best-effort)', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      // Force the insert to throw by pointing the mock's documentAccessLog
+      // branch at a rejecting promise for this one test.
+      h.db.db.insert = ((_table: unknown) => {
+        if (_table === documentAccessLog) {
+          return { values: () => Promise.reject(new Error('DB down')) }
+        }
+        return { values: () => ({ returning: async () => [] }) }
+      }) as typeof h.db.db.insert
+      const result = await h.service.getDownloadUrl(SENIOR, 'd1')
+      expect(result.url).toBeTruthy()
+    })
   })
 
   it('HR can download contracts of seniors from own teams', async () => {
@@ -744,6 +902,143 @@ describe('DocumentsService.getDownloadUrl', () => {
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+})
+
+// =============================================================================
+// task-file-storage-hardening §1 (owner decision 2026-08-01) — SENIOR/HR
+// resume+scan access is TEAM-and-PROJECT-SCOPED, not "any employee". These
+// pin the per-role matrix AC ("Синьор не получает скан и резюме сотрудника
+// вне своей команды: 404, не 403") AND the security-review round 1 HIGH-1
+// fix: a JUNIOR is reachable ONLY via `seniorProjects` +
+// `activeProjectMembers` (project-derived) — `teamPeers` (team_members) can
+// NEVER surface a JUNIOR, mirroring the real schema invariant (see
+// getTeammateIds' own doc comment for why).
+// =============================================================================
+
+describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-hardening §1)', () => {
+  it("SENIOR can download a JUNIOR's RESUME via project membership (the HIGH-1 fix)", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      seniorProjects: [{ id: 'proj-1', seniorId: SENIOR.id }],
+      activeProjectMembers: [{ projectId: 'proj-1', userId: JUNIOR.id }],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(SENIOR, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+
+  it("SENIOR CANNOT download a JUNIOR's RESUME who is NOT on their project → 404, not 403", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      seniorProjects: [{ id: 'proj-1', seniorId: SENIOR.id }],
+      activeProjectMembers: [], // JUNIOR is not a member of proj-1 (or any of SENIOR's projects)
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('SENIOR CANNOT download SCAN of another SENIOR outside their team → 404', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'SCAN' }],
+      teamPeers: [],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('SENIOR can download SCAN of a teammate SENIOR (pure team_members overlap — non-JUNIOR path)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'SCAN' }],
+      teamPeers: [{ userId: SENIOR2.id, role: 'SENIOR' }],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(SENIOR, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+
+  it("HR can download a JUNIOR's SCAN via their team's SENIOR's project", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+      teamPeers: [{ userId: SENIOR.id, role: 'SENIOR' }],
+      seniorProjects: [{ id: 'proj-1', seniorId: SENIOR.id }],
+      activeProjectMembers: [{ projectId: 'proj-1', userId: JUNIOR.id }],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(HR, 'd1')
+    expect(result.url).toBeTruthy()
+  })
+
+  it("HR CANNOT download a JUNIOR's SCAN when HR shares no team with that JUNIOR's SENIOR → 404", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+      teamPeers: [], // HR has no active team at all
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('HR CANNOT download RESUME of a non-teammate SENIOR → 404', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'RESUME' }],
+      teamPeers: [],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  // task-file-storage-hardening — owner decision 2026-08-03 (security-review
+  // round 2, reversing round 1's MED-1 transaction-scoping attempt):
+  // ACCOUNTANT sees ALL scans, unconditionally, regardless of whether the
+  // owner has any transaction on record. See the SCAN branch of
+  // buildVisibilityClause for the full two-part rejection rationale
+  // (self-satisfying + broke onboarding for the 16/21 people with zero
+  // transactions at review time).
+  describe('ACCOUNTANT + SCAN — unconditional, owner decision 2026-08-03', () => {
+    it('ACCOUNTANT downloads SCAN of any owner, including one with zero transactions (e.g. a brand-new hire)', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+        honorSoftDeleteFilter: true,
+      })
+      const result = await h.service.getDownloadUrl(ACCOUNTANT, 'd1')
+      expect(result.url).toBeTruthy()
+    })
+  })
+
+  it('ACCOUNTANT still has NO resume access (unaffected by this task — never granted)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(ACCOUNTANT, 'd1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+  })
+
+  it("JUNIOR cannot download a teammate's SCAN either (own-only, unaffected by this task)", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'SCAN' }],
+      teamPeers: [{ userId: SENIOR.id, role: 'SENIOR' }],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it("DROP cannot download another user's RESUME (own-only, unaffected by this task)", async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      honorSoftDeleteFilter: true,
+    })
+    await expect(h.service.getDownloadUrl(DROP, 'd1')).rejects.toBeInstanceOf(NotFoundException)
+  })
+
+  it('ADMIN still downloads ANY resume/scan regardless of team (unaffected by this task)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
+      honorSoftDeleteFilter: true,
+    })
+    const result = await h.service.getDownloadUrl(ADMIN, 'd1')
+    expect(result.url).toBeTruthy()
   })
 })
 
@@ -1051,8 +1346,17 @@ function makeExtendedHarness(opts: ExtendedHarnessOptions = {}) {
     makeThumbnail: vi.fn().mockResolvedValue(null),
   }
 
-  const service = new DocumentsService(db as never, s3 as never, compression as never)
-  return { service, docsRows, db, s3 }
+  const hrAccess = {
+    getActiveTeamPeers: vi.fn().mockResolvedValue(baseOpts.teamPeers ?? []),
+  }
+
+  const service = new DocumentsService(
+    db as never,
+    s3 as never,
+    compression as never,
+    hrAccess as unknown as HrAccessService,
+  )
+  return { service, docsRows, db, s3, hrAccess }
 }
 
 describe('DocumentsService.list — PR-2 statusBadge (Task 2)', () => {

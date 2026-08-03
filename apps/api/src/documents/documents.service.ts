@@ -45,17 +45,30 @@ import {
   type StatusBadge,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-// security-review PR #456 round 2: `nonDeletedTransactions` (VIEW), never the
-// raw `transactions` table — this module is outside `finance/**` and the
-// ESLint no-restricted-imports rule bans the raw import here.
+// security-review PR #456 round 2 (merged in via MED-4, round 3 of THIS
+// task's review): `nonDeletedTransactions` (VIEW), never the raw
+// `transactions` table — this module is outside `finance/**` and the
+// ESLint no-restricted-imports rule bans the raw import here. Merging with
+// the raw table instead (reverting this) would silently bring back
+// signature/status badges for soft-deleted transactions — resolved
+// keeping main's VIEW-based import, on top of this task's own additions
+// (`documentAccessLog`/`projectMembers`/`projects`/`HrAccessService`/
+// `isSensitiveCategory`) — no raw `transactions` reference remains
+// anywhere in this file (confirmed: it was already unused here even
+// before this merge, a leftover from the round-2 accountant-scoping
+// revert).
 import {
+  documentAccessLog,
   documents,
   invoiceSignatures,
   nonDeletedTransactions,
+  projectMembers,
+  projects,
   teamMembers,
   users,
 } from '../database/schema'
-import { S3Service, presignTtlForCategory } from './s3.service'
+import { HrAccessService } from '../common/hr-access.service'
+import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 
 /** What the controller hands us after parsing the multipart request. */
@@ -73,6 +86,7 @@ export class DocumentsService {
     private readonly db: DatabaseService,
     private readonly s3: S3Service,
     private readonly compression: CompressionService,
+    private readonly hrAccess: HrAccessService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -188,13 +202,15 @@ export class DocumentsService {
     }
 
     try {
-      await this.s3.upload(s3Key, compressed.buffer, compressed.finalMimeType)
+      await this.s3.upload(s3Key, compressed.buffer, compressed.finalMimeType, meta.category)
       // Upload the thumbnail in the same try-block so a thumb-only failure
       // still compensates the DB row (the row already references the thumb
       // key, so it would be inconsistent without it).
       if (thumbnailBuffer && thumbnailS3Key) {
         try {
-          await this.s3.upload(thumbnailS3Key, thumbnailBuffer, 'image/jpeg')
+          // Same category as the main object — a thumbnail of a sensitive
+          // scan/resume is still sensitive (task-file-storage-hardening §3).
+          await this.s3.upload(thumbnailS3Key, thumbnailBuffer, 'image/jpeg', meta.category)
         } catch (thumbErr) {
           // Thumbnail upload failure is *non-fatal* but we clear the
           // thumbnail key from the row so the UI doesn't 404 trying to
@@ -280,7 +296,7 @@ export class DocumentsService {
     }
 
     try {
-      await this.s3.upload(s3Key, params.file, params.mimeType)
+      await this.s3.upload(s3Key, params.file, params.mimeType, params.category)
     } catch (err) {
       this.logger.error(
         `S3 upload failed for internal docId=${docId}: ${(err as Error).message} — rolling back DB row`,
@@ -656,10 +672,17 @@ export class DocumentsService {
     // Use category-based TTL: sensitive categories (CONTRACT/RECEIPT/INVOICE/
     // RESUME/SCAN) get 30 min; AVATAR/LOGO keep 24h default.
     const ttl = presignTtlForCategory(doc.category as DocumentCategory)
+    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'DOWNLOAD')
     // s3/documents hygiene: force Content-Disposition: attachment so the browser
     // always downloads the file rather than opening it inline (e.g. a PDF opened
     // inline in a new tab could be shared via URL — attachment forces Save dialog).
-    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs, 'attachment')
+    return this.s3.getPresignedDownloadUrl(
+      doc.s3Key,
+      ttl,
+      downloadAs,
+      'attachment',
+      doc.category as DocumentCategory,
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -680,11 +703,69 @@ export class DocumentsService {
     const doc = await this.findActiveOrThrow(docId, actor)
     const downloadAs = doc.originalName ?? doc.name
     const ttl = presignTtlForCategory(doc.category as DocumentCategory)
+    await this.logAccess(actor, doc.id, doc.category as DocumentCategory, 'PREVIEW')
     // disposition='inline' tells the browser to render the PDF in-place
     // rather than offering a Save dialog (contrast with getDownloadUrl which
     // uses 'attachment' to force a download prompt for the explicit download
     // button flow).
-    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs, 'inline')
+    return this.s3.getPresignedDownloadUrl(
+      doc.s3Key,
+      ttl,
+      downloadAs,
+      'inline',
+      doc.category as DocumentCategory,
+    )
+  }
+
+  /**
+   * task-file-storage-hardening §7: best-effort access-log entry — "who
+   * downloaded/previewed/thumbnail-viewed this document and when" was
+   * previously unanswerable. Only sensitive categories are logged
+   * (CONTRACT/RECEIPT/INVOICE/RESUME/SCAN) — AVATAR/LOGO fetch constantly as
+   * part of ordinary list rendering and carry no meaningful "who accessed
+   * this" question. Never records the presigned URL itself, only
+   * actor/document/category. A logging failure must not block the actual
+   * download/preview/thumbnail fetch.
+   *
+   * MED-5 (security-review round 1): thumbnails are now logged too — a
+   * thumbnail of a sensitive SCAN/RESUME still exposes the same underlying
+   * image content (the earlier version of this method deliberately skipped
+   * `getThumbnailUrl` to avoid noise, but the review correctly pointed out
+   * that "who viewed this" is exactly as meaningful for a thumbnail as for
+   * the full download when the category is sensitive — the noise concern
+   * doesn't apply here the way it does for AVATAR/LOGO, which are already
+   * excluded by the `isSensitiveCategory` gate below regardless of action).
+   *
+   * MED-1 (security-review round 3): `actorId` must be the REAL human
+   * behind the request, `actor.impersonatorId ?? actor.id` — the same
+   * convention every other audit trail in this codebase already follows
+   * (transaction audit log, projects, teams, users). This was wrongly
+   * recording `actor.id` alone, which under impersonation attributes the
+   * download to the IMPERSONATED account instead of the ADMIN who was
+   * actually driving it. Doesn't widen any RBAC decision on its own, but
+   * this log is the SOLE compensating control the owner's 2026-08-03
+   * decision leans on for ACCOUNTANT's unconditional SCAN access — a wrong
+   * actor here quietly weakens that justification.
+   */
+  private async logAccess(
+    actor: SessionUser,
+    docId: string,
+    category: DocumentCategory,
+    action: 'DOWNLOAD' | 'PREVIEW' | 'THUMBNAIL',
+  ): Promise<void> {
+    if (!isSensitiveCategory(category)) return
+    try {
+      await this.db.db.insert(documentAccessLog).values({
+        actorId: actor.impersonatorId ?? actor.id,
+        targetId: docId,
+        action,
+        metadata: { category },
+      })
+    } catch (err) {
+      this.logger.warn(
+        `logAccess: failed to write access-log row for docId=${docId}: ${(err as Error).message}`,
+      )
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -939,14 +1020,25 @@ export class DocumentsService {
    * no access to anything matching the filters (so we can short-circuit to
    * `[]` without a query).
    *
-   * Visibility (from pm-brief.md "RBAC матрица для GET"):
+   * Visibility (from pm-brief.md "RBAC матрица для GET", team-scoping per
+   * task-file-storage-hardening §1 / owner decision 2026-08-01, corrected
+   * per security-review round 1 (HIGH-1) and round 2 (ACCOUNTANT, owner
+   * decision 2026-08-03) — see `docs/business/modules/documents.md` for the
+   * authoritative matrix):
    *   ADMIN: any category, any ownerId
-   *   SENIOR: resume/scan all; contract/receipt own; avatar own; logo all (read)
+   *   SENIOR: resume/scan — TEAM + PROJECT (active team_members overlap
+   *       PLUS JUNIORs on the viewer's own projects — see getTeammateIds
+   *       for why team_members alone excludes every JUNIOR); contract/
+   *       receipt own; avatar own; logo all (read)
    *   JUNIOR: resume/scan own; avatar own; nothing else
-   *   HR: resume/scan all; contract — for seniors in HR's teams; avatar own;
-   *       logo all (read); receipt none
-   *   ACCOUNTANT: scan all; receipt all (read); avatar own;
-   *               resume/contract/logo none
+   *   HR: resume/scan — TEAM + PROJECT (same predicate as SENIOR, see
+   *       above); contract — for seniors in HR's teams; avatar own; logo
+   *       all (read); receipt none
+   *   ACCOUNTANT: scan ALL, unconditionally — owner decision 2026-08-03
+   *       (round-1's transaction-scoped attempt was rejected: self-
+   *       satisfying + broke onboarding, see the SCAN branch below for the
+   *       full rationale); receipt all (read); avatar own;
+   *       resume/contract/logo none
    */
   private async buildListWhere(
     actor: SessionUser,
@@ -1029,22 +1121,60 @@ export class DocumentsService {
     // Build a set of (category, ownerScope) tuples the actor is allowed to see.
     const visibleClauses: SQL[] = []
 
-    if (this.canSeeAll(actor.role, 'RESUME') && (!category || category === 'RESUME')) {
-      visibleClauses.push(eq(documents.category, 'RESUME'))
-    } else if (this.canSeeSelf(actor.role, 'RESUME') && (!category || category === 'RESUME')) {
-      visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
+    // task-file-storage-hardening §1: SENIOR/HR resume+scan visibility is
+    // TEAM-and-PROJECT-SCOPED (security-review round 1 HIGH-1 fix — see
+    // getTeammateIds' own doc for why team_members alone is wrong), resolved
+    // once since both categories share the same scoped-id set.
+    const teammateIds =
+      actor.role === 'SENIOR' || actor.role === 'HR'
+        ? await this.getTeammateIds(actor.id, actor.role)
+        : null
+
+    if (!category || category === 'RESUME') {
+      if (teammateIds) {
+        visibleClauses.push(
+          and(eq(documents.category, 'RESUME'), inArray(documents.ownerId, teammateIds))!,
+        )
+      } else if (this.canSeeSelf(actor.role, 'RESUME')) {
+        visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
+      }
     }
 
-    if (this.canSeeAll(actor.role, 'SCAN') && (!category || category === 'SCAN')) {
-      visibleClauses.push(eq(documents.category, 'SCAN'))
-    } else if (this.canSeeSelf(actor.role, 'SCAN') && (!category || category === 'SCAN')) {
-      visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
+    if (!category || category === 'SCAN') {
+      if (teammateIds) {
+        visibleClauses.push(
+          and(eq(documents.category, 'SCAN'), inArray(documents.ownerId, teammateIds))!,
+        )
+      } else if (actor.role === 'ACCOUNTANT') {
+        // task-file-storage-hardening — OWNER DECISION 2026-08-03 (security-
+        // review round 2, reversing the round-1 MED-1 "transaction-scoped"
+        // attempt): ACCOUNTANT sees ALL scans, unconditionally. The
+        // transaction-EXISTS scope tried in round 1 was rejected for two
+        // independent reasons, either one fatal on its own:
+        //   1. Self-satisfying: ACCOUNTANT is the role that CREATES/
+        //      validates transactions — they can unlock their own access to
+        //      any scan by creating one transaction naming that person, so
+        //      the "restriction" was not actually a restriction.
+        //   2. Broke onboarding in practice: live data at review time showed
+        //      transactions exist for only 5 of 21 people; HR and DROP users
+        //      have ZERO — an ACCOUNTANT verifying a brand-new hire's scan
+        //      before any money has moved would 404 on exactly the case that
+        //      matters most.
+        // Kept broad on the strength of: ACCOUNTANT is a read-only audit
+        // role (cannot upload RESUME/SCAN at all, see assertCanUpload), and
+        // every access is now recorded in document_access_log (§7) — the
+        // accountability the task needed comes from the log, not from
+        // narrowing the read.
+        visibleClauses.push(eq(documents.category, 'SCAN'))
+      } else if (this.canSeeSelf(actor.role, 'SCAN')) {
+        visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
+      }
     }
 
     // DROP: self-scope for RESUME and SCAN (DROP uploads RESUME/SCAN like JUNIOR self).
     // Security: ownerId is already forced to actor.id by the `list()` caller via
     // effectiveFilters, so this clause adds the category filter to the visibility set.
-    // The canSeeAll/canSeeSelf helpers don't handle DROP — explicit branch here.
+    // The canSeeSelf helper doesn't handle DROP — explicit branch here.
     if (actor.role === 'DROP') {
       if (!category || category === 'RESUME') {
         visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
@@ -1120,16 +1250,6 @@ export class DocumentsService {
     return or(...visibleClauses)!
   }
 
-  private canSeeAll(role: Role, category: DocumentCategory): boolean {
-    if (category === 'RESUME') {
-      return role === 'SENIOR' || role === 'HR'
-    }
-    if (category === 'SCAN') {
-      return role === 'SENIOR' || role === 'HR' || role === 'ACCOUNTANT'
-    }
-    return false
-  }
-
   private canSeeSelf(role: Role, category: DocumentCategory): boolean {
     if (category === 'RESUME' || category === 'SCAN') return role === 'JUNIOR'
     return false
@@ -1158,6 +1278,88 @@ export class DocumentsService {
     return seniors.map((r) => r.userId)
   }
 
+  /**
+   * task-file-storage-hardening §1 (owner decision 2026-08-01): "sузить
+   * доступ к резюме/сканам до команды" for SENIOR and HR.
+   *
+   * HIGH-1 fix (security-review round 1): the FIRST version of this method
+   * scoped to `team_members` alone, which silently excludes EVERY JUNIOR —
+   * a JUNIOR is never a `team_members` row by system design
+   * (`UsersService.createUser` inserts a JUNIOR into `project_members`
+   * only; `TeamsService.addMember` explicitly REJECTS adding a JUNIOR who
+   * has an active project, see teams.service.ts). Live data at review time:
+   * 0 active JUNIOR `team_members` rows company-wide. The old code's actual
+   * effect was "SENIOR/HR can no longer see ANY junior's resume/scan",
+   * which is the opposite of the intended narrowing.
+   *
+   * Correct membership model — union of two relationships, mirroring
+   * `UsersAccessService.isHrInTargetTeam`'s JUNIOR branch /
+   * `isSeniorViewingOwnProjectMember` (the established pattern for
+   * "does this SENIOR/HR reach this JUNIOR" elsewhere in the codebase):
+   *   1. Active team overlap (any role on the target side) — delegated to
+   *      `HrAccessService.getActiveTeamPeers` (LOW-1: was a third private
+   *      copy of the same `team_members` self-join `getHrSeniorIds` above
+   *      already implements; now shares one canonical query).
+   *   2. JUNIORs reachable transitively: the SENIOR(s) found in step 1 (or
+   *      the actor itself, if the actor IS the SENIOR) → those SENIORs'
+   *      projects → active (`leftAt IS NULL`) `project_members` rows on
+   *      those projects.
+   * PLUS `actorId` itself always — "собственные документы у всех остаются
+   * доступны всегда" must hold even with zero active team membership.
+   *
+   * ACCOUNTANT is NOT routed through this helper at all — they keep
+   * unconditional SCAN access (owner decision 2026-08-03, security-review
+   * round 2 — see the SCAN branch of `buildVisibilityClause` for the full
+   * rationale). Routing them through this predicate would not even be a
+   * narrowing in practice: ACCOUNTANT IS added to every team at creation
+   * time, so it would resolve to "the whole company" anyway — the round-1
+   * attempt at scoping ACCOUNTANT used a DIFFERENT mechanism (a
+   * transaction-existence check, since reverted) precisely because this
+   * team/project predicate can't meaningfully restrict a role that's a
+   * member of literally every team.
+   */
+  private async getTeammateIds(actorId: string, actorRole: 'SENIOR' | 'HR'): Promise<string[]> {
+    const scopedIds = new Set<string>([actorId])
+
+    const peers = await this.hrAccess.getActiveTeamPeers(actorId)
+    for (const p of peers) scopedIds.add(p.userId)
+
+    // Resolve the SENIOR(s) whose project rosters extend this actor's
+    // reach: the actor itself if they ARE a SENIOR, else any SENIOR found
+    // among their active team peers (the HR case).
+    const seniorIds =
+      actorRole === 'SENIOR'
+        ? [actorId]
+        : peers.filter((p) => p.role === 'SENIOR').map((p) => p.userId)
+
+    if (seniorIds.length > 0) {
+      // MED (security-review round 2): exclude ARCHIVED projects explicitly
+      // — do not rely solely on `project_members.leftAt` as the archival
+      // signal. `ProjectsService.archive()` DOES set `leftAt` for active
+      // JUNIORs at archive time, but `unarchive()` deliberately does NOT
+      // restore it ("project_members.leftAt intentionally NOT restored" —
+      // see its own comment), so a re-activated project can drift out of
+      // sync with its members' `leftAt`. Filtering on `projects.archivedAt`
+      // directly matches the stricter precedent already established by
+      // `UsersAccessService.isJuniorUnderLegendSubject` (the other
+      // established project-lookup for the SAME kind of relationship).
+      const seniorProjects = await this.db.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(and(inArray(projects.seniorId, seniorIds), isNull(projects.archivedAt)))
+      if (seniorProjects.length > 0) {
+        const projectIds = seniorProjects.map((p) => p.id)
+        const juniors = await this.db.db
+          .select({ userId: projectMembers.userId })
+          .from(projectMembers)
+          .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)))
+        for (const j of juniors) scopedIds.add(j.userId)
+      }
+    }
+
+    return [...scopedIds]
+  }
+
   // -------------------------------------------------------------------------
   // Shared helpers
   // -------------------------------------------------------------------------
@@ -1179,9 +1381,27 @@ export class DocumentsService {
     // Cheap path: owner sees own.
     if (doc.ownerId === actor.id) return doc
 
-    // Otherwise check category visibility.
-    const seesAll = this.canSeeAll(actor.role, doc.category)
-    if (seesAll) return doc
+    // task-file-storage-hardening §1: SENIOR/HR + RESUME/SCAN is
+    // team-and-project-scoped, not "sees all" — this is the single gate
+    // that guards BOTH the list (via buildVisibilityClause) and this
+    // direct-by-id fetch (the audit's specific finding: a single gate used
+    // to say "yes" unconditionally for these two categories).
+    if (
+      (actor.role === 'SENIOR' || actor.role === 'HR') &&
+      (doc.category === 'RESUME' || doc.category === 'SCAN')
+    ) {
+      const teammateIds = await this.getTeammateIds(actor.id, actor.role)
+      if (teammateIds.includes(doc.ownerId)) return doc
+      throw new NotFoundException('Документ не найден')
+    }
+
+    // ACCOUNTANT reads any SCAN — owner decision 2026-08-03 (security-review
+    // round 2), see the doc comment on the SCAN branch of
+    // `buildVisibilityClause` for the full rationale (transaction-scoping
+    // tried in round 1 was rejected as self-satisfying + onboarding-breaking).
+    if (actor.role === 'ACCOUNTANT' && doc.category === 'SCAN') {
+      return doc
+    }
 
     // HR + CONTRACT: special team-scope check.
     if (actor.role === 'HR' && doc.category === 'CONTRACT') {
@@ -1286,8 +1506,10 @@ export class DocumentsService {
     if (!doc.thumbnailS3Key) return null
     // Thumbnails inherit the same TTL as the main document for consistency:
     // a leaked thumbnail URL should expire at the same time as the full file.
-    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
-    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl)
+    const category = doc.category as DocumentCategory
+    const ttl = presignTtlForCategory(category)
+    await this.logAccess(actor, doc.id, category, 'THUMBNAIL')
+    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl, undefined, 'inline', category)
   }
 }
 

@@ -338,7 +338,10 @@ export const vacancyApplicationSchema = z.object({
   linkedinUrl: z.string().nullable(),
   githubUrl: z.string().nullable(),
   coverLetter: z.string().nullable(),
-  resumeSizeBytes: z.number().int(),
+  // task-file-storage-hardening §2 — nullable: the 180-day file-only
+  // retention purge clears the resume (and this size) while keeping the
+  // application row. `null` = "resume no longer stored", not "unknown".
+  resumeSizeBytes: z.number().int().nullable(),
   status: vacancyApplicationStatusSchema,
   createdAt: z.string(),
 })

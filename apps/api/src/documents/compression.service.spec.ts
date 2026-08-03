@@ -14,8 +14,30 @@
  */
 import { describe, expect, it } from 'vitest'
 import sharp from 'sharp'
-import { PDFDocument, StandardFonts } from 'pdf-lib'
+import { PDFDocument, PDFName, PDFRawStream, StandardFonts } from 'pdf-lib'
 import { CompressionService } from './compression.service'
+
+/**
+ * task-file-storage-hardening §5 regression guard: metadata stripping must
+ * run in pass 1, unconditionally — it previously only fired in pass 2, gated
+ * behind a >5 MB threshold that a resume (hard-capped at 5 MB upstream) could
+ * never cross. Read the fields back with pdf-lib's own getters so this test
+ * fails if a future edit re-gates the strip behind size again.
+ */
+async function readPdfMetadataFields(buf: Buffer) {
+  // `updateMetadata: false` is REQUIRED here — pdf-lib's default (`true`)
+  // stamps its own Producer/ModificationDate signature on every `load()`,
+  // which would make this reader itself reintroduce the exact field the
+  // test is trying to verify is empty.
+  const doc = await PDFDocument.load(buf, { updateMetadata: false })
+  return {
+    title: doc.getTitle() ?? '',
+    author: doc.getAuthor() ?? '',
+    subject: doc.getSubject() ?? '',
+    producer: doc.getProducer() ?? '',
+    creator: doc.getCreator() ?? '',
+  }
+}
 
 const service = new CompressionService()
 
@@ -74,6 +96,64 @@ async function makeSimplePdf(textRepeats = 1): Promise<Buffer> {
   return Buffer.from(await doc.save())
 }
 
+/**
+ * task-file-storage-hardening MED-3 (security-review round 1): a fixture
+ * that carries metadata in the SAME TWO PLACES a real Word/LibreOffice PDF
+ * export does — the classic `/Info` dictionary (which `makeSimplePdf`
+ * above already covers, and which `setAuthor('')` etc. DO strip) AND a
+ * separate XMP metadata packet: a `/Metadata` stream hung off the document
+ * Catalog, containing a `dc:creator` field pdf-lib has no setter for at
+ * all. `makeSimplePdf` — generated ENTIRELY by pdf-lib itself — never
+ * produces a `/Metadata` stream, so it structurally cannot exercise this
+ * path; that was exactly the review's finding ("фикстура создана той же
+ * библиотекой, что чистит"). This builds the XMP stream directly via
+ * pdf-lib's own low-level `context`/`catalog` API (the same primitives a
+ * real PDF producer uses under the hood) rather than depending on a
+ * network fetch of an actual .docx→PDF export, keeping the suite
+ * hermetic and reproducible — verified empirically (outside this repo,
+ * against this exact pdf-lib version) that attaching an XMP stream this
+ * way and round-tripping it through `PDFDocument.load()`/`.save()`
+ * preserves it byte-for-byte, so this is a faithful stand-in.
+ */
+async function makeWordStylePdfWithXmpMetadata(authorName: string): Promise<Buffer> {
+  const doc = await PDFDocument.create()
+  const font = await doc.embedFont(StandardFonts.Helvetica)
+  const page = doc.addPage([612, 792])
+  page.drawText('Resume exported from Word.', { x: 50, y: 700, size: 12, font })
+
+  // Classic Info dictionary — same channel makeSimplePdf already covers.
+  doc.setAuthor(authorName)
+  doc.setTitle(`${authorName} - Resume`)
+
+  // XMP metadata packet — the channel that used to survive untouched.
+  // Real Word/LibreOffice exports embed dc:creator/xmp:CreatorTool here,
+  // redundantly with (and independently of) the Info dictionary above.
+  const xmp = Buffer.from(
+    `<?xpacket begin="﻿" id="W5M0MpCehiHzreSzNTczkc9d"?>
+<x:xmpmeta xmlns:x="adobe:ns:meta/">
+  <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+    <rdf:Description rdf:about=""
+      xmlns:dc="http://purl.org/dc/elements/1.1/"
+      xmlns:xmp="http://ns.adobe.com/xap/1.0/">
+      <dc:creator><rdf:Seq><rdf:li>${authorName}</rdf:li></rdf:Seq></dc:creator>
+      <xmp:CreatorTool>Microsoft Word</xmp:CreatorTool>
+    </rdf:Description>
+  </rdf:RDF>
+</x:xmpmeta>
+<?xpacket end="w"?>`,
+    'utf-8',
+  )
+  const metadataDict = doc.context.obj({
+    Type: PDFName.of('Metadata'),
+    Subtype: PDFName.of('XML'),
+  })
+  const metadataStream = PDFRawStream.of(metadataDict, xmp)
+  const metadataRef = doc.context.register(metadataStream)
+  doc.catalog.set(PDFName.of('Metadata'), metadataRef)
+
+  return Buffer.from(await doc.save())
+}
+
 // -----------------------------------------------------------------------------
 // Pass 1 — basic format handling
 // -----------------------------------------------------------------------------
@@ -112,6 +192,101 @@ describe('CompressionService — Pass 1 by MIME', () => {
     expect(result.finalMimeType).toBe('application/pdf')
     // pdf-lib's saved output is roughly the same size for tiny PDFs
     expect(result.sizeBytes).toBeGreaterThan(0)
+  })
+
+  // task-file-storage-hardening §5 — metadata must be stripped on a SMALL PDF
+  // (well under the old 5 MB pass-2 gate) with fields actually populated, the
+  // exact shape of a real resume upload. This is the test the audit asked
+  // for: "возьми файл с заполненным полем автора".
+  it('PDF: strips title/author/subject/producer/creator metadata in pass 1, even for a small (<5MB) file', async () => {
+    const input = await makeSimplePdf(5)
+    expect(input.length).toBeLessThan(5 * 1024 * 1024)
+    const before = await readPdfMetadataFields(input)
+    expect(before.author).toBe('CRM') // fixture sets doc.setAuthor('CRM')
+    expect(before.title).toBe('Test')
+
+    const result = await service.compress(input, 'application/pdf')
+    const after = await readPdfMetadataFields(result.buffer)
+    expect(after.title).toBe('')
+    expect(after.author).toBe('')
+    expect(after.subject).toBe('')
+    expect(after.producer).toBe('')
+    expect(after.creator).toBe('')
+  })
+
+  // Anti-bloat guard (default mode) can return the ORIGINAL buffer when
+  // pdf-lib's re-save happens to be >= the input size — for the DEFAULT
+  // (non-public) mode that is acceptable (documented, unchanged behaviour).
+  // The `neverFallbackToOriginal` mode below is what closes that gap for the
+  // public resume-apply path.
+  it('PDF: neverFallbackToOriginal keeps the sanitized (stripped) buffer even when it is not smaller than the original', async () => {
+    // A tiny, already-minimal PDF is the case most likely to trigger the
+    // anti-bloat guard (pdf-lib's object-stream re-save adds structural
+    // overhead that a 1-line PDF has no content to offset).
+    const input = await makeSimplePdf(1)
+    const before = await readPdfMetadataFields(input)
+    expect(before.author).toBe('CRM')
+
+    const result = await service.compress(input, 'application/pdf', {
+      neverFallbackToOriginal: true,
+    })
+    const after = await readPdfMetadataFields(result.buffer)
+    expect(after.author).toBe('')
+    expect(after.title).toBe('')
+    // The returned buffer must be the SANITIZED one, not byte-identical to
+    // the original applicant-submitted bytes (unless save() happened to also
+    // shrink it, which the metadata check above already rules out as a proxy
+    // — a stripped title still reads '' either way, so assert byte identity
+    // is not required for correctness, only that metadata is gone).
+  })
+
+  // task-file-storage-hardening MED-3 (security-review round 1): proves the
+  // fix on a fixture with metadata in the SAME TWO PLACES a real Word/
+  // LibreOffice export carries it — see makeWordStylePdfWithXmpMetadata's
+  // doc comment for why a pdf-lib-only fixture couldn't have caught this.
+  describe('PDF: real Word-style XMP metadata (MED-3)', () => {
+    it('the input actually carries the author in BOTH the Info dict AND the XMP stream (fixture sanity check)', async () => {
+      const input = await makeWordStylePdfWithXmpMetadata('Ivan Petrenko')
+      const infoFields = await readPdfMetadataFields(input)
+      expect(infoFields.author).toBe('Ivan Petrenko')
+      // Raw-byte check for the XMP packet — proves the fixture is NOT just
+      // relying on pdf-lib's Info dict (the thing setAuthor('') already
+      // stripped even before this fix existed).
+      expect(input.toString('latin1')).toContain('Ivan Petrenko')
+      expect(input.toString('latin1')).toContain('/Metadata')
+    })
+
+    it('strips the author from the Info dict AND removes the XMP metadata stream entirely', async () => {
+      const authorName = 'Ivan Petrenko'
+      const input = await makeWordStylePdfWithXmpMetadata(authorName)
+
+      const result = await service.compress(input, 'application/pdf')
+
+      const infoFields = await readPdfMetadataFields(result.buffer)
+      expect(infoFields.author).toBe('')
+      expect(infoFields.title).toBe('')
+
+      // The real proof: the author name must not survive ANYWHERE in the
+      // raw output bytes — not just in the Info dict pdf-lib's setters
+      // reach, but in the XMP stream they don't.
+      const outputText = result.buffer.toString('latin1')
+      expect(outputText).not.toContain(authorName)
+      expect(outputText).not.toContain('/Metadata')
+      expect(outputText).not.toContain('Microsoft Word')
+    })
+
+    it('also strips XMP metadata on the public neverFallbackToOriginal path', async () => {
+      const authorName = 'Anonymous Applicant'
+      const input = await makeWordStylePdfWithXmpMetadata(authorName)
+
+      const result = await service.compress(input, 'application/pdf', {
+        neverFallbackToOriginal: true,
+      })
+
+      const outputText = result.buffer.toString('latin1')
+      expect(outputText).not.toContain(authorName)
+      expect(outputText).not.toContain('/Metadata')
+    })
   })
 
   it('unknown MIME: returns original untouched', async () => {

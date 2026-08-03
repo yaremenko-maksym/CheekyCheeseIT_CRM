@@ -6,9 +6,21 @@
  * the process crashes between commit and delete, an S3 object exists with no
  * matching `documents` row — an "orphan".
  *
+ * task-file-storage-hardening §4: this used to scan ONLY the `documents/`
+ * prefix / the `documents` table — vacancy-application resumes live under a
+ * completely separate `vacancy-applications/` prefix with their key tracked
+ * in `vacancy_applications.resumeS3Key`, so an orphaned resume (e.g. the S3
+ * upload succeeding but the DB insert failing, or `applicationsService`'s
+ * compensation path itself half-failing) was invisible to this reconciler
+ * forever — nothing would ever find or clean it up. Both prefixes/tables are
+ * now scanned in the same pass.
+ *
  * This service finds and (optionally) removes orphans safely:
- *   1. Lists ALL objects in the bucket with full pagination.
- *   2. Loads all known s3Key + thumbnailS3Key values from the DB into a Set.
+ *   1. Lists ALL objects in the bucket, per managed prefix, with full pagination.
+ *   2. Loads all known s3Key + thumbnailS3Key values (from `documents`) AND
+ *      resumeS3Key values (from `vacancy_applications`, excluding NULL — a
+ *      row whose file was cleared by the 180-day retention purge, §2, is not
+ *      "known" any more, it's legitimately gone) into one combined Set.
  *   3. Applies a grace window (default 48 h) — objects newer than that are
  *      never touched (in-flight uploads not yet committed to DB).
  *   4. dryRun=true (default): logs a summary and returns the report without
@@ -21,9 +33,13 @@
  * uctive mode is only reachable via an explicit ADMIN API call.
  */
 import { Injectable, Logger } from '@nestjs/common'
+import { isNotNull } from 'drizzle-orm'
 import { S3Service } from './s3.service'
 import { DatabaseService } from '../database/database.service'
-import { documents } from '../database/schema'
+import { documents, vacancyApplications } from '../database/schema'
+
+/** Every S3 prefix this reconciler is allowed to scan/delete under. */
+const MANAGED_PREFIXES = ['documents/', 'vacancy-applications/'] as const
 
 // ---------------------------------------------------------------------------
 // Public types (re-exported for controller + shared schema wiring)
@@ -84,11 +100,20 @@ export class DocumentsReconciliationService {
     this.logger.log(`[reconcile-orphans] Starting scan: dryRun=${dryRun}, graceHours=${graceHours}`)
 
     // -----------------------------------------------------------------------
-    // Step 1: Load all known S3 keys from DB (s3Key + thumbnailS3Key)
+    // Step 1: Load all known S3 keys from DB — `documents` (s3Key +
+    // thumbnailS3Key) AND `vacancy_applications` (resumeS3Key, task-file-
+    // storage-hardening §4). `isNotNull` on resumeS3Key: a row whose file
+    // was already cleared by the 180-day retention purge (§2) has nothing
+    // left to protect — its key is legitimately gone, not "known".
     // -----------------------------------------------------------------------
     const dbRows = await this.database.db
       .select({ s3Key: documents.s3Key, thumbnailS3Key: documents.thumbnailS3Key })
       .from(documents)
+
+    const resumeRows = await this.database.db
+      .select({ resumeS3Key: vacancyApplications.resumeS3Key })
+      .from(vacancyApplications)
+      .where(isNotNull(vacancyApplications.resumeS3Key))
 
     const knownKeys = new Set<string>()
     for (const row of dbRows) {
@@ -97,20 +122,26 @@ export class DocumentsReconciliationService {
         knownKeys.add(row.thumbnailS3Key)
       }
     }
+    for (const row of resumeRows) {
+      if (row.resumeS3Key) knownKeys.add(row.resumeS3Key)
+    }
 
     this.logger.log(`[reconcile-orphans] Loaded ${knownKeys.size} known keys from DB`)
 
     // -----------------------------------------------------------------------
-    // Step 2: List ALL S3 objects with full pagination
+    // Step 2: List ALL S3 objects with full pagination, across every managed
+    // prefix (`documents/` + `vacancy-applications/`, §4).
     // -----------------------------------------------------------------------
     const allObjects: S3ObjectInfo[] = []
-    let continuationToken: string | undefined = undefined
 
-    do {
-      const page = await this.s3.listObjects(continuationToken)
-      allObjects.push(...page.objects)
-      continuationToken = page.nextContinuationToken
-    } while (continuationToken !== undefined)
+    for (const prefix of MANAGED_PREFIXES) {
+      let continuationToken: string | undefined = undefined
+      do {
+        const page = await this.s3.listObjects(continuationToken, prefix)
+        allObjects.push(...page.objects)
+        continuationToken = page.nextContinuationToken
+      } while (continuationToken !== undefined)
+    }
 
     this.logger.log(`[reconcile-orphans] Scanned ${allObjects.length} S3 objects`)
 

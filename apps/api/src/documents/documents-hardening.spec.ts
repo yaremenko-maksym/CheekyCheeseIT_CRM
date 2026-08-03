@@ -379,7 +379,11 @@ function makeMimeHarness() {
     makeThumbnail: vi.fn().mockResolvedValue(null),
   }
 
-  const service = new DocumentsService(db as never, s3 as never, compression as never)
+  // task-file-storage-hardening HIGH-1: HrAccessService injected — unused by
+  // the upload/MIME/size hardening paths this suite exercises.
+  const hrAccess = { getActiveTeamPeers: vi.fn().mockResolvedValue([]) } as never
+
+  const service = new DocumentsService(db as never, s3 as never, compression as never, hrAccess)
   return { service, s3, compression, docsRows }
 }
 

@@ -261,6 +261,126 @@ describe('VacanciesRetentionCronService.purgeExpiredApplications', () => {
 })
 
 // ---------------------------------------------------------------------------
+// task-file-storage-hardening §2 (owner decision 2026-08-01) — 180-day
+// file-only purge. The ACTUAL day-boundary (179/180/181) can only be
+// verified against a real Postgres, same rationale as
+// `purgeExpiredApplications` above — covered in vacancies.integration.spec.ts.
+// This file covers orchestration: R2-first ordering, per-row isolation, the
+// application row itself is never deleted (only resumeS3Key/resumeSizeBytes
+// cleared), and the swallow-vs-throw S3 contract.
+// ---------------------------------------------------------------------------
+
+interface FileCandidate {
+  id: string
+  resumeS3Key: string
+}
+
+function makeFilePurgeDb(rows: FileCandidate[]) {
+  const updatedValues: Record<string, unknown>[] = []
+  const deleteCalls: unknown[] = []
+  const db = {
+    db: {
+      select: (_fields?: unknown) => ({
+        from: (_table: unknown) => ({
+          where: async (_pred: unknown) => rows,
+        }),
+      }),
+      update: (_table: unknown) => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (_pred: unknown) => {
+            updatedValues.push(values)
+            return Promise.resolve(undefined)
+          },
+        }),
+      }),
+      // The purge must NEVER delete the row — only clear the file columns.
+      delete: (_table: unknown) => ({
+        where: async (_pred: unknown) => {
+          deleteCalls.push(_pred)
+          return undefined
+        },
+      }),
+    },
+  }
+  return { db: db as unknown as DatabaseService, updatedValues, deleteCalls }
+}
+
+describe('VacanciesRetentionCronService.purgeExpiredResumeFiles', () => {
+  it('returns 0 and issues no update when nothing is expired', async () => {
+    const { db, updatedValues } = makeFilePurgeDb([])
+    const s3 = makeS3()
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
+
+    const purged = await svc.purgeExpiredResumeFiles(new Date('2026-07-22'))
+    expect(purged).toBe(0)
+    expect(updatedValues).toHaveLength(0)
+    expect(s3.deleteOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('deletes the R2 object THEN clears resumeS3Key/resumeSizeBytes to null — never deletes the row', async () => {
+    const rows: FileCandidate[] = [
+      { id: 'app-1', resumeS3Key: 'vacancy-applications/v1/app-1.pdf' },
+    ]
+    const { db, updatedValues, deleteCalls } = makeFilePurgeDb(rows)
+    const s3 = makeS3()
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
+
+    const purged = await svc.purgeExpiredResumeFiles(new Date('2026-07-22'))
+    expect(purged).toBe(1)
+    expect(s3.deleteOrThrow).toHaveBeenCalledWith('vacancy-applications/v1/app-1.pdf')
+    expect(updatedValues).toEqual([{ resumeS3Key: null, resumeSizeBytes: null }])
+    expect(deleteCalls).toHaveLength(0) // row survives — only the file is cleared
+  })
+
+  it('an R2 delete failure on one candidate leaves it untouched; the other candidate still purges (per-row isolation)', async () => {
+    const rows: FileCandidate[] = [
+      { id: 'app-a', resumeS3Key: 'k-a' },
+      { id: 'app-b', resumeS3Key: 'k-b' },
+    ]
+    const { db, updatedValues } = makeFilePurgeDb(rows)
+    const s3 = makeS3(async (key: string) => {
+      if (key === 'k-a') throw new Error('R2 unreachable')
+    })
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
+
+    const purged = await svc.purgeExpiredResumeFiles(new Date('2026-07-22'))
+    expect(purged).toBe(1)
+    expect(updatedValues).toEqual([{ resumeS3Key: null, resumeSizeBytes: null }])
+  })
+
+  it('never calls S3Service.delete() (the swallow-everything method) — only deleteOrThrow', async () => {
+    const rows: FileCandidate[] = [{ id: 'app-1', resumeS3Key: 'k-1' }]
+    const { db } = makeFilePurgeDb(rows)
+    const s3 = makeS3()
+    const svc = new VacanciesRetentionCronService(
+      db,
+      s3 as unknown as S3Service,
+      makeGoogleIndexingStub(),
+      makeConfigStub(),
+    )
+
+    await svc.purgeExpiredResumeFiles(new Date('2026-07-22'))
+    expect(s3.deleteOrThrow).toHaveBeenCalled()
+    expect(s3.delete).not.toHaveBeenCalled()
+  })
+})
+
+// ---------------------------------------------------------------------------
 // task-google-indexing-api §3 — weekly PUBLISHED refresh
 // ---------------------------------------------------------------------------
 

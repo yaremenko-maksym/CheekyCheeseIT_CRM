@@ -177,6 +177,23 @@ describe('CandidateCard — resume download (presigned URL)', () => {
   })
 })
 
+// task-file-storage-hardening §2: resumeSizeBytes is null once the 180-day
+// file-only retention purge has cleared the file — the application row
+// (this card) survives, but there is nothing left to download.
+describe('CandidateCard — purged resume (resumeSizeBytes null, §2)', () => {
+  it('renders a muted "resume deleted" note instead of the download button', () => {
+    renderCard(makeApplication({ resumeSizeBytes: null }))
+    expect(screen.queryByTestId('candidate-download-app-1')).not.toBeInTheDocument()
+    expect(screen.getByTestId('candidate-resume-purged-app-1')).toHaveTextContent('Резюме удалено')
+  })
+
+  it('still renders the download button when resumeSizeBytes is present', () => {
+    renderCard(makeApplication({ resumeSizeBytes: 12345 }))
+    expect(screen.getByTestId('candidate-download-app-1')).toBeInTheDocument()
+    expect(screen.queryByTestId('candidate-resume-purged-app-1')).not.toBeInTheDocument()
+  })
+})
+
 describe('CandidateCard — delete (AlertDialog confirm gate)', () => {
   beforeEach(() => apiDelete.mockClear())
 

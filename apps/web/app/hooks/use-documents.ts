@@ -3,19 +3,27 @@
  *
  * Two-tier caching strategy (lives entirely on the client — backend stays
  * stateless aside from S3 presign):
- *   - list query                 staleTime  5 min   gcTime 30 min
- *   - presigned download URL     staleTime  4 h     gcTime 24 h
+ *   - list query                 staleTime  5 min          gcTime 30 min
+ *   - presigned download URL     staleTime  DYNAMIC         gcTime 24 h
  *
- * The URL cache aligns with the API default presign TTL of 24h: refreshing
- * 20 minutes earlier (4h staleTime ⇒ each render refetches roughly hourly
- * via the inactive refresh) keeps thumbnails working without ever serving a
- * stale-and-expired URL. Result: the browser hits S3 once per file per
- * stale window, even when the user toggles between tabs.
+ * task-file-storage-hardening §7: the presigned-URL staleTime used to be a
+ * flat 4h, which silently assumed every category shared the API's 24h
+ * DEFAULT presign TTL. Sensitive categories (CONTRACT/RECEIPT/INVOICE/
+ * RESUME/SCAN) actually presign for only 30 minutes server-side
+ * (`SENSITIVE_PRESIGN_TTL_SEC` in `apps/api/src/documents/s3.service.ts`) —
+ * a cached URL for one of those sat "fresh" in TanStack Query for over 3.5
+ * hours PAST its real S3 expiry, and the next click just failed with "не
+ * удалось загрузить" instead of transparently refetching. `presignStaleTime`
+ * below derives the actual staleTime from the response's own `expiresAt`
+ * field (present on every `PresignedDownload`), so it's correct for BOTH
+ * the 30-min sensitive TTL and the 24h default without the client needing
+ * to know the category at all.
  */
 import {
   useMutation,
   useQuery,
   useQueryClient,
+  type Query,
   type UseMutationResult,
   type UseQueryResult,
 } from '@tanstack/react-query'
@@ -36,8 +44,33 @@ import { api } from '@/lib/axios'
 export const DOCUMENT_LIST_STALE_MS = 5 * 60 * 1000
 export const DOCUMENT_LIST_GC_MS = 30 * 60 * 1000
 
-export const DOCUMENT_URL_STALE_MS = 4 * 60 * 60 * 1000
+/** Garbage-collection window for presigned-URL query cache entries — unrelated to staleTime, see `presignStaleTime`. */
 export const DOCUMENT_URL_GC_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Safety margin subtracted from the raw `expiresAt - now` delta — a request
+ * that kicks off just before the computed staleTime flips to "stale" should
+ * still have time to complete against a URL that hasn't actually 403'd yet.
+ */
+const PRESIGN_STALE_SAFETY_MARGIN_MS = 60 * 1000
+
+/**
+ * Dynamic `staleTime` for any query returning a `{ url, expiresAt }` shape
+ * (or `null`, for the thumbnail hook's "no thumbnail" case). TanStack Query
+ * v5 accepts a function `(query) => number` for `staleTime` — see
+ * `resolveStaleTime` in `@tanstack/query-core`. Returns `0` (always stale →
+ * refetch) when there's no cached data yet or no `expiresAt` to derive from,
+ * which is always a safe default (a refetch is never wrong, just possibly
+ * redundant).
+ */
+export function presignStaleTime<TData extends PresignedDownload | null>(
+  query: Query<TData, Error, TData>,
+): number {
+  const data = query.state.data
+  if (!data?.expiresAt) return 0
+  const remaining = new Date(data.expiresAt).getTime() - Date.now() - PRESIGN_STALE_SAFETY_MARGIN_MS
+  return Math.max(0, remaining)
+}
 
 // ---------------------------------------------------------------------------
 // Query: list
@@ -103,7 +136,7 @@ export function useDocumentDownloadUrl(
       const res = await api.get<PresignedDownload>(`/documents/${docId}/download`)
       return res.data
     },
-    staleTime: DOCUMENT_URL_STALE_MS,
+    staleTime: presignStaleTime,
     gcTime: DOCUMENT_URL_GC_MS,
     enabled: Boolean(docId) && (options?.enabled ?? true),
     retry: 1,
@@ -136,7 +169,7 @@ export function useDocumentPreviewUrl(
       const res = await api.get<PresignedDownload>(`/documents/${docId}/preview`)
       return res.data
     },
-    staleTime: DOCUMENT_URL_STALE_MS,
+    staleTime: presignStaleTime,
     gcTime: DOCUMENT_URL_GC_MS,
     enabled: Boolean(docId) && (options?.enabled ?? true),
     retry: 1,
@@ -149,8 +182,8 @@ export function useDocumentPreviewUrl(
  * Returns `null` (not undefined) when the document has no thumbnail —
  * e.g. PDFs / legacy rows — which the UI uses to fall back to a
  * category icon. Treated as a regular query (not a mutation) so
- * thumbnails benefit from the same 4h staleTime caching as the full
- * download URL and stay snappy across tab switches.
+ * thumbnails benefit from the same dynamic `presignStaleTime` caching as
+ * the full download URL and stay snappy across tab switches.
  */
 export function useDocumentThumbnailUrl(
   docId: string | undefined,
@@ -164,7 +197,7 @@ export function useDocumentThumbnailUrl(
       )
       return res.data
     },
-    staleTime: DOCUMENT_URL_STALE_MS,
+    staleTime: presignStaleTime,
     gcTime: DOCUMENT_URL_GC_MS,
     enabled: Boolean(docId) && (options?.enabled ?? true),
     retry: 1,

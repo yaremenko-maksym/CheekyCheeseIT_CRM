@@ -10,6 +10,8 @@
  *  3. grace filter: objects newer than graceHours are NOT flagged as orphans
  *  4. object present in documents.s3Key is NEVER flagged
  *  5. pagination: listObjects fetches multiple pages via continuation token
+ *  6. task-file-storage-hardening §4: vacancy-applications/ prefix is scanned
+ *     too, and resumeS3Key values from vacancy_applications protect their keys
  */
 import { describe, expect, it, vi } from 'vitest'
 import { Logger } from '@nestjs/common'
@@ -28,39 +30,85 @@ function makeS3Object(key: string, hoursAgo: number, sizeBytes = 1024): S3Object
 
 // ---------------------------------------------------------------------------
 // Minimal S3Service mock
+//
+// task-file-storage-hardening §4: `reconcileOrphans` now scans TWO prefixes
+// (`documents/` + `vacancy-applications/`) in separate pagination loops.
+// `vacancyPages` defaults to `[]` (a single empty page, matching "nothing
+// under this prefix") so every EXISTING call site that only cares about
+// `documents/` keeps working unchanged — it just costs one extra
+// `listObjects` call for the empty vacancy-applications/ prefix, accounted
+// for in the call-count assertions below.
 // ---------------------------------------------------------------------------
 
-function makeS3Mock(pages: S3ObjectInfo[][]): {
+function makeS3Mock(
+  documentsPages: S3ObjectInfo[][],
+  vacancyPages: S3ObjectInfo[][] = [],
+): {
   listObjects: ReturnType<typeof vi.fn>
   delete: ReturnType<typeof vi.fn>
 } {
-  let pageIndex = 0
+  const pagesByPrefix: Record<string, S3ObjectInfo[][]> = {
+    'documents/': documentsPages,
+    'vacancy-applications/': vacancyPages,
+  }
+  const pageIndexByPrefix: Record<string, number> = {}
   return {
-    listObjects: vi.fn().mockImplementation((_continuationToken?: string) => {
-      const page = pages[pageIndex] ?? []
-      pageIndex++
-      const hasMore = pageIndex < pages.length
-      return Promise.resolve({
-        objects: page,
-        nextContinuationToken: hasMore ? `token-page-${pageIndex}` : undefined,
-      })
-    }),
+    listObjects: vi
+      .fn()
+      .mockImplementation((_continuationToken: string | undefined, prefix = 'documents/') => {
+        const pages = pagesByPrefix[prefix] ?? []
+        const idx = pageIndexByPrefix[prefix] ?? 0
+        const page = pages[idx] ?? []
+        pageIndexByPrefix[prefix] = idx + 1
+        const hasMore = idx + 1 < pages.length
+        return Promise.resolve({
+          objects: page,
+          nextContinuationToken: hasMore ? `token-${prefix}-page-${idx + 1}` : undefined,
+        })
+      }),
     delete: vi.fn().mockResolvedValue(undefined),
   }
 }
 
 // ---------------------------------------------------------------------------
 // Minimal DatabaseService mock
+//
+// `reconcileOrphans` now issues TWO sequential `db.select().from()` queries
+// (task-file-storage-hardening §4): 1st = `documents` (awaited directly off
+// `.from()`, no `.where()`), 2nd = `vacancy_applications` (chains
+// `.where(isNotNull(...))`). The mock below branches on call order so both
+// shapes resolve correctly regardless of which helper a given test uses.
 // ---------------------------------------------------------------------------
 
-function makeDbMock(s3Keys: string[]) {
+function makeDbMockFromRows(
+  docRows: { s3Key: string; thumbnailS3Key: string | null }[],
+  resumeKeys: string[] = [],
+) {
+  let callCount = 0
   return {
     db: {
-      select: vi.fn().mockReturnValue({
-        from: vi.fn().mockResolvedValue(s3Keys.map((s3Key) => ({ s3Key, thumbnailS3Key: null }))),
+      select: vi.fn().mockImplementation(() => {
+        callCount += 1
+        if (callCount === 1) {
+          // documents query: select({...}).from(documents)
+          return { from: vi.fn().mockResolvedValue(docRows) }
+        }
+        // vacancy_applications query: select({...}).from(vacancyApplications).where(isNotNull(...))
+        return {
+          from: vi.fn().mockReturnValue({
+            where: vi.fn().mockResolvedValue(resumeKeys.map((resumeS3Key) => ({ resumeS3Key }))),
+          }),
+        }
       }),
     },
   }
+}
+
+function makeDbMock(s3Keys: string[], resumeKeys: string[] = []) {
+  return makeDbMockFromRows(
+    s3Keys.map((s3Key) => ({ s3Key, thumbnailS3Key: null })),
+    resumeKeys,
+  )
 }
 
 // Suppress logger output in tests
@@ -283,8 +331,9 @@ describe('DocumentsReconciliationService — S3 pagination', () => {
 
     const report = await service.reconcileOrphans({ dryRun: true, graceHours: 48 })
 
-    // listObjects called twice (once per page)
-    expect(s3Mock.listObjects).toHaveBeenCalledTimes(2)
+    // listObjects called twice for documents/ (once per page) + once more
+    // for the (empty, in this test) vacancy-applications/ prefix, §4.
+    expect(s3Mock.listObjects).toHaveBeenCalledTimes(3)
     expect(report.scannedObjects).toBe(3)
     expect(report.orphans).toHaveLength(2)
     const orphanKeys = report.orphans.map((o) => o.key).sort()
@@ -303,7 +352,83 @@ describe('DocumentsReconciliationService — S3 pagination', () => {
 
     await service.reconcileOrphans({ dryRun: true, graceHours: 48 })
 
-    expect(s3Mock.listObjects).toHaveBeenCalledTimes(1)
+    // 1 call for documents/, 1 more for the (empty) vacancy-applications/ prefix.
+    expect(s3Mock.listObjects).toHaveBeenCalledTimes(2)
+  })
+})
+
+// ---------------------------------------------------------------------------
+// task-file-storage-hardening §4: vacancy-applications/ prefix coverage
+// ---------------------------------------------------------------------------
+
+describe('DocumentsReconciliationService — vacancy-applications/ prefix (§4)', () => {
+  it('scans the vacancy-applications/ prefix and flags an orphan resume there', async () => {
+    const orphanResume = 'vacancy-applications/vac-1/orphan-app.pdf'
+    const s3Mock = makeS3Mock([], [[makeS3Object(orphanResume, 72)]])
+    const dbMock = makeDbMock([]) // no documents rows, no resumeS3Key rows either
+
+    const service = new DocumentsReconciliationService(
+      s3Mock as unknown as import('./s3.service').S3Service,
+      dbMock as unknown as import('../database/database.service').DatabaseService,
+    )
+
+    const report = await service.reconcileOrphans({ dryRun: true, graceHours: 48 })
+
+    expect(report.orphans).toHaveLength(1)
+    expect(report.orphans[0]!.key).toBe(orphanResume)
+  })
+
+  it('a resumeS3Key present in vacancy_applications is never flagged, regardless of age', async () => {
+    const protectedResume = 'vacancy-applications/vac-1/legit-app.pdf'
+    const s3Mock = makeS3Mock([], [[makeS3Object(protectedResume, 999)]])
+    const dbMock = makeDbMock([], [protectedResume])
+
+    const service = new DocumentsReconciliationService(
+      s3Mock as unknown as import('./s3.service').S3Service,
+      dbMock as unknown as import('../database/database.service').DatabaseService,
+    )
+
+    const report = await service.reconcileOrphans({ dryRun: false, graceHours: 0 })
+
+    expect(report.orphans).toHaveLength(0)
+    expect(s3Mock.delete).not.toHaveBeenCalled()
+  })
+
+  it('a resumeS3Key that is NULL (180-day file-only purge already ran) does not protect a stale key', async () => {
+    // The purge already cleared resumeS3Key to null for this application —
+    // makeDbMock's resumeKeys list (mirroring `isNotNull()` in the real
+    // query) simply does not include it, exactly like the real DB row.
+    const staleResume = 'vacancy-applications/vac-1/purged-app.pdf'
+    const s3Mock = makeS3Mock([], [[makeS3Object(staleResume, 999)]])
+    const dbMock = makeDbMock([], []) // resumeS3Key is null → not "known"
+
+    const service = new DocumentsReconciliationService(
+      s3Mock as unknown as import('./s3.service').S3Service,
+      dbMock as unknown as import('../database/database.service').DatabaseService,
+    )
+
+    const report = await service.reconcileOrphans({ dryRun: true, graceHours: 0 })
+
+    expect(report.orphans).toHaveLength(1)
+    expect(report.orphans[0]!.key).toBe(staleResume)
+  })
+
+  it('deletes orphans found under BOTH prefixes in a single active run', async () => {
+    const docOrphan = 'documents/RECEIPT/orphan.jpg'
+    const resumeOrphan = 'vacancy-applications/vac-1/orphan.pdf'
+    const s3Mock = makeS3Mock([[makeS3Object(docOrphan, 72)]], [[makeS3Object(resumeOrphan, 72)]])
+    const dbMock = makeDbMock([])
+
+    const service = new DocumentsReconciliationService(
+      s3Mock as unknown as import('./s3.service').S3Service,
+      dbMock as unknown as import('../database/database.service').DatabaseService,
+    )
+
+    const report = await service.reconcileOrphans({ dryRun: false, graceHours: 48 })
+
+    expect(report.deleted).toBe(2)
+    expect(s3Mock.delete).toHaveBeenCalledWith(docOrphan)
+    expect(s3Mock.delete).toHaveBeenCalledWith(resumeOrphan)
   })
 })
 
@@ -352,11 +477,5 @@ function makeDbMockWithThumbnails(s3Keys: string[], thumbnailKeys: string[]) {
       thumbnailS3Key: thumbKey,
     })),
   ]
-  return {
-    db: {
-      select: vi.fn().mockReturnValue({
-        from: vi.fn().mockResolvedValue(rows),
-      }),
-    },
-  }
+  return makeDbMockFromRows(rows)
 }

@@ -145,16 +145,29 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
 
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => void handleDownload()}
-            disabled={resumeUrlQuery.isFetching}
-            data-testid={`candidate-download-${application.id}`}
-          >
-            <Download className="mr-1 h-3.5 w-3.5" />
-            Скачать резюме
-          </Button>
+          {application.resumeSizeBytes !== null ? (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void handleDownload()}
+              disabled={resumeUrlQuery.isFetching}
+              data-testid={`candidate-download-${application.id}`}
+            >
+              <Download className="mr-1 h-3.5 w-3.5" />
+              Скачать резюме
+            </Button>
+          ) : (
+            // task-file-storage-hardening §2: resumeSizeBytes is null once the
+            // 180-day file-only retention purge has cleared the file — the
+            // application row (this card) survives, but there is nothing left
+            // to download.
+            <span
+              className="text-xs text-muted-foreground"
+              data-testid={`candidate-resume-purged-${application.id}`}
+            >
+              Резюме удалено (истёк срок хранения)
+            </span>
+          )}
 
           <AlertDialog>
             <AlertDialogTrigger asChild>

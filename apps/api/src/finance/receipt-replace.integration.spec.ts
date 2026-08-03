@@ -47,6 +47,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { DocumentsService } from '../documents/documents.service'
 import { S3Service } from '../documents/s3.service'
 import { CompressionService } from '../documents/compression.service'
+import type { HrAccessService } from '../common/hr-access.service'
 import { InvoicesService } from '../invoices/invoices.service'
 import { documents, transactions } from '../database/schema'
 import * as schema from '../database/schema'
@@ -191,10 +192,15 @@ describe('PR-3 receipt replace-with-delete — real backend integration', () => 
     Object.assign(dbSvc, { pool: _pool, db })
 
     // DocumentsService with spy S3
+    // task-file-storage-hardening HIGH-1: HrAccessService injected —
+    // unused by the receipt-replace path this suite exercises, stubbed to
+    // satisfy the constructor signature.
+    const stubHrAccess = { getActiveTeamPeers: async () => [] } as unknown as HrAccessService
     documentsService = new DocumentsService(
       dbSvc,
       stubS3 as S3Service,
       stubCompression as CompressionService,
+      stubHrAccess,
     )
 
     // TransactionsService — real, wired to spy DocumentsService
