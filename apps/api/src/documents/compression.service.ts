@@ -8,14 +8,30 @@
  *     image/heic  → heic-convert → JPEG → sharp pass-1 (final mime image/jpeg)
  *     image/png   → no alpha → JPEG (huge win); with alpha → .png({compressionLevel:9, palette:true})
  *     image/webp  → .webp({quality:80}) re-encode
- *     application/pdf → PDFDocument.load(...).save({useObjectStreams:true})
+ *     application/pdf → PDFDocument.load(...).save({useObjectStreams:true}),
+ *       Info-dict + XMP metadata stripped UNCONDITIONALLY (task-file-storage-
+ *       hardening §5/MED-3 — NOT gated behind pass 2/file size; see
+ *       `compressPdf()`'s own doc comment for why that used to matter)
  *
  *   Pass 2 (only if pass-1 result > PASS2_THRESHOLD_BYTES):
  *     JPEG (any image converted to jpeg) → resize 1600 max-side, quality 75
- *     PDF → strip metadata fields
+ *     PDF: no separate pass-2 step — compressPdf() above already ran
+ *       unconditionally in pass 1 for every PDF regardless of size
  *
- *   Anti-bloat: if final size > original, return original buffer + original
- *   mime — sharp/pdf-lib occasionally inflate tiny optimized files.
+ *   Anti-bloat (DEFAULT, every call site EXCEPT one): if final size >
+ *     original, return the ORIGINAL buffer + original mime — sharp/pdf-lib
+ *     occasionally inflate tiny optimized files. task-file-storage-hardening
+ *     §5 (LOW-2, security-review round 1 — making this exception explicit
+ *     here, not just at the one call site that sets it): the ONE exception
+ *     is `ApplicationsService.apply()` (the public, unauthenticated vacancy-
+ *     resume path), which passes `{ neverFallbackToOriginal: true }` — for
+ *     that path ONLY, falling back to the original would silently undo the
+ *     PDF metadata strip above (the original IS the anonymous applicant's
+ *     unsanitized upload). This flag is opt-IN per call, not a global
+ *     category rule — every OTHER caller (DocumentsService.upload/
+ *     uploadInternal, covering CONTRACT/RECEIPT/INVOICE/RESUME/SCAN/AVATAR/
+ *     LOGO uploaded by an authenticated staff member) keeps the default
+ *     anti-bloat fallback.
  *
  * Why we do compression on the BACKEND (not in the browser):
  *   - consistent behavior across clients (mobile / desktop / different sharps)
