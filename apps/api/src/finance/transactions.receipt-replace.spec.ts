@@ -132,13 +132,19 @@ function makeHarness(opts: HarnessOpts = {}) {
       },
       transaction: vi.fn().mockImplementation(async (cb: (dbtx: unknown) => Promise<void>) => {
         dbTxStarted = true
-        // dbtx stub — supports update().set().where() and delete().where()
+        // dbtx stub — supports update().set().where().returning() and delete().where()
+        // security-review PR #456 (MED-1): replaceReceiptAtomic's UPDATE now
+        // chains `.returning(...)` and checks the affected row count (delete↔
+        // write TOCTOU close) — the stub must expose `.returning()` resolving
+        // a non-empty array (a real, non-deleted row was updated).
         const dbtx = {
           update: (_table: unknown) => ({
             set: (values: Record<string, unknown>) => {
               lastSetValues = values
               return {
-                where: async (_pred: unknown) => undefined,
+                where: (_pred: unknown) => ({
+                  returning: async (_cols: unknown) => [{ id: txRow.id }],
+                }),
               }
             },
           }),
@@ -354,9 +360,13 @@ function makeIdorHarnessV2(opts: {
         },
       },
       transaction: vi.fn().mockImplementation(async (cb: (dbtx: unknown) => Promise<void>) => {
+        // security-review PR #456 (MED-1): see makeHarness above — the stub
+        // must expose `.returning()` on the update chain too.
         const dbtx = {
           update: (_table: unknown) => ({
-            set: (_values: unknown) => ({ where: async () => undefined }),
+            set: (_values: unknown) => ({
+              where: () => ({ returning: async () => [{ id: txRow.id }] }),
+            }),
           }),
           delete: dbtxDelete,
         }

@@ -307,11 +307,22 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     const tx = makeTx({ status: 'PENDING', type: 'SENIOR_INCOME' })
 
     const dbInsertMock = vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) })
+    // security-review PR #456 (MED-1): validateTransaction's UPDATE now
+    // chains `.returning(...)` and checks the affected row count (delete↔
+    // validate TOCTOU close) — the mock chain must expose `.returning()`.
     const dbUpdateMock = vi.fn().mockReturnValue({
       set: vi.fn().mockReturnValue({
-        where: vi.fn().mockResolvedValue([]),
+        where: vi.fn().mockReturnValue({ returning: vi.fn().mockResolvedValue([{ id: tx.id }]) }),
       }),
     })
+    // task-soft-delete-and-money-audit (AC5): validateTransaction now wraps
+    // the status flip in a db.transaction so it can atomically journal the
+    // VALIDATE action alongside it.
+    const dbTransactionMock = vi
+      .fn()
+      .mockImplementation((fn: (dbtx: unknown) => Promise<void>) =>
+        fn({ insert: dbInsertMock, update: dbUpdateMock }),
+      )
 
     // findFirst returns the tx for the initial lookup, then the updated tx for findOne
     const updatedTx = { ...tx, status: 'VALIDATED', payoutRequestId: null }
@@ -330,6 +341,7 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
           projectMembers: { findFirst: vi.fn().mockResolvedValue(null) },
           juniorPayments: { findFirst: vi.fn().mockResolvedValue(null) },
         },
+        transaction: dbTransactionMock,
         insert: dbInsertMock,
         update: dbUpdateMock,
       },
@@ -352,8 +364,10 @@ describe('validateTransaction — SENIOR_INCOME (#7)', () => {
     // Act
     await svc.validateTransaction('tx-1', 'validate', null, ACCOUNTANT_USER)
 
-    // Assert: insert was NOT called (no payout_request, no PAYOUT row created)
-    expect(dbInsertMock).not.toHaveBeenCalled()
+    // Assert: no payout_request / PAYOUT row created — insert is called
+    // EXACTLY once, for the VALIDATE journal entry (task-soft-delete-and-
+    // money-audit, AC5), not for a second money row.
+    expect(dbInsertMock).toHaveBeenCalledTimes(1)
 
     // Assert: update was called exactly once (flip to VALIDATED)
     expect(dbUpdateMock).toHaveBeenCalledTimes(1)
@@ -414,8 +428,14 @@ describe('validateTransaction — DROP_INCOME flip-only (task-drop-payout-compan
     })
 
     const dbInsertMock = vi.fn().mockReturnValue({ values: vi.fn().mockResolvedValue([]) })
+    // security-review PR #456 (MED-1): see the SENIOR_INCOME test above —
+    // same `.returning()` chain requirement.
     const dbUpdateMock = vi.fn().mockReturnValue({
-      set: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: dropTx.id }]),
+        }),
+      }),
     })
     const dbTransactionMock = vi
       .fn()
@@ -461,10 +481,13 @@ describe('validateTransaction — DROP_INCOME flip-only (task-drop-payout-compan
 
     await svc.validateTransaction('dtx-1', 'validate', null, ACCOUNTANT_USER)
 
-    // No payout_request and no PAYOUT row created — insert never called, and the
-    // flip does NOT open a db.transaction (a single bare update like SENIOR).
-    expect(dbInsertMock).not.toHaveBeenCalled()
-    expect(dbTransactionMock).not.toHaveBeenCalled()
+    // No payout_request and no PAYOUT row created — insert is called EXACTLY
+    // once, for the VALIDATE journal entry (task-soft-delete-and-money-audit,
+    // AC5), not for a second money row. The flip now DOES open a
+    // db.transaction (SENIOR's mirror above does too) so the journal write
+    // is atomic with the status flip.
+    expect(dbInsertMock).toHaveBeenCalledTimes(1)
+    expect(dbTransactionMock).toHaveBeenCalledTimes(1)
     // Exactly one update — the status flip to VALIDATED.
     expect(dbUpdateMock).toHaveBeenCalledTimes(1)
   })

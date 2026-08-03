@@ -40,13 +40,18 @@ function admin(id = 'admin-1'): SessionUser {
 describe('adminUpdateTransaction — #6: settled company-funded edit guard', () => {
   function makeSvc(row: Record<string, unknown>) {
     const findOne = vi.fn().mockResolvedValue({ id: row.id })
-    const updateSpy = vi.fn()
+    // security-review PR #456 (MED-1): adminUpdateTransaction's UPDATE now
+    // chains `.returning(...)` and checks the affected row count — `updateSpy`
+    // must resolve a non-empty array when called as the `.where()` step.
+    const updateSpy = vi.fn().mockReturnValue({
+      returning: () => Promise.resolve([{ id: row.id }]),
+    })
     const dbStub = {
       db: {
         query: {
           transactions: { findFirst: () => Promise.resolve(row) },
         },
-        update: () => ({ set: () => ({ where: updateSpy.mockResolvedValue(undefined) }) }),
+        update: () => ({ set: () => ({ where: updateSpy }) }),
         // MED-F (security-review round 4): the row write + registry claim now
         // share ONE transaction; run the callback against an equivalent handle
         // so `updateSpy` still observes the write.
@@ -213,7 +218,11 @@ describe('BIZ-18-fix — adminUpdateTransaction: change-based guard (not presenc
 
   function makeSvc(row: Record<string, unknown>) {
     const findOne = vi.fn().mockResolvedValue({ id: row['id'] })
-    const updateSpy = vi.fn().mockResolvedValue(undefined)
+    // security-review PR #456 (MED-1): see the sibling stub above — the
+    // `.where()` step now needs a `.returning()` resolving a non-empty array.
+    const updateSpy = vi.fn().mockReturnValue({
+      returning: () => Promise.resolve([{ id: row['id'] }]),
+    })
     const dbStub = {
       db: {
         query: {

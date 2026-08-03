@@ -76,8 +76,14 @@ function makeStub(
 ) {
   const dbStub = {
     db: {
+      // task-soft-delete-and-money-audit (AC4): the SQL aggregate now chains
+      // a trailing `.where(isNull(deletedAt))` after `.from()` — the stub
+      // must mirror that shape or the real query throws
+      // "…from(...).where is not a function".
       select: () => ({
-        from: () => Promise.resolve([aggregateRow]),
+        from: () => ({
+          where: () => Promise.resolve([aggregateRow]),
+        }),
       }),
     },
   }

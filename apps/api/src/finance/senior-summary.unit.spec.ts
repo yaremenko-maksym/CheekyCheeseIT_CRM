@@ -60,11 +60,21 @@ function makeService(data: StubData = {}): TransactionsService {
         users: { findFirst: () => Promise.resolve(data.selfUser) },
         transactions: {
           findMany: () => Promise.resolve(data.paidIncome ?? []),
-          findFirst: () => Promise.resolve(data.salaryRow),
         },
         payoutRequests: { findMany: () => Promise.resolve(data.payoutRequests ?? []) },
         teamMembers: { findMany: () => Promise.resolve(data.teamMembers ?? []) },
       },
+      // security-review PR #456 round 2: mySalaryStatus now comes from
+      // getOwnSalaryStatus, which reads the `nonDeletedTransactions` VIEW via
+      // `.select().from(...).where(...).limit(1)` — not the relational-query
+      // `transactions.findFirst` this stub used to provide.
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Promise.resolve(data.salaryRow ? [data.salaryRow] : []),
+          }),
+        }),
+      }),
     },
   }
   return makeTransactionsService({ db: dbStub as never })

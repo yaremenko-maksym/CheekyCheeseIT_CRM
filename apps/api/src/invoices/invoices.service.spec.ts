@@ -28,6 +28,12 @@ import { describe, expect, it, vi } from 'vitest'
 import type { FastifyRequest } from 'fastify'
 import type { SessionUser } from '@crm/shared'
 import { InvoicesService } from './invoices.service'
+// security-review PR #456 round 2: autoCreateForSeniorPayout/autoCreateForPayout
+// /autoCreateForSalary/signInvoice's linked-income lookup now read the
+// `nonDeletedTransactions` VIEW via `.select().from(...)` instead of the
+// relational-query `transactions.findFirst/findMany` — the harness below
+// compares the `.from(...)` argument by reference to route the stub.
+import { nonDeletedTransactions } from '../database/schema'
 
 const u = (id: string, role: SessionUser['role'], name = id): SessionUser => ({
   id,
@@ -155,7 +161,7 @@ function buildHarness(state: HarnessState) {
 
   function buildSelectBuilder(fields: unknown) {
     return {
-      from: (_t: unknown) => {
+      from: (t: unknown) => {
         const chain = {
           where: (_p: unknown) => chain,
           leftJoin: (_t2: unknown, _on: unknown) => chain,
@@ -163,16 +169,16 @@ function buildHarness(state: HarnessState) {
           orderBy: (_o: unknown) => {
             // Make orderBy return a chainable: limit() OR awaited-list.
             const ordered = {
-              limit: async (lim: number) => resolveLimit(lim, fields),
+              limit: async (lim: number) => resolveLimit(lim, fields, t),
               then: (resolve: (v: unknown) => void) => {
                 resolve(resolveOrderByList())
               },
             }
             return ordered
           },
-          limit: async (lim: number) => resolveLimit(lim, fields),
+          limit: async (lim: number) => resolveLimit(lim, fields, t),
           then: (resolve: (v: unknown) => void) => {
-            resolve(resolveSelectArray())
+            resolve(resolveSelectArray(t))
           },
         }
         return chain
@@ -180,7 +186,19 @@ function buildHarness(state: HarnessState) {
     }
   }
 
-  function resolveLimit(lim: number, fields: unknown): unknown[] {
+  function resolveLimit(lim: number, fields: unknown, table?: unknown): unknown[] {
+    // security-review PR #456 round 2: single-tx-by-id fetch via the
+    // `nonDeletedTransactions` VIEW — `.select().from(nonDeletedTransactions)
+    // .where(eq(id, X)).limit(1)` (autoCreateForSeniorPayout/
+    // autoCreateForPayout/autoCreateForSalary). Routed by comparing the
+    // `.from(...)` argument by reference, since `fields` is bare (no
+    // column-map) for this call shape, same as the sig-lookup default branch
+    // below used to assume.
+    if (table === nonDeletedTransactions) {
+      const id = ctrl.findTxId
+      const t = id ? state.txs.find((x) => x.id === id) : state.txs[0]
+      return t ? [t] : []
+    }
     // Contract number lookup: select({contractNumber}) + innerJoin + where + orderBy + limit(1)
     if (
       fields &&
@@ -238,7 +256,19 @@ function buildHarness(state: HarnessState) {
       })
   }
 
-  function resolveSelectArray(): unknown[] {
+  function resolveSelectArray(table?: unknown): unknown[] {
+    // security-review PR #456 round 2: linkedIncomes fetch via the
+    // `nonDeletedTransactions` VIEW — `.select().from(nonDeletedTransactions)
+    // .where(and(...))` awaited directly, no `.limit()` (autoCreateForPayout /
+    // signInvoice's PAYOUT branch).
+    if (table === nonDeletedTransactions) {
+      const reqId = ctrl.linkedPayoutRequestId
+      if (!reqId) return []
+      return state.txs.filter(
+        (t) =>
+          t.payoutRequestId === reqId && (t.type === 'SENIOR_INCOME' || t.type === 'DROP_INCOME'),
+      )
+    }
     // getSignaturesWithSignerNames — select(fields).from(invoiceSignatures).leftJoin(users).where()
     const txId = ctrl.findTxId
     return state.sigs

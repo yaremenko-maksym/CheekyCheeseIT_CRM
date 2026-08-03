@@ -1,7 +1,7 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { StickyPageHeader } from '@/components/crm/StickyPageHeader'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet } from 'lucide-react'
+import { Plus, Search, ArrowUpDown, ChevronDown, X, Wallet, Trash2 } from 'lucide-react'
 import { useCallback, useMemo, useState } from 'react'
 import { AnimatePresence } from 'framer-motion'
 import type { TransactionDto, TransactionStatus } from '@crm/shared'
@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import {
   Select,
   SelectContent,
@@ -238,6 +239,9 @@ function TransactionsTable({
   onConfirmPayout,
   onAttachReceipt,
   onDetail,
+  onRestore,
+  showDeleted,
+  onToggleShowDeleted,
 }: {
   transactions: TransactionDto[]
   loading: boolean
@@ -284,6 +288,20 @@ function TransactionsTable({
    */
   onAttachReceipt?: (tx: TransactionDto) => void
   onDetail: (tx: TransactionDto) => void
+  /**
+   * task-soft-delete-and-money-audit. ADMIN-only restore action, passed
+   * straight through to TransactionRow (which additionally gates it to
+   * ADMIN + an already-deleted row).
+   */
+  onRestore?: (tx: TransactionDto) => void
+  /**
+   * task-soft-delete-and-money-audit (AC3). «Показать удалённые» toggle —
+   * only rendered when the caller passes `onToggleShowDeleted` (i.e. the
+   * viewer is ADMIN/ACCOUNTANT; see FinancePage). Default OFF, matching the
+   * server's default-hidden list.
+   */
+  showDeleted?: boolean
+  onToggleShowDeleted?: () => void
 }) {
   const [search, setSearch] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -372,6 +390,30 @@ function TransactionsTable({
               placeholder="Все статусы"
               options={STATUS_OPTIONS}
             />
+            {/* task-soft-delete-and-money-audit (AC3). Only rendered for
+                ADMIN/ACCOUNTANT (FinancePage passes the handler only for
+                those roles). Default OFF — matches the server's
+                default-hidden list; explicit toggle widens it. */}
+            {onToggleShowDeleted && (
+              <button
+                type="button"
+                onClick={() => {
+                  onToggleShowDeleted()
+                  trackFeatureClick('finance-filter-change')
+                }}
+                className={cn(
+                  'inline-flex items-center gap-1 rounded-md border px-2.5 py-1 text-xs font-medium transition-colors h-8',
+                  showDeleted
+                    ? 'border-destructive/40 bg-destructive/10 text-destructive'
+                    : 'border-border bg-muted/30 text-muted-foreground hover:bg-muted/60',
+                )}
+                data-testid="finance-toggle-show-deleted"
+                aria-pressed={!!showDeleted}
+              >
+                <Trash2 className="h-3 w-3" />
+                Показать удалённые
+              </button>
+            )}
           </>
         }
         sortSlot={
@@ -453,6 +495,7 @@ function TransactionsTable({
                     {...(onInitiatePayout ? { onInitiatePayout } : {})}
                     onConfirmPayout={onConfirmPayout}
                     {...(onAttachReceipt ? { onAttachReceipt } : {})}
+                    {...(onRestore ? { onRestore } : {})}
                     onClick={onDetail}
                   />
                 ))}
@@ -504,6 +547,17 @@ function FinancePage() {
   const [editTx, setEditTx] = useState<TransactionDto | null>(null)
   const [adminEditTx, setAdminEditTx] = useState<TransactionDto | null>(null)
   const [deleteTx, setDeleteTx] = useState<TransactionDto | null>(null)
+  // task-soft-delete-and-money-audit. Reason is mandatory (server enforces
+  // `min(3)`) — kept in local state so the dialog can disable the submit
+  // button until it is long enough, mirroring ReleaseOnChainHash's UX.
+  const [deleteReason, setDeleteReason] = useState('')
+  // task-soft-delete-and-money-audit (AC3). ADMIN/ACCOUNTANT-only «показать
+  // удалённые» toggle — default OFF, matching the server's default-hidden
+  // list. Reset is unnecessary: the query itself is gated by role below.
+  const [showDeleted, setShowDeleted] = useState(false)
+  // task-soft-delete-and-money-audit (AC6). ADMIN-only restore dialog target.
+  const [restoreTx, setRestoreTx] = useState<TransactionDto | null>(null)
+  const [restoreReason, setRestoreReason] = useState('')
   const [paySalaryTx, setPaySalaryTx] = useState<TransactionDto | null>(null)
   // task-senior-settle-owner. SENIOR_PENDING_PAYOUT row whose «Выплатить» funding
   // dialog is open (ADMIN/ACCOUNTANT). null = closed.
@@ -545,11 +599,26 @@ function FinancePage() {
 
   const qc = useQueryClient()
   const deleteMutation = useMutation({
-    mutationFn: (id: string) => financeApi.deleteTransaction(id),
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      financeApi.deleteTransaction(id, reason),
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: ['transactions'] })
       void qc.invalidateQueries({ queryKey: ['finance-summary'] })
       setDeleteTx(null)
+      setDeleteReason('')
+    },
+  })
+
+  // task-soft-delete-and-money-audit (AC6). ADMIN-only — reverses a soft
+  // delete. Reason is mandatory for the same audit-trail reason as delete.
+  const restoreMutation = useMutation({
+    mutationFn: ({ id, reason }: { id: string; reason: string }) =>
+      financeApi.restoreTransaction(id, reason),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['transactions'] })
+      void qc.invalidateQueries({ queryKey: ['finance-summary'] })
+      setRestoreTx(null)
+      setRestoreReason('')
     },
   })
 
@@ -564,13 +633,20 @@ function FinancePage() {
   }, [])
 
   const canCreate = isAdmin || isSenior || isDrop || isAccountant
+  // task-soft-delete-and-money-audit (AC2/AC3). Only ADMIN/ACCOUNTANT may
+  // ever request `includeDeleted` — the server ignores it for every other
+  // role regardless, but gating the toggle's very existence here means a
+  // SENIOR/JUNIOR/HR/DROP never even sees the affordance.
+  const canSeeDeleted = isAdmin || isAccountant
+  const effectiveShowDeleted = canSeeDeleted && showDeleted
 
   // DROP has its own self-scoped API endpoints (drop-incomes / drop-payments)
   // rendered via DropFinancePage below. Disabling the privileged /transactions
   // query for DROP avoids an unnecessary request with a different data shape.
   const { data: transactions = [], isLoading: txLoading } = useQuery({
-    queryKey: ['transactions'],
-    queryFn: () => financeApi.getTransactions(),
+    queryKey: ['transactions', effectiveShowDeleted ? 'with-deleted' : 'active'],
+    queryFn: () =>
+      financeApi.getTransactions(effectiveShowDeleted ? { includeDeleted: 'true' } : undefined),
     enabled: !isDrop,
   })
 
@@ -890,6 +966,13 @@ function FinancePage() {
                 onConfirmPayout={setConfirmPayoutTx}
                 onAttachReceipt={setAttachReceiptTx}
                 onDetail={setDetailTx}
+                {...(isAdmin ? { onRestore: setRestoreTx } : {})}
+                {...(canSeeDeleted
+                  ? {
+                      showDeleted,
+                      onToggleShowDeleted: () => setShowDeleted((v) => !v),
+                    }
+                  : {})}
               />
             </CardContent>
           </Card>
@@ -929,38 +1012,151 @@ function FinancePage() {
           {/* task-receipts-frontend: row-icon attach/replace entry point. */}
           <AttachReceiptSheet tx={attachReceiptTx} onClose={() => setAttachReceiptTx(null)} />
 
-          {/* Delete confirmation */}
-          <Dialog open={!!deleteTx} onOpenChange={(o) => !o && setDeleteTx(null)}>
+          {/* Delete confirmation — task-soft-delete-and-money-audit: now a
+              SOFT delete (row is marked, never physically removed) and the
+              reason is MANDATORY (it lands in the audit journal). */}
+          <Dialog
+            open={!!deleteTx}
+            onOpenChange={(o) => {
+              if (!o) {
+                setDeleteTx(null)
+                setDeleteReason('')
+              }
+            }}
+          >
             <CrmDialogContent maxWidth="sm:max-w-sm">
               <CrmDialogHeader>
                 <DialogTitle className="text-base text-destructive">
                   Удалить транзакцию?
                 </DialogTitle>
                 <DialogDescription className="sr-only">
-                  Подтверждение безвозвратного удаления финансовой транзакции.
+                  Подтверждение удаления финансовой транзакции. Транзакция будет скрыта из общего
+                  списка, но не удалена физически — восстановить сможет администратор.
                 </DialogDescription>
               </CrmDialogHeader>
-              <CrmDialogBody className="pb-2">
+              <CrmDialogBody className="pb-2 space-y-3">
                 <div className="text-sm text-muted-foreground space-y-1">
-                  <p>Это действие необратимо.</p>
+                  <p>
+                    Транзакция будет скрыта из общего списка. Восстановить её сможет администратор.
+                  </p>
                   {deleteTx && (
                     <p className="font-medium text-foreground">
                       {TYPE_LABELS[deleteTx.type]} · {fmtAmount(deleteTx.amount, deleteTx.currency)}
                     </p>
                   )}
                 </div>
+                <div className="space-y-1">
+                  <label htmlFor="delete-tx-reason" className="text-xs font-medium text-foreground">
+                    Причина удаления (обязательно)
+                  </label>
+                  <Textarea
+                    id="delete-tx-reason"
+                    value={deleteReason}
+                    onChange={(e) => setDeleteReason(e.target.value)}
+                    placeholder="Например: ошибочно созданная транзакция"
+                    className="min-h-16 text-sm"
+                    data-testid="delete-tx-reason-input"
+                  />
+                </div>
               </CrmDialogBody>
               <CrmDialogFooter>
-                <Button variant="outline" size="sm" onClick={() => setDeleteTx(null)}>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setDeleteTx(null)
+                    setDeleteReason('')
+                  }}
+                >
                   Отмена
                 </Button>
                 <Button
                   variant="destructive"
                   size="sm"
-                  onClick={() => deleteTx && deleteMutation.mutate(deleteTx.id)}
-                  disabled={deleteMutation.isPending}
+                  onClick={() =>
+                    deleteTx &&
+                    deleteMutation.mutate({ id: deleteTx.id, reason: deleteReason.trim() })
+                  }
+                  disabled={deleteMutation.isPending || deleteReason.trim().length < 3}
+                  data-testid="delete-tx-confirm-button"
                 >
                   {deleteMutation.isPending ? 'Удаление...' : 'Удалить'}
+                </Button>
+              </CrmDialogFooter>
+            </CrmDialogContent>
+          </Dialog>
+
+          {/* Restore — task-soft-delete-and-money-audit (AC6). ADMIN-only;
+              reason mandatory for the same audit-trail reason as delete. */}
+          <Dialog
+            open={!!restoreTx}
+            onOpenChange={(o) => {
+              if (!o) {
+                setRestoreTx(null)
+                setRestoreReason('')
+              }
+            }}
+          >
+            <CrmDialogContent maxWidth="sm:max-w-sm">
+              <CrmDialogHeader>
+                <DialogTitle className="text-base">Восстановить транзакцию?</DialogTitle>
+                <DialogDescription className="sr-only">
+                  Подтверждение восстановления ранее удалённой финансовой транзакции.
+                </DialogDescription>
+              </CrmDialogHeader>
+              <CrmDialogBody className="pb-2 space-y-3">
+                <div className="text-sm text-muted-foreground space-y-1">
+                  <p>Транзакция снова появится в общем списке и во всех расчётах.</p>
+                  {restoreTx && (
+                    <p className="font-medium text-foreground">
+                      {TYPE_LABELS[restoreTx.type]} ·{' '}
+                      {fmtAmount(restoreTx.amount, restoreTx.currency)}
+                    </p>
+                  )}
+                  {restoreTx?.deletionReason && (
+                    <p className="text-xs">
+                      Причина удаления: <span className="italic">{restoreTx.deletionReason}</span>
+                    </p>
+                  )}
+                </div>
+                <div className="space-y-1">
+                  <label
+                    htmlFor="restore-tx-reason"
+                    className="text-xs font-medium text-foreground"
+                  >
+                    Причина восстановления (обязательно)
+                  </label>
+                  <Textarea
+                    id="restore-tx-reason"
+                    value={restoreReason}
+                    onChange={(e) => setRestoreReason(e.target.value)}
+                    placeholder="Например: удалено по ошибке"
+                    className="min-h-16 text-sm"
+                    data-testid="restore-tx-reason-input"
+                  />
+                </div>
+              </CrmDialogBody>
+              <CrmDialogFooter>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setRestoreTx(null)
+                    setRestoreReason('')
+                  }}
+                >
+                  Отмена
+                </Button>
+                <Button
+                  size="sm"
+                  onClick={() =>
+                    restoreTx &&
+                    restoreMutation.mutate({ id: restoreTx.id, reason: restoreReason.trim() })
+                  }
+                  disabled={restoreMutation.isPending || restoreReason.trim().length < 3}
+                  data-testid="restore-tx-confirm-button"
+                >
+                  {restoreMutation.isPending ? 'Восстановление...' : 'Восстановить'}
                 </Button>
               </CrmDialogFooter>
             </CrmDialogContent>
