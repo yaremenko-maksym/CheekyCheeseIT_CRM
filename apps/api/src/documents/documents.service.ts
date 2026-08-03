@@ -735,6 +735,17 @@ export class DocumentsService {
    * the full download when the category is sensitive — the noise concern
    * doesn't apply here the way it does for AVATAR/LOGO, which are already
    * excluded by the `isSensitiveCategory` gate below regardless of action).
+   *
+   * MED-1 (security-review round 3): `actorId` must be the REAL human
+   * behind the request, `actor.impersonatorId ?? actor.id` — the same
+   * convention every other audit trail in this codebase already follows
+   * (transaction audit log, projects, teams, users). This was wrongly
+   * recording `actor.id` alone, which under impersonation attributes the
+   * download to the IMPERSONATED account instead of the ADMIN who was
+   * actually driving it. Doesn't widen any RBAC decision on its own, but
+   * this log is the SOLE compensating control the owner's 2026-08-03
+   * decision leans on for ACCOUNTANT's unconditional SCAN access — a wrong
+   * actor here quietly weakens that justification.
    */
   private async logAccess(
     actor: SessionUser,
@@ -745,7 +756,7 @@ export class DocumentsService {
     if (!isSensitiveCategory(category)) return
     try {
       await this.db.db.insert(documentAccessLog).values({
-        actorId: actor.id,
+        actorId: actor.impersonatorId ?? actor.id,
         targetId: docId,
         action,
         metadata: { category },

@@ -790,6 +790,26 @@ describe('DocumentsService.getDownloadUrl', () => {
       expect(JSON.stringify(row)).not.toContain('signed.example')
     })
 
+    // security-review round 3, MED-1: `actorId` must be the REAL human
+    // (`impersonatorId ?? id`), not the impersonated account — this log is
+    // the sole compensating control the owner's ACCOUNTANT/SCAN decision
+    // leans on, so a wrong actor here quietly weakens that justification.
+    it('while impersonating: logs the IMPERSONATOR (real admin) as actorId, not the impersonated account', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+        honorSoftDeleteFilter: true,
+      })
+      // Impersonate the doc's OWNER (SENIOR) so this test only exercises
+      // the actorId-attribution question, not team/project RBAC scoping —
+      // ownership is always self-accessible regardless of team overlap.
+      const impersonatedActor = { ...SENIOR, impersonatorId: ADMIN.id }
+      await h.service.getDownloadUrl(impersonatedActor, 'd1')
+
+      expect(h.accessLogRows).toHaveLength(1)
+      expect(h.accessLogRows[0]!['actorId']).toBe(ADMIN.id)
+      expect(h.accessLogRows[0]!['actorId']).not.toBe(SENIOR.id)
+    })
+
     it('getPreviewUrl writes a PREVIEW row to documentAccessLog', async () => {
       const h = makeHarness({
         docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'CONTRACT' }],
