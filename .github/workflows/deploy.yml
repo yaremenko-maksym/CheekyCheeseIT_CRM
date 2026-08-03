@@ -727,6 +727,74 @@ jobs:
           # apps/api/drizzle/manual/2026-08-01_vacancy_salary_range.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-01_vacancy_salary_range.sql
 
+      # ── transaction soft-delete DDL — GUARDED, same reason as the blocks above ──
+      # task-soft-delete-and-money-audit (PR #456, feature/soft-delete-money-audit): adds
+      # deleted_at / deleted_by / deletion_reason soft-delete columns to `transactions`
+      # (adminDeleteTransaction now stamps instead of running DELETE FROM transactions,
+      # restoreTransaction clears them) plus a CONCURRENTLY-built partial index supporting
+      # the new `WHERE deleted_at IS NULL` predicate every hot read now carries. This wiring
+      # is DevOps zone (apps/api/** excluded from DevOps zone-of-write) and lands separately
+      # from the Coder branch that creates the file, so a missing file here is the expected
+      # steady state until #456 merges, not an error — same guarded copy + notice-skip
+      # pattern as vacancy-salary-range immediately above (deploy job's matching step below
+      # has the mirrored guard). #456 and #462 (file storage hardening, below) do not
+      # reference each other's DDL, so wiring both independently this way makes the merge
+      # order of either PR, relative to main or to each other, irrelevant.
+      - name: Check for transaction soft-delete DDL file (guard until PR #456 merges)
+        id: transaction-soft-delete-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql not found in checkout — task-soft-delete-and-money-audit (PR #456) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy transaction soft-delete DDL via SCP (only if present)
+        if: steps.transaction-soft-delete-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql
+
+      # ── file storage hardening DDL — GUARDED, same reason as the blocks above ──
+      # task-file-storage-hardening (PR #462, fix/file-storage-hardening): adds a new
+      # document_access_log audit table (mirrors transaction_audit_log's shape — target_id
+      # has no FK, the audit trail must outlive the document/resume it describes) plus
+      # widens vacancy_applications.resume_s3_key / resume_size_bytes to nullable (180-day
+      # file-only resume retention purge clears both columns, keeps the application row).
+      # Same DevOps-zone reasoning as transaction soft-delete immediately above — file
+      # absent from main until #462 merges, guarded copy + notice-skip, merge order vs
+      # #456/main irrelevant either direction.
+      - name: Check for file storage hardening DDL file (guard until PR #462 merges)
+        id: file-storage-hardening-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql not found in checkout — task-file-storage-hardening (PR #462) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy file storage hardening DDL via SCP (only if present)
+        if: steps.file-storage-hardening-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -1332,6 +1400,85 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$VACANCY_SALARY_FILE"
               echo "==> vacancy salary range DDL applied successfully"
+            fi
+
+            # ── Step 2n: transaction soft-delete columns + CONCURRENTLY index (idempotent, GUARDED) ──
+            # task-soft-delete-and-money-audit (PR #456): adds deleted_at / deleted_by /
+            # deletion_reason to `transactions` — adminDeleteTransaction now stamps instead of
+            # running DELETE FROM transactions, restoreTransaction (ADMIN-only) clears them —
+            # plus a partial index supporting the new `WHERE deleted_at IS NULL` predicate
+            # every hot read (findAll's default list, every balance/summary aggregate) now
+            # carries.
+            # GUARDED for the same reason as Steps 2f/2i/2j/2m above — DevOps zone-of-write
+            # excludes apps/api/**, this wiring lands separately from the Coder branch, and a
+            # missing file here is the expected steady state until #456 merges, not an error.
+            # copy-compose job's matching "Check for transaction soft-delete DDL file" step
+            # mirrors this guard on the scp side.
+            #
+            # CONCURRENTLY note — verified EMPIRICALLY, not by reading the file (this is
+            # exactly the incident class scripts/devops/check-prod-ddl-wiring.py already
+            # guards a different failure mode of): `CREATE INDEX CONCURRENTLY` cannot run
+            # inside a transaction block. Every `psql` invocation in this workflow (this one
+            # included) is a bare `psql -v ON_ERROR_STOP=1 < file` — no `-1` /
+            # `--single-transaction` flag anywhere — which does NOT wrap the piped script in
+            # one transaction; each statement autocommits individually, so the file's own
+            # `CREATE INDEX CONCURRENTLY IF NOT EXISTS` is safe as-is. Confirmed by running
+            # this exact file through this exact invocation shape against a scratch Postgres
+            # 16 container: succeeds cleanly without `-1` (twice — re-applied to also confirm
+            # idempotency), and fails with `ERROR: CREATE INDEX CONCURRENTLY cannot run inside
+            # a transaction block` when `-1` is added as a negative control — proving this
+            # invocation shape is the reason it works, not incidental.
+            # Idempotent: ADD COLUMN IF NOT EXISTS + CREATE INDEX CONCURRENTLY IF NOT EXISTS —
+            # safe to re-run on repeated deploys.
+            # Source: apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql
+            TRANSACTION_SOFT_DELETE_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-01_transaction_soft_delete.sql"
+
+            if [ ! -f "$TRANSACTION_SOFT_DELETE_FILE" ]; then
+              echo "::notice::Transaction soft-delete DDL file not found at $TRANSACTION_SOFT_DELETE_FILE — task-soft-delete-and-money-audit (PR #456) has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying transaction soft-delete DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$TRANSACTION_SOFT_DELETE_FILE"
+              echo "==> transaction soft-delete DDL applied successfully"
+            fi
+
+            # ── Step 2o: document_access_log table + resume retention nullability (idempotent, GUARDED) ──
+            # task-file-storage-hardening (PR #462): new document_access_log audit table —
+            # mirrors transaction_audit_log's shape (target_id has NO FK reference, the audit
+            # trail must outlive a hard-deleted/retention-purged document or resume it
+            # describes) — records who fetched a presigned download/preview link for a
+            # sensitive document. Also widens vacancy_applications.resume_s3_key /
+            # resume_size_bytes to nullable: the 180-day resume-only retention purge clears
+            # both columns to NULL while keeping the application row itself (hiring-history
+            # value survives; only the file is scrubbed).
+            # GUARDED for the same reason as the blocks above — missing file is the expected
+            # steady state until #462 merges, not an error. Order-independent vs Step 2n
+            # above and vs main — this file's DDL does not reference `transactions` or
+            # anything #456 adds, and #456's does not reference `vacancy_applications` or
+            # `document_access_log`, so either PR can merge/deploy before, after, or without
+            # the other with no gap.
+            # Idempotent: CREATE TABLE/INDEX IF NOT EXISTS + ALTER COLUMN DROP NOT NULL
+            # (a no-op if already nullable) — safe to re-run on repeated deploys.
+            # Source: apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql
+            FILE_STORAGE_HARDENING_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql"
+
+            if [ ! -f "$FILE_STORAGE_HARDENING_FILE" ]; then
+              echo "::notice::File storage hardening DDL file not found at $FILE_STORAGE_HARDENING_FILE — task-file-storage-hardening (PR #462) has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying file storage hardening DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$FILE_STORAGE_HARDENING_FILE"
+              echo "==> file storage hardening DDL applied successfully"
             fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
