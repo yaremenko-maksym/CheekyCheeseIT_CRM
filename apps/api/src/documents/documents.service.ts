@@ -45,9 +45,17 @@ import {
   type StatusBadge,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { documents, invoiceSignatures, teamMembers, transactions, users } from '../database/schema'
+// security-review PR #456 round 2: `nonDeletedTransactions` (VIEW), never the
+// raw `transactions` table — this module is outside `finance/**` and the
+// ESLint no-restricted-imports rule bans the raw import here.
+import {
+  documents,
+  invoiceSignatures,
+  nonDeletedTransactions,
+  teamMembers,
+  users,
+} from '../database/schema'
 import { S3Service, presignTtlForCategory } from './s3.service'
-import { TRANSACTION_NOT_DELETED } from '../finance/transaction-visibility.util'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 
 /** What the controller hands us after parsing the multipart request. */
@@ -353,18 +361,25 @@ export class DocumentsService {
     // The UI uses this to render an «Требует подписи» badge + a banner at
     // the top of /crm/documents.
     const viewerId = actor.id
+    // security-review PR #456 round 2: every reference below is to
+    // `nonDeletedTransactions` (a VIEW, see schema.ts) — NOT the raw
+    // `transactions` table. A soft-deleted transaction cannot drive any of
+    // these badges no matter what, because the LEFT JOIN below can only ever
+    // match a non-deleted row (there is no `deleted_at` condition to forget —
+    // this replaces the round-1 `AND TRANSACTION_NOT_DELETED` join condition,
+    // which relied on remembering to write it every time).
     const pendingSig = sql<boolean>`(
       CASE
         WHEN ${documents.category} = 'INVOICE'
-          AND ${transactions.id} IS NOT NULL
+          AND ${nonDeletedTransactions.id} IS NOT NULL
           AND NOT EXISTS (
             SELECT 1 FROM ${invoiceSignatures}
-            WHERE ${invoiceSignatures.transactionId} = ${transactions.id}
+            WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
           )
           AND (
-            (${transactions.type} = 'SENIOR_INCOME' AND ${transactions.senderId} = ${viewerId})
-            OR (${transactions.type} = 'SALARY' AND ${transactions.receiverId} = ${viewerId})
+            (${nonDeletedTransactions.type} = 'SENIOR_INCOME' AND ${nonDeletedTransactions.senderId} = ${viewerId})
+            OR (${nonDeletedTransactions.type} = 'SALARY' AND ${nonDeletedTransactions.receiverId} = ${viewerId})
           )
         THEN TRUE
         ELSE FALSE
@@ -376,15 +391,15 @@ export class DocumentsService {
     const invoiceSigned = sql<boolean>`(
       CASE
         WHEN ${documents.category} = 'INVOICE'
-          AND ${transactions.id} IS NOT NULL
+          AND ${nonDeletedTransactions.id} IS NOT NULL
           AND EXISTS (
             SELECT 1 FROM ${invoiceSignatures}
-            WHERE ${invoiceSignatures.transactionId} = ${transactions.id}
+            WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COMPANY'
           )
           AND EXISTS (
             SELECT 1 FROM ${invoiceSignatures}
-            WHERE ${invoiceSignatures.transactionId} = ${transactions.id}
+            WHERE ${invoiceSignatures.transactionId} = ${nonDeletedTransactions.id}
               AND ${invoiceSignatures.signerRole} = 'COUNTERPARTY'
           )
         THEN TRUE
@@ -394,15 +409,12 @@ export class DocumentsService {
 
     // PR-2: receipt badge — derived from the linked transaction's status.
     // LEFT JOIN transactions on receipt_document_id = documents.id for RECEIPT rows.
-    // security-review PR #456 (HIGH-1): `t.deleted_at IS NULL` — without it a
-    // soft-deleted transaction's status kept driving the RECEIPT badge for a
-    // document whose owning transaction no longer "exists" for this viewer.
     const receiptTxStatus = sql<string | null>`(
       CASE
         WHEN ${documents.category} = 'RECEIPT'
         THEN (
-          SELECT t.status FROM ${transactions} t
-          WHERE t.receipt_document_id = ${documents.id} AND t.deleted_at IS NULL
+          SELECT t.status FROM ${nonDeletedTransactions} t
+          WHERE t.receipt_document_id = ${documents.id}
           LIMIT 1
         )
         ELSE NULL
@@ -413,23 +425,14 @@ export class DocumentsService {
       .select({
         doc: documents,
         uploaderName: users.displayName,
-        invoiceTxId: transactions.id,
+        invoiceTxId: nonDeletedTransactions.id,
         invoicePendingSignature: pendingSig,
         invoiceSigned,
         receiptTxStatus,
       })
       .from(documents)
       .leftJoin(users, eq(users.id, documents.uploadedBy))
-      // security-review PR #456 (HIGH-1): AND the not-deleted predicate INTO
-      // the join condition (not a separate WHERE) — a soft-deleted
-      // transaction must LEFT-JOIN to NULL here, exactly as if the FK were
-      // dangling, so `transactions.id`/`pendingSig`/`invoiceSigned` all
-      // correctly resolve to "no invoice" instead of leaking the deleted
-      // row's id and driving the «Требует подписи» badge for it.
-      .leftJoin(
-        transactions,
-        and(eq(transactions.invoiceDocumentId, documents.id), TRANSACTION_NOT_DELETED),
-      )
+      .leftJoin(nonDeletedTransactions, eq(nonDeletedTransactions.invoiceDocumentId, documents.id))
       .where(where)
       .orderBy(desc(documents.createdAt))
 

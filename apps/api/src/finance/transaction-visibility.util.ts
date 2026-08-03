@@ -2,18 +2,44 @@
  * transaction-visibility.util — the SINGLE choke point for "is this
  * transaction row visible / mutable" across the whole API.
  *
- * security-review PR #456 (round on `5cf6d3c6`, verdict BLOCK, HIGH-1/HIGH-2/
- * HIGH-3): `deletedAt` was implemented as a property of ONE module
- * (`TransactionsService`), but the `transactions` row is read and written
- * from at least THREE others (`InvoicesService`, `CompanyAccountService`,
- * `DocumentsService`). Patching the three modules the reviewer happened to
- * find would only move the bug to the next one. This file is the fix: every
- * module that touches a `transactions` row by id (read OR write) imports
- * from here instead of re-deriving the check inline, and
- * `transaction-read-guard.spec.ts` fails the build the moment a new raw
- * read/join of the `transactions` table appears anywhere in `apps/api/src`
- * without routing through one of these three exports (or a documented,
- * reviewed allowlist entry).
+ * security-review PR #456, TWO rounds:
+ *
+ * Round 1 (`5cf6d3c6`, verdict BLOCK, HIGH-1/HIGH-2/HIGH-3): `deletedAt` was
+ * implemented as a property of ONE module (`TransactionsService`), but the
+ * `transactions` row is read and written from at least THREE others
+ * (`InvoicesService`, `CompanyAccountService`, `DocumentsService`). Fixed by
+ * adding the guard FUNCTIONS below plus a text-scanning regression spec
+ * meant to catch a caller who forgot to call them.
+ *
+ * Round 2 (verdict BLOCK again, 4834458611/4840207923): the scanner was
+ * defeated 7/7 by realistic variants, and — the decisive finding —
+ * `assertTransactionVisible` was DELETED from `getDepositStatus` (the fetch
+ * and the guard were two separate statements) while the scanner stayed
+ * green. Detection cannot outpace a determined bypass; this file's role
+ * shifted from "the thing callers must remember to invoke" to "the thing
+ * that makes forgetting impossible":
+ *
+ *   - List/aggregate/join reads that never need an ADMIN/ACCOUNTANT-sees-
+ *     deleted-rows exception now source from `nonDeletedTransactions`
+ *     (schema.ts) — a Postgres VIEW, so there is no WHERE clause to forget.
+ *   - Single-row-by-id reads that DO need that exception (findOne,
+ *     getInvoice, signInvoice, getDepositStatus, the audit-log read) use
+ *     `fetchVisibleTransactionOrThrow` / `fetchWritableTransactionOrThrow`
+ *     below — fetch and guard are now ONE function call, so the
+ *     getDepositStatus-class mistake (delete the guard, keep the fetch) is
+ *     no longer two separate statements where one can be silently dropped:
+ *     deleting the guard now means deleting the DATA too.
+ *   - `apps/api/eslint.config.mjs` bans importing the raw `transactions`
+ *     table from outside `finance/**` (`no-restricted-imports`) — a module
+ *     like `invoices/` or `documents/` cannot reach an unfiltered row at
+ *     all, not "is expected not to".
+ *
+ * `TRANSACTION_NOT_DELETED` / `assertTransactionVisible` /
+ * `assertTransactionNotDeleted` / `assertTransactionWritable` remain in
+ * active use: by the view's own definition, by `finance/**`'s legitimate
+ * raw-table readers (idempotency-by-hash lookups, rows a sibling FK-adjacent
+ * guard already makes un-deletable), and as the primitives the two `fetch*`
+ * functions below compose.
  *
  * Two independent invariants, composed as needed:
  *
@@ -51,9 +77,11 @@
  * the documents "Требует подписи" badge).
  */
 import { BadRequestException, NotFoundException } from '@nestjs/common'
-import { isNull } from 'drizzle-orm'
+import { eq, isNull } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
-import { transactions } from '../database/schema'
+import { transactions, type Transaction } from '../database/schema'
+import type { DatabaseService } from '../database/database.service'
+import type { DrizzleTx } from '../database/types'
 
 /** Reusable predicate for LIST/JOIN reads — AND this into every multi-row query. */
 export const TRANSACTION_NOT_DELETED = isNull(transactions.deletedAt)
@@ -74,7 +102,7 @@ export function assertTransactionVisible(
   currentUser: SessionUser | null,
 ): void {
   if (tx.deletedAt && !isPrivilegedViewer(currentUser)) {
-    throw new NotFoundException('Transaction not found')
+    throw new NotFoundException('Транзакция не найдена')
   }
 }
 
@@ -98,4 +126,67 @@ export function assertTransactionWritable(
 ): void {
   assertTransactionVisible(tx, currentUser)
   assertTransactionNotDeleted(tx)
+}
+
+/** Either the pool handle or a transaction handle opened by `db.transaction(...)`. */
+type Db = DatabaseService['db'] | DrizzleTx
+
+/**
+ * Combines "not found" + visibility into ONE check on an ALREADY-FETCHED row
+ * (or `undefined`). security-review PR #456 round 2: this is the direct fix
+ * for the demonstrated bypass — `assertTransactionVisible` was deleted from
+ * `getDepositStatus` (a separate statement AFTER the fetch) while the fetch
+ * itself stayed, undetected by the round-1 scanner. Wrap the raw
+ * `db.query.transactions.findFirst(...)` (or any relational fetch carrying
+ * `with: {...}` joins — the generic only needs `{ deletedAt }`, so any
+ * relation shape works) DIRECTLY in this call:
+ *
+ *   const tx = assertFoundAndVisible(
+ *     await db.query.transactions.findFirst({ where: ..., with: {...} }),
+ *     currentUser,
+ *   )
+ *
+ * Fetch and guard are now ONE expression — there is no longer a line to
+ * delete that removes ONLY the guard without also breaking the assignment.
+ * Prefer `fetchVisibleTransactionOrThrow` below when no `with:` relations are
+ * needed (it builds the query itself, one fewer thing to get wrong).
+ */
+export function assertFoundAndVisible<T extends { deletedAt: Date | null }>(
+  tx: T | undefined,
+  currentUser: SessionUser | null,
+): T {
+  if (!tx) throw new NotFoundException('Transaction not found')
+  assertTransactionVisible(tx, currentUser)
+  return tx
+}
+
+/**
+ * Fetch a transaction row BY ID and apply the visibility guard — as ONE
+ * function call, not two statements. Thin wrapper around
+ * `assertFoundAndVisible` for the common case (no relational `with:` needed).
+ * `currentUser: null` covers unauthenticated/public reads (e.g. the invoice
+ * `/verify/:id` QR endpoint).
+ */
+export async function fetchVisibleTransactionOrThrow(
+  db: Db,
+  id: string,
+  currentUser: SessionUser | null,
+): Promise<Transaction> {
+  const tx = await db.query.transactions.findFirst({ where: eq(transactions.id, id) })
+  return assertFoundAndVisible(tx, currentUser)
+}
+
+/**
+ * Same fusion as `fetchVisibleTransactionOrThrow`, plus the write-side gate —
+ * for any single-row mutation entry point reachable by a non-privileged
+ * author (see `assertTransactionWritable`'s doc for the 404-vs-400 split).
+ */
+export async function fetchWritableTransactionOrThrow(
+  db: Db,
+  id: string,
+  currentUser: SessionUser,
+): Promise<Transaction> {
+  const tx = await fetchVisibleTransactionOrThrow(db, id, currentUser)
+  assertTransactionNotDeleted(tx)
+  return tx
 }
