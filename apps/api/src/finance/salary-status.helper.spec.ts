@@ -2,8 +2,11 @@
  * Unit tests for getOwnSalaryStatus (salary-status.helper.ts).
  *
  * The helper is a pure function over a Drizzle db handle — no NestJS DI.
- * We pass a minimal mock that satisfies the `db.query.transactions.findFirst`
- * interface so the suite is fast and dependency-free.
+ * We pass a minimal mock that satisfies the `db.select().from(nonDeleted
+ * Transactions).where(...).limit(1)` chain the helper now uses (security-
+ * review PR #456 round 2 — sources from the `nonDeletedTransactions` VIEW
+ * instead of the raw table + a hand-written `isNull(deletedAt)` filter) so
+ * the suite is fast and dependency-free.
  *
  * Covers:
  *   1. Returns null when no SALARY row exists for the month.
@@ -16,7 +19,7 @@ import { describe, expect, it } from 'vitest'
 import { getOwnSalaryStatus } from './salary-status.helper'
 import type { DatabaseService } from '../database/database.service'
 
-// Minimal type matching what Drizzle's `query.transactions.findFirst` returns.
+// Minimal type matching what the view-backed select returns.
 type TransactionRow = {
   type: string
   status: string
@@ -27,16 +30,18 @@ type TransactionRow = {
 }
 
 /**
- * Build a minimal DatabaseService['db'] mock. `findFirst` returns the
- * provided row (or undefined to simulate "no row found").
+ * Build a minimal DatabaseService['db'] mock. The `.limit(1)` step resolves
+ * to `[row]` (or `[]` to simulate "no row found").
  */
 function makeDb(row: TransactionRow | undefined): DatabaseService['db'] {
   return {
-    query: {
-      transactions: {
-        findFirst: async () => row,
-      },
-    },
+    select: () => ({
+      from: () => ({
+        where: () => ({
+          limit: async () => (row ? [row] : []),
+        }),
+      }),
+    }),
   } as unknown as DatabaseService['db']
 }
 

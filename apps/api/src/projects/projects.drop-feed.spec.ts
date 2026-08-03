@@ -47,15 +47,23 @@ type IncomeRow = { projectId: string | null }
 
 /**
  * ProjectsService whose DB returns the supplied project + income rows.
- * `projects.findMany` → projectRows; `transactions.findMany` → incomeRows.
+ * `projects.findMany` → projectRows; the `nonDeletedTransactions` VIEW
+ * select → incomeRows (security-review PR #456 round 2 — see
+ * projects.service.ts, findDropOwnProjects reads the view via
+ * `.select({ projectId }).from(...).where(...)`, not the relational-query
+ * `transactions.findMany` this stub used to provide).
  */
 function makeSvc(projectRows: ProjectRow[], incomeRows: IncomeRow[]) {
   const dbStub = {
     db: {
       query: {
         projects: { findMany: () => Promise.resolve(projectRows) },
-        transactions: { findMany: () => Promise.resolve(incomeRows) },
       },
+      select: () => ({
+        from: () => ({
+          where: () => Promise.resolve(incomeRows),
+        }),
+      }),
     },
   }
   return new ProjectsService(dbStub as never, {} as never, {} as never, {} as never)

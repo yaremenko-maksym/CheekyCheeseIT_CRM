@@ -85,9 +85,13 @@ function makeBalanceService(transactions: MockTx[] = []): BalanceService {
   const db = {
     db: {
       query: {
-        transactions: { findMany: async () => transactions },
         pendingObligations: { findMany: async () => [] },
       },
+      // security-review PR #456 round 2: getAdminBalance/getSeniorBalance now
+      // read the `nonDeletedTransactions` VIEW via `.select().from(...)`.
+      select: () => ({
+        from: async () => transactions,
+      }),
     },
   } as never
   const nbu = { getRates: async () => makeRates() } as never

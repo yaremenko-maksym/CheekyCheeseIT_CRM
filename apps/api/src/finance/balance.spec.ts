@@ -86,9 +86,6 @@ function makeService(
   const rates = options.rates ?? makeRates()
   const drizzleClient = {
     query: {
-      transactions: {
-        findMany: async () => options.transactions ?? [],
-      },
       pendingObligations: {
         findMany: async (args?: { where?: unknown; orderBy?: unknown }) => {
           // The tests for getPendingObligations swap out filters by mutating
@@ -99,6 +96,13 @@ function makeService(
         },
       },
     },
+    // security-review PR #456 round 2: getAdminBalance/getSeniorBalance/
+    // getTotalEarned now read the `nonDeletedTransactions` VIEW via
+    // `.select().from(...)` — not the relational-query `transactions
+    // .findMany` this stub used to provide.
+    select: () => ({
+      from: async () => options.transactions ?? [],
+    }),
   }
   const db = { db: drizzleClient } as never
   const nbu = {
@@ -636,10 +640,12 @@ describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
         users: {
           findFirst: async () => ({ id: DROP_ID, role: 'DROP', displayName: 'Drop' }),
         },
-        transactions: {
-          findMany: async () => transactions,
-        },
       },
+      // security-review PR #456 round 2: see the `select` mock note on the
+      // top-level `makeService` helper above.
+      select: () => ({
+        from: async () => transactions,
+      }),
     }
     const db = { db: drizzleClient } as never
     const nbu = { getRates: async () => makeRates() } as never
