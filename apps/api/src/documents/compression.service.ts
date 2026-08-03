@@ -29,7 +29,7 @@
  */
 import { Injectable, Logger } from '@nestjs/common'
 import sharp from 'sharp'
-import { PDFDocument } from 'pdf-lib'
+import { PDFDocument, PDFName, PDFRef } from 'pdf-lib'
 import heicConvert from 'heic-convert'
 
 /**
@@ -327,6 +327,24 @@ export class CompressionService {
    * Merging the two into one always-run step closes that gap for every PDF
    * category, not just resumes.
    *
+   * MED-3 (security-review round 1): the 6 setters below only touch the
+   * classic `/Info` dictionary. A REAL Word/LibreOffice export commonly
+   * ALSO carries an XMP metadata packet — a separate `/Metadata` stream
+   * hung off the document Catalog holding its own (often redundant)
+   * `dc:creator`/`xmp:CreatorTool` fields — that pdf-lib has NO setter for
+   * at all. Verified empirically (attaching an XMP stream via pdf-lib's own
+   * low-level context API and round-tripping it through this exact
+   * `.load()`/`.save()` pair preserves the author string byte-for-byte in
+   * the output — see compression.service.spec.ts's dedicated "real Word-
+   * style XMP metadata" test, which builds that exact fixture instead of
+   * relying on a pdf-lib-authored PDF that would never have had a
+   * `/Metadata` stream to strip in the first place). Fix: locate the
+   * Catalog's `/Metadata` entry and fully DELETE the object — merely
+   * unlinking the Catalog reference is NOT enough, pdf-lib's writer
+   * serializes every object still registered in the document's `context`
+   * regardless of reachability, so an unlinked-but-not-deleted stream would
+   * survive in the output as an orphan (also verified empirically).
+   *
    * Residual risk (task-file-storage-hardening §5, documented per the task's
    * own instruction rather than silently left out): pdf-lib has no supported
    * API to strip active content — an `/OpenAction` triggered on open,
@@ -346,6 +364,15 @@ export class CompressionService {
     doc.setKeywords([])
     doc.setProducer('')
     doc.setCreator('')
+
+    // MED-3: strip the XMP metadata stream (Info-dict setters above never
+    // touch it) — see the doc comment above for the full rationale.
+    const metadataRef = doc.catalog.get(PDFName.of('Metadata'))
+    if (metadataRef instanceof PDFRef) {
+      doc.catalog.delete(PDFName.of('Metadata'))
+      doc.context.delete(metadataRef)
+    }
+
     const out = await doc.save({ useObjectStreams: true })
     return Buffer.from(out)
   }
