@@ -22,12 +22,15 @@ import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import {
   documents,
+  // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW), never the
+  // raw `transactions` table — this module is outside `finance/**` and the
+  // ESLint no-restricted-imports rule bans the raw import here.
+  nonDeletedTransactions,
   projectFinanceSettings,
   projectMembers,
   projects,
   teamMembers,
   teams,
-  transactions,
   users,
   type Interview,
   type Legend,
@@ -473,16 +476,19 @@ export class ProjectsService {
 
     // Batch-count this drop's DROP_INCOME rows per project in one read (self-
     // scoped: receiverId = self). Avoids a per-project query.
-    // task-soft-delete-and-money-audit (AC4): a deleted income must not
-    // inflate the per-project «incomesCount» badge.
-    const dropIncomes = await this.db.db.query.transactions.findMany({
-      where: and(
-        eq(transactions.type, 'DROP_INCOME'),
-        eq(transactions.receiverId, currentUser.id),
-        isNull(transactions.deletedAt),
-      ),
-      columns: { projectId: true },
-    })
+    // security-review PR #456 round 2: sourced from the `nonDeletedTransactions`
+    // VIEW — a deleted income cannot inflate this badge no matter what (see
+    // schema.ts's doc on the view). `projects/` is outside `finance/`, so this
+    // is exactly the cross-module case the round-1 scanner failed to hold.
+    const dropIncomes = await this.db.db
+      .select({ projectId: nonDeletedTransactions.projectId })
+      .from(nonDeletedTransactions)
+      .where(
+        and(
+          eq(nonDeletedTransactions.type, 'DROP_INCOME'),
+          eq(nonDeletedTransactions.receiverId, currentUser.id),
+        ),
+      )
     const incomesByProject = new Map<string, number>()
     for (const tx of dropIncomes) {
       if (!tx.projectId) continue

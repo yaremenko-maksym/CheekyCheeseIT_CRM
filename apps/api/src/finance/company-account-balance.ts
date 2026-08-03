@@ -47,10 +47,16 @@
  * debt); legacy DROP-debt settlements + ordinary senior income leave it NULL and
  * are correctly ignored here.
  */
-import { and, eq, isNull, sql } from 'drizzle-orm'
+import { and, eq, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../database/database.service'
 import type { DrizzleTx } from '../database/types'
-import { transactions } from '../database/schema'
+// security-review PR #456 round 2: reads the `nonDeletedTransactions` VIEW,
+// not the raw `transactions` table — see schema.ts's doc on the view for why
+// (eliminate the "forgot the deletedAt filter" class, don't rely on a scanner
+// to detect it). This module never needs to see a deleted row (a company
+// balance has no "ADMIN sees it anyway" concept), so the view covers 100% of
+// its reads.
+import { nonDeletedTransactions } from '../database/schema'
 
 /**
  * Either the base pool handle (`DatabaseService['db']`) or a transaction handle
@@ -102,17 +108,17 @@ export async function lockCompanyAccount(dbtx: DrizzleTx): Promise<void> {
 /**
  * SUM(amount) over `where`, parsed to a finite number (0 on NULL / NaN).
  *
- * task-soft-delete-and-money-audit (AC4): `isNull(deletedAt)` is ANDed in
- * HERE, centrally — every one of the 8 terms in
- * `computeCompanyAccountBalanceFromLedger` below calls this ONE function, so
- * a single line closes the company-account balance for all of them at once
- * instead of touching each `and(...)` call site individually.
+ * security-review PR #456 round 2: sources from `nonDeletedTransactions` (a
+ * VIEW pre-filtered to `deleted_at IS NULL`) instead of ANDing the condition
+ * in by hand — a soft-deleted row cannot appear in this SUM no matter what
+ * `where` a future caller passes, because there is no code path that could
+ * omit the filter (it is not a condition here, it is the FROM target).
  */
 async function sumAmount(db: Db, where: ReturnType<typeof and>): Promise<number> {
   const rows = await db
-    .select({ total: sql<string>`COALESCE(SUM(${transactions.amount}), 0)` })
-    .from(transactions)
-    .where(and(where, isNull(transactions.deletedAt)))
+    .select({ total: sql<string>`COALESCE(SUM(${nonDeletedTransactions.amount}), 0)` })
+    .from(nonDeletedTransactions)
+    .where(where)
   const total = parseFloat(rows[0]?.total ?? '0')
   return Number.isFinite(total) ? total : 0
 }
@@ -137,53 +143,53 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'COMPANY_DEPOSIT'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'COMPANY_DEPOSIT'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'PAYOUT'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'PAYOUT'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'ADMIN_INCOME'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'ADMIN_INCOME'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'DIVIDEND_TO_ADMIN'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'DIVIDEND_TO_ADMIN'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'SALARY'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'SALARY'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'EXPENSE'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'EXPENSE'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
     // task-drop-payout-company-account: company-funded senior IOU settlement
@@ -191,10 +197,10 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'SENIOR_INCOME'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'SENIOR_INCOME'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
     // task-drop-share-override-and-receiver (C7): company-funded DROP IOU
@@ -207,10 +213,10 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
     sumAmount(
       db,
       and(
-        eq(transactions.type, 'PAYOUT_DROP'),
-        eq(transactions.status, 'PAID'),
-        eq(transactions.fundingSource, COMPANY_ACCOUNT),
-        eq(transactions.currency, 'USDT'),
+        eq(nonDeletedTransactions.type, 'PAYOUT_DROP'),
+        eq(nonDeletedTransactions.status, 'PAID'),
+        eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+        eq(nonDeletedTransactions.currency, 'USDT'),
       ),
     ),
   ])

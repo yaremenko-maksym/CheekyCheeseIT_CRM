@@ -1,4 +1,4 @@
-import { relations, sql } from 'drizzle-orm'
+import { isNull, relations, sql } from 'drizzle-orm'
 import {
   bigserial,
   boolean,
@@ -10,6 +10,7 @@ import {
   numeric,
   pgEnum,
   pgTable,
+  pgView,
   text,
   timestamp,
   unique,
@@ -788,6 +789,64 @@ export const transactions = pgTable(
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'ADMIN_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
   ],
+)
+
+// ---------------------------------------------------------------------------
+// nonDeletedTransactions — security-review PR #456 round 2 (verdict BLOCK on
+// 4834458611/4840207923). ELIMINATE, not detect.
+// ---------------------------------------------------------------------------
+//
+// Round 1 added `transaction-visibility.util.ts` (guard FUNCTIONS a caller
+// must remember to invoke) plus a text-scanning spec meant to catch a caller
+// who forgot. Round 2's review defeated the scanner 7/7 with realistic
+// variants (a second unguarded read sharing a guarded function's window; a
+// bare `deletedAt` substring inside a COMMENT; `.rightJoin`/`alias()`/nested
+// relational `with: { transactions: true }` — forms the pattern list never
+// enumerated) and, most importantly, DELETED the guard call itself from
+// `getDepositStatus` while leaving the explaining comment behind — the
+// scanner stayed green. A textual pattern-match can always be defeated by a
+// slightly different text; "detect the mistake" does not scale against that.
+//
+// This view makes the mistake impossible to make for every read that must
+// NEVER see a deleted row regardless of caller privilege (every list/
+// aggregate/join in invoices, documents, admin-summary, balance, projects,
+// and this service's own non-privileged aggregates) — a SQL VIEW filters at
+// the FROM clause itself, before any WHERE a caller could forget to write:
+//
+//   SELECT * FROM nonDeletedTransactions
+//
+// can never return a soft-deleted row, no matter how it is joined, aliased,
+// interpolated into a raw `sql` template, or extended by a future column —
+// there is no WHERE clause to omit. And critically: `db.update(nonDeleted
+// Transactions)` / `.insert(...)` / `.delete(...)` do not TYPECHECK — Drizzle
+// views do not satisfy the `PgTable` shape `.update()`/`.insert()`/`.delete()`
+// require (verified: `tsc --noEmit` rejects it with "Property '$inferInsert'
+// is missing"), so a view-only import cannot be misused for a write either.
+//
+// Combined with the ESLint `no-restricted-imports` rule (apps/api/eslint
+// .config.mjs) that bans importing the raw `transactions` table from outside
+// `finance/**`, a module like `invoices/` or `documents/` can no longer
+// reach an unfiltered row AT ALL for its list/aggregate/join reads — not "is
+// discouraged from", CANNOT: the raw symbol is not an available import.
+//
+// What this view does NOT cover (by design, not oversight):
+//   - Single-row-by-id reads where ADMIN/ACCOUNTANT must still see a deleted
+//     row (findOne, getInvoice, signInvoice, getDepositStatus, the audit-log
+//     read) — these need role-conditional visibility a static view cannot
+//     express. These stay on the raw `transactions` table INSIDE `finance/`
+//     (the only place still allowed to import it) and route through
+//     `fetchVisibleTransactionOrThrow` / `fetchWritableTransactionOrThrow`
+//     (transaction-visibility.util.ts) — fetch and guard are ONE function
+//     call there, specifically so the getDepositStatus-class mistake (delete
+//     the guard line, keep the fetch) is no longer two separate statements
+//     where one can be silently dropped.
+//   - Idempotency-by-hash/key lookups (submitDeposit, declareUsdtProjectIncome,
+//     describeReferent, …) that must see a deleted row so a hash/key cannot
+//     be replayed past a soft-deleted duplicate — these are read-only
+//     diagnostic/idempotency paths, never a money or visibility decision,
+//     and stay on the raw table too (still finance/-only).
+export const nonDeletedTransactions = pgView('non_deleted_transactions').as((qb) =>
+  qb.select().from(transactions).where(isNull(transactions.deletedAt)),
 )
 
 // ---------------------------------------------------------------------------

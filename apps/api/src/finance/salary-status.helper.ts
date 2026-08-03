@@ -18,10 +18,15 @@
  * cross-module DI dependency (FinanceModule ↔ InterviewsModule).
  */
 
-import { and, eq, isNull } from 'drizzle-orm'
+import { and, eq } from 'drizzle-orm'
 import type { MySalaryStatusDto, SalaryStatus } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
-import { transactions } from '../database/schema'
+// security-review PR #456 round 2: reads the `nonDeletedTransactions` VIEW —
+// a deleted SALARY reminder cannot resurface here no matter what, see
+// schema.ts's doc on the view (this file is also imported by
+// InterviewsService, a DIFFERENT NestJS module — exactly the cross-module
+// case the round-1 scanner failed to hold the line on).
+import { nonDeletedTransactions } from '../database/schema'
 
 /**
  * The Drizzle `db` instance is passed in (not `DatabaseService`) so the
@@ -33,16 +38,17 @@ export async function getOwnSalaryStatus(
   userId: string,
   salaryMonth: string,
 ): Promise<MySalaryStatusDto> {
-  const salaryRow = await db.query.transactions.findFirst({
-    where: and(
-      eq(transactions.type, 'SALARY'),
-      eq(transactions.receiverId, userId),
-      eq(transactions.salaryMonth, salaryMonth),
-      // task-soft-delete-and-money-audit: a deleted SALARY reminder must read
-      // back as "no salary yet", not resurface a mistakenly-booked one.
-      isNull(transactions.deletedAt),
-    ),
-  })
+  const [salaryRow] = await db
+    .select()
+    .from(nonDeletedTransactions)
+    .where(
+      and(
+        eq(nonDeletedTransactions.type, 'SALARY'),
+        eq(nonDeletedTransactions.receiverId, userId),
+        eq(nonDeletedTransactions.salaryMonth, salaryMonth),
+      ),
+    )
+    .limit(1)
 
   if (!salaryRow) return null
 

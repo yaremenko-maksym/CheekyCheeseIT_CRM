@@ -1,10 +1,15 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common'
-import { desc, sql, isNull } from 'drizzle-orm'
+import { desc, eq, inArray, sql } from 'drizzle-orm'
 import { alias } from 'drizzle-orm/pg-core'
 import type { SessionUser, AdminSummary } from '@crm/shared'
 import { adminSummarySchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { interviews, projects, transactions, users } from '../database/schema'
+// security-review PR #456 round 2: `nonDeletedTransactions` (VIEW), never the
+// raw `transactions` table — this module is outside `finance/**` and the
+// ESLint no-restricted-imports rule bans the raw import here. See schema.ts's
+// doc on the view for why (eliminate the class, don't rely on a scanner to
+// catch a caller who forgot the filter).
+import { interviews, nonDeletedTransactions, projects, users } from '../database/schema'
 
 /**
  * The three actionable in-flight statuses surfaced in the «Активные транзакции»
@@ -59,17 +64,6 @@ export class AdminSummaryService {
     // projectsUnpaidThisMonth uses a NOT EXISTS correlated subquery against the
     // income types whose tx_date falls in [monthStart, nextMonthStart).
     //
-    // security-review PR #456 (LOW): `p` is an EXPLICIT, STABLE alias (never a
-    // bare `projects` reference) — see the correlation-predicate comment below
-    // for why. Qualifying the outer table by name, not by "happens to have no
-    // alias", is what makes `p.id` in the raw-SQL subquery safe against a
-    // FUTURE join being added to this same query (an explicit alias's name
-    // never drifts, whereas an unaliased base table's bare-name rendering is
-    // an implementation-detail optimization that only holds for a genuinely
-    // single-table select — see the finding this closes, on the very next
-    // comment block, for how silently that broke once already).
-    const p = alias(projects, 'p')
-    //
     // BUG FIX (found as a byproduct of task-soft-delete-and-money-audit's AC4
     // regression test — pre-existing, unrelated to soft-delete): the
     // correlation predicate used to read `where t.project_id = ${projects.id}`.
@@ -81,36 +75,42 @@ export class AdminSummaryService {
     // `projects.id`. The predicate silently became `t.project_id = t.id`,
     // which is (practically) never true, so `NOT EXISTS (...)` was ALWAYS
     // true and `projectsUnpaidThisMonth` counted EVERY active project as
-    // unpaid regardless of any matching income — a real correctness bug the
-    // existing integration test's `toBeGreaterThanOrEqual(0)` assertion could
-    // never have caught.
+    // unpaid regardless of any matching income.
     //
-    // security-review PR #456 (LOW): the original fix referenced the outer
-    // table's bare SQL name literally (`.from(projects)` had no alias, so
-    // `projects.id` in raw text unambiguously meant the outer row) — correct
-    // THEN, but silently wrong again the moment anyone added a join to this
-    // query (Drizzle only special-cases the bare name for a genuinely
-    // single-table select). Switched to the EXPLICIT alias `p` above instead:
-    // `p.id` in the raw-SQL subquery now resolves via a name that is stable
-    // by construction, join or no join (verified empirically with
-    // `.toSQL()` against drizzle-orm 0.45.2, same methodology the original
-    // finding used) — see the `const p = alias(projects, 'p')` comment above.
+    // security-review PR #456 (LOW, round 2 — precise about what each fix
+    // covers, the round-1 comment here overclaimed): TWO INDEPENDENT
+    // mechanisms are at play, not one:
+    //   1. `p.id` — hand-typed literal SQL TEXT in the subquery below — is
+    //      made safe by using an EXPLICIT alias (`const p = alias(projects,
+    //      'p')`): the name "p" is what we typed, so it can never silently
+    //      stop matching the FROM target's name, join or no join.
+    //   2. `${p.archivedAt}` — an INTERPOLATED column reference — is safe for
+    //      a DIFFERENT reason: Drizzle renders it bare ("archived_at", not
+    //      "p"."archived_at") ONLY because this is currently a single-table
+    //      select; empirically verified (`.toSQL()`, drizzle-orm 0.45.2) that
+    //      it automatically becomes fully qualified ("p"."archived_at") the
+    //      moment ANY join is added to this query — i.e. it self-heals, it
+    //      was never "fixed" by the alias the way #1 was.
+    // Both are safe, but for unrelated reasons — worth keeping distinct so a
+    // future reader does not assume `alias(...)` is what protects #2.
+    const p = alias(projects, 'p')
     const projQuery = db
       .select({
         activeProjects: sql<number>`count(*) filter (where ${p.archivedAt} is null)`.mapWith(
           Number,
         ),
         projectsUnpaidThisMonth:
-          // task-soft-delete-and-money-audit (AC4): `t.deleted_at is null` —
-          // without it a deleted (e.g. mistaken/fraudulent) income would still
-          // satisfy the NOT EXISTS check and wrongly mark the project "paid".
+          // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW) —
+          // a deleted income cannot satisfy this NOT EXISTS check no matter
+          // what, there is no `deleted_at is null` clause to omit (see
+          // schema.ts's doc on the view). Replaces the round-1 hand-written
+          // `and t.deleted_at is null` line.
           sql<number>`count(*) filter (where ${p.archivedAt} is null and not exists (
-          select 1 from ${transactions} t
+          select 1 from ${nonDeletedTransactions} t
           where t.project_id = p.id
             and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
             and t.tx_date >= ${monthStart}
             and t.tx_date < ${nextMonthStart}
-            and t.deleted_at is null
         ))`.mapWith(Number),
       })
       .from(p)
@@ -132,21 +132,43 @@ export class AdminSummaryService {
       .from(interviews)
 
     // ── Active transactions feed ───────────────────────────────────────────────
-    // Relational query API resolves sender/receiver display names + project name
-    // (same pattern as TransactionsService.findAll). Newest tx_date first; rows
-    // with a NULL tx_date sort by created_at via the coalesce ordering.
-    const rows = await db.query.transactions.findMany({
-      // task-soft-delete-and-money-audit (AC4): a deleted row must not appear
-      // in the ADMIN dashboard's actionable-transactions feed.
-      where: (tx, { inArray, and }) =>
-        and(inArray(tx.status, [...ACTIVE_TX_STATUSES]), isNull(tx.deletedAt)),
-      with: {
-        sender: { columns: { displayName: true } },
-        receiver: { columns: { displayName: true } },
-        project: { columns: { name: true } },
-      },
-      orderBy: [desc(sql`coalesce(${transactions.txDate}, ${transactions.createdAt})`)],
-    })
+    // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
+    // (VIEW) — a deleted row cannot appear in this feed no matter what (see
+    // schema.ts's doc on the view). Views are not registered in Drizzle's
+    // relational-query schema config, so the round-1 `db.query.transactions
+    // .findMany({ with: {...} })` sugar is replaced with explicit joins —
+    // `users` is joined TWICE (sender + receiver), so both sides need their
+    // own `alias(...)`, same as a self-join. Newest tx_date first; rows with a
+    // NULL tx_date sort by created_at via the coalesce ordering.
+    const sender = alias(users, 'active_tx_sender')
+    const receiver = alias(users, 'active_tx_receiver')
+    const rows = await db
+      .select({
+        id: nonDeletedTransactions.id,
+        type: nonDeletedTransactions.type,
+        status: nonDeletedTransactions.status,
+        senderId: nonDeletedTransactions.senderId,
+        senderLabel: nonDeletedTransactions.senderLabel,
+        senderDisplayName: sender.displayName,
+        receiverId: nonDeletedTransactions.receiverId,
+        receiverLabel: nonDeletedTransactions.receiverLabel,
+        receiverDisplayName: receiver.displayName,
+        projectId: nonDeletedTransactions.projectId,
+        projectName: projects.name,
+        amount: nonDeletedTransactions.amount,
+        currency: nonDeletedTransactions.currency,
+        txDate: nonDeletedTransactions.txDate,
+        createdAt: nonDeletedTransactions.createdAt,
+        payoutRequestId: nonDeletedTransactions.payoutRequestId,
+      })
+      .from(nonDeletedTransactions)
+      .leftJoin(sender, eq(sender.id, nonDeletedTransactions.senderId))
+      .leftJoin(receiver, eq(receiver.id, nonDeletedTransactions.receiverId))
+      .leftJoin(projects, eq(projects.id, nonDeletedTransactions.projectId))
+      .where(inArray(nonDeletedTransactions.status, [...ACTIVE_TX_STATUSES]))
+      .orderBy(
+        desc(sql`coalesce(${nonDeletedTransactions.txDate}, ${nonDeletedTransactions.createdAt})`),
+      )
 
     const activeTransactions = rows.map((r) => ({
       id: r.id,
@@ -158,13 +180,13 @@ export class AdminSummaryService {
       // let the shared TransactionRow `FromTo` render a clickable participant for
       // SENIOR_PENDING_PAYOUT / DROP_INCOME instead of «—».
       senderId: r.senderId ?? null,
-      senderName: r.sender?.displayName ?? null,
-      senderLabel: r.senderLabel ?? r.sender?.displayName ?? null,
+      senderName: r.senderDisplayName ?? null,
+      senderLabel: r.senderLabel ?? r.senderDisplayName ?? null,
       receiverId: r.receiverId ?? null,
-      receiverName: r.receiver?.displayName ?? null,
-      receiverLabel: r.receiverLabel ?? r.receiver?.displayName ?? null,
+      receiverName: r.receiverDisplayName ?? null,
+      receiverLabel: r.receiverLabel ?? r.receiverDisplayName ?? null,
       projectId: r.projectId ?? null,
-      projectName: r.project?.name ?? null,
+      projectName: r.projectName ?? null,
       amount: r.amount,
       // Real DB transaction currency, passed straight through (validated against
       // `currencyEnumSchema` by the `adminSummarySchema.parse` below). Identical to
