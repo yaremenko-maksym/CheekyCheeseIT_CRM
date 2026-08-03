@@ -86,8 +86,41 @@ const JUNIOR_STRANGER: SessionUser = {
   seniorSharePercent: 26,
   legalFullName: null,
 }
+/**
+ * MED-5 (security-review PR #456): the original spec covered SENIOR (owner)
+ * + JUNIOR (stranger) but not DROP or HR — both go through the SAME
+ * `assertReadAccess` own-row-only branch as JUNIOR (see transactions.service
+ * .ts), so a regression there would have gone unnoticed. No relation to the
+ * deleted row — would normally get 403 (not theirs).
+ */
+const DROP_STRANGER: SessionUser = {
+  id: 'add50000-0000-4000-aa00-000000000005',
+  email: 'sd-drop@test.spec',
+  displayName: 'SD Drop Stranger',
+  avatarUrl: null,
+  role: 'DROP',
+  seniorSharePercent: 26,
+  legalFullName: null,
+}
+/** No relation to the deleted row — would normally get 403 (not theirs). */
+const HR_STRANGER: SessionUser = {
+  id: 'add50000-0000-4000-aa00-000000000006',
+  email: 'sd-hr@test.spec',
+  displayName: 'SD HR Stranger',
+  avatarUrl: null,
+  role: 'HR',
+  seniorSharePercent: 26,
+  legalFullName: null,
+}
 
-const ALL_USER_IDS = [ADMIN_1, ACCOUNTANT_1, SENIOR_OWNER, JUNIOR_STRANGER].map((u) => u.id)
+const ALL_USER_IDS = [
+  ADMIN_1,
+  ACCOUNTANT_1,
+  SENIOR_OWNER,
+  JUNIOR_STRANGER,
+  DROP_STRANGER,
+  HR_STRANGER,
+].map((u) => u.id)
 
 // ---------------------------------------------------------------------------
 // Transaction ids — namespace add50001-*
@@ -126,7 +159,14 @@ describe('task-soft-delete-and-money-audit — visibility RBAC (real-DB)', () =>
     Object.assign(dbSvc, { pool: _pool, db })
     svc = makeTransactionsService({ db: dbSvc })
 
-    for (const u of [ADMIN_1, ACCOUNTANT_1, SENIOR_OWNER, JUNIOR_STRANGER]) {
+    for (const u of [
+      ADMIN_1,
+      ACCOUNTANT_1,
+      SENIOR_OWNER,
+      JUNIOR_STRANGER,
+      DROP_STRANGER,
+      HR_STRANGER,
+    ]) {
       await db
         .insert(users)
         .values({
@@ -219,6 +259,34 @@ describe('task-soft-delete-and-money-audit — visibility RBAC (real-DB)', () =>
     await expect(svc.findOne(TX_DELETED_ID, JUNIOR_STRANGER)).rejects.not.toThrow(
       ForbiddenException,
     )
+  })
+
+  // MED-5 (security-review PR #456): DROP and HR were untested here — both
+  // route through the SAME own-row-only `assertReadAccess` branch as JUNIOR,
+  // so a regression scoped to just those two roles would have gone unnoticed.
+
+  it('AC2 — DROP (a stranger to the row): findAll excludes the deleted row', async () => {
+    if (!dbAvailable) return
+    const rows = await svc.findAll(DROP_STRANGER)
+    expect(rows.find((t) => t.id === TX_DELETED_ID)).toBeUndefined()
+  })
+
+  it('AC2 — DROP (a stranger to the row): findOne on the deleted row throws 404, NOT 403 (existence oracle)', async () => {
+    if (!dbAvailable) return
+    await expect(svc.findOne(TX_DELETED_ID, DROP_STRANGER)).rejects.toThrow(NotFoundException)
+    await expect(svc.findOne(TX_DELETED_ID, DROP_STRANGER)).rejects.not.toThrow(ForbiddenException)
+  })
+
+  it('AC2 — HR (a stranger to the row): findAll excludes the deleted row', async () => {
+    if (!dbAvailable) return
+    const rows = await svc.findAll(HR_STRANGER)
+    expect(rows.find((t) => t.id === TX_DELETED_ID)).toBeUndefined()
+  })
+
+  it('AC2 — HR (a stranger to the row): findOne on the deleted row throws 404, NOT 403 (existence oracle)', async () => {
+    if (!dbAvailable) return
+    await expect(svc.findOne(TX_DELETED_ID, HR_STRANGER)).rejects.toThrow(NotFoundException)
+    await expect(svc.findOne(TX_DELETED_ID, HR_STRANGER)).rejects.not.toThrow(ForbiddenException)
   })
 
   // ── AC3: ADMIN/ACCOUNTANT — hidden by default, shown via explicit toggle ──

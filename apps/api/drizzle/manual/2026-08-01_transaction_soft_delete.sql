@@ -45,8 +45,19 @@
 -- PR; the task's own instructions call this out as a DevOps-owned follow-up.
 -- Coder does not touch `.github/workflows/**` (zone-of-write).
 --
--- Idempotent: `ADD COLUMN IF NOT EXISTS` + `CREATE INDEX IF NOT EXISTS` —
--- safe to re-run any number of times, on every deploy, forever.
+-- Idempotent: `ADD COLUMN IF NOT EXISTS` + `CREATE INDEX CONCURRENTLY IF NOT
+-- EXISTS` — safe to re-run any number of times, on every deploy, forever.
+--
+-- security-review PR #456 (LOW): the index below is CONCURRENTLY — a plain
+-- `CREATE INDEX` takes a SHARE lock on `transactions` for the full scan/build,
+-- blocking every INSERT/UPDATE/DELETE against it for the duration (the money
+-- table, on a live system, is exactly where that matters). CONCURRENTLY costs
+-- two table scans instead of one and cannot run inside a transaction block —
+-- this script never opens one (no explicit BEGIN/COMMIT — every statement
+-- below autocommits individually under psql's default), so that constraint is
+-- already satisfied. `IF NOT EXISTS` still makes it idempotent; the ADD COLUMN
+-- statements above are already fast metadata-only changes on Postgres 11+
+-- (no table rewrite for a nullable column with no default) and don't need it.
 -- =============================================================================
 
 ALTER TABLE transactions
@@ -60,7 +71,7 @@ ALTER TABLE transactions
 
 -- Supports the `WHERE deleted_at IS NULL` predicate every hot read now
 -- carries (findAll's default list + every balance/summary aggregate).
-CREATE INDEX IF NOT EXISTS idx_transactions_active_created_at
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_transactions_active_created_at
   ON transactions (created_at)
   WHERE deleted_at IS NULL;
 
@@ -75,7 +86,7 @@ CREATE INDEX IF NOT EXISTS idx_transactions_active_created_at
 --
 -- Rollback (feature-level; loses any recorded deletions — only if this
 -- feature is being reverted entirely, not for routine ops):
---   DROP INDEX IF EXISTS idx_transactions_active_created_at;
+--   DROP INDEX CONCURRENTLY IF EXISTS idx_transactions_active_created_at;
 --   ALTER TABLE transactions DROP COLUMN IF EXISTS deletion_reason;
 --   ALTER TABLE transactions DROP COLUMN IF EXISTS deleted_by;
 --   ALTER TABLE transactions DROP COLUMN IF EXISTS deleted_at;

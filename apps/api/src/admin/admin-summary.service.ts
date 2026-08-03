@@ -1,5 +1,6 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common'
 import { desc, sql, isNull } from 'drizzle-orm'
+import { alias } from 'drizzle-orm/pg-core'
 import type { SessionUser, AdminSummary } from '@crm/shared'
 import { adminSummarySchema } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -58,6 +59,17 @@ export class AdminSummaryService {
     // projectsUnpaidThisMonth uses a NOT EXISTS correlated subquery against the
     // income types whose tx_date falls in [monthStart, nextMonthStart).
     //
+    // security-review PR #456 (LOW): `p` is an EXPLICIT, STABLE alias (never a
+    // bare `projects` reference) — see the correlation-predicate comment below
+    // for why. Qualifying the outer table by name, not by "happens to have no
+    // alias", is what makes `p.id` in the raw-SQL subquery safe against a
+    // FUTURE join being added to this same query (an explicit alias's name
+    // never drifts, whereas an unaliased base table's bare-name rendering is
+    // an implementation-detail optimization that only holds for a genuinely
+    // single-table select — see the finding this closes, on the very next
+    // comment block, for how silently that broke once already).
+    const p = alias(projects, 'p')
+    //
     // BUG FIX (found as a byproduct of task-soft-delete-and-money-audit's AC4
     // regression test — pre-existing, unrelated to soft-delete): the
     // correlation predicate used to read `where t.project_id = ${projects.id}`.
@@ -71,28 +83,37 @@ export class AdminSummaryService {
     // true and `projectsUnpaidThisMonth` counted EVERY active project as
     // unpaid regardless of any matching income — a real correctness bug the
     // existing integration test's `toBeGreaterThanOrEqual(0)` assertion could
-    // never have caught. Fixed by referencing the outer table's real
-    // (unaliased) SQL name literally — `.from(projects)` has no alias, so
-    // `projects.id` in raw SQL text unambiguously means the outer row.
+    // never have caught.
+    //
+    // security-review PR #456 (LOW): the original fix referenced the outer
+    // table's bare SQL name literally (`.from(projects)` had no alias, so
+    // `projects.id` in raw text unambiguously meant the outer row) — correct
+    // THEN, but silently wrong again the moment anyone added a join to this
+    // query (Drizzle only special-cases the bare name for a genuinely
+    // single-table select). Switched to the EXPLICIT alias `p` above instead:
+    // `p.id` in the raw-SQL subquery now resolves via a name that is stable
+    // by construction, join or no join (verified empirically with
+    // `.toSQL()` against drizzle-orm 0.45.2, same methodology the original
+    // finding used) — see the `const p = alias(projects, 'p')` comment above.
     const projQuery = db
       .select({
-        activeProjects: sql<number>`count(*) filter (where ${projects.archivedAt} is null)`.mapWith(
+        activeProjects: sql<number>`count(*) filter (where ${p.archivedAt} is null)`.mapWith(
           Number,
         ),
         projectsUnpaidThisMonth:
           // task-soft-delete-and-money-audit (AC4): `t.deleted_at is null` —
           // without it a deleted (e.g. mistaken/fraudulent) income would still
           // satisfy the NOT EXISTS check and wrongly mark the project "paid".
-          sql<number>`count(*) filter (where ${projects.archivedAt} is null and not exists (
+          sql<number>`count(*) filter (where ${p.archivedAt} is null and not exists (
           select 1 from ${transactions} t
-          where t.project_id = projects.id
+          where t.project_id = p.id
             and t.type in ('ADMIN_INCOME', 'TOV_INCOME', 'DROP_INCOME')
             and t.tx_date >= ${monthStart}
             and t.tx_date < ${nextMonthStart}
             and t.deleted_at is null
         ))`.mapWith(Number),
       })
-      .from(projects)
+      .from(p)
     const [projRow] = await projQuery
 
     // employees — every user, every role (incl. DROP).

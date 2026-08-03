@@ -30,6 +30,12 @@
  *   - computeCompanyAccountBalanceFromLedger    (COMPANY_DEPOSIT term)
  *   - AdminSummaryService.getSummary            (activeTransactions feed +
  *                                                 projectsUnpaidThisMonth)
+ *   - TransactionsService.getIncomeComplianceOverview (submittedProjects)
+ *   - ProjectsService.findDropOwnProjects       (incomesCount)
+ *   - getOwnSalaryStatus                        (helper — MED-5, security-review
+ *                                                 PR #456: filtered in code since
+ *                                                 the original PR, but had no
+ *                                                 dedicated regression proof)
  *
  * DB-SKIP-GUARD: dbAvailable=false → every test early-returns (no DB in CI
  * unit job).
@@ -54,6 +60,10 @@ import { BalanceService } from './balance.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 import { AdminSummaryService } from '../admin/admin-summary.service'
+import { getOwnSalaryStatus } from './salary-status.helper'
+import { ProjectsService } from '../projects/projects.service'
+import type { ProjectAuditLogService } from '../projects/project-audit-log.service'
+import { HrAccessService } from '../common/hr-access.service'
 
 // ---------------------------------------------------------------------------
 // Personas — namespace bd5e0000-*
@@ -113,6 +123,9 @@ const ALL_EXTRA_TX_IDS = [
   'bd5e0002-0000-4000-a000-000000000008', // computeCompanyAccountBalanceFromLedger
   'bd5e0002-0000-4000-a000-000000000009', // AdminSummaryService — projectsUnpaidThisMonth
   'bd5e0002-0000-4000-a000-00000000000a', // AdminSummaryService — activeTransactions feed
+  'bd5e0002-0000-4000-a000-00000000000b', // getIncomeComplianceOverview
+  'bd5e0002-0000-4000-a000-00000000000c', // ProjectsService.findDropOwnProjects.incomesCount
+  'bd5e0002-0000-4000-a000-00000000000d', // getOwnSalaryStatus
 ]
 
 const fakeNbu = {
@@ -133,6 +146,7 @@ let _pool: Pool | null = null
 let svc: TransactionsService
 let balanceSvc: BalanceService
 let adminSummarySvc: AdminSummaryService
+let projectsSvc: ProjectsService
 let dbSvc: DatabaseService
 
 describe('task-soft-delete-and-money-audit — balance regression (real-DB, AC4)', () => {
@@ -157,6 +171,12 @@ describe('task-soft-delete-and-money-audit — balance regression (real-DB, AC4)
     svc = makeTransactionsService({ db: dbSvc, nbuCurrencyService: fakeNbu })
     balanceSvc = new BalanceService(dbSvc, fakeNbu)
     adminSummarySvc = new AdminSummaryService(dbSvc)
+    projectsSvc = new ProjectsService(
+      dbSvc,
+      {} as ProjectAuditLogService,
+      {} as never,
+      new HrAccessService(dbSvc),
+    )
 
     for (const u of [ADMIN_1, ACCOUNTANT_1, SENIOR_1, DROP_1]) {
       await db
@@ -180,6 +200,10 @@ describe('task-soft-delete-and-money-audit — balance regression (real-DB, AC4)
         domain: 'AI',
         startDate: new Date('2026-01-01T00:00:00Z'),
         seniorId: SENIOR_1.id,
+        // MED-5 (security-review PR #456): also drop-owned so
+        // ProjectsService.findDropOwnProjects.incomesCount has a project to
+        // count against.
+        dropId: DROP_1.id,
         rate: 100,
         currency: 'USDT',
         paymentType: 'FOP',
@@ -474,5 +498,101 @@ describe('task-soft-delete-and-money-audit — balance regression (real-DB, AC4)
 
     const afterDelete = await adminSummarySvc.getSummary(ADMIN_1)
     expect(afterDelete.activeTransactions.find((t) => t.id === ALL_EXTRA_TX_IDS[9])).toBeUndefined()
+  })
+
+  // ── MED-5 (security-review PR #456): the three read-paths the review flagged
+  // as filtered-in-code-but-untested — getIncomeComplianceOverview,
+  // ProjectsService.findDropOwnProjects.incomesCount, getOwnSalaryStatus.
+  // Same insert → assert → soft-delete → assert methodology as every test
+  // above; these three simply never got a dedicated regression proof before.
+
+  it('getIncomeComplianceOverview.totals.submittedProjects — insert + soft-delete a VALIDATED SENIOR_INCOME nets to baseline', async () => {
+    if (!dbAvailable) return
+    const before = await svc.getIncomeComplianceOverview(ADMIN_1)
+    const baselineSubmitted = before.totals.submittedProjects
+
+    const db = drizzle(_pool!, { schema })
+    await db.insert(transactions).values({
+      id: ALL_EXTRA_TX_IDS[10]!,
+      type: 'SENIOR_INCOME',
+      status: 'VALIDATED',
+      amount: '77',
+      currency: 'USDT',
+      senderLabel: 'Client Co',
+      receiverId: SENIOR_1.id,
+      projectId: PROJECT_1,
+      txDate: new Date(),
+      createdBy: SENIOR_1.id,
+    })
+
+    // PROJECT_1 now has a counted (VALIDATED) SENIOR_INCOME row for the
+    // current month → one more "submitted" project.
+    const afterInsert = await svc.getIncomeComplianceOverview(ADMIN_1)
+    expect(afterInsert.totals.submittedProjects).toBe(baselineSubmitted + 1)
+
+    await svc.adminDeleteTransaction(ALL_EXTRA_TX_IDS[10]!, 'regression test cleanup', ADMIN_1)
+
+    // Deleted → the isNull(deletedAt) filter must stop counting it → back to
+    // baseline (PROJECT_1 reads as "not submitted" again).
+    const afterDelete = await svc.getIncomeComplianceOverview(ADMIN_1)
+    expect(afterDelete.totals.submittedProjects).toBe(baselineSubmitted)
+  })
+
+  it('ProjectsService.findDropOwnProjects.incomesCount — insert + soft-delete a DROP_INCOME nets to baseline', async () => {
+    if (!dbAvailable) return
+    const before = await projectsSvc.findDropOwnProjects(DROP_1)
+    const baselineCount = before.find((p) => p.id === PROJECT_1)?.incomesCount ?? 0
+
+    const db = drizzle(_pool!, { schema })
+    await db.insert(transactions).values({
+      id: ALL_EXTRA_TX_IDS[11]!,
+      type: 'DROP_INCOME',
+      status: 'PENDING',
+      amount: '55',
+      currency: 'USDT',
+      senderLabel: 'Client Co',
+      receiverId: DROP_1.id,
+      projectId: PROJECT_1,
+      createdBy: DROP_1.id,
+    })
+
+    const afterInsert = await projectsSvc.findDropOwnProjects(DROP_1)
+    expect(afterInsert.find((p) => p.id === PROJECT_1)?.incomesCount).toBe(baselineCount + 1)
+
+    await svc.adminDeleteTransaction(ALL_EXTRA_TX_IDS[11]!, 'regression test cleanup', ADMIN_1)
+
+    const afterDelete = await projectsSvc.findDropOwnProjects(DROP_1)
+    expect(afterDelete.find((p) => p.id === PROJECT_1)?.incomesCount).toBe(baselineCount)
+  })
+
+  it('getOwnSalaryStatus — a soft-deleted SALARY reads back as "no salary yet"', async () => {
+    if (!dbAvailable) return
+    const salaryMonth = '2099-01' // far-future month this spec namespace never otherwise touches
+    const before = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth)
+    expect(before).toBeNull()
+
+    const db = drizzle(_pool!, { schema })
+    await db.insert(transactions).values({
+      id: ALL_EXTRA_TX_IDS[12]!,
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '444',
+      currency: 'USDT',
+      senderLabel: 'Счёт компании',
+      receiverId: SENIOR_1.id,
+      salaryMonth,
+      createdBy: ADMIN_1.id,
+    })
+
+    const afterInsert = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth)
+    expect(afterInsert).not.toBeNull()
+    expect(afterInsert!.amount).toBeCloseTo(444, 6)
+
+    await svc.adminDeleteTransaction(ALL_EXTRA_TX_IDS[12]!, 'regression test cleanup', ADMIN_1)
+
+    // Deleted → must read back exactly as "no salary yet" (null), not resurface
+    // a mistakenly-booked reminder.
+    const afterDelete = await getOwnSalaryStatus(dbSvc.db, SENIOR_1.id, salaryMonth)
+    expect(afterDelete).toBeNull()
   })
 })
