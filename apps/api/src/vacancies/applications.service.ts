@@ -70,8 +70,51 @@ const RESUME_MIME = 'application/pdf'
  */
 export const RESUME_MAX_BYTES = 5 * 1024 * 1024
 
-/** Duplicate-submission window — same email + vacancy within 24h → 429. */
+/**
+ * Duplicate-submission window — same email + vacancy within 24h is treated
+ * as a repeat and mimics success with no further processing (see the
+ * MED-4 comment on the duplicate check itself, further down, for why this
+ * is `{ ok: true }` and not a 429 anymore).
+ */
 const DUPLICATE_WINDOW_MS = 24 * 60 * 60 * 1000
+
+/**
+ * Timing-side-channel mitigation (security-review round 2, MED item 3):
+ * the honeypot and duplicate branches both short-circuit BEFORE the
+ * genuinely expensive work (compress → DB insert → R2 upload → notify
+ * ADMIN/HR), so even with an identical status code and body, an attacker
+ * measuring response latency could still tell "mimicked success" (fast)
+ * apart from "genuine new submission" (slower) — the same oracle MED-4
+ * closed for status/shape, left open for timing.
+ *
+ * This is NOT a perfect fix: real genuine-path latency varies with the
+ * attacker's OWN uploaded file size (bigger PDF → slower compress/upload)
+ * and with real R2 network conditions in prod, neither of which this
+ * service can predict or replicate exactly server-side without doing the
+ * same amount of real work (which would defeat the point of mimicking).
+ * What IS cheap and worth doing: pad the mimicked-success branches with a
+ * randomized delay in the same ballpark as a typical genuine submission,
+ * so a timing probe needs many more samples (and a stable network) to
+ * extract a signal, instead of a single request.
+ *
+ * Range grounded in a real (if small-scale) measurement: compressing a
+ * synthetic 3-page/~5KB resume PDF via CompressionService + a real
+ * PutObjectCommand round-trip to local MinIO averaged ~11ms combined
+ * (loopback, tiny file) — production R2 network latency and a realistic
+ * multi-page/multi-MB uploaded resume both push the real number well
+ * above that floor, plus the notify-admins DB round-trip is not included
+ * in that measurement at all. 150–350ms is a deliberately generous,
+ * still-cheap floor (a few hundred ms is invisible to a legitimate
+ * applicant, submitting once) rather than an attempt at an exact match —
+ * the residual gap (variance from file size / real network jitter) is an
+ * accepted, documented risk, not something this delay claims to close
+ * completely.
+ */
+// Exported (not just internal) so the unit spec can assert the ACTUAL
+// mimicked-success branches respect this documented range via fake timers,
+// instead of only asserting the constant exists.
+export const MIMIC_DELAY_MIN_MS = 150
+export const MIMIC_DELAY_MAX_MS = 350
 
 /** Presigned resume-download TTL — 600s (task §Endpoints). */
 const RESUME_PRESIGN_TTL_SEC = 600
@@ -90,6 +133,17 @@ const RESUME_PRESIGN_TTL_SEC = 600
  */
 function sanitizeDownloadFilename(name: string): string {
   return name.replace(/["\\\r\n]/g, '')
+}
+
+/**
+ * `await`ed by the honeypot/duplicate "mimicked success" branches — see the
+ * `MIMIC_DELAY_MIN_MS`/`MIMIC_DELAY_MAX_MS` doc comment for the full
+ * rationale. Randomized (not fixed) so the delay itself doesn't become a
+ * new, perfectly-constant tell.
+ */
+function mimicRealisticProcessingDelay(): Promise<void> {
+  const ms = MIMIC_DELAY_MIN_MS + Math.random() * (MIMIC_DELAY_MAX_MS - MIMIC_DELAY_MIN_MS)
+  return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
 @Injectable()
@@ -125,6 +179,7 @@ export class ApplicationsService {
       this.logger.warn(
         'apply(): honeypot field non-empty — mimicking success (no further processing)',
       )
+      await mimicRealisticProcessingDelay()
       return { ok: true }
     }
 
@@ -181,6 +236,13 @@ export class ApplicationsService {
     // gets a silent no-op instead of an explicit "you already applied"
     // message) — the SAME trade-off the honeypot branch already makes, and
     // the only way to make the response carry zero signal either way.
+    //
+    // TIMING (security-review round 2, MED item 3): status/shape alone
+    // aren't enough — this branch is still measurably FASTER than the
+    // genuine path below (no compress/upload/notify), so `await
+    // mimicRealisticProcessingDelay()` pads it before returning. See that
+    // helper's doc comment for the full rationale and its honestly-stated
+    // limits (this narrows, not eliminates, the timing gap).
     const since = new Date(Date.now() - DUPLICATE_WINDOW_MS)
     const duplicate = await this.db.db.query.vacancyApplications.findFirst({
       where: and(
@@ -193,6 +255,7 @@ export class ApplicationsService {
       this.logger.warn(
         'apply(): duplicate email+vacancy within 24h — mimicking success (no further processing)',
       )
+      await mimicRealisticProcessingDelay()
       return { ok: true }
     }
 

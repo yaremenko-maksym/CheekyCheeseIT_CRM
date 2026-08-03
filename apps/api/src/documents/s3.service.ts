@@ -216,6 +216,22 @@ export class S3Service {
    * ApplicationsService.getResumeUrl) passes it. Omitting it means "no
    * override", i.e. the object serves whatever `Cache-Control` it was
    * uploaded with (the pre-existing behaviour), not a security regression.
+   *
+   * LIVE-VERIFIED (security-review round 2, 2026-08-03): this is not just an
+   * assertion that the SDK command carries the param — an object was PUT
+   * against local MinIO with the stale `public, max-age=31536000, immutable`
+   * header (simulating a pre-§3 object), a presigned GET was generated with
+   * `ResponseCacheControl: 'private, no-store'`, and a REAL HTTP GET against
+   * that URL returned `200` (signed request accepted, not rejected) with
+   * `Cache-Control: private, no-store` on the wire — i.e. the override wins
+   * over the stored header, exactly as this comment claims. Not re-verified
+   * against prod Cloudflare R2 directly (no prod credentials available in
+   * this task) — inferred safe by the sibling `ResponseContentDisposition`
+   * override already shipping and working in prod for the `downloadAs`/
+   * `disposition` params above (same "response-* query override" family in
+   * the S3 API; R2's own docs confirm `ResponseContentDisposition` support).
+   * If this is ever in doubt, re-run the equivalent GET against a real R2
+   * bucket — residual risk, not swept under the rug.
    */
   async getPresignedDownloadUrl(
     key: string,

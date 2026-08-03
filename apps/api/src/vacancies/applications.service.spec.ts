@@ -16,7 +16,12 @@ import {
 } from '@nestjs/common'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
-import { ApplicationsService, type ApplyResumeFile } from './applications.service'
+import {
+  ApplicationsService,
+  MIMIC_DELAY_MAX_MS,
+  MIMIC_DELAY_MIN_MS,
+  type ApplyResumeFile,
+} from './applications.service'
 import type { VacanciesService } from './vacancies.service'
 import type { TurnstileService } from './turnstile.service'
 import type { S3Service } from '../documents/s3.service'
@@ -203,6 +208,67 @@ describe('ApplicationsService.apply()', () => {
     expect(h.compression.compress).not.toHaveBeenCalled()
     expect(h.s3.upload).not.toHaveBeenCalled()
     expect(h.notifications.create).not.toHaveBeenCalled()
+  })
+
+  // security-review round 2, MED item 3: status/shape alone don't close the
+  // enumeration oracle — the mimicked-success branches must ALSO pad their
+  // latency so they aren't trivially distinguishable-by-timing from a
+  // genuine (slower) submission. Fake timers keep this deterministic and
+  // fast — no real 150-350ms wait in the test suite.
+  it('duplicate branch pads its response with the documented mimicry delay (MED item 3, timing oracle)', async () => {
+    vi.useFakeTimers()
+    try {
+      h = makeHarness({ duplicateRow: { id: 'existing-app' } })
+      const promise = h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4')
+      let resolved = false
+      void promise.then(() => {
+        resolved = true
+      })
+
+      // Flush the mocked DB/turnstile microtasks so the delay's setTimeout
+      // is actually scheduled before we start advancing fake time.
+      await vi.advanceTimersByTimeAsync(0)
+      expect(resolved).toBe(false)
+
+      // Short of the documented floor — still pending.
+      await vi.advanceTimersByTimeAsync(MIMIC_DELAY_MIN_MS - 5)
+      expect(resolved).toBe(false)
+
+      // Past the documented ceiling — must have resolved by now.
+      await vi.advanceTimersByTimeAsync(MIMIC_DELAY_MAX_MS)
+      expect(resolved).toBe(true)
+      await expect(promise).resolves.toEqual({ ok: true })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('honeypot branch pads its response with the documented mimicry delay (MED item 3, timing oracle)', async () => {
+    vi.useFakeTimers()
+    try {
+      const promise = h.svc.apply(
+        'senior-frontend-engineer',
+        { ...VALID_FIELDS, website: 'http://spam.example' },
+        pdfFile(),
+        '1.2.3.4',
+      )
+      let resolved = false
+      void promise.then(() => {
+        resolved = true
+      })
+
+      await vi.advanceTimersByTimeAsync(0)
+      expect(resolved).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(MIMIC_DELAY_MIN_MS - 5)
+      expect(resolved).toBe(false)
+
+      await vi.advanceTimersByTimeAsync(MIMIC_DELAY_MAX_MS)
+      expect(resolved).toBe(true)
+      await expect(promise).resolves.toEqual({ ok: true })
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('missing file → 400', async () => {
