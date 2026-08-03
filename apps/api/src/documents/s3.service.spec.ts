@@ -244,6 +244,49 @@ describe('S3Service.getPresignedDownloadUrl', () => {
         .ResponseContentDisposition,
     ).toBeUndefined()
   })
+
+  // task-file-storage-hardening MED-2 (security-review round 1): `upload()`'s
+  // category-aware Cache-Control (§3) only ever applies to NEW writes —
+  // every object already sitting in the bucket keeps its old header forever
+  // since nothing re-writes stored object metadata. `ResponseCacheControl`
+  // on the presigned GET closes that retroactively, no backfill needed.
+  describe('ResponseCacheControl override (MED-2)', () => {
+    it('overrides the response Cache-Control to private/no-store for a sensitive category', async () => {
+      const service = new S3Service(makeConfig())
+      getSignedUrlSpy.mockResolvedValue('url')
+
+      await service.getPresignedDownloadUrl('k', undefined, undefined, 'inline', 'SCAN')
+
+      const [, command] = getSignedUrlSpy.mock.calls[0]!
+      const cc = (command as { input: { ResponseCacheControl?: string } }).input
+        .ResponseCacheControl
+      expect(cc).toBe('private, no-store')
+    })
+
+    it('overrides the response Cache-Control to public/immutable for AVATAR/LOGO', async () => {
+      const service = new S3Service(makeConfig())
+      getSignedUrlSpy.mockResolvedValue('url')
+
+      await service.getPresignedDownloadUrl('k', undefined, undefined, 'inline', 'AVATAR')
+
+      const [, command] = getSignedUrlSpy.mock.calls[0]!
+      const cc = (command as { input: { ResponseCacheControl?: string } }).input
+        .ResponseCacheControl
+      expect(cc).toBe('public, max-age=31536000, immutable')
+    })
+
+    it('omits ResponseCacheControl when no category is passed (no override, unchanged legacy behaviour)', async () => {
+      const service = new S3Service(makeConfig())
+      getSignedUrlSpy.mockResolvedValue('url')
+
+      await service.getPresignedDownloadUrl('k')
+
+      const [, command] = getSignedUrlSpy.mock.calls[0]!
+      expect(
+        (command as { input: { ResponseCacheControl?: string } }).input.ResponseCacheControl,
+      ).toBeUndefined()
+    })
+  })
 })
 
 describe('S3Service.delete', () => {

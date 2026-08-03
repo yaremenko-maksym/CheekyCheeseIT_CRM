@@ -198,12 +198,31 @@ export class S3Service {
    * user opens a transaction detail dialog. Pass `disposition: 'attachment'`
    * when you want a real "Save as…" prompt (e.g. an explicit Download
    * button).
+   *
+   * `category` (task-file-storage-hardening MED-2, security-review round 1):
+   * when provided, the presigned URL carries a `ResponseCacheControl`
+   * override — S3/R2 honours this on the GET response REGARDLESS of the
+   * `Cache-Control` header the object was originally PUT with. This is what
+   * actually closes MED-2: `upload()`'s category-aware header (§3) only ever
+   * applied to NEW writes — every object already sitting in the bucket
+   * before that fix shipped keeps its old `public, max-age=31536000,
+   * immutable` header forever, since nothing ever re-writes stored object
+   * metadata. Overriding the response header on every GET fixes already-
+   * uploaded sensitive objects retroactively, with no backfill/migration
+   * needed. Optional (not required, unlike `upload`'s `category`) only
+   * because a handful of test/internal call sites presign a raw key with no
+   * document context at all; every real production call site
+   * (DocumentsService.getDownloadUrl/getPreviewUrl/getThumbnailUrl,
+   * ApplicationsService.getResumeUrl) passes it. Omitting it means "no
+   * override", i.e. the object serves whatever `Cache-Control` it was
+   * uploaded with (the pre-existing behaviour), not a security regression.
    */
   async getPresignedDownloadUrl(
     key: string,
     ttlSec: number | undefined = DEFAULT_PRESIGN_TTL_SEC,
     downloadAs?: string | undefined,
     disposition: 'inline' | 'attachment' = 'inline',
+    category?: DocumentCategory,
   ): Promise<PresignedDownloadResult> {
     const effectiveTtl = ttlSec ?? DEFAULT_PRESIGN_TTL_SEC
     // task-file-storage-hardening §7 (minor): strip characters that could
@@ -230,6 +249,7 @@ export class S3Service {
             ResponseContentDisposition: `${disposition}; filename="${this.asciiFallback(safeDownloadAs)}"; filename*=UTF-8''${encodeURIComponent(safeDownloadAs)}`,
           }
         : {}),
+      ...(category ? { ResponseCacheControl: cacheControlForCategory(category) } : {}),
     })
     const url = await getSignedUrl(this.client, command, { expiresIn: effectiveTtl })
     const expiresAt = new Date(Date.now() + effectiveTtl * 1000).toISOString()

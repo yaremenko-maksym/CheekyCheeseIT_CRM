@@ -738,6 +738,25 @@ describe('DocumentsService.getDownloadUrl', () => {
     expect(result.url).toBeTruthy()
   })
 
+  // task-file-storage-hardening MED-2 (security-review round 1): the doc's
+  // category must reach S3Service so it can override Cache-Control on the
+  // GET response — this is what closes MED-2 for objects uploaded before
+  // the category-aware header shipped.
+  it('forwards the document category to S3Service.getPresignedDownloadUrl (MED-2)', async () => {
+    const h = makeHarness({
+      docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],
+      honorSoftDeleteFilter: true,
+    })
+    await h.service.getDownloadUrl(SENIOR, 'd1')
+    expect(h.s3.getPresignedDownloadUrl).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.any(Number),
+      expect.anything(),
+      'attachment',
+      'RESUME',
+    )
+  })
+
   it("JUNIOR cannot download someone else's RESUME → 404 (not 403, no leak)", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'RESUME' }],

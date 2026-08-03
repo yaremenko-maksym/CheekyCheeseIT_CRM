@@ -657,7 +657,13 @@ export class DocumentsService {
     // s3/documents hygiene: force Content-Disposition: attachment so the browser
     // always downloads the file rather than opening it inline (e.g. a PDF opened
     // inline in a new tab could be shared via URL — attachment forces Save dialog).
-    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs, 'attachment')
+    return this.s3.getPresignedDownloadUrl(
+      doc.s3Key,
+      ttl,
+      downloadAs,
+      'attachment',
+      doc.category as DocumentCategory,
+    )
   }
 
   // -------------------------------------------------------------------------
@@ -683,7 +689,13 @@ export class DocumentsService {
     // rather than offering a Save dialog (contrast with getDownloadUrl which
     // uses 'attachment' to force a download prompt for the explicit download
     // button flow).
-    return this.s3.getPresignedDownloadUrl(doc.s3Key, ttl, downloadAs, 'inline')
+    return this.s3.getPresignedDownloadUrl(
+      doc.s3Key,
+      ttl,
+      downloadAs,
+      'inline',
+      doc.category as DocumentCategory,
+    )
   }
 
   /**
@@ -1457,8 +1469,9 @@ export class DocumentsService {
     if (!doc.thumbnailS3Key) return null
     // Thumbnails inherit the same TTL as the main document for consistency:
     // a leaked thumbnail URL should expire at the same time as the full file.
-    const ttl = presignTtlForCategory(doc.category as DocumentCategory)
-    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl)
+    const category = doc.category as DocumentCategory
+    const ttl = presignTtlForCategory(category)
+    return this.s3.getPresignedDownloadUrl(doc.thumbnailS3Key, ttl, undefined, 'inline', category)
   }
 }
 

@@ -353,6 +353,7 @@ export class ApplicationsService {
       RESUME_PRESIGN_TTL_SEC,
       `${sanitizeDownloadFilename(row.fullName)}.pdf`,
       'attachment',
+      'RESUME',
     )
   }
 
