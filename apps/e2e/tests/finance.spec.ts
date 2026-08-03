@@ -602,14 +602,25 @@ test.describe('Finance — удаление транзакции (ADMIN)', () =>
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
   })
 
-  test('ADMIN: подтверждает удаление', async ({ asAdmin }) => {
+  // task-soft-delete-and-money-audit: delete is now soft (row marked, not
+  // physically removed) and the reason is MANDATORY — the confirm button
+  // stays disabled until a reason of at least 3 characters is entered.
+  test('ADMIN: причина обязательна — кнопка удаления неактивна без неё', async ({ asAdmin }) => {
     await mockTransactions(asAdmin, [TX_EXPENSE])
     await asAdmin.goto('/finance')
     await asAdmin.getByTitle('Удалить').first().click()
-    await asAdmin
-      .getByRole('button', { name: /^Удалить$/i })
-      .last()
-      .click()
+    await expect(asAdmin.getByTestId('delete-tx-confirm-button')).toBeDisabled()
+    await asAdmin.getByTestId('delete-tx-reason-input').fill('ош')
+    await expect(asAdmin.getByTestId('delete-tx-confirm-button')).toBeDisabled()
+  })
+
+  test('ADMIN: подтверждает удаление, указав причину', async ({ asAdmin }) => {
+    await mockTransactions(asAdmin, [TX_EXPENSE])
+    await asAdmin.goto('/finance')
+    await asAdmin.getByTitle('Удалить').first().click()
+    await asAdmin.getByTestId('delete-tx-reason-input').fill('Ошибочно созданная транзакция')
+    await expect(asAdmin.getByTestId('delete-tx-confirm-button')).toBeEnabled()
+    await asAdmin.getByTestId('delete-tx-confirm-button').click()
     await expect(asAdmin.getByRole('dialog')).not.toBeVisible()
   })
 })

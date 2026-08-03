@@ -70,6 +70,17 @@ import { DatabaseService } from '../database/database.service'
 import {
   contractTemplates,
   invoiceSignatures,
+  // security-review PR #456 round 2: `nonDeletedTransactions` (VIEW) covers
+  // every LIST/aggregate read in this file (listInvoices, the internal
+  // auto-create triggers, the linked-income lookups) — see schema.ts's doc
+  // on the view. The raw `transactions` table stays imported ONLY for the
+  // few single-row reads that need the ADMIN/ACCOUNTANT-sees-deleted-row
+  // exception (getInvoice / signInvoice / verifyInvoice) and for writes —
+  // each of those routes through `assertFoundAndVisible` /
+  // `fetchVisibleTransactionOrThrow` / `fetchWritableTransactionOrThrow` so
+  // fetch and guard are fused into one expression (round 2's fix for the
+  // demonstrated "delete just the guard" bypass).
+  nonDeletedTransactions,
   projects,
   signedContracts,
   transactions,
@@ -80,6 +91,11 @@ import type { Env } from '../config/env'
 import { DocumentsService } from '../documents/documents.service'
 import { S3Service } from '../documents/s3.service'
 import { NotificationsService } from '../notifications/notifications.service'
+import {
+  assertFoundAndVisible,
+  fetchVisibleTransactionOrThrow,
+  fetchWritableTransactionOrThrow,
+} from '../finance/transaction-visibility.util'
 import {
   InvoicePdfService,
   COMPANY_BRAND_NAME,
@@ -140,10 +156,16 @@ export class InvoicesService {
    * all linked income rows).
    */
   async autoCreateForSeniorPayout(transactionId: string): Promise<void> {
-    const tx = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, transactionId),
-    })
-    if (!tx) return // tx gone — nothing to do (defensive)
+    // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
+    // (VIEW) — "row not found" now structurally covers "deleted" too, no
+    // separate `if (tx.deletedAt) return` needed (there is nothing to forget:
+    // a deleted row cannot be returned by this query at all).
+    const [tx] = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(eq(nonDeletedTransactions.id, transactionId))
+      .limit(1)
+    if (!tx) return // tx gone (or soft-deleted) — nothing to do (defensive)
     if (tx.type !== 'SENIOR_INCOME') return
     await this.autoCreate(tx)
   }
@@ -174,9 +196,13 @@ export class InvoicesService {
    * once the doc is linked.
    */
   async autoCreateForPayout(payoutTxId: string): Promise<void> {
-    const payoutTx = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, payoutTxId),
-    })
+    // security-review PR #456 round 2: see autoCreateForSeniorPayout — sourced
+    // from the view, "not found" covers "deleted" structurally.
+    const [payoutTx] = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(eq(nonDeletedTransactions.id, payoutTxId))
+      .limit(1)
     if (!payoutTx) return
     if (payoutTx.type !== 'PAYOUT') return
     if (!payoutTx.payoutRequestId) {
@@ -191,12 +217,19 @@ export class InvoicesService {
     }
 
     // Fetch all linked income rows that contributed to this payout.
-    const linkedIncomes = await this.db.db.query.transactions.findMany({
-      where: and(
-        eq(transactions.payoutRequestId, payoutTx.payoutRequestId),
-        inArray(transactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
-      ),
-    })
+    // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
+    // (VIEW) — `adminDeleteTransaction` already refuses to delete any row
+    // with `payoutRequestId` set, so this is defensive-only, but the view
+    // means there is no filter to forget either way.
+    const linkedIncomes = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(
+        and(
+          eq(nonDeletedTransactions.payoutRequestId, payoutTx.payoutRequestId),
+          inArray(nonDeletedTransactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+        ),
+      )
     if (linkedIncomes.length === 0) {
       this.logger.warn(
         `autoCreateForPayout: PAYOUT ${payoutTxId} has no linked SENIOR_INCOME/DROP_INCOME — skip`,
@@ -370,9 +403,12 @@ export class InvoicesService {
    * is the counterparty.
    */
   async autoCreateForSalary(transactionId: string): Promise<void> {
-    const tx = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, transactionId),
-    })
+    // security-review PR #456 round 2: see autoCreateForSeniorPayout.
+    const [tx] = await this.db.db
+      .select()
+      .from(nonDeletedTransactions)
+      .where(eq(nonDeletedTransactions.id, transactionId))
+      .limit(1)
     if (!tx) return
     if (tx.type !== 'SALARY') return
     await this.autoCreate(tx)
@@ -510,9 +546,17 @@ export class InvoicesService {
     // invoice (the aggregated one). The counterparty for PAYOUT is the
     // sender (senior / drop) — see getCounterpartyId — so the join below
     // resolves via COALESCE(receiverId, senderId).
+    //
+    // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
+    // (VIEW, see schema.ts) instead of the raw table + a hand-written
+    // `TRANSACTION_NOT_DELETED` condition — a soft-deleted row cannot appear
+    // in this list no matter what, there is no condition to omit. Excluded
+    // for EVERYONE (no ADMIN/ACCOUNTANT `includeDeleted` toggle like
+    // `TransactionsService.findAll` — an admin inspecting a deleted row's
+    // invoice uses the Finance ▸ Transactions view instead).
     const baseConditions = [
-      inArray(transactions.type, ['SENIOR_INCOME', 'SALARY', 'PAYOUT']),
-      isNotNull(transactions.invoiceDocumentId),
+      inArray(nonDeletedTransactions.type, ['SENIOR_INCOME', 'SALARY', 'PAYOUT']),
+      isNotNull(nonDeletedTransactions.invoiceDocumentId),
     ]
 
     // ---- RBAC ----
@@ -522,8 +566,8 @@ export class InvoicesService {
       //   - PAYOUT counterparty = `senderId`
       // The viewer must match the appropriate field for the row's type.
       baseConditions.push(
-        sql`((${transactions.type} IN ('SENIOR_INCOME', 'SALARY') AND ${transactions.receiverId} = ${viewer.id})
-            OR (${transactions.type} = 'PAYOUT' AND ${transactions.senderId} = ${viewer.id}))`,
+        sql`((${nonDeletedTransactions.type} IN ('SENIOR_INCOME', 'SALARY') AND ${nonDeletedTransactions.receiverId} = ${viewer.id})
+            OR (${nonDeletedTransactions.type} = 'PAYOUT' AND ${nonDeletedTransactions.senderId} = ${viewer.id}))`,
       )
     }
 
@@ -535,45 +579,45 @@ export class InvoicesService {
       // filters `type=SENIOR_INCOME` we include both real SENIOR_INCOMEs
       // and the aggregated PAYOUT rows so the existing UI stays intact.
       if (filters.type === 'SENIOR_INCOME') {
-        baseConditions.push(sql`${transactions.type} IN ('SENIOR_INCOME', 'PAYOUT')`)
+        baseConditions.push(sql`${nonDeletedTransactions.type} IN ('SENIOR_INCOME', 'PAYOUT')`)
       } else {
-        baseConditions.push(eq(transactions.type, filters.type))
+        baseConditions.push(eq(nonDeletedTransactions.type, filters.type))
       }
     }
 
     // ---- Status filter (computed via EXISTS on invoice_signatures) ----
     if (filters.status === 'PENDING') {
       baseConditions.push(
-        sql`NOT EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${transactions.id} AND signer_role = 'COUNTERPARTY')`,
+        sql`NOT EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
       )
     } else if (filters.status === 'SIGNED') {
       baseConditions.push(
-        sql`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${transactions.id} AND signer_role = 'COUNTERPARTY')`,
+        sql`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
       )
     }
 
     const rows = await this.db.db
       .select({
-        id: transactions.id,
-        type: transactions.type,
-        amount: transactions.amount,
-        currency: transactions.currency,
-        receiverId: transactions.receiverId,
+        id: nonDeletedTransactions.id,
+        type: nonDeletedTransactions.type,
+        amount: nonDeletedTransactions.amount,
+        currency: nonDeletedTransactions.currency,
+        receiverId: nonDeletedTransactions.receiverId,
         // task-aggregate-invoice-per-payout. Join the user via COALESCE so
         // PAYOUT rows resolve through senderId. The expression returns the
         // counterparty's displayName regardless of row type.
         counterpartyName: sql<string | null>`COALESCE(${users.displayName}, '—')`,
-        createdAt: transactions.createdAt,
+        createdAt: nonDeletedTransactions.createdAt,
         // Subquery flag — true when a COUNTERPARTY signature exists.
-        signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${transactions.id} AND signer_role = 'COUNTERPARTY')`,
+        signedFlag: sql<boolean>`EXISTS (SELECT 1 FROM invoice_signatures WHERE transaction_id = ${nonDeletedTransactions.id} AND signer_role = 'COUNTERPARTY')`,
       })
-      .from(transactions)
+      .from(nonDeletedTransactions)
       .leftJoin(
         users,
-        sql`${users.id} = COALESCE(${transactions.receiverId}, ${transactions.senderId})`,
+        sql`${users.id} = COALESCE(${nonDeletedTransactions.receiverId}, ${nonDeletedTransactions.senderId})`,
       )
       .where(and(...baseConditions))
-      .orderBy(desc(transactions.createdAt))
+      .orderBy(desc(nonDeletedTransactions.createdAt))
 
     return rows.map((r) => ({
       transactionId: r.id,
@@ -595,21 +639,30 @@ export class InvoicesService {
   // ===========================================================================
 
   async getInvoice(viewer: SessionUser, transactionId: string): Promise<InvoiceDto> {
-    const row = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, transactionId),
-      with: {
-        receiver: { columns: { id: true, displayName: true } },
-        sender: { columns: { id: true, displayName: true } },
-        project: { columns: { name: true } },
-      },
-    })
-    if (!row) throw new NotFoundException('Транзакция не найдена')
-
-    const tx = row as Transaction & {
-      receiver: { id: string; displayName: string } | null
-      sender: { id: string; displayName: string } | null
-      project: { name: string } | null
-    }
+    // security-review PR #456 round 2: `assertFoundAndVisible` fuses the
+    // not-found check AND the visibility guard into the return value of THIS
+    // fetch — round 1 had them as two separate statements, and the round-2
+    // review deleted just the guard line to prove the scanner would not
+    // notice. There is no longer a line to delete that removes only the
+    // guard: the assignment IS the guard. MUST run before assertCanViewInvoice
+    // (ownership) — same ordering rule as TransactionsService.findOne.
+    const tx = assertFoundAndVisible(
+      (await this.db.db.query.transactions.findFirst({
+        where: eq(transactions.id, transactionId),
+        with: {
+          receiver: { columns: { id: true, displayName: true } },
+          sender: { columns: { id: true, displayName: true } },
+          project: { columns: { name: true } },
+        },
+      })) as
+        | (Transaction & {
+            receiver: { id: string; displayName: string } | null
+            sender: { id: string; displayName: string } | null
+            project: { name: string } | null
+          })
+        | undefined,
+      viewer,
+    )
 
     // task-aggregate-invoice-per-payout: PAYOUT rows now carry invoices too.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
@@ -667,10 +720,13 @@ export class InvoicesService {
     transactionId: string,
     req: FastifyRequest,
   ): Promise<InvoiceDto> {
-    const tx = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, transactionId),
-    })
-    if (!tx) throw new NotFoundException('Транзакция не найдена')
+    // security-review PR #456 round 2: fetch + write-guard fused into one
+    // call (see the `getInvoice` comment above for why this specific pattern
+    // exists — round 2 defeated the round-1 two-statement version). A
+    // deleted transaction's invoice used to be fully signable by its
+    // (non-privileged) counterparty; non-privileged + deleted → 404 (hides
+    // existence); privileged + deleted → 400 (blocks the sign).
+    const tx = await fetchWritableTransactionOrThrow(this.db.db, transactionId, viewer)
     // task-aggregate-invoice-per-payout: PAYOUT rows now sign too.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не предусмотрен для этого типа транзакции')
@@ -782,12 +838,18 @@ export class InvoicesService {
     let payoutAggregatedAmount: string | null = null
     let payoutAggregatedCurrency: string | null = null
     if (tx.type === 'PAYOUT' && tx.payoutRequestId) {
-      const linkedIncomes = await this.db.db.query.transactions.findMany({
-        where: and(
-          eq(transactions.payoutRequestId, tx.payoutRequestId),
-          inArray(transactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
-        ),
-      })
+      // security-review PR #456 round 2: sourced from `nonDeletedTransactions`
+      // (VIEW) — defensive-only (see autoCreateForPayout's identical filter),
+      // but now structural rather than a condition to remember.
+      const linkedIncomes = await this.db.db
+        .select()
+        .from(nonDeletedTransactions)
+        .where(
+          and(
+            eq(nonDeletedTransactions.payoutRequestId, tx.payoutRequestId),
+            inArray(nonDeletedTransactions.type, ['SENIOR_INCOME', 'DROP_INCOME']),
+          ),
+        )
       const names: string[] = []
       const seen = new Set<string>()
       for (const incomeRow of linkedIncomes) {
@@ -887,10 +949,17 @@ export class InvoicesService {
   // ===========================================================================
 
   async verifyInvoice(transactionId: string): Promise<InvoiceVerifyResponse> {
-    const tx = await this.db.db.query.transactions.findFirst({
-      where: eq(transactions.id, transactionId),
-    })
-    if (!tx) throw new NotFoundException('Инвойс не найден')
+    // security-review PR #456 round 2: fetch + visibility guard fused (see
+    // getInvoice's comment). This is a PUBLIC, unauthenticated endpoint (the
+    // PDF's QR code) — `currentUser: null` is always treated as
+    // non-privileged, so a deleted transaction's invoice is never publicly
+    // verifiable even though it was already gated on SIGNED status below.
+    let tx: Transaction
+    try {
+      tx = await fetchVisibleTransactionOrThrow(this.db.db, transactionId, null)
+    } catch {
+      throw new NotFoundException('Инвойс не найден')
+    }
     // task-aggregate-invoice-per-payout: PAYOUT rows are valid invoice anchors.
     if (tx.type !== 'SENIOR_INCOME' && tx.type !== 'SALARY' && tx.type !== 'PAYOUT') {
       throw new NotFoundException('Инвойс не найден')

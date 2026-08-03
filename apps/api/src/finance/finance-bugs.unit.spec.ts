@@ -225,9 +225,6 @@ function makeBalanceService(txRows: Array<Record<string, unknown>>) {
   const db: DatabaseService = {
     db: {
       query: {
-        transactions: {
-          findMany: vi.fn().mockResolvedValue(txRows),
-        },
         users: {
           findFirst: vi.fn().mockResolvedValue({
             id: SENIOR_ID,
@@ -236,6 +233,11 @@ function makeBalanceService(txRows: Array<Record<string, unknown>>) {
           }),
         },
       },
+      // security-review PR #456 round 2: getSeniorBalance/getTotalEarned now
+      // read the `nonDeletedTransactions` VIEW via `.select().from(...)`.
+      select: vi.fn().mockReturnValue({
+        from: vi.fn().mockResolvedValue(txRows),
+      }),
     },
   } as unknown as DatabaseService
 

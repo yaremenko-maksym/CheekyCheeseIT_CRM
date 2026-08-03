@@ -41,6 +41,7 @@ import {
   forwardRef,
   Inject,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, inArray } from 'drizzle-orm'
@@ -56,6 +57,7 @@ import {
   pendingObligations,
   projects,
   transactions,
+  transactionAuditLog,
   users,
   type Transaction,
 } from '../database/schema'
@@ -121,6 +123,8 @@ function assertSettleCurrencyAllowed(currency: string): void {
 
 @Injectable()
 export class PendingSettlementService {
+  private readonly logger = new Logger(PendingSettlementService.name)
+
   constructor(
     private readonly db: DatabaseService,
     @Inject(forwardRef(() => InvoicesService))
@@ -519,7 +523,17 @@ export class PendingSettlementService {
           // cascade PAYOUT_DROP shape). `createdBy` intentionally stays the
           // booking author — the settler is captured in `validatedBy` (senior) and
           // the notes (per ADR §Consequences: minor audit delta, deliberate).
-          ...(isDropObligation ? {} : { validatedBy: actor.id, validatedAt: new Date() }),
+          //
+          // security-review PR #456 round 2 (MED-3): under impersonation this
+          // used to record the IMPERSONATED target as the settler, while the
+          // audit-log insert 20 lines below (in the same transaction, same
+          // action) already correctly attributed the REAL operator via
+          // `actor.impersonatorId ?? actor.id` — two provenance columns for one
+          // action, disagreeing under the exact condition provenance exists to
+          // catch. Same resolution, same field, now homogeneous.
+          ...(isDropObligation
+            ? {}
+            : { validatedBy: actor.impersonatorId ?? actor.id, validatedAt: new Date() }),
         })
         .where(
           and(
@@ -560,6 +574,35 @@ export class PendingSettlementService {
       } catch {
         // Swallow — the invoice can be re-triggered manually. Status change is
         // already persisted, the obligation is closed regardless.
+      }
+    }
+
+    // task-soft-delete-and-money-audit (AC5): "оплата" — settling a senior/
+    // drop IOU from the company account is a payment action just like
+    // paySalary. Best-effort, run AFTER the settle transaction has already
+    // committed (same convention as the invoice trigger above and
+    // TransactionsService.paySalary — a logging hiccup must not turn a
+    // successful settlement into a 500).
+    const flippedRow = created[0]
+    if (flippedRow) {
+      try {
+        await this.db.db.insert(transactionAuditLog).values({
+          actorId: actor.impersonatorId ?? actor.id,
+          targetId: flippedRow.id,
+          action: 'PAY',
+          metadata: {
+            type: flippedRow.type,
+            amount: flippedRow.amount,
+            currency: flippedRow.currency,
+            obligationId: obligation.id,
+            fundingSource: debitsCompanyAccount ? COMPANY_ACCOUNT_FUNDING_SOURCE : null,
+          },
+        })
+      } catch (auditErr) {
+        this.logger.error(
+          `settleByCompany: failed to persist audit record for transaction=${flippedRow.id}: ${(auditErr as Error).message}`,
+          (auditErr as Error).stack,
+        )
       }
     }
 

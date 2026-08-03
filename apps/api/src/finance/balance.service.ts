@@ -25,7 +25,11 @@ import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/commo
 import { and, eq } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
-import { pendingObligations, users } from '../database/schema'
+// security-review PR #456 round 2: full-ledger scans read the
+// `nonDeletedTransactions` VIEW, not the raw table — see schema.ts. No
+// balance method here has an "ADMIN sees it anyway" branch, so the view
+// covers every read in this file.
+import { nonDeletedTransactions, pendingObligations, users } from '../database/schema'
 import { NbuCurrencyService, type ExchangeRateResult } from './nbu-currency.service'
 
 export type BalanceCurrency = 'USDT' | 'USD' | 'EUR' | 'UAH'
@@ -120,7 +124,11 @@ export class BalanceService {
     currency: BalanceCurrency = 'USD',
   ): Promise<BalanceResult> {
     const rates = await this.nbu.getRates()
-    const allTxs = await this.db.db.query.transactions.findMany()
+    // security-review PR #456 round 2: sourced from the `nonDeletedTransactions`
+    // VIEW — a deleted row structurally cannot appear in this ledger scan (see
+    // schema.ts's doc on the view for why this replaced the hand-written
+    // `isNull(transactions.deletedAt)` filter).
+    const allTxs = await this.db.db.select().from(nonDeletedTransactions)
 
     let cashIncome = 0
     let cryptoIncome = 0
@@ -171,7 +179,11 @@ export class BalanceService {
     currency: BalanceCurrency = 'USD',
   ): Promise<BalanceResult> {
     const rates = await this.nbu.getRates()
-    const allTxs = await this.db.db.query.transactions.findMany()
+    // security-review PR #456 round 2: sourced from the `nonDeletedTransactions`
+    // VIEW — a deleted row structurally cannot appear in this ledger scan (see
+    // schema.ts's doc on the view for why this replaced the hand-written
+    // `isNull(transactions.deletedAt)` filter).
+    const allTxs = await this.db.db.select().from(nonDeletedTransactions)
 
     let cryptoIncome = 0
     let paidIncome = 0
@@ -270,7 +282,11 @@ export class BalanceService {
     if (!target) throw new NotFoundException('Пользователь не найден')
 
     const rates = await this.nbu.getRates()
-    const allTxs = await this.db.db.query.transactions.findMany()
+    // security-review PR #456 round 2: sourced from the `nonDeletedTransactions`
+    // VIEW — a deleted row structurally cannot appear in this ledger scan (see
+    // schema.ts's doc on the view for why this replaced the hand-written
+    // `isNull(transactions.deletedAt)` filter).
+    const allTxs = await this.db.db.select().from(nonDeletedTransactions)
 
     // Only money that has actually moved counts — PAID is the single gate.
     const paidTxs = allTxs.filter((tx) => tx.status === 'PAID')

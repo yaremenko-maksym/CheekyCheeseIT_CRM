@@ -24,6 +24,7 @@ import type {
   IncomeComplianceRole,
   ManualPayoutMethod,
   CurrencyEnum,
+  TransactionAuditLogEntryDto,
 } from '@crm/shared'
 import { SALARY_ELIGIBLE_ROLES, COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -71,6 +72,7 @@ import {
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { receiptMandatoryError } from '@crm/shared'
+import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -331,7 +333,7 @@ export class TransactionsService {
       // be impossible. `targetId` points at the row that held the claim when
       // known, else at the actor (the audit table takes a bare uuid, no FK).
       await dbtx.insert(transactionAuditLog).values({
-        actorId: currentUser.id,
+        actorId: currentUser.impersonatorId ?? currentUser.id,
         targetId: released.referenceId ?? currentUser.id,
         action: 'ONCHAIN_HASH_RELEASED',
         metadata: {
@@ -879,6 +881,14 @@ export class TransactionsService {
       createdBy: privileged || tx.createdBy === viewer.id ? tx.createdBy : null,
       createdAt: tx.createdAt.toISOString(),
       updatedAt: tx.updatedAt.toISOString(),
+      // task-soft-delete-and-money-audit. No masking needed here: mapTx only
+      // ever receives a deleted row for a privileged (ADMIN/ACCOUNTANT)
+      // viewer — findAll's default query excludes deleted rows for everyone,
+      // findOne's assertVisibleDespiteDeletion 404s a non-privileged caller
+      // BEFORE mapTx is ever reached.
+      deletedAt: tx.deletedAt ? tx.deletedAt.toISOString() : null,
+      deletedBy: tx.deletedBy ?? null,
+      deletionReason: tx.deletionReason ?? null,
     }
   }
 
@@ -1201,7 +1211,11 @@ export class TransactionsService {
     })
     if (!self) throw new NotFoundException('Drop user not found')
 
-    const allTxs = (await this.db.db.query.transactions.findMany()) as Array<{
+    // task-soft-delete-and-money-audit (AC4): a deleted row must not move the
+    // drop's own balance/debt figures.
+    const allTxs = (await this.db.db.query.transactions.findMany({
+      where: isNull(transactions.deletedAt),
+    })) as Array<{
       type: string
       status: string
       amount: string
@@ -1308,9 +1322,14 @@ export class TransactionsService {
       throw new ForbiddenException('Access denied: drop incomes are available to DROP role only')
     }
 
-    // Self-scope at the DB level: only this drop's DROP_INCOME rows.
+    // Self-scope at the DB level: only this drop's DROP_INCOME rows. AC2:
+    // DROP is non-privileged — a deleted own income must not resurface here.
     const rows = await this.db.db.query.transactions.findMany({
-      where: and(eq(transactions.type, 'DROP_INCOME'), eq(transactions.receiverId, currentUser.id)),
+      where: and(
+        eq(transactions.type, 'DROP_INCOME'),
+        eq(transactions.receiverId, currentUser.id),
+        isNull(transactions.deletedAt),
+      ),
       orderBy: [desc(transactions.createdAt)],
       with: { project: { columns: { companyName: true } } },
     })
@@ -1395,9 +1414,25 @@ export class TransactionsService {
       projectId?: string
       seniorId?: string
       month?: string
+      /**
+       * task-soft-delete-and-money-audit (AC3). «Показать удалённые» toggle.
+       * Default (undefined/false): the list NEVER includes a deleted row, for
+       * ANY role — including ADMIN/ACCOUNTANT. Only when a privileged caller
+       * explicitly passes `true` do deleted rows appear alongside active ones
+       * (each still carrying `deletedAt`/`deletedBy`/`deletionReason` so the
+       * UI can render them distinctly). A non-privileged caller passing this
+       * is silently ignored — deleted rows stay excluded regardless (AC2
+       * takes precedence; there is no role check needed here because the
+       * filter only ever WIDENS the query, never narrows RBAC).
+       */
+      includeDeleted?: boolean
     },
   ) {
+    const privileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    const showDeleted = privileged && filters?.includeDeleted === true
+
     const allTxs = (await this.db.db.query.transactions.findMany({
+      ...(showDeleted ? {} : { where: isNull(transactions.deletedAt) }),
       orderBy: [desc(transactions.createdAt)],
       with: {
         // task-counterparty-role-masking: `role` drives ADMIN-party masking in mapTx.
@@ -1477,6 +1512,9 @@ export class TransactionsService {
     })) as TxWithRelations | undefined
 
     if (!tx) throw new NotFoundException('Transaction not found')
+    // AC2: hidden from every non-ADMIN/ACCOUNTANT viewer, regardless of
+    // ownership — MUST run before assertReadAccess (see that guard's doc).
+    assertTransactionVisible(tx, currentUser)
     this.assertReadAccess(tx, currentUser)
     // (masking of the internal counterparty happens in mapTx below via `currentUser`)
 
@@ -1650,7 +1688,7 @@ export class TransactionsService {
             await this.recordUnclaimedCredit(dbtx, {
               path: 'createAdminIncome',
               transactionId: inserted!.id,
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
           // MED-J: spending a transfer an ADMIN had released is legitimate but
@@ -1660,7 +1698,7 @@ export class TransactionsService {
               path: 'createAdminIncome',
               txHash: data.receiptExternalUrl ?? '',
               referenceId: inserted!.id,
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
         }
@@ -1677,6 +1715,7 @@ export class TransactionsService {
       throw err
     }
 
+    await this.recordCreationAudit(tx.id, tx, currentUser)
     return this.findOne(tx.id, currentUser)
   }
 
@@ -1869,7 +1908,7 @@ export class TransactionsService {
             await this.recordUnclaimedCredit(dbtx, {
               path: 'declareUsdtProjectIncome',
               transactionId: tx!.id,
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
           if (claim.reclaimedAfterRelease) {
@@ -1877,7 +1916,7 @@ export class TransactionsService {
               path: 'declareUsdtProjectIncome',
               txHash: data.receiptExternalUrl ?? '',
               referenceId: tx!.id,
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
         }
@@ -2012,6 +2051,7 @@ export class TransactionsService {
       })
       .returning()
 
+    await this.recordCreationAudit(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -2100,6 +2140,7 @@ export class TransactionsService {
       })
       .returning()
 
+    await this.recordCreationAudit(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -2143,7 +2184,22 @@ export class TransactionsService {
     }
 
     await this.db.db.transaction(async (dbtx) => {
-      await dbtx.update(transactions).set(set).where(eq(transactions.id, txId))
+      // security-review PR #456 (MED-1, delete↔write TOCTOU): the caller
+      // already ran `assertTransactionWritable` against a row read BEFORE
+      // this transaction opened — a concurrent `adminDeleteTransaction` could
+      // commit in between. Re-assert `deleted_at IS NULL` INSIDE the same
+      // UPDATE that performs the write, and check the affected row count, so
+      // the DB (not a stale in-memory read) is the source of truth for the
+      // race. Zero rows updated ⇒ deleted in flight — abort before the old
+      // receipt document is deleted below.
+      const updated = await dbtx
+        .update(transactions)
+        .set(set)
+        .where(and(eq(transactions.id, txId), isNull(transactions.deletedAt)))
+        .returning({ id: transactions.id })
+      if (updated.length === 0) {
+        throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+      }
       if (oldDocId && oldDocId !== nextDocId) {
         await dbtx.delete(documents).where(eq(documents.id, oldDocId))
       }
@@ -2175,6 +2231,12 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
+    // security-review PR #456 (HIGH-3): a deleted REJECTED income was
+    // resubmittable — the resubmit reset status/validator AND hard-deleted the
+    // old receipt document BEFORE the final `findOne` 404'd, i.e. the row
+    // silently un-deleted itself via a side door. MUST run before the
+    // type/status/ownership checks below (same ordering rule as findOne).
+    assertTransactionWritable(tx, currentUser)
     if (tx.type !== 'SENIOR_INCOME')
       throw new BadRequestException('Can only edit SENIOR_INCOME transactions')
     if (tx.status !== 'REJECTED')
@@ -2258,6 +2320,9 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
+    // security-review PR #456 (HIGH-3): mirrors updateSeniorIncome — must run
+    // before the type/status/ownership checks below.
+    assertTransactionWritable(tx, currentUser)
     if (tx.type !== 'DROP_INCOME')
       throw new BadRequestException('Can only edit DROP_INCOME transactions')
     if (tx.status !== 'REJECTED')
@@ -2335,6 +2400,10 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
+    // security-review PR #456 (HIGH-3): an author or ADMIN/ACCOUNTANT could
+    // attach/replace a receipt on a deleted row (and hard-delete the old
+    // document in the process) — must run before the RBAC/status checks below.
+    assertTransactionWritable(tx, currentUser)
 
     const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
     const isAuthor = tx.createdBy === currentUser.id
@@ -2410,7 +2479,7 @@ export class TransactionsService {
                 path: 'attachOrReplaceReceipt',
                 txHash: transition.claimHash,
                 referenceId: id,
-                actorId: currentUser.id,
+                actorId: currentUser.impersonatorId ?? currentUser.id,
               })
             }
           }
@@ -2418,12 +2487,12 @@ export class TransactionsService {
             await this.recordReceiptClaimDivergence(dbtx, {
               path: 'attachOrReplaceReceipt',
               transactionId: id,
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
           // Audit atomically with the receipt swap.
           await dbtx.insert(transactionAuditLog).values({
-            actorId: currentUser.id,
+            actorId: currentUser.impersonatorId ?? currentUser.id,
             targetId: id,
             action,
             metadata: {
@@ -2474,6 +2543,7 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
+    assertTransactionWritable(tx, currentUser)
     // Drop role - phase 3: PAYOUT_CONFIRMED rows are the audit trail of a
     // manual confirmation — editing them in-place would corrupt the link to
     // the originating PAYOUT. Group the prohibition with the existing PAYOUT
@@ -2508,6 +2578,10 @@ export class TransactionsService {
       data.amount !== undefined && Number(data.amount).toFixed(6) !== Number(tx.amount).toFixed(6)
     const currencyChanged = data.currency !== undefined && data.currency !== tx.currency
     const salaryMonthChanged = data.salaryMonth !== undefined && data.salaryMonth !== tx.salaryMonth
+    // task-soft-delete-and-money-audit (AC5): "receiver" on this endpoint is
+    // `category` → `receiverLabel` (see the `.set({ ...receiverLabel: data.category })`
+    // below) — the counterparty-facing label an ADMIN edit can change.
+    const receiverLabelChanged = data.category !== undefined && data.category !== tx.receiverLabel
 
     if (tx.status === 'PAID' && (amountChanged || currencyChanged || salaryMonthChanged)) {
       throw new BadRequestException(
@@ -2557,7 +2631,11 @@ export class TransactionsService {
 
     try {
       await this.db.db.transaction(async (dbtx) => {
-        await dbtx
+        // security-review PR #456 (MED-1, delete↔write TOCTOU): `tx` was read
+        // before this transaction opened; re-assert `deleted_at IS NULL`
+        // inside the write itself so a concurrent delete cannot land between
+        // the pre-check and this UPDATE.
+        const updated = await dbtx
           .update(transactions)
           .set({
             ...(data.amount !== undefined && { amount: String(data.amount) }),
@@ -2571,7 +2649,35 @@ export class TransactionsService {
             ...(data.salaryMonth !== undefined && { salaryMonth: data.salaryMonth }),
             updatedAt: new Date(),
           })
-          .where(eq(transactions.id, id))
+          .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+          .returning({ id: transactions.id })
+        if (updated.length === 0) {
+          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+        }
+
+        // task-soft-delete-and-money-audit (AC5): "изменение суммы/получателя"
+        // — the money-defining fields this endpoint can mutate. Only written
+        // when one of them actually changed (mirrors TeamAuditLogService's
+        // skip-on-empty-diff convention) — a metadata-only edit (notes/receipt)
+        // does not spam the journal.
+        if (amountChanged || currencyChanged || receiverLabelChanged) {
+          await dbtx.insert(transactionAuditLog).values({
+            actorId: currentUser.impersonatorId ?? currentUser.id,
+            targetId: id,
+            action: 'AMOUNT_OR_RECEIVER_CHANGE',
+            metadata: {
+              ...(amountChanged && {
+                amount: { before: tx.amount, after: String(data.amount) },
+              }),
+              ...(currencyChanged && {
+                currency: { before: tx.currency, after: data.currency },
+              }),
+              ...(receiverLabelChanged && {
+                receiverLabel: { before: tx.receiverLabel, after: data.category },
+              }),
+            },
+          })
+        }
 
         if (transition.claimHash) {
           const claim = await consumeTxHash(dbtx, {
@@ -2585,7 +2691,7 @@ export class TransactionsService {
               path: 'adminUpdateTransaction',
               txHash: transition.claimHash,
               referenceId: id,
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
         }
@@ -2593,7 +2699,7 @@ export class TransactionsService {
           await this.recordReceiptClaimDivergence(dbtx, {
             path: 'adminUpdateTransaction',
             transactionId: id,
-            actorId: currentUser.id,
+            actorId: currentUser.impersonatorId ?? currentUser.id,
           })
         }
       })
@@ -2613,15 +2719,45 @@ export class TransactionsService {
     return this.findOne(id, currentUser)
   }
 
-  // ── Admin Delete ──────────────────────────────────────────────────────────
+  // ── Admin Delete (soft) ───────────────────────────────────────────────────
+  //
+  // task-soft-delete-and-money-audit (security-audit finding 3, 27.07). Was a
+  // hard `DELETE FROM transactions` — a mistaken or bad-faith delete was
+  // unrecoverable AND unprovable in a system that computes shares/payouts/
+  // salaries off this ledger. Now marks the row instead (`deletedAt` /
+  // `deletedBy` / `deletionReason`); the row is never physically removed.
+  //
+  // Visibility (owner requirement, 27.07): only ADMIN/ACCOUNTANT can ever see
+  // a deleted row again, and even they don't by default — see the
+  // `includeDeleted` toggle on `findAll`. Every other role gets a 404 (never
+  // 403) both in the list and on a direct `GET /transactions/:id` fetch —
+  // `assertReadAccess`/`findOne` enforce that so a 403 can never leak that a
+  // deleted row exists.
+  //
+  // Balances/summaries: every aggregate read in this service and in
+  // `balance.service.ts` / `company-account-balance.ts` now filters
+  // `deletedAt IS NULL` — a soft-deleted row is excluded from every
+  // computation exactly as a hard-deleted row would have been.
 
-  async adminDeleteTransaction(id: string, currentUser: SessionUser) {
+  async adminDeleteTransaction(id: string, reason: string, currentUser: SessionUser) {
     if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    // Denial-money-operation: the reason is mandatory (owner requirement —
+    // "через полгода «почему это удалили» без причины не восстановить").
+    // Re-checked here (defense-in-depth) even though `deleteTransactionSchema`
+    // already enforces `min(3)` at the controller boundary.
+    const trimmedReason = reason.trim()
+    if (trimmedReason.length === 0) {
+      throw new BadRequestException('Укажите причину удаления транзакции (она попадёт в журнал)')
+    }
 
     const tx = await this.db.db.query.transactions.findFirst({
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
+    if (tx.deletedAt) {
+      throw new BadRequestException('Транзакция уже удалена')
+    }
     // Drop role - phase 3: PAYOUT_CONFIRMED is also non-deletable for the same
     // audit-trail reason as PAYOUT/PAYOUT_ADMIN.
     if (tx.type === 'PAYOUT' || tx.type === 'PAYOUT_ADMIN' || tx.type === 'PAYOUT_CONFIRMED') {
@@ -2631,8 +2767,188 @@ export class TransactionsService {
       throw new BadRequestException('Cannot delete a transaction linked to a payout request')
     }
 
-    await this.db.db.delete(transactions).where(eq(transactions.id, id))
+    // security-review pattern (mirrors releaseOnChainHash): under
+    // impersonation, attribute the journal entry to the REAL admin operator,
+    // never the impersonated target — see sessionUserSchema.impersonatorId's
+    // doc.
+    const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
+
+    await this.db.db.transaction(async (dbtx) => {
+      // task-soft-delete-and-money-audit: replicate the protection the OLD
+      // hard-delete got for free from `pending_obligations
+      // .source_transaction_id`'s `ON DELETE RESTRICT` — hard-deleting an IOU
+      // placeholder row (SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT) that any
+      // obligation (open OR already closed) still references as its source
+      // used to fail loudly at the DB (23503). Soft-delete never touches that
+      // FK, so without this explicit check the protection would silently
+      // disappear — `settleByCompany` could later try to settle an obligation
+      // whose source row no longer "exists" from every reader's point of view.
+      //
+      // security-review PR #456 (MED-1): re-run INSIDE the transaction,
+      // immediately before the UPDATE — a version read BEFORE the transaction
+      // opened leaves a window where a concurrent request books a fresh
+      // obligation against this row between the check and the delete. This
+      // does not close the window to zero (READ COMMITTED, no row lock on
+      // `pending_obligations`), but collapses it from "the whole method body"
+      // to one DB round trip.
+      const referencingObligation = await dbtx.query.pendingObligations.findFirst({
+        where: eq(pendingObligations.sourceTransactionId, id),
+      })
+      if (referencingObligation) {
+        throw new BadRequestException(
+          'Cannot delete a transaction that is the source of a company obligation',
+        )
+      }
+
+      // security-review PR #456 (MED-1, delete↔delete TOCTOU): re-assert
+      // `deleted_at IS NULL` in the UPDATE itself and check the affected row
+      // count — a concurrent delete cannot double-fire the journal entry.
+      const updated = await dbtx
+        .update(transactions)
+        .set({
+          deletedAt: new Date(),
+          deletedBy: effectiveActorId,
+          deletionReason: trimmedReason,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+        .returning({ id: transactions.id })
+      if (updated.length === 0) {
+        throw new BadRequestException('Транзакция уже удалена')
+      }
+
+      // Journal INSIDE the same transaction — a delete without its record
+      // must be impossible.
+      await dbtx.insert(transactionAuditLog).values({
+        actorId: effectiveActorId,
+        targetId: id,
+        action: 'DELETE',
+        metadata: {
+          reason: trimmedReason,
+          type: tx.type,
+          amount: tx.amount,
+          currency: tx.currency,
+        },
+      })
+    })
+
     return { deleted: true }
+  }
+
+  // ── Admin Restore ─────────────────────────────────────────────────────────
+  //
+  // task-soft-delete-and-money-audit. Reverses `adminDeleteTransaction` —
+  // ADMIN only (ACCOUNTANT can SEE a deleted row via the `includeDeleted`
+  // list toggle / a direct `findOne`, but cannot restore it). Reason is
+  // mandatory for the same audit-trail reason as delete.
+
+  async restoreTransaction(id: string, reason: string, currentUser: SessionUser) {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    const trimmedReason = reason.trim()
+    if (trimmedReason.length === 0) {
+      throw new BadRequestException(
+        'Укажите причину восстановления транзакции (она попадёт в журнал)',
+      )
+    }
+
+    const tx = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, id),
+    })
+    if (!tx) throw new NotFoundException('Transaction not found')
+    if (!tx.deletedAt) {
+      throw new BadRequestException('Транзакция не удалена')
+    }
+
+    const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
+
+    await this.db.db.transaction(async (dbtx) => {
+      // security-review PR #456 (MED-1, restore↔restore TOCTOU): symmetric to
+      // adminDeleteTransaction — re-assert `deleted_at IS NOT NULL` in the
+      // UPDATE and check the affected row count so a concurrent restore
+      // cannot double-fire the journal entry.
+      const updated = await dbtx
+        .update(transactions)
+        .set({
+          deletedAt: null,
+          deletedBy: null,
+          deletionReason: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(transactions.id, id), isNotNull(transactions.deletedAt)))
+        .returning({ id: transactions.id })
+      if (updated.length === 0) {
+        throw new BadRequestException('Транзакция не удалена')
+      }
+
+      // Journal INSIDE the same transaction — a restore without its record
+      // must be impossible, mirroring the delete side above.
+      await dbtx.insert(transactionAuditLog).values({
+        actorId: effectiveActorId,
+        targetId: id,
+        action: 'RESTORE',
+        metadata: {
+          reason: trimmedReason,
+          previousDeletionReason: tx.deletionReason,
+        },
+      })
+    })
+
+    return this.findOne(id, currentUser)
+  }
+
+  // ── Audit log (read) ──────────────────────────────────────────────────────
+  //
+  // security-review PR #456 (MED-3): `transaction_audit_log` was write-only —
+  // every DELETE/RESTORE/VALIDATE/REJECT/CREATE/AMOUNT_OR_RECEIVER_CHANGE/
+  // ATTACH/REPLACE/ONCHAIN_* entry landed in the table, but nothing in the API
+  // ever read it back. "Мы пишем то, что нельзя посмотреть." ADMIN-only (the
+  // journal can name any user in the system as `actorId`, including under
+  // impersonation — not a surface for ACCOUNTANT). A full audit-log UI page is
+  // out of scope for a security fix; this is the read endpoint that makes the
+  // journal inspectable at all (e.g. via a REST client / a future admin panel).
+
+  async getTransactionAuditLog(
+    id: string,
+    currentUser: SessionUser,
+  ): Promise<TransactionAuditLogEntryDto[]> {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    const tx = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, id),
+      columns: { deletedAt: true },
+    })
+    if (!tx) throw new NotFoundException('Transaction not found')
+    // No-op for ADMIN today (always privileged) — kept for the same reason
+    // every other read in this file routes through the shared guard: a
+    // future role added to this endpoint must not accidentally see the
+    // journal of a transaction it cannot otherwise see.
+    assertTransactionVisible(tx, currentUser)
+
+    const rows = await this.db.db
+      .select({
+        id: transactionAuditLog.id,
+        action: transactionAuditLog.action,
+        actorId: transactionAuditLog.actorId,
+        actorName: users.displayName,
+        metadata: transactionAuditLog.metadata,
+        createdAt: transactionAuditLog.createdAt,
+      })
+      .from(transactionAuditLog)
+      .leftJoin(users, eq(users.id, transactionAuditLog.actorId))
+      .where(eq(transactionAuditLog.targetId, id))
+      .orderBy(desc(transactionAuditLog.createdAt))
+
+    return rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      actorId: r.actorId,
+      // `actorId` carries `ON DELETE SET NULL` — a hard-deleted user must not
+      // make their own past actions unreadable.
+      actorName: r.actorName ?? '— (пользователь удалён)',
+      metadata: r.metadata as Record<string, unknown>,
+      createdAt: r.createdAt.toISOString(),
+    }))
   }
 
   // ── Validate / Reject SENIOR_INCOME ──────────────────────────────────────
@@ -2651,6 +2967,7 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
+    assertTransactionWritable(tx, currentUser)
     // Drop role - phase 2: validate also handles DROP_INCOME with the same
     // shape — flip to VALIDATED + create payout_request + insert placeholder
     // PAYOUT row. The drop-specific distribution math lives in
@@ -2667,6 +2984,11 @@ export class TransactionsService {
     if (tx.status !== 'PENDING')
       throw new BadRequestException('Transaction is not in PENDING status')
 
+    // task-soft-delete-and-money-audit (AC5): "проверка и отклонение" —
+    // written INSIDE the same transaction as the status flip so a
+    // validate/reject can never happen without its journal entry.
+    const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
+
     if (action === 'validate') {
       // task-drop-payout-company-account: SENIOR_INCOME and DROP_INCOME now share
       // the SAME validate semantics — validate ONLY flips status to VALIDATED. No
@@ -2678,30 +3000,68 @@ export class TransactionsService {
       // senior path and could double-book a payout against the same income. Both
       // paths are now identical, removing that drift.
       const now = new Date()
-      await this.db.db
-        .update(transactions)
-        .set({
-          status: 'VALIDATED',
-          validatedBy: currentUser.id,
-          validatedAt: now,
-          updatedAt: now,
+      await this.db.db.transaction(async (dbtx) => {
+        // security-review PR #456 (MED-1): re-assert deleted_at IS NULL inside
+        // the write + check the affected row count (delete↔validate TOCTOU).
+        // MED-2: `validatedBy` stamps the REAL operator (effectiveActorId),
+        // never the impersonated target — consistent with the audit-log row
+        // written right below for the same action.
+        const updated = await dbtx
+          .update(transactions)
+          .set({
+            status: 'VALIDATED',
+            validatedBy: effectiveActorId,
+            validatedAt: now,
+            updatedAt: now,
+          })
+          .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+          .returning({ id: transactions.id })
+        if (updated.length === 0) {
+          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+        }
+
+        await dbtx.insert(transactionAuditLog).values({
+          actorId: effectiveActorId,
+          targetId: id,
+          action: 'VALIDATE',
+          metadata: { type: tx.type, amount: tx.amount, currency: tx.currency },
         })
-        .where(eq(transactions.id, id))
+      })
 
       // task-salary-company-account: junior salaries no longer depend on
       // validated senior/drop income (LOCKED removed) — nothing to unlock here.
     } else {
       if (!rejectionReason) throw new BadRequestException('Rejection reason is required')
-      await this.db.db
-        .update(transactions)
-        .set({
-          status: 'REJECTED',
-          validatedBy: currentUser.id,
-          validatedAt: new Date(),
-          rejectionReason,
-          updatedAt: new Date(),
+      await this.db.db.transaction(async (dbtx) => {
+        // security-review PR #456 (MED-1 / MED-2): same pair of fixes as the
+        // validate branch above.
+        const updated = await dbtx
+          .update(transactions)
+          .set({
+            status: 'REJECTED',
+            validatedBy: effectiveActorId,
+            validatedAt: new Date(),
+            rejectionReason,
+            updatedAt: new Date(),
+          })
+          .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+          .returning({ id: transactions.id })
+        if (updated.length === 0) {
+          throw new BadRequestException('Транзакция удалена — восстановите её перед этим действием')
+        }
+
+        await dbtx.insert(transactionAuditLog).values({
+          actorId: effectiveActorId,
+          targetId: id,
+          action: 'REJECT',
+          metadata: {
+            type: tx.type,
+            amount: tx.amount,
+            currency: tx.currency,
+            rejectionReason,
+          },
         })
-        .where(eq(transactions.id, id))
+      })
     }
 
     return this.findOne(id, currentUser)
@@ -2787,8 +3147,16 @@ export class TransactionsService {
       throw new BadRequestException('Recipient admin is archived')
     }
 
+    // security-review PR #456 round 2 (MED-3): under impersonation, attribute
+    // `validatedBy` (and the note) to the REAL admin/accountant operator, never
+    // the impersonated target — same rule `adminDeleteTransaction` and
+    // `validateTransaction` already apply to their own `*By` columns. This was
+    // the second of the two raw-`currentUser.id` sites the review found
+    // (pending-settlement.service.ts's `settleByCompany` was the first).
+    const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
+
     const now = new Date()
-    const confirmationNote = `Manual payout confirmation by ${currentUser.id} at ${now.toISOString()} (method=${method})`
+    const confirmationNote = `Manual payout confirmation by ${effectiveActorId} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
       // BIZ-02 (HIGH): atomic claim — flip PAYOUT→PAID ONLY when the row is
@@ -2801,7 +3169,7 @@ export class TransactionsService {
         .update(transactions)
         .set({
           status: 'PAID',
-          validatedBy: currentUser.id,
+          validatedBy: effectiveActorId,
           validatedAt: now,
           updatedAt: now,
           ...(method === 'CRYPTO' && recordedTxHash ? { txHash: recordedTxHash } : {}),
@@ -2988,6 +3356,7 @@ export class TransactionsService {
       txId = tx!.id
     }
 
+    await this.recordCreationAudit(txId, values, currentUser)
     return this.findOne(txId, currentUser)
   }
 
@@ -3092,6 +3461,7 @@ export class TransactionsService {
       throw err
     }
 
+    await this.recordCreationAudit(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -3183,6 +3553,7 @@ export class TransactionsService {
       })
       .returning()
 
+    await this.recordCreationAudit(tx!.id, tx!, currentUser)
     return this.findOne(tx!.id, currentUser)
   }
 
@@ -3257,6 +3628,11 @@ export class TransactionsService {
             eq(transactions.status, 'VALIDATED'),
             eq(transactions.receiverId, currentUser.id),
             isNull(transactions.payoutRequestId),
+            // task-soft-delete-and-money-audit: a soft-deleted income must not
+            // be batchable into a fresh payout — it is excluded from every
+            // balance/summary already, so paying it out would credit the
+            // ledger for money a row that "does not exist" supposedly earned.
+            isNull(transactions.deletedAt),
           ),
         )
         .for('update')
@@ -3952,7 +4328,7 @@ export class TransactionsService {
               path: 'applyPayoutPaidCascade',
               txHash: effectiveTxHash,
               referenceId: requestId,
-              actorId: currentUser.id,
+              actorId: currentUser.impersonatorId ?? currentUser.id,
             })
           }
         }
@@ -4081,7 +4457,7 @@ export class TransactionsService {
         // ledger. The sender is audit data, not a gate (exchange withdrawals) —
         // this row is what an investigator reads when a settlement looks odd.
         await dbtx.insert(transactionAuditLog).values({
-          actorId: currentUser.id,
+          actorId: currentUser.impersonatorId ?? currentUser.id,
           targetId: payoutRow.id,
           action: 'PAYOUT_SETTLED',
           metadata: {
@@ -4428,7 +4804,11 @@ export class TransactionsService {
     const toBase = (tx: { amount: string; currency: string }): number =>
       convertToBase(parseFloat(tx.amount), tx.currency as BalanceCurrency, 'USD', rates)
 
+    // task-soft-delete-and-money-audit (AC4): the single most consequential
+    // filter in this task — every totalIncome/totalExpenses/totalSalaries/
+    // adminBalances/dropBalances figure below derives from `allTxs`.
     const allTxs = (await this.db.db.query.transactions.findMany({
+      where: isNull(transactions.deletedAt),
       with: {
         sender: { columns: { displayName: true } },
         receiver: { columns: { displayName: true } },
@@ -4716,6 +5096,10 @@ export class TransactionsService {
           ),
       })
       .from(transactions)
+      // task-soft-delete-and-money-audit (AC4): scope the WHOLE aggregating
+      // scan to non-deleted rows — every FILTER (WHERE ...) clause above runs
+      // against this, so one WHERE here covers all five KPI buckets at once.
+      .where(isNull(transactions.deletedAt))
 
     return {
       pendingValidation: {
@@ -4813,6 +5197,9 @@ export class TransactionsService {
         eq(transactions.type, 'SENIOR_INCOME'),
         eq(transactions.status, 'PAID'),
         eq(transactions.receiverId, selfId),
+        // task-soft-delete-and-money-audit (AC4): a deleted income row must
+        // not inflate the senior's own «Статистика заработка» KPIs.
+        isNull(transactions.deletedAt),
       ),
     })
 
@@ -5017,6 +5404,10 @@ export class TransactionsService {
         inArray(transactions.type, ['SENIOR_INCOME', 'ADMIN_INCOME', 'DROP_INCOME']),
         inArray(transactions.status, ['VALIDATED', 'PAID', 'PENDING']),
         inArray(transactions.projectId, projectIds),
+        // task-soft-delete-and-money-audit (AC4): a deleted (e.g. fraudulent)
+        // income must not count toward a project's «сдал приход в этом месяце»
+        // compliance badge.
+        isNull(transactions.deletedAt),
       ),
       columns: { type: true, status: true, projectId: true, txDate: true, createdAt: true },
     })
@@ -5268,6 +5659,7 @@ export class TransactionsService {
       where: eq(transactions.id, id),
     })
     if (!tx) throw new NotFoundException('Transaction not found')
+    assertTransactionWritable(tx, currentUser)
     if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
@@ -5355,10 +5747,13 @@ export class TransactionsService {
       const amount = parseFloat(tx.amount)
       await this.db.db.transaction(async (dbtx) => {
         await lockCompanyAccount(dbtx)
+        // security-review PR #456 (MED-1): re-check deleted_at IS NULL too —
+        // not just status — so a delete racing this pay cannot leave a PAID
+        // row that is also deleted (or vice versa).
         const [fresh] = await dbtx
           .select({ status: transactions.status })
           .from(transactions)
-          .where(eq(transactions.id, id))
+          .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
         if (!fresh || fresh.status !== 'PENDING') {
           throw new BadRequestException('Transaction is not PENDING')
         }
@@ -5366,7 +5761,14 @@ export class TransactionsService {
         if (companyBalance < amount) {
           throw new BadRequestException('Недостаточно средств на счёте компании')
         }
-        await dbtx.update(transactions).set(paidSet).where(eq(transactions.id, id))
+        const updated = await dbtx
+          .update(transactions)
+          .set(paidSet)
+          .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+          .returning({ id: transactions.id })
+        if (updated.length === 0) {
+          throw new BadRequestException('Transaction is not PENDING')
+        }
       })
     } else {
       // Audit 2026-06-28 (#11): make the ADMIN_PERSONAL PENDING→PAID flip ATOMIC.
@@ -5376,10 +5778,19 @@ export class TransactionsService {
       // status guard to the UPDATE itself (the COMPANY_ACCOUNT path already
       // serialises via the lock + status re-check) and only fire the invoice when
       // THIS call actually performed the flip (exactly one row updated).
+      //
+      // security-review PR #456 (MED-1): also re-check deleted_at IS NULL —
+      // a delete racing this pay must not leave a PAID+deleted row.
       const flipped = await this.db.db
         .update(transactions)
         .set(paidSet)
-        .where(and(eq(transactions.id, id), eq(transactions.status, 'PENDING')))
+        .where(
+          and(
+            eq(transactions.id, id),
+            eq(transactions.status, 'PENDING'),
+            isNull(transactions.deletedAt),
+          ),
+        )
         .returning({ id: transactions.id })
       if (flipped.length !== 1) {
         // A concurrent paySalary already flipped this row — no second invoice.
@@ -5392,6 +5803,30 @@ export class TransactionsService {
     // only when THIS call performed the flip (the ADMIN_PERSONAL guard above and
     // the company-account status re-check both throw on a lost race).
     await this.safeAutoCreateInvoice('SALARY', id)
+
+    // task-soft-delete-and-money-audit (AC5): "оплата". Best-effort, like the
+    // invoice trigger above — run AFTER the debit transaction has already
+    // committed (never inside the advisory-locked block: a logging hiccup
+    // must not turn a successful payment into a 500 or hold the company-
+    // account lock any longer than necessary).
+    try {
+      await this.db.db.insert(transactionAuditLog).values({
+        actorId: currentUser.impersonatorId ?? currentUser.id,
+        targetId: id,
+        action: 'PAY',
+        metadata: {
+          type: 'SALARY',
+          amount: tx.amount,
+          currency,
+          fundingSource: paidSet.fundingSource,
+        },
+      })
+    } catch (auditErr) {
+      this.logger.error(
+        `paySalary: failed to persist audit record for transaction=${id}: ${(auditErr as Error).message}`,
+        (auditErr as Error).stack,
+      )
+    }
 
     return this.findOne(id, currentUser)
   }
@@ -5594,5 +6029,44 @@ export class TransactionsService {
       throw new ForbiddenException()
     }
     throw new ForbiddenException()
+  }
+
+  /**
+   * task-soft-delete-and-money-audit (AC5): "создание" — every primary
+   * user-facing creation entry point (createAdminIncome / createSeniorIncome
+   * / createDropIncome / createExpense / createSalary / createAdminTransfer)
+   * calls this right after its `.insert(transactions)...returning()`.
+   * Best-effort (mirrors AuditInterceptor's convention): a logging hiccup
+   * must never turn a successful money-record creation into a 500 — the
+   * primary insert has already committed by the time this runs.
+   *
+   * Deliberately NOT wired into every INTERNAL cascade insert (obligation
+   * placeholders booked by `bookCompanyObligations`, the monthly salary cron,
+   * drop-payout cascade rows) — those are system-derived side-effects of an
+   * already-audited primary action, not a second independent "creation" a
+   * human decided to make.
+   */
+  private async recordCreationAudit(
+    txId: string,
+    created: { type: string; amount: string; currency: string },
+    currentUser: SessionUser,
+  ): Promise<void> {
+    try {
+      await this.db.db.insert(transactionAuditLog).values({
+        actorId: currentUser.impersonatorId ?? currentUser.id,
+        targetId: txId,
+        action: 'CREATE',
+        metadata: {
+          type: created.type,
+          amount: created.amount,
+          currency: created.currency,
+        },
+      })
+    } catch (auditErr) {
+      this.logger.error(
+        `recordCreationAudit: failed to persist audit record for transaction=${txId}: ${(auditErr as Error).message}`,
+        (auditErr as Error).stack,
+      )
+    }
   }
 }
