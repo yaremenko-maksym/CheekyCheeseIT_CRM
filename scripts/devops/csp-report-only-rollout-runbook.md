@@ -76,7 +76,9 @@
 репо `cheekycheese-telemetry` тем же путём, что и прод-ошибки/UX-события:
 
 - **Лейбл:** `csp-violations` (create-if-missing, как `ux-insights`/`severity:auto`).
-- **Заголовок issue:** `CSP violations (report-only) YYYY-MM-DD`.
+- **Заголовок issue:** `CSP violations digest YYYY-MM-DD` (security review round 2,
+  LOW-3: mode-neutral — эта job не знает `CRM_CSP_MODE`, режим смотри в §1 выше,
+  не в заголовке issue).
 - **Тело issue:** `cspViolationsTotal` отдельной строкой + постоянный баннер,
   как именно проверять исчерпание капа (см. §3 — не по `cspViolationsTotal`),
   грубая эвристика-предупреждение как доп. сигнал (если `>= CSP_REPORTS_ROW_CAP`
@@ -205,17 +207,55 @@ env-передача в post-deploy smoke-шаг).
    **Текст политики (`$csp_value` в csp-map.conf) трогать не нужно** — он
    уже финальный, report-only использовался только как safety net на
    период наблюдения, а не как черновик политики.
-2. Локальный dry-run ПЕРЕД пушем (тот же паттерн, что и в PR #429):
+2. Локальный dry-run ПЕРЕД пушем (тот же паттерн, что и в PR #429; уточнено
+   security review round 2, task-csp-reports-and-flip enforcing flip — версия
+   ниже РЕАЛЬНО прогонялась, версия из PR #429 неполна и упадёт "as-is"):
+
    ```bash
+   # (a) throwaway self-signed сертификаты во временный каталог.
+   # ОБЯЗАТЕЛЬНО: рантайм-образ (в отличие от Dockerfile'ного build-time
+   # `nginx -t` теста) слушает `listen 443 ssl` в ТРЁХ server-блоках
+   # (crm.conf, landing.conf, default-server.conf) и грузит
+   # ssl_certificate/ssl_certificate_key с диска ПРИ СТАРТЕ — без реальных
+   # файлов по этим путям nginx не стартует ВООБЩЕ (валится весь контейнер),
+   # даже если проверяешь только HTTP-порт 80. `nginx:1.27-alpine` не несёт
+   # openssl (см. nginx/Dockerfile'а HIGH-2-соседний комментарий) — сертификаты
+   # генерируются НА ХОСТЕ и монтируются volume'ом.
+   CERT_DIR=$(mktemp -d)
+   for domain in cheekycheese.tech app.cheekycheese.tech; do
+     openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+       -keyout "$CERT_DIR/$domain.key" -out "$CERT_DIR/$domain.crt" \
+       -subj "/CN=$domain" 2>/dev/null
+   done
+
    docker build -f nginx/Dockerfile -t crm-nginx-test \
      --build-arg VITE_API_URL=/api --build-arg CRM_CSP_MODE=enforcing .
-   docker run -d --name crm-nginx-test -p 8080:80 crm-nginx-test
+
+   # (b) --add-host=api:127.0.0.1 ОБЯЗАТЕЛЕН: nginx.conf's
+   # `upstream api_upstream { server api:3001; }` резолвит хостнейм `api` ПРИ
+   # СТАРТЕ контейнера (это НЕ build-time тест из Dockerfile, где эта же
+   # строка подменяется на 127.0.0.1 — здесь настоящий nginx.conf, без правок).
+   # Без него — тот же класс отказа при старте, что и без сертификатов.
+   # `-v "$CERT_DIR:/etc/nginx/certs:ro"` — сертификаты из шага (a).
+   docker run -d --name crm-nginx-test \
+     -p 8080:80 -p 8443:443 \
+     --add-host=api:127.0.0.1 \
+     -v "$CERT_DIR:/etc/nginx/certs:ro" \
+     crm-nginx-test
+
    CRM_CSP_MODE=enforcing scripts/devops/check-security-headers.sh http://localhost:8080
+
+   # (c) уборка — контейнер, образ, временные сертификаты.
+   docker rm -f crm-nginx-test
+   docker rmi crm-nginx-test
+   rm -rf "$CERT_DIR"
    ```
+
    Все кейсы, включая "Report-Only rollout" (который под `CRM_CSP_MODE=enforcing`
    проверяет обратное: CRM ДОЛЖНА слать `Content-Security-Policy` и НЕ
    слать `-Report-Only` — тот же скрипт, оба направления, без правки),
    должны быть PASS.
+
 3. Обычный PR (не bootstrap-исключение) → review → `merge-approved` от
    владельца → CI squash-merge → auto-deploy подхватит на следующем цикле
    (`deploy.yml`'s build job передаёт `CRM_CSP_MODE=enforcing` как build-arg
@@ -233,6 +273,19 @@ Permissions-Policy) — они остаются enforcing независимо �
 §1 таблицу) — и не откатывает `report-uri`/`report-to` (те работают
 одинаково в обоих режимах, см. §1).
 
+> **Важно (security review round 2): это НЕ `nginx -s reload`.**
+> `CRM_CSP_MODE` — Docker build-ARG (см. `nginx/Dockerfile`'s `ARG CRM_CSP_MODE`
+> комментарий), запечённый в `nginx/conf.d/csp-map.conf` НА ЭТАПЕ СБОРКИ образа
+> (`sed` подставляет значение в `__CRM_CSP_MODE__` placeholder ВНУТРИ образа) —
+> значение НЕ читается из runtime-окружения контейнера, поэтому изменить его на
+> живом контейнере (reload/exec/env) невозможно в принципе. Откат =
+> **пересборка nginx-образа + полный цикл деплоя** (`deploy.yml`: build job с
+> новым build-arg → push в GHCR → deploy job → `docker compose up -d`
+> switchover), тот же путь, что и флип вперёд (§4). Ожидаемое время цикла —
+> **тот же порядок, что у любого обычного деплоя проекта** (сборка обоих SPA +
+> nginx-образа + SSH-деплой), НЕ секунды/минуты reload'а конфига. Планировать
+> инцидент-реакцию исходя из этого — «двухминутный откат» здесь не сценарий.
+
 ## 6. Известные ограничения (security review round 2)
 
 - **`www.cheekycheese.tech` отсутствует в `CORS_ORIGINS`.** Origin-check в
@@ -245,6 +298,19 @@ Permissions-Policy) — они остаются enforcing независимо �
   может оказаться артефакт санитайзера. При разборе агрегатов — если значение
   выглядит странно, свериться с сырым `document-uri` живого нарушения в DevTools,
   а не гоняться за призраком в БД.
+- **`scripts/devops/check-security-headers.sh` не видит Cloudflare edge-инжекты
+  (security review round 2, LOW-1).** Скрипт (и локальный dry-run, и
+  `deploy.yml`'s post-deploy smoke-шаг) бьёт `127.0.0.1`/сам origin ДО
+  Cloudflare-прокси — он доказывает, что nginx отдаёт правильные заголовки, но
+  ничего не знает о том, что CF добавляет в ответ на своём edge (например,
+  `<script data-cf-beacon>` Web Analytics — см. `csp-map.conf`'а комментарий
+  про `static.cloudflareinsights.com`). «32 passed» из этого скрипта — это
+  «nginx-конфиг корректен», а НЕ «весь HTML, который реально видит браузер,
+  проверен на CF-инжекты». Если CF когда-нибудь сменит хост/скрипт beacon'а
+  (или добавит новый), этот скрипт останется зелёным, а прод молча начнёт
+  блокировать его в enforcing-режиме — единственный способ поймать такое
+  сегодня — `csp_reports` дайджест (§2) после реального прод-трафика, не этот
+  smoke-тест.
 
 ## 7. Связанные файлы
 
