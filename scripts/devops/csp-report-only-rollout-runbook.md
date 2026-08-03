@@ -17,24 +17,35 @@
 
 ---
 
-## 1. Что сейчас в проде (после мержа обоих PR)
+## 1. Что сейчас в проде (после мержа обоих PR + enforcing-флипа)
 
-| Домен                         | `Content-Security-Policy` (enforcing) | `Content-Security-Policy-Report-Only`                    | `report-uri`/`report-to`/`Reporting-Endpoints` | Остальные 5 заголовков (HSTS/XFO/nosniff/Referrer-Policy/Permissions-Policy) |
-| ----------------------------- | ------------------------------------- | -------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| `cheekycheese.tech` (landing) | ✅ да (боевая с PR #423)              | — не отправляется                                        | — не отправляется (коллектор не заведён)       | ✅ enforcing                                                                 |
-| `app.cheekycheese.tech` (CRM) | — НЕ отправляется (по умолчанию)      | ✅ да — политика та же, что enforcing вернёт после флипа | ✅ да — оба, `POST /api/public/csp-report`     | ✅ enforcing (ничего не ломают, закрывают clickjacking СРАЗУ)                |
+> **Флип 2026-08-03 (task-csp-reports-and-flip):** `CRM_CSP_MODE` переключён
+> `report-only` → `enforcing`. Основание — разбор первой реальной 7-дневной
+> выгрузки `csp_reports` (`cheekycheese-telemetry` issue #10): найдено ровно
+> два класса нарушений — `eval` (внешнее расширение-кошелёк в браузере
+> владельца, НЕ код CRM, оставлено блокируемым) и legitimate Cloudflare Web
+> Analytics beacon `script-src-elem` (дозакрыто добавлением
+> `https://static.cloudflareinsights.com` в `script-src`). Детали и
+> рационале — комментарий над `app.cheekycheese.tech` записью в
+> `nginx/conf.d/csp-map.conf`.
+
+| Домен                         | `Content-Security-Policy` (enforcing) | `Content-Security-Policy-Report-Only` | `report-uri`/`report-to`/`Reporting-Endpoints` | Остальные 5 заголовков (HSTS/XFO/nosniff/Referrer-Policy/Permissions-Policy) |
+| ----------------------------- | ------------------------------------- | ------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `cheekycheese.tech` (landing) | ✅ да (боевая с PR #423)              | — не отправляется                     | — не отправляется (коллектор не заведён)       | ✅ enforcing                                                                 |
+| `app.cheekycheese.tech` (CRM) | ✅ да (боевая с 2026-08-03 флипа)     | — не отправляется (флип завершён)     | ✅ да — оба, `POST /api/public/csp-report`     | ✅ enforcing (ничего не ломают, закрывают clickjacking СРАЗУ)                |
 
 Механика — `nginx/conf.d/csp-map.conf`: единственный источник правды на
 текст политики — `$csp_value` (per-domain `map $server_name`), включающий
 `report-uri`/`report-to` для CRM. Режим (report-only/enforcing) больше НЕ
 хардкожен в двух отдельных maps — единственный источник правды теперь
-**одна переменная `CRM_CSP_MODE`** (см. §4). nginx `add_header` с пустым
-значением заголовок вообще не отправляет (задокументированное поведение
-`ngx_http_headers_module`, проверено эмпирически против этого конкретного
-конфига) — поэтому на CRM сегодня (`CRM_CSP_MODE=report-only`) энфорсящего
-`Content-Security-Policy` в ответах нет вообще, только `-Report-Only`;
-`report-uri`/`report-to` работают одинаково в ОБОИХ режимах (нарушения
-собираются независимо от того, блокирует ли политика что-то реально).
+**одна переменная `CRM_CSP_MODE`** (см. §4), сейчас `enforcing`. nginx
+`add_header` с пустым значением заголовок вообще не отправляет
+(задокументированное поведение `ngx_http_headers_module`, проверено
+эмпирически против этого конкретного конфига) — поэтому на CRM сегодня
+(`CRM_CSP_MODE=enforcing`) `-Report-Only` в ответах нет вообще, только
+энфорсящий `Content-Security-Policy`; `report-uri`/`report-to` работают
+одинаково в ОБОИХ режимах (нарушения собираются независимо от того,
+блокирует ли политика что-то реально).
 
 ## 2. Как читать собранные нарушения
 
