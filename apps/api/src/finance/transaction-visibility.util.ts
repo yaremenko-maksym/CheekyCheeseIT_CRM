@@ -155,7 +155,7 @@ export function assertFoundAndVisible<T extends { deletedAt: Date | null }>(
   tx: T | undefined,
   currentUser: SessionUser | null,
 ): T {
-  if (!tx) throw new NotFoundException('Transaction not found')
+  if (!tx) throw new NotFoundException('Транзакция не найдена')
   assertTransactionVisible(tx, currentUser)
   return tx
 }
