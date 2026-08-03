@@ -3147,8 +3147,16 @@ export class TransactionsService {
       throw new BadRequestException('Recipient admin is archived')
     }
 
+    // security-review PR #456 round 2 (MED-3): under impersonation, attribute
+    // `validatedBy` (and the note) to the REAL admin/accountant operator, never
+    // the impersonated target — same rule `adminDeleteTransaction` and
+    // `validateTransaction` already apply to their own `*By` columns. This was
+    // the second of the two raw-`currentUser.id` sites the review found
+    // (pending-settlement.service.ts's `settleByCompany` was the first).
+    const effectiveActorId = currentUser.impersonatorId ?? currentUser.id
+
     const now = new Date()
-    const confirmationNote = `Manual payout confirmation by ${currentUser.id} at ${now.toISOString()} (method=${method})`
+    const confirmationNote = `Manual payout confirmation by ${effectiveActorId} at ${now.toISOString()} (method=${method})`
 
     await this.db.db.transaction(async (dbtx) => {
       // BIZ-02 (HIGH): atomic claim — flip PAYOUT→PAID ONLY when the row is
@@ -3161,7 +3169,7 @@ export class TransactionsService {
         .update(transactions)
         .set({
           status: 'PAID',
-          validatedBy: currentUser.id,
+          validatedBy: effectiveActorId,
           validatedAt: now,
           updatedAt: now,
           ...(method === 'CRYPTO' && recordedTxHash ? { txHash: recordedTxHash } : {}),

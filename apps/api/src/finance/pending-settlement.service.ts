@@ -523,7 +523,17 @@ export class PendingSettlementService {
           // cascade PAYOUT_DROP shape). `createdBy` intentionally stays the
           // booking author — the settler is captured in `validatedBy` (senior) and
           // the notes (per ADR §Consequences: minor audit delta, deliberate).
-          ...(isDropObligation ? {} : { validatedBy: actor.id, validatedAt: new Date() }),
+          //
+          // security-review PR #456 round 2 (MED-3): under impersonation this
+          // used to record the IMPERSONATED target as the settler, while the
+          // audit-log insert 20 lines below (in the same transaction, same
+          // action) already correctly attributed the REAL operator via
+          // `actor.impersonatorId ?? actor.id` — two provenance columns for one
+          // action, disagreeing under the exact condition provenance exists to
+          // catch. Same resolution, same field, now homogeneous.
+          ...(isDropObligation
+            ? {}
+            : { validatedBy: actor.impersonatorId ?? actor.id, validatedAt: new Date() }),
         })
         .where(
           and(
