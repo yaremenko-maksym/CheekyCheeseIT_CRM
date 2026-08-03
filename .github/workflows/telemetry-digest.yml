@@ -6,6 +6,20 @@ name: Telemetry Digest
 # owner in the loop, via scheduled GitHub issues in a PRIVATE repo. Weekly UX
 # aggregates land as a separate digest issue for the assistant to analyze.
 #
+# task-csp-reports-and-flip (scripts/devops/csp-report-only-rollout-runbook.md
+# §2.1): the CRM's CSP is currently Report-Only, and `csp_reports` aggregates
+# collected server-side are otherwise invisible to the assistant. The `csp`
+# job below closes that gap — `GET /api/telemetry/digest`'s `cspViolations[]`/
+# `cspViolationsTotal` fields ALWAYS carry this data (not gated behind `ux=1`,
+# see telemetry-digest.service.ts), but until this job existed nothing ever
+# read them: the digest workflow parsed only `.errors[]` (hourly) and `.ux.*`
+# (weekly) — CSP violations were fetched by the API, stored in Postgres, and
+# never reached anyone. A silent channel is indistinguishable from "zero
+# violations", which made the enforcing-mode flip decision (runbook §3)
+# impossible to make with confidence. This job creates ONE weekly issue per
+# run — including an explicit "0 violations" issue when the window is empty
+# — so silence is never ambiguous again.
+#
 # ── Merge order (critical — see scripts/devops/telemetry-digest-runbook.md) ─
 # This infra-PR (T3, infra/telemetry-digest) is designed to merge BEFORE
 # task-telemetry-api (T1, PR #412, feature/telemetry-api) lands the actual
@@ -35,11 +49,18 @@ on:
         options:
           - errors
           - weekly-ux
+          - csp
           - both
   schedule:
     # Hourly — new/regressed prod errors -> GitHub issues (prod-error label).
     - cron: '0 * * * *'
-    # Monday 07:00 UTC — weekly UX-aggregates digest issue (ux-insights label).
+    # Monday 07:00 UTC — weekly UX-aggregates digest issue (ux-insights label)
+    # AND the CSP-violations digest issue (csp-violations label, `csp` job
+    # below) — same cron fires both jobs in one workflow run; see that job's
+    # `if:` for how it shares this schedule without racing weekly-ux (they
+    # run as separate jobs within the SAME run, so the workflow-level
+    # `concurrency:` group below — which is per-RUN, not per-job — never
+    # pits them against each other).
     - cron: '0 7 * * 1'
 
 concurrency:
@@ -335,3 +356,138 @@ jobs:
             --title "$TITLE" \
             --label "ux-insights" \
             --body-file /tmp/ux-issue-body.md
+
+  # ── Weekly (Monday 07:00 UTC): CSP violations (report-only) → digest issue ──
+  # task-csp-reports-and-flip (scripts/devops/csp-report-only-rollout-runbook.md
+  # §2.1/§3): closes a real gap — `GET /api/telemetry/digest`'s `cspViolations[]`/
+  # `cspViolationsTotal` fields are ALWAYS populated (not gated behind `ux=1`,
+  # see telemetry-digest.service.ts), but nothing in this workflow ever read
+  # them before this job existed. The runbook already claimed this channel
+  # existed; it did not — CSP report-only violations were collected in
+  # Postgres and never reached anyone. A SEPARATE job from weekly-ux (own
+  # label `csp-violations`, own content shape — a per-directive/blocked-uri
+  # table, not UX aggregates) even though it shares the same weekly cadence
+  # and cron trigger as weekly-ux (see the `schedule:` comment above for why
+  # sharing that cron with weekly-ux is safe).
+  csp:
+    name: CSP violations digest (weekly)
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'workflow_dispatch' && inputs.job == 'csp') ||
+      (github.event_name == 'schedule' && github.event.schedule == '0 7 * * 1')
+    steps:
+      - name: Guard — TELEMETRY_ISSUES_PAT provisioned?
+        id: pat-check
+        env:
+          PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+        run: |
+          if [ -z "$PAT" ]; then
+            echo "::warning::TELEMETRY_ISSUES_PAT secret is not set — skipping CSP violations digest. See scripts/devops/telemetry-digest-runbook.md."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Fetch CSP violations digest
+        id: fetch
+        if: steps.pat-check.outputs.skip != 'true'
+        env:
+          TOKEN: ${{ secrets.TELEMETRY_DIGEST_TOKEN }}
+        run: |
+          SINCE=$(date -u -d '-7 days' '+%Y-%m-%dT%H:%M:%SZ')
+          echo "==> fetching ${DIGEST_URL}?since=${SINCE}"
+          HTTP_CODE=$(curl -sS --max-time 20 -o /tmp/csp-digest.json -w '%{http_code}' \
+            -H "X-Telemetry-Token: ${TOKEN}" \
+            "${DIGEST_URL}?since=${SINCE}" || echo "000")
+          echo "==> http_code=${HTTP_CODE}"
+
+          if [ "$HTTP_CODE" = "404" ]; then
+            echo "::notice::GET ${DIGEST_URL} returned 404 — the endpoint is not deployed yet (task-telemetry-api / PR #412 has not merged to main, or the cspViolations fields predate this checkout). Skipping this run."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$HTTP_CODE" = "401" ] || [ "$HTTP_CODE" = "403" ]; then
+            echo "::error::GET ${DIGEST_URL} returned ${HTTP_CODE} — TELEMETRY_DIGEST_TOKEN mismatch between this GitHub secret and the deployed prod API. Check both are in sync — see scripts/devops/telemetry-digest-runbook.md."
+            exit 1
+          fi
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::GET ${DIGEST_URL} failed — http_code=${HTTP_CODE} (network error or API 5xx). Check prod API health."
+            exit 1
+          fi
+          echo "skip=false" >> "$GITHUB_OUTPUT"
+
+      # ── Build + create the weekly CSP-violations issue ───────────────────
+      # ALWAYS creates an issue, even when `cspViolations` is empty (0 rows in
+      # the window) — the whole point of this job (see the "Why this workflow
+      # exists" header comment): silence must never be mistaken for "zero
+      # violations" again.
+      - name: Create weekly CSP-violations issue
+        if: steps.pat-check.outputs.skip != 'true' && steps.fetch.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+        run: |
+          set -euo pipefail
+
+          gh label create "csp-violations" --repo "$PRIVATE_REPO" \
+            --color "d93f0b" --description "Weekly CSP (report-only) violations digest" \
+            2>/dev/null || true
+
+          ISO_DATE=$(date -u '+%Y-%m-%d')
+          TITLE="CSP violations (report-only) ${ISO_DATE}"
+
+          TOTAL=$(jq -r '.cspViolationsTotal // 0' /tmp/csp-digest.json)
+          ROW_COUNT=$(jq '.cspViolations | length' /tmp/csp-digest.json)
+          # Safe to log — an integer count, not report content (unlike
+          # effectiveDirective/blockedUri/documentPath below, which are
+          # attacker-influenced and must never reach a public Actions log).
+          echo "==> ${ROW_COUNT} aggregate row(s) in this digest window, cspViolationsTotal=${TOTAL}"
+
+          # `CSP_REPORTS_ROW_CAP` (apps/api/src/csp-reports/csp-reports.service.ts)
+          # is 10_000 at the time this job was written. Hardcoded here — a
+          # GitHub Actions workflow cannot import a TypeScript constant — so
+          # if that source-of-truth value ever changes, THIS literal must be
+          # updated too, or the cap-exhaustion warning below goes silently
+          # stale. See scripts/devops/csp-report-only-rollout-runbook.md §3.
+          CSP_REPORTS_ROW_CAP=10000
+          CAP_WARNING=""
+          if [ "$TOTAL" -ge "$CSP_REPORTS_ROW_CAP" ]; then
+            echo "::warning::cspViolationsTotal=${TOTAL} >= CSP_REPORTS_ROW_CAP (${CSP_REPORTS_ROW_CAP}) — the csp_reports aggregation-key row cap has been reached. Data for this window may be INCOMPLETE (new distinct violations could have been silently dropped — see csp-reports.service.ts). Do NOT use this window's data to justify flipping CRM_CSP_MODE to enforcing until investigated."
+            CAP_WARNING="> ⚠️ **cspViolationsTotal (${TOTAL}) >= CSP_REPORTS_ROW_CAP (${CSP_REPORTS_ROW_CAP}).** The \`csp_reports\` aggregation-key row cap has been reached — new distinct violation keys may have been silently dropped this window. Data is INCOMPLETE; do NOT use it to justify flipping \`CRM_CSP_MODE\` to enforcing until investigated (see the runbook §3)."
+          fi
+
+          # SECURITY: effectiveDirective/blockedUri/documentPath are
+          # attacker-influenced (client-reported CSP violation content, same
+          # trust boundary as the errors-digest message/stack above) — NEVER
+          # echoed to the (public) Actions job log, only written into the
+          # markdown table below, which goes ONLY into the PRIVATE repo issue
+          # body. Escape literal `|` -> `\|` before interpolating into a
+          # table cell so an unusual value can never inject an extra column /
+          # break the table's row structure (same `esc` pattern as the
+          # weekly-ux job above; each `jq -r` below is a separate process, so
+          # `esc` is redefined per invocation).
+          {
+            echo "**cspViolationsTotal:** ${TOTAL} (full count matching the window, before this response's row cap)"
+            echo ""
+            if [ -n "$CAP_WARNING" ]; then
+              echo "$CAP_WARNING"
+              echo ""
+            fi
+            echo "## Нарушения (report-only)"
+            echo ""
+            if [ "$ROW_COUNT" -eq 0 ]; then
+              echo "За период нарушений не зафиксировано (cspViolationsTotal=0)."
+            else
+              echo "| effectiveDirective | blockedUri | documentPath | count | firstSeen | lastSeen |"
+              echo "| --- | --- | --- | --- | --- | --- |"
+              jq -r 'def esc: gsub("\\|"; "\\|"); .cspViolations[]? | "| \(.effectiveDirective|esc) | \(.blockedUri|esc) | \(.documentPath|esc) | \(.count) | \(.firstSeen) | \(.lastSeen) |"' /tmp/csp-digest.json
+            fi
+            echo ""
+            echo "## Выводы ассистента"
+            echo ""
+            echo "(заполнит оркестратор — критерии флипа на enforcing: scripts/devops/csp-report-only-rollout-runbook.md §3)"
+          } > /tmp/csp-issue-body.md
+
+          gh issue create --repo "$PRIVATE_REPO" \
+            --title "$TITLE" \
+            --label "csp-violations" \
+            --body-file /tmp/csp-issue-body.md

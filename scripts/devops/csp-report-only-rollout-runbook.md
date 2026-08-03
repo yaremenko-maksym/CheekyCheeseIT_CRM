@@ -42,13 +42,46 @@
 
 ### 2.1 Telemetry-дайджест (автоматический, основной)
 
+> **Исправлено 2026-08-03 (task-infra-telemetry-digest-csp-section).** До этой
+> правки эта секция описывала канал, которого физически не существовало:
+> `GET /api/telemetry/digest` уже отдавал `cspViolations[]`/`cspViolationsTotal`
+> (они ВСЕГДА в ответе, не за флагом `ux=1` — см.
+> `apps/api/src/telemetry/telemetry-digest.service.ts`), но
+> `.github/workflows/telemetry-digest.yml` их не читал вообще — hourly job
+> парсил только `.errors[]`, weekly — только `.ux.*`. Значит **отсутствие
+> issue за весь период наблюдения НЕ было доказательством отсутствия
+> CSP-нарушений** — это было доказательство того, что канал не подключён.
+> Решение о флипе на enforcing (§3 ниже) на основании этой тишины принимать
+> было нельзя. Теперь подключён (см. ниже) — с этого момента отсутствие issue
+> действительно означает `cspViolationsTotal=0`.
+
 Новые/выросшие агрегаты `csp_reports` попадают отдельной секцией в
 существующий `GET /api/telemetry/digest` (тот же токен-гард
-`TELEMETRY_DIGEST_TOKEN`, тот же hourly/weekly workflow
-`.github/workflows/telemetry-digest.yml`) — см.
+`TELEMETRY_DIGEST_TOKEN`) и читаются отдельным weekly-джобом `csp` в
+`.github/workflows/telemetry-digest.yml` (Monday 07:00 UTC, тот же cron, что
+и `weekly-ux`, но отдельный job/label/issue) — см.
 `scripts/devops/telemetry-digest-runbook.md` за общей механикой дайджеста
-(дедуп, формат issue, приватность). CSP-нарушения доезжают до приватного
-репо `cheekycheese-telemetry` тем же путём, что и прод-ошибки/UX-события.
+(секреты, дедуп-паттерн, приватность). CSP-нарушения доезжают до приватного
+репо `cheekycheese-telemetry` тем же путём, что и прод-ошибки/UX-события:
+
+- **Лейбл:** `csp-violations` (create-if-missing, как `ux-insights`/`severity:auto`).
+- **Заголовок issue:** `CSP violations (report-only) YYYY-MM-DD`.
+- **Тело issue:** `cspViolationsTotal` отдельной строкой (+ явное
+  предупреждение, если `>= CSP_REPORTS_ROW_CAP`, см. §3) и markdown-таблица
+  `effectiveDirective | blockedUri | documentPath | count | firstSeen | lastSeen`.
+  **Создаётся ВСЕГДА**, даже при 0 нарушений («За период нарушений не
+  зафиксировано, cspViolationsTotal=0») — молчание нельзя отличить от
+  сломанного канала (см. врезку выше), поэтому явная нулевая запись обязательна.
+- **Ручной запуск** (не дожидаясь понедельника):
+  ```bash
+  gh workflow run telemetry-digest.yml --ref <branch-or-main> -f job=csp
+  ```
+  Проверить результат — `gh run list --workflow=telemetry-digest.yml --limit 5`
+  → `gh run view <run-id> --log`, затем issue в
+  `yaremenko-maksym/cheekycheese-telemetry` с лейблом `csp-violations`.
+- **Guard'ы** — те же, что у `errors`/`weekly-ux` job'ов: `TELEMETRY_ISSUES_PAT`
+  не задан → `::warning` + skip; `404` от эндпоинта → `::notice` + skip;
+  `401`/`403` → fail-loud (рассинхрон токена); сеть/5xx → fail-loud.
 
 ### 2.2 Прямой запрос к БД (ручная проверка / расследование конкретного случая)
 
@@ -116,14 +149,20 @@ dialog`), превью/загрузка чека (`receipt-panel`, `ReceiptInput
 - Владелец подтвердил (обычная user-testing практика проекта — ЛЮБАЯ фича
   фиксится живым тестом в браузере ДО «готово», см. `.claude/agents/memory/
 */lessons.md` "Mandatory User Testing").
-- **`cspViolationsTotal` (из `GET /api/telemetry/digest`) меньше `CSP_REPORTS_ROW_CAP`
-  (10 000, `apps/api/src/csp-reports/csp-reports.service.ts`).** Если совпало —
-  кап исчерпан, данные НЕПОЛНЫ (легитимные новые нарушения могли молча
-  отклоняться наравне с атакой), и решение о флипе на этих данных принимать
-  нельзя — сначала расследовать причину и, при необходимости, поднять кап.
-  Сигнал об исчерпании капа также приходит в `telemetry_errors` с фиксированным
-  сообщением `"csp-reports: aggregation-key row cap reached"` (не содержит
-  payload отправителя) и виден в том же дайджесте, что и сами нарушения.
+- **`cspViolationsTotal` меньше `CSP_REPORTS_ROW_CAP` (10 000,
+  `apps/api/src/csp-reports/csp-reports.service.ts`).** Проверяется по
+  еженедельному issue `csp-violations` из §2.1 (weekly `csp` job) — его тело
+  ВСЕГДА содержит строку `cspViolationsTotal:`, и job сам печатает
+  `::warning` + отдельный абзац в теле issue, если значение достигло капа
+  (сравнение с `CSP_REPORTS_ROW_CAP` захардкожено в самом workflow, комментарий
+  там же указывает на этот файл-источник — при дрейфе константы обновить оба
+  места). Если совпало — кап исчерпан, данные НЕПОЛНЫ (легитимные новые
+  нарушения могли молча отклоняться наравне с атакой), и решение о флипе на
+  этих данных принимать нельзя — сначала расследовать причину и, при
+  необходимости, поднять кап. Сигнал об исчерпании капа также приходит в
+  `telemetry_errors` с фиксированным сообщением `"csp-reports: aggregation-key
+row cap reached"` (не содержит payload отправителя) и виден в том же
+  дайджесте (hourly `errors` job), что и сами нарушения.
 
 ## 4. Как переключить CRM на enforcing (процедура)
 
