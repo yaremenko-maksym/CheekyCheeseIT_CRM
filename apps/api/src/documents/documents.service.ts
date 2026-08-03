@@ -49,10 +49,13 @@ import {
   documentAccessLog,
   documents,
   invoiceSignatures,
+  projectMembers,
+  projects,
   teamMembers,
   transactions,
   users,
 } from '../database/schema'
+import { HrAccessService } from '../common/hr-access.service'
 import { S3Service, isSensitiveCategory, presignTtlForCategory } from './s3.service'
 import { CompressionService, CompressionError, detectMimeFromBuffer } from './compression.service'
 
@@ -71,6 +74,7 @@ export class DocumentsService {
     private readonly db: DatabaseService,
     private readonly s3: S3Service,
     private readonly compression: CompressionService,
+    private readonly hrAccess: HrAccessService,
   ) {}
 
   // -------------------------------------------------------------------------
@@ -965,18 +969,20 @@ export class DocumentsService {
    * `[]` without a query).
    *
    * Visibility (from pm-brief.md "RBAC матрица для GET", team-scoping per
-   * task-file-storage-hardening §1 / owner decision 2026-08-01 — see
+   * task-file-storage-hardening §1 / owner decision 2026-08-01, corrected
+   * per security-review round 1 HIGH-1/MED-1 — see
    * `docs/business/modules/documents.md` for the authoritative matrix):
    *   ADMIN: any category, any ownerId
-   *   SENIOR: resume/scan — TEAM ONLY (active team_members overlap with the
-   *       viewer, mirrors getHrSeniorIds' membership predicate — see
-   *       getTeammateIds); contract/receipt own; avatar own; logo all (read)
+   *   SENIOR: resume/scan — TEAM + PROJECT (active team_members overlap
+   *       PLUS JUNIORs on the viewer's own projects — see getTeammateIds
+   *       for why team_members alone excludes every JUNIOR); contract/
+   *       receipt own; avatar own; logo all (read)
    *   JUNIOR: resume/scan own; avatar own; nothing else
-   *   HR: resume/scan — TEAM ONLY (same predicate as SENIOR, see above);
-   *       contract — for seniors in HR's teams; avatar own; logo all (read);
-   *       receipt none
-   *   ACCOUNTANT: scan all (unscoped — owner decision, see getTeammateIds'
-   *       doc for why); receipt all (read); avatar own;
+   *   HR: resume/scan — TEAM + PROJECT (same predicate as SENIOR, see
+   *       above); contract — for seniors in HR's teams; avatar own; logo
+   *       all (read); receipt none
+   *   ACCOUNTANT: scan — only owners with ≥1 transaction (sender or
+   *       receiver), see hasAnyTransaction; receipt all (read); avatar own;
    *       resume/contract/logo none
    */
   private async buildListWhere(
@@ -1061,12 +1067,13 @@ export class DocumentsService {
     const visibleClauses: SQL[] = []
 
     // task-file-storage-hardening §1: SENIOR/HR resume+scan visibility is
-    // now TEAM-SCOPED, not "any employee" — resolved once (both categories
-    // share the same teammate set) instead of per-category. `canSeeAll()`
-    // deliberately no longer returns true for SENIOR/HR on these two
-    // categories (see its own doc) — this replaces that unconditional grant.
+    // TEAM-and-PROJECT-SCOPED (security-review round 1 HIGH-1 fix — see
+    // getTeammateIds' own doc for why team_members alone is wrong), resolved
+    // once since both categories share the same scoped-id set.
     const teammateIds =
-      actor.role === 'SENIOR' || actor.role === 'HR' ? await this.getTeammateIds(actor.id) : null
+      actor.role === 'SENIOR' || actor.role === 'HR'
+        ? await this.getTeammateIds(actor.id, actor.role)
+        : null
 
     if (!category || category === 'RESUME') {
       if (teammateIds) {
@@ -1083,9 +1090,28 @@ export class DocumentsService {
         visibleClauses.push(
           and(eq(documents.category, 'SCAN'), inArray(documents.ownerId, teammateIds))!,
         )
-      } else if (this.canSeeAll(actor.role, 'SCAN')) {
-        // ACCOUNTANT only, by this point — see canSeeAll's doc.
-        visibleClauses.push(eq(documents.category, 'SCAN'))
+      } else if (actor.role === 'ACCOUNTANT') {
+        // task-file-storage-hardening MED-1 (security-review round 1): full,
+        // unscoped breadth was defended on "ACCOUNTANT is a global,
+        // team-less audit role" — factually wrong (ACCOUNTANT IS added to
+        // every team at creation time, see hr-access.service.ts). The
+        // DEFENSIBLE scope: a scan is relevant to ACCOUNTANT only for
+        // someone they actually process money for — i.e. appears as
+        // sender OR receiver on at least one transaction. This mirrors how
+        // RECEIPT/INVOICE are already implicitly transaction-scoped (every
+        // row of those categories IS a transaction artifact by
+        // construction) — SCAN gets the same relationship made explicit via
+        // an EXISTS subquery instead of being open to every employee
+        // regardless of any financial relationship.
+        visibleClauses.push(
+          and(
+            eq(documents.category, 'SCAN'),
+            sql`EXISTS (
+              SELECT 1 FROM ${transactions} t
+              WHERE t.sender_id = ${documents.ownerId} OR t.receiver_id = ${documents.ownerId}
+            )`,
+          )!,
+        )
       } else if (this.canSeeSelf(actor.role, 'SCAN')) {
         visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
       }
@@ -1094,7 +1120,7 @@ export class DocumentsService {
     // DROP: self-scope for RESUME and SCAN (DROP uploads RESUME/SCAN like JUNIOR self).
     // Security: ownerId is already forced to actor.id by the `list()` caller via
     // effectiveFilters, so this clause adds the category filter to the visibility set.
-    // The canSeeAll/canSeeSelf helpers don't handle DROP — explicit branch here.
+    // The canSeeSelf helper doesn't handle DROP — explicit branch here.
     if (actor.role === 'DROP') {
       if (!category || category === 'RESUME') {
         visibleClauses.push(and(eq(documents.category, 'RESUME'), eq(documents.ownerId, actor.id))!)
@@ -1171,17 +1197,23 @@ export class DocumentsService {
   }
 
   /**
-   * task-file-storage-hardening §1: SENIOR/HR are DELIBERATELY absent from
-   * both branches below — their resume/scan visibility is now team-scoped
-   * (see `getTeammateIds` + its two call sites, `buildVisibilityClause` and
-   * `findActiveOrThrow`), not "sees every employee's file". Only ACCOUNTANT
-   * keeps an unconditional grant, and only for SCAN.
+   * task-file-storage-hardening MED-1 (security-review round 1): whether
+   * `userId` has EVER appeared as sender or receiver on a transaction — the
+   * scope ACCOUNTANT's SCAN access now requires (replaces the previous
+   * unconditional "sees every SCAN" grant, which was defended on "ACCOUNTANT
+   * has no team", a claim the review disproved — ACCOUNTANT IS added to
+   * every team at creation time). Mirrors the EXISTS subquery in
+   * `buildVisibilityClause`'s SCAN branch — this is the single-document
+   * (`findActiveOrThrow`) sibling of that same check.
    */
-  private canSeeAll(role: Role, category: DocumentCategory): boolean {
-    if (category === 'SCAN') {
-      return role === 'ACCOUNTANT'
-    }
-    return false
+  private async hasAnyTransaction(userId: string): Promise<boolean> {
+    const row = await this.db.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(or(eq(transactions.senderId, userId), eq(transactions.receiverId, userId)))
+      .limit(1)
+      .then((rows) => rows[0])
+    return row !== undefined
   }
 
   private canSeeSelf(role: Role, category: DocumentCategory): boolean {
@@ -1214,48 +1246,70 @@ export class DocumentsService {
 
   /**
    * task-file-storage-hardening §1 (owner decision 2026-08-01): "sузить
-   * доступ к резюме/сканам до команды" for SENIOR and HR. Returns every
-   * user id sharing at least one ACTIVE team_members row with `actorId`
-   * (ANY role — unlike `getHrSeniorIds`, which additionally filters to
-   * `role = 'SENIOR'` for the CONTRACT use case), PLUS `actorId` itself
-   * always — "собственные документы у всех остаются доступны всегда" must
-   * hold even for a SENIOR/HR who currently has no active team membership
-   * (e.g. between team assignments); without unconditionally including
-   * self, that edge case would silently lose visibility into their OWN
-   * resume/scan in the LIST endpoint (findActiveOrThrow's separate
-   * `doc.ownerId === actor.id` fast-path already covers the single-document
-   * fetch, but buildVisibilityClause has no such fast-path of its own).
+   * доступ к резюме/сканам до команды" for SENIOR and HR.
    *
-   * Same `leftAt IS NULL` predicate as `getHrSeniorIds` — an employee who
-   * left the team (or a SENIOR/HR whose OWN membership ended) is not a
-   * teammate for either side of that relationship.
+   * HIGH-1 fix (security-review round 1): the FIRST version of this method
+   * scoped to `team_members` alone, which silently excludes EVERY JUNIOR —
+   * a JUNIOR is never a `team_members` row by system design
+   * (`UsersService.createUser` inserts a JUNIOR into `project_members`
+   * only; `TeamsService.addMember` explicitly REJECTS adding a JUNIOR who
+   * has an active project, see teams.service.ts). Live data at review time:
+   * 0 active JUNIOR `team_members` rows company-wide. The old code's actual
+   * effect was "SENIOR/HR can no longer see ANY junior's resume/scan",
+   * which is the opposite of the intended narrowing.
    *
-   * ACCOUNTANT is NOT routed through this helper (see `canSeeAll`'s doc):
-   * unlike SENIOR/HR, ACCOUNTANT's SCAN access was already an intentional,
-   * consistent part of their RBAC surface (same "read everything, write
-   * nothing" shape as RECEIPT/INVOICE — a company-wide finance-audit role,
-   * not a byproduct of nobody having scoped it). ACCOUNTANT is also
-   * typically NOT a `team_members` row at all — routing them through this
-   * predicate would return `[actorId]` only and silently break reconciling
-   * scans across the whole company, the exact regression the task asked to
-   * watch for ("сужение может сломать сверку").
+   * Correct membership model — union of two relationships, mirroring
+   * `UsersAccessService.isHrInTargetTeam`'s JUNIOR branch /
+   * `isSeniorViewingOwnProjectMember` (the established pattern for
+   * "does this SENIOR/HR reach this JUNIOR" elsewhere in the codebase):
+   *   1. Active team overlap (any role on the target side) — delegated to
+   *      `HrAccessService.getActiveTeamPeers` (LOW-1: was a third private
+   *      copy of the same `team_members` self-join `getHrSeniorIds` above
+   *      already implements; now shares one canonical query).
+   *   2. JUNIORs reachable transitively: the SENIOR(s) found in step 1 (or
+   *      the actor itself, if the actor IS the SENIOR) → those SENIORs'
+   *      projects → active (`leftAt IS NULL`) `project_members` rows on
+   *      those projects.
+   * PLUS `actorId` itself always — "собственные документы у всех остаются
+   * доступны всегда" must hold even with zero active team membership.
+   *
+   * ACCOUNTANT is NOT routed through this helper — see the dedicated
+   * `hasAnyTransaction` check in `buildVisibilityClause`/`findActiveOrThrow`
+   * (MED-1, security-review round 1: the previous "ACCOUNTANT has no team"
+   * justification for unconditional SCAN access was factually wrong —
+   * ACCOUNTANT IS added to every team at creation time — so this predicate
+   * would have scoped them to "the whole company" anyway, not a real fix).
    */
-  private async getTeammateIds(actorId: string): Promise<string[]> {
-    const myTeams = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .where(and(eq(teamMembers.userId, actorId), isNull(teamMembers.leftAt)))
+  private async getTeammateIds(actorId: string, actorRole: 'SENIOR' | 'HR'): Promise<string[]> {
+    const scopedIds = new Set<string>([actorId])
 
-    const teammateIds = new Set<string>([actorId])
-    if (myTeams.length > 0) {
-      const teamIds = myTeams.map((r) => r.teamId)
-      const teammates = await this.db.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
-      for (const r of teammates) teammateIds.add(r.userId)
+    const peers = await this.hrAccess.getActiveTeamPeers(actorId)
+    for (const p of peers) scopedIds.add(p.userId)
+
+    // Resolve the SENIOR(s) whose project rosters extend this actor's
+    // reach: the actor itself if they ARE a SENIOR, else any SENIOR found
+    // among their active team peers (the HR case).
+    const seniorIds =
+      actorRole === 'SENIOR'
+        ? [actorId]
+        : peers.filter((p) => p.role === 'SENIOR').map((p) => p.userId)
+
+    if (seniorIds.length > 0) {
+      const seniorProjects = await this.db.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(inArray(projects.seniorId, seniorIds))
+      if (seniorProjects.length > 0) {
+        const projectIds = seniorProjects.map((p) => p.id)
+        const juniors = await this.db.db
+          .select({ userId: projectMembers.userId })
+          .from(projectMembers)
+          .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)))
+        for (const j of juniors) scopedIds.add(j.userId)
+      }
     }
-    return [...teammateIds]
+
+    return [...scopedIds]
   }
 
   // -------------------------------------------------------------------------
@@ -1280,24 +1334,25 @@ export class DocumentsService {
     if (doc.ownerId === actor.id) return doc
 
     // task-file-storage-hardening §1: SENIOR/HR + RESUME/SCAN is
-    // team-scoped, not "sees all" — this is the single gate that guards
-    // BOTH the list (via buildVisibilityClause) and this direct-by-id fetch
-    // (the audit's specific finding: canSeeAll used to be the ONLY gate on
-    // both surfaces, and used to say "yes" unconditionally for these two
-    // categories). Checked BEFORE `canSeeAll()` below so it can never fall
-    // through to a stale "true" for these two categories.
+    // team-and-project-scoped, not "sees all" — this is the single gate
+    // that guards BOTH the list (via buildVisibilityClause) and this
+    // direct-by-id fetch (the audit's specific finding: a single gate used
+    // to say "yes" unconditionally for these two categories).
     if (
       (actor.role === 'SENIOR' || actor.role === 'HR') &&
       (doc.category === 'RESUME' || doc.category === 'SCAN')
     ) {
-      const teammateIds = await this.getTeammateIds(actor.id)
+      const teammateIds = await this.getTeammateIds(actor.id, actor.role)
       if (teammateIds.includes(doc.ownerId)) return doc
       throw new NotFoundException('Документ не найден')
     }
 
-    // Otherwise check category visibility.
-    const seesAll = this.canSeeAll(actor.role, doc.category)
-    if (seesAll) return doc
+    // ACCOUNTANT + SCAN: requires an actual financial relationship
+    // (MED-1, security-review round 1) — see `hasAnyTransaction`'s doc.
+    if (actor.role === 'ACCOUNTANT' && doc.category === 'SCAN') {
+      if (await this.hasAnyTransaction(doc.ownerId)) return doc
+      throw new NotFoundException('Документ не найден')
+    }
 
     // HR + CONTRACT: special team-scope check.
     if (actor.role === 'HR' && doc.category === 'CONTRACT') {

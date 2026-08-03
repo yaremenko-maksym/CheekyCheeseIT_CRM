@@ -28,6 +28,8 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
+import { projectMembers, projects, teamMembers, transactions } from '../database/schema'
+import type { HrAccessService } from '../common/hr-access.service'
 
 // -----------------------------------------------------------------------------
 // Magic-byte buffers for upload tests.
@@ -105,8 +107,30 @@ interface DocRow {
 interface HarnessOptions {
   /** Seed rows for findFirst/select. Each test uses 0 or 1 row. */
   docs?: Partial<DocRow>[]
-  /** Senior IDs returned for HR's team scope query (innerJoin path). */
+  /** Senior IDs returned for HR's team scope query (innerJoin path, getHrSeniorIds — unchanged). */
   hrSeniorIds?: string[]
+  /**
+   * task-file-storage-hardening HIGH-1 fix: active team peers (id + role)
+   * returned by the injected `HrAccessService.getActiveTeamPeers` mock —
+   * feeds `DocumentsService.getTeammateIds`' team-overlap step.
+   */
+  teamPeers?: { userId: string; role: string }[]
+  /**
+   * Projects owned by the SENIOR(s) `getTeammateIds` resolved — feeds its
+   * `select({id}).from(projects).where(inArray(seniorId, ...))` query.
+   */
+  seniorProjects?: { id: string; seniorId: string }[]
+  /**
+   * Active project_members rows on those projects — feeds `getTeammateIds`'
+   * JUNIOR-resolution query. This is the ONLY path a JUNIOR can appear in
+   * `getTeammateIds`' result (JUNIORs are never `team_members` rows).
+   */
+  activeProjectMembers?: { projectId: string; userId: string }[]
+  /**
+   * task-file-storage-hardening MED-1: feeds `hasAnyTransaction` — whether
+   * the seeded doc's owner has ≥1 transaction row (sender or receiver).
+   */
+  ownerHasTransaction?: boolean
   /** If true, findFirst pretends the looked-up doc does not exist. */
   pretendDocMissing?: boolean
   /** If true, findFirst only returns the doc when it is NOT soft-deleted
@@ -163,50 +187,52 @@ function makeHarness(opts: HarnessOptions = {}) {
 
       select: (_arg?: unknown) => ({
         from: (_table: unknown) => {
+          // task-file-storage-hardening HIGH-1 fix: routed by TABLE IDENTITY
+          // (the real imported Drizzle table objects — `_table` is the exact
+          // reference `getTeammateIds`/`getHrSeniorIds` pass to `.from()`,
+          // so `===` reliably distinguishes them) instead of the previous
+          // single-bucket heuristic that couldn't tell `projects` /
+          // `projectMembers` / `teamMembers` apart.
+          if (_table === projects) {
+            return {
+              where: async (_pred: unknown) => opts.seniorProjects ?? [],
+            }
+          }
+          if (_table === projectMembers) {
+            return {
+              where: async (_pred: unknown) => opts.activeProjectMembers ?? [],
+            }
+          }
+          if (_table === teamMembers) {
+            // `select({fields}).from(teamMembers).where(...)` (getHrSeniorIds'
+            // first query) returns a Promise directly; the innerJoin path
+            // (its second query) resolves the SENIOR-filtered list.
+            return {
+              where: async (_p: unknown) =>
+                (opts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
+              innerJoin: (_t: unknown, _on: unknown) => ({
+                where: async (_p: unknown) =>
+                  (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
+              }),
+            }
+          }
+          if (_table === transactions) {
+            // hasAnyTransaction(): select({id}).from(transactions).where(...).limit(1)
+            return {
+              where: (_p: unknown) => ({
+                limit: async (_n: number) => (opts.ownerHasTransaction ? [{ id: 'tx-1' }] : []),
+              }),
+            }
+          }
+          // Fallback (documents, etc.) — the list()-style builder. makeHarness's
+          // callers don't exercise `select().from(documents)` (list() tests use
+          // makeExtendedHarness instead), kept only as a safe default.
           const builder = {
             where: (_pred: unknown) => builder,
             innerJoin: (_t: unknown, _on: unknown) => builder,
             orderBy: async (_o: unknown) => docsRows.map((r) => ({ ...r })),
-            then: (resolve: (v: unknown) => void) => {
-              // unused — we always chain through where().orderBy()
-              resolve(undefined)
-            },
           }
-          // `select({fields}).from(teamMembers).where(...)` returns a Promise
-          // directly when not followed by orderBy. We model that path with
-          // an extra .where() that already resolves with the seniors list.
-          const teamMembersBuilder = {
-            where: async (_p: unknown) =>
-              (opts.hrSeniorIds ?? []).map((id) => ({ teamId: 't1', userId: id })),
-            innerJoin: (_t: unknown, _on: unknown) => ({
-              where: async (_p: unknown) => (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
-            }),
-          }
-          // Detect which path by inspecting the table identity — we use a
-          // proxy so the service can call either one.
-          return new Proxy(builder, {
-            get(target: typeof builder, prop: string | symbol) {
-              if (prop === 'where' || prop === 'innerJoin') {
-                // For team_members queries the next chained .where() returns
-                // a list of userIds directly (no orderBy). The two callers
-                // we have are:
-                //   1) list(): .from(documents).where(...).orderBy(...)
-                //   2) getHrSeniorIds(): two consecutive .from(teamMembers)
-                //      flows. The proxy directs both to teamMembersBuilder.
-                if (_table && (_table as { _ }) && '_' in (_table as object)) {
-                  // We can't reliably distinguish without inspecting drizzle
-                  // internals — instead we expose both behaviors via a union
-                  // proxy: each method returns a builder that also works as
-                  // teamMembersBuilder when awaited directly. Tests only
-                  // exercise getDownloadUrl which uses getHrSeniorIds().
-                }
-              }
-              return (
-                (teamMembersBuilder as Record<string, unknown>)[prop as string] ??
-                (target as unknown as Record<string, unknown>)[prop as string]
-              )
-            },
-          })
+          return builder
         },
       }),
 
@@ -290,11 +316,21 @@ function makeHarness(opts: HarnessOptions = {}) {
     makeThumbnail: vi.fn().mockResolvedValue(null),
   }
 
-  const service = new DocumentsService(db as never, s3 as never, compression as never)
+  const hrAccess = {
+    getActiveTeamPeers: vi.fn().mockResolvedValue(opts.teamPeers ?? []),
+  }
+
+  const service = new DocumentsService(
+    db as never,
+    s3 as never,
+    compression as never,
+    hrAccess as unknown as HrAccessService,
+  )
   return {
     service,
     s3,
     compression,
+    hrAccess,
     db,
     docsRows,
     getFindFirstCount: () => findFirstCallCount,
@@ -749,89 +785,110 @@ describe('DocumentsService.getDownloadUrl', () => {
 
 // =============================================================================
 // task-file-storage-hardening §1 (owner decision 2026-08-01) — SENIOR/HR
-// resume+scan access is now TEAM-SCOPED, not "any employee". These pin the
-// per-role matrix AC ("Синьор не получает скан и резюме сотрудника вне своей
-// команды: 404, не 403"). `hrSeniorIds` doubles as the generic teamMembers
-// fixture here (the harness's teamMembersBuilder answers ANY
-// select().from(teamMembers) query the same way, regardless of which
-// service method issued it — see the harness's own doc comment) — it feeds
-// BOTH getHrSeniorIds (CONTRACT) and the new getTeammateIds (RESUME/SCAN).
+// resume+scan access is TEAM-and-PROJECT-SCOPED, not "any employee". These
+// pin the per-role matrix AC ("Синьор не получает скан и резюме сотрудника
+// вне своей команды: 404, не 403") AND the security-review round 1 HIGH-1
+// fix: a JUNIOR is reachable ONLY via `seniorProjects` +
+// `activeProjectMembers` (project-derived) — `teamPeers` (team_members) can
+// NEVER surface a JUNIOR, mirroring the real schema invariant (see
+// getTeammateIds' own doc comment for why).
 // =============================================================================
 
 describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-hardening §1)', () => {
-  it('SENIOR can download RESUME of a teammate', async () => {
+  it("SENIOR can download a JUNIOR's RESUME via project membership (the HIGH-1 fix)", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
-      hrSeniorIds: [JUNIOR.id],
+      seniorProjects: [{ id: 'proj-1', seniorId: SENIOR.id }],
+      activeProjectMembers: [{ projectId: 'proj-1', userId: JUNIOR.id }],
       honorSoftDeleteFilter: true,
     })
     const result = await h.service.getDownloadUrl(SENIOR, 'd1')
     expect(result.url).toBeTruthy()
   })
 
-  it('SENIOR CANNOT download RESUME of a non-teammate → 404, not 403', async () => {
+  it("SENIOR CANNOT download a JUNIOR's RESUME who is NOT on their project → 404, not 403", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
-      hrSeniorIds: [],
+      seniorProjects: [{ id: 'proj-1', seniorId: SENIOR.id }],
+      activeProjectMembers: [], // JUNIOR is not a member of proj-1 (or any of SENIOR's projects)
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
   })
 
-  it('SENIOR CANNOT download SCAN of another SENIOR outside their team → 404 (the exact audit finding)', async () => {
+  it('SENIOR CANNOT download SCAN of another SENIOR outside their team → 404', async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'SCAN' }],
-      hrSeniorIds: [],
+      teamPeers: [],
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(SENIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
   })
 
-  it('SENIOR can download SCAN of a teammate SENIOR (teammate set is not role-restricted)', async () => {
+  it('SENIOR can download SCAN of a teammate SENIOR (pure team_members overlap — non-JUNIOR path)', async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'SCAN' }],
-      hrSeniorIds: [SENIOR2.id],
+      teamPeers: [{ userId: SENIOR2.id, role: 'SENIOR' }],
       honorSoftDeleteFilter: true,
     })
     const result = await h.service.getDownloadUrl(SENIOR, 'd1')
     expect(result.url).toBeTruthy()
   })
 
-  it('HR can download SCAN of a teammate', async () => {
+  it("HR can download a JUNIOR's SCAN via their team's SENIOR's project", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
-      hrSeniorIds: [JUNIOR.id],
+      teamPeers: [{ userId: SENIOR.id, role: 'SENIOR' }],
+      seniorProjects: [{ id: 'proj-1', seniorId: SENIOR.id }],
+      activeProjectMembers: [{ projectId: 'proj-1', userId: JUNIOR.id }],
       honorSoftDeleteFilter: true,
     })
     const result = await h.service.getDownloadUrl(HR, 'd1')
     expect(result.url).toBeTruthy()
   })
 
-  it('HR CANNOT download SCAN of a non-teammate → 404', async () => {
+  it("HR CANNOT download a JUNIOR's SCAN when HR shares no team with that JUNIOR's SENIOR → 404", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
-      hrSeniorIds: [],
+      teamPeers: [], // HR has no active team at all
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
   })
 
-  it('HR CANNOT download RESUME of a non-teammate → 404', async () => {
+  it('HR CANNOT download RESUME of a non-teammate SENIOR → 404', async () => {
     const h = makeHarness({
-      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
-      hrSeniorIds: [],
+      docs: [{ id: 'd1', ownerId: SENIOR2.id, category: 'RESUME' }],
+      teamPeers: [],
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
   })
 
-  it('ACCOUNTANT still sees ANY SCAN regardless of team (owner decision — kept broad, PR body rationale)', async () => {
-    const h = makeHarness({
-      docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
-      honorSoftDeleteFilter: true,
+  // task-file-storage-hardening MED-1 (security-review round 1): ACCOUNTANT
+  // SCAN access now requires an actual financial relationship
+  // (hasAnyTransaction), not unconditional breadth.
+  describe('ACCOUNTANT + SCAN — scoped to an actual financial relationship (MED-1)', () => {
+    it('ACCOUNTANT downloads SCAN of an owner who has a transaction (sender or receiver)', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+        ownerHasTransaction: true,
+        honorSoftDeleteFilter: true,
+      })
+      const result = await h.service.getDownloadUrl(ACCOUNTANT, 'd1')
+      expect(result.url).toBeTruthy()
     })
-    const result = await h.service.getDownloadUrl(ACCOUNTANT, 'd1')
-    expect(result.url).toBeTruthy()
+
+    it('ACCOUNTANT CANNOT download SCAN of an owner with zero transactions → 404', async () => {
+      const h = makeHarness({
+        docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
+        ownerHasTransaction: false,
+        honorSoftDeleteFilter: true,
+      })
+      await expect(h.service.getDownloadUrl(ACCOUNTANT, 'd1')).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+    })
   })
 
   it('ACCOUNTANT still has NO resume access (unaffected by this task — never granted)', async () => {
@@ -847,7 +904,7 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
   it("JUNIOR cannot download a teammate's SCAN either (own-only, unaffected by this task)", async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: SENIOR.id, category: 'SCAN' }],
-      hrSeniorIds: [JUNIOR.id],
+      teamPeers: [{ userId: SENIOR.id, role: 'SENIOR' }],
       honorSoftDeleteFilter: true,
     })
     await expect(h.service.getDownloadUrl(JUNIOR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
@@ -864,7 +921,6 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
   it('ADMIN still downloads ANY resume/scan regardless of team (unaffected by this task)', async () => {
     const h = makeHarness({
       docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'RESUME' }],
-      hrSeniorIds: [],
       honorSoftDeleteFilter: true,
     })
     const result = await h.service.getDownloadUrl(ADMIN, 'd1')
@@ -1176,8 +1232,17 @@ function makeExtendedHarness(opts: ExtendedHarnessOptions = {}) {
     makeThumbnail: vi.fn().mockResolvedValue(null),
   }
 
-  const service = new DocumentsService(db as never, s3 as never, compression as never)
-  return { service, docsRows, db, s3 }
+  const hrAccess = {
+    getActiveTeamPeers: vi.fn().mockResolvedValue(baseOpts.teamPeers ?? []),
+  }
+
+  const service = new DocumentsService(
+    db as never,
+    s3 as never,
+    compression as never,
+    hrAccess as unknown as HrAccessService,
+  )
+  return { service, docsRows, db, s3, hrAccess }
 }
 
 describe('DocumentsService.list — PR-2 statusBadge (Task 2)', () => {
