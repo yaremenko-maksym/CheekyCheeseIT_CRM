@@ -992,8 +992,9 @@ export class DocumentsService {
    *
    * Visibility (from pm-brief.md "RBAC матрица для GET", team-scoping per
    * task-file-storage-hardening §1 / owner decision 2026-08-01, corrected
-   * per security-review round 1 HIGH-1/MED-1 — see
-   * `docs/business/modules/documents.md` for the authoritative matrix):
+   * per security-review round 1 (HIGH-1) and round 2 (ACCOUNTANT, owner
+   * decision 2026-08-03) — see `docs/business/modules/documents.md` for the
+   * authoritative matrix):
    *   ADMIN: any category, any ownerId
    *   SENIOR: resume/scan — TEAM + PROJECT (active team_members overlap
    *       PLUS JUNIORs on the viewer's own projects — see getTeammateIds
@@ -1003,8 +1004,10 @@ export class DocumentsService {
    *   HR: resume/scan — TEAM + PROJECT (same predicate as SENIOR, see
    *       above); contract — for seniors in HR's teams; avatar own; logo
    *       all (read); receipt none
-   *   ACCOUNTANT: scan — only owners with ≥1 transaction (sender or
-   *       receiver), see hasAnyTransaction; receipt all (read); avatar own;
+   *   ACCOUNTANT: scan ALL, unconditionally — owner decision 2026-08-03
+   *       (round-1's transaction-scoped attempt was rejected: self-
+   *       satisfying + broke onboarding, see the SCAN branch below for the
+   *       full rationale); receipt all (read); avatar own;
    *       resume/contract/logo none
    */
   private async buildListWhere(
@@ -1113,27 +1116,26 @@ export class DocumentsService {
           and(eq(documents.category, 'SCAN'), inArray(documents.ownerId, teammateIds))!,
         )
       } else if (actor.role === 'ACCOUNTANT') {
-        // task-file-storage-hardening MED-1 (security-review round 1): full,
-        // unscoped breadth was defended on "ACCOUNTANT is a global,
-        // team-less audit role" — factually wrong (ACCOUNTANT IS added to
-        // every team at creation time, see hr-access.service.ts). The
-        // DEFENSIBLE scope: a scan is relevant to ACCOUNTANT only for
-        // someone they actually process money for — i.e. appears as
-        // sender OR receiver on at least one transaction. This mirrors how
-        // RECEIPT/INVOICE are already implicitly transaction-scoped (every
-        // row of those categories IS a transaction artifact by
-        // construction) — SCAN gets the same relationship made explicit via
-        // an EXISTS subquery instead of being open to every employee
-        // regardless of any financial relationship.
-        visibleClauses.push(
-          and(
-            eq(documents.category, 'SCAN'),
-            sql`EXISTS (
-              SELECT 1 FROM ${transactions} t
-              WHERE t.sender_id = ${documents.ownerId} OR t.receiver_id = ${documents.ownerId}
-            )`,
-          )!,
-        )
+        // task-file-storage-hardening — OWNER DECISION 2026-08-03 (security-
+        // review round 2, reversing the round-1 MED-1 "transaction-scoped"
+        // attempt): ACCOUNTANT sees ALL scans, unconditionally. The
+        // transaction-EXISTS scope tried in round 1 was rejected for two
+        // independent reasons, either one fatal on its own:
+        //   1. Self-satisfying: ACCOUNTANT is the role that CREATES/
+        //      validates transactions — they can unlock their own access to
+        //      any scan by creating one transaction naming that person, so
+        //      the "restriction" was not actually a restriction.
+        //   2. Broke onboarding in practice: live data at review time showed
+        //      transactions exist for only 5 of 21 people; HR and DROP users
+        //      have ZERO — an ACCOUNTANT verifying a brand-new hire's scan
+        //      before any money has moved would 404 on exactly the case that
+        //      matters most.
+        // Kept broad on the strength of: ACCOUNTANT is a read-only audit
+        // role (cannot upload RESUME/SCAN at all, see assertCanUpload), and
+        // every access is now recorded in document_access_log (§7) — the
+        // accountability the task needed comes from the log, not from
+        // narrowing the read.
+        visibleClauses.push(eq(documents.category, 'SCAN'))
       } else if (this.canSeeSelf(actor.role, 'SCAN')) {
         visibleClauses.push(and(eq(documents.category, 'SCAN'), eq(documents.ownerId, actor.id))!)
       }
@@ -1218,26 +1220,6 @@ export class DocumentsService {
     return or(...visibleClauses)!
   }
 
-  /**
-   * task-file-storage-hardening MED-1 (security-review round 1): whether
-   * `userId` has EVER appeared as sender or receiver on a transaction — the
-   * scope ACCOUNTANT's SCAN access now requires (replaces the previous
-   * unconditional "sees every SCAN" grant, which was defended on "ACCOUNTANT
-   * has no team", a claim the review disproved — ACCOUNTANT IS added to
-   * every team at creation time). Mirrors the EXISTS subquery in
-   * `buildVisibilityClause`'s SCAN branch — this is the single-document
-   * (`findActiveOrThrow`) sibling of that same check.
-   */
-  private async hasAnyTransaction(userId: string): Promise<boolean> {
-    const row = await this.db.db
-      .select({ id: transactions.id })
-      .from(transactions)
-      .where(or(eq(transactions.senderId, userId), eq(transactions.receiverId, userId)))
-      .limit(1)
-      .then((rows) => rows[0])
-    return row !== undefined
-  }
-
   private canSeeSelf(role: Role, category: DocumentCategory): boolean {
     if (category === 'RESUME' || category === 'SCAN') return role === 'JUNIOR'
     return false
@@ -1295,12 +1277,16 @@ export class DocumentsService {
    * PLUS `actorId` itself always — "собственные документы у всех остаются
    * доступны всегда" must hold even with zero active team membership.
    *
-   * ACCOUNTANT is NOT routed through this helper — see the dedicated
-   * `hasAnyTransaction` check in `buildVisibilityClause`/`findActiveOrThrow`
-   * (MED-1, security-review round 1: the previous "ACCOUNTANT has no team"
-   * justification for unconditional SCAN access was factually wrong —
-   * ACCOUNTANT IS added to every team at creation time — so this predicate
-   * would have scoped them to "the whole company" anyway, not a real fix).
+   * ACCOUNTANT is NOT routed through this helper at all — they keep
+   * unconditional SCAN access (owner decision 2026-08-03, security-review
+   * round 2 — see the SCAN branch of `buildVisibilityClause` for the full
+   * rationale). Routing them through this predicate would not even be a
+   * narrowing in practice: ACCOUNTANT IS added to every team at creation
+   * time, so it would resolve to "the whole company" anyway — the round-1
+   * attempt at scoping ACCOUNTANT used a DIFFERENT mechanism (a
+   * transaction-existence check, since reverted) precisely because this
+   * team/project predicate can't meaningfully restrict a role that's a
+   * member of literally every team.
    */
   private async getTeammateIds(actorId: string, actorRole: 'SENIOR' | 'HR'): Promise<string[]> {
     const scopedIds = new Set<string>([actorId])
@@ -1317,10 +1303,20 @@ export class DocumentsService {
         : peers.filter((p) => p.role === 'SENIOR').map((p) => p.userId)
 
     if (seniorIds.length > 0) {
+      // MED (security-review round 2): exclude ARCHIVED projects explicitly
+      // — do not rely solely on `project_members.leftAt` as the archival
+      // signal. `ProjectsService.archive()` DOES set `leftAt` for active
+      // JUNIORs at archive time, but `unarchive()` deliberately does NOT
+      // restore it ("project_members.leftAt intentionally NOT restored" —
+      // see its own comment), so a re-activated project can drift out of
+      // sync with its members' `leftAt`. Filtering on `projects.archivedAt`
+      // directly matches the stricter precedent already established by
+      // `UsersAccessService.isJuniorUnderLegendSubject` (the other
+      // established project-lookup for the SAME kind of relationship).
       const seniorProjects = await this.db.db
         .select({ id: projects.id })
         .from(projects)
-        .where(inArray(projects.seniorId, seniorIds))
+        .where(and(inArray(projects.seniorId, seniorIds), isNull(projects.archivedAt)))
       if (seniorProjects.length > 0) {
         const projectIds = seniorProjects.map((p) => p.id)
         const juniors = await this.db.db
@@ -1369,11 +1365,12 @@ export class DocumentsService {
       throw new NotFoundException('Документ не найден')
     }
 
-    // ACCOUNTANT + SCAN: requires an actual financial relationship
-    // (MED-1, security-review round 1) — see `hasAnyTransaction`'s doc.
+    // ACCOUNTANT reads any SCAN — owner decision 2026-08-03 (security-review
+    // round 2), see the doc comment on the SCAN branch of
+    // `buildVisibilityClause` for the full rationale (transaction-scoping
+    // tried in round 1 was rejected as self-satisfying + onboarding-breaking).
     if (actor.role === 'ACCOUNTANT' && doc.category === 'SCAN') {
-      if (await this.hasAnyTransaction(doc.ownerId)) return doc
-      throw new NotFoundException('Документ не найден')
+      return doc
     }
 
     // HR + CONTRACT: special team-scope check.

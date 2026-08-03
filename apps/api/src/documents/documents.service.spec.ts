@@ -28,13 +28,7 @@ import {
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { DocumentsService } from './documents.service'
-import {
-  documentAccessLog,
-  projectMembers,
-  projects,
-  teamMembers,
-  transactions,
-} from '../database/schema'
+import { documentAccessLog, projectMembers, projects, teamMembers } from '../database/schema'
 import type { HrAccessService } from '../common/hr-access.service'
 
 // -----------------------------------------------------------------------------
@@ -132,11 +126,6 @@ interface HarnessOptions {
    * `getTeammateIds`' result (JUNIORs are never `team_members` rows).
    */
   activeProjectMembers?: { projectId: string; userId: string }[]
-  /**
-   * task-file-storage-hardening MED-1: feeds `hasAnyTransaction` — whether
-   * the seeded doc's owner has ≥1 transaction row (sender or receiver).
-   */
-  ownerHasTransaction?: boolean
   /** If true, findFirst pretends the looked-up doc does not exist. */
   pretendDocMissing?: boolean
   /** If true, findFirst only returns the doc when it is NOT soft-deleted
@@ -223,14 +212,6 @@ function makeHarness(opts: HarnessOptions = {}) {
               innerJoin: (_t: unknown, _on: unknown) => ({
                 where: async (_p: unknown) =>
                   (opts.hrSeniorIds ?? []).map((id) => ({ userId: id })),
-              }),
-            }
-          }
-          if (_table === transactions) {
-            // hasAnyTransaction(): select({id}).from(transactions).where(...).limit(1)
-            return {
-              where: (_p: unknown) => ({
-                limit: async (_n: number) => (opts.ownerHasTransaction ? [{ id: 'tx-1' }] : []),
               }),
             }
           }
@@ -986,29 +967,21 @@ describe('DocumentsService — team-scoped RESUME/SCAN (task-file-storage-harden
     await expect(h.service.getDownloadUrl(HR, 'd1')).rejects.toBeInstanceOf(NotFoundException)
   })
 
-  // task-file-storage-hardening MED-1 (security-review round 1): ACCOUNTANT
-  // SCAN access now requires an actual financial relationship
-  // (hasAnyTransaction), not unconditional breadth.
-  describe('ACCOUNTANT + SCAN — scoped to an actual financial relationship (MED-1)', () => {
-    it('ACCOUNTANT downloads SCAN of an owner who has a transaction (sender or receiver)', async () => {
+  // task-file-storage-hardening — owner decision 2026-08-03 (security-review
+  // round 2, reversing round 1's MED-1 transaction-scoping attempt):
+  // ACCOUNTANT sees ALL scans, unconditionally, regardless of whether the
+  // owner has any transaction on record. See the SCAN branch of
+  // buildVisibilityClause for the full two-part rejection rationale
+  // (self-satisfying + broke onboarding for the 16/21 people with zero
+  // transactions at review time).
+  describe('ACCOUNTANT + SCAN — unconditional, owner decision 2026-08-03', () => {
+    it('ACCOUNTANT downloads SCAN of any owner, including one with zero transactions (e.g. a brand-new hire)', async () => {
       const h = makeHarness({
         docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
-        ownerHasTransaction: true,
         honorSoftDeleteFilter: true,
       })
       const result = await h.service.getDownloadUrl(ACCOUNTANT, 'd1')
       expect(result.url).toBeTruthy()
-    })
-
-    it('ACCOUNTANT CANNOT download SCAN of an owner with zero transactions → 404', async () => {
-      const h = makeHarness({
-        docs: [{ id: 'd1', ownerId: JUNIOR.id, category: 'SCAN' }],
-        ownerHasTransaction: false,
-        honorSoftDeleteFilter: true,
-      })
-      await expect(h.service.getDownloadUrl(ACCOUNTANT, 'd1')).rejects.toBeInstanceOf(
-        NotFoundException,
-      )
     })
   })
 
