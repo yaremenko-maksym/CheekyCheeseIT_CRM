@@ -36,10 +36,7 @@ import {
   settlementConsumesTransfer,
   TX_HASH_ALREADY_CONSUMED_MESSAGE,
 } from './onchain-tx'
-import {
-  assertTransactionVisible,
-  assertTransactionNotDeleted,
-} from './transaction-visibility.util'
+import { assertFoundAndVisible } from './transaction-visibility.util'
 
 /**
  * task-company-account-backend — the shared company USDT account.
@@ -426,15 +423,19 @@ export class CompanyAccountService {
    * PENDING→PAID and persist the resolved amount. Returns the light polling DTO.
    */
   async getDepositStatus(id: string, currentUser: SessionUser): Promise<DepositStatusDto> {
-    const tx = await this.db.db.query.transactions.findFirst({
-      where: and(eq(transactions.id, id), eq(transactions.type, 'COMPANY_DEPOSIT')),
-    })
-    if (!tx) throw new NotFoundException('Депозит не найден')
-    // security-review PR #456 (HIGH-2): MUST run before the owner/privileged
-    // check below — an owner whose deposit was soft-deleted must get the SAME
-    // 404 a stranger would, not a normal 200 with amount/status. Without it a
-    // deleted deposit's own author kept full read access forever.
-    assertTransactionVisible(tx, currentUser)
+    // security-review PR #456 round 2: fetch + visibility guard fused into
+    // ONE expression via `assertFoundAndVisible` — round 1 had them as two
+    // separate statements, and the round-2 review deleted just the guard
+    // line (leaving the fetch and an explanatory comment behind) to prove no
+    // scanner would notice. There is no longer a line to delete that removes
+    // only the guard: the assignment IS the guard. An owner whose deposit
+    // was soft-deleted gets the SAME 404 a stranger would, not a normal 200.
+    const tx = assertFoundAndVisible(
+      await this.db.db.query.transactions.findFirst({
+        where: and(eq(transactions.id, id), eq(transactions.type, 'COMPANY_DEPOSIT')),
+      }),
+      currentUser,
+    )
 
     const isOwner = tx.senderId === currentUser.id
     const isPrivileged = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
@@ -455,14 +456,27 @@ export class CompanyAccountService {
       }
     }
 
-    // security-review PR #456 (HIGH-2): only ADMIN/ACCOUNTANT can reach this
-    // point with a deleted row (assertTransactionVisible above already 404'd
-    // everyone else). Block the re-poll from progressing a deleted PENDING
-    // deposit to PAID — ADMIN must restore it first, same invariant as every
-    // other write endpoint on `transactions`.
-    assertTransactionNotDeleted(tx)
+    // security-review PR #456 round 2 (MED): a deleted PENDING deposit is
+    // only reachable here by ADMIN/ACCOUNTANT (assertFoundAndVisible above
+    // already 404'd everyone else) — and the owner requirement is "видны
+    // админу/бухгалтеру", i.e. they must get a REAL status back, not an
+    // error. Round 1 threw `assertTransactionNotDeleted` unconditionally
+    // here, which put a WRITE gate on a READ endpoint — ADMIN/ACCOUNTANT got
+    // a 400 instead of a status. Fixed: only the MUTATING re-poll/flip is
+    // skipped for a deleted row; the read itself always succeeds. No live
+    // Etherscan call for a deleted row (nothing to progress toward), so
+    // `confirmations` reports 0 — restore the deposit first to resume
+    // live tracking.
+    if (tx.deletedAt) {
+      return {
+        status: 'PENDING',
+        confirmations: 0,
+        threshold,
+        amountUsdt: parseFloat(tx.amount),
+      }
+    }
 
-    // PENDING → re-verify live.
+    // PENDING (not deleted) → re-verify live.
     const verification = await this.etherscan.verifyDeposit(
       tx.txHash ?? '',
       account.walletAddress,
