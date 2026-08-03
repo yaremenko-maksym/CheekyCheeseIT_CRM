@@ -53,9 +53,17 @@ on:
   push:
     branches: [main]
   schedule:
-    # Sunday ~03:00 UTC — low-traffic window, mirrors the pg-backup.sh cron
-    # (also 03:00 UTC daily, see docs/runbooks/deployment.md §8) so the two
-    # never compete for VPS resources during the same minute.
+    # Sunday ~03:00 UTC — low-traffic window, chosen to match the
+    # pg-backup.sh cron's recommended schedule (docs/runbooks/deployment.md
+    # §8 — daily 03:00 UTC) so the two would never compete for VPS resources
+    # during the same minute IF that cron is installed. NOTE (found
+    # 2026-08-03, task-infra-prod-backup-safety-net): that cron is a MANUAL,
+    # owner-installed step (§8) — this pipeline does not install it and, until
+    # this PR, never verified it was actually running either; prod had been
+    # deploying with zero DB backups since the very first deploy. Whether a
+    # fresh backup is actually landing is now checked on every `deploy` job
+    # run (see the "Check backup freshness" step near the end of that job) —
+    # see docs/runbooks/deployment.md §8.1.
     - cron: '0 3 * * 0'
 
 concurrency:
@@ -96,10 +104,23 @@ env:
   # rationale and nginx/snippets/origin-gate.conf for why a naive gate is
   # dangerous enough to warrant this staged rollout in the first place.
   ORIGIN_GATE_MODE: observe
+  # task-infra-prod-backup-safety-net (2026-08-03): the name of the R2/S3
+  # bucket pg-backup.sh (docs/runbooks/deployment.md §8) uploads nightly PG
+  # dumps into. A plain non-secret CONSTANT (bucket name), same class as
+  # CRM_CSP_MODE/ORIGIN_GATE_MODE above — NOT a GitHub secret, and
+  # deliberately NOT the same value as the `S3_BUCKET` secret used elsewhere
+  # in this workflow (that one is `crm-documents-prod`, the DOCUMENTS bucket
+  # — see the write-env job). The `deploy` job's "Check backup freshness"
+  # step reads this to know which bucket to look in; the R2 API token behind
+  # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY is scoped to BOTH buckets on
+  # purpose (docs/runbooks/deployment.md §1.5), so no separate credentials
+  # are needed here.
+  BACKUP_S3_BUCKET: crm-backups
 
 # Default-deny: every job inherits read-only `contents` and nothing else.
-# Jobs that need more (build → packages:write, deploy → packages:read) override
-# this explicitly. Least-privilege for the GITHUB_TOKEN across the whole deploy.
+# Jobs that need more (build → packages:write, deploy → packages:read +
+# issues:write) override this explicitly. Least-privilege for the
+# GITHUB_TOKEN across the whole deploy.
 permissions:
   contents: read
 
@@ -464,7 +485,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql,scripts/devops/check-security-headers.sh,scripts/devops/check-nginx-perimeter.sh'
+          source: 'docker-compose.prod.yml,docker-compose.ghcr.yml,apps/api/drizzle/manual/2026-06-29_company_account_requisites_markdown.sql,apps/api/drizzle/manual/2026-07-04_audit_hardening_constraints.sql,apps/api/drizzle/manual/2026-07-11_drop_usr_record.sql,apps/api/drizzle/manual/2026-07-13_payment_type_and_drop_pending_payout.sql,apps/api/drizzle/manual/2026-07-14_usdt_income_idempotency_index.sql,apps/api/drizzle/manual/2026-07-14_transaction_audit_log.sql,apps/api/drizzle/manual/2026-07-22_vacancies.sql,apps/api/drizzle/manual/2026-07-25_vacancy_i18n_seo.sql,scripts/devops/check-security-headers.sh,scripts/devops/check-nginx-perimeter.sh,scripts/devops/pg-backup.sh'
           target: '/opt/crm'
           # scp-action preserves the source directory tree under target.
           # docker-compose.prod.yml → /opt/crm/docker-compose.prod.yml
@@ -490,8 +511,7 @@ jobs:
           #   test below runs this ON THE VPS via SSH — same 127.0.0.1-through-
           #   nginx-directly pattern as the "landing origin health check" a few
           #   steps below it, not the VPS filesystem's normal state, which is
-          #   compose files + DDL only. This is the ONLY reason a script file
-          #   is in this SCP list at all.)
+          #   compose files + DDL only.)
           # scripts/devops/check-nginx-perimeter.sh → /opt/crm/scripts/devops/check-nginx-perimeter.sh
           #   (security audit 2026-07-27, MED-1/MED-5: same rationale/pattern as
           #   check-security-headers.sh immediately above — verifies nginx's
@@ -499,6 +519,16 @@ jobs:
           #   so a future config edit that silently reintroduces the 1 MB
           #   default (or drops the unmatched-Host catch-all) fails the deploy
           #   instead of shipping unnoticed.)
+          # scripts/devops/pg-backup.sh → /opt/crm/scripts/devops/pg-backup.sh
+          #   (task-infra-prod-backup-safety-net, 2026-08-03: the owner found this
+          #   file had NEVER been copied to the live VPS — combined with no cron
+          #   entry and no /etc/crm-backup.env, prod had zero DB backups since the
+          #   first deploy. Unlike the two checks above, this script is NOT
+          #   invoked by this workflow itself — it only needs to LAND on the VPS
+          #   so the owner's manually-installed cron (docs/runbooks/deployment.md
+          #   §8) has something to run. The `deploy` job re-asserts its execute
+          #   bit on every run (see the "Ensuring pg-backup.sh is executable" step)
+          #   as a defense-in-depth belt to scp-action's own mode-preservation.)
           # The deploy step reads from those full paths via /opt/crm.
           #
           # incident (task-infra-vacancy-i18n-ddl, 2026-07-25): PR #422 shipped
@@ -845,9 +875,16 @@ jobs:
     needs: [build, write-env, copy-compose]
     environment: production
     # Pulls images from GHCR on the VPS → needs packages:read (not write).
+    # issues:write (task-infra-prod-backup-safety-net, 2026-08-03) is for the
+    # backup-freshness alert steps near the end of this job — added HERE
+    # rather than as a new job (golden rule: no extra jobs) because this job
+    # already holds VPS SSH + prod DB access via `secrets.VPS_SSH_KEY`, a far
+    # higher privilege than opening a GitHub issue; widening this job's scope
+    # by issues:write costs nothing extra from a blast-radius standpoint.
     permissions:
       contents: read
       packages: read
+      issues: write
 
     steps:
       - name: Pull, up, migrate, health-check via SSH
@@ -897,6 +934,21 @@ jobs:
               -f docker-compose.ghcr.yml \
               --env-file .env.production \
               pull api nginx
+
+            # task-infra-prod-backup-safety-net (2026-08-03): re-assert the execute bit on
+            # every deploy — belt-and-braces to scp-action's own mode-preservation (git
+            # already tracks this file as 100755, and scp-action's copy in the copy-compose
+            # job above should carry that through, but this makes it explicit and self-
+            # healing rather than relying on that assumption silently holding forever). Only
+            # a ::warning (not fatal): the owner's cron install (docs/runbooks/deployment.md
+            # §8) is what actually matters, and a missing file here is caught loudly anyway
+            # by the "Check backup freshness" step near the end of this job.
+            echo "==> Ensuring pg-backup.sh is executable"
+            if [ -f /opt/crm/scripts/devops/pg-backup.sh ]; then
+              chmod +x /opt/crm/scripts/devops/pg-backup.sh
+            else
+              echo "::warning::pg-backup.sh not found at /opt/crm/scripts/devops/pg-backup.sh — copy-compose job's scp step should have placed it there."
+            fi
 
             # ── Step 1: ensure postgres + redis are up (persistent — usually already running) ──
             # api and nginx are started AFTER DDL is applied (see Step 3).
@@ -1920,3 +1972,70 @@ jobs:
             https://cheekycheese.tech/es/careers/ \
             https://cheekycheese.tech/pt/ \
             https://cheekycheese.tech/pt/careers/
+
+      # ── 6. Backup freshness signal (task-infra-prod-backup-safety-net, 2026-08-03) ──
+      # The owner found on the LIVE VPS that none of the three prerequisites for
+      # automated backups existed — no /etc/crm-backup.env, no crontab entry, and (before
+      # this same PR's copy-compose change, Step 2 above the "pg-backup.sh" comment) not
+      # even the script file itself had ever reached the server. Prod had been running with
+      # ZERO backups since the very first deploy, and nothing in the pipeline ever noticed.
+      # These steps close the "nobody would know" half of that gap.
+      #
+      # Runs on THIS runner (not via SSH) — the R2 credentials below are the SAME
+      # AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY/S3_ENDPOINT/S3_REGION secrets already used
+      # for the documents bucket in the write-env job above; the R2 API token is scoped to
+      # BOTH buckets on purpose (docs/runbooks/deployment.md §1.5), so no VPS access or new
+      # secret is needed just to LIST objects in `crm-backups`.
+      #
+      # Deliberately NOT a deploy-failing check: whether the nightly cron on the VPS
+      # produced a fresh backup is completely independent of whether THIS deploy run
+      # succeeded — `continue-on-error: true` on the check step keeps this job green either
+      # way. Failing the job here would misreport "Deploy is broken" to deploy-alert.yml's
+      # separate red-Deploy alert and blur two signals the owner explicitly wants to stay
+      # distinct. The GitHub issue opened/closed below (reusing the EXACT SAME
+      # post-merge-alert.sh / resolve-alert-channel.sh mechanic already built for a red
+      # `Deploy` — KIND switch extended with `backup`, see that script's header — not a
+      # second alert path) is the actual, separate signal.
+      #
+      # `if: always()` on this checkout (and on every step below it) — same independence
+      # argument: the earlier "Checkout (for IndexNow ping script)" step above has NO
+      # `if:`, so it (and everything after it, including backup-freshness) would be SKIPPED
+      # if the main "Pull, up, migrate, health-check via SSH" step failed. A failed deploy
+      # is exactly a moment the owner would still want to know whether backups are healthy,
+      # so this block gets its own always-run checkout rather than depending on that one.
+      - name: Checkout (for backup-freshness + alert scripts)
+        if: always()
+        uses: actions/checkout@v4
+
+      - name: Check backup freshness (crm-backups, non-fatal signal)
+        id: backup_freshness
+        if: always()
+        continue-on-error: true
+        env:
+          S3_BUCKET: ${{ env.BACKUP_S3_BUCKET }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          S3_ENDPOINT: ${{ secrets.S3_ENDPOINT }}
+          S3_REGION: ${{ secrets.S3_REGION }}
+        run: scripts/devops/check-backup-freshness.sh
+
+      - name: Resolve alert channel (backup)
+        id: backup_channel
+        if: always()
+        env:
+          PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+          PUBLIC_REPO: ${{ github.repository }}
+          PRIVATE_REPO: yaremenko-maksym/cheekycheese-telemetry
+        run: scripts/devops/resolve-alert-channel.sh
+
+      - name: Open / update / close the backup-staleness alert issue
+        if: always()
+        env:
+          GH_TOKEN: ${{ steps.backup_channel.outputs.use_pat == 'true' && secrets.TELEMETRY_ISSUES_PAT || github.token }}
+          ALERT_REPO: ${{ steps.backup_channel.outputs.repo }}
+          RESULT: ${{ steps.backup_freshness.outcome == 'success' && 'success' || 'failure' }}
+          FAILED_LEGS: ${{ steps.backup_freshness.outputs.detail }}
+          COMMIT_SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          KIND: backup
+        run: scripts/devops/post-merge-alert.sh

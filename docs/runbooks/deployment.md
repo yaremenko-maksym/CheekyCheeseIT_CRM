@@ -538,8 +538,28 @@ ON CONFLICT (email) DO NOTHING;
 
 ## 8. Автоматические бэкапы PG
 
+> **Инцидент (обнаружено 2026-08-03):** на живом VPS не было НИ ОДНОГО из
+> трёх условий ниже — ни `/etc/crm-backup.env`, ни crontab-строки, ни даже
+> самого файла `pg-backup.sh` (он никогда не копировался на сервер). Прод с
+> финансами, контрактами и персональными данными работал без единой
+> резервной копии с самого первого деплоя, и ничто это не обнаруживало.
+> `task-infra-prod-backup-safety-net` закрывает файловую часть автоматически
+> (§8, шаг 1 ниже) и добавляет постоянный сигнал, если бэкапы перестанут
+> появляться (§8.1) — но установка cron и секретов ниже **по-прежнему
+> ручная**, и её обязательно довести до конца.
+
 Скрипт: `scripts/devops/pg-backup.sh`.
 Расписание: ежедневно в 3:00 UTC.
+
+**Шаг 1 (автоматизирован, ничего делать не нужно).** Каждый `Deploy`-прогон
+копирует `scripts/devops/pg-backup.sh` на VPS в
+`/opt/crm/scripts/devops/pg-backup.sh` (тот же `copy-compose`-механизм, что
+уже используется для `check-security-headers.sh`/`check-nginx-perimeter.sh`)
+и на каждый прогон переустанавливает бит исполнения (`chmod +x`, шаг
+"Ensuring pg-backup.sh is executable" в `deploy` job) — так что сам файл на
+сервере теперь гарантированно свежий и исполняемый после любого деплоя.
+
+**Шаг 2 (ручной, делает владелец — секреты и SSH-доступ на CI не выносятся).**
 
 ```bash
 # На VPS — установить cron:
@@ -571,7 +591,42 @@ chmod 600 /etc/crm-backup.env
 
 Зависимость: `aws` CLI v2 — установить по инструкции в заголовке скрипта.
 
+**После установки cron — обязательно прогнать `pg-backup.sh` вручную один
+раз** (`source /etc/crm-backup.env && /opt/crm/scripts/devops/pg-backup.sh`)
+и убедиться, что объект появился в бакете (см. §8.1) — не полагаться только
+на ожидание следующего 03:00 UTC. Именно этот шаг раньше пропускали и
+никогда не замечали.
+
 **Restore:** процедура восстановления описана в комментарии в конце `pg-backup.sh`.
+
+### 8.1 Как убедиться, что бэкапы реально идут (не просто настроены)
+
+Раньше это состояние (настроен ли cron и реально ли он отрабатывает) ничем
+не проверялось — отсюда инцидент выше. Теперь есть два независимых способа
+проверить:
+
+- **Автоматический сигнал (task-infra-prod-backup-safety-net, 2026-08-03).**
+  `deploy.yml`'s `deploy` job на каждый прогон (после любого мержа в `main` +
+  еженедельный ребилд по воскресеньям, см. `schedule:` в `deploy.yml`) гоняет
+  `scripts/devops/check-backup-freshness.sh` — проверяет, появился ли в
+  бакете `crm-backups` объект (`backups/crm-db-*.sql.gz`) не старше 24
+  часов. Если нет — открывает/комментирует GitHub issue (label
+  `backup-stale`) **той же** механикой, что уже используется для красного
+  `Deploy` (`scripts/devops/post-merge-alert.sh`,
+  `scripts/devops/resolve-alert-channel.sh`, `KIND=backup`) — приватный
+  телеметрийный репозиторий, либо этот репозиторий как fallback, если PAT
+  недоступен. Issue закрывается автоматически, когда следующая проверка
+  находит свежую копию. Эта проверка **не роняет сам деплой** (см. комментарий
+  в `deploy.yml` рядом с шагом "Check backup freshness") — свежесть бэкапа
+  никак не связана с тем, успешно ли прошла ЭТА выкатка, поэтому это
+  отдельный операционный сигнал, а не гейт мержа.
+- **Ручная проверка в любой момент:**
+  ```bash
+  aws s3 ls s3://crm-backups/backups/ --region auto \
+    --endpoint-url https://<account-id>.r2.cloudflarestorage.com
+  ```
+  Самый свежий объект по времени (`crm-db-<timestamp>.sql.gz`) не должен
+  быть старше суток.
 
 ---
 
@@ -742,6 +797,9 @@ status check** (branch protection без required checks — см. `devops.md` "
 
 - Drizzle migrations внутри prod API-контейнера (§5) — `drizzle-kit` не в prod-образе.
 - `pg-backup.sh` — требует aws CLI и работающий R2/S3 бакет.
+- `scripts/devops/check-backup-freshness.sh` — pass/fail-ветки проверены локально через
+  `FAKE_MODE=1` (см. `task-infra-prod-backup-safety-net`), но НЕ против реального бакета
+  `crm-backups` — R2-бакет ещё не создан владельцем (§1.5).
 - TLS / Cloudflare Full (strict) handshake с origin-cert на nginx.
 - Реальный smoke-test через `https://app.cheekycheese.tech/api/health`.
 - `set_real_ip_from` CF CIDR — корректность real-IP restore под Cloudflare proxied.

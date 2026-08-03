@@ -4,13 +4,17 @@
 #
 # Called by the `post_merge_alert` job in .github/workflows/ci.yml after a
 # post-merge validation run of `main` finishes (KIND=ci, the original/default
-# caller), AND by the `alert` job in .github/workflows/deploy-alert.yml after
+# caller), by the `alert` job in .github/workflows/deploy-alert.yml after
 # a `Deploy` workflow run completes (KIND=deploy, task-infra-silent-failures
 # 2026-08-01 — Deploy failed 2026-07-27 21:22 and stayed red until 2026-07-31
-# with nobody alerted). Same channel, same open/comment/close mechanic, same
-# script — only the issue title/body text and the dedup LABEL differ, kept as
-# an explicit `KIND` switch below rather than as two copy-pasted scripts, so
-# the two alert paths cannot silently drift apart.
+# with nobody alerted), AND by the `deploy` job's backup-freshness steps in
+# .github/workflows/deploy.yml (KIND=backup, task-infra-prod-backup-safety-net
+# 2026-08-03 — the owner found prod had been running with ZERO DB backups
+# since the first deploy, and nothing ever noticed either). Same channel, same
+# open/comment/close mechanic, same script — only the issue title/body text
+# and the dedup LABEL differ per KIND, kept as an explicit switch below rather
+# than as separate copy-pasted scripts, so the alert paths cannot silently
+# drift apart.
 #
 # Extracted from the workflow so the alert logic can be dry-run locally
 # (DRY_RUN=1) instead of being debugged by pushing commits — see
@@ -39,28 +43,30 @@
 #   COMMIT_SHA   the main commit that was validated / deployed
 #   RUN_URL      link to the Actions run
 # Optional env:
-#   KIND           ci (default) | deploy — selects title/body text below
-#   FAILED_LEGS    human list of failed jobs, e.g. "quality, e2e" or "deploy"
+#   KIND           ci (default) | deploy | backup — selects title/body text below
+#   FAILED_LEGS    human list of failed jobs, e.g. "quality, e2e" or "deploy";
+#                   for KIND=backup, the one-line freshness-check detail
+#                   (scripts/devops/check-backup-freshness.sh's `detail` output)
 #   COMMIT_SUBJECT commit subject line (untrusted input — never eval'd)
 #   LABEL          issue label (default: ci-main-broken for KIND=ci,
-#                   deploy-broken for KIND=deploy)
+#                   deploy-broken for KIND=deploy, backup-stale for KIND=backup)
 #   DRY_RUN        1 → print the gh commands instead of running them
 set -euo pipefail
 
 KIND="${KIND:-ci}"
 case "$KIND" in
-  ci | deploy) ;;
+  ci | deploy | backup) ;;
   *)
-    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy) — refusing to guess which alert text to use" >&2
+    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup) — refusing to guess which alert text to use" >&2
     exit 2
     ;;
 esac
 
-if [ "$KIND" = "deploy" ]; then
-  LABEL="${LABEL:-deploy-broken}"
-else
-  LABEL="${LABEL:-ci-main-broken}"
-fi
+case "$KIND" in
+  deploy) LABEL="${LABEL:-deploy-broken}" ;;
+  backup) LABEL="${LABEL:-backup-stale}" ;;
+  *) LABEL="${LABEL:-ci-main-broken}" ;;
+esac
 DRY_RUN="${DRY_RUN:-0}"
 FAILED_LEGS="${FAILED_LEGS:-unknown}"
 COMMIT_SUBJECT="${COMMIT_SUBJECT:-}"
@@ -96,11 +102,11 @@ esac
 # Label may not exist yet on a fresh alert repo. Non-fatal: if the token lacks
 # label-create rights the subsequent issue create/list still works as long as
 # the label already exists there.
-if [ "$KIND" = "deploy" ]; then
-  LABEL_DESC="Deploy workflow red after a merge to main"
-else
-  LABEL_DESC="CI red on main after merge"
-fi
+case "$KIND" in
+  deploy) LABEL_DESC="Deploy workflow red after a merge to main" ;;
+  backup) LABEL_DESC="Prod DB backup missing or stale (> threshold) after a Deploy run" ;;
+  *) LABEL_DESC="CI red on main after merge" ;;
+esac
 run_gh label create "$LABEL" --repo "$ALERT_REPO" \
   --color "b60205" --description "$LABEL_DESC" 2>/dev/null || true
 
@@ -196,6 +202,24 @@ if [ "$RESULT" = "failure" ]; then
       printf '2. Починить и перезапустить (`gh workflow run deploy.yml --ref main`), либо хотфикс-PR.\n'
       printf '3. Issue закроется автоматически, когда следующий `Deploy` прогон станет зелёным.\n'
     )
+  elif [ "$KIND" = "backup" ]; then
+    BODY=$(
+      printf '## Нет свежей резервной копии БД (`crm-backups`)\n\n'
+      printf '**Commit:** `%s`\n' "$COMMIT_SHA"
+      [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
+      printf '**Что обнаружено:** %s\n' "$FAILED_LEGS"
+      printf '**Run:** %s\n\n' "$RUN_URL"
+      printf 'scripts/devops/check-backup-freshness.sh не нашёл свежий объект в бакете\n'
+      printf '`crm-backups` после этого деплоя.\n\n'
+      printf '> ⚠️ Пока это не починено, потеря сервера означает ПОЛНУЮ потерю данных\n'
+      printf '> (финансы, контракты, персональные данные) — резервных копий нет.\n\n'
+      printf '## Что делать\n\n'
+      printf '1. Зайти на VPS, проверить `crontab -l`, `/etc/crm-backup.env` и\n'
+      printf '   `/opt/crm/scripts/devops/pg-backup.sh` — см. `docs/runbooks/deployment.md` §8.\n'
+      printf '2. Прогнать `pg-backup.sh` вручную и убедиться, что новый объект появился в бакете.\n'
+      printf '3. Issue закроется автоматически, когда следующая проверка после `Deploy` найдёт\n'
+      printf '   свежую резервную копию.\n'
+    )
   else
     BODY=$(
       printf '## CI упал на `main` после мержа\n\n'
@@ -220,11 +244,11 @@ if [ "$RESULT" = "failure" ]; then
     )
   fi
 
-  if [ "$KIND" = "deploy" ]; then
-    TITLE="🚨 Деплой упал на прод ($SHORT_SHA)"
-  else
-    TITLE="🚨 CI красный на main ($SHORT_SHA)"
-  fi
+  case "$KIND" in
+    deploy) TITLE="🚨 Деплой упал на прод ($SHORT_SHA)" ;;
+    backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
+    *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
+  esac
 
   if [ -z "$OPEN" ]; then
     run_gh issue create --repo "$ALERT_REPO" \
@@ -241,11 +265,11 @@ fi
 
 # RESULT=success
 if [ -n "$OPEN" ]; then
-  if [ "$KIND" = "deploy" ]; then
-    RECOVERY_COMMENT="✅ Деплой на прод снова прошёл успешно (commit \`$COMMIT_SHA\`). Run: $RUN_URL"
-  else
-    RECOVERY_COMMENT="✅ post-merge CI на \`main\` снова зелёный (commit \`$COMMIT_SHA\`). Run: $RUN_URL"
-  fi
+  case "$KIND" in
+    deploy) RECOVERY_COMMENT="✅ Деплой на прод снова прошёл успешно (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
+    backup) RECOVERY_COMMENT="✅ В бакете \`crm-backups\` снова есть свежая резервная копия (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
+    *) RECOVERY_COMMENT="✅ post-merge CI на \`main\` снова зелёный (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
+  esac
   run_gh issue close "$OPEN" --repo "$ALERT_REPO" --comment "$RECOVERY_COMMENT"
   echo "post-merge-alert: closed recovered alert issue #$OPEN"
 else
