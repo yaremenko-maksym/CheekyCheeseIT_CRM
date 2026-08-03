@@ -784,6 +784,25 @@ export const restoreTransactionSchema = z.object({
 })
 export type RestoreTransactionDto = z.infer<typeof restoreTransactionSchema>
 
+// security-review PR #456 (MED-3): `transaction_audit_log` was write-only —
+// every DELETE/RESTORE/VALIDATE/REJECT/CREATE/AMOUNT_OR_RECEIVER_CHANGE/
+// ATTACH/REPLACE entry was journaled but nothing in the API ever read it back.
+// GET /api/transactions/:id/audit-log (ADMIN only) surfaces the journal for a
+// single transaction — `actorName` is resolved server-side (a raw `actorId`
+// UUID is not user-facing) and falls back to a placeholder when the actor row
+// no longer exists (`ON DELETE SET NULL` on `transaction_audit_log.actor_id`).
+export const transactionAuditLogEntrySchema = z.object({
+  id: z.string().uuid(),
+  action: z.string(),
+  actorId: z.string().uuid().nullable(),
+  actorName: z.string(),
+  metadata: z.record(z.string(), z.unknown()),
+  createdAt: z.string(),
+})
+export type TransactionAuditLogEntryDto = z.infer<typeof transactionAuditLogEntrySchema>
+
+export const transactionAuditLogListSchema = z.array(transactionAuditLogEntrySchema)
+
 // Create payout request (senior bundles their VALIDATED incomes)
 export const createPayoutRequestSchema = z.object({
   transactionIds: z.array(z.string().uuid()).min(1),

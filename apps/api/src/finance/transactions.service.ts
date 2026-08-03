@@ -24,6 +24,7 @@ import type {
   IncomeComplianceRole,
   ManualPayoutMethod,
   CurrencyEnum,
+  TransactionAuditLogEntryDto,
 } from '@crm/shared'
 import { SALARY_ELIGIBLE_ROLES, COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -2894,6 +2895,60 @@ export class TransactionsService {
     })
 
     return this.findOne(id, currentUser)
+  }
+
+  // ── Audit log (read) ──────────────────────────────────────────────────────
+  //
+  // security-review PR #456 (MED-3): `transaction_audit_log` was write-only —
+  // every DELETE/RESTORE/VALIDATE/REJECT/CREATE/AMOUNT_OR_RECEIVER_CHANGE/
+  // ATTACH/REPLACE/ONCHAIN_* entry landed in the table, but nothing in the API
+  // ever read it back. "Мы пишем то, что нельзя посмотреть." ADMIN-only (the
+  // journal can name any user in the system as `actorId`, including under
+  // impersonation — not a surface for ACCOUNTANT). A full audit-log UI page is
+  // out of scope for a security fix; this is the read endpoint that makes the
+  // journal inspectable at all (e.g. via a REST client / a future admin panel).
+
+  async getTransactionAuditLog(
+    id: string,
+    currentUser: SessionUser,
+  ): Promise<TransactionAuditLogEntryDto[]> {
+    if (currentUser.role !== 'ADMIN') throw new ForbiddenException()
+
+    const tx = await this.db.db.query.transactions.findFirst({
+      where: eq(transactions.id, id),
+      columns: { deletedAt: true },
+    })
+    if (!tx) throw new NotFoundException('Transaction not found')
+    // No-op for ADMIN today (always privileged) — kept for the same reason
+    // every other read in this file routes through the shared guard: a
+    // future role added to this endpoint must not accidentally see the
+    // journal of a transaction it cannot otherwise see.
+    assertTransactionVisible(tx, currentUser)
+
+    const rows = await this.db.db
+      .select({
+        id: transactionAuditLog.id,
+        action: transactionAuditLog.action,
+        actorId: transactionAuditLog.actorId,
+        actorName: users.displayName,
+        metadata: transactionAuditLog.metadata,
+        createdAt: transactionAuditLog.createdAt,
+      })
+      .from(transactionAuditLog)
+      .leftJoin(users, eq(users.id, transactionAuditLog.actorId))
+      .where(eq(transactionAuditLog.targetId, id))
+      .orderBy(desc(transactionAuditLog.createdAt))
+
+    return rows.map((r) => ({
+      id: r.id,
+      action: r.action,
+      actorId: r.actorId,
+      // `actorId` carries `ON DELETE SET NULL` — a hard-deleted user must not
+      // make their own past actions unreadable.
+      actorName: r.actorName ?? '— (пользователь удалён)',
+      metadata: r.metadata as Record<string, unknown>,
+      createdAt: r.createdAt.toISOString(),
+    }))
   }
 
   // ── Validate / Reject SENIOR_INCOME ──────────────────────────────────────

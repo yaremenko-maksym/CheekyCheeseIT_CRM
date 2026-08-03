@@ -316,6 +316,14 @@ export class TransactionsController {
     const data = restoreTransactionSchema.parse(body)
     return this.svc.restoreTransaction(id, data.reason, user)
   }
+
+  // security-review PR #456 (MED-3): read side of `transaction_audit_log` —
+  // ADMIN only. See TransactionsService.getTransactionAuditLog's doc for why.
+  @Get(':id/audit-log')
+  @Roles('ADMIN')
+  getAuditLog(@Param('id') id: string, @CurrentUser() user: SessionUser) {
+    return this.svc.getTransactionAuditLog(id, user)
+  }
 }
 
 @Controller('payout-requests')
