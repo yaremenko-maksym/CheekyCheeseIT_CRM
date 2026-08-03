@@ -75,6 +75,37 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_transactions_active_created_at
   ON transactions (created_at)
   WHERE deleted_at IS NULL;
 
+-- security-review PR #456 round 2 (MED-4): `CONCURRENTLY` is an operational
+-- trap `IF NOT EXISTS` alone does not cover. If a CONCURRENTLY build fails
+-- partway (lock timeout, deploy killed mid-run, disk full, …) Postgres does
+-- NOT roll the index away — it leaves it behind marked INVALID (unusable by
+-- the planner, but still costing every write its upkeep). `IF NOT EXISTS`
+-- matches by NAME only, not validity, so every future re-run of this
+-- idempotent script sees the name already taken and silently skips it —
+-- forever. A catalog check (`SELECT indexname FROM pg_indexes`) would report
+-- the index "present", hiding that it is dead weight and that the
+-- `WHERE deleted_at IS NULL` predicate every hot read relies on is not
+-- actually accelerated. Fail loudly instead: this script already runs with
+-- `-v ON_ERROR_STOP=1`, so a RAISE EXCEPTION here aborts the deploy with an
+-- actionable message rather than shipping a silently-broken index.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM pg_class c
+    JOIN pg_index i ON i.indexrelid = c.oid
+    WHERE c.relname = 'idx_transactions_active_created_at'
+      AND NOT i.indisvalid
+  ) THEN
+    RAISE EXCEPTION
+      'idx_transactions_active_created_at exists but is INVALID — a previous '
+      'CREATE INDEX CONCURRENTLY run failed partway, and CONCURRENTLY IF NOT '
+      'EXISTS will never retry it (the name is already taken). Fix manually, '
+      'then re-run this script: DROP INDEX CONCURRENTLY IF EXISTS '
+      'idx_transactions_active_created_at;';
+  END IF;
+END $$;
+
 -- =============================================================================
 -- VERIFY (after applying):
 --   SELECT column_name FROM information_schema.columns
