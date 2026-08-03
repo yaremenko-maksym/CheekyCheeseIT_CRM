@@ -795,6 +795,49 @@ jobs:
           # apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-01_file_storage_hardening.sql
 
+      # ── non_deleted_transactions VIEW DDL — GUARDED, same reason as the blocks above ──
+      # task-soft-delete-and-money-audit (PR #456, feature/soft-delete-money-audit),
+      # security-review round 2 (verdict BLOCK on 4834458611/4840207923): the round-1 guard
+      # (guard FUNCTIONS + a text-scanning regression spec) was defeated 7/7 by round 2 — an
+      # unguarded second read, a substring match inside a COMMENT, joins/aliases the scanner
+      # never enumerated, and the guard call itself silently deleted from one call site while
+      # its explaining comment stayed behind. This view is the "eliminate, don't detect" fix:
+      # `SELECT * FROM non_deleted_transactions` structurally cannot return a soft-deleted row
+      # (no WHERE clause to omit — the filter IS the view's FROM target), and every list/
+      # aggregate/join read in three modules now goes through it instead of the raw table.
+      # DevOps zone-of-write excludes apps/api/**, so this wiring lands separately from the
+      # Coder branch that creates the file — same guarded copy + notice-skip pattern as every
+      # block above.
+      #
+      # ORDER MATTERS (unlike transaction soft-delete vs file storage hardening above, which
+      # are order-independent of each other): this view's `SELECT *` includes `deleted_at`,
+      # a column that only exists once 2026-08-01_transaction_soft_delete.sql has already run
+      # against this database. Applying the view before that migration fails loudly
+      # (`column "deleted_at" does not exist`) — verified empirically below (see the deploy
+      # job's matching apply step, placed AFTER Step 2n).
+      - name: Check for non_deleted_transactions view DDL file (guard until PR #456 merges)
+        id: non-deleted-tx-view-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql not found in checkout — task-soft-delete-and-money-audit (PR #456) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy non_deleted_transactions view DDL via SCP (only if present)
+        if: steps.non-deleted-tx-view-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -1479,6 +1522,55 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$FILE_STORAGE_HARDENING_FILE"
               echo "==> file storage hardening DDL applied successfully"
+            fi
+
+            # ── Step 2p: non_deleted_transactions VIEW (idempotent, GUARDED, ORDER-DEPENDENT) ──
+            # task-soft-delete-and-money-audit (PR #456), security-review round 2 (verdict
+            # BLOCK on 4834458611/4840207923): the round-1 guard-function + regression-spec
+            # defense was defeated 7/7 by round 2. This view is the "eliminate, don't detect"
+            # fix — `SELECT * FROM non_deleted_transactions` structurally cannot return a
+            # soft-deleted row (the filter IS the view's FROM target, not a WHERE a caller
+            # could omit), and list/aggregate/join reads across three modules now go through
+            # it instead of the raw `transactions` table.
+            # GUARDED for the same reason as every block above — missing file is the expected
+            # steady state until #456 merges, not an error. copy-compose job's matching "Check
+            # for non_deleted_transactions view DDL file" step mirrors this guard on the scp
+            # side.
+            #
+            # ORDER MATTERS — UNLIKE Step 2o vs Step 2n above (those two are mutually
+            # independent). This view's `SELECT *` includes `deleted_at`, which only exists
+            # once Step 2n (transaction soft-delete columns) has already run against this
+            # database — that is why this step is placed AFTER Step 2n (and, for the same
+            # "no cross-file coupling to worry about", after Step 2o too — 2o does not touch
+            # `transactions` at all). Verified EMPIRICALLY, not by reading the file (same
+            # discipline as Step 2n's CONCURRENTLY note above): ran both files against a
+            # scratch Postgres 16 container using this workflow's exact apply invocation
+            # (bare `psql -v ON_ERROR_STOP=1 < file`, no `-1`/`--single-transaction`) —
+            # soft-delete-columns-then-view succeeds cleanly and idempotently on a second
+            # full re-run of both files; view-then-soft-delete-columns fails loudly with
+            # `ERROR: column "deleted_at" does not exist` (negative control), confirming the
+            # ordering requirement is real and this placement satisfies it, not a coincidence.
+            # Idempotent: `CREATE OR REPLACE VIEW` — safe to re-run any number of times, on
+            # every deploy, forever. `CREATE OR REPLACE VIEW` cannot change an existing view's
+            # output column list (Postgres restriction) — the file's own header comment notes
+            # this is intentional: a future `transactions` column addition auto-flows through
+            # (SELECT *, re-applied on next deploy); a removed/renamed column instead fails
+            # loudly here (ON_ERROR_STOP=1) rather than silently drifting.
+            # Source: apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql
+            NON_DELETED_TX_VIEW_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql"
+
+            if [ ! -f "$NON_DELETED_TX_VIEW_FILE" ]; then
+              echo "::notice::non_deleted_transactions view DDL file not found at $NON_DELETED_TX_VIEW_FILE — task-soft-delete-and-money-audit (PR #456) has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying non_deleted_transactions view DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$NON_DELETED_TX_VIEW_FILE"
+              echo "==> non_deleted_transactions view DDL applied successfully"
             fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
