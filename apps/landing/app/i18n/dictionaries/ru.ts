@@ -5,9 +5,11 @@ import type { Dictionary } from '../dictionary'
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5). Where the
  * English leans on noun phrases, the Russian leans on verbs, because that is
  * how the language actually reads:
- * - hero: "The hard parts, shipped weekly" -> «Берём сложное, сдаём каждую
- *   неделю» (a literal rendering would give the participial calque
- *   «Сложные части, отгружаемые еженедельно»).
+ * - hero: «Сложное — наше дело» — an idiomatic Russian claim of specialism.
+ *   The English "Hard parts, every week" leads on cadence; Russian cannot
+ *   carry that cadence in the hero without either a participial calque
+ *   («Сложные части, отгружаемые еженедельно») or a line too long for the
+ *   80px hero type, so the weekly fact moved into `heroParagraph` instead.
  * - about: «без прослоек» — a Russian organisational metaphor with no
  *   English source phrase behind it.
  * - work: «Имён нет — цифры есть» — the parallel ellipsis is idiomatic in
@@ -65,10 +67,10 @@ export const ru: Dictionary = {
     seoDescription:
       'Senior-only студия разработки для международных продуктовых команд. Аутсорс и аутстаффинг в AI, EdTech и E-Commerce — рабочий результат каждую неделю.',
     heroChip: 'Аутсорс и аутстаффинг · AI · EdTech · E-Commerce',
-    heroH1Line1: 'Берём сложное,',
-    heroH1Highlight: 'сдаём каждую неделю',
+    heroH1Line1: 'Сложное —',
+    heroH1Highlight: 'наше дело',
     heroParagraph:
-      'Senior-only студия для международных продуктовых команд. Три домена, которые знаем досконально, и 4+ часа пересечения с вашим рабочим днём.',
+      'Senior-only студия для международных продуктовых команд. Три домена, которые знаем досконально, и работающий результат каждую неделю.',
     ctaStartProject: 'Начать проект',
     ctaSeeRoles: 'Открытые вакансии',
     aboutEyebrow: 'О нас',

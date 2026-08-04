@@ -4,9 +4,9 @@ import type { Dictionary } from '../dictionary'
  * `es` — Spanish (base, no region — LatAm + Spain), WRITTEN in Spanish
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
  * from `en.ts`:
- * - hero: «Lo difícil / lo hacemos nosotros» uses left dislocation with
- *   clitic doubling — a construction Spanish reaches for naturally and that
- *   no word-by-word rendering of "The hard parts, shipped weekly" produces.
+ * - hero: «Lo difícil / lo hacemos» uses left dislocation with clitic
+ *   doubling — a construction Spanish reaches for naturally and that no
+ *   word-by-word rendering of the English hero produces.
  * - work: «Sin nombres, con números» — a sin/con pairing, where the English
  *   says "Anonymised, but real".
  * - contact: «¿Tienes algo difícil entre manos?» — the idiom «entre manos»
@@ -64,13 +64,13 @@ export const es: Dictionary = {
       'Estudio de ingeniería solo-senior para empresas de producto internacionales. Outsourcing y outstaffing en AI, EdTech y E-Commerce, con entregas semanales.',
     heroChip: 'Outsourcing y outstaffing · AI · EdTech · E-Commerce',
     heroH1Line1: 'Lo difícil',
-    heroH1Highlight: 'lo hacemos nosotros',
+    heroH1Highlight: 'lo hacemos',
     heroParagraph:
-      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Tres dominios que dominamos y 4+ horas de solape con tu jornada.',
+      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Tres dominios que dominamos y algo entregable cada semana.',
     ctaStartProject: 'Iniciar un proyecto',
     ctaSeeRoles: 'Ver vacantes abiertas',
     aboutEyebrow: 'Sobre nosotros',
-    aboutH2Line1: 'Equipos pequeños,',
+    aboutH2Line1: 'Equipo pequeño,',
     aboutH2Line2: 'sin juniors',
     aboutP1:
       'Nos integramos en tu equipo de producto como una extensión suya — o asumimos el encargo de principio a fin. En ambos casos hablas con quien escribe el código, no con un gestor de cuentas puesto delante.',

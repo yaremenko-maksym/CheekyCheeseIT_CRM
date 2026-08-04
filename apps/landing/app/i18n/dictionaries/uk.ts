@@ -6,8 +6,9 @@ import type { Dictionary } from '../dictionary'
  * `ru.ts` — uk and ru are close enough that mirroring the Russian would be
  * the same calque problem one language over, so the headings use their own
  * Ukrainian idiom:
- * - hero: «Беремося за складне» (uk «братися за» = to take something on),
- *   where the Russian says «Берём сложное» and the English "The hard parts".
+ * - hero: «Складне — щотижня» keeps the delivery cadence that Ukrainian can
+ *   state in two words, where the Russian hero goes for «Сложное — наше
+ *   дело» instead. Same brief, different sentence per language.
  * - about: «без зайвих ланок» — a chain-link metaphor natural to Ukrainian
  *   (ru uses «прослойка», en "no layers").
  * - work: «Без імен, але з цифрами» — a "without X, with Y" pairing, not the
@@ -63,8 +64,8 @@ export const uk: Dictionary = {
     seoDescription:
       'Senior-only студія розробки для міжнародних продуктових команд. Аутсорс і аутстафінг в AI, EdTech і E-Commerce — робочий результат щотижня.',
     heroChip: 'Аутсорс і аутстафінг · AI · EdTech · E-Commerce',
-    heroH1Line1: 'Беремося за складне,',
-    heroH1Highlight: 'здаємо щотижня',
+    heroH1Line1: 'Складне —',
+    heroH1Highlight: 'щотижня',
     heroParagraph:
       'Senior-only студія для міжнародних продуктових команд. Три домени, які знаємо досконало, і 4+ години перетину з вашим робочим днем.',
     ctaStartProject: 'Почати проєкт',
@@ -178,7 +179,7 @@ export const uk: Dictionary = {
     ],
     processEyebrow: 'Як ми працюємо',
     processH2Line1: 'Чотири кроки,',
-    processH2Line2: 'без чорної скриньки',
+    processH2Line2: 'усе на видноті',
     processSteps: [
       {
         stepNum: '01 / Discovery',
@@ -205,9 +206,9 @@ export const uk: Dictionary = {
       },
     ],
     techStackEyebrow: 'Технології',
-    techStackH2: 'Стек за замовчуванням',
+    techStackH2: 'Наш робочий стек',
     careersEyebrow: 'Вакансії',
-    careersH2: 'Шукаємо senior-інженерів',
+    careersH2: 'Шукаємо сеньйорів',
     careersP:
       'Беремо тих, за ким уже є складні проєкти в AI, EdTech або e-commerce. Віддалено, з реальною відповідальністю з першого тижня — якщо це про вас, поговорімо.',
     viewAllRoles: 'Усі вакансії',

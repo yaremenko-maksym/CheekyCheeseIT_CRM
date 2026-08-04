@@ -67,8 +67,8 @@ export const en: Dictionary = {
     // "We build products that scale" failed the logo-swap test outright — any
     // studio on earth could sign it. This says what we take on and how often
     // we deliver, which is checkable.
-    heroH1Line1: 'The hard parts,',
-    heroH1Highlight: 'shipped weekly',
+    heroH1Line1: 'Hard parts,',
+    heroH1Highlight: 'every week',
     heroParagraph:
       'A senior-only engineering studio for international product companies. Three domains we know cold, four hours of overlap with your working day.',
     ctaStartProject: 'Start a project',
@@ -207,7 +207,7 @@ export const en: Dictionary = {
     techStackEyebrow: 'Tech stack',
     // "Tools we reach for" was filler. "Default" says these are opinionated
     // choices we start from, which is the actual message of the section.
-    techStackH2: 'The stack we default to',
+    techStackH2: 'Our default stack',
     careersEyebrow: 'Careers',
     careersH2: "We're hiring senior engineers",
     careersP:

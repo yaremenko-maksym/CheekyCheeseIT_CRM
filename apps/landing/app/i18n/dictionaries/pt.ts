@@ -4,8 +4,8 @@ import type { Dictionary } from '../dictionary'
  * `pt` — Portuguese (base, no region), WRITTEN in Portuguese
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
  * from `en.ts`:
- * - hero: «Assumimos o difícil, / semana após semana» — verb-first, with an
- *   idiom that carries the cadence better than a literal "shipped weekly".
+ * - hero: «O difícil / é conosco» — "the hard part is on us", the natural
+ *   Portuguese way to claim ownership of a problem.
  * - work: «Sem nomes, com números» — a sem/com pairing, where the English
  *   says "Anonymised, but real".
  * - contact: «Tem algo difícil no seu roadmap?» names where the reader
@@ -64,10 +64,10 @@ export const pt: Dictionary = {
     seoDescription:
       'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Outsourcing e outstaffing em AI, EdTech e E-Commerce, com entregas semanais.',
     heroChip: 'Outsourcing e outstaffing · AI · EdTech · E-Commerce',
-    heroH1Line1: 'Assumimos o difícil,',
-    heroH1Highlight: 'semana após semana',
+    heroH1Line1: 'O difícil',
+    heroH1Highlight: 'é conosco',
     heroParagraph:
-      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Três domínios que dominamos e 4+ horas de sobreposição com o seu expediente.',
+      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Três domínios que dominamos e algo entregável toda semana.',
     ctaStartProject: 'Iniciar um projeto',
     ctaSeeRoles: 'Ver vagas abertas',
     aboutEyebrow: 'Sobre nós',
