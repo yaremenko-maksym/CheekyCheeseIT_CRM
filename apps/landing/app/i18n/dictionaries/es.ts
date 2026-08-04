@@ -1,12 +1,21 @@
 import type { Dictionary } from '../dictionary'
 
 /**
- * `es` — Spanish (base, no region — LatAm + Spain, plan §1) marketing copy.
- * Own translation (task-landing-i18n.md: "копирайт: пиши сам, но
- * качественно... требует вычитки владельцем"), NOT a machine translation —
- * terminology kept in English where a literal translation reads worse
- * (senior, remote, outstaffing, MLOps, LLM/RAG, Kubernetes/Docker/AWS-style
- * proper nouns). Key set MUST mirror `en.ts` exactly (enforced by
+ * `es` — Spanish (base, no region — LatAm + Spain), WRITTEN in Spanish
+ * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
+ * from `en.ts`:
+ * - hero: «Lo difícil / lo hacemos nosotros» uses left dislocation with
+ *   clitic doubling — a construction Spanish reaches for naturally and that
+ *   no word-by-word rendering of "The hard parts, shipped weekly" produces.
+ * - work: «Sin nombres, con números» — a sin/con pairing, where the English
+ *   says "Anonymised, but real".
+ * - contact: «¿Tienes algo difícil entre manos?» — the idiom «entre manos»
+ *   has no English source phrase here.
+ *
+ * Address form: **tú** throughout (tech/startup Spanish; decided once and
+ * held everywhere, per skill `copywriting` §5). Industry terms stay in
+ * English where the Spanish equivalent reads worse (senior, stack, headless,
+ * checkout, MLOps, LLM/RAG). Key set MUST mirror `en.ts` exactly (enforced by
  * `__tests__/i18n.spec.ts`).
  */
 export const es: Dictionary = {
@@ -33,8 +42,7 @@ export const es: Dictionary = {
     brandHome: 'CheekyCheeseIT — inicio',
   },
   footer: {
-    tagline:
-      'Un estudio de outsourcing y outstaffing que construye productos de AI, EdTech y E-Commerce listos para escalar.',
+    tagline: 'Ingenieros senior para AI, EdTech y E-Commerce',
     studioHeading: 'Estudio',
     selectedWork: 'Proyectos',
     howWeWork: 'Cómo trabajamos',
@@ -51,27 +59,27 @@ export const es: Dictionary = {
     names: { en: 'English', uk: 'Українська', ru: 'Русский', es: 'Español', pt: 'Português' },
   },
   home: {
-    seoTitle: 'CheekyCheeseIT — Estudio de ingeniería senior para AI, EdTech y E-Commerce',
+    seoTitle: 'CheekyCheeseIT — Ingenieros senior en AI, EdTech, E-Commerce',
     seoDescription:
-      'Un estudio de ingeniería solo-senior para empresas de producto internacionales. Del modelo al escaparate — resolvemos las partes difíciles, en tu franja horaria.',
+      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Outsourcing y outstaffing en AI, EdTech y E-Commerce, con entregas semanales.',
     heroChip: 'Outsourcing y outstaffing · AI · EdTech · E-Commerce',
-    heroH1Line1: 'Construimos productos',
-    heroH1Highlight: 'que escalan.',
+    heroH1Line1: 'Lo difícil',
+    heroH1Highlight: 'lo hacemos nosotros',
     heroParagraph:
-      'Un estudio de ingeniería solo-senior para empresas de producto internacionales. Del modelo al escaparate — resolvemos las partes difíciles, en tu franja horaria.',
+      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Tres dominios que dominamos y 4+ horas de solape con tu jornada.',
     ctaStartProject: 'Iniciar un proyecto',
     ctaSeeRoles: 'Ver vacantes abiertas',
     aboutEyebrow: 'Sobre nosotros',
     aboutH2Line1: 'Equipos pequeños,',
-    aboutH2Line2: 'manos senior.',
+    aboutH2Line2: 'sin juniors',
     aboutP1:
-      'Somos un estudio de IT que se integra en la empresa de producto como una extensión de su equipo — o asume un mandato de principio a fin. Sin capas de más, sin juniors aprendiendo a costa de tu presupuesto.',
+      'Nos integramos en tu equipo de producto como una extensión suya — o asumimos el encargo de principio a fin. En ambos casos hablas con quien escribe el código, no con un gestor de cuentas puesto delante.',
     aboutP2:
-      'Nuestro enfoque es deliberadamente estrecho: tres dominios que conocemos a fondo, ingenieros senior que se responsabilizan del resultado, y entregas semanales para que el progreso siempre sea visible. Trabajamos en segundo plano de grandes productos.',
+      'El enfoque es estrecho a propósito: tres dominios que conocemos a fondo, ingenieros que responden por el resultado y algo entregable cada semana. Casi todo lo que construimos lleva el nombre de otro, y así nos gusta.',
     aboutBullets: [
       'Equipos solo-senior',
-      'Incrementos semanales, listos para producción',
-      'Responsables del resultado, no del ticket',
+      'Un incremento entregable cada semana',
+      'Resultados, no tickets',
       '4+ horas de solape horario',
     ],
     stats: [
@@ -81,18 +89,18 @@ export const es: Dictionary = {
       { value: '20', suffix: '+', label: 'Ingenieros senior' },
     ],
     workEyebrow: 'Proyectos',
-    workH2: 'Anónimos, pero reales.',
+    workH2: 'Sin nombres, con números',
     workP:
-      'Bajo NDA no podemos dar nombres — pero los problemas, las soluciones y las cifras son exactamente como ocurrieron.',
+      'Los NDA dejan los logos fuera de esta página. Los problemas, las soluciones y las cifras son exactamente como ocurrieron.',
     caseStudies: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
-        title: 'Plataforma de inferencia en tiempo real para un SaaS de visión',
+        title: 'Inferencia en tiempo real para un SaaS de visión',
         challenge:
-          'La latencia del modelo superaba los 400ms bajo carga y los costos de inferencia crecían más rápido que los ingresos.',
+          'Bajo carga, la latencia del modelo se iba por encima de 400ms y el costo de inferencia crecía más rápido que los ingresos.',
         solution:
-          'Reconstruimos la capa de servicio con inferencia GPU por lotes, una caché de modelo activa y autoescalado bajo demanda.',
+          'Rehicimos la capa de serving: inferencia GPU por lotes, caché de modelo en caliente y autoescalado bajo demanda.',
         metrics: [
           { value: '80', suffix: 'ms', label: 'Latencia p95' },
           { value: '-64', suffix: '%', label: 'Costo de inferencia' },
@@ -102,11 +110,11 @@ export const es: Dictionary = {
       {
         domain: 'edtech',
         domainLabel: 'EdTech',
-        title: 'Plataforma de aprendizaje adaptativo para una red K-12',
+        title: 'Aprendizaje adaptativo para una red K-12',
         challenge:
-          'Un plan de estudios único aburría a los alumnos avanzados y dejaba atrás a los que iban rezagados; la finalización caía.',
+          'Un solo plan de estudios para todos: los avanzados se aburrían y los rezagados no alcanzaban — la finalización caía.',
         solution:
-          'Construimos un motor de rutas por alumno que recomienda la siguiente lección según señales de dominio en vivo.',
+          'Montamos un motor de rutas por alumno: la siguiente lección se elige según las señales de dominio del momento.',
         metrics: [
           { value: '+38', suffix: '%', label: 'Finalización' },
           { value: '120', suffix: 'k', label: 'Alumnos activos' },
@@ -118,9 +126,9 @@ export const es: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'Tienda headless para una marca DTC global',
         challenge:
-          'Un monolito heredado colapsaba en días de lanzamiento; el abandono del checkout crecía con cada ralentización.',
+          'El monolito heredado se caía en días de lanzamiento y el abandono del checkout subía con cada pantalla lenta.',
         solution:
-          'Migramos a una tienda headless renderizada en el edge, con un checkout idempotente y sin tiempo de inactividad.',
+          'Migramos a una tienda headless renderizada en el edge, con checkout idempotente y sin ventanas de caída.',
         metrics: [
           { value: '1.2', suffix: 's', label: 'LCP global' },
           { value: '+27', suffix: '%', label: 'Conversión' },
@@ -132,16 +140,16 @@ export const es: Dictionary = {
     solutionLabel: 'Solución',
     servicesEyebrow: 'Servicios',
     servicesH2Line1: 'Tres dominios,',
-    servicesH2Line2: 'aprendidos a pulso.',
+    servicesH2Line2: 'y nada más',
     servicesP:
-      'Vamos a fondo, no a lo ancho. Cada ingeniero aquí ha entregado sistemas en producción en su dominio.',
+      'Vamos a fondo, no a lo ancho. Cada ingeniero de aquí ya ha llevado sistemas en producción dentro de su dominio.',
     services: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
         title: 'AI y ML aplicados',
         description:
-          'Plataformas de inferencia, pipelines RAG, sistemas de recomendación y visión — rápidos, observables y rentables en producción.',
+          'Plataformas de inferencia, pipelines RAG, sistemas de recomendación y visión — rápidos, observables y sostenibles en costo una vez en producción.',
         bullets: [
           'Model serving y MLOps',
           'Aplicaciones LLM y RAG',
@@ -153,7 +161,7 @@ export const es: Dictionary = {
         domainLabel: 'EdTech',
         title: 'Plataformas EdTech',
         description:
-          'Aprendizaje adaptativo, motores de evaluación y herramientas de contenido — atractivos para los alumnos, medibles para las instituciones.',
+          'Aprendizaje adaptativo, motores de evaluación y herramientas de contenido — atractivos para el alumno y medibles para quien los paga.',
         bullets: [
           'Rutas de aprendizaje adaptativo',
           'Evaluación y analítica',
@@ -165,13 +173,13 @@ export const es: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'Sistemas de E-Commerce',
         description:
-          'Tiendas headless, checkout e inventario a escala — resilientes en días de lanzamiento y rápidos para compradores en todas partes.',
+          'Tiendas headless, checkout e inventario a escala — aguantan los días de lanzamiento y siguen rápidos en cualquier parte.',
         bullets: ['Tiendas headless', 'Checkout y pagos en el edge', 'Inventario y fulfillment'],
       },
     ],
     processEyebrow: 'Cómo trabajamos',
     processH2Line1: 'Cuatro pasos,',
-    processH2Line2: 'sin sorpresas.',
+    processH2Line2: 'sin caja negra',
     processSteps: [
       {
         stepNum: '01 / Discovery',
@@ -183,30 +191,31 @@ export const es: Dictionary = {
         stepNum: '02 / Desarrollo',
         title: 'Desarrollo',
         description:
-          'Equipos senior entregan incrementos semanales en tu repositorio, tu stack, en abierto.',
+          'Equipos senior entregan incrementos semanales en tu repositorio, en tu stack, a la vista.',
       },
       {
         stepNum: '03 / Lanzamiento',
         title: 'Lanzamiento',
         description:
-          'Publicamos a producción con monitoreo, pruebas de carga y un rollback que nunca necesitarás.',
+          'Publicamos a producción con monitoreo, pruebas de carga y un rollback que nunca vas a necesitar.',
       },
       {
         stepNum: '04 / Soporte',
         title: 'Soporte',
-        description: 'Seguimos a largo plazo — rendimiento, fiabilidad y la siguiente iteración.',
+        description:
+          'Nos quedamos a largo plazo — rendimiento, fiabilidad y la siguiente iteración.',
       },
     ],
     techStackEyebrow: 'Stack tecnológico',
-    techStackH2: 'Las herramientas que usamos.',
+    techStackH2: 'El stack por defecto',
     careersEyebrow: 'Empleo',
-    careersH2: 'Buscamos ingenieros senior.',
+    careersH2: 'Buscamos ingenieros senior',
     careersP:
-      'Remoto, solo senior, con responsabilidad real. Si has entregado cosas difíciles en AI, EdTech o comercio, deberíamos hablar.',
+      'Contratamos a gente que ya ha entregado cosas difíciles en AI, EdTech o comercio. En remoto y con responsabilidad real desde la primera semana — si te suena, hablemos.',
     viewAllRoles: 'Ver todas las vacantes',
-    contactH2: '¿Tienes un problema difícil que valga la pena resolver?',
+    contactH2: '¿Tienes algo difícil entre manos?',
     contactP:
-      'Cuéntanos qué estás construyendo. Responderemos en un día hábil con personas senior, no con una presentación de ventas.',
+      'Cuéntanos qué estás construyendo. Te respondemos en un día hábil — ingenieros, no un equipo comercial.',
     terminalAriaLabel:
       'Editor de código animado mostrando el código de proyectos de CheekyCheeseIT en AI, EdTech y E-Commerce',
     contactForm: {
@@ -245,9 +254,9 @@ export const es: Dictionary = {
     seoDescription:
       'Vacantes senior abiertas en CheekyCheeseIT — remoto, solo senior, con responsabilidad real.',
     eyebrow: 'Empleo',
-    h1: 'Resuelve problemas difíciles junto a un equipo senior.',
-    p1: 'Remoto, solo senior, con responsabilidad real. Contratamos despacio y mantenemos equipos pequeños — cada vacante aquí cubre una necesidad genuina.',
-    p2: 'Explora nuestras vacantes remotas abiertas a continuación — cada rol senior aquí es un puesto real en un equipo de producto activo, no una solicitud algún-día.',
+    h1: 'Problemas difíciles, colegas senior',
+    p1: 'Contratamos despacio y mantenemos los equipos pequeños, así que cada vacante aquí cubre una necesidad real. En remoto, y la responsabilidad es de verdad: respondes por el resultado, no por una cola de tickets.',
+    p2: 'Abajo están las vacantes remotas abiertas. Cada puesto senior es un asiento real en un equipo de producto activo, no una requisición para algún día.',
     emptyTitle: 'No hay vacantes abiertas por ahora',
     emptyBody:
       'Contratamos por oleadas y ahora estamos entre ellas. Envía tu CV de todos modos — guardamos cada perfil sólido y te contactamos en cuanto encaje algo.',
