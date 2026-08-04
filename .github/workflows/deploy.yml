@@ -2049,6 +2049,14 @@ jobs:
       - name: Interpret backup freshness result
         id: backup_status
         if: always()
+        # Non-fatal, same as the SSH probe above. This script exits non-zero BY
+        # DESIGN when backups are missing or stale — that is the signal, not a
+        # deploy failure. Without this line the signal turns the whole deploy
+        # job red (it did, on 7ba3f386 and dd1b0026, while every actual deploy
+        # step was green), which is precisely the failure-signal pollution that
+        # let a broken deploy sit unnoticed for four days on 2026-07-27. The
+        # alert issue below is where "no backups" is supposed to show up.
+        continue-on-error: true
         env:
           SSH_OUTCOME: ${{ steps.backup_freshness_ssh.outcome }}
           SSH_STDOUT: ${{ steps.backup_freshness_ssh.outputs.stdout }}
