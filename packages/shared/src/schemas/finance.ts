@@ -334,17 +334,26 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
  * Create (where the caller may omit receipt entirely) and Patch (where
  * undefined = "leave unchanged" and null = "clear field").
  *
- * MED-2 fix: receiptExternalUrl is scheme-restricted to http(s) only via an
- * explicit refine on top of .url() — blocks javascript:/data: XSS vectors
- * that .url() alone does not reject in all Zod versions.
+ * MED-2 fix: receiptExternalUrl is scheme-restricted via an explicit refine
+ * on top of .url() — blocks javascript:/data: XSS vectors that .url() alone
+ * does not reject in all Zod versions.
+ *
+ * fix/external-receipt-rendering: tightened from http(s) to https-only for
+ * NEW input. `http://` already silently failed for the viewer (mixed content
+ * — the site is https, and `img-src`/CSP allow `https:` only), so accepting
+ * it here just deferred a guaranteed-broken value to render time. This is the
+ * WRITE-side schema only; the READ-side `transactionSchema.receiptExternalUrl`
+ * above still accepts `^https?://` so already-saved http:// rows keep parsing
+ * and displaying (their "Открыть чек" link still works — only the embed is
+ * skipped, see `receipt-panel.tsx`).
  */
 const receiptFields = {
   receiptDocumentId: z.string().uuid().optional().nullable(),
   receiptExternalUrl: z
     .string()
     .url()
-    .refine((v) => /^https?:\/\//i.test(v), {
-      message: 'Receipt URL must use http or https scheme',
+    .refine((v) => /^https:\/\//i.test(v), {
+      message: 'Receipt URL must use https scheme',
     })
     .optional()
     .nullable(),

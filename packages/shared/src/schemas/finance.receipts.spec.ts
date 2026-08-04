@@ -390,3 +390,28 @@ describe('attachReceiptSchema', () => {
     ).toBe(false)
   })
 })
+
+// ── receiptFields scheme validation (fix/external-receipt-rendering) ────────
+// NEW receipt input is tightened to https:// only — an http:// url already
+// silently failed to render for the viewer (mixed content: the site is
+// https, `img-src`/CSP only allow `https:`), so accepting it here just
+// deferred a guaranteed-broken value to render time. This tightens the
+// WRITE-side schema only; already-saved http:// rows keep parsing on the
+// READ-side `transactionSchema` (see finance.spec.ts "accepts valid http://
+// URL") — legacy data is not touched, only new input is rejected.
+
+describe('attachReceiptSchema — https-only scheme for new input (fix/external-receipt-rendering)', () => {
+  it('accepts a new https:// receipt url (boundary: passes)', () => {
+    expect(
+      attachReceiptSchema.safeParse({ receiptExternalUrl: 'https://example.com/receipt.pdf' })
+        .success,
+    ).toBe(true)
+  })
+
+  it('rejects a new http:// receipt url (boundary: fails)', () => {
+    const result = attachReceiptSchema.safeParse({
+      receiptExternalUrl: 'http://example.com/receipt.pdf',
+    })
+    expect(result.success).toBe(false)
+  })
+})

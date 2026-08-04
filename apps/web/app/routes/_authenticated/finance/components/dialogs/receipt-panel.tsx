@@ -9,6 +9,18 @@
  *   - receiptDocumentId → presigned S3 URL via useDocumentDownloadUrl
  *   - receiptExternalUrl → used directly (no presign needed)
  *   - neither → shows "Нет прикреплённого чека" placeholder
+ *
+ * fix/external-receipt-rendering: a `receiptExternalUrl` receipt (any host,
+ * any file type) is NEVER embedded via <object>/<iframe>/<img> — the site's
+ * CSP only allow-lists our own domain + `blob:` + R2 for `object-src`, and
+ * `img-src` only allows `https:` (a legacy `http://` value is blocked as
+ * mixed content), so an embed attempt is either silently blocked (empty
+ * frame with a misleading "не поддерживается браузером" caption) or, for
+ * `http://`, blocked with NO caption at all. Instead every external receipt
+ * renders one honest "external" card with a working link — regardless of
+ * scheme or file type. Own (presigned, `receiptDocumentId`) receipts are
+ * unaffected: the site's own storage IS allow-listed, so they keep the
+ * inline image/PDF preview below.
  */
 import { ExternalLink, File as FileIcon, Receipt, XCircle } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
@@ -51,14 +63,18 @@ interface ReceiptPanelProps {
 
 /**
  * Inline receipt preview.
- * - Image: rendered as <img object-contain> inside a linked wrapper.
- * - PDF: rendered via <object> (browser-native PDF viewer).
- * - Unknown type: shows "Предпросмотр недоступен" with an external link.
+ * - Own file (receiptDocumentId): image rendered as <img object-contain>
+ *   inside a linked wrapper; PDF rendered via <object> (browser-native PDF
+ *   viewer); unknown type shows "Предпросмотр недоступен" with a link.
+ * - External URL (receiptExternalUrl): NEVER embedded (see file header) —
+ *   always the honest "external" card with a working link, for every file
+ *   type and every scheme (including legacy http://).
  * - No receipt: shows a dashed placeholder.
  */
 export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
   const { url, isLoading } = useReceiptUrl(tx)
   const hasReceipt = !!(tx.receiptDocumentId || tx.receiptExternalUrl)
+  const isExternal = !tx.receiptDocumentId && !!tx.receiptExternalUrl
 
   const frameClass = compact
     ? 'h-[40vh] max-h-[280px] min-h-[180px] rounded-lg border border-border bg-muted/30 overflow-hidden'
@@ -91,8 +107,10 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
     )
   }
 
-  const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url)
-  const isPdf = /\.pdf(\?.*)?$/i.test(url)
+  // Own (presigned) receipts only — an external receipt never reaches these,
+  // it always takes the isExternal card below regardless of file type.
+  const isImage = !isExternal && /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url)
+  const isPdf = !isExternal && /\.pdf(\?.*)?$/i.test(url)
 
   return (
     <div className="flex flex-col gap-2">
@@ -100,6 +118,17 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
         <Receipt className="h-3.5 w-3.5" />
         <span>Чек</span>
       </div>
+      {isExternal && (
+        <div
+          className={`flex flex-col items-center justify-center gap-2 ${frameClass} border-dashed border-border bg-muted/20 p-6 text-center`}
+          data-testid="receipt-panel-external"
+        >
+          <ExternalLink className="h-10 w-10 text-muted-foreground/40" />
+          <p className="text-sm text-muted-foreground">
+            Чек хранится по внешней ссылке — откроется в новой вкладке
+          </p>
+        </div>
+      )}
       {isImage && (
         <a
           href={url}
@@ -124,7 +153,7 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
           </object>
         </div>
       )}
-      {!isImage && !isPdf && (
+      {!isExternal && !isImage && !isPdf && (
         <div
           className={`flex flex-col items-center justify-center gap-2 ${frameClass} border-dashed border-border bg-muted/20 p-6`}
         >
