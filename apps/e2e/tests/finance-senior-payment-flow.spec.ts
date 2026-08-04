@@ -319,11 +319,22 @@ test.describe('SENIOR submits payment flow (regression for PR #56 Bug 1)', () =>
 })
 
 // ─── Bug 2 — Receipt inline preview (no auto-download) ────────────────────────
+//
+// fix/external-receipt-rendering: Bug 2 was about the OWN-storage presigned
+// URL carrying `Content-Disposition: attachment` — an own (receiptDocumentId)
+// receipt is the only path where an inline `<img>`/`<object>` embed is even
+// attempted post-fix (the site's own storage IS CSP-allow-listed). The two
+// tests below were originally written against `receiptExternalUrl` as a
+// convenient mock shortcut; they now use `receiptDocumentId` (+ a mocked
+// presigned download, same pattern as the third test in this block) so they
+// keep testing the actual own-storage embed path. The external-URL path has
+// its own dedicated tests further down, proving it is NEVER embedded.
 
 test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regression', () => {
   test('Image receipt renders inline inside TransactionDetailDialog (no download triggered)', async ({
     asAdmin,
   }) => {
+    const PRESIGNED_URL = 'https://minio.example.com/crm-documents/uploads/receipt-img.png?sig=abc'
     // Intercept the receipt fetch so the image actually loads in the test
     // browser (a plain test URL would 404 and the onError handler would set
     // display:none, hiding the proof that inline rendering is wired up).
@@ -332,17 +343,24 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
       'base64',
     )
-    await asAdmin.route('https://files.example.com/receipt.png', (r) =>
+    await asAdmin.route(PRESIGNED_URL, (r) =>
       r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
     )
 
     const txWithImageReceipt = makeSeniorIncome({
       id: 'pay-flow-tx-img',
-      receiptExternalUrl: 'https://files.example.com/receipt.png',
-      receiptDocumentId: null,
+      receiptExternalUrl: null,
+      receiptDocumentId: 'doc-receipt-img',
     })
 
     await mockTransactions(asAdmin, [txWithImageReceipt])
+    await asAdmin.route(`${API}/documents/doc-receipt-img/download`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ url: PRESIGNED_URL, expiresAt: '2099-01-01T00:00:00.000Z' }),
+      }),
+    )
 
     // Track download events — if the browser tries to save a file, this flips
     // to true, signaling a regression back to attachment disposition.
@@ -359,11 +377,11 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
-    // The receipt must render as an <img> with the receipt URL — proves the
+    // The receipt must render as an <img> with the presigned URL — proves the
     // dialog uses the inline preview path, not a download anchor.
     const img = dialog.locator('img[alt="Чек"]')
     await expect(img).toBeVisible()
-    await expect(img).toHaveAttribute('src', /receipt\.png/)
+    await expect(img).toHaveAttribute('src', PRESIGNED_URL)
 
     // No download must have been triggered by opening the dialog.
     expect(downloadTriggered).toBe(false)
@@ -372,13 +390,22 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
   test('PDF receipt renders as inline <object> (browser PDF viewer, not download)', async ({
     asAdmin,
   }) => {
+    const PRESIGNED_URL = 'https://minio.example.com/crm-documents/uploads/receipt-doc.pdf?sig=abc'
+
     const txWithPdfReceipt = makeSeniorIncome({
       id: 'pay-flow-tx-pdf',
-      receiptExternalUrl: 'https://files.example.com/receipt.pdf',
-      receiptDocumentId: null,
+      receiptExternalUrl: null,
+      receiptDocumentId: 'doc-receipt-pdf',
     })
 
     await mockTransactions(asAdmin, [txWithPdfReceipt])
+    await asAdmin.route(`${API}/documents/doc-receipt-pdf/download`, (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ url: PRESIGNED_URL, expiresAt: '2099-01-01T00:00:00.000Z' }),
+      }),
+    )
 
     let downloadTriggered = false
     asAdmin.on('download', () => {
@@ -393,7 +420,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     // PDF is rendered via <object data="..." type="application/pdf">
     const obj = dialog.locator('object[type="application/pdf"]')
     await expect(obj).toBeVisible()
-    await expect(obj).toHaveAttribute('data', /receipt\.pdf/)
+    await expect(obj).toHaveAttribute('data', PRESIGNED_URL)
 
     expect(downloadTriggered).toBe(false)
   })
@@ -446,5 +473,88 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     await expect(preview).toBeVisible()
 
     expect(downloadTriggered).toBe(false)
+  })
+
+  // fix/external-receipt-rendering, round 2 (security-review PR #470 MED-3):
+  // the site's CSP `img-src` is a BLANKET `https:` allow-list
+  // (nginx/conf.d/csp-map.conf) — an external HTTPS image was never blocked
+  // and keeps its inline <img> preview. Only `object-src` (PDF, any host) and
+  // mixed-content (any http:// value) are actually unrenderable — those get
+  // the honest "external" card with a working link instead.
+  test('External HTTPS image renders inline <img> — img-src allows any https host (MED-3)', async ({
+    asAdmin,
+  }) => {
+    // Intercept the receipt fetch so the image actually loads in the test
+    // browser — a plain (unmocked) URL 404s and the onError handler sets
+    // display:none, which would make the <img> assertion below fail for the
+    // wrong reason (hidden, not "never rendered").
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    )
+    await asAdmin.route('https://files.example.com/receipt.png', (r) =>
+      r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    )
+
+    const txWithExternalImage = makeSeniorIncome({
+      id: 'pay-flow-tx-ext-img',
+      receiptExternalUrl: 'https://files.example.com/receipt.png',
+      receiptDocumentId: null,
+    })
+    await mockTransactions(asAdmin, [txWithExternalImage])
+
+    await asAdmin.goto('/finance')
+    await asAdmin.getByTestId(`tx-row-${txWithExternalImage.id}`).click()
+    const dialog = asAdmin.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    await expect(dialog.getByTestId('receipt-panel-external')).not.toBeVisible()
+    const img = dialog.locator('img[alt="Чек"]')
+    await expect(img).toBeVisible()
+    await expect(img).toHaveAttribute('src', txWithExternalImage.receiptExternalUrl!)
+  })
+
+  test('External http:// image shows the honest external card (mixed content, not CSP)', async ({
+    asAdmin,
+  }) => {
+    const txWithHttpImage = makeSeniorIncome({
+      id: 'pay-flow-tx-ext-http-img',
+      receiptExternalUrl: 'http://legacy-partner.example/receipt.png',
+      receiptDocumentId: null,
+    })
+    await mockTransactions(asAdmin, [txWithHttpImage])
+
+    await asAdmin.goto('/finance')
+    await asAdmin.getByTestId(`tx-row-${txWithHttpImage.id}`).click()
+    const dialog = asAdmin.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    await expect(dialog.getByTestId('receipt-panel-external')).toBeVisible()
+    await expect(dialog.locator('img[alt="Чек"]')).not.toBeVisible()
+    const link = dialog.getByRole('link', { name: /Открыть чек/i })
+    await expect(link).toHaveAttribute('href', txWithHttpImage.receiptExternalUrl!)
+    await expect(link).toHaveAttribute('target', '_blank')
+  })
+
+  test('External PDF receipt (any host) shows the honest external card, never the misleading "не поддерживается браузером" caption', async ({
+    asAdmin,
+  }) => {
+    const txWithExternalPdf = makeSeniorIncome({
+      id: 'pay-flow-tx-ext-pdf',
+      receiptExternalUrl: 'https://files.example.com/receipt.pdf',
+      receiptDocumentId: null,
+    })
+    await mockTransactions(asAdmin, [txWithExternalPdf])
+
+    await asAdmin.goto('/finance')
+    await asAdmin.getByTestId(`tx-row-${txWithExternalPdf.id}`).click()
+    const dialog = asAdmin.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
+    await expect(dialog.getByTestId('receipt-panel-external')).toBeVisible()
+    await expect(dialog.locator('object[type="application/pdf"]')).not.toBeVisible()
+    await expect(dialog.getByText(/не поддерживается браузером/i)).not.toBeVisible()
+    const link = dialog.getByRole('link', { name: /Открыть чек/i })
+    await expect(link).toHaveAttribute('href', txWithExternalPdf.receiptExternalUrl!)
   })
 })

@@ -82,12 +82,23 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
     (receipt.mode === 'file' && !!receipt.documentId) ||
     (receipt.mode === 'url' && !!receipt.externalUrl)
 
+  const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
+  const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+  // fix/external-receipt-rendering round 2 (security-review PR #470 MED-2):
+  // the replace flow pre-fills the form from the tx's CURRENT receipt (effect
+  // above) — confirming without editing it would resubmit the byte-identical
+  // value. That has nothing to save, and for a legacy `http://` receipt the
+  // now-https-only write schema would 400 it even though nothing changed.
+  const receiptChanged =
+    nextReceiptDocId !== (tx?.receiptDocumentId ?? null) ||
+    nextReceiptExternalUrl !== (tx?.receiptExternalUrl ?? null)
+
   const mutation = useMutation({
-    mutationFn: () => {
-      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
-      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
-      return financeApi.attachReceipt(tx!.id, { receiptDocumentId, receiptExternalUrl })
-    },
+    mutationFn: () =>
+      financeApi.attachReceipt(tx!.id, {
+        receiptDocumentId: nextReceiptDocId,
+        receiptExternalUrl: nextReceiptExternalUrl,
+      }),
     onSuccess: () => {
       toast.success(hasExisting ? 'Чек заменён' : 'Чек прикреплён')
       void qc.invalidateQueries({ queryKey: ['transactions'] })
@@ -105,6 +116,19 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
     }
     if (hasExisting) {
       setConfirmOpen(true)
+      return
+    }
+    mutation.mutate()
+  }
+
+  // Confirm-step action (destructive "Заменить" in the AlertDialog below).
+  // If the admin confirmed WITHOUT actually changing the pre-filled value —
+  // nothing to replace — close quietly instead of round-tripping an
+  // unchanged value through the network (see receiptChanged above).
+  function handleConfirmedReplace() {
+    if (!receiptChanged) {
+      setConfirmOpen(false)
+      onClose()
       return
     }
     mutation.mutate()
@@ -200,7 +224,7 @@ export function AttachReceiptSheet({ tx, onClose }: AttachReceiptSheetProps) {
               Отмена
             </AlertDialogCancel>
             <AlertDialogAction
-              onClick={() => mutation.mutate()}
+              onClick={handleConfirmedReplace}
               disabled={mutation.isPending}
               data-testid="attach-receipt-confirm-submit"
             >

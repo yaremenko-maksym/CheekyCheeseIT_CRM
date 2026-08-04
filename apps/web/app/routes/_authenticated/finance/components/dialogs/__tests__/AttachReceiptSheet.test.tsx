@@ -12,6 +12,11 @@
  * 3. Escape closes the Sheet (calls onClose) — standard Radix Dialog behavior.
  * 4. Focus restores to the external trigger element after the Sheet closes.
  * 5. Explorer-only mode (USDT tx) is passed straight through to ReceiptInput.
+ * 6. fix/external-receipt-rendering round 2 (security-review PR #470 MED-2):
+ *    confirming "Заменить" WITHOUT actually changing the pre-filled value is
+ *    a no-op close, not a network round-trip — resubmitting a byte-identical
+ *    legacy value has nothing to save and could 400 under the tightened
+ *    https-only write schema for a field nobody touched.
  *
  * Strategy: real `@tanstack/react-query` hooks (QueryClientProvider), mock
  * only the API boundary (`../../../api` — three levels up from
@@ -165,6 +170,22 @@ describe('AttachReceiptSheet — replace flow (existing receipt)', () => {
     const [id, payload] = attachReceiptMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('tx-2')
     expect(payload).toMatchObject({ receiptExternalUrl: 'https://etherscan.io/tx/0xnew' })
+  })
+
+  it('confirming replace WITHOUT changing the pre-filled value is a no-op — does not call attachReceipt (MED-2)', () => {
+    const onClose = vi.fn()
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <AttachReceiptSheet tx={EXISTING_RECEIPT_TX} onClose={onClose} />
+      </QueryClientProvider>,
+    )
+    // Confirm without touching receipt-input-url-field — it's already
+    // pre-seeded with the tx's current value.
+    fireEvent.click(screen.getByTestId('attach-receipt-sheet-submit'))
+    fireEvent.click(screen.getByTestId('attach-receipt-confirm-submit'))
+    expect(attachReceiptMock).not.toHaveBeenCalled()
+    expect(onClose).toHaveBeenCalledTimes(1)
   })
 })
 
