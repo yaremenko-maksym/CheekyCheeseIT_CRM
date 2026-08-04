@@ -9,17 +9,22 @@ import type { Dictionary } from '../dictionary'
  *   English ("we take the hard work" + "weekly"), in a form Russian would
  *   actually use. A literal rendering would give the participial calque
  *   «Сложные части, отгружаемые еженедельно».
- * - about: «без прослоек» — a Russian organisational metaphor with no
- *   English source phrase behind it.
+ * - about: «только senior» states the same team-composition claim as the
+ *   English "no juniors" from the positive side — Russian has no natural
+ *   genitive for a Latin `junior`, and a Cyrillic «джуниоров» next to a
+ *   Latin `senior` was review round 2's finding.
  * - work: «Имён нет — цифры есть» — the parallel ellipsis is idiomatic in
  *   Russian; the English says "Anonymised, but real".
- * - contact: «которую некому взять» names the actual staffing pain, rather
- *   than translating "worth shipping".
+ * - contact: «которую некому взять» names the staffing pain; the English
+ *   now says the same thing ("and no one to own it").
  *
+ * Every heading carries the SAME claim as the English — the registry is
+ * `__tests__/heading-claims.ts`, and a test proves no heading escapes it.
  * Address form: «вы» со строчной, everywhere, no обращение на «Вы».
  * Industry terms stay in English where the Russian equivalent reads like a
- * textbook (senior, production, deploy, headless, MLOps, LLM/RAG). Key set
- * MUST mirror `en.ts` exactly (enforced by `__tests__/i18n.spec.ts`).
+ * textbook (senior, production, deploy, headless, MLOps, LLM/RAG), and the
+ * choice is per TERM, not per occurrence. Key set MUST mirror `en.ts`
+ * exactly (enforced by `__tests__/i18n.spec.ts`).
  */
 export const ru: Dictionary = {
   hiringStrip: {
@@ -74,11 +79,11 @@ export const ru: Dictionary = {
     ctaSeeRoles: 'Открытые вакансии',
     aboutEyebrow: 'О нас',
     aboutH2Line1: 'Малые команды,',
-    aboutH2Line2: 'без джуниоров',
+    aboutH2Line2: 'только senior',
     aboutP1:
-      'Встраиваемся в вашу продуктовую команду как её часть — или берём задачу целиком. В обоих случаях вы общаетесь с теми, кто пишет код, а не с аккаунт-менеджером перед ними.',
+      'Встраиваемся в вашу продуктовую команду как её часть — или берём задачу целиком. В обоих случаях вы общаетесь с теми, кто пишет код, а не с аккаунт-менеджером посередине.',
     aboutP2:
-      'Подход намеренно узкий: три домена, senior-инженеры, отвечающие за результат, и работающий инкремент каждую неделю. Большая часть того, что мы построили, носит чужое имя — нас это устраивает.',
+      'Подход намеренно узкий, и размен честный: меньше людей на проекте, все senior, каждый отвечает за результат, а не за очередь тикетов. Большая часть того, что мы построили, носит чужое имя — нас это устраивает.',
     aboutBullets: [
       'Только senior-инженеры',
       'Рабочий инкремент каждую неделю',
@@ -143,7 +148,7 @@ export const ru: Dictionary = {
     solutionLabel: 'Решение',
     servicesEyebrow: 'Услуги',
     servicesH2Line1: 'Три домена,',
-    servicesH2Line2: 'больше ничего',
+    servicesH2Line2: 'ценой ошибок',
     servicesP:
       'Идём вглубь, а не вширь. Каждый инженер студии уже вёл production-системы в своём домене.',
     services: [
@@ -211,9 +216,9 @@ export const ru: Dictionary = {
     techStackEyebrow: 'Технологии',
     techStackH2: 'Стек по умолчанию',
     careersEyebrow: 'Вакансии',
-    careersH2: 'Ищем senior-инженеров',
+    careersH2: 'Ответственность с первой недели',
     careersP:
-      'Берём тех, за кем уже есть сложные проекты в AI, EdTech или e-commerce. Удалённо, с реальной ответственностью с первой недели — если это про вас, давайте поговорим.',
+      'Берём тех, за кем уже есть сложные проекты в AI, EdTech или e-commerce. Удалённо, команды небольшие — сделанное вами не тонет в бэклоге. Если это про вас, давайте поговорим.',
     viewAllRoles: 'Все вакансии',
     contactH2: 'Есть задача, которую некому взять?',
     contactP:
@@ -255,7 +260,7 @@ export const ru: Dictionary = {
     seoDescription:
       'Открытые senior-вакансии в CheekyCheeseIT — удалённо, только senior, реальная ответственность за результат.',
     eyebrow: 'Вакансии',
-    h1: 'Сложные задачи и сильная команда',
+    h1: 'Сложные задачи и senior-коллеги',
     p1: 'Нанимаем медленно и держим команды небольшими, поэтому каждая вакансия здесь закрывает настоящую потребность. Удалённо, с реальной ответственностью: вы отвечаете за результат, а не за очередь тикетов.',
     p2: 'Ниже — открытые удалённые вакансии. Каждая senior-роль здесь — это живое место в работающей продуктовой команде, а не заявка «когда-нибудь».',
     emptyTitle: 'Сейчас открытых вакансий нет',

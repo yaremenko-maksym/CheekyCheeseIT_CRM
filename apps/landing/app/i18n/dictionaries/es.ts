@@ -4,14 +4,20 @@ import type { Dictionary } from '../dictionary'
  * `es` — Spanish (base, no region — LatAm + Spain), WRITTEN in Spanish
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
  * from `en.ts`:
- * - hero: «Lo difícil, / cada semana» — the same two-part claim as the
- *   English ("we take the hard work" + "weekly"). The neuter «lo difícil»
- *   is how Spanish nominalises "the hard part"; English has no single word
- *   for it and a literal rendering reaches for a clause instead.
+ * Every heading carries the SAME claim as the English (registry:
+ * `__tests__/heading-claims.ts`, with a test proving no heading escapes it);
+ * only the wording is written per language.
+ * - hero: «Lo difícil, / semanalmente» — the two-part claim ("we take the
+ *   hard work" + "weekly"). The neuter «lo difícil» is how Spanish
+ *   nominalises "the hard part"; English has no single word for it. The
+ *   adverb is one word on purpose: «cada semana» (456px) cannot fit the
+ *   432px hero column and `text-wrap: balance` splits the pair, while an
+ *   unbreakable word widens the grid track instead.
  * - work: «Sin nombres, con números» — a sin/con pairing, where the English
  *   says "Anonymised, but real".
- * - contact: «¿Tienes algo difícil entre manos?» — the idiom «entre manos»
- *   has no English source phrase here.
+ * - services: «aprendidos a base de golpes» — the claim is hard-won
+ *   experience, not just the count of domains (which the paragraph below
+ *   already states).
  *
  * Address form: **tú** throughout (tech/startup Spanish; decided once and
  * held everywhere, per skill `copywriting` §5). Industry terms stay in
@@ -76,7 +82,7 @@ export const es: Dictionary = {
     aboutP1:
       'Nos integramos en tu equipo de producto como una extensión suya — o asumimos el encargo de principio a fin. En ambos casos hablas con quien escribe el código, no con un gestor de cuentas puesto delante.',
     aboutP2:
-      'El enfoque es estrecho a propósito: tres dominios que conocemos a fondo, ingenieros que responden por el resultado y algo entregable cada semana. Casi todo lo que construimos lleva el nombre de otro, y así nos gusta.',
+      'El enfoque es estrecho a propósito, y el trato es explícito: menos gente en la cuenta, toda senior, cada quien respondiendo por un resultado y no por una cola de tickets. Casi todo lo que construimos lleva el nombre de otro, y así nos gusta.',
     aboutBullets: [
       'Equipos solo-senior',
       'Un incremento entregable cada semana',
@@ -141,7 +147,7 @@ export const es: Dictionary = {
     solutionLabel: 'Solución',
     servicesEyebrow: 'Servicios',
     servicesH2Line1: 'Tres dominios,',
-    servicesH2Line2: 'y nada más',
+    servicesH2Line2: 'aprendidos a golpes',
     servicesP:
       'Vamos a fondo, no a lo ancho. Cada ingeniero de aquí ya ha llevado sistemas en producción dentro de su dominio.',
     services: [
@@ -210,11 +216,11 @@ export const es: Dictionary = {
     techStackEyebrow: 'Stack tecnológico',
     techStackH2: 'El stack por defecto',
     careersEyebrow: 'Empleo',
-    careersH2: 'Buscamos ingenieros senior',
+    careersH2: 'Responsabilidad desde la primera semana',
     careersP:
-      'Contratamos a gente que ya ha entregado cosas difíciles en AI, EdTech o comercio. En remoto y con responsabilidad real desde la primera semana — si te suena, hablemos.',
+      'Contratamos a gente que ya ha entregado cosas difíciles en AI, EdTech o comercio. En remoto, y con equipos lo bastante pequeños como para que nada de lo que hagas se pierda en un backlog — si te suena, hablemos.',
     viewAllRoles: 'Ver todas las vacantes',
-    contactH2: '¿Tienes algo difícil entre manos?',
+    contactH2: '¿Un problema difícil sin dueño?',
     contactP:
       'Cuéntanos qué estás construyendo. Te respondemos en un día hábil — ingenieros, no un equipo comercial.',
     terminalAriaLabel:
@@ -232,8 +238,8 @@ export const es: Dictionary = {
       submitting: 'Enviando…',
       protectedBy: 'Protegido por captcha invisible — sin acertijos.',
       orEmailUs: 'o escríbenos directamente a',
-      errorName: 'Por favor, introduce tu nombre.',
-      errorEmail: 'Introduce un email válido.',
+      errorName: 'Por favor, ingresa tu nombre.',
+      errorEmail: 'Ingresa un email válido.',
       errorMessage: 'Cuéntanos un poco más (al menos 10 caracteres).',
       successHeading: 'Mensaje recibido',
       successBody: 'Gracias — lo hemos recibido y responderemos en un día hábil.',

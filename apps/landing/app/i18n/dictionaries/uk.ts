@@ -2,22 +2,25 @@ import type { Dictionary } from '../dictionary'
 
 /**
  * `uk` — Ukrainian copy, WRITTEN in Ukrainian (task-landing-copy-refactor.md
- * §2 / skill `copywriting` §5). Written independently of BOTH `en.ts` and
- * `ru.ts` — uk and ru are close enough that mirroring the Russian would be
- * the same calque problem one language over, so the headings use their own
- * Ukrainian idiom:
- * - hero: «Складне — щотижня» keeps the delivery cadence that Ukrainian can
- *   state in two words, where the Russian hero goes for «Сложное — наше
- *   дело» instead. Same brief, different sentence per language.
- * - about: «без зайвих ланок» — a chain-link metaphor natural to Ukrainian
- *   (ru uses «прослойка», en "no layers").
- * - work: «Без імен, але з цифрами» — a "without X, with Y" pairing, not the
- *   Russian ellipsis «Имён нет — цифры есть».
+ * §2 / skill `copywriting` §5). Every heading carries the SAME claim as the
+ * English (the registry is `__tests__/heading-claims.ts`, and a test proves
+ * no heading escapes it); what is written per language is the WORDING.
+ * Written independently of both `en.ts` and `ru.ts` — uk and ru are close
+ * enough that mirroring the Russian would be the same calque problem one
+ * language over:
+ * - hero: «Складне — щотижня» states the cadence in two words; Russian needs
+ *   the adverb «еженедельно» for the same claim.
+ * - work: «Без імен, але з цифрами» — a "without X, with Y" pairing, where
+ *   Russian uses the ellipsis «Имён нет — цифры есть».
+ * - process: «усе на видноті» is the one locale that puts the claim in a
+ *   positive frame instead of "no black box".
  *
  * Address form: «ви» зі рядкової. Industry terms stay in English where the
  * Ukrainian equivalent reads like a textbook (senior, production, headless,
- * MLOps, LLM/RAG). Key set MUST mirror `en.ts` exactly (enforced by
- * `__tests__/i18n.spec.ts`).
+ * MLOps, LLM/RAG) — and the choice is per TERM, not per occurrence, so
+ * `senior` is Latin everywhere, including «тільки senior» in `aboutH2Line2`
+ * (a Cyrillic «джуніорів» next to a Latin `senior` was review round 2's
+ * finding). Key set MUST mirror `en.ts` exactly (`__tests__/i18n.spec.ts`).
  */
 export const uk: Dictionary = {
   hiringStrip: {
@@ -72,11 +75,11 @@ export const uk: Dictionary = {
     ctaSeeRoles: 'Відкриті вакансії',
     aboutEyebrow: 'Про нас',
     aboutH2Line1: 'Малі команди,',
-    aboutH2Line2: 'без джуніорів',
+    aboutH2Line2: 'тільки senior',
     aboutP1:
-      'Вбудовуємось у вашу продуктову команду як її частина — або беремо задачу цілком. У будь-якому разі ви спілкуєтесь із тими, хто пише код, а не з акаунт-менеджером перед ними.',
+      'Вбудовуємось у вашу продуктову команду як її частина — або беремо задачу цілком. У будь-якому разі ви спілкуєтесь із тими, хто пише код, а не з акаунт-менеджером посередині.',
     aboutP2:
-      'Підхід свідомо вузький: три домени, senior-інженери, що відповідають за результат, і робочий інкремент щотижня. Більшість того, що ми побудували, носить чуже ім’я — нас це влаштовує.',
+      'Підхід свідомо вузький, і розмін чесний: менше людей на проєкті, усі senior, кожен відповідає за результат, а не за чергу тікетів. Більшість того, що ми побудували, носить чуже ім’я — нас це влаштовує.',
     aboutBullets: [
       'Тільки senior-інженери',
       'Робочий інкремент щотижня',
@@ -140,7 +143,7 @@ export const uk: Dictionary = {
     solutionLabel: 'Рішення',
     servicesEyebrow: 'Послуги',
     servicesH2Line1: 'Три домени,',
-    servicesH2Line2: 'і жодного більше',
+    servicesH2Line2: 'ціною помилок',
     servicesP:
       'Ідемо вглиб, а не вшир. Кожен інженер студії вже вів production-системи у своєму домені.',
     services: [
@@ -208,9 +211,9 @@ export const uk: Dictionary = {
     techStackEyebrow: 'Технології',
     techStackH2: 'Наш типовий стек',
     careersEyebrow: 'Вакансії',
-    careersH2: 'Наймаємо інженерів рівня senior',
+    careersH2: 'Відповідальність з першого тижня',
     careersP:
-      'Беремо тих, за ким уже є складні проєкти в AI, EdTech або e-commerce. Віддалено, з реальною відповідальністю з першого тижня — якщо це про вас, поговорімо.',
+      'Беремо тих, за ким уже є складні проєкти в AI, EdTech або e-commerce. Віддалено, команди невеликі — зроблене вами не тоне в беклозі. Якщо це про вас, поговорімо.',
     viewAllRoles: 'Усі вакансії',
     contactH2: 'Є задача, яку нема кому взяти?',
     contactP:
@@ -252,7 +255,7 @@ export const uk: Dictionary = {
     seoDescription:
       'Відкриті senior-вакансії в CheekyCheeseIT — віддалено, лише senior, реальна відповідальність за результат.',
     eyebrow: 'Вакансії',
-    h1: 'Складні задачі та сильна команда',
+    h1: 'Складні задачі та senior-колеги',
     p1: 'Наймаємо повільно й тримаємо команди невеликими, тому кожна вакансія тут закриває справжню потребу. Віддалено, з реальною відповідальністю: ви відповідаєте за результат, а не за чергу тікетів.',
     p2: 'Нижче — відкриті віддалені вакансії. Кожна senior-роль тут — це живе місце в робочій продуктовій команді, а не заявка «колись-небудь».',
     emptyTitle: 'Зараз відкритих вакансій немає',

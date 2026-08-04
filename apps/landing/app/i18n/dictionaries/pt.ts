@@ -4,13 +4,17 @@ import type { Dictionary } from '../dictionary'
  * `pt` — Portuguese (base, no region), WRITTEN in Portuguese
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
  * from `en.ts`:
- * - hero: «O difícil, / toda semana» — the same two-part claim as the
- *   English ("we take the hard work" + "weekly"), using the Portuguese
- *   nominalised «o difícil» rather than an English-shaped noun phrase.
+ * Every heading carries the SAME claim as the English (registry:
+ * `__tests__/heading-claims.ts`, with a test proving no heading escapes it);
+ * only the wording is written per language.
+ * - hero: «O difícil, / semanalmente» — the two-part claim ("we take the
+ *   hard work" + "weekly"), using the nominalised «o difícil» rather than an
+ *   English-shaped noun phrase. One-word adverb for the same reason as `es`:
+ *   «toda semana» (441px) cannot fit the 432px hero column.
  * - work: «Sem nomes, com números» — a sem/com pairing, where the English
  *   says "Anonymised, but real".
- * - contact: «Tem algo difícil no seu roadmap?» names where the reader
- *   actually keeps the problem.
+ * - services: «aprendidos no tranco» — hard-won experience, the claim the
+ *   English carries; the paragraph below states the count of domains.
  *
  * Variant: this file leans **pt-BR** (sênior, times, você) — inherited from
  * the original translation, kept deliberately rather than silently switched.
@@ -75,9 +79,9 @@ export const pt: Dictionary = {
     aboutH2Line1: 'Times pequenos,',
     aboutH2Line2: 'sem juniores',
     aboutP1:
-      'Entramos no seu time de produto como uma extensão dele — ou assumimos o trabalho de ponta a ponta. Nos dois casos você fala com quem escreve o código, não com um gerente de contas na frente dele.',
+      'Entramos no seu time de produto como uma extensão dele — ou assumimos o trabalho de ponta a ponta. Nos dois casos você fala com quem escreve o código, não com um gerente de contas no meio do caminho.',
     aboutP2:
-      'A abordagem é estreita de propósito: três domínios que conhecemos a fundo, engenheiros que respondem pelo resultado e algo entregável toda semana. Quase tudo o que construímos leva o nome de outra pessoa — e está ótimo assim.',
+      'A abordagem é estreita de propósito, e a troca é explícita: menos gente na conta, toda sênior, cada uma respondendo por um resultado e não por uma fila de tickets. Quase tudo o que construímos leva o nome de outra pessoa — e está ótimo assim.',
     aboutBullets: [
       'Times apenas-sênior',
       'Um incremento entregável por semana',
@@ -142,9 +146,9 @@ export const pt: Dictionary = {
     solutionLabel: 'Solução',
     servicesEyebrow: 'Serviços',
     servicesH2Line1: 'Três domínios,',
-    servicesH2Line2: 'e nada além',
+    servicesH2Line2: 'aprendidos no tranco',
     servicesP:
-      'Vamos fundo, não largo. Cada engenheiro daqui já levou sistemas a produção dentro do seu domínio.',
+      'Vamos fundo, não raso. Cada engenheiro daqui já levou sistemas a produção dentro do seu domínio.',
     services: [
       {
         domain: 'ai',
@@ -207,11 +211,11 @@ export const pt: Dictionary = {
     techStackEyebrow: 'Stack técnico',
     techStackH2: 'O stack padrão',
     careersEyebrow: 'Vagas',
-    careersH2: 'Contratamos engenheiros sênior',
+    careersH2: 'Responsabilidade desde a primeira semana',
     careersP:
-      'Chamamos quem já entregou coisa difícil em AI, EdTech ou comércio. Remoto, com responsabilidade real desde a primeira semana — se for o seu caso, vamos conversar.',
+      'Chamamos quem já entregou coisa difícil em AI, EdTech ou comércio. Remoto, e com times pequenos o bastante para que nada do que você faz se perca num backlog — se for o seu caso, vamos conversar.',
     viewAllRoles: 'Ver todas as vagas',
-    contactH2: 'Tem algo difícil no seu roadmap?',
+    contactH2: 'Um problema difícil sem dono?',
     contactP:
       'Conte o que você está construindo. Respondemos em um dia útil — engenheiros, não um time de vendas.',
     terminalAriaLabel:

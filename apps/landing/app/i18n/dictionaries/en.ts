@@ -84,7 +84,7 @@ export const en: Dictionary = {
     heroH1Line1: 'Hard parts,',
     heroH1Highlight: 'every week',
     heroParagraph:
-      'A senior-only engineering studio for international product companies. Three domains we know cold, four hours of overlap with your working day.',
+      'A senior-only engineering studio for international product companies. Three domains we know cold, four-plus hours of overlap with your working day.',
     ctaStartProject: 'Start a project',
     ctaSeeRoles: 'See open roles',
     aboutEyebrow: 'About us',
@@ -93,7 +93,7 @@ export const en: Dictionary = {
     aboutP1:
       'We plug into your product team as an extension of it — or take the mandate end to end. Either way you talk to the people writing the code, not to an account manager standing in front of them.',
     aboutP2:
-      "The approach is deliberately narrow: three domains we know cold, engineers who own outcomes, and something shippable every week. Most of what we build carries someone else's name — that suits us.",
+      "The approach is deliberately narrow, and the trade is explicit: fewer people on the account, all of them senior, each owning an outcome instead of a queue of tickets. Most of what we build carries someone else's name — that suits us.",
     aboutBullets: [
       'Senior-only pods',
       'A shippable increment weekly',
@@ -158,7 +158,7 @@ export const en: Dictionary = {
     solutionLabel: 'Solution',
     servicesEyebrow: 'Services',
     servicesH2Line1: 'Three domains,',
-    servicesH2Line2: 'nothing else',
+    servicesH2Line2: 'learned the hard way',
     servicesP:
       'We go deep, not wide. Every engineer here has shipped production systems in the domain they work in.',
     services: [
@@ -223,11 +223,11 @@ export const en: Dictionary = {
     // choices we start from, which is the actual message of the section.
     techStackH2: 'Our default stack',
     careersEyebrow: 'Careers',
-    careersH2: "We're hiring senior engineers",
+    careersH2: 'Ownership from week one',
     careersP:
-      "We hire people who have already shipped hard things in AI, EdTech or commerce. Remote-first, with real ownership from week one — if that's you, we should talk.",
+      "We hire people who have already shipped hard things in AI, EdTech or commerce. Remote-first, and the teams stay small enough that nothing you build disappears into a backlog — if that's you, we should talk.",
     viewAllRoles: 'View all roles',
-    contactH2: 'A hard problem worth shipping?',
+    contactH2: 'A hard problem and no one to own it?',
     contactP:
       "Tell us what you're building. You'll get a reply within one business day — from engineers, not a sales deck.",
     terminalAriaLabel:
