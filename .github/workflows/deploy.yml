@@ -1903,10 +1903,21 @@ jobs:
       # multi-minute output, hiding progress during the health-check retry loops — an
       # unrelated regression for a summary-only feature. `if: always()` on both — even a
       # failed main deploy step should still surface whatever was captured before the failure.
+      #
+      # VERSION PIN: v1.2.3, NOT v1.2.0 — found via fix/backup-freshness-wiring's
+      # check-ssh-action-capture-stdout-version.py guard (see the "Backup freshness signal"
+      # block's own version-pin comment for the full v1.2.0-lacks-capture_stdout story). This
+      # step ALSO sets `capture_stdout: true` and reads `outputs.stdout` below, so it had the
+      # EXACT SAME latent bug — `DDL_SUMMARY` in the job summary has been silently empty
+      # since PR #443, just with no alert wired to it to notice (the money-numbers header
+      # prints, the code block is blank). Bumping this one step's pin is low-risk: its script
+      # only `cat`s an already-written file and always exits 0, unlike the actual rollout
+      # steps this file deliberately leaves on v1.2.0 (see that same comment for why those
+      # stay put).
       - name: Fetch drop-share-pending-parity DDL summary via SSH
         id: dspp_ddl_summary
         if: always()
-        uses: appleboy/ssh-action@v1.2.0
+        uses: appleboy/ssh-action@v1.2.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -1998,8 +2009,25 @@ jobs:
       # ways to make it green again would be to disable the check or hand the app's token
       # access back, i.e. undo the split. So this now runs OVER SSH, on the VPS itself,
       # where the backups-scoped credentials legitimately already live — same
-      # `appleboy/ssh-action@v1.2.0` + `secrets.VPS_HOST`/`VPS_SSH_KEY` pattern as every
-      # other SSH step in this job, not a second connection method.
+      # `secrets.VPS_HOST`/`VPS_SSH_KEY` pattern (and `appleboy/ssh-action`) as every other
+      # SSH step in this job, not a second connection method.
+      #
+      # VERSION PIN — DELIBERATELY DIFFERENT from the other appleboy/ssh-action steps in
+      # this file (v1.2.0): this incident's root cause. This step relies on
+      # `capture_stdout`/`outputs.stdout`, which DO NOT EXIST in v1.2.0 — its `action.yml`
+      # has no `capture_stdout` input and no `outputs:` section at all (verified against the
+      # tag directly). That means SSH_OUTCOME=success + SSH_STDOUT="" on EVERY run, always —
+      # not a flake, a permanent no-op. `capture_stdout`/`outputs.stdout` were added in
+      # v1.2.1 (verified against v1.2.1/v1.2.2/v1.2.3's `action.yml`); this step is pinned to
+      # v1.2.3, the newest tag verified to still carry them, one patch ahead of the minimum.
+      # scripts/devops/check-ssh-action-capture-stdout-version.py (wired into ci.yml) now
+      # fails CI if any appleboy/ssh-action step sets `capture_stdout: true` while pinned
+      # below v1.2.1, so this class of drift can't recur silently — see that script's header.
+      # The OTHER appleboy/ssh-action steps in this file (".env" write, main deploy, IndexNow
+      # is a plain runner step not SSH) stay on v1.2.0 on purpose: they don't use
+      # `capture_stdout`, and bumping them is pure unforced regression risk on the actual
+      # rollout path for zero benefit — see the guard script's header for why it only
+      # requires the newer version where the feature is actually used, not repo-wide.
       #
       # LOG SECRECY: `capture_stdout: true` captures scripts/devops/check-backup-
       # freshness.sh's stdout instead of streaming it live, but that script's OWN secrecy
@@ -2038,7 +2066,9 @@ jobs:
         id: backup_freshness_ssh
         if: always()
         continue-on-error: true
-        uses: appleboy/ssh-action@v1.2.0
+        # v1.2.3, NOT v1.2.0 like the other ssh-action steps in this file — see the
+        # "VERSION PIN" comment in the block above for why this one step must differ.
+        uses: appleboy/ssh-action@v1.2.3
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
@@ -2062,12 +2092,21 @@ jobs:
           SSH_STDOUT: ${{ steps.backup_freshness_ssh.outputs.stdout }}
         run: scripts/devops/interpret-backup-freshness.sh
 
-      # Only touches the alert issue when the check actually reached a verdict —
-      # `inconclusive` (SSH/script failure) skips both steps below entirely, leaving
-      # whatever alert state already existed untouched. See the block comment above.
+      # Only touches the alert issue when the check actually reached a DETERMINATE
+      # verdict — an explicit allow-list (`== 'ok' || == 'alert'`), not a deny-list of
+      # `!= 'inconclusive'`. That distinction is itself the fix for a real incident: when
+      # the "Interpret backup freshness result" step above dies before `write_output
+      # verdict` ever runs (e.g. plumbing bug — see that script's own header), its
+      # `outputs.verdict` is the EMPTY STRING, not the literal text `inconclusive`. A
+      # deny-list condition treats "" as "not inconclusive" and proceeds to open a false
+      # alert on every single run regardless of actual backup health (exactly what
+      # happened — see interpret-backup-freshness.sh's `|| true` fix and its comment). An
+      # allow-list treats anything other than the two verdicts this block knows how to
+      # act on — including "", including `inconclusive`, including any future third value
+      # — as "don't touch the alert issue".
       - name: Resolve alert channel (backup)
         id: backup_channel
-        if: always() && steps.backup_status.outputs.verdict != 'inconclusive'
+        if: always() && (steps.backup_status.outputs.verdict == 'ok' || steps.backup_status.outputs.verdict == 'alert')
         env:
           PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
           PUBLIC_REPO: ${{ github.repository }}
@@ -2075,7 +2114,7 @@ jobs:
         run: scripts/devops/resolve-alert-channel.sh
 
       - name: Open / update / close the backup-staleness alert issue
-        if: always() && steps.backup_status.outputs.verdict != 'inconclusive'
+        if: always() && (steps.backup_status.outputs.verdict == 'ok' || steps.backup_status.outputs.verdict == 'alert')
         env:
           GH_TOKEN: ${{ steps.backup_channel.outputs.use_pat == 'true' && secrets.TELEMETRY_ISSUES_PAT || github.token }}
           ALERT_REPO: ${{ steps.backup_channel.outputs.repo }}
