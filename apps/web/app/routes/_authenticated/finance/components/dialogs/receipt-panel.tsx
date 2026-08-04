@@ -7,20 +7,39 @@
  *
  * URL resolution strategy:
  *   - receiptDocumentId → presigned S3 URL via useDocumentDownloadUrl
- *   - receiptExternalUrl → used directly (no presign needed)
+ *   - receiptExternalUrl → used directly, but ONLY if it passes SAFE_RECEIPT_SCHEME
+ *     (defence-in-depth — see MED-1 below); otherwise treated as unavailable
  *   - neither → shows "Нет прикреплённого чека" placeholder
  *
- * fix/external-receipt-rendering: a `receiptExternalUrl` receipt (any host,
- * any file type) is NEVER embedded via <object>/<iframe>/<img> — the site's
- * CSP only allow-lists our own domain + `blob:` + R2 for `object-src`, and
- * `img-src` only allows `https:` (a legacy `http://` value is blocked as
- * mixed content), so an embed attempt is either silently blocked (empty
- * frame with a misleading "не поддерживается браузером" caption) or, for
- * `http://`, blocked with NO caption at all. Instead every external receipt
- * renders one honest "external" card with a working link — regardless of
- * scheme or file type. Own (presigned, `receiptDocumentId`) receipts are
- * unaffected: the site's own storage IS allow-listed, so they keep the
- * inline image/PDF preview below.
+ * fix/external-receipt-rendering, round 2 (security-review PR #470 MED-3):
+ * the site's CSP is NOT a blanket "no external embeds" policy —
+ * `nginx/conf.d/csp-map.conf`:
+ *   img-src 'self' data: blob: https:;
+ *   object-src 'self' blob: https://*.r2.cloudflarestorage.com;
+ * `img-src` allow-lists ANY https host, so an external **https image** was
+ * never blocked and keeps its inline `<img>` preview. Only two cases are
+ * actually unrenderable:
+ *   - a **PDF on an external host** — `object-src` has no wildcard for
+ *     arbitrary hosts, only our own domain + `blob:` + R2;
+ *   - **any `http://` value** — browser mixed-content, not a CSP rule at all
+ *     (the page itself is served over https).
+ * Both get the honest "external" card (data-testid="receipt-panel-external")
+ * with a working link instead of a guaranteed-broken embed. Own (presigned,
+ * `receiptDocumentId`) receipts are unaffected either way — the site's own
+ * storage IS allow-listed for both directives.
+ *
+ * MED-1 (defence-in-depth): `receiptExternalUrl` reaches this component via
+ * `financeApi.getTransactions` (`api.get<TransactionDto>(...)`), a
+ * compile-time cast with NO runtime Zod parse on this path — the write-side
+ * `.refine(^https://)` schema is the only thing standing between an
+ * SENIOR/DROP-authored string and this component's `href`/`src`. A single
+ * layer guarding a cross-role sink is fragile (this project has shipped
+ * direct data-fix SQL that bypasses Zod before, #382/#383), so
+ * `useReceiptUrl` re-validates the scheme before ever handing the URL to the
+ * renderer — an unsafe scheme (`javascript:`, `data:`, anything not
+ * http(s)) falls back to the existing "Чек недоступен" state instead of
+ * reaching `href`/`src`. `^https?://` (not https-only) so legacy `http://`
+ * rows keep opening via link, per AC4.
  */
 import { ExternalLink, File as FileIcon, Receipt, XCircle } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
@@ -28,6 +47,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useDocumentDownloadUrl } from '@/hooks/use-documents'
 
 // ── URL resolver ──────────────────────────────────────────────────────────────
+
+// MED-1 (security-review PR #470): the only scheme this component will ever
+// hand to `href`/`src`. Read-DTO parsing does not run on the finance list/
+// detail fetch path (see file header), so this is re-validated here rather
+// than trusted from the API response.
+const SAFE_RECEIPT_SCHEME = /^https?:\/\//i
 
 export function useReceiptUrl(tx: TransactionDto): { url: string | null; isLoading: boolean } {
   const docQuery = useDocumentDownloadUrl(tx.receiptDocumentId ?? undefined, {
@@ -39,7 +64,9 @@ export function useReceiptUrl(tx: TransactionDto): { url: string | null; isLoadi
     return { url: docQuery.data?.url ?? null, isLoading: false }
   }
   if (tx.receiptExternalUrl) {
-    return { url: tx.receiptExternalUrl, isLoading: false }
+    return SAFE_RECEIPT_SCHEME.test(tx.receiptExternalUrl)
+      ? { url: tx.receiptExternalUrl, isLoading: false }
+      : { url: null, isLoading: false }
   }
   return { url: null, isLoading: false }
 }
@@ -66,9 +93,12 @@ interface ReceiptPanelProps {
  * - Own file (receiptDocumentId): image rendered as <img object-contain>
  *   inside a linked wrapper; PDF rendered via <object> (browser-native PDF
  *   viewer); unknown type shows "Предпросмотр недоступен" with a link.
- * - External URL (receiptExternalUrl): NEVER embedded (see file header) —
- *   always the honest "external" card with a working link, for every file
- *   type and every scheme (including legacy http://).
+ * - External URL (receiptExternalUrl): an https image renders inline exactly
+ *   like an own image (CSP allows it). A PDF on any external host, or ANY
+ *   http:// value, renders the honest "external" card instead — the embed
+ *   would be blocked either by object-src or by mixed-content (see file
+ *   header). An unsafe scheme (javascript:/data:/…) never reaches this far —
+ *   `useReceiptUrl` already nulled it out to the "Чек недоступен" state.
  * - No receipt: shows a dashed placeholder.
  */
 export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
@@ -107,10 +137,13 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
     )
   }
 
-  // Own (presigned) receipts only — an external receipt never reaches these,
-  // it always takes the isExternal card below regardless of file type.
-  const isImage = !isExternal && /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url)
-  const isPdf = !isExternal && /\.pdf(\?.*)?$/i.test(url)
+  const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url)
+  const isPdf = /\.pdf(\?.*)?$/i.test(url)
+  const isHttps = /^https:\/\//i.test(url)
+  // MED-3: only a PDF (object-src) or a non-https URL (mixed content) is
+  // actually unrenderable on an external host — an https external IMAGE
+  // renders normally below, same as an own image.
+  const showExternalCard = isExternal && (isPdf || !isHttps)
 
   return (
     <div className="flex flex-col gap-2">
@@ -118,18 +151,21 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
         <Receipt className="h-3.5 w-3.5" />
         <span>Чек</span>
       </div>
-      {isExternal && (
-        <div
-          className={`flex flex-col items-center justify-center gap-2 ${frameClass} border-dashed border-border bg-muted/20 p-6 text-center`}
+      {showExternalCard && (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`flex flex-col items-center justify-center gap-2 ${frameClass} border-dashed border-border bg-muted/20 p-6 text-center transition-colors hover:border-primary/40 hover:bg-primary/5`}
           data-testid="receipt-panel-external"
         >
           <ExternalLink className="h-10 w-10 text-muted-foreground/40" />
           <p className="text-sm text-muted-foreground">
             Чек хранится по внешней ссылке — откроется в новой вкладке
           </p>
-        </div>
+        </a>
       )}
-      {isImage && (
+      {!showExternalCard && isImage && (
         <a
           href={url}
           target="_blank"
@@ -146,14 +182,14 @@ export function ReceiptPanel({ tx, compact = false }: ReceiptPanelProps) {
           />
         </a>
       )}
-      {isPdf && (
+      {!showExternalCard && isPdf && (
         <div className={frameClass}>
           <object data={url} type="application/pdf" className="w-full h-full">
             <p className="p-3 text-xs text-muted-foreground">PDF не поддерживается браузером.</p>
           </object>
         </div>
       )}
-      {!isExternal && !isImage && !isPdf && (
+      {!showExternalCard && !isImage && !isPdf && (
         <div
           className={`flex flex-col items-center justify-center gap-2 ${frameClass} border-dashed border-border bg-muted/20 p-6`}
         >

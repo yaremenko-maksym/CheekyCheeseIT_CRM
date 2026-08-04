@@ -64,14 +64,29 @@ export function AdminEditTransactionDialog({
     mutationFn: () => {
       const amt = parseFloat(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
-      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
-      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+      const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
+      const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+      // fix/external-receipt-rendering round 2 (security-review PR #470 MED-2):
+      // the form pre-fills the tx's EXISTING receipt (see the effect above)
+      // even when the user is only editing amount/notes. Resending an
+      // untouched value unconditionally used to be harmless, but the write
+      // schema is now https-only — an untouched legacy `http://` receipt
+      // would 400 on a save the user never asked to change. Omit the receipt
+      // fields entirely when nothing changed; the API treats an absent field
+      // as "leave unchanged" (see `adminUpdateTransaction`'s
+      // `receiptDocChanged`/`receiptUrlChanged` gates), so this never touches
+      // validation for a field the user didn't look at.
+      const receiptUnchanged =
+        nextReceiptDocId === (tx?.receiptDocumentId ?? null) &&
+        nextReceiptExternalUrl === (tx?.receiptExternalUrl ?? null)
       return financeApi.adminUpdateTransaction(tx!.id, {
         amount: amt,
         currency,
         notes: notes || null,
-        receiptDocumentId,
-        receiptExternalUrl,
+        ...(!receiptUnchanged && {
+          receiptDocumentId: nextReceiptDocId,
+          receiptExternalUrl: nextReceiptExternalUrl,
+        }),
         ...(tx?.type === 'EXPENSE' && { category }),
         ...(tx?.type === 'SALARY' && salaryMonth && { salaryMonth }),
       })

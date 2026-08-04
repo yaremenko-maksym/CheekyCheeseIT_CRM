@@ -68,13 +68,24 @@ export function EditSeniorIncomeDialog({
     mutationFn: () => {
       const amt = parseFloat(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
-      const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
-      const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+      const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
+      const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
+      // fix/external-receipt-rendering round 2 (security-review PR #470 MED-2):
+      // same reasoning as AdminEditTransactionDialog — the form pre-fills the
+      // tx's existing receipt even when only amount is being resubmitted.
+      // Omit the receipt fields when unchanged so an untouched legacy
+      // `http://` receipt never trips the now-https-only write schema on a
+      // field the user didn't edit; `undefined` = "leave unchanged" server-side.
+      const receiptUnchanged =
+        nextReceiptDocId === (tx?.receiptDocumentId ?? null) &&
+        nextReceiptExternalUrl === (tx?.receiptExternalUrl ?? null)
       return financeApi.updateSeniorIncome(tx!.id, {
         amount: amt,
         currency,
-        receiptDocumentId,
-        receiptExternalUrl,
+        ...(!receiptUnchanged && {
+          receiptDocumentId: nextReceiptDocId,
+          receiptExternalUrl: nextReceiptExternalUrl,
+        }),
         notes: notes || null,
       })
     },
