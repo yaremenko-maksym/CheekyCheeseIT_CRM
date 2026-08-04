@@ -142,7 +142,7 @@ jobs:
       # integration specs skip themselves via their guard. No DB service needed.
       - name: Run unit tests (no DB)
         if: steps.scope.outputs.code == 'true'
-        run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web test
+        run: pnpm --filter @crm/shared --filter @crm/api --filter @crm/web --filter @crm/landing test
 
       # FM-5 guard: every apps/e2e/tests/**/*.spec.ts must be either in a CI shard
       # or explicitly listed as debt in KNOWN_UNSHARDED. Pure Python parse — no stack

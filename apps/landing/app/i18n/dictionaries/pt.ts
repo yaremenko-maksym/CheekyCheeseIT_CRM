@@ -1,13 +1,27 @@
 import type { Dictionary } from '../dictionary'
 
 /**
- * `pt` — Portuguese (base, no region — covers Brazil AND Portugal, plan §1)
- * marketing copy. Own translation (task-landing-i18n.md: "копирайт: пиши
- * сам, но качественно... требует вычитки владельцем"), NOT a machine
- * translation — terminology kept in English where a literal translation
- * reads worse (senior, remote, outstaffing, MLOps, LLM/RAG,
- * Kubernetes/Docker/AWS-style proper nouns). Key set MUST mirror `en.ts`
- * exactly (enforced by `__tests__/i18n.spec.ts`).
+ * `pt` — Portuguese (base, no region), WRITTEN in Portuguese
+ * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
+ * from `en.ts`:
+ * Every heading carries the SAME claim as the English (registry:
+ * `__tests__/heading-claims.ts`, with a test proving no heading escapes it);
+ * only the wording is written per language.
+ * Techniques, not quotes — a comment that restates the string below it is a
+ * second source of truth and drifts on the first edit:
+ * - hero: the nominalised «o difícil» rather than an English-shaped noun
+ *   phrase. One-word adverb for the cadence, same reason as `es`: a two-word
+ *   phrase (441px) does not fit the 432px hero column.
+ * - work: a sem/com pairing, where the English says "Anonymised, but real".
+ * - services: hard-won experience, the claim the English carries; the
+ *   paragraph below states the count of domains.
+ *
+ * Variant: this file leans **pt-BR** (sênior, times, você) — inherited from
+ * the original translation, kept deliberately rather than silently switched.
+ * If the target market is pt-PT, the lexical choices (times/equipas,
+ * sênior/sénior, tela/ecrã) change and this file needs a pass — flagged to
+ * the owner in the PR. Key set MUST mirror `en.ts` exactly (enforced by
+ * `__tests__/i18n.spec.ts`).
  */
 export const pt: Dictionary = {
   hiringStrip: {
@@ -34,8 +48,7 @@ export const pt: Dictionary = {
     brandHome: 'CheekyCheeseIT — início',
   },
   footer: {
-    tagline:
-      'Um estúdio de outsourcing e outstaffing que constrói produtos de AI, EdTech e E-Commerce prontos para escalar.',
+    tagline: 'Engenheiros sênior para AI, EdTech e E-Commerce',
     studioHeading: 'Estúdio',
     selectedWork: 'Projetos',
     howWeWork: 'Como trabalhamos',
@@ -52,27 +65,27 @@ export const pt: Dictionary = {
     names: { en: 'English', uk: 'Українська', ru: 'Русский', es: 'Español', pt: 'Português' },
   },
   home: {
-    seoTitle: 'CheekyCheeseIT — Estúdio de engenharia sênior para AI, EdTech e E-Commerce',
+    seoTitle: 'CheekyCheeseIT — Engenharia sênior em AI, EdTech, E-Commerce',
     seoDescription:
-      'Um estúdio de engenharia apenas-sênior para empresas de produto internacionais. Do modelo à vitrine — resolvemos as partes difíceis, no seu fuso horário.',
+      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Outsourcing e outstaffing em AI, EdTech e E-Commerce, com entregas semanais.',
     heroChip: 'Outsourcing e outstaffing · AI · EdTech · E-Commerce',
-    heroH1Line1: 'Construímos produtos',
-    heroH1Highlight: 'que escalam.',
+    heroH1Line1: 'O difícil,',
+    heroH1Highlight: 'semanalmente',
     heroParagraph:
-      'Um estúdio de engenharia apenas-sênior para empresas de produto internacionais. Do modelo à vitrine — resolvemos as partes difíceis, no seu fuso horário.',
+      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Três domínios que conhecemos de perto e 4+ horas de sobreposição com o seu expediente.',
     ctaStartProject: 'Iniciar um projeto',
     ctaSeeRoles: 'Ver vagas abertas',
     aboutEyebrow: 'Sobre nós',
     aboutH2Line1: 'Times pequenos,',
-    aboutH2Line2: 'mãos sênior.',
+    aboutH2Line2: 'sem juniores',
     aboutP1:
-      'Somos um estúdio de TI que se integra à empresa de produto como uma extensão do seu time — ou assume um mandato de ponta a ponta. Sem camadas extras, sem juniores aprendendo às custas do seu orçamento.',
+      'Entramos no seu time de produto como uma extensão dele — ou assumimos o trabalho de ponta a ponta. Nos dois casos você fala com quem escreve o código, não com um gerente de contas no meio do caminho.',
     aboutP2:
-      'Nossa abordagem é deliberadamente estreita: três domínios que conhecemos a fundo, engenheiros sênior responsáveis pelo resultado, e entregas semanais para que o progresso esteja sempre visível. Ficamos discretamente nos bastidores de ótimos produtos.',
+      'A abordagem é estreita de propósito, e a troca é explícita: menos gente na conta, toda sênior, cada uma respondendo por um resultado e não por uma fila de tickets. Quase tudo o que construímos leva o nome de outra pessoa — e está ótimo assim.',
     aboutBullets: [
       'Times apenas-sênior',
-      'Incrementos semanais, prontos para produção',
-      'Responsáveis pelo resultado, não pelo ticket',
+      'Um incremento entregável por semana',
+      'Resultado, não ticket',
       '4+ horas de sobreposição de fuso',
     ],
     stats: [
@@ -82,18 +95,18 @@ export const pt: Dictionary = {
       { value: '20', suffix: '+', label: 'Engenheiros sênior' },
     ],
     workEyebrow: 'Projetos',
-    workH2: 'Anônimos, mas reais.',
+    workH2: 'Sem nomes, com números',
     workP:
-      'Sob NDA não podemos citar nomes — mas os problemas, as soluções e os números são exatamente como aconteceram.',
+      'Os NDAs deixam os logos fora desta página. Os problemas, as soluções e os números são exatamente como aconteceram.',
     caseStudies: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
-        title: 'Plataforma de inferência em tempo real para um SaaS de visão computacional',
+        title: 'Inferência em tempo real para um SaaS de visão',
         challenge:
-          'A latência do modelo ultrapassava 400ms sob carga e os custos de inferência cresciam mais rápido que a receita.',
+          'Sob carga, a latência do modelo passava de 400ms e o custo de inferência crescia mais rápido que a receita.',
         solution:
-          'Reconstruímos a camada de serving com inferência em lote na GPU, cache de modelo aquecido e autoescalonamento sob demanda.',
+          'Refizemos a camada de serving: inferência em lote na GPU, cache de modelo aquecido e autoescalonamento sob demanda.',
         metrics: [
           { value: '80', suffix: 'ms', label: 'Latência p95' },
           { value: '-64', suffix: '%', label: 'Custo de inferência' },
@@ -103,11 +116,11 @@ export const pt: Dictionary = {
       {
         domain: 'edtech',
         domainLabel: 'EdTech',
-        title: 'Plataforma de aprendizagem adaptativa para uma rede K-12',
+        title: 'Aprendizagem adaptativa para uma rede K-12',
         challenge:
-          'Um currículo único deixava os alunos avançados entediados e os que ficavam para trás sem apoio; a conclusão caía.',
+          'Um currículo só para todo mundo: os avançados entediados, os atrasados sem alcançar — a conclusão caía.',
         solution:
-          'Construímos um motor de trilhas por aluno que recomenda a próxima lição a partir de sinais de domínio em tempo real.',
+          'Montamos um motor de trilhas por aluno: a próxima lição sai dos sinais de domínio do momento.',
         metrics: [
           { value: '+38', suffix: '%', label: 'Conclusão' },
           { value: '120', suffix: 'k', label: 'Alunos ativos' },
@@ -119,7 +132,7 @@ export const pt: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'Vitrine headless para uma marca DTC global',
         challenge:
-          'Um monólito legado travava em dias de lançamento; o abandono de checkout crescia a cada lentidão da página.',
+          'O monólito legado caía em dias de lançamento e o abandono de checkout subia a cada tela lenta.',
         solution:
           'Migramos para uma vitrine headless renderizada na edge, com checkout idempotente e sem downtime.',
         metrics: [
@@ -133,16 +146,16 @@ export const pt: Dictionary = {
     solutionLabel: 'Solução',
     servicesEyebrow: 'Serviços',
     servicesH2Line1: 'Três domínios,',
-    servicesH2Line2: 'aprendidos na prática.',
+    servicesH2Line2: 'aprendidos no tranco',
     servicesP:
-      'Vamos fundo, não largo. Cada engenheiro aqui já entregou sistemas em produção no seu domínio.',
+      'Vamos fundo, não raso. Cada engenheiro daqui já levou sistemas a produção dentro do seu domínio.',
     services: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
         title: 'AI e ML aplicados',
         description:
-          'Plataformas de inferência, pipelines RAG, sistemas de recomendação e visão — rápidos, observáveis e econômicos em produção.',
+          'Plataformas de inferência, pipelines RAG, sistemas de recomendação e visão — rápidos, observáveis e sustentáveis em custo depois que entram em produção.',
         bullets: ['Model serving e MLOps', 'Aplicações LLM e RAG', 'Pipelines de dados e features'],
       },
       {
@@ -150,7 +163,7 @@ export const pt: Dictionary = {
         domainLabel: 'EdTech',
         title: 'Plataformas EdTech',
         description:
-          'Aprendizagem adaptativa, motores de avaliação e ferramentas de conteúdo — envolventes para alunos, mensuráveis para as instituições.',
+          'Aprendizagem adaptativa, motores de avaliação e ferramentas de conteúdo — envolventes para o aluno e mensuráveis para quem paga a conta.',
         bullets: [
           'Trilhas de aprendizagem adaptativa',
           'Avaliação e analytics',
@@ -162,13 +175,13 @@ export const pt: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'Sistemas de E-Commerce',
         description:
-          'Vitrines headless, checkout e estoque em escala — resilientes em dias de lançamento e rápidos para compradores em qualquer lugar.',
+          'Vitrines headless, checkout e estoque em escala — aguentam os dias de lançamento e seguem rápidos em qualquer lugar.',
         bullets: ['Vitrines headless', 'Checkout e pagamentos na edge', 'Estoque e fulfillment'],
       },
     ],
     processEyebrow: 'Como trabalhamos',
     processH2Line1: 'Quatro etapas,',
-    processH2Line2: 'sem surpresas.',
+    processH2Line2: 'sem caixa-preta',
     processSteps: [
       {
         stepNum: '01 / Discovery',
@@ -180,7 +193,7 @@ export const pt: Dictionary = {
         stepNum: '02 / Desenvolvimento',
         title: 'Desenvolvimento',
         description:
-          'Times sênior entregam incrementos semanais no seu repositório, na sua stack, em aberto.',
+          'Times sênior entregam incrementos semanais no seu repositório, no seu stack, à vista.',
       },
       {
         stepNum: '03 / Lançamento',
@@ -192,19 +205,19 @@ export const pt: Dictionary = {
         stepNum: '04 / Suporte',
         title: 'Suporte',
         description:
-          'Continuamos por perto no longo prazo — performance, confiabilidade e a próxima iteração.',
+          'Ficamos por perto no longo prazo — performance, confiabilidade e a próxima iteração.',
       },
     ],
     techStackEyebrow: 'Stack técnico',
-    techStackH2: 'As ferramentas que usamos.',
+    techStackH2: 'O stack padrão',
     careersEyebrow: 'Vagas',
-    careersH2: 'Estamos contratando engenheiros sênior.',
+    careersH2: 'Responsabilidade desde a primeira semana',
     careersP:
-      'Remoto, apenas sênior, com responsabilidade real. Se você já entregou coisas difíceis em AI, EdTech ou comércio, devemos conversar.',
+      'Chamamos quem já entregou coisa difícil em AI, EdTech ou comércio. Remoto, e com times pequenos o bastante para que nada do que você faz se perca num backlog — se for o seu caso, vamos conversar.',
     viewAllRoles: 'Ver todas as vagas',
-    contactH2: 'Tem um problema difícil que vale a pena resolver?',
+    contactH2: 'Um problema difícil sem dono?',
     contactP:
-      'Conte-nos o que você está construindo. Respondemos em um dia útil com pessoas sênior, não com uma apresentação de vendas.',
+      'Conte o que você está construindo. Respondemos em um dia útil — engenheiros, não um time de vendas.',
     terminalAriaLabel:
       'Editor de código animado exibindo código de projetos da CheekyCheeseIT em AI, EdTech e E-Commerce',
     contactForm: {
@@ -215,7 +228,7 @@ export const pt: Dictionary = {
       emailLabel: 'Email',
       emailPlaceholder: 'you@company.com',
       messageLabel: 'O que você está construindo?',
-      messagePlaceholder: 'Conte-nos sobre o problema, o prazo e a equipe que você tem hoje.',
+      messagePlaceholder: 'Conte-nos sobre o problema, o prazo e o time que você tem hoje.',
       submit: 'Enviar mensagem',
       submitting: 'Enviando…',
       protectedBy: 'Protegido por captcha invisível — sem quebra-cabeças.',
@@ -243,9 +256,9 @@ export const pt: Dictionary = {
     seoDescription:
       'Vagas sênior abertas na CheekyCheeseIT — remoto, apenas sênior, com responsabilidade real.',
     eyebrow: 'Vagas',
-    h1: 'Resolva problemas difíceis junto a um time sênior.',
-    p1: 'Remoto, apenas sênior, com responsabilidade real. Contratamos devagar e mantemos times pequenos — cada vaga aqui atende uma necessidade genuína.',
-    p2: 'Veja nossas vagas remotas abertas abaixo — cada função sênior aqui é uma posição real em um time de produto ativo, não uma requisição algum-dia.',
+    h1: 'Problemas difíceis, colegas sênior',
+    p1: 'Contratamos devagar e mantemos os times pequenos, então cada vaga aqui atende uma necessidade real. Remoto, e a responsabilidade é de verdade: você responde pelo resultado, não por uma fila de tickets.',
+    p2: 'Abaixo estão as vagas remotas abertas. Cada posição sênior é um lugar real em um time de produto ativo, não uma requisição para algum dia.',
     emptyTitle: 'Nenhuma vaga aberta no momento',
     emptyBody:
       'Contratamos em ondas e agora estamos entre elas. Envie seu currículo mesmo assim — guardamos todo perfil forte e entramos em contato assim que algo combinar.',

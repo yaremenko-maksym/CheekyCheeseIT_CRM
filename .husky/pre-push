@@ -7,4 +7,4 @@ pnpm typecheck
 # causing contract-pdf / compression / phone-input tests to time out even
 # though they pass in isolation. Sequential runs are ~30 s slower on an
 # idle machine but deterministic under any load. (2026-06-14 fix)
-pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test
+pnpm --filter @crm/shared test && pnpm --filter @crm/api test && pnpm --filter @crm/web test && pnpm --filter @crm/landing test

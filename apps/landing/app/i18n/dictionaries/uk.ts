@@ -1,12 +1,28 @@
 import type { Dictionary } from '../dictionary'
 
 /**
- * `uk` — Ukrainian marketing copy. Own translation (task-landing-i18n.md:
- * "RU/UK копирайт: пиши сам, но качественно... требует вычитки владельцем"),
- * NOT a machine translation — terminology kept in English where a literal
- * translation reads worse (senior, remote, outstaffing, MLOps, LLM/RAG,
- * Kubernetes/Docker/AWS-style proper nouns). Key set MUST mirror `en.ts`
- * exactly (enforced by `__tests__/i18n.spec.ts`).
+ * `uk` — Ukrainian copy, WRITTEN in Ukrainian (task-landing-copy-refactor.md
+ * §2 / skill `copywriting` §5). Every heading carries the SAME claim as the
+ * English (the registry is `__tests__/heading-claims.ts`, and a test proves
+ * no heading escapes it); what is written per language is the WORDING.
+ * Written independently of both `en.ts` and `ru.ts` — uk and ru are close
+ * enough that mirroring the Russian would be the same calque problem one
+ * language over:
+ * Techniques, not quotes — a comment that restates the string below it is a
+ * second source of truth and drifts on the first edit:
+ * - hero: Ukrainian states the cadence in two words where Russian needs a
+ *   single adverb for the same claim.
+ * - work: a "without X, with Y" pairing, where Russian uses an ellipsis and
+ *   English a "but".
+ * - process: this is the one locale that puts the claim in a positive frame
+ *   instead of "no black box".
+ *
+ * Address form: «ви» зі рядкової. Industry terms stay in English where the
+ * Ukrainian equivalent reads like a textbook (senior, production, headless,
+ * MLOps, LLM/RAG) — and the choice is per TERM, not per occurrence, so
+ * `senior` is Latin everywhere, including in `aboutH2Line2` (a Cyrillic
+ * «джуніорів» beside a Latin `senior` was review round 2's finding). Key set
+ * MUST mirror `en.ts` exactly (`__tests__/i18n.spec.ts`).
  */
 export const uk: Dictionary = {
   hiringStrip: {
@@ -32,8 +48,7 @@ export const uk: Dictionary = {
     brandHome: 'CheekyCheeseIT — на головну',
   },
   footer: {
-    tagline:
-      'Аутсорс- та аутстафінг-студія — створюємо продукти в AI, EdTech і E-Commerce, готові до зростання.',
+    tagline: 'Senior-інженери для AI, EdTech і E-Commerce',
     studioHeading: 'Студія',
     selectedWork: 'Кейси',
     howWeWork: 'Як ми працюємо',
@@ -50,28 +65,28 @@ export const uk: Dictionary = {
     names: { en: 'English', uk: 'Українська', ru: 'Русский', es: 'Español', pt: 'Português' },
   },
   home: {
-    seoTitle: 'CheekyCheeseIT — senior-студія розробки для AI, EdTech і E-Commerce',
+    seoTitle: 'CheekyCheeseIT — senior-команди для AI, EdTech, E-Commerce',
     seoDescription:
-      'Senior-only інженерна студія для міжнародних продуктових компаній. Від моделі до вітрини — беремо на себе найскладніші частини, працюючи у вашому часовому поясі.',
+      'Senior-only студія розробки для міжнародних продуктових команд. Аутсорс і аутстафінг в AI, EdTech і E-Commerce — робочий результат щотижня.',
     heroChip: 'Аутсорс і аутстафінг · AI · EdTech · E-Commerce',
-    heroH1Line1: 'Ми створюємо продукти,',
-    heroH1Highlight: 'що зростають.',
+    heroH1Line1: 'Складне —',
+    heroH1Highlight: 'щотижня',
     heroParagraph:
-      'Senior-only інженерна студія для міжнародних продуктових компаній. Від моделі до вітрини — беремо на себе найскладніші частини, працюючи у вашому часовому поясі.',
+      'Senior-only студія для міжнародних продуктових команд. Три домени, які знаємо досконало, і 4+ години перетину з вашим робочим днем.',
     ctaStartProject: 'Почати проєкт',
     ctaSeeRoles: 'Відкриті вакансії',
     aboutEyebrow: 'Про нас',
-    aboutH2Line1: 'Невеликі команди,',
-    aboutH2Line2: 'senior-руки.',
+    aboutH2Line1: 'Малі команди,',
+    aboutH2Line2: 'тільки senior',
     aboutP1:
-      'Ми — IT-студія, яка вбудовується в продуктову команду як її продовження — або бере мандат повністю, від початку до кінця. Жодних зайвих шарів і джуніорів, що навчаються за ваш кошт.',
+      'Вбудовуємось у вашу продуктову команду як її частина — або беремо задачу цілком. У будь-якому разі ви спілкуєтесь із тими, хто пише код, а не з акаунт-менеджером посередині.',
     aboutP2:
-      'Наш підхід свідомо вузький: три домени, які ми знаємо досконало, senior-інженери, що відповідають за результат, і щотижневі поставки — щоб прогрес було видно завжди. Ми залишаємось тихо в тіні чудових продуктів.',
+      'Підхід свідомо вузький, і розмін чесний: менше людей на проєкті, усі senior, кожен відповідає за результат, а не за чергу тікетів. Більшість того, що ми побудували, носить чуже ім’я — нас це влаштовує.',
     aboutBullets: [
-      'Лише senior-фахівці',
-      'Щотижневі, готові до постачання інкременти',
+      'Тільки senior-інженери',
+      'Робочий інкремент щотижня',
       'Відповідаємо за результат, а не за тікет',
-      'Перетин часових поясів 4+ години',
+      '4+ години перетину в часі',
     ],
     stats: [
       { value: '40', suffix: '+', label: 'Реалізованих проєктів' },
@@ -80,18 +95,17 @@ export const uk: Dictionary = {
       { value: '20', suffix: '+', label: 'Senior-інженерів' },
     ],
     workEyebrow: 'Кейси',
-    workH2: 'Без імен, але по-справжньому.',
-    workP:
-      'За NDA ми не можемо називати клієнтів — але задачі, рішення й цифри саме такі, якими вони були насправді.',
+    workH2: 'Без імен, але з цифрами',
+    workP: 'NDA не дає назвати клієнтів. Задачі, рішення й цифри — рівно ті, що були насправді.',
     caseStudies: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
-        title: 'Платформа real-time інференсу для vision SaaS',
+        title: 'Real-time інференс для vision SaaS',
         challenge:
-          'Затримка моделі під навантаженням перевищувала 400 мс, а витрати на інференс зростали швидше за виручку.',
+          'Під навантаженням затримка моделі виходила за 400 мс, а витрати на інференс росли швидше за виручку.',
         solution:
-          'Перебудували шар обслуговування моделей: батчевий інференс на GPU, теплий кеш моделі та автоскейлінг за запитом.',
+          'Перебудували шар обслуговування: батчевий інференс на GPU, теплий кеш моделі та автоскейлінг за запитом.',
         metrics: [
           { value: '80', suffix: 'мс', label: 'p95 затримка' },
           { value: '-64', suffix: '%', label: 'Витрати на інференс' },
@@ -101,11 +115,11 @@ export const uk: Dictionary = {
       {
         domain: 'edtech',
         domainLabel: 'EdTech',
-        title: 'Платформа адаптивного навчання для мережі K-12 шкіл',
+        title: 'Адаптивне навчання для мережі K-12',
         challenge:
-          'Єдина програма нудьгувала просунутим учням і не встигала за тими, хто відставав — завершуваність курсів падала.',
+          'Одна програма на всіх: сильним нудно, ті, хто відстає, не наздоганяють — завершуваність падала.',
         solution:
-          'Побудували рушій персональних траєкторій, що рекомендує наступний урок за актуальними сигналами засвоєння.',
+          'Зібрали рушій персональних траєкторій: наступний урок добирається за поточними сигналами засвоєння.',
         metrics: [
           { value: '+38', suffix: '%', label: 'Завершуваність' },
           { value: '120', suffix: 'к', label: 'Активних учнів' },
@@ -117,9 +131,9 @@ export const uk: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'Headless-вітрина для глобального DTC-бренду',
         challenge:
-          'Застарілий моноліт не витримував дні запусків; відмови від оформлення замовлення зростали з кожним уповільненням сторінки.',
+          'Старий моноліт лягав у дні запусків, а покинутих кошиків ставало більше з кожним екраном, що гальмував.',
         solution:
-          'Перейшли на edge-рендеринг і headless-вітрину з ідемпотентним оформленням замовлення без простою.',
+          'Перевели на headless-вітрину з рендерингом на edge та ідемпотентним оформленням замовлення без простою.',
         metrics: [
           { value: '1.2', suffix: 'с', label: 'LCP по світу' },
           { value: '+27', suffix: '%', label: 'Конверсія' },
@@ -131,16 +145,16 @@ export const uk: Dictionary = {
     solutionLabel: 'Рішення',
     servicesEyebrow: 'Послуги',
     servicesH2Line1: 'Три домени,',
-    servicesH2Line2: 'вивчені на практиці.',
+    servicesH2Line2: 'ціною помилок',
     servicesP:
-      'Ми йдемо вглиб, а не вшир. Кожен інженер студії постачав production-системи саме у своєму домені.',
+      'Ідемо вглиб, а не вшир. Кожен інженер студії вже вів production-системи у своєму домені.',
     services: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
         title: 'Прикладний AI & ML',
         description:
-          'Платформи інференсу, RAG-пайплайни, рекомендаційні та vision-системи — швидкі, спостережувані й економічні в production.',
+          'Платформи інференсу, RAG-пайплайни, рекомендаційні та vision-системи — швидкі, спостережувані й посильні за грошима в production.',
         bullets: [
           'Обслуговування моделей і MLOps',
           'LLM- і RAG-застосунки',
@@ -152,7 +166,7 @@ export const uk: Dictionary = {
         domainLabel: 'EdTech',
         title: 'EdTech-платформи',
         description:
-          'Адаптивне навчання, рушії оцінювання та інструменти для контенту — цікаві для учнів, вимірювані для організацій.',
+          'Адаптивне навчання, рушії оцінювання та інструменти для контенту — цікаві учневі й вимірювані для тих, хто за це платить.',
         bullets: [
           'Адаптивні траєкторії навчання',
           'Оцінювання та аналітика',
@@ -164,49 +178,48 @@ export const uk: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'E-Commerce системи',
         description:
-          'Headless-вітрини, оформлення замовлення та склад у масштабі — стійкі в дні запусків і швидкі для покупців усюди.',
+          'Headless-вітрини, оформлення замовлення та склад під навантаженням — тримають дні запусків і лишаються швидкими будь-де.',
         bullets: ['Headless-вітрини', 'Edge-оформлення замовлення й платежі', 'Склад і фулфілмент'],
       },
     ],
     processEyebrow: 'Як ми працюємо',
     processH2Line1: 'Чотири кроки,',
-    processH2Line2: 'без сюрпризів.',
+    processH2Line2: 'усе на видноті',
     processSteps: [
       {
         stepNum: '01 / Discovery',
         title: 'Discovery',
         description:
-          'Визначаємо межі задачі, знімаємо невідомі ризики та узгоджуємо план, за який тримаємо відповідь.',
+          'Окреслюємо задачу, знімаємо невідомі ризики та узгоджуємо план, за який відповідаємо.',
       },
       {
         stepNum: '02 / Розробка',
         title: 'Розробка',
         description:
-          'Senior-команди постачають щотижневі інкременти у вашому репозиторії та стеку, відкрито.',
+          'Senior-команди постачають інкременти щотижня — у вашому репозиторії, у вашому стеку, відкрито.',
       },
       {
         stepNum: '03 / Запуск',
         title: 'Запуск',
         description:
-          'Випускаємо в production з моніторингом, навантажувальними тестами й відкатом, який вам не знадобиться.',
+          'Викочуємо в production з моніторингом, навантажувальними тестами й відкатом, який вам не знадобиться.',
       },
       {
         stepNum: '04 / Підтримка',
         title: 'Підтримка',
-        description:
-          "Залишаємось на зв'язку надовго — продуктивність, надійність і наступна ітерація.",
+        description: 'Лишаємось надовго — продуктивність, надійність і наступна ітерація.',
       },
     ],
     techStackEyebrow: 'Технології',
-    techStackH2: 'Інструменти, якими користуємось.',
+    techStackH2: 'Наш типовий стек',
     careersEyebrow: 'Вакансії',
-    careersH2: 'Шукаємо senior-інженерів.',
+    careersH2: 'Відповідальність з першого тижня',
     careersP:
-      'Віддалено, лише senior, реальна відповідальність за результат. Якщо ви вже постачали складні речі в AI, EdTech чи комерції — нам є про що поговорити.',
+      'Беремо тих, за ким уже є складні проєкти в AI, EdTech або e-commerce. Віддалено, команди невеликі — зроблене вами не тоне в беклозі. Якщо це про вас, поговорімо.',
     viewAllRoles: 'Усі вакансії',
-    contactH2: 'Є складна задача, яку варто вирішити?',
+    contactH2: 'Є задача, яку нема кому взяти?',
     contactP:
-      'Розкажіть, що ви будуєте. Ми відповімо протягом одного робочого дня — senior-фахівці, а не презентація продажів.',
+      'Розкажіть, що ви будуєте. Відповімо протягом одного робочого дня — інженери, а не відділ продажів.',
     terminalAriaLabel:
       'Анімований редактор коду з прикладами проєктів CheekyCheeseIT в AI, EdTech і E-Commerce',
     contactForm: {
@@ -244,9 +257,9 @@ export const uk: Dictionary = {
     seoDescription:
       'Відкриті senior-вакансії в CheekyCheeseIT — віддалено, лише senior, реальна відповідальність за результат.',
     eyebrow: 'Вакансії',
-    h1: 'Вирішуйте складні задачі разом із senior-командою.',
-    p1: 'Віддалено, лише senior, реальна відповідальність за результат. Ми наймаємо повільно й тримаємо команди невеликими — кожна вакансія тут закриває справжню потребу.',
-    p2: 'Перегляньте відкриті віддалені IT-вакансії нижче — кожна senior-роль тут це реальне місце в живій продуктовій команді, а не заявка "колись-небудь".',
+    h1: 'Складні задачі та senior-колеги',
+    p1: 'Наймаємо повільно й тримаємо команди невеликими, тому кожна вакансія тут закриває справжню потребу. Віддалено, з реальною відповідальністю: ви відповідаєте за результат, а не за чергу тікетів.',
+    p2: 'Нижче — відкриті віддалені вакансії. Кожна senior-роль тут — це живе місце в робочій продуктовій команді, а не заявка «колись-небудь».',
     emptyTitle: 'Зараз відкритих вакансій немає',
     emptyBody:
       "Ми наймаємо хвилями і зараз між ними. Все одно надішліть резюме — ми зберігаємо кожен сильний профіль і напишемо, щойно з'явиться підхожа роль.",

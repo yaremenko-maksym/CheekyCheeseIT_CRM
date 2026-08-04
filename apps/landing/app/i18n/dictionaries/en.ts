@@ -1,9 +1,31 @@
 import type { Dictionary } from '../dictionary'
 
 /**
- * `en` — source-of-truth copy (1:1 with the original English-only landing,
- * task-landing-redesign.md / task-landing-seo-prerender.md). `ru.ts`/`uk.ts`
- * mirror this exact key set (enforced by `__tests__/i18n.spec.ts`, plan §A2).
+ * `en` — source-of-truth copy. The other four locales mirror this exact key
+ * set (enforced by `__tests__/i18n.spec.ts`) but are WRITTEN, not translated
+ * (task-landing-copy-refactor.md §2 / skill `copywriting` §5).
+ *
+ * What is native per locale is the WORDING; the CLAIM is fixed. Review round
+ * 1 caught the failure mode: en/uk named the weekly cadence in the hero
+ * while ru/es/pt quietly dropped it, leaving three of five heroes saying
+ * only "hard work is our thing" — which any agency could sign.
+ *
+ * The claim each heading must carry in every locale lives in
+ * `__tests__/heading-claims.ts`, enforced by `heading-claims.spec.ts`. It is
+ * deliberately NOT restated here: a second copy drifts, and this one did —
+ * it was left behind describing `servicesH2` and `careersH2` as the wordings
+ * that rounds 1 and 2 had already rejected.
+ *
+ * Copy rules that apply here (skill `copywriting`):
+ * - Headings carry no full stop — enforced by `__tests__/heading-punctuation.spec.ts`.
+ * - One idea per heading, ~6 words max on the hero.
+ * - Every claim is backed by a number, a mechanism or an example; nothing
+ *   about the company is invented (stats and case-study metrics are the
+ *   pre-existing, owner-supplied figures — only their wording changed).
+ *
+ * Deliberately NOT touched, because tests anchor on them as selectors:
+ * `nav.*`, `ctaSeeRoles`, `languageSwitcher.label`, `hiringStrip.text`
+ * (apps/e2e/tests/landing/*, `__tests__/hiring-strip.spec.tsx`).
  */
 export const en: Dictionary = {
   hiringStrip: {
@@ -27,8 +49,9 @@ export const en: Dictionary = {
     brandHome: 'CheekyCheeseIT home',
   },
   footer: {
-    tagline:
-      'An outsource & outstaffing studio building AI, EdTech and E-Commerce products that scale.',
+    // Was a full sentence ending in a full stop; a footer tagline is a label,
+    // not prose — shortened to the one fact that identifies us.
+    tagline: 'Senior engineers for AI, EdTech and E-Commerce',
     studioHeading: 'Studio',
     selectedWork: 'Selected work',
     howWeWork: 'How we work',
@@ -45,27 +68,33 @@ export const en: Dictionary = {
     names: { en: 'English', uk: 'Українська', ru: 'Русский', es: 'Español', pt: 'Português' },
   },
   home: {
-    seoTitle: 'CheekyCheeseIT — Senior engineering studio for AI, EdTech & E-Commerce',
+    // ≤60 chars (SEO), keeps "senior" + all three domain keywords.
+    seoTitle: 'CheekyCheeseIT — Senior engineers for AI, EdTech, E-Commerce',
+    // ≤155 chars. No longer a copy of `heroParagraph` — the description
+    // carries the search keywords, the hero carries the pitch.
     seoDescription:
-      'A senior-only engineering studio for international product companies. From model to storefront — we ship the hard parts, on your timezone.',
+      'Senior-only engineering studio for international product teams. Outsourcing and outstaffing in AI, EdTech and E-Commerce — shipping every week.',
     heroChip: 'Outsource & outstaffing · AI · EdTech · E-Commerce',
-    heroH1Line1: 'We build products',
-    heroH1Highlight: 'that scale.',
+    // "We build products that scale" failed the logo-swap test outright — any
+    // studio on earth could sign it. This says what we take on and how often
+    // we deliver, which is checkable.
+    heroH1Line1: 'Hard parts,',
+    heroH1Highlight: 'every week',
     heroParagraph:
-      'A senior-only engineering studio for international product companies. From model to storefront — we ship the hard parts, on your timezone.',
+      'A senior-only engineering studio for international product companies. Three domains we know cold, four-plus hours of overlap with your working day.',
     ctaStartProject: 'Start a project',
     ctaSeeRoles: 'See open roles',
     aboutEyebrow: 'About us',
     aboutH2Line1: 'Small teams,',
-    aboutH2Line2: 'senior hands.',
+    aboutH2Line2: 'no juniors',
     aboutP1:
-      "We're an IT studio that plugs into product companies as an extension of their team — or takes a mandate end to end. No layers, no juniors learning on your budget.",
+      'We plug into your product team as an extension of it — or take the mandate end to end. Either way you talk to the people writing the code, not to an account manager standing in front of them.',
     aboutP2:
-      'Our approach is deliberately narrow: three domains we know cold, senior engineers who own outcomes, and weekly shipping so you always see progress. We stay quietly in the background of great products.',
+      "The approach is deliberately narrow, and the trade is explicit: fewer people on the account, all of them senior, each owning an outcome instead of a queue of tickets. Most of what we build carries someone else's name — that suits us.",
     aboutBullets: [
       'Senior-only pods',
-      'Weekly, shippable increments',
-      'Own the outcome, not the ticket',
+      'A shippable increment weekly',
+      'Outcomes, not tickets',
       '4+ hours timezone overlap',
     ],
     stats: [
@@ -75,18 +104,18 @@ export const en: Dictionary = {
       { value: '20', suffix: '+', label: 'Senior engineers' },
     ],
     workEyebrow: 'Selected work',
-    workH2: 'Anonymised, but real.',
+    workH2: 'Anonymised, but real',
     workP:
-      "Under NDA we can't name names — but the problems, the builds and the numbers are exactly as they happened.",
+      'NDAs keep the logos off this page. The problems, the builds and the numbers are exactly as they happened.',
     caseStudies: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
-        title: 'Real-time inference platform for a vision SaaS',
+        title: 'Real-time inference for a vision SaaS',
         challenge:
-          'Model latency spiked past 400ms under load and inference costs grew faster than revenue.',
+          'Model latency spiked past 400ms under load, and inference cost was growing faster than revenue.',
         solution:
-          'Rebuilt the serving layer with batched GPU inference, a warm model cache and autoscaling on demand.',
+          'We rebuilt the serving layer: batched GPU inference, a warm model cache and autoscaling on demand.',
         metrics: [
           { value: '80', suffix: 'ms', label: 'p95 latency' },
           { value: '-64', suffix: '%', label: 'Inference cost' },
@@ -96,11 +125,11 @@ export const en: Dictionary = {
       {
         domain: 'edtech',
         domainLabel: 'EdTech',
-        title: 'Adaptive learning platform for a K-12 network',
+        title: 'Adaptive learning for a K-12 network',
         challenge:
-          'A one-size curriculum left advanced learners bored and strugglers behind; completion was falling.',
+          'One curriculum for everyone left advanced learners bored and strugglers behind — completion kept sliding.',
         solution:
-          'Built a per-learner path engine that recommends the next lesson from live mastery signals.',
+          'We built a per-learner path engine that picks the next lesson from live mastery signals.',
         metrics: [
           { value: '+38', suffix: '%', label: 'Completion' },
           { value: '120', suffix: 'k', label: 'Active learners' },
@@ -112,9 +141,9 @@ export const en: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'Headless storefront for a global DTC brand',
         challenge:
-          'A legacy monolith buckled on launch days; checkout abandonment climbed with every page slow-down.',
+          'The legacy monolith buckled on launch days, and checkout abandonment climbed with every slow page.',
         solution:
-          'Re-platformed to an edge-rendered headless storefront with idempotent, zero-downtime checkout.',
+          'We re-platformed to an edge-rendered headless storefront with an idempotent, zero-downtime checkout.',
         metrics: [
           { value: '1.2', suffix: 's', label: 'LCP, global' },
           { value: '+27', suffix: '%', label: 'Conversion' },
@@ -126,16 +155,16 @@ export const en: Dictionary = {
     solutionLabel: 'Solution',
     servicesEyebrow: 'Services',
     servicesH2Line1: 'Three domains,',
-    servicesH2Line2: 'learned the hard way.',
+    servicesH2Line2: 'learned the hard way',
     servicesP:
-      'We go deep, not wide. Every engineer here has shipped production systems in the domain they work.',
+      'We go deep, not wide. Every engineer here has shipped production systems in the domain they work in.',
     services: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
         title: 'Applied AI & ML',
         description:
-          'Inference platforms, RAG pipelines, recommendation and vision systems — built to be fast, observable and affordable in production.',
+          'Inference platforms, RAG pipelines, recommendation and vision systems — fast, observable and affordable once they are in production.',
         bullets: ['Model serving & MLOps', 'LLM & RAG applications', 'Data & feature pipelines'],
       },
       {
@@ -143,7 +172,7 @@ export const en: Dictionary = {
         domainLabel: 'EdTech',
         title: 'EdTech platforms',
         description:
-          'Adaptive learning, assessment engines and content tooling — engaging for learners, measurable for the institutions behind them.',
+          'Adaptive learning, assessment engines and content tooling — engaging for learners, measurable for the institutions paying for them.',
         bullets: ['Adaptive learning paths', 'Assessment & analytics', 'Authoring & LMS tooling'],
       },
       {
@@ -151,13 +180,16 @@ export const en: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'E-Commerce systems',
         description:
-          'Headless storefronts, checkout and inventory at scale — resilient on launch days and fast for shoppers everywhere.',
+          'Headless storefronts, checkout and inventory at scale — resilient on launch days, fast for shoppers everywhere.',
         bullets: ['Headless storefronts', 'Edge checkout & payments', 'Inventory & fulfilment'],
       },
     ],
     processEyebrow: 'How we work',
     processH2Line1: 'Four steps,',
-    processH2Line2: 'no surprises.',
+    // "no surprises" was a promise; "no black box" names the actual fear —
+    // and step 02 below ("in your repo, in your stack, in the open") is the
+    // evidence for it.
+    processH2Line2: 'no black box',
     processSteps: [
       {
         stepNum: '01 / Discovery',
@@ -184,15 +216,17 @@ export const en: Dictionary = {
       },
     ],
     techStackEyebrow: 'Tech stack',
-    techStackH2: 'Tools we reach for.',
+    // "Tools we reach for" was filler. "Default" says these are opinionated
+    // choices we start from, which is the actual message of the section.
+    techStackH2: 'Our default stack',
     careersEyebrow: 'Careers',
-    careersH2: "We're hiring senior engineers.",
+    careersH2: 'Ownership from week one',
     careersP:
-      "Remote-first, senior-only, real ownership. If you've shipped hard things in AI, EdTech or commerce, we should talk.",
+      "We hire people who have already shipped hard things in AI, EdTech or commerce. Remote-first, and the teams stay small enough that nothing you build disappears into a backlog — if that's you, we should talk.",
     viewAllRoles: 'View all roles',
-    contactH2: 'Have a hard problem worth shipping?',
+    contactH2: 'A hard problem and no one to own it?',
     contactP:
-      "Tell us what you're building. We'll reply within one business day with senior people, not a sales deck.",
+      "Tell us what you're building. You'll get a reply within one business day — from engineers, not a sales deck.",
     terminalAriaLabel:
       'Animated code editor previewing CheekyCheeseIT project source across AI, EdTech and E-Commerce',
     contactForm: {
@@ -231,9 +265,9 @@ export const en: Dictionary = {
     seoDescription:
       'Open senior engineering roles at CheekyCheeseIT — remote-first, senior-only, real ownership.',
     eyebrow: 'Careers',
-    h1: 'Build hard things with senior people.',
-    p1: 'Remote-first, senior-only, real ownership. We hire slowly and keep teams small — every role here is one we genuinely need filled.',
-    p2: 'Browse our open remote IT jobs below — every senior engineering role here is a real seat on a live product team, not a maybe-someday requisition.',
+    h1: 'Hard problems, senior peers',
+    p1: 'We hire slowly and keep teams small, so every role here is one we genuinely need filled. Remote-first, and the ownership is real — you own the outcome, not a queue of tickets.',
+    p2: 'Browse the open remote engineering roles below. Each one is a real seat on a live product team, not a maybe-someday requisition.',
     emptyTitle: 'No open roles right now',
     emptyBody:
       "We hire in waves and we're between them. Send your CV anyway — we keep every strong profile on file and reach out the moment something fits.",
