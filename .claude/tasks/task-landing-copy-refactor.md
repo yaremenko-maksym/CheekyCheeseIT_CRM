@@ -1,6 +1,10 @@
 # task-landing-copy-refactor — критический рефактор копирайтинга лендинга
 
-## Агент: coder · Модель: opus · Ветка: `feature/landing-copy-refactor` (от origin/main)
+## Агент: coder · Модель: opus · Ветка: `docs/landing-copy-refactor` (продолжить существующую)
+
+> Ветка уже содержит скилл `copywriting`, агента `copy-reviewer` и это задание — от `main`
+> ответвляться нельзя, там скилла ещё нет и `Skill('copywriting')` упадёт. Отдельную ветку
+> поверх этой не заводить: сложенные PR в этом проекте закрываются при сквоше базы.
 
 ## Design tier: 2
 
