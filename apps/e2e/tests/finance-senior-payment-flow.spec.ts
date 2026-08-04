@@ -484,6 +484,18 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
   test('External HTTPS image renders inline <img> — img-src allows any https host (MED-3)', async ({
     asAdmin,
   }) => {
+    // Intercept the receipt fetch so the image actually loads in the test
+    // browser — a plain (unmocked) URL 404s and the onError handler sets
+    // display:none, which would make the <img> assertion below fail for the
+    // wrong reason (hidden, not "never rendered").
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    )
+    await asAdmin.route('https://files.example.com/receipt.png', (r) =>
+      r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    )
+
     const txWithExternalImage = makeSeniorIncome({
       id: 'pay-flow-tx-ext-img',
       receiptExternalUrl: 'https://files.example.com/receipt.png',
