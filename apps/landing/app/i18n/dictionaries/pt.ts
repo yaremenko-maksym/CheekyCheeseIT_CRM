@@ -7,14 +7,14 @@ import type { Dictionary } from '../dictionary'
  * Every heading carries the SAME claim as the English (registry:
  * `__tests__/heading-claims.ts`, with a test proving no heading escapes it);
  * only the wording is written per language.
- * - hero: «O difícil, / semanalmente» — the two-part claim ("we take the
- *   hard work" + "weekly"), using the nominalised «o difícil» rather than an
- *   English-shaped noun phrase. One-word adverb for the same reason as `es`:
- *   «toda semana» (441px) cannot fit the 432px hero column.
- * - work: «Sem nomes, com números» — a sem/com pairing, where the English
- *   says "Anonymised, but real".
- * - services: «aprendidos no tranco» — hard-won experience, the claim the
- *   English carries; the paragraph below states the count of domains.
+ * Techniques, not quotes — a comment that restates the string below it is a
+ * second source of truth and drifts on the first edit:
+ * - hero: the nominalised «o difícil» rather than an English-shaped noun
+ *   phrase. One-word adverb for the cadence, same reason as `es`: a two-word
+ *   phrase (441px) does not fit the 432px hero column.
+ * - work: a sem/com pairing, where the English says "Anonymised, but real".
+ * - services: hard-won experience, the claim the English carries; the
+ *   paragraph below states the count of domains.
  *
  * Variant: this file leans **pt-BR** (sênior, times, você) — inherited from
  * the original translation, kept deliberately rather than silently switched.

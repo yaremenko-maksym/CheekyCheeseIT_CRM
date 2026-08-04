@@ -5,18 +5,17 @@ import type { Dictionary } from '../dictionary'
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5). Where the
  * English leans on noun phrases, the Russian leans on verbs, because that is
  * how the language actually reads:
- * - hero: «Сложное — еженедельно» carries the SAME two-part claim as the
- *   English ("we take the hard work" + "weekly"), in a form Russian would
- *   actually use. A literal rendering would give the participial calque
- *   «Сложные части, отгружаемые еженедельно».
- * - about: «только senior» states the same team-composition claim as the
- *   English "no juniors" from the positive side — Russian has no natural
- *   genitive for a Latin `junior`, and a Cyrillic «джуниоров» next to a
- *   Latin `senior` was review round 2's finding.
- * - work: «Имён нет — цифры есть» — the parallel ellipsis is idiomatic in
- *   Russian; the English says "Anonymised, but real".
- * - contact: «которую некому взять» names the staffing pain; the English
- *   now says the same thing ("and no one to own it").
+ * Techniques, not quotes — a comment that restates the string below it is a
+ * second source of truth and drifts on the first edit:
+ * - hero: a nominal construction with a dash, where a literal rendering of
+ *   the English would give a participial calque.
+ * - about: the team-composition claim is stated from the positive side
+ *   ("senior only") rather than the English "no juniors" — Russian has no
+ *   natural genitive for a Latin `junior`, and a Cyrillic «джуниоров» beside
+ *   a Latin `senior` was review round 2's finding.
+ * - work: a parallel ellipsis, idiomatic in Russian, where the English uses
+ *   "but".
+ * - contact: names the staffing pain, as the English now does too.
  *
  * Every heading carries the SAME claim as the English — the registry is
  * `__tests__/heading-claims.ts`, and a test proves no heading escapes it.

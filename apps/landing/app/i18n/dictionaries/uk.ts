@@ -8,19 +8,21 @@ import type { Dictionary } from '../dictionary'
  * Written independently of both `en.ts` and `ru.ts` — uk and ru are close
  * enough that mirroring the Russian would be the same calque problem one
  * language over:
- * - hero: «Складне — щотижня» states the cadence in two words; Russian needs
- *   the adverb «еженедельно» for the same claim.
- * - work: «Без імен, але з цифрами» — a "without X, with Y" pairing, where
- *   Russian uses the ellipsis «Имён нет — цифры есть».
- * - process: «усе на видноті» is the one locale that puts the claim in a
- *   positive frame instead of "no black box".
+ * Techniques, not quotes — a comment that restates the string below it is a
+ * second source of truth and drifts on the first edit:
+ * - hero: Ukrainian states the cadence in two words where Russian needs a
+ *   single adverb for the same claim.
+ * - work: a "without X, with Y" pairing, where Russian uses an ellipsis and
+ *   English a "but".
+ * - process: this is the one locale that puts the claim in a positive frame
+ *   instead of "no black box".
  *
  * Address form: «ви» зі рядкової. Industry terms stay in English where the
  * Ukrainian equivalent reads like a textbook (senior, production, headless,
  * MLOps, LLM/RAG) — and the choice is per TERM, not per occurrence, so
- * `senior` is Latin everywhere, including «тільки senior» in `aboutH2Line2`
- * (a Cyrillic «джуніорів» next to a Latin `senior` was review round 2's
- * finding). Key set MUST mirror `en.ts` exactly (`__tests__/i18n.spec.ts`).
+ * `senior` is Latin everywhere, including in `aboutH2Line2` (a Cyrillic
+ * «джуніорів» beside a Latin `senior` was review round 2's finding). Key set
+ * MUST mirror `en.ts` exactly (`__tests__/i18n.spec.ts`).
  */
 export const uk: Dictionary = {
   hiringStrip: {

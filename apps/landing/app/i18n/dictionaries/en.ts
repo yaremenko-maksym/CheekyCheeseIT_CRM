@@ -8,16 +8,13 @@ import type { Dictionary } from '../dictionary'
  * What is native per locale is the WORDING; the CLAIM is fixed. Review round
  * 1 caught the failure mode: en/uk named the weekly cadence in the hero
  * while ru/es/pt quietly dropped it, leaving three of five heroes saying
- * only "hard work is our thing" — which any agency could sign. The heading
- * claims every locale must carry:
- *   hero        — we take on the hard work + we deliver weekly
- *   aboutH2     — small teams + no juniors
- *   workH2      — no client names + real numbers
- *   servicesH2  — three domains + nothing outside them
- *   processH2   — four steps + no black box
- *   techStackH2 — the stack we start from by default
- *   careersH2   — we are hiring senior engineers
- *   contactH2   — do you have a hard problem for us?
+ * only "hard work is our thing" — which any agency could sign.
+ *
+ * The claim each heading must carry in every locale lives in
+ * `__tests__/heading-claims.ts`, enforced by `heading-claims.spec.ts`. It is
+ * deliberately NOT restated here: a second copy drifts, and this one did —
+ * it was left behind describing `servicesH2` and `careersH2` as the wordings
+ * that rounds 1 and 2 had already rejected.
  *
  * Copy rules that apply here (skill `copywriting`):
  * - Headings carry no full stop — enforced by `__tests__/heading-punctuation.spec.ts`.

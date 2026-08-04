@@ -7,17 +7,17 @@ import type { Dictionary } from '../dictionary'
  * Every heading carries the SAME claim as the English (registry:
  * `__tests__/heading-claims.ts`, with a test proving no heading escapes it);
  * only the wording is written per language.
- * - hero: «Lo difícil, / semanalmente» — the two-part claim ("we take the
- *   hard work" + "weekly"). The neuter «lo difícil» is how Spanish
- *   nominalises "the hard part"; English has no single word for it. The
- *   adverb is one word on purpose: «cada semana» (456px) cannot fit the
- *   432px hero column and `text-wrap: balance` splits the pair, while an
- *   unbreakable word widens the grid track instead.
- * - work: «Sin nombres, con números» — a sin/con pairing, where the English
- *   says "Anonymised, but real".
- * - services: «aprendidos a base de golpes» — the claim is hard-won
- *   experience, not just the count of domains (which the paragraph below
- *   already states).
+ * Techniques, not quotes — a comment that restates the string below it is a
+ * second source of truth and drifts on the first edit (it already did once
+ * here):
+ * - hero: the neuter «lo difícil» nominalises "the hard part", which English
+ *   has no single word for. The cadence is a one-word adverb on purpose: a
+ *   two-word phrase (456px) does not fit the 432px hero column, so
+ *   `text-wrap: balance` splits the pair, whereas an unbreakable word widens
+ *   the grid track instead.
+ * - work: a sin/con pairing, where the English says "Anonymised, but real".
+ * - services: the claim is hard-won experience, not just the count of
+ *   domains — the paragraph below already states the count.
  *
  * Address form: **tú** throughout (tech/startup Spanish; decided once and
  * held everywhere, per skill `copywriting` §5). Industry terms stay in
