@@ -81,6 +81,21 @@ apps/e2e/scratch-*
 /*.jpeg
 .claude/tasks/*.png
 
+# Session scratch: task briefs and harness counters.
+#
+# Task files are dispatch briefs written for one agent run. 39 of them were
+# committed before this rule and stay tracked (git ignores untracked files
+# only) — this stops NEW ones from accumulating as permanent untracked noise
+# that shows up in every branch's pending-changes view. 40 had piled up by
+# 2026-08-04.
+#
+# Consequence to know when dispatching: an ignored task file exists only in the
+# main working copy, not in a fresh worktree. Keep passing agents the absolute
+# path into the main repo (already the established practice) rather than a
+# repo-relative one.
+.claude/suggest-compact.counter
+.claude/tasks/*.md
+
 # QA / manual-qa screenshots and local test configs (agent artifacts)
 qa-screenshots/
 manual-qa-screenshots/
