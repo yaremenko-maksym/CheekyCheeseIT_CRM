@@ -51,6 +51,12 @@
   fidelity-аудита (Mode B), **покрывающего ВСЕ классы устройств** (`Fidelity: PASS|ISSUES|BLOCK` —
   см. `.claude/rules/common/design-fidelity-review.md`). Отсутствует / частичен (desktop-only) и
   tier ≠ 3 → `Verdict: BLOCK` со ссылкой на правило.
+- **Текст — отдельный гейт.** PR, меняющий текст для клиента или кандидата (словари
+  `apps/landing/app/i18n/dictionaries/**`, видимые строки `apps/web/**` / `apps/landing/**`,
+  тексты вакансий), требует вердикта `copy-reviewer` (`Copy Review: PASS|ISSUES|BLOCK` —
+  см. `.claude/agents/copy-reviewer.md`). Проверка визуала не заменяет проверку текста:
+  ui-ux-designer смотрит, как строка выглядит, copy-reviewer — что она говорит и на всех ли
+  пяти языках говорит одинаково хорошо. Вердикта нет → `Verdict: BLOCK`.
 - **`merge-approved` — без изменений:** ставит ТОЛЬКО PM / owner по явному «мерджим» владельца.
   Reviewer / любой агент `merge-approved` НЕ трогает (см. [[feedback_reviewer_self_merge_incident]]).
 
