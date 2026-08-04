@@ -17,24 +17,35 @@
 
 ---
 
-## 1. Что сейчас в проде (после мержа обоих PR)
+## 1. Что сейчас в проде (после мержа обоих PR + enforcing-флипа)
 
-| Домен                         | `Content-Security-Policy` (enforcing) | `Content-Security-Policy-Report-Only`                    | `report-uri`/`report-to`/`Reporting-Endpoints` | Остальные 5 заголовков (HSTS/XFO/nosniff/Referrer-Policy/Permissions-Policy) |
-| ----------------------------- | ------------------------------------- | -------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
-| `cheekycheese.tech` (landing) | ✅ да (боевая с PR #423)              | — не отправляется                                        | — не отправляется (коллектор не заведён)       | ✅ enforcing                                                                 |
-| `app.cheekycheese.tech` (CRM) | — НЕ отправляется (по умолчанию)      | ✅ да — политика та же, что enforcing вернёт после флипа | ✅ да — оба, `POST /api/public/csp-report`     | ✅ enforcing (ничего не ломают, закрывают clickjacking СРАЗУ)                |
+> **Флип 2026-08-03 (task-csp-reports-and-flip):** `CRM_CSP_MODE` переключён
+> `report-only` → `enforcing`. Основание — разбор первой реальной 7-дневной
+> выгрузки `csp_reports` (`cheekycheese-telemetry` issue #10): найдено ровно
+> два класса нарушений — `eval` (внешнее расширение-кошелёк в браузере
+> владельца, НЕ код CRM, оставлено блокируемым) и legitimate Cloudflare Web
+> Analytics beacon `script-src-elem` (дозакрыто добавлением
+> `https://static.cloudflareinsights.com` в `script-src`). Детали и
+> рационале — комментарий над `app.cheekycheese.tech` записью в
+> `nginx/conf.d/csp-map.conf`.
+
+| Домен                         | `Content-Security-Policy` (enforcing) | `Content-Security-Policy-Report-Only` | `report-uri`/`report-to`/`Reporting-Endpoints` | Остальные 5 заголовков (HSTS/XFO/nosniff/Referrer-Policy/Permissions-Policy) |
+| ----------------------------- | ------------------------------------- | ------------------------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `cheekycheese.tech` (landing) | ✅ да (боевая с PR #423)              | — не отправляется                     | — не отправляется (коллектор не заведён)       | ✅ enforcing                                                                 |
+| `app.cheekycheese.tech` (CRM) | ✅ да (боевая с 2026-08-03 флипа)     | — не отправляется (флип завершён)     | ✅ да — оба, `POST /api/public/csp-report`     | ✅ enforcing (ничего не ломают, закрывают clickjacking СРАЗУ)                |
 
 Механика — `nginx/conf.d/csp-map.conf`: единственный источник правды на
 текст политики — `$csp_value` (per-domain `map $server_name`), включающий
 `report-uri`/`report-to` для CRM. Режим (report-only/enforcing) больше НЕ
 хардкожен в двух отдельных maps — единственный источник правды теперь
-**одна переменная `CRM_CSP_MODE`** (см. §4). nginx `add_header` с пустым
-значением заголовок вообще не отправляет (задокументированное поведение
-`ngx_http_headers_module`, проверено эмпирически против этого конкретного
-конфига) — поэтому на CRM сегодня (`CRM_CSP_MODE=report-only`) энфорсящего
-`Content-Security-Policy` в ответах нет вообще, только `-Report-Only`;
-`report-uri`/`report-to` работают одинаково в ОБОИХ режимах (нарушения
-собираются независимо от того, блокирует ли политика что-то реально).
+**одна переменная `CRM_CSP_MODE`** (см. §4), сейчас `enforcing`. nginx
+`add_header` с пустым значением заголовок вообще не отправляет
+(задокументированное поведение `ngx_http_headers_module`, проверено
+эмпирически против этого конкретного конфига) — поэтому на CRM сегодня
+(`CRM_CSP_MODE=enforcing`) `-Report-Only` в ответах нет вообще, только
+энфорсящий `Content-Security-Policy`; `report-uri`/`report-to` работают
+одинаково в ОБОИХ режимах (нарушения собираются независимо от того,
+блокирует ли политика что-то реально).
 
 ## 2. Как читать собранные нарушения
 
@@ -65,7 +76,9 @@
 репо `cheekycheese-telemetry` тем же путём, что и прод-ошибки/UX-события:
 
 - **Лейбл:** `csp-violations` (create-if-missing, как `ux-insights`/`severity:auto`).
-- **Заголовок issue:** `CSP violations (report-only) YYYY-MM-DD`.
+- **Заголовок issue:** `CSP violations digest YYYY-MM-DD` (security review round 2,
+  LOW-3: mode-neutral — эта job не знает `CRM_CSP_MODE`, режим смотри в §1 выше,
+  не в заголовке issue).
 - **Тело issue:** `cspViolationsTotal` отдельной строкой + постоянный баннер,
   как именно проверять исчерпание капа (см. §3 — не по `cspViolationsTotal`),
   грубая эвристика-предупреждение как доп. сигнал (если `>= CSP_REPORTS_ROW_CAP`
@@ -148,6 +161,19 @@ dialog`), превью/загрузка чека (`receipt-panel`, `ReceiptInput
   комментариях к политике CRM) за последние ~7 дней реального трафика.
 - Ручной проход по документам/инвойсам/чекам (§2.3) не даёт новых
   нарушений сверх уже известных/фиксированных.
+
+  > **Закрыто прогоном 2026-08-04** — вместо прохода по проду в режиме
+  > наблюдения (где нарушение только записывается) поверхность прогнали
+  > локально в **блокирующем** режиме на прод-сборке nginx-образа: 32 проверки,
+  > 0 падений. Документы, инвойсы, контракты, ToS, чеки трёх видов — чисто.
+  > Два оставшихся нарушения — внешние чеки, см. §6.
+  >
+  > **Попутно исправлено чтение самого критерия:** роута `/invoices` **не
+  > существует**, инвойсы живут в `/documents?category=INVOICE`. Его отсутствие
+  > в 7-дневном окне означало «туда физически нельзя зайти», а не
+  > «поверхность не проверена» — на этом основании блокер читался строже, чем
+  > следовало.
+
 - `scripts/devops/check-security-headers.sh` зелёный на проде (гоняется
   автоматически на каждом деплое, `deploy.yml`'s post-deploy smoke, FATAL —
   см. §4 ниже).
@@ -194,17 +220,55 @@ env-передача в post-deploy smoke-шаг).
    **Текст политики (`$csp_value` в csp-map.conf) трогать не нужно** — он
    уже финальный, report-only использовался только как safety net на
    период наблюдения, а не как черновик политики.
-2. Локальный dry-run ПЕРЕД пушем (тот же паттерн, что и в PR #429):
+2. Локальный dry-run ПЕРЕД пушем (тот же паттерн, что и в PR #429; уточнено
+   security review round 2, task-csp-reports-and-flip enforcing flip — версия
+   ниже РЕАЛЬНО прогонялась, версия из PR #429 неполна и упадёт "as-is"):
+
    ```bash
+   # (a) throwaway self-signed сертификаты во временный каталог.
+   # ОБЯЗАТЕЛЬНО: рантайм-образ (в отличие от Dockerfile'ного build-time
+   # `nginx -t` теста) слушает `listen 443 ssl` в ТРЁХ server-блоках
+   # (crm.conf, landing.conf, default-server.conf) и грузит
+   # ssl_certificate/ssl_certificate_key с диска ПРИ СТАРТЕ — без реальных
+   # файлов по этим путям nginx не стартует ВООБЩЕ (валится весь контейнер),
+   # даже если проверяешь только HTTP-порт 80. `nginx:1.27-alpine` не несёт
+   # openssl (см. nginx/Dockerfile'а HIGH-2-соседний комментарий) — сертификаты
+   # генерируются НА ХОСТЕ и монтируются volume'ом.
+   CERT_DIR=$(mktemp -d)
+   for domain in cheekycheese.tech app.cheekycheese.tech; do
+     openssl req -x509 -nodes -newkey rsa:2048 -days 1 \
+       -keyout "$CERT_DIR/$domain.key" -out "$CERT_DIR/$domain.crt" \
+       -subj "/CN=$domain" 2>/dev/null
+   done
+
    docker build -f nginx/Dockerfile -t crm-nginx-test \
      --build-arg VITE_API_URL=/api --build-arg CRM_CSP_MODE=enforcing .
-   docker run -d --name crm-nginx-test -p 8080:80 crm-nginx-test
+
+   # (b) --add-host=api:127.0.0.1 ОБЯЗАТЕЛЕН: nginx.conf's
+   # `upstream api_upstream { server api:3001; }` резолвит хостнейм `api` ПРИ
+   # СТАРТЕ контейнера (это НЕ build-time тест из Dockerfile, где эта же
+   # строка подменяется на 127.0.0.1 — здесь настоящий nginx.conf, без правок).
+   # Без него — тот же класс отказа при старте, что и без сертификатов.
+   # `-v "$CERT_DIR:/etc/nginx/certs:ro"` — сертификаты из шага (a).
+   docker run -d --name crm-nginx-test \
+     -p 8080:80 -p 8443:443 \
+     --add-host=api:127.0.0.1 \
+     -v "$CERT_DIR:/etc/nginx/certs:ro" \
+     crm-nginx-test
+
    CRM_CSP_MODE=enforcing scripts/devops/check-security-headers.sh http://localhost:8080
+
+   # (c) уборка — контейнер, образ, временные сертификаты.
+   docker rm -f crm-nginx-test
+   docker rmi crm-nginx-test
+   rm -rf "$CERT_DIR"
    ```
+
    Все кейсы, включая "Report-Only rollout" (который под `CRM_CSP_MODE=enforcing`
    проверяет обратное: CRM ДОЛЖНА слать `Content-Security-Policy` и НЕ
    слать `-Report-Only` — тот же скрипт, оба направления, без правки),
    должны быть PASS.
+
 3. Обычный PR (не bootstrap-исключение) → review → `merge-approved` от
    владельца → CI squash-merge → auto-deploy подхватит на следующем цикле
    (`deploy.yml`'s build job передаёт `CRM_CSP_MODE=enforcing` как build-arg
@@ -222,6 +286,27 @@ Permissions-Policy) — они остаются enforcing независимо �
 §1 таблицу) — и не откатывает `report-uri`/`report-to` (те работают
 одинаково в обоих режимах, см. §1).
 
+> **Важно (security review round 2): это НЕ `nginx -s reload`.**
+> `CRM_CSP_MODE` — Docker build-ARG (см. `nginx/Dockerfile`'s `ARG CRM_CSP_MODE`
+> комментарий), запечённый в `nginx/conf.d/csp-map.conf` НА ЭТАПЕ СБОРКИ образа
+> (`sed` подставляет значение в `__CRM_CSP_MODE__` placeholder ВНУТРИ образа) —
+> значение НЕ читается из runtime-окружения контейнера, поэтому изменить его на
+> живом контейнере (reload/exec/env) невозможно в принципе. Откат =
+> **пересборка nginx-образа + полный цикл деплоя** (`deploy.yml`: build job с
+> новым build-arg → push в GHCR → deploy job → `docker compose up -d`
+> switchover), тот же путь, что и флип вперёд (§4). Ожидаемое время цикла —
+> **тот же порядок, что у любого обычного деплоя проекта** (сборка обоих SPA +
+> nginx-образа + SSH-деплой), НЕ секунды/минуты reload'а конфига. Планировать
+> инцидент-реакцию исходя из этого — «двухминутный откат» здесь не сценарий.
+
+> **Важно (живая проверка 2026-08-04): к времени отката добавляется время жизни
+> service worker'а на клиентах.** SW кеширует `index.html` **вместе с
+> CSP-заголовком**, поэтому после завершения деплоя уже открытые вкладки и
+> вернувшиеся пользователи продолжают энфорсить СТАРУЮ политику, пока их SW не
+> обновится. Практическое следствие: «откатили и сразу проверили у себя» —
+> недостаточное подтверждение; у части пользователей поломка ещё живёт. При
+> инциденте либо дожидаться обновления SW, либо гасить его принудительно.
+
 ## 6. Известные ограничения (security review round 2)
 
 - **`www.cheekycheese.tech` отсутствует в `CORS_ORIGINS`.** Origin-check в
@@ -234,6 +319,19 @@ Permissions-Policy) — они остаются enforcing независимо �
   может оказаться артефакт санитайзера. При разборе агрегатов — если значение
   выглядит странно, свериться с сырым `document-uri` живого нарушения в DevTools,
   а не гоняться за призраком в БД.
+- **`scripts/devops/check-security-headers.sh` не видит Cloudflare edge-инжекты
+  (security review round 2, LOW-1).** Скрипт (и локальный dry-run, и
+  `deploy.yml`'s post-deploy smoke-шаг) бьёт `127.0.0.1`/сам origin ДО
+  Cloudflare-прокси — он доказывает, что nginx отдаёт правильные заголовки, но
+  ничего не знает о том, что CF добавляет в ответ на своём edge (например,
+  `<script data-cf-beacon>` Web Analytics — см. `csp-map.conf`'а комментарий
+  про `static.cloudflareinsights.com`). «32 passed» из этого скрипта — это
+  «nginx-конфиг корректен», а НЕ «весь HTML, который реально видит браузер,
+  проверен на CF-инжекты». Если CF когда-нибудь сменит хост/скрипт beacon'а
+  (или добавит новый), этот скрипт останется зелёным, а прод молча начнёт
+  блокировать его в enforcing-режиме — единственный способ поймать такое
+  сегодня — `csp_reports` дайджест (§2) после реального прод-трафика, не этот
+  smoke-тест.
 
 ## 7. Связанные файлы
 

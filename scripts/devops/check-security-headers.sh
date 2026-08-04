@@ -75,6 +75,24 @@
 # local dry-run convention — a single nginx container serving BOTH vhosts,
 # selected via the Host header below, same as deploy.yml's own smoke check).
 #
+# KNOWN LIMITATION (security review round 2, LOW-1, enforcing-flip
+# task-csp-reports-and-flip): even against production, `curl` here hits
+# ORIGIN directly — 127.0.0.1 in the local dry-run, and in deploy.yml's
+# post-deploy smoke step it hits the VPS's own nginx too, i.e. BEFORE the
+# Cloudflare proxy layer. This suite proves nginx itself emits the right
+# headers; it has no visibility into anything Cloudflare's edge injects
+# into the response AFTER nginx (e.g. the `<script data-cf-beacon>` Web
+# Analytics tag — see nginx/conf.d/csp-map.conf's
+# static.cloudflareinsights.com comment). A "32 passed" run here means
+# "the nginx config is correct", NOT "the HTML a real browser receives via
+# Cloudflare has been checked for CF-injected content". If Cloudflare ever
+# changes/adds an edge-injected script, this suite stays green while a
+# real CSP-enforcing prod could start blocking it — the only way to catch
+# that is the csp_reports digest (see
+# scripts/devops/csp-report-only-rollout-runbook.md §2/§6), not this
+# script. Direction of failure is safe (fails closed, not open) but this
+# is not a guarantee this suite alone can make.
+#
 # Safe to run repeatedly against production (read-only GET requests, no
 # state mutated).
 set -u

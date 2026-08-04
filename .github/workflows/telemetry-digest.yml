@@ -429,11 +429,20 @@ jobs:
           set -euo pipefail
 
           gh label create "csp-violations" --repo "$PRIVATE_REPO" \
-            --color "d93f0b" --description "Weekly CSP (report-only) violations digest" \
+            --color "d93f0b" --description "Weekly CSP violations digest" \
             2>/dev/null || true
 
+          # security review round 2 (LOW-3, task-csp-reports-and-flip enforcing
+          # flip): the title used to hardcode "(report-only)" — accurate while
+          # CRM_CSP_MODE was report-only, but this workflow has no access to
+          # that value (it lives in deploy.yml's top-level env:, a DIFFERENT
+          # workflow file) and would start LYING the moment CRM flips to
+          # enforcing. Rather than wire a second, easy-to-drift copy of that
+          # mode in here, the title is now mode-neutral — current mode is
+          # always scripts/devops/csp-report-only-rollout-runbook.md §1
+          # (single source of truth), linked from the issue body below.
           ISO_DATE=$(date -u '+%Y-%m-%d')
-          TITLE="CSP violations (report-only) ${ISO_DATE}"
+          TITLE="CSP violations digest ${ISO_DATE}"
 
           # ── Guard: response contract check (MED-4, PR #466 review) ──────────
           # A `200` whose JSON body is missing these two fields (API rollback,
@@ -551,7 +560,10 @@ jobs:
               echo "$TRUNC_WARNING"
               echo ""
             fi
-            echo "## Нарушения (report-only)"
+            # security review round 2 (LOW-3): mode-neutral, same rationale as
+            # the TITLE fix above — this job cannot know CRM_CSP_MODE reliably,
+            # so it no longer asserts a mode. Current mode — see the runbook.
+            echo "## Нарушения (текущий режим CSP — scripts/devops/csp-report-only-rollout-runbook.md §1)"
             echo ""
             if [ "$ROW_COUNT" -eq 0 ]; then
               echo "За период нарушений не зафиксировано (cspViolationsTotal=0)."

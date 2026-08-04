@@ -90,7 +90,13 @@ env:
   # separately before this consolidation). To flip CRM to enforcing: change
   # THIS one value and follow
   # scripts/devops/csp-report-only-rollout-runbook.md §4.
-  CRM_CSP_MODE: report-only
+  #
+  # Flipped to enforcing 2026-08-03 (task-csp-reports-and-flip): first real
+  # 7-day csp_reports haul (cheekycheese-telemetry issue #10) found nothing
+  # of ours left to fix — see csp-map.conf's app.cheekycheese.tech comment
+  # block and the runbook §1 for the two violation classes found and why
+  # only one needed a policy change.
+  CRM_CSP_MODE: enforcing
   # security review (PR #437 follow-up, MED-2 "soft-launch" ask,
   # 2026-07-27): ORIGIN_GATE_MODE — SAME pattern as CRM_CSP_MODE directly
   # above, one value threaded into the nginx build-arg (bakes the mode
