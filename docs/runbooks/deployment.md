@@ -105,10 +105,29 @@ chmod 600 ~/.ssh/authorized_keys
 1. Cloudflare → R2 Object Storage → Create Bucket:
    - `crm-documents-prod` — для загружаемых пользователями документов
    - `crm-backups` — для ночных PG-дампов (§8)
-2. Создать R2 API Token: R2 → Manage API Tokens → Create API Token.
-   - Scope: Object Read & Write на оба бакета.
-   - Запомнить: Access Key ID, Secret Access Key.
+2. Создать **ДВА ОТДЕЛЬНЫХ** R2 API Token — по одному на бакет, **не один общий**
+   (`task-infra-prod-backup-safety-net`, round 2, 2026-08-03 — до этого был один
+   токен на оба бакета; разделено намеренно, см. врезку ниже):
+   - **Documents token** — scope: Object Read & Write, бакет `crm-documents-prod`
+     ТОЛЬКО. Идёт в GitHub Secrets `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`
+     (§3) → `.env.production` на VPS → читает `apps/api`.
+   - **Backups token** — scope: Object Read & Write, бакет `crm-backups` ТОЛЬКО
+     (один и тот же токен и пишет через `pg-backup.sh`, и удаляет по сроку
+     хранения — отдельный read-only токен не заводится, см. §8). Идёт **ТОЛЬКО**
+     в `/etc/crm-backup.env` на VPS (§8) — **никогда** в GitHub Secrets.
+   - Для каждого токена запомнить: Access Key ID, Secret Access Key.
 3. Endpoint R2 выглядит так: `https://<account-id>.r2.cloudflarestorage.com`
+   (одинаковый endpoint для обоих токенов — endpoint не привязан к скоупу).
+
+> **Почему два токена, а не один на оба бакета.** Единый токен на весь аккаунт
+> означал: компрометация контейнера `api` (единственное место, где живут
+> GitHub-secret-креды) = чтение и удаление 30 дней PG-дампов. После разделения
+> секрет, попадающий в GitHub Actions/`.env.production`/контейнер `api`,
+> физически не может тронуть `crm-backups` — токен с доступом к бэкапам нигде,
+> кроме `/etc/crm-backup.env` на самом VPS, не существует. Это же свойство —
+> причина, по которой автоматическая проверка свежести бэкапов (§8.1) идёт по
+> SSH прямо с сервера, а не из GitHub Actions: у раннера просто нет и не должно
+> быть кредов для `crm-backups`.
 
 > **Правильные значения S3-env для Cloudflare R2 (наш прод-провайдер):**
 > Валидатор (`apps/api/src/config/env.ts`) ожидает `S3_ENDPOINT` как валидный URL
@@ -323,10 +342,10 @@ docker compose version   # должно показать Compose plugin v2.x
 | `GOOGLE_CLIENT_SECRET`       | Оттуда же                                                                                                                                     |
 | `S3_ENDPOINT`                | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint)                              |
 | `S3_REGION`                  | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                                                  |
-| `S3_BUCKET`                  | `crm-documents-prod`                                                                                                                          |
+| `S3_BUCKET`                  | `crm-documents-prod` (документы — **НЕ** `crm-backups`, см. врезку ниже)                                                                      |
 | `S3_FORCE_PATH_STYLE`        | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                                                          |
-| `AWS_ACCESS_KEY_ID`          | R2 API Token Access Key ID (§1.5) или AWS IAM ключ                                                                                            |
-| `AWS_SECRET_ACCESS_KEY`      | R2 API Token Secret или AWS IAM секрет                                                                                                        |
+| `AWS_ACCESS_KEY_ID`          | **Documents token** Access Key ID (§1.5) — скоуп ТОЛЬКО `crm-documents-prod`, или AWS IAM ключ                                                |
+| `AWS_SECRET_ACCESS_KEY`      | **Documents token** Secret (§1.5) — тот же скоуп, что и выше, или AWS IAM секрет                                                              |
 | `TURNSTILE_SECRET_KEY`       | Cloudflare Turnstile Secret Key (§1.7). **Обязателен ДО мержа PR #390** — иначе прод-API crash-loop на буте.                                  |
 | `VITE_TURNSTILE_SITE_KEY`    | Cloudflare Turnstile Site Key (§1.7). Опционален до #390 — пустое значение не роняет билд лендинга.                                           |
 | `GOOGLE_INDEXING_SA_EMAIL`   | Полностью опционален (§1.8). `client_email` из GCP service-account JSON-ключа. Пусто → indexing-сервис в no-op режиме, деплой не блокируется. |
@@ -337,6 +356,10 @@ docker compose version   # должно показать Compose plugin v2.x
 >
 > `S3_USE_SSE` **не входит** в список секретов — оно захардкожено `false` прямо в `deploy.yml`
 > (write-env шаг), т.к. наш прод-провайдер — Cloudflare R2 (см. §1.5). Менять только при миграции на AWS S3.
+>
+> **Токен на `crm-backups` НЕ входит в этот список намеренно** — он живёт ТОЛЬКО в
+> `/etc/crm-backup.env` на VPS, никогда в GitHub Secrets (§1.5, §8). `AWS_ACCESS_KEY_ID`/
+> `AWS_SECRET_ACCESS_KEY` выше — это отдельный, documents-only токен.
 
 **Команды генерации секретов:**
 
@@ -538,8 +561,28 @@ ON CONFLICT (email) DO NOTHING;
 
 ## 8. Автоматические бэкапы PG
 
+> **Инцидент (обнаружено 2026-08-03):** на живом VPS не было НИ ОДНОГО из
+> трёх условий ниже — ни `/etc/crm-backup.env`, ни crontab-строки, ни даже
+> самого файла `pg-backup.sh` (он никогда не копировался на сервер). Прод с
+> финансами, контрактами и персональными данными работал без единой
+> резервной копии с самого первого деплоя, и ничто это не обнаруживало.
+> `task-infra-prod-backup-safety-net` закрывает файловую часть автоматически
+> (§8, шаг 1 ниже) и добавляет постоянный сигнал, если бэкапы перестанут
+> появляться (§8.1) — но установка cron и секретов ниже **по-прежнему
+> ручная**, и её обязательно довести до конца.
+
 Скрипт: `scripts/devops/pg-backup.sh`.
 Расписание: ежедневно в 3:00 UTC.
+
+**Шаг 1 (автоматизирован, ничего делать не нужно).** Каждый `Deploy`-прогон
+копирует `scripts/devops/pg-backup.sh` на VPS в
+`/opt/crm/scripts/devops/pg-backup.sh` (тот же `copy-compose`-механизм, что
+уже используется для `check-security-headers.sh`/`check-nginx-perimeter.sh`)
+и на каждый прогон переустанавливает бит исполнения (`chmod +x`, шаг
+"Ensuring pg-backup.sh is executable" в `deploy` job) — так что сам файл на
+сервере теперь гарантированно свежий и исполняемый после любого деплоя.
+
+**Шаг 2 (ручной, делает владелец — секреты и SSH-доступ на CI не выносятся).**
 
 ```bash
 # На VPS — установить cron:
@@ -550,11 +593,17 @@ crontab -e
 
 Создать файл с env-переменными для cron (cron не наследует ~/.bashrc):
 
+> **Креды здесь — НЕ значения из GitHub Secret `AWS_ACCESS_KEY_ID`/`AWS_SECRET_ACCESS_KEY`.**
+> Это **Backups token** — ОТДЕЛЬНЫЙ R2 API Token, скоуп ТОЛЬКО `crm-backups` (§1.5). GitHub
+> Secret с тем же именем — это **Documents token**, скоуп ТОЛЬКО `crm-documents-prod`, и он
+> НЕ имеет доступа к `crm-backups`. Это намеренное разделение (§1.5) — Backups token
+> заводится в Cloudflare отдельно и попадает **только** в этот файл, никогда в GitHub.
+
 ```bash
 cat > /etc/crm-backup.env << 'EOF'
-POSTGRES_PASSWORD=<значение из GitHub Secret>
-AWS_ACCESS_KEY_ID=<значение из GitHub Secret>
-AWS_SECRET_ACCESS_KEY=<значение из GitHub Secret>
+POSTGRES_PASSWORD=<значение из GitHub Secret POSTGRES_PASSWORD>
+AWS_ACCESS_KEY_ID=<Access Key ID Backups-токена — см. врезку выше, НЕ GitHub Secret>
+AWS_SECRET_ACCESS_KEY=<Secret Access Key Backups-токена — см. врезку выше, НЕ GitHub Secret>
 S3_ENDPOINT=https://<account-id>.r2.cloudflarestorage.com
 S3_BUCKET=crm-backups
 S3_REGION=auto
@@ -571,7 +620,68 @@ chmod 600 /etc/crm-backup.env
 
 Зависимость: `aws` CLI v2 — установить по инструкции в заголовке скрипта.
 
+**После установки cron — обязательно прогнать `pg-backup.sh` вручную один
+раз** (`source /etc/crm-backup.env && /opt/crm/scripts/devops/pg-backup.sh`)
+и убедиться, что объект появился в бакете (см. §8.1) — не полагаться только
+на ожидание следующего 03:00 UTC. Именно этот шаг раньше пропускали и
+никогда не замечали.
+
 **Restore:** процедура восстановления описана в комментарии в конце `pg-backup.sh`.
+
+### 8.1 Как убедиться, что бэкапы реально идут (не просто настроены)
+
+Раньше это состояние (настроен ли cron и реально ли он отрабатывает) ничем
+не проверялось — отсюда инцидент выше. Теперь есть два независимых способа
+проверить:
+
+- **Автоматический сигнал (task-infra-prod-backup-safety-net, round 2,
+  2026-08-03).** `deploy.yml`'s `deploy` job на каждый прогон (после любого
+  мержа в `main` + еженедельный ребилд по воскресеньям, см. `schedule:` в
+  `deploy.yml`) идёт по SSH на VPS (тот же `appleboy/ssh-action` + `VPS_HOST`/
+  `VPS_SSH_KEY`, что и остальные SSH-шаги деплоя — не отдельный канал) и
+  гоняет `scripts/devops/check-backup-freshness.sh` ПРЯМО НА СЕРВЕРЕ. Это не
+  случайный выбор: креды, которые могут читать `crm-backups`, специально
+  живут ТОЛЬКО в `/etc/crm-backup.env` на VPS (§1.5) и никогда не попадают в
+  GitHub Actions — проверка обязана исполняться там же, где эти креды
+  легитимно есть, иначе GitHub-секреты снова понадобились бы для чтения
+  бэкапного бакета, что и обесценило бы разделение токенов.
+
+  Скрипт на сервере читает `/etc/crm-backup.env` и возвращает ТОЛЬКО
+  `STATUS=`/`AGE_HOURS=`/`OBJECTS=` — ни ключи, ни endpoint, ни имена
+  объектов наружу не идут (см. заголовок скрипта). `deploy.yml` различает
+  **три** исхода, а не сваливает их в один:
+
+  | STATUS                     | Значит                                              | Реакция                               |
+  | -------------------------- | --------------------------------------------------- | ------------------------------------- |
+  | `not_configured`           | `/etc/crm-backup.env` отсутствует или неполный      | Alert: «бэкапы не настроены»          |
+  | `stale`                    | Объект есть, но старше 24ч (или объектов нет вовсе) | Alert: «бэкапы протухли»              |
+  | `fresh`                    | Объект младше 24ч                                   | Закрывает открытый alert (если был)   |
+  | _(SSH упал / скрипт упал)_ | Проверить не удалось — НЕ значит «бэкапов нет»      | Ничего не трогает, только `::warning` |
+
+  Первые три — определённые состояния (обрабатывает
+  `scripts/devops/interpret-backup-freshness.sh`); последнее — намеренно
+  **не** трогает alert-issue вообще: если проверка не смогла посмотреть на
+  бакет (SSH недостижим, скрипт упал непредвиденно), утверждать «бэкапов
+  нет» было бы ложью, а не сигналом. Реальный alert (open/comment/close)
+  идёт через **ту же** механику, что уже используется для красного `Deploy`
+  (`scripts/devops/post-merge-alert.sh`, `scripts/devops/resolve-alert-
+channel.sh`, `KIND=backup`) — приватный телеметрийный репозиторий, либо
+  этот репозиторий как fallback, если PAT недоступен. Issue закрывается
+  автоматически, когда следующая проверка находит `STATUS=fresh`. Эта
+  проверка **не роняет сам деплой** (см. комментарий в `deploy.yml` рядом с
+  шагом "Check backup freshness on VPS (SSH)") — свежесть бэкапа никак не
+  связана с тем, успешно ли прошла ЭТА выкатка, поэтому это отдельный
+  операционный сигнал, а не гейт мержа.
+
+- **Ручная проверка в любой момент (на самом VPS, теми же кредами):**
+  ```bash
+  source /etc/crm-backup.env
+  aws s3 ls "s3://${S3_BUCKET}/backups/" --region "${S3_REGION}" \
+    --endpoint-url "${S3_ENDPOINT}"
+  ```
+  Самый свежий объект по времени (`crm-db-<timestamp>.sql.gz`) не должен
+  быть старше суток. (С ноутбука владельца эта команда не отработает —
+  Backups token туда намеренно не попадает, см. §1.5.)
 
 ---
 
@@ -742,6 +852,12 @@ status check** (branch protection без required checks — см. `devops.md` "
 
 - Drizzle migrations внутри prod API-контейнера (§5) — `drizzle-kit` не в prod-образе.
 - `pg-backup.sh` — требует aws CLI и работающий R2/S3 бакет.
+- `scripts/devops/check-backup-freshness.sh` + `scripts/devops/interpret-backup-freshness.sh` —
+  все состояния (not_configured / stale / fresh / aws-error) и отсутствие утечки секретов в
+  вывод проверены локально через `CRM_BACKUP_ENV_FILE`/`FAKE_MODE=1`/подставной `aws`
+  (см. `task-infra-prod-backup-safety-net`), но НЕ по реальному SSH на VPS и НЕ против
+  реального бакета `crm-backups` — R2-бакет и Backups-токен (§1.5) ещё не созданы
+  владельцем.
 - TLS / Cloudflare Full (strict) handshake с origin-cert на nginx.
 - Реальный smoke-test через `https://app.cheekycheese.tech/api/health`.
 - `set_real_ip_from` CF CIDR — корректность real-IP restore под Cloudflare proxied.
