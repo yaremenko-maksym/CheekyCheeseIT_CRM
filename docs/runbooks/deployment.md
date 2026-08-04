@@ -584,12 +584,12 @@ ON CONFLICT (email) DO NOTHING;
 
 **Шаг 2 (ручной, делает владелец — секреты и SSH-доступ на CI не выносятся).**
 
-```bash
-# На VPS — установить cron:
-crontab -e
-# Добавить строку:
-0 3 * * * /opt/crm/scripts/devops/pg-backup.sh >> /var/log/crm-backup.log 2>&1
-```
+> **Порядок важен: сначала env-файл, потом cron.** Раньше здесь стояла
+> cron-строка БЕЗ загрузки `/etc/crm-backup.env` — а `pg-backup.sh` переменные
+> сам не читает, он требует их из окружения (`required_vars` в его шапке).
+> Такая строка падает на первом же запуске с `Required env var
+'POSTGRES_PASSWORD' is not set`. Готовая рабочая строка — ниже, после
+> создания файла.
 
 Создать файл с env-переменными для cron (cron не наследует ~/.bashrc):
 
@@ -612,16 +612,26 @@ EOF
 chmod 600 /etc/crm-backup.env
 ```
 
-Обновить cron-строку для source env:
+Установить cron-строку (она загружает env-файл сама):
 
 ```bash
-0 3 * * * source /etc/crm-backup.env && /opt/crm/scripts/devops/pg-backup.sh >> /var/log/crm-backup.log 2>&1
+0 3 * * * set -a; . /etc/crm-backup.env; set +a; /opt/crm/scripts/devops/pg-backup.sh >> /var/log/crm-backup.log 2>&1
 ```
+
+> **`set -a` здесь обязателен, не украшение — не «упрощать» до `. file && script`.**
+> Загрузка файла создаёт переменные в ТЕКУЩЕЙ оболочке, а `pg-backup.sh`
+> запускается ОТДЕЛЬНЫМ процессом и необъявленных на экспорт переменных не
+> наследует. Проверено опытом 2026-08-04: `. env && child.sh` → дочерний процесс
+> видит пустое значение; `set -a; . env; set +a; child.sh` → видит. Прежняя
+> формулировка в этом файле (`source ... && ...`) была сломана дважды: помимо
+> экспорта, cron исполняет команды через `/bin/sh`, а это на Ubuntu `dash`, где
+> команды `source` не существует вовсе — только точка. Альтернатива, если
+> хочется без `set -a`, — прописать `export` перед каждой строкой env-файла.
 
 Зависимость: `aws` CLI v2 — установить по инструкции в заголовке скрипта.
 
 **После установки cron — обязательно прогнать `pg-backup.sh` вручную один
-раз** (`source /etc/crm-backup.env && /opt/crm/scripts/devops/pg-backup.sh`)
+раз** (`set -a; . /etc/crm-backup.env; set +a; /opt/crm/scripts/devops/pg-backup.sh`)
 и убедиться, что объект появился в бакете (см. §8.1) — не полагаться только
 на ожидание следующего 03:00 UTC. Именно этот шаг раньше пропускали и
 никогда не замечали.
@@ -675,7 +685,7 @@ channel.sh`, `KIND=backup`) — приватный телеметрийный р
 
 - **Ручная проверка в любой момент (на самом VPS, теми же кредами):**
   ```bash
-  source /etc/crm-backup.env
+  set -a; . /etc/crm-backup.env; set +a
   aws s3 ls "s3://${S3_BUCKET}/backups/" --region "${S3_REGION}" \
     --endpoint-url "${S3_ENDPOINT}"
   ```
