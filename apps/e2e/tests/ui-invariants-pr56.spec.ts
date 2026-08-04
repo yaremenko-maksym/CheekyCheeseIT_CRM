@@ -77,16 +77,6 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
 
 test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', () => {
   test('receipt panel frame uses max-h-[520px] (PR #56 final UT AC3)', async ({ asAdmin }) => {
-    // Tiny 1x1 PNG so the receipt image actually loads in the test browser
-    // (otherwise onError hides it).
-    const PNG = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
-      'base64',
-    )
-    await asAdmin.route('https://files.example.com/tall-receipt.png', (r) =>
-      r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
-    )
-
     const tx = {
       id: 'tall-receipt-tx',
       type: 'SENIOR_INCOME',
@@ -132,13 +122,13 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
-    // The receipt anchor is the height-bounded frame containing the <img>.
-    // PR #56 ReceiptPanel renders this as `<a target="_blank" href={url}>
-    //   <img alt="Чек" ...>` with the height cap on the anchor. We locate
-    // the anchor whose immediate child is the image — the test browser may
-    // not render the image bytes (mocking img URLs is unreliable across
-    // browsers) but the anchor + frame must exist regardless.
-    const receiptFrame = dialog.locator('a[target="_blank"]:has(img[alt="Чек"])').first()
+    // This fixture uses an external receiptExternalUrl. fix/external-receipt-
+    // rendering: an external receipt is never embedded (CSP object-src/img-src
+    // reasons — see receipt-panel.tsx header) — it renders the height-bounded
+    // "external" card (data-testid="receipt-panel-external") instead of an
+    // `<a><img>` anchor. The height-cap invariant this test guards applies to
+    // that card's frame just the same (same shared `frameClass`).
+    const receiptFrame = dialog.getByTestId('receipt-panel-external')
     await expect(receiptFrame).toBeAttached()
     // Computed height must respect the 520px cap; on a small viewport the
     // 60vh winner can be smaller, so we assert "≤ 520" rather than "= 520".
