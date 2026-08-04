@@ -65,9 +65,24 @@ VERDICT="inconclusive"
 DETAIL="Проверка не выполнена: SSH к VPS не удался или скрипт check-backup-freshness.sh завершился с ошибкой (не значит, что бэкапов нет — значит, что проверить не удалось)."
 
 if [ "$SSH_OUTCOME" = "success" ]; then
-  STATUS=$(printf '%s\n' "$SSH_STDOUT" | grep -m1 '^STATUS=' | cut -d= -f2-)
-  AGE_HOURS=$(printf '%s\n' "$SSH_STDOUT" | grep -m1 '^AGE_HOURS=' | cut -d= -f2-)
-  OBJECTS=$(printf '%s\n' "$SSH_STDOUT" | grep -m1 '^OBJECTS=' | cut -d= -f2-)
+  # `|| true` on all three extractions: under `set -e -o pipefail`, `grep -m1`
+  # finding no match exits 1, and pipefail propagates that as the whole
+  # pipeline's (and thus the `VAR=$(...)` assignment's) exit status — which
+  # `set -e` treats as a command failure and aborts the script right here,
+  # BEFORE `write_output verdict` ever runs (bug found in production: the SSH
+  # step's outputs.stdout is empty whenever the pinned appleboy/ssh-action
+  # version predates `capture_stdout` support — see the version-pin comment
+  # on the "Check backup freshness on VPS (SSH)" step in deploy.yml — so
+  # SSH_OUTCOME=success but SSH_STDOUT="" was not a hypothetical, it was the
+  # exact shape of every real run). An empty/malformed SSH_STDOUT is
+  # precisely the "could not determine" case this script exists to turn into
+  # verdict=inconclusive, not a crash — so a missing line in ANY of the three
+  # extractions must fall through to the `*)` unrecognized-STATUS branch
+  # below (STATUS="" matches nothing else there) instead of killing the
+  # script.
+  STATUS=$(printf '%s\n' "$SSH_STDOUT" | grep -m1 '^STATUS=' | cut -d= -f2- || true)
+  AGE_HOURS=$(printf '%s\n' "$SSH_STDOUT" | grep -m1 '^AGE_HOURS=' | cut -d= -f2- || true)
+  OBJECTS=$(printf '%s\n' "$SSH_STDOUT" | grep -m1 '^OBJECTS=' | cut -d= -f2- || true)
 
   case "$STATUS" in
     not_configured)

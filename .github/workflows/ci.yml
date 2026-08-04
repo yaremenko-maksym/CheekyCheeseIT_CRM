@@ -162,6 +162,19 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-prod-ddl-wiring.py
 
+      # Incident guard (fix/backup-freshness-wiring, 2026-08-04): deploy.yml's backup-
+      # freshness check was written against appleboy/ssh-action's CURRENT docs
+      # (`capture_stdout: true` + `outputs.stdout`), but its version pin was left at
+      # v1.2.0 — a version whose action.yml has neither, so the step silently produced
+      # empty output on every single run and turned a healthy-backups deploy into a
+      # false "backups are broken" alert. Same pattern as the two guards above: a
+      # feature and its prerequisite drifted apart in different parts of the same file
+      # and nothing ever connected them. See the guard script's own header for the
+      # full incident + why this is a repo-wide check, not scoped to one step.
+      - name: ssh-action capture_stdout version guard
+        if: steps.scope.outputs.code == 'true'
+        run: python3 scripts/devops/check-ssh-action-capture-stdout-version.py
+
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping quality work, satisfying required status."
