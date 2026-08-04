@@ -4,8 +4,9 @@ import type { Dictionary } from '../dictionary'
  * `pt` — Portuguese (base, no region), WRITTEN in Portuguese
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
  * from `en.ts`:
- * - hero: «O difícil / é conosco» — "the hard part is on us", the natural
- *   Portuguese way to claim ownership of a problem.
+ * - hero: «O difícil, / toda semana» — the same two-part claim as the
+ *   English ("we take the hard work" + "weekly"), using the Portuguese
+ *   nominalised «o difícil» rather than an English-shaped noun phrase.
  * - work: «Sem nomes, com números» — a sem/com pairing, where the English
  *   says "Anonymised, but real".
  * - contact: «Tem algo difícil no seu roadmap?» names where the reader
@@ -64,10 +65,10 @@ export const pt: Dictionary = {
     seoDescription:
       'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Outsourcing e outstaffing em AI, EdTech e E-Commerce, com entregas semanais.',
     heroChip: 'Outsourcing e outstaffing · AI · EdTech · E-Commerce',
-    heroH1Line1: 'O difícil',
-    heroH1Highlight: 'é conosco',
+    heroH1Line1: 'O difícil,',
+    heroH1Highlight: 'semanalmente',
     heroParagraph:
-      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Três domínios que dominamos e algo entregável toda semana.',
+      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Três domínios que conhecemos de perto e 4+ horas de sobreposição com o seu expediente.',
     ctaStartProject: 'Iniciar um projeto',
     ctaSeeRoles: 'Ver vagas abertas',
     aboutEyebrow: 'Sobre nós',
@@ -188,7 +189,7 @@ export const pt: Dictionary = {
         stepNum: '02 / Desenvolvimento',
         title: 'Desenvolvimento',
         description:
-          'Times sênior entregam incrementos semanais no seu repositório, na sua stack, à vista.',
+          'Times sênior entregam incrementos semanais no seu repositório, no seu stack, à vista.',
       },
       {
         stepNum: '03 / Lançamento',
@@ -223,7 +224,7 @@ export const pt: Dictionary = {
       emailLabel: 'Email',
       emailPlaceholder: 'you@company.com',
       messageLabel: 'O que você está construindo?',
-      messagePlaceholder: 'Conte-nos sobre o problema, o prazo e a equipe que você tem hoje.',
+      messagePlaceholder: 'Conte-nos sobre o problema, o prazo e o time que você tem hoje.',
       submit: 'Enviar mensagem',
       submitting: 'Enviando…',
       protectedBy: 'Protegido por captcha invisível — sem quebra-cabeças.',

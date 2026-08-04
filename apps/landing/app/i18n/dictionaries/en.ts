@@ -5,6 +5,20 @@ import type { Dictionary } from '../dictionary'
  * set (enforced by `__tests__/i18n.spec.ts`) but are WRITTEN, not translated
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5).
  *
+ * What is native per locale is the WORDING; the CLAIM is fixed. Review round
+ * 1 caught the failure mode: en/uk named the weekly cadence in the hero
+ * while ru/es/pt quietly dropped it, leaving three of five heroes saying
+ * only "hard work is our thing" — which any agency could sign. The heading
+ * claims every locale must carry:
+ *   hero        — we take on the hard work + we deliver weekly
+ *   aboutH2     — small teams + no juniors
+ *   workH2      — no client names + real numbers
+ *   servicesH2  — three domains + nothing outside them
+ *   processH2   — four steps + no black box
+ *   techStackH2 — the stack we start from by default
+ *   careersH2   — we are hiring senior engineers
+ *   contactH2   — do you have a hard problem for us?
+ *
  * Copy rules that apply here (skill `copywriting`):
  * - Headings carry no full stop — enforced by `__tests__/heading-punctuation.spec.ts`.
  * - One idea per heading, ~6 words max on the hero.
@@ -144,7 +158,7 @@ export const en: Dictionary = {
     solutionLabel: 'Solution',
     servicesEyebrow: 'Services',
     servicesH2Line1: 'Three domains,',
-    servicesH2Line2: 'learned the hard way',
+    servicesH2Line2: 'nothing else',
     servicesP:
       'We go deep, not wide. Every engineer here has shipped production systems in the domain they work in.',
     services: [

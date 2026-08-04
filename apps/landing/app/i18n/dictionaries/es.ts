@@ -4,9 +4,10 @@ import type { Dictionary } from '../dictionary'
  * `es` — Spanish (base, no region — LatAm + Spain), WRITTEN in Spanish
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5), not translated
  * from `en.ts`:
- * - hero: «Lo difícil / lo hacemos» uses left dislocation with clitic
- *   doubling — a construction Spanish reaches for naturally and that no
- *   word-by-word rendering of the English hero produces.
+ * - hero: «Lo difícil, / cada semana» — the same two-part claim as the
+ *   English ("we take the hard work" + "weekly"). The neuter «lo difícil»
+ *   is how Spanish nominalises "the hard part"; English has no single word
+ *   for it and a literal rendering reaches for a clause instead.
  * - work: «Sin nombres, con números» — a sin/con pairing, where the English
  *   says "Anonymised, but real".
  * - contact: «¿Tienes algo difícil entre manos?» — the idiom «entre manos»
@@ -63,10 +64,10 @@ export const es: Dictionary = {
     seoDescription:
       'Estudio de ingeniería solo-senior para empresas de producto internacionales. Outsourcing y outstaffing en AI, EdTech y E-Commerce, con entregas semanales.',
     heroChip: 'Outsourcing y outstaffing · AI · EdTech · E-Commerce',
-    heroH1Line1: 'Lo difícil',
-    heroH1Highlight: 'lo hacemos',
+    heroH1Line1: 'Lo difícil,',
+    heroH1Highlight: 'semanalmente',
     heroParagraph:
-      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Tres dominios que dominamos y algo entregable cada semana.',
+      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Tres dominios que conocemos al detalle y 4+ horas de solape con tu jornada.',
     ctaStartProject: 'Iniciar un proyecto',
     ctaSeeRoles: 'Ver vacantes abiertas',
     aboutEyebrow: 'Sobre nosotros',

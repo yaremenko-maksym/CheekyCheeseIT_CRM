@@ -5,11 +5,10 @@ import type { Dictionary } from '../dictionary'
  * (task-landing-copy-refactor.md §2 / skill `copywriting` §5). Where the
  * English leans on noun phrases, the Russian leans on verbs, because that is
  * how the language actually reads:
- * - hero: «Сложное — наше дело» — an idiomatic Russian claim of specialism.
- *   The English "Hard parts, every week" leads on cadence; Russian cannot
- *   carry that cadence in the hero without either a participial calque
- *   («Сложные части, отгружаемые еженедельно») or a line too long for the
- *   80px hero type, so the weekly fact moved into `heroParagraph` instead.
+ * - hero: «Сложное — еженедельно» carries the SAME two-part claim as the
+ *   English ("we take the hard work" + "weekly"), in a form Russian would
+ *   actually use. A literal rendering would give the participial calque
+ *   «Сложные части, отгружаемые еженедельно».
  * - about: «без прослоек» — a Russian organisational metaphor with no
  *   English source phrase behind it.
  * - work: «Имён нет — цифры есть» — the parallel ellipsis is idiomatic in
@@ -68,14 +67,14 @@ export const ru: Dictionary = {
       'Senior-only студия разработки для международных продуктовых команд. Аутсорс и аутстаффинг в AI, EdTech и E-Commerce — рабочий результат каждую неделю.',
     heroChip: 'Аутсорс и аутстаффинг · AI · EdTech · E-Commerce',
     heroH1Line1: 'Сложное —',
-    heroH1Highlight: 'наше дело',
+    heroH1Highlight: 'еженедельно',
     heroParagraph:
-      'Senior-only студия для международных продуктовых команд. Три домена, которые знаем досконально, и работающий результат каждую неделю.',
+      'Senior-only студия для международных продуктовых команд. Три домена, которые знаем досконально, и 4+ часа пересечения с вашим рабочим днём.',
     ctaStartProject: 'Начать проект',
     ctaSeeRoles: 'Открытые вакансии',
     aboutEyebrow: 'О нас',
-    aboutH2Line1: 'Только сеньоры,',
-    aboutH2Line2: 'без прослоек',
+    aboutH2Line1: 'Малые команды,',
+    aboutH2Line2: 'без джуниоров',
     aboutP1:
       'Встраиваемся в вашу продуктовую команду как её часть — или берём задачу целиком. В обоих случаях вы общаетесь с теми, кто пишет код, а не с аккаунт-менеджером перед ними.',
     aboutP2:
@@ -258,7 +257,7 @@ export const ru: Dictionary = {
     eyebrow: 'Вакансии',
     h1: 'Сложные задачи и сильная команда',
     p1: 'Нанимаем медленно и держим команды небольшими, поэтому каждая вакансия здесь закрывает настоящую потребность. Удалённо, с реальной ответственностью: вы отвечаете за результат, а не за очередь тикетов.',
-    p2: 'Ниже — открытые удалённые вакансии. Каждая senior-роль здесь это живое место в работающей продуктовой команде, а не заявка «когда-нибудь».',
+    p2: 'Ниже — открытые удалённые вакансии. Каждая senior-роль здесь — это живое место в работающей продуктовой команде, а не заявка «когда-нибудь».',
     emptyTitle: 'Сейчас открытых вакансий нет',
     emptyBody:
       'Мы нанимаем волнами и сейчас между ними. Всё равно пришлите резюме — мы храним каждый сильный профиль и напишем, как только появится подходящая роль.',
