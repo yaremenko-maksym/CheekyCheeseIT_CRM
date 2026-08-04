@@ -475,11 +475,13 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     expect(downloadTriggered).toBe(false)
   })
 
-  // fix/external-receipt-rendering: the site's CSP blocks an external
-  // <object>/<iframe> embed (object-src) and a legacy http:// <img> (mixed
-  // content) — an external receipt is now NEVER embedded, regardless of file
-  // type. It always renders the honest "external" card with a working link.
-  test('External image receipt shows the honest external card, not an <img> embed', async ({
+  // fix/external-receipt-rendering, round 2 (security-review PR #470 MED-3):
+  // the site's CSP `img-src` is a BLANKET `https:` allow-list
+  // (nginx/conf.d/csp-map.conf) — an external HTTPS image was never blocked
+  // and keeps its inline <img> preview. Only `object-src` (PDF, any host) and
+  // mixed-content (any http:// value) are actually unrenderable — those get
+  // the honest "external" card with a working link instead.
+  test('External HTTPS image renders inline <img> — img-src allows any https host (MED-3)', async ({
     asAdmin,
   }) => {
     const txWithExternalImage = makeSeniorIncome({
@@ -494,14 +496,35 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
+    await expect(dialog.getByTestId('receipt-panel-external')).not.toBeVisible()
+    const img = dialog.locator('img[alt="Чек"]')
+    await expect(img).toBeVisible()
+    await expect(img).toHaveAttribute('src', txWithExternalImage.receiptExternalUrl!)
+  })
+
+  test('External http:// image shows the honest external card (mixed content, not CSP)', async ({
+    asAdmin,
+  }) => {
+    const txWithHttpImage = makeSeniorIncome({
+      id: 'pay-flow-tx-ext-http-img',
+      receiptExternalUrl: 'http://legacy-partner.example/receipt.png',
+      receiptDocumentId: null,
+    })
+    await mockTransactions(asAdmin, [txWithHttpImage])
+
+    await asAdmin.goto('/finance')
+    await asAdmin.getByTestId(`tx-row-${txWithHttpImage.id}`).click()
+    const dialog = asAdmin.getByRole('dialog')
+    await expect(dialog).toBeVisible()
+
     await expect(dialog.getByTestId('receipt-panel-external')).toBeVisible()
     await expect(dialog.locator('img[alt="Чек"]')).not.toBeVisible()
     const link = dialog.getByRole('link', { name: /Открыть чек/i })
-    await expect(link).toHaveAttribute('href', txWithExternalImage.receiptExternalUrl!)
+    await expect(link).toHaveAttribute('href', txWithHttpImage.receiptExternalUrl!)
     await expect(link).toHaveAttribute('target', '_blank')
   })
 
-  test('External PDF receipt shows the honest external card, never the misleading "не поддерживается браузером" caption', async ({
+  test('External PDF receipt (any host) shows the honest external card, never the misleading "не поддерживается браузером" caption', async ({
     asAdmin,
   }) => {
     const txWithExternalPdf = makeSeniorIncome({

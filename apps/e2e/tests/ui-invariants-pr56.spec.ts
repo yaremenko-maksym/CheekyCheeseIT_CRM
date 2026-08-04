@@ -77,6 +77,21 @@ test.describe('Flow E1 — Header avatar dropdown', () => {
 
 test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', () => {
   test('receipt panel frame uses max-h-[520px] (PR #56 final UT AC3)', async ({ asAdmin }) => {
+    // MED-3 (security-review PR #470): an external HTTPS image is no longer
+    // routed through the "external" card — img-src allows any https host, so
+    // it renders inline via <img> exactly like an own image (see receipt-
+    // panel.tsx). Mock the image bytes so it actually loads in the test
+    // browser (a plain URL 404s and the onError handler hides the element,
+    // collapsing the frame to 0 height and masking the invariant this test
+    // guards — a tall portrait photo must not stretch the dialog).
+    const PNG = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=',
+      'base64',
+    )
+    await asAdmin.route('https://files.example.com/tall-receipt.png', (r) =>
+      r.fulfill({ status: 200, contentType: 'image/png', body: PNG }),
+    )
+
     const tx = {
       id: 'tall-receipt-tx',
       type: 'SENIOR_INCOME',
@@ -122,13 +137,11 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
     const dialog = asAdmin.getByRole('dialog')
     await expect(dialog).toBeVisible()
 
-    // This fixture uses an external receiptExternalUrl. fix/external-receipt-
-    // rendering: an external receipt is never embedded (CSP object-src/img-src
-    // reasons — see receipt-panel.tsx header) — it renders the height-bounded
-    // "external" card (data-testid="receipt-panel-external") instead of an
-    // `<a><img>` anchor. The height-cap invariant this test guards applies to
-    // that card's frame just the same (same shared `frameClass`).
-    const receiptFrame = dialog.getByTestId('receipt-panel-external')
+    // The receipt anchor is the height-bounded frame containing the <img>
+    // (`<a target="_blank"><img alt="Чек" ...></a>`, same pattern as an own
+    // image — see receipt-panel.tsx). The height-cap invariant this test
+    // guards applies to that frame.
+    const receiptFrame = dialog.locator('a[target="_blank"]:has(img[alt="Чек"])').first()
     await expect(receiptFrame).toBeAttached()
     // Computed height must respect the 520px cap; on a small viewport the
     // 60vh winner can be smaller, so we assert "≤ 520" rather than "= 520".
