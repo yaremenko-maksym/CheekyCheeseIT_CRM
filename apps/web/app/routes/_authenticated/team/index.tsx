@@ -254,6 +254,10 @@ function HrCreateSeniorDialog({
                 return (
                   <Field label="Email" error={err} required>
                     <Input
+                      type="email"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       placeholder="senior@cheekycheese.dev"
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
@@ -287,6 +291,8 @@ function HrCreateSeniorDialog({
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
+                      autoCapitalize="words"
+                      autoComplete="off"
                       className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
                     />
                   </Field>
@@ -330,6 +336,8 @@ function HrCreateSeniorDialog({
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
+                      autoCapitalize="off"
+                      autoCorrect="off"
                       className={cn(err && 'border-destructive focus-visible:ring-destructive/30')}
                     />
                   </Field>
@@ -619,6 +627,8 @@ function TeamPage() {
             <div className="relative flex-1">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
+                type="search"
+                enterKeyHint="search"
                 placeholder="Поиск по названию…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}

@@ -100,6 +100,8 @@ function LoginAsPageContent({ meId }: { meId: string }) {
               <div className="relative flex-1">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
+                  type="search"
+                  enterKeyHint="search"
                   placeholder="Поиск по имени, email, telegram..."
                   className="pl-8"
                   value={searchQuery}

@@ -264,6 +264,8 @@ function UsersPageContent({
                 <div className="relative flex-1 min-w-50">
                   <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                   <Input
+                    type="search"
+                    enterKeyHint="search"
                     placeholder="Поиск по имени, email, telegram, технологии..."
                     className="pl-8"
                     value={searchQuery}
