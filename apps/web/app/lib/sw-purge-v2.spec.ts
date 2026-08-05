@@ -1,5 +1,5 @@
 /**
- * Unit coverage for apps/web/public/sw-purge-stale-api-cache.js — security
+ * Unit coverage for apps/web/public/sw-purge-v2.js — security
  * MED-5 (task-scan-cache-leak, security-review PR #477 same review):
  * "сама чистка не покрыта ни одним тестом" — the only prior coverage was the
  * `cache` Playwright project, which is NOT run in CI (`KNOWN_UNSHARDED`,
@@ -23,6 +23,19 @@
  *     every URL a user's browser cached, which survives `caches.delete()`
  *     because it's a separate store) is deleted too, so "what was viewed"
  *     does not outlive the purge.
+ *
+ * Filename note (security HIGH-1 round 2, security-review PR #479 review
+ * `4864575278`): the target script was renamed from
+ * `sw-purge-stale-api-cache.js` to `sw-purge-v2.js` — the path is caught by
+ * nginx's immutable-1y static-asset rule, and the SW's default
+ * `updateViaCache: 'imports'` means an `importScripts()`-imported file (this
+ * one) is fetched through that same HTTP cache, not always from the network.
+ * A same-named edit is invisible to any device that already cached the old
+ * body (verified live on prod — the purge fix in v1 reached zero devices).
+ * This spec's `scriptPath` MUST be kept in sync with whatever filename is
+ * currently live (see the naming-convention block at the top of the target
+ * file itself, and the matching comment in vite.config.ts's
+ * `importScripts`).
  */
 import { describe, expect, it, vi } from 'vitest'
 import { readFileSync } from 'node:fs'
@@ -31,7 +44,7 @@ import path from 'node:path'
 
 const scriptPath = path.resolve(
   path.dirname(fileURLToPath(import.meta.url)),
-  '../../public/sw-purge-stale-api-cache.js',
+  '../../public/sw-purge-v2.js',
 )
 const scriptSource = readFileSync(scriptPath, 'utf8')
 
@@ -95,7 +108,7 @@ async function fireActivate(
   await captured
 }
 
-describe('sw-purge-stale-api-cache.js — activation purge (security AC3/AC4, MED-2)', () => {
+describe('sw-purge-v2.js — activation purge (security AC3/AC4, MED-2)', () => {
   it('AC3: purges BOTH api-cache and media-cache on activation', async () => {
     const { activateHandler, deleteMock } = loadActivateHandler()
     await fireActivate(activateHandler)

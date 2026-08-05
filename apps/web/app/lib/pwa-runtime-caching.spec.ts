@@ -214,3 +214,60 @@ describe('media-cache — presigned-URL catch-all must not depend on API deploy 
     expect(rule.urlPattern({ url, request })).toBe(false)
   })
 })
+
+/**
+ * Regression guard for security MED-1 (task-scan-cache-leak round 2,
+ * security-review PR #479 review `4864575278`).
+ *
+ * The whole point of the crossOrigin fix (HIGH-1) is that `cacheWillUpdate`
+ * — the plugin that actually reads `Cache-Control` and rejects `no-store`
+ * responses — can now SEE the header instead of always getting `''` off an
+ * opaque response. But nothing before this test called `cacheWillUpdate`
+ * directly: the `cacheableResponse.statuses` tests above only assert the
+ * config value, and `media-cache.spec.ts` (E2E) seeds the cache manually via
+ * `cache.put()`, bypassing every plugin including this one entirely. The
+ * reviewer mutated `cacheWillUpdate` to `async ({ response }) => response`
+ * (i.e. removed the no-store check) and NOTHING in the existing suite
+ * failed — this test exists specifically to close that gap.
+ *
+ * Verified as a real regression guard, not just a passing assertion: ran
+ * this exact test against a local mutation of `cacheWillUpdate` matching the
+ * reviewer's (`return response` unconditionally, no no-store check) —
+ * confirmed RED — then restored the real implementation and confirmed GREEN
+ * (see PR round-2 notes).
+ */
+describe('media-cache — cacheWillUpdate actually rejects no-store (security MED-1)', () => {
+  const cacheWillUpdate = pwaRuntimeCaching[0]!.options.plugins![0]!.cacheWillUpdate!
+
+  it('rejects a private, no-store response (SCAN/RESUME/CONTRACT/RECEIPT/INVOICE)', async () => {
+    const response = new Response(null, {
+      headers: { 'cache-control': 'private, no-store' },
+    })
+
+    await expect(
+      cacheWillUpdate({ response }),
+      'private, no-store must be rejected — cacheWillUpdate should return null',
+    ).resolves.toBeNull()
+  })
+
+  it('accepts a public, immutable response unchanged (AVATAR/LOGO — not overcorrected)', async () => {
+    const response = new Response(null, {
+      headers: { 'cache-control': 'public, max-age=31536000, immutable' },
+    })
+
+    const result = await cacheWillUpdate({ response })
+
+    expect(result, 'A cacheable response must be returned, not rejected').toBe(response)
+  })
+
+  it('rejects a no-store response even when other Cache-Control directives are also present', () => {
+    // Real-world headers rarely carry ONLY `no-store` — this pins that the
+    // check is a substring match (`.includes('no-store')`), not an exact
+    // equality, so it survives whatever else the header carries.
+    const response = new Response(null, {
+      headers: { 'cache-control': 'no-cache, no-store, must-revalidate' },
+    })
+
+    return expect(cacheWillUpdate({ response })).resolves.toBeNull()
+  })
+})

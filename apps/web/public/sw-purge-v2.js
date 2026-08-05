@@ -2,9 +2,53 @@
 // option (see apps/web/vite.config.ts, VitePWA({ workbox: { importScripts } })).
 // This file is NOT bundled/transformed by Vite — everything under
 // apps/web/public/ is copied to the build output as-is, and workbox-build
-// emits a plain `importScripts('/sw-purge-stale-api-cache.js')` call near the
-// top of the generated sw.js. It runs in the browser's
-// ServiceWorkerGlobalScope, same as the rest of the generated SW.
+// emits a plain `importScripts('/sw-purge-v2.js')` call near the top of the
+// generated sw.js. It runs in the browser's ServiceWorkerGlobalScope, same as
+// the rest of the generated SW.
+//
+// ============================================================================
+// NAMING CONVENTION — READ BEFORE EDITING THIS FILE (security HIGH-1,
+// task-scan-cache-leak round 2, security-review PR #479 review `4864575278`):
+//
+// This file's PATH is caught by nginx's blanket static-asset rule
+// (`location ~* \.(js|css|...)$ { expires 1y; add_header Cache-Control
+// "public, immutable"; }` — only `/sw.js`, `/registerSW.js`, `/index.html`
+// are `=`-location-excepted from it). The generated `sw.js` itself is
+// registered WITHOUT `updateViaCache` (defaults to `'imports'`), which means
+// per the Service Worker spec: the top-level script (`sw.js`) always
+// revalidates over the network, but `importScripts()`-imported files (this
+// one) are fetched through the ordinary HTTP cache — i.e. they honor that
+// immutable/1y header exactly like any other static asset, browser-side AND
+// on the CDN edge.
+//
+// CONCRETE FAILURE THIS CAUSED: `sw-purge-stale-api-cache.js` (this file's
+// PREVIOUS name, before this rename) shipped a media-cache/IndexedDB purge
+// fix, but because the URL was stable (no version, no hash), devices that
+// had already cached the prior body under that exact URL NEVER re-fetched it
+// — `registerType: 'autoUpdate'` keeps resetting the SW's "last update check"
+// clock on every page load, so the spec's built-in ">24h since last check
+// ⇒ bypass the HTTP cache for imports too" escape hatch never triggered for
+// daily-active users. The fix that mattered most (the purge) reached
+// LITERALLY ZERO devices. Verified live against prod (`cf-cache-status: HIT`,
+// `cache-control: public, max-age=31536000, immutable`, body still the
+// pre-fix version hours after deploy).
+//
+// THE RULE, GOING FORWARD: any time you change the BEHAVIOR of this file
+// (not comments/formatting — actual logic), you MUST rename it to the next
+// version (`sw-purge-v3.js`, `sw-purge-v4.js`, …) AND update the
+// `importScripts` entry in `apps/web/vite.config.ts` to match, in the SAME
+// commit. A same-named edit is invisible to any device that already cached
+// the old body — silently, with no error, no failed request, nothing to
+// notice. Renaming forces a brand-new URL, which is a guaranteed cache MISS
+// on both the browser's HTTP cache and Cloudflare's edge cache (a genuinely
+// new URL was never resolvable to a cached entry in the first place — there
+// is nothing to invalidate).
+//
+// (Systemic fix — excluding this file's path from nginx's immutable rule the
+// same way `/sw.js`/`/registerSW.js` already are, so this renaming ritual
+// stops being necessary at all — is tracked separately as DevOps work, not
+// done in this file.)
+// ============================================================================
 //
 // WHY THIS EXISTS: builds before "fix(web): stop routing API requests
 // through the service worker" wrote every `/api/*` GET response (financial
@@ -42,7 +86,7 @@
 // view — cheap, non-sensitive, self-healing (CacheFirst repopulates them
 // immediately on the next request).
 //
-// security MED-2 (same review): `caches.delete()` only removes the cached
+// security MED-2 (PR #477 review): `caches.delete()` only removes the cached
 // BYTES. Workbox's `expiration` plugin (used by `media-cache`, and formerly
 // by `api-cache`) keeps its own bookkeeping in a SEPARATE IndexedDB database
 // (`workbox-expiration`, object store `cache-entries` — see
