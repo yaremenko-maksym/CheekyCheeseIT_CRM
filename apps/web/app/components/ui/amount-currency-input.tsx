@@ -10,7 +10,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { api } from '@/lib/axios'
-import { cn } from '@/lib/utils'
+import { cn, normalizeDecimalInput } from '@/lib/utils'
 
 export const CURRENCIES = ['USDT', 'USD', 'EUR', 'UAH'] as const
 export type Currency = (typeof CURRENCIES)[number]
@@ -97,13 +97,13 @@ export function AmountCurrencyInput({
           <Label className="text-xs text-muted-foreground">{label}</Label>
           <Input
             value={amount}
-            onChange={(e) => onAmountChange(e.target.value.replace(/[^0-9.]/g, ''))}
+            onChange={(e) => onAmountChange(normalizeDecimalInput(e.target.value))}
             onKeyDown={(e) => e.key === '-' && e.preventDefault()}
             placeholder={placeholder}
-            type="number"
-            min="0"
-            step="0.01"
+            type="text"
+            inputMode="decimal"
             disabled={disabled}
+            data-testid="amount-currency-amount-input"
             className={cn('h-9 text-sm', error && 'border-destructive', inputClassName)}
           />
         </div>

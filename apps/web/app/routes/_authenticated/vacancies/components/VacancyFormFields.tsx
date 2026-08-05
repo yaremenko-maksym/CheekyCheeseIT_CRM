@@ -178,6 +178,8 @@ export function VacancyFormFields({
                   onBlur={field.handleBlur}
                   placeholder="senior-react-developer"
                   data-testid="vacancy-form-slug"
+                  autoCapitalize="off"
+                  autoCorrect="off"
                   className="h-9 w-full bg-transparent px-1 py-2 font-mono outline-none placeholder:text-muted-foreground"
                 />
               </div>

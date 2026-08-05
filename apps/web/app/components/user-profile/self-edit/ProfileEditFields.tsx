@@ -13,10 +13,17 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
 
   const [displayName, setDisplayName] = useState(user.displayName)
   const [telegram, setTelegram] = useState(user.telegram ?? '')
-  const [phone, setPhone] = useState<PhoneValue>((user.phone as PhoneValue | undefined) ?? '' as PhoneValue)
+  const [phone, setPhone] = useState<PhoneValue>(
+    (user.phone as PhoneValue | undefined) ?? ('' as PhoneValue),
+  )
   const [techStack, setTechStack] = useState<string[]>(user.techStack ?? [])
 
-  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
+  useEffect(
+    () => () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    },
+    [],
+  )
 
   function scheduleSave(patch: Record<string, unknown>) {
     if (debounceRef.current) clearTimeout(debounceRef.current)
@@ -32,6 +39,8 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
           <Input
             id="displayName"
             value={displayName}
+            autoCapitalize="words"
+            autoComplete="name"
             onChange={(e) => {
               setDisplayName(e.target.value)
               scheduleSave({ displayName: e.target.value })
@@ -42,6 +51,7 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
           <Label htmlFor="email">Email</Label>
           <Input
             id="email"
+            type="email"
             value={user.email}
             disabled
             readOnly
@@ -58,6 +68,8 @@ export function ProfileEditFields({ user }: { user: UserProfileDto }) {
             id="telegram"
             placeholder="@username"
             value={telegram}
+            autoCapitalize="off"
+            autoCorrect="off"
             onChange={(e) => {
               setTelegram(e.target.value)
               scheduleSave({ telegram: e.target.value || null })

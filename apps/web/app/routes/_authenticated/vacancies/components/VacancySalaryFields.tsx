@@ -22,7 +22,7 @@
  * same pattern as `VacancySeoFields`.
  */
 import { VACANCY_SALARY_CURRENCIES, VACANCY_SALARY_PERIODS } from '@crm/shared'
-import { cn } from '@/lib/utils'
+import { cn, normalizeDecimalInput } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -81,12 +81,11 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
               <div className="space-y-1.5">
                 <Label className={cn('text-xs', err && 'text-destructive')}>Минимум</Label>
                 <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={field.state.value ?? ''}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    field.handleChange(e.target.value)
+                    field.handleChange(normalizeDecimalInput(e.target.value))
                   }
                   onBlur={field.handleBlur}
                   placeholder="3000"
@@ -126,12 +125,11 @@ export function VacancySalaryFields({ form }: VacancySalaryFieldsProps) {
               <div className="space-y-1.5">
                 <Label className={cn('text-xs', err && 'text-destructive')}>Максимум</Label>
                 <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
+                  type="text"
+                  inputMode="decimal"
                   value={field.state.value ?? ''}
                   onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-                    field.handleChange(e.target.value)
+                    field.handleChange(normalizeDecimalInput(e.target.value))
                   }
                   onBlur={field.handleBlur}
                   placeholder="5000"

@@ -14,13 +14,7 @@ import { paymentRequisitesSchema } from '@crm/shared'
 import type { PaymentRequisites, UserProfileDto } from '@crm/shared'
 import { AnimatedTabs } from '@/components/ui/animated-tabs'
 import { Button } from '@/components/ui/button'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import {
@@ -33,12 +27,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog'
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from '@/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { useUpdateMeRequisites } from '@/hooks/use-user-profile'
 
 type Method = 'USDT_ERC20' | 'BANK_UAH_FOP'
@@ -129,11 +118,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
               </TooltipContent>
             </Tooltip>
           ) : (
-            <AnimatedTabs
-              tabs={tabs}
-              value={method}
-              onChange={(v) => setMethod(v as Method)}
-            />
+            <AnimatedTabs tabs={tabs} value={method} onChange={(v) => setMethod(v as Method)} />
           )}
         </div>
 
@@ -153,9 +138,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                     <Bitcoin className="h-4 w-4 text-primary" />
                     USDT ERC-20 кошелёк
                   </CardTitle>
-                  <CardDescription>
-                    Адрес для получения выплат в сети Ethereum
-                  </CardDescription>
+                  <CardDescription>Адрес для получения выплат в сети Ethereum</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1.5">
@@ -167,6 +150,10 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                         value={walletUsdtErc20}
                         onChange={(e) => setWalletUsdtErc20(e.target.value)}
                         placeholder="0x1234…abcd"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        autoComplete="off"
                         className="pl-9 font-mono"
                       />
                     </div>
@@ -205,9 +192,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                     <Landmark className="h-4 w-4 text-primary" />
                     Банковские реквизиты ФОП
                   </CardTitle>
-                  <CardDescription>
-                    Для перевода в гривне на украинский ФОП
-                  </CardDescription>
+                  <CardDescription>Для перевода в гривне на украинский ФОП</CardDescription>
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-1.5">
@@ -219,6 +204,8 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                         value={bankRecipient}
                         onChange={(e) => setBankRecipient(e.target.value)}
                         placeholder="Иванов Иван Иванович"
+                        autoCapitalize="words"
+                        autoComplete="name"
                         className="pl-9"
                       />
                     </div>
@@ -234,6 +221,9 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                           value={bankIban}
                           onChange={(e) => setBankIban(e.target.value)}
                           placeholder="UA21 3223 1300 0002 6007 2335 6600 1"
+                          autoCapitalize="characters"
+                          autoCorrect="off"
+                          spellCheck={false}
                           className="pl-9 font-mono uppercase"
                         />
                       </div>
@@ -250,6 +240,7 @@ export function RequisitesEditForm({ user }: { user: UserProfileDto }) {
                           onChange={(e) => setBankRnokpp(e.target.value)}
                           placeholder="1234567890"
                           inputMode="numeric"
+                          pattern="[0-9]*"
                           maxLength={10}
                           className="pl-9 font-mono"
                         />

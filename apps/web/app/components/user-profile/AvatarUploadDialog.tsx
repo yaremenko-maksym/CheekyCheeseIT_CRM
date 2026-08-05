@@ -312,6 +312,9 @@ export function AvatarUploadDialog({
                   <div className="space-y-3 pt-3">
                     <Input
                       type="url"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       placeholder="https://example.com/avatar.png"
                       value={url}
                       onChange={(e) => {

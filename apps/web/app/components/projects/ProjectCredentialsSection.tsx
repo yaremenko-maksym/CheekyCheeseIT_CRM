@@ -584,6 +584,8 @@ function CredentialDialog({
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}
                   placeholder="john.doe@company.com"
+                  autoCapitalize="off"
+                  autoCorrect="off"
                 />
               </div>
             )}
@@ -598,6 +600,9 @@ function CredentialDialog({
                     id="credentials-password"
                     data-testid="credentials-input-password"
                     type={showPassword ? 'text' : 'password'}
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={field.state.value}
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
@@ -626,6 +631,9 @@ function CredentialDialog({
                   id="credentials-url"
                   data-testid="credentials-input-url"
                   type="url"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                   value={field.state.value}
                   onBlur={field.handleBlur}
                   onChange={(e) => field.handleChange(e.target.value)}

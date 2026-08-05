@@ -8,7 +8,7 @@ import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
 import { trackFeatureClick } from '@/lib/telemetry'
-import { cn } from '@/lib/utils'
+import { cn, parseStrictAmount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -358,7 +358,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // sees every problem inline at once. Returns an empty object when valid.
   function validate(): Record<string, string> {
     const errors: Record<string, string> = {}
-    const amt = parseFloat(amount)
+    const amt = parseStrictAmount(amount)
     if (isNaN(amt) || amt <= 0) errors.amount = 'Укажите корректную сумму'
 
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
@@ -406,7 +406,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
   const mutation = useMutation({
     mutationFn: async () => {
-      const amt = parseFloat(amount)
+      const amt = parseStrictAmount(amount)
       // Build XOR receipt fields: exactly one populated, or both null.
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
       const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
@@ -587,7 +587,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
 
   // Conversion info
   const rate = needsRate ? getRate(currency, exchangeRate) : null
-  const amtNum = parseFloat(amount)
+  const amtNum = parseStrictAmount(amount)
   const _convertedUsd = rate && !isNaN(amtNum) && amtNum > 0 ? (amtNum * rate).toFixed(2) : null
 
   return (

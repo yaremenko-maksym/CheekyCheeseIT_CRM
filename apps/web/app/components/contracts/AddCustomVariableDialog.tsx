@@ -131,6 +131,8 @@ export function AddCustomVariableDialog({
               value={key}
               onChange={(e) => handleKeyChange(e.target.value)}
               data-testid="cv-key-input"
+              autoCapitalize="off"
+              autoCorrect="off"
               className={cn(keyError && 'border-destructive focus-visible:ring-destructive/30')}
               autoComplete="off"
             />

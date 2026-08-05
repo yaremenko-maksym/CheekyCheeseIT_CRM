@@ -17,11 +17,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { ImagePlus, Link2, Loader2, Paperclip, X } from 'lucide-react'
-import {
-  DOCUMENT_MAX_BYTES,
-  DOCUMENT_MIME_WHITELIST,
-  type DocumentCategory,
-} from '@crm/shared'
+import { DOCUMENT_MAX_BYTES, DOCUMENT_MIME_WHITELIST, type DocumentCategory } from '@crm/shared'
 import { Button } from './button'
 import { Input } from './input'
 import { cn } from '@/lib/utils'
@@ -87,7 +83,7 @@ export function ImageUploadField({
     if (disabled) return
     // Mirror upload-document-dialog: validate size + MIME client-side BEFORE
     // wasting bandwidth on a doomed POST.
-    if (!DOCUMENT_MIME_WHITELIST.includes(file.type as typeof DOCUMENT_MIME_WHITELIST[number])) {
+    if (!DOCUMENT_MIME_WHITELIST.includes(file.type as (typeof DOCUMENT_MIME_WHITELIST)[number])) {
       toast.error(`Тип ${file.type || 'unknown'} не поддерживается`)
       return
     }
@@ -188,6 +184,9 @@ export function ImageUploadField({
         <div className="space-y-1">
           <Input
             type="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={urlPlaceholder}
             value={urlDraft}
             onChange={(e) => setUrlDraft(e.target.value)}

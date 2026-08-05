@@ -377,6 +377,10 @@ export function ReceiptInput({
       {(explorerOnly || state.mode === 'url') && (
         <div>
           <Input
+            type="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             value={state.externalUrl}
             onChange={(e) => onChange({ ...state, mode: 'url', externalUrl: e.target.value })}
             placeholder={explorerOnly ? 'https://etherscan.io/tx/0x...' : 'https://...'}

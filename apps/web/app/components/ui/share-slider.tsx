@@ -101,6 +101,7 @@ export function ShareSlider({
         />
         <input
           type="number"
+          inputMode="numeric"
           min={min}
           max={max}
           value={seniorPct}

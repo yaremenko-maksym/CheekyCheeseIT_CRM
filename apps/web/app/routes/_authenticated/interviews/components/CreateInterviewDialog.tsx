@@ -150,6 +150,10 @@ export function CreateInterviewDialog({
                   <div className="space-y-1">
                     <Label className={cn(hasError && 'text-destructive')}>Ссылка на вакансию</Label>
                     <Input
+                      type="url"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -181,6 +185,10 @@ export function CreateInterviewDialog({
                   <div className="space-y-1">
                     <Label className={cn(hasError && 'text-destructive')}>Ссылка на звонок</Label>
                     <Input
+                      type="url"
+                      autoCapitalize="off"
+                      autoCorrect="off"
+                      spellCheck={false}
                       value={field.state.value}
                       onChange={(e) => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}

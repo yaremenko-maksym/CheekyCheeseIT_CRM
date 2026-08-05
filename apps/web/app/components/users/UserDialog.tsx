@@ -74,7 +74,7 @@ import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
-import { cn } from '@/lib/utils'
+import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import {
   useEmployeeContract,
@@ -553,7 +553,7 @@ export function UserDialog(props: UserDialogProps) {
       const computeMonthlySalaryUsd = (): number | null => {
         const raw = String(value.monthlySalary).trim()
         if (!raw) return null
-        const num = parseFloat(raw)
+        const num = parseStrictAmount(raw)
         if (!isFinite(num) || num < 0) return null
         if (!exchangeRates) return num // shouldn't happen — query enabled on open
         return Number(toUsd(num, value.salaryCurrency, exchangeRates).toFixed(2))
@@ -1020,6 +1020,10 @@ export function UserDialog(props: UserDialogProps) {
                     return (
                       <Field label="Email" error={err} required>
                         <Input
+                          type="email"
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
                           placeholder="user@cheekycheese.dev"
                           value={field.state.value}
                           onChange={(e) => field.handleChange(e.target.value)}
@@ -1072,6 +1076,8 @@ export function UserDialog(props: UserDialogProps) {
                           value={field.state.value}
                           onChange={(e) => field.handleChange(e.target.value)}
                           onBlur={field.handleBlur}
+                          autoCapitalize="words"
+                          autoComplete="off"
                           className={cn(
                             err && 'border-destructive focus-visible:ring-destructive/30',
                           )}
@@ -1194,6 +1200,8 @@ export function UserDialog(props: UserDialogProps) {
                                 onChange={(e) => field.handleChange(e.target.value)}
                                 onBlur={field.handleBlur}
                                 aria-invalid={showError ? true : undefined}
+                                autoCapitalize="words"
+                                autoComplete="off"
                                 className={cn(
                                   showError &&
                                     'border-destructive focus-visible:ring-destructive/30',
@@ -1250,6 +1258,8 @@ export function UserDialog(props: UserDialogProps) {
                           value={field.state.value}
                           onChange={(e) => field.handleChange(e.target.value)}
                           onBlur={field.handleBlur}
+                          autoCapitalize="off"
+                          autoCorrect="off"
                           className={cn(
                             err && 'border-destructive focus-visible:ring-destructive/30',
                           )}
@@ -1477,6 +1487,9 @@ export function UserDialog(props: UserDialogProps) {
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
                                         autoComplete="off"
+                                        autoCapitalize="off"
+                                        autoCorrect="off"
+                                        spellCheck={false}
                                         className={cn(
                                           err &&
                                             'border-destructive focus-visible:ring-destructive/30',
@@ -1524,6 +1537,8 @@ export function UserDialog(props: UserDialogProps) {
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
+                                        autoCapitalize="words"
+                                        autoComplete="off"
                                         data-testid="user-dialog-bank-recipient"
                                         className={cn(
                                           err &&
@@ -1556,6 +1571,9 @@ export function UserDialog(props: UserDialogProps) {
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
+                                        autoCapitalize="characters"
+                                        autoCorrect="off"
+                                        spellCheck={false}
                                         data-testid="user-dialog-bank-iban"
                                         className={cn(
                                           err &&
@@ -1588,6 +1606,8 @@ export function UserDialog(props: UserDialogProps) {
                                         value={field.state.value}
                                         onChange={(e) => field.handleChange(e.target.value)}
                                         onBlur={field.handleBlur}
+                                        inputMode="numeric"
+                                        pattern="[0-9]*"
                                         data-testid="user-dialog-bank-rnokpp"
                                         className={cn(
                                           err &&
@@ -1687,6 +1707,8 @@ export function UserDialog(props: UserDialogProps) {
                                     onChange={(e) => field.handleChange(e.target.value)}
                                     onBlur={field.handleBlur}
                                     autoComplete="off"
+                                    autoCapitalize="off"
+                                    autoCorrect="off"
                                     data-testid="user-dialog-drop-team-telegram-channel"
                                   />
                                 </div>
@@ -1919,6 +1941,8 @@ export function UserDialog(props: UserDialogProps) {
                                           onChange={(e) => field.handleChange(e.target.value)}
                                           onBlur={field.handleBlur}
                                           autoComplete="off"
+                                          autoCapitalize="off"
+                                          autoCorrect="off"
                                           data-testid="user-dialog-team-telegram-channel"
                                         />
                                       </div>
