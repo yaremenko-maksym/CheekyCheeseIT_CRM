@@ -8,6 +8,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { CvDropzone } from '@/components/marketing/cv-dropzone'
 import { submitApplication, type SubmitApplicationErrorKind } from '@/lib/api'
+import { useThrottledUploadPercent } from '@/lib/use-throttled-upload-percent'
 import { useTurnstile } from '@/lib/use-turnstile'
 import { cn } from '@/lib/utils'
 import { DEFAULT_LOCALE, type Locale } from '@/i18n/locale'
@@ -88,6 +89,11 @@ export function VacancyApplyForm({
   const [fileError, setFileError] = useState<string | null>(null)
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({})
   const [bannerMessage, setBannerMessage] = useState<string | null>(null)
+  const {
+    percent: uploadPercent,
+    report: reportUploadPercent,
+    reset: resetUploadPercent,
+  } = useThrottledUploadPercent()
 
   // `exactOptionalPropertyTypes` forbids `{ ...prev, key: undefined }` (the
   // key must be ABSENT, not present-with-undefined) — clear via omission.
@@ -175,6 +181,7 @@ export function VacancyApplyForm({
 
     setFieldErrors({})
     setBannerMessage(null)
+    resetUploadPercent()
     setStatus('submitting')
 
     const formData = new FormData()
@@ -188,13 +195,14 @@ export function VacancyApplyForm({
     formData.set('website', website) // honeypot — empty unless a bot filled it
     formData.set('resume', file as File)
 
-    const result = await submitApplication(slug, formData)
+    const result = await submitApplication(slug, formData, reportUploadPercent)
     if (result.ok) {
       setStatus('success')
       return
     }
 
     setStatus('error')
+    resetUploadPercent()
     // Resolve from `errorKind` against the LOCALIZED dictionary, not
     // `result.message` (always English — see module doc MED-1 fix).
     const messageKey = result.errorKind
@@ -419,12 +427,24 @@ export function VacancyApplyForm({
 
         <Button type="submit" block aria-disabled={status === 'submitting'} className="mt-1">
           {status === 'submitting' ? (
-            <span className="inline-flex items-center gap-2.5">
+            <span
+              className="inline-flex items-center gap-2.5 tabular-nums"
+              role="status"
+              aria-live="polite"
+            >
               <span
                 aria-hidden="true"
                 className="size-[15px] animate-spin rounded-full border-2 border-primary-foreground/40 border-t-primary-foreground"
               />
-              {t.submitting}
+              {/* AC3 — 100% sent is NOT "done": once every byte is out we
+                  switch to a distinct "processing" label rather than
+                  silently staying on "Sending…" while the server is still
+                  writing the resume to storage. */}
+              {uploadPercent !== null && uploadPercent < 100
+                ? `${t.submitting} ${uploadPercent}%`
+                : uploadPercent === 100
+                  ? t.processing
+                  : t.submitting}
             </span>
           ) : (
             <span>{t.submit}</span>

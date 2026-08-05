@@ -326,6 +326,7 @@ export const es: Dictionary = {
       cvTooLarge: 'El archivo supera los 5 MB.',
       submit: 'Enviar postulación',
       submitting: 'Enviando…',
+      processing: 'Procesando…',
       protectedBy: 'Protegido por captcha invisible — sin acertijos, nunca.',
       successHeading: 'Postulación recibida',
       successThanks: 'Gracias',
