@@ -21,6 +21,9 @@
  * 5. Download button — no blob yet (still loading / unsupported / error):
  *    falls back to the SAME mobile-safe window.location.href navigation as
  *    CandidateCard's own button (AC1), guarded by safeExternalHref.
+ * 6. Download filename is sanitized (code-review round 3) — `fullName` is
+ *    candidate-controlled (anonymous public apply form); an RLO character
+ *    in it must never reach `a.download` unsanitized.
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
@@ -56,7 +59,11 @@ function makeApplication(overrides: Partial<VacancyApplication> = {}): VacancyAp
   }
 }
 
-function renderDialog(open: boolean, onOpenChange: (open: boolean) => void = vi.fn()) {
+function renderDialog(
+  open: boolean,
+  onOpenChange: (open: boolean) => void = vi.fn(),
+  application: VacancyApplication = makeApplication(),
+) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={qc}>
@@ -64,7 +71,7 @@ function renderDialog(open: boolean, onOpenChange: (open: boolean) => void = vi.
         open={open}
         onOpenChange={onOpenChange}
         vacancyId="vac-1"
-        application={makeApplication()}
+        application={application}
       />
     </QueryClientProvider>,
   )
@@ -141,6 +148,36 @@ describe('ResumePreviewDialog', () => {
       expect(anchor).toBeDefined()
       expect(anchor.href).toBe('blob:http://localhost/fake-resume-uuid')
       expect(anchor.download).toBe('Иван Петров.pdf')
+
+      clickSpy.mockRestore()
+      appendSpy.mockRestore()
+    })
+
+    // code-review round 3: `application.fullName` comes straight from the
+    // anonymous public apply form — an RLO (RIGHT-TO-LEFT OVERRIDE)
+    // character in it must not reach `a.download` as-is, or a submitted
+    // name can make a downloaded file's name display with a spoofed
+    // extension (e.g. "cv.pdf" visually becomes "cv[reversed]exe").
+    it('sanitizes an RLO character out of the download filename', () => {
+      useApplicationResumeBlobMock.mockReturnValue({
+        blobUrl: 'blob:http://localhost/fake-resume-uuid',
+        isLoading: false,
+        hasError: false,
+        isUnsupportedFormat: false,
+      })
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+      const appendSpy = vi.spyOn(document.body, 'appendChild')
+      const rlo = String.fromCodePoint(0x202e)
+
+      renderDialog(true, vi.fn(), makeApplication({ fullName: `cv${rlo}fdp` }))
+      fireEvent.click(screen.getByTestId('resume-preview-download'))
+
+      const anchor = appendSpy.mock.calls.find(
+        (call) => call[0] instanceof HTMLAnchorElement,
+      )?.[0] as HTMLAnchorElement
+      expect(anchor).toBeDefined()
+      expect(anchor.download).not.toContain(rlo)
+      expect(anchor.download).toBe('cvfdp.pdf')
 
       clickSpy.mockRestore()
       appendSpy.mockRestore()

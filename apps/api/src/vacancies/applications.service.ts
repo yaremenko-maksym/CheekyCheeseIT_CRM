@@ -34,6 +34,7 @@ import {
 import { and, desc, eq, gte, inArray } from 'drizzle-orm'
 import {
   applyVacancyFieldsSchema,
+  sanitizeDownloadFilename,
   type ApplyVacancyFields,
   type SessionUser,
   type VacancyApplication,
@@ -150,22 +151,6 @@ export const MIMIC_DELAY_JITTER_MS = 150
 
 /** Presigned resume-download TTL — 600s (task §Endpoints). */
 const RESUME_PRESIGN_TTL_SEC = 600
-
-/**
- * Strips characters that could break out of the ASCII-fallback
- * `filename="..."` parameter S3Service.getPresignedDownloadUrl() builds for
- * Content-Disposition (sec MED-5 / F5). `fullName` is candidate-controlled;
- * an unescaped `"` or `\` can confuse/spoof the quoted filename parameter.
- * CR/LF are stripped defensively too (S3Service's own asciiFallback already
- * drops all control chars, but this call site does not rely on that —
- * `s3.service.ts` is out of scope/blast-radius for this task). The
- * `filename*=UTF-8''...` companion parameter is unaffected (S3Service
- * percent-encodes it separately), so this only narrows the legacy ASCII
- * fallback, never the actual downloaded file content.
- */
-function sanitizeDownloadFilename(name: string): string {
-  return name.replace(/["\\\r\n]/g, '')
-}
 
 /**
  * Picks THIS request's target deadline once, at the top of `apply()` —

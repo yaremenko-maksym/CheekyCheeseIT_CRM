@@ -206,6 +206,16 @@ const fakeConfigService = { get: (key: string) => fakeEnv[key] } as unknown as C
 
 const s3Store = new Map<string, Buffer>()
 
+// code-review round 3 (task-candidate-card-resume tidy-up): records the
+// `disposition` arg of the MOST RECENT `getPresignedDownloadUrl` call so a
+// test can assert on it right after making its own request — the stub's
+// return value carries no disposition info at all (`getPresignResume`'s
+// actual attachment/inline choice never reached the URL string below), so
+// without this capture no integration test can tell the two apart. Tests in
+// this file run sequentially (vitest's default within one file), so reading
+// this immediately after the relevant `app.inject()` call is safe.
+let lastPresignDisposition: 'inline' | 'attachment' | undefined
+
 // task-file-storage-hardening resubmission-update (owner decision
 // 2026-08-03): lets ONE specific test simulate a real deleteOrThrow
 // transport failure against this otherwise-always-succeeds stub, to prove
@@ -246,8 +256,9 @@ const stubS3 = {
     key: string,
     ttlSec: number | undefined = 600,
     _downloadAs?: string,
-    _disposition?: 'inline' | 'attachment',
+    disposition?: 'inline' | 'attachment',
   ): Promise<{ url: string; expiresAt: string }> => {
+    lastPresignDisposition = disposition
     const effectiveTtl = ttlSec ?? 600
     return Promise.resolve({
       url: `https://stub-s3.local/${encodeURIComponent(key)}`,
@@ -1885,11 +1896,17 @@ describe('Vacancies — real backend integration', () => {
     })
   })
 
-  // ── task-candidate-card-resume AC2/AC3: resume-preview-url — inline
-  // disposition, ADMIN and HR both allowed (same role set as resume-url).
+  // ── task-candidate-card-resume AC2/AC3: resume-preview-url — attachment
+  // disposition (same as resume-url/download — code-review round 2 switched
+  // this from 'inline': the CRM always fetches the URL programmatically and
+  // builds a Blob, which never looks at Content-Disposition, so 'inline'
+  // bought nothing functionally but DID mean a candidate-submitted PDF would
+  // render in-browser at the shared R2 origin for anyone who ends up with
+  // the raw URL inside its 600s window), ADMIN and HR both allowed (same
+  // role set as resume-url).
 
-  describe('resume-preview-url — inline disposition, ADMIN + HR allowed', () => {
-    it('returns 200 with an inline-disposition presigned URL for ADMIN and HR', async () => {
+  describe('resume-preview-url — attachment disposition, ADMIN + HR allowed', () => {
+    it('returns 200 with an attachment-disposition presigned URL for ADMIN and HR', async () => {
       if (!dbAvailable) return
       const slug = `resume-preview-${Date.now()}`
       const create = await app.inject({
@@ -1952,6 +1969,10 @@ describe('Vacancies — real backend integration', () => {
         expect(res.statusCode, `${user.role} should get 200`).toBe(200)
         const { url } = res.json() as { url: string }
         expect(url).toContain('http')
+        // The stub's own URL string carries no disposition info — assert
+        // via lastPresignDisposition (see its doc comment) so this test
+        // actually fails if the disposition ever regresses to 'inline'.
+        expect(lastPresignDisposition, `${user.role} disposition`).toBe('attachment')
       }
     })
   })
