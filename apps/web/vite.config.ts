@@ -97,32 +97,75 @@ export default defineConfig({
           }
 
           // ── Графики (recharts + d3-* субзависимости) ────────────────────
+          // Транзитивные зависимости recharts v3 (redux/@reduxjs/toolkit/react-redux/
+          // reselect/immer/redux-thunk — внутренний стор анимаций; eventemitter3 —
+          // событийная шина; internmap — d3-array; decimal.js-light/es-toolkit —
+          // числовые/утилитарные хелперы) НЕ матчились ни одним из старых правил и
+          // проваливались в общий vendor-misc catch-all. manualChunks работает на
+          // уровне физического файла: если хоть один модуль из vendor-misc
+          // статически достижим из entry (axios/zod/sonner и т. п.), Vite помечает
+          // ВЕСЬ файл на modulepreload — включая эти транзитивные зависимости,
+          // хотя сам recharts используется только в FinanceChart (не на первом
+          // экране). Поэтому им нужен СВОЙ физический чанк, куда нет статического
+          // пути из entry. Подтверждено `pnpm why <pkg>` — единственный потребитель
+          // везде recharts.
           if (
             id.includes('node_modules/recharts/') ||
             id.includes('node_modules/d3-') ||
-            id.includes('node_modules/victory-vendor/')
+            id.includes('node_modules/victory-vendor/') ||
+            id.includes('node_modules/redux/') ||
+            id.includes('node_modules/redux-thunk/') ||
+            id.includes('node_modules/react-redux/') ||
+            id.includes('node_modules/@reduxjs/') ||
+            id.includes('node_modules/reselect/') ||
+            id.includes('node_modules/immer/') ||
+            id.includes('node_modules/eventemitter3/') ||
+            id.includes('node_modules/internmap/') ||
+            id.includes('node_modules/decimal.js-light/') ||
+            id.includes('node_modules/es-toolkit/')
           ) {
             return 'vendor-charts'
           }
 
           // ── CodeMirror редактор ─────────────────────────────────────────
-          // Используется только в documents/onboarding — хорошо изолируется
+          // Используется только в documents/onboarding — хорошо изолируется.
+          // @lezer/* (грамматики парсера) + crelt/style-mod/w3c-keyname/@marijn —
+          // транзитивные зависимости @codemirror/* с ДРУГИМ именем пакета, тоже
+          // проваливались в vendor-misc (подтверждено `pnpm why @lezer/common`
+          // и т. п. — единственный потребитель везде codemirror-стек).
           if (
             id.includes('node_modules/@codemirror/') ||
             id.includes('node_modules/@uiw/react-codemirror') ||
             id.includes('node_modules/@uiw/codemirror') ||
-            id.includes('node_modules/codemirror/')
+            id.includes('node_modules/codemirror/') ||
+            id.includes('node_modules/@lezer/') ||
+            id.includes('node_modules/crelt/') ||
+            id.includes('node_modules/style-mod/') ||
+            id.includes('node_modules/w3c-keyname/') ||
+            id.includes('node_modules/@marijn/')
           ) {
             return 'vendor-codemirror'
           }
 
           // ── Тяжёлые утилиты ─────────────────────────────────────────────
-          // libphonenumber-js ~600 KB, react-signature-canvas, react-easy-crop
+          // libphonenumber-js ~600 KB, react-signature-canvas, react-easy-crop.
+          // country-flag-icons (флаги стран, ~230 KB нераспакованными!) и
+          // input-format/classnames — транзитивные зависимости
+          // react-phone-number-input (флаги подключаются через отдельный
+          // подпуть `react-phone-number-input/flags`, но сам пакет
+          // country-flag-icons резолвится по СВОЕМУ имени и не матчился старым
+          // правилом). normalize-wheel — транзитивная зависимость
+          // react-easy-crop (обработка колеса мыши при зуме). Все подтверждены
+          // `pnpm why` — единственный потребитель именно эти два пакета.
           if (
             id.includes('node_modules/libphonenumber-js/') ||
             id.includes('node_modules/react-phone-number-input/') ||
             id.includes('node_modules/react-signature-canvas/') ||
-            id.includes('node_modules/react-easy-crop/')
+            id.includes('node_modules/react-easy-crop/') ||
+            id.includes('node_modules/country-flag-icons/') ||
+            id.includes('node_modules/input-format/') ||
+            id.includes('node_modules/classnames/') ||
+            id.includes('node_modules/normalize-wheel/')
           ) {
             return 'vendor-heavy-utils'
           }
@@ -137,7 +180,36 @@ export default defineConfig({
             return 'vendor-icons'
           }
 
+          // ── Календарь (react-day-picker) ─────────────────────────────────
+          // Используется только в date-picker.tsx → legend-роуте и диалоге
+          // создания транзакции (finance) — не на первом экране. @date-fns/tz —
+          // транзитивная зависимость react-day-picker (подтверждено `pnpm why`),
+          // НЕ путать с обычным `date-fns` (тот используется в app-шелле —
+          // notifications-bell — и остаётся в общем vendor-misc).
+          if (
+            id.includes('node_modules/react-day-picker/') ||
+            id.includes('node_modules/@date-fns/')
+          ) {
+            return 'vendor-calendar'
+          }
+
+          // ── Command palette (cmdk) ────────────────────────────────────────
+          // Используется только внутри phone-input.tsx (выбор страны) и
+          // chip-полей HR/Accountant — везде за диалогом, не на первом экране.
+          if (id.includes('node_modules/cmdk/')) {
+            return 'vendor-cmdk'
+          }
+
           // ── Markdown / diff / unified-экосистема ────────────────────────
+          // Хвост транзитивных зависимостей remark/rehype/hast с ДРУГИМИ
+          // именами пакетов (zwitch/bail/devlop — внутренности unified;
+          // markdown-table/decode-named-character-reference/ccount/
+          // longest-streak/trim-lines — micromark/mdast-util-gfm;
+          // property-information/space-separated-tokens/comma-separated-tokens/
+          // html-url-attributes/style-to-object/style-to-js/inline-style-parser/
+          // is-plain-obj/estree-util-is-identifier-name/@ungap/structured-clone —
+          // hast-util-to-jsx-runtime и mdast-util-to-hast). Подтверждено
+          // `pnpm why` — единственный потребитель везде react-markdown/remark-gfm.
           if (
             id.includes('node_modules/react-markdown/') ||
             id.includes('node_modules/diff/') ||
@@ -148,14 +220,35 @@ export default defineConfig({
             id.includes('node_modules/mdast') ||
             id.includes('node_modules/hast') ||
             id.includes('node_modules/vfile') ||
-            id.includes('node_modules/unist')
+            id.includes('node_modules/unist') ||
+            id.includes('node_modules/zwitch/') ||
+            id.includes('node_modules/bail/') ||
+            id.includes('node_modules/devlop/') ||
+            id.includes('node_modules/markdown-table/') ||
+            id.includes('node_modules/property-information/') ||
+            id.includes('node_modules/space-separated-tokens/') ||
+            id.includes('node_modules/comma-separated-tokens/') ||
+            id.includes('node_modules/html-url-attributes/') ||
+            id.includes('node_modules/trough/') ||
+            id.includes('node_modules/decode-named-character-reference/') ||
+            id.includes('node_modules/ccount/') ||
+            id.includes('node_modules/longest-streak/') ||
+            id.includes('node_modules/trim-lines/') ||
+            id.includes('node_modules/is-plain-obj/') ||
+            id.includes('node_modules/estree-util-is-identifier-name/') ||
+            id.includes('node_modules/style-to-object/') ||
+            id.includes('node_modules/style-to-js/') ||
+            id.includes('node_modules/inline-style-parser/') ||
+            id.includes('node_modules/@ungap/')
           ) {
             return 'vendor-markdown'
           }
 
           // ── Прочие node_modules → общий vendor ──────────────────────────
-          // axios, zod, date-fns, sonner, clsx, tailwind-merge, cmdk,
-          // react-day-picker, class-variance-authority, tw-animate-css и т. п.
+          // axios, zod, date-fns, sonner, clsx, tailwind-merge,
+          // class-variance-authority, tw-animate-css, idb-keyval и т. п. —
+          // всё, что реально нужно на первом экране (app-шелл, auth-guard,
+          // тосты, персист query-client) либо не выделено в отдельный чанк.
           if (id.includes('node_modules/')) {
             return 'vendor-misc'
           }
