@@ -977,6 +977,15 @@ describe('Vacancies — real backend integration', () => {
 
   describe('AC4 — RBAC matrix', () => {
     let rbacVacancyId: string
+    // task-candidate-card-resume round-2 (code-review): a REAL application
+    // row, not a dummy UUID. `getResumePreviewUrl` denies disallowed roles
+    // BEFORE ever looking the application up — but a test built on a
+    // nonexistent id can't tell that apart from `getApplicationOrThrow`'s
+    // OWN 404 (both paths 404 on a missing row). Only a real, resolvable
+    // application actually exercises the role check: remove it and this
+    // application would 200 instead of 404 for a disallowed role, which the
+    // dummy-UUID version could never catch.
+    let rbacApplicationId: string
 
     beforeAll(async () => {
       if (!dbAvailable) return
@@ -999,6 +1008,18 @@ describe('Vacancies — real backend integration', () => {
         },
       })
       rbacVacancyId = trackVacancy((create.json() as { id: string }).id)
+
+      const [applicationRow] = await dbSvc.db
+        .insert(vacancyApplications)
+        .values({
+          vacancyId: rbacVacancyId,
+          fullName: 'RBAC Fixture Candidate',
+          email: `rbac-fixture-${Date.now()}@test.spec`,
+          resumeS3Key: `vacancy-applications/${rbacVacancyId}/rbac-fixture.pdf`,
+          resumeSizeBytes: 1024,
+        })
+        .returning()
+      rbacApplicationId = applicationRow!.id
     })
 
     it('GET /api/vacancies — ADMIN 200, HR 200', async () => {
@@ -1122,6 +1143,43 @@ describe('Vacancies — real backend integration', () => {
         expect(res.statusCode).toBe(403)
       },
     )
+
+    // task-candidate-card-resume AC3: the preview sibling route carries no
+    // @Roles decorator (see vacancies.controller.ts) — RBAC denial is a 404
+    // from ApplicationsService.getResumePreviewUrl, NOT the 403 the download
+    // route above gets from RolesGuard. Same disallowed-role set, different
+    // status code, by design.
+    //
+    // Uses `rbacApplicationId` — a REAL, resolvable application (see its
+    // fixture comment above) — NOT a dummy UUID. `getApplicationOrThrow`
+    // 404s on a missing row regardless of role, so a dummy-id version of
+    // this test would still pass with the role check deleted entirely; a
+    // real id only 404s here because the role check itself rejected it
+    // (proven by the ADMIN/HR 200 test right below, on this SAME row).
+    it.each(DISALLOWED)(
+      'GET /api/vacancies/:id/applications/:appId/resume-preview-url — %s 404 on a REAL application (not 403)',
+      async (user) => {
+        if (!dbAvailable) return
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/vacancies/${rbacVacancyId}/applications/${rbacApplicationId}/resume-preview-url`,
+          cookies: { jwt: tokenFor(user) },
+        })
+        expect(res.statusCode).toBe(404)
+      },
+    )
+
+    it('GET /api/vacancies/:id/applications/:appId/resume-preview-url — ADMIN and HR 200 on the SAME real application', async () => {
+      if (!dbAvailable) return
+      for (const user of [ADMIN, HR]) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/vacancies/${rbacVacancyId}/applications/${rbacApplicationId}/resume-preview-url`,
+          cookies: { jwt: tokenFor(user) },
+        })
+        expect(res.statusCode, `${user.role} should get 200`).toBe(200)
+      }
+    })
 
     it('No JWT → 401 on a private endpoint', async () => {
       if (!dbAvailable) return
@@ -1827,6 +1885,77 @@ describe('Vacancies — real backend integration', () => {
     })
   })
 
+  // ── task-candidate-card-resume AC2/AC3: resume-preview-url — inline
+  // disposition, ADMIN and HR both allowed (same role set as resume-url).
+
+  describe('resume-preview-url — inline disposition, ADMIN + HR allowed', () => {
+    it('returns 200 with an inline-disposition presigned URL for ADMIN and HR', async () => {
+      if (!dbAvailable) return
+      const slug = `resume-preview-${Date.now()}`
+      const create = await app.inject({
+        method: 'POST',
+        url: '/api/vacancies',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: {
+          title: 'Resume Preview Role',
+          slug,
+          descriptionMd: 'Full description of the role goes here.',
+          domain: 'AI',
+          seniority: 'SENIOR',
+          employmentType: 'FULL_TIME',
+          location: 'Remote',
+          salaryMin: 3000,
+          salaryMax: 5000,
+          salaryCurrency: 'USDT',
+          salaryPeriod: 'MONTH',
+        },
+      })
+      const vacancyId = trackVacancy((create.json() as { id: string }).id)
+      await app.inject({
+        method: 'PATCH',
+        url: `/api/vacancies/${vacancyId}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { status: 'PUBLISHED' },
+      })
+
+      const { body, contentType } = buildMultipartBody(
+        {
+          fullName: 'Resume Preview Candidate',
+          email: `resume-preview-${Date.now()}@example.com`,
+          turnstileToken: 'any-token-accepted-by-dummy-secret',
+        },
+        {
+          fieldname: 'resume',
+          filename: 'resume.pdf',
+          contentType: 'application/pdf',
+          buffer: await makeValidPdfBuffer(),
+        },
+      )
+      await app.inject({
+        method: 'POST',
+        url: `/api/public/vacancies/${slug}/apply`,
+        headers: { 'content-type': contentType },
+        payload: body,
+      })
+
+      const appRow = await dbSvc.db.query.vacancyApplications.findFirst({
+        where: (a, { eq }) => eq(a.vacancyId, vacancyId),
+      })
+      expect(appRow).toBeDefined()
+
+      for (const user of [ADMIN, HR]) {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/vacancies/${vacancyId}/applications/${appRow!.id}/resume-preview-url`,
+          cookies: { jwt: tokenFor(user) },
+        })
+        expect(res.statusCode, `${user.role} should get 200`).toBe(200)
+        const { url } = res.json() as { url: string }
+        expect(url).toContain('http')
+      }
+    })
+  })
+
   // ── AC8: rate limit on the REAL apply endpoint (fresh app — clean throttle store) ──
 
   describe('AC8 — rate limit', () => {
@@ -2155,6 +2284,18 @@ describe('Vacancies — real backend integration', () => {
       const res = await app.inject({
         method: 'GET',
         url: `/api/vacancies/${vacancyEvergreenId}/applications/${appIds.d181}/resume-url`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(404)
+    })
+
+    // task-candidate-card-resume AC2: the preview endpoint 404s the same way
+    // once the file-only retention purge has cleared the object.
+    it('getResumePreviewUrl 404s for the file-purged application (admin/HR endpoint)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/vacancies/${vacancyEvergreenId}/applications/${appIds.d181}/resume-preview-url`,
         cookies: { jwt: tokenFor(ADMIN) },
       })
       expect(res.statusCode).toBe(404)

@@ -73,6 +73,11 @@ describe('safeExternalHref (security-MED, PR #396 review)', () => {
   })
 })
 
+// task-candidate-card-resume §3 — `safeTelegramHref` moved to
+// `@/lib/tg-url` (code-review round 2 — reused by UserProfileHeader.tsx/
+// UserRow.tsx too, which sit outside this module). Its tests moved with it
+// — see apps/web/app/lib/tg-url.test.ts.
+
 // task-vacancy-i18n-jobposting C1 — translations form <-> DTO.
 describe('buildTranslationsDto', () => {
   it('returns null when every locale is empty (no-op create/update)', () => {

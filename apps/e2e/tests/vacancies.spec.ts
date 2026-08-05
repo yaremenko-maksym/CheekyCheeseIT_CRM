@@ -404,3 +404,199 @@ test.describe('Vacancies — RBAC-смоук (AC5)', () => {
     })
   }
 })
+
+// ===========================================================================
+// task-candidate-card-resume — resume preview, mobile-safe download,
+// clickable telegram link. Real backend (own vacancy + own candidate
+// application — same isolation convention as the main flow above).
+// ===========================================================================
+
+test.describe.serial('Резюме кандидата — превью, мобильное скачивание, телеграм-ссылка', () => {
+  const suffix = `${Date.now()}`
+  const title = `E2E Resume Card ${suffix}`
+  const slug = `e2e-resume-card-${suffix}`
+  const candidateEmail = `e2e-resume-candidate-${suffix}@example.com`
+  const candidateFullName = 'Resume Preview Candidate'
+  const candidateTelegram = '@armghyan_e2e'
+  let vacancyId: string
+  let applicationId: string
+
+  test.beforeAll(async ({ browser }) => {
+    const page = await browser.newPage()
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+
+    const createRes = await page.request.post(`${REAL_API_BASE}/api/vacancies`, {
+      data: {
+        title,
+        slug,
+        descriptionMd: 'E2E resume-preview spec description for the vacancy under test.',
+        domain: 'AI',
+        seniority: 'SENIOR',
+        employmentType: 'FULL_TIME',
+        location: 'Remote',
+        salaryMin: 3000,
+        salaryMax: 5000,
+        salaryCurrency: 'USDT',
+        salaryPeriod: 'MONTH',
+      },
+    })
+    vacancyId = ((await createRes.json()) as { id: string }).id
+    await page.request.patch(`${REAL_API_BASE}/api/vacancies/${vacancyId}`, {
+      data: { status: 'PUBLISHED' },
+    })
+
+    const applyRes = await page.request.post(
+      `${REAL_API_BASE}/api/public/vacancies/${slug}/apply`,
+      {
+        multipart: {
+          fullName: candidateFullName,
+          email: candidateEmail,
+          telegram: candidateTelegram,
+          turnstileToken: 'e2e-dummy-secret-accepts-any-token',
+          resume: {
+            name: 'resume.pdf',
+            mimeType: 'application/pdf',
+            buffer: buildMinimalPdf(),
+          },
+        },
+      },
+    )
+    expect(applyRes.status()).toBe(201)
+
+    const listRes = await page.request.get(
+      `${REAL_API_BASE}/api/vacancies/${vacancyId}/applications`,
+    )
+    const applications = (await listRes.json()) as Array<{ id: string; email: string }>
+    const application = applications.find((a) => a.email === candidateEmail)
+    expect(application, 'candidate application must exist').toBeTruthy()
+    applicationId = application!.id
+    await page.close()
+  })
+
+  test.afterAll(async ({ request }) => {
+    await request.post(`${REAL_API_BASE}/api/auth/dev-login`, { data: { email: SEED_ADMIN_EMAIL } })
+    await request
+      .delete(`${REAL_API_BASE}/api/vacancies/${vacancyId}/applications/${applicationId}`)
+      .catch(() => undefined)
+    await request.delete(`${REAL_API_BASE}/api/vacancies/${vacancyId}`).catch(() => undefined)
+  })
+
+  test('AC4 — валидный telegram-хендл рендерится кликабельной https://t.me/ ссылкой', async ({
+    page,
+  }) => {
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await page.goto(`/vacancies/${vacancyId}?tab=applications`)
+    const card = page.getByTestId(`candidate-card-${applicationId}`)
+    await expect(card).toBeVisible()
+
+    const telegramLink = card.getByTestId('candidate-telegram-link')
+    await expect(telegramLink).toBeVisible()
+    await expect(telegramLink).toHaveAttribute('href', 'https://t.me/armghyan_e2e')
+    await expect(telegramLink).toHaveAttribute('rel', 'noopener noreferrer')
+  })
+
+  test('AC2 — «Просмотр» открывает диалог с PDF-превью резюме, доступного тем же путём, что и скачивание', async ({
+    page,
+  }) => {
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await page.goto(`/vacancies/${vacancyId}?tab=applications`)
+    const card = page.getByTestId(`candidate-card-${applicationId}`)
+    await expect(card).toBeVisible()
+
+    await card.getByTestId(`candidate-preview-${applicationId}`).click()
+    await expect(page.getByTestId('resume-preview-dialog')).toBeVisible()
+    await expect(page.getByTestId('resume-preview-title')).toContainText(candidateFullName)
+    // The iframe/object PdfPreview path is exercised in pdf-preview.test.tsx —
+    // here we only need the blob to actually have loaded (not stuck on the
+    // loader / error state), proving the preview endpoint's presigned URL is
+    // real and fetchable, not just that the dialog opened.
+    await expect(page.getByTestId('candidate-resume-preview')).toBeVisible()
+    await expect(page.getByTestId('candidate-resume-preview-error')).not.toBeAttached()
+
+    await page.getByTestId('resume-preview-close').click()
+    await expect(page.getByTestId('resume-preview-dialog')).not.toBeVisible()
+  })
+
+  // AC5 — responsive screenshots (320/768/1024/1440), card + open preview dialog.
+  for (const [label, width] of [
+    ['320-mobile', 320],
+    ['768-tablet', 768],
+    ['1024-laptop', 1024],
+    ['1440-large', 1440],
+  ] as const) {
+    test(`AC5 — адаптив ${width}px: карточка кандидата без горизонтального переполнения`, async ({
+      page,
+    }) => {
+      await loginViaApi(page, SEED_ADMIN_EMAIL)
+      await page.setViewportSize({ width, height: 900 })
+      await page.goto(`/vacancies/${vacancyId}?tab=applications`)
+      const card = page.getByTestId(`candidate-card-${applicationId}`)
+      await expect(card).toBeVisible()
+      // Let the card's own entrance motion settle before the reference
+      // screenshot — otherwise it's captured mid-fade/translate.
+      await page.waitForTimeout(300)
+
+      const overflow = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      )
+      expect(overflow, `candidate card causes horizontal overflow at ${width}px`).toBe(false)
+
+      await page.screenshot({
+        path: `test-results/candidate-card-resume-${label}.png`,
+        fullPage: false,
+      })
+
+      // Touch-target floor (responsive-design.md) on mobile only.
+      if (width === 320) {
+        const telegramBox = await card.getByTestId('candidate-telegram-link').boundingBox()
+        expect(telegramBox).toBeTruthy()
+        expect(telegramBox!.height).toBeGreaterThanOrEqual(44)
+      }
+
+      await card.getByTestId(`candidate-preview-${applicationId}`).click()
+      await expect(page.getByTestId('resume-preview-dialog')).toBeVisible()
+      // Wait for the real PDF to actually finish loading (the container is
+      // visible immediately, but PdfPreview shows a "Загрузка PDF…" overlay
+      // until the iframe's onLoad fires) AND for Radix's open zoom/fade
+      // transition to settle — both this and the AC2 test above rely on a
+      // real fetchable presigned URL.
+      await expect(page.getByTestId('candidate-resume-preview')).toBeVisible()
+      await expect(page.getByText('Загрузка PDF…')).not.toBeVisible()
+      await page.waitForTimeout(300)
+      const dialogOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      )
+      expect(dialogOverflow, `resume preview dialog causes horizontal overflow at ${width}px`).toBe(
+        false,
+      )
+      await page.screenshot({
+        path: `test-results/candidate-card-resume-preview-${label}.png`,
+        fullPage: false,
+      })
+    })
+  }
+
+  // AC1 — the actual mobile-viewport regression proof: a real browser
+  // download event, at a mobile viewport/UA, through the exact async
+  // refetch-then-navigate path the old `window.open()` implementation used
+  // to silently drop. `page.waitForEvent('download')` only resolves when the
+  // browser genuinely committed to a download — the old `window.open(url,
+  // '_blank', ...)` implementation, run against this same mobile viewport,
+  // never fires it (verified locally by stashing this fix and re-running
+  // this exact test — see PR body for the before/after proof).
+  test('AC1 — скачивание резюме на мобильном вьюпорте (реальное download-событие)', async ({
+    page,
+  }) => {
+    await loginViaApi(page, SEED_ADMIN_EMAIL)
+    await page.setViewportSize({ width: 375, height: 812 })
+    await page.goto(`/vacancies/${vacancyId}?tab=applications`)
+    const card = page.getByTestId(`candidate-card-${applicationId}`)
+    await expect(card).toBeVisible()
+
+    const [download] = await Promise.all([
+      page.waitForEvent('download'),
+      card.getByTestId(`candidate-download-${applicationId}`).click(),
+    ])
+    expect(download.suggestedFilename()).toBe(`${candidateFullName}.pdf`)
+  })
+})

@@ -580,3 +580,9 @@ export function slugifyTitle(title: string): string {
 export function safeExternalHref(url: string): string | undefined {
   return /^https?:\/\//.test(url) ? url : undefined
 }
+
+// task-candidate-card-resume §3 / code-review round 2 — the telegram-handle
+// validator (`safeTelegramHref`) moved to `@/lib/tg-url` — it is now also
+// reused by UserProfileHeader.tsx/UserRow.tsx (see that file's doc comment
+// for why), which sit outside the vacancies module and shouldn't reach into
+// a route-scoped constants file. Import it from `@/lib/tg-url` directly.

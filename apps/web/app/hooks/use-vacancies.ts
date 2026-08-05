@@ -213,3 +213,33 @@ export function useApplicationResumeUrl(
     retry: 1,
   })
 }
+
+/**
+ * task-candidate-card-resume (AC2) — presigned URL for the in-CRM resume
+ * preview dialog (attachment disposition, same as the download hook below —
+ * the dialog always fetches this programmatically and builds a Blob, which
+ * never looks at Content-Disposition, so there is no reason to serve
+ * candidate-submitted bytes inline on a shared R2 origin). Same
+ * `staleTime: 0` as the sibling
+ * download hook above (deliberately — every open re-fetches a fresh URL, so
+ * the client-side query cache can never outlive the server's presign TTL;
+ * see the task's "клиентский кеш не должен переживать подпись" AC).
+ */
+export function useApplicationResumePreviewUrl(
+  vacancyId: string,
+  appId: string | undefined,
+  options?: { enabled?: boolean },
+): UseQueryResult<VacancyApplicationResumeUrl, Error> {
+  return useQuery<VacancyApplicationResumeUrl, Error>({
+    queryKey: ['vacancies', vacancyId, 'applications', appId, 'resume-preview-url'],
+    queryFn: async () => {
+      const res = await api.get<VacancyApplicationResumeUrl>(
+        `/vacancies/${vacancyId}/applications/${appId}/resume-preview-url`,
+      )
+      return res.data
+    },
+    enabled: Boolean(appId) && (options?.enabled ?? true),
+    staleTime: 0,
+    retry: 1,
+  })
+}

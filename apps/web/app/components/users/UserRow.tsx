@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { hasRealPhone } from '@/lib/format-phone'
+import { safeTelegramHref } from '@/lib/tg-url'
 import { ROLE_LABELS, ROLE_VARIANT } from './constants'
 import { UserAvatar } from './UserAvatar'
 
@@ -114,17 +115,28 @@ export function UserRow({ user, isSelf, onEdit, onArchive, onUnarchive }: UserRo
                   <span aria-hidden className="relative z-[2]">
                     ·
                   </span>
-                  <a
-                    // Telegram URL must strip the leading "@" — t.me/<username>
-                    // is the canonical path; the leading "@" is display sugar.
-                    href={`https://t.me/${user.telegram.replace(/^@/, '')}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="truncate hover:text-foreground transition-colors relative z-[2]"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    {user.telegram}
-                  </a>
+                  {/* code-review round 2: validate before building a t.me/
+                      link — same guard CandidateCard.tsx uses for the
+                      (untrusted) public-apply-form telegram field, reused
+                      here so this CRM-internal field doesn't sit as the one
+                      unvalidated telegram-link path left in the app. */}
+                  {(() => {
+                    const href = safeTelegramHref(user.telegram)
+                    if (!href) {
+                      return <span className="truncate relative z-[2]">{user.telegram}</span>
+                    }
+                    return (
+                      <a
+                        href={href}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="truncate hover:text-foreground transition-colors relative z-[2]"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {user.telegram}
+                      </a>
+                    )
+                  })()}
                 </>
               )}
               {hasRealPhone(user.phone) && (

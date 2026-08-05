@@ -14,7 +14,7 @@ import { ru } from 'date-fns/locale'
 // lucide-react@1.x dropped brand/logo icons (Github/Linkedin) — ExternalLink
 // is the generic stand-in; the visible "GitHub"/"LinkedIn" text label already
 // distinguishes the two chips.
-import { Download, ExternalLink, Send, Trash2 } from 'lucide-react'
+import { Download, Eye, ExternalLink, Send, Trash2 } from 'lucide-react'
 import type { VacancyApplication, VacancyApplicationStatus } from '@crm/shared'
 import { Avatar, AvatarFallback } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
@@ -34,12 +34,14 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { getInitials } from '@/components/users/constants'
+import { safeTelegramHref } from '@/lib/tg-url'
 import {
   useApplicationResumeUrl,
   useDeleteVacancyApplication,
   useUpdateVacancyApplication,
 } from '@/hooks/use-vacancies'
 import { APPLICATION_STATUS_LABELS, safeExternalHref } from '../constants'
+import { ResumePreviewDialog } from './ResumePreviewDialog'
 
 const STATUS_OPTIONS: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
   { value: 'NEW', label: APPLICATION_STATUS_LABELS.NEW },
@@ -54,6 +56,7 @@ interface CandidateCardProps {
 
 export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
   const [coverLetterOpen, setCoverLetterOpen] = useState(false)
+  const [previewOpen, setPreviewOpen] = useState(false)
   const resumeUrlQuery = useApplicationResumeUrl(vacancyId, application.id, { enabled: false })
   const updateStatus = useUpdateVacancyApplication(vacancyId)
   const deleteApplication = useDeleteVacancyApplication(vacancyId)
@@ -67,12 +70,44 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
     }
   })()
 
+  /**
+   * task-candidate-card-resume AC1 — mobile-safe download.
+   *
+   * The OLD implementation called `window.open(url, '_blank', ...)` AFTER
+   * `await`ing the presigned-URL refetch — outside the click handler's
+   * synchronous call stack, and thus outside the browser's "user activation"
+   * window that `window.open()` (a NEW browsing context) needs. Desktop
+   * Chrome tolerates this; mobile browsers (Safari's WebKit especially) do
+   * not — the popup is silently blocked, which is exactly the reported "on
+   * PC it works, on the phone nothing happens" symptom.
+   *
+   * Fix: `window.location.href = url` — a SAME-document navigation, never a
+   * new browsing context, so it is not subject to popup-blocking at all
+   * (verified: only `window.open()`/`target="_blank"`-style new-context
+   * calls are gated by user-activation; in-place navigation is not). This
+   * works regardless of the async gap above. It also does not leave the
+   * page: the presigned URL is confirmed to carry `Content-Disposition:
+   * attachment` (`ApplicationsService.getResumeUrl` ->
+   * `S3Service.getPresignedDownloadUrl(..., 'attachment')`), so the browser
+   * downloads the file in place instead of navigating away.
+   *
+   * code-review round 2: unlike a `target="_blank"` open, a same-document
+   * `location.href` assignment leaves the CURRENT tab pointed at whatever
+   * URL it's given if that URL turns out not to be a real download —
+   * `safeExternalHref` (the same http(s)-only guard already used for
+   * candidate-supplied github/linkedin links) is a cheap defence-in-depth
+   * check before committing to the navigation.
+   */
   async function handleDownload() {
     const result = await resumeUrlQuery.refetch()
     const url = result.data?.url
     if (!url) return
-    window.open(url, '_blank', 'noopener,noreferrer')
+    const safeUrl = safeExternalHref(url)
+    if (!safeUrl) return
+    window.location.href = safeUrl
   }
+
+  const telegramHref = application.telegram ? safeTelegramHref(application.telegram) : undefined
 
   return (
     <div
@@ -112,10 +147,7 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
       {(application.telegram || application.githubUrl || application.linkedinUrl) && (
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {application.telegram && (
-            <span className="inline-flex items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground">
-              <Send className="h-3 w-3" />
-              {application.telegram}
-            </span>
+            <TelegramChip handle={application.telegram} href={telegramHref} />
           )}
           {application.githubUrl && (
             <ExternalContactChip url={application.githubUrl} label="GitHub" />
@@ -146,16 +178,27 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-1.5">
           {application.resumeSizeBytes !== null ? (
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => void handleDownload()}
-              disabled={resumeUrlQuery.isFetching}
-              data-testid={`candidate-download-${application.id}`}
-            >
-              <Download className="mr-1 h-3.5 w-3.5" />
-              Скачать резюме
-            </Button>
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => setPreviewOpen(true)}
+                data-testid={`candidate-preview-${application.id}`}
+              >
+                <Eye className="mr-1 h-3.5 w-3.5" />
+                Просмотр
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void handleDownload()}
+                disabled={resumeUrlQuery.isFetching}
+                data-testid={`candidate-download-${application.id}`}
+              >
+                <Download className="mr-1 h-3.5 w-3.5" />
+                Скачать резюме
+              </Button>
+            </>
           ) : (
             // task-file-storage-hardening §2: resumeSizeBytes is null once the
             // 180-day file-only retention purge has cleared the file — the
@@ -215,7 +258,51 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
           testId={`candidate-status-${application.id}`}
         />
       </div>
+
+      {application.resumeSizeBytes !== null && (
+        <ResumePreviewDialog
+          open={previewOpen}
+          onOpenChange={setPreviewOpen}
+          vacancyId={vacancyId}
+          application={application}
+        />
+      )}
     </div>
+  )
+}
+
+/**
+ * task-candidate-card-resume §3 — telegram handle as a clickable t.me/ link.
+ * `href` is `undefined` whenever `safeTelegramHref` rejects the shape (free
+ * text from an anonymous, unvalidated public form) — falls back to the
+ * original plain, non-clickable chip in that case, unchanged from before.
+ * `min-h-11` (44px) on mobile only — responsive-design.md's touch-target
+ * floor — shrinks back to the compact desktop size at `sm:`.
+ */
+function TelegramChip({ handle, href }: { handle: string; href: string | undefined }) {
+  const className =
+    'inline-flex min-h-11 items-center gap-1 rounded-md border border-border bg-muted/40 px-2 py-0.5 text-xs text-muted-foreground sm:min-h-0'
+
+  if (!href) {
+    return (
+      <span className={className}>
+        <Send className="h-3 w-3" />
+        {handle}
+      </span>
+    )
+  }
+
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(className, 'hover:text-foreground')}
+      data-testid="candidate-telegram-link"
+    >
+      <Send className="h-3 w-3" />
+      {handle}
+    </a>
   )
 }
 
