@@ -5,6 +5,7 @@ import {
   emptySeoFormValues,
   emptyTranslationsFormValues,
   safeExternalHref,
+  safeTelegramHref,
   seoFormValuesFromVacancy,
   slugifyTitle,
   translationsFormValuesFromVacancy,
@@ -70,6 +71,66 @@ describe('safeExternalHref (security-MED, PR #396 review)', () => {
 
   it('rejects a protocol-relative URL (no explicit http/https)', () => {
     expect(safeExternalHref('//evil.example.com')).toBeUndefined()
+  })
+})
+
+// task-candidate-card-resume §3 — telegram (anonymous public-form input,
+// never format-validated on write) → clickable t.me/ link on the read side.
+describe('safeTelegramHref (task-candidate-card-resume)', () => {
+  it('accepts a handle with a leading @ and strips it in the URL', () => {
+    expect(safeTelegramHref('@armghyan')).toBe('https://t.me/armghyan')
+  })
+
+  it('accepts a bare handle without @', () => {
+    expect(safeTelegramHref('armghyan')).toBe('https://t.me/armghyan')
+  })
+
+  it('accepts digits/underscores after the first letter', () => {
+    expect(safeTelegramHref('@john_doe_2')).toBe('https://t.me/john_doe_2')
+  })
+
+  it('accepts the minimum length (5 chars)', () => {
+    expect(safeTelegramHref('@abcde')).toBe('https://t.me/abcde')
+  })
+
+  it('accepts the maximum length (32 chars)', () => {
+    const handle = 'a' + '1'.repeat(31)
+    expect(handle).toHaveLength(32)
+    expect(safeTelegramHref(`@${handle}`)).toBe(`https://t.me/${handle}`)
+  })
+
+  it('rejects a handle one char below the minimum (4 chars)', () => {
+    expect(safeTelegramHref('@abcd')).toBeUndefined()
+  })
+
+  it('rejects a handle one char above the maximum (33 chars)', () => {
+    const handle = 'a' + '1'.repeat(32)
+    expect(handle).toHaveLength(33)
+    expect(safeTelegramHref(`@${handle}`)).toBeUndefined()
+  })
+
+  it('rejects a handle starting with a digit', () => {
+    expect(safeTelegramHref('@1ivan')).toBeUndefined()
+  })
+
+  it('rejects a handle starting with an underscore', () => {
+    expect(safeTelegramHref('@_ivan')).toBeUndefined()
+  })
+
+  it('rejects a handle with spaces', () => {
+    expect(safeTelegramHref('@ivan petrov')).toBeUndefined()
+  })
+
+  it('rejects a full URL pasted into the field (not a bare handle)', () => {
+    expect(safeTelegramHref('https://t.me/ivan')).toBeUndefined()
+  })
+
+  it('rejects arbitrary free text (anonymous public form, untrusted input)', () => {
+    expect(safeTelegramHref('связаться со мной в телеге')).toBeUndefined()
+  })
+
+  it('rejects an empty string', () => {
+    expect(safeTelegramHref('')).toBeUndefined()
   })
 })
 
