@@ -545,6 +545,50 @@ export class ApplicationsService {
     applicationId: string,
   ): Promise<VacancyApplicationResumeUrl> {
     this.assertAdminOrHr(actor)
+    return this.presignResume(actor, vacancyId, applicationId, 'attachment', 'DOWNLOAD')
+  }
+
+  /**
+   * task-candidate-card-resume (AC2/AC3) — inline-disposition presigned URL
+   * for the in-CRM resume preview (CandidateCard "Просмотр"). Deliberately
+   * NOT gated by `@Roles('ADMIN','HR')` at the controller
+   * (`vacancies.controller.ts` — RolesGuard is a no-op without that
+   * decorator, see roles.guard.ts) — RBAC lives here instead, and denial is
+   * a 404, not `getResumeUrl`'s 403. This mirrors the established
+   * `DocumentsService.findActiveOrThrow` convention for the general RESUME/
+   * SCAN document categories (task-file-storage-hardening §1): "don't
+   * confirm this resource exists to a viewer who isn't allowed to see it".
+   * Preview and download allow the EXACT same role set (ADMIN | HR) —
+   * `getResumeUrl`'s existing 403 (defence-in-depth `@Roles` decorator +
+   * `assertAdminOrHr`, pinned by `vacancies.integration.spec.ts`'s RBAC
+   * matrix) is intentionally left untouched; only this NEW endpoint adopts
+   * the 404 convention.
+   */
+  async getResumePreviewUrl(
+    actor: SessionUser,
+    vacancyId: string,
+    applicationId: string,
+  ): Promise<VacancyApplicationResumeUrl> {
+    if (actor.role !== 'ADMIN' && actor.role !== 'HR') {
+      throw new NotFoundException('Отклик не найден')
+    }
+    return this.presignResume(actor, vacancyId, applicationId, 'inline', 'PREVIEW')
+  }
+
+  /**
+   * Shared tail for `getResumeUrl`/`getResumePreviewUrl` — both callers have
+   * already asserted RBAC (with their own status code) before reaching here.
+   * Fetches the application row (IDOR-safe, 404 on cross-vacancy access),
+   * 404s on a retention-purged resume, best-effort access-logs the read, and
+   * returns the presigned URL with the caller's chosen disposition.
+   */
+  private async presignResume(
+    actor: SessionUser,
+    vacancyId: string,
+    applicationId: string,
+    disposition: 'inline' | 'attachment',
+    action: 'DOWNLOAD' | 'PREVIEW',
+  ): Promise<VacancyApplicationResumeUrl> {
     const row = await this.getApplicationOrThrow(vacancyId, applicationId)
 
     // task-file-storage-hardening §2: `resumeS3Key` is null once the 180-day
@@ -557,19 +601,19 @@ export class ApplicationsService {
     }
 
     // task-file-storage-hardening §7: best-effort access-log entry — "who
-    // downloaded this resume and when" was previously unanswerable. Never
-    // records the presigned URL itself, only the actor/application/category.
-    // A logging failure must not block the actual download.
+    // downloaded/previewed this resume and when" was previously unanswerable.
+    // Never records the presigned URL itself, only the actor/application/
+    // category. A logging failure must not block the actual download/preview.
     try {
       await this.db.db.insert(documentAccessLog).values({
         actorId: actor.id,
         targetId: row.id,
-        action: 'DOWNLOAD',
+        action,
         metadata: { category: 'RESUME', source: 'vacancy_application' },
       })
     } catch (err) {
       this.logger.warn(
-        `getResumeUrl: failed to write access-log row for applicationId=${row.id}: ${(err as Error).message}`,
+        `presignResume: failed to write access-log row (action=${action}) for applicationId=${row.id}: ${(err as Error).message}`,
       )
     }
 
@@ -577,7 +621,7 @@ export class ApplicationsService {
       row.resumeS3Key,
       RESUME_PRESIGN_TTL_SEC,
       `${sanitizeDownloadFilename(row.fullName)}.pdf`,
-      'attachment',
+      disposition,
       'RESUME',
     )
   }

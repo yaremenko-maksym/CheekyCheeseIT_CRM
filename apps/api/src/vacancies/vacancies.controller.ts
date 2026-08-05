@@ -118,4 +118,23 @@ export class VacanciesController {
   ) {
     return this.applicationsService.getResumeUrl(actor, id, appId)
   }
+
+  /**
+   * task-candidate-card-resume — in-CRM resume preview (inline disposition).
+   * Deliberately NO `@Roles('ADMIN','HR')` here (contrast with every other
+   * handler in this controller) — `RolesGuard.canActivate` is a no-op when a
+   * route carries no `@Roles` metadata (see roles.guard.ts), so RBAC for
+   * THIS route lives entirely in `ApplicationsService.getResumePreviewUrl`,
+   * which denies with 404 (not 403) — see that method's doc comment for the
+   * full rationale (mirrors the documents module's established
+   * "don't confirm resource existence to an unauthorised viewer" pattern).
+   */
+  @Get(':id/applications/:appId/resume-preview-url')
+  getResumePreviewUrl(
+    @CurrentUser() actor: SessionUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('appId', ParseUUIDPipe) appId: string,
+  ) {
+    return this.applicationsService.getResumePreviewUrl(actor, id, appId)
+  }
 }

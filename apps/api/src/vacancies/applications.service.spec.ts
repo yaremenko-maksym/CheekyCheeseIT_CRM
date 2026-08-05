@@ -692,6 +692,112 @@ describe('ApplicationsService.getResumeUrl()', () => {
   })
 })
 
+// task-candidate-card-resume (AC2/AC3) — inline-disposition preview URL,
+// with its own 404-not-403 RBAC denial (see the method's doc comment).
+describe('ApplicationsService.getResumePreviewUrl()', () => {
+  const ADMIN_ACTOR = { id: 'admin-1', role: 'ADMIN' } as unknown as SessionUser
+  const HR_ACTOR = { id: 'hr-1', role: 'HR' } as unknown as SessionUser
+  const SENIOR_ACTOR = { id: 'senior-1', role: 'SENIOR' } as unknown as SessionUser
+
+  function makeResumeHarness(
+    fullName: string,
+    opts: { resumeS3Key?: string | null; insertShouldThrow?: boolean } = {},
+  ) {
+    const s3 = {
+      getPresignedDownloadUrl: vi
+        .fn()
+        .mockResolvedValue({ url: 'https://stub/preview', expiresAt: '2026-01-01T00:10:00.000Z' }),
+    }
+    const vacanciesService = {
+      getRowOrThrow: vi.fn().mockResolvedValue({ id: 'vac-1' }),
+    }
+    const row = {
+      id: 'app-1',
+      vacancyId: 'vac-1',
+      fullName,
+      resumeS3Key:
+        opts.resumeS3Key === undefined ? 'vacancy-applications/vac-1/app-1.pdf' : opts.resumeS3Key,
+    }
+    const insertedRows: Record<string, unknown>[] = []
+    const db = {
+      db: {
+        query: {
+          vacancyApplications: {
+            findFirst: vi.fn().mockResolvedValue(row),
+          },
+        },
+        insert: (_table: unknown) => ({
+          values: (vals: Record<string, unknown>) => {
+            if (opts.insertShouldThrow) return Promise.reject(new Error('DB down'))
+            insertedRows.push(vals)
+            return Promise.resolve(undefined)
+          },
+        }),
+      },
+    }
+    const svc = new ApplicationsService(
+      db as unknown as DatabaseService,
+      vacanciesService as unknown as VacanciesService,
+      s3 as unknown as S3Service,
+      {} as unknown as CompressionService,
+      {} as unknown as TurnstileService,
+      {} as unknown as NotificationsService,
+    )
+    return { svc, s3, insertedRows, vacanciesService }
+  }
+
+  it.each([ADMIN_ACTOR, HR_ACTOR])(
+    '$role gets a 200-shaped inline-disposition presigned URL',
+    async (actor) => {
+      const { svc, s3 } = makeResumeHarness('Ivan Petrenko')
+      const result = await svc.getResumePreviewUrl(actor, 'vac-1', 'app-1')
+      expect(result.url).toBe('https://stub/preview')
+      const [, , , disposition, category] = s3.getPresignedDownloadUrl.mock.calls[0] as [
+        string,
+        number,
+        string,
+        string,
+        string,
+      ]
+      expect(disposition).toBe('inline')
+      expect(category).toBe('RESUME')
+    },
+  )
+
+  // AC3 — a role outside ADMIN/HR is denied with 404 (NOT 403, unlike the
+  // sibling getResumeUrl/download endpoint) — the vacancy/application lookup
+  // is never even reached.
+  it('SENIOR (role outside the team) → NotFoundException (404), no lookup attempted', async () => {
+    const { svc, vacanciesService } = makeResumeHarness('Ivan Petrenko')
+    await expect(svc.getResumePreviewUrl(SENIOR_ACTOR, 'vac-1', 'app-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(vacanciesService.getRowOrThrow).not.toHaveBeenCalled()
+  })
+
+  it('resumeS3Key=null (retention-purged) → 404, no presign attempted', async () => {
+    const { svc, s3 } = makeResumeHarness('Ivan Petrenko', { resumeS3Key: null })
+    await expect(svc.getResumePreviewUrl(ADMIN_ACTOR, 'vac-1', 'app-1')).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(s3.getPresignedDownloadUrl).not.toHaveBeenCalled()
+  })
+
+  it('writes an access-log row with action=PREVIEW (distinct from DOWNLOAD)', async () => {
+    const { svc, insertedRows } = makeResumeHarness('Ivan Petrenko')
+    await svc.getResumePreviewUrl(ADMIN_ACTOR, 'vac-1', 'app-1')
+    expect(insertedRows).toHaveLength(1)
+    expect(insertedRows[0]!['action']).toBe('PREVIEW')
+  })
+
+  it('a failing access-log write does not block the preview (best-effort)', async () => {
+    const { svc, s3 } = makeResumeHarness('Ivan Petrenko', { insertShouldThrow: true })
+    const result = await svc.getResumePreviewUrl(ADMIN_ACTOR, 'vac-1', 'app-1')
+    expect(result.url).toBe('https://stub/preview')
+    expect(s3.getPresignedDownloadUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
 // task-file-storage-hardening §4 — orphan-safe delete ordering: R2 object
 // FIRST (throwing deleteOrThrow), DB row only after it succeeds. Mirrors
 // VacanciesRetentionCronService's own ordering rationale.
