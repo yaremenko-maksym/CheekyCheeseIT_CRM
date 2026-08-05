@@ -239,6 +239,8 @@ export function VacancyApplyForm({
               name="name"
               placeholder={t.namePlaceholder}
               required
+              autoCapitalize="words"
+              autoComplete="name"
               value={fullName}
               aria-invalid={fieldErrors.fullName ? true : undefined}
               aria-describedby={fieldErrors.fullName ? nameErrorId : undefined}
@@ -267,6 +269,10 @@ export function VacancyApplyForm({
               id={emailId}
               name="email"
               type="email"
+              autoComplete="email"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder={t.emailPlaceholder}
               required
               value={email}
@@ -297,6 +303,8 @@ export function VacancyApplyForm({
               id={telegramId}
               name="telegram"
               placeholder={t.telegramPlaceholder}
+              autoCapitalize="off"
+              autoCorrect="off"
               value={telegram}
               onChange={(e) => setTelegram(e.target.value)}
             />
@@ -312,6 +320,9 @@ export function VacancyApplyForm({
               id={linkedinId}
               name="linkedin"
               type="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
               placeholder={t.linkedinPlaceholder}
               value={linkedinUrl}
               aria-invalid={fieldErrors.linkedinUrl ? true : undefined}
@@ -340,6 +351,9 @@ export function VacancyApplyForm({
             id={githubId}
             name="github"
             type="url"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={t.githubPlaceholder}
             value={githubUrl}
             aria-invalid={fieldErrors.githubUrl ? true : undefined}

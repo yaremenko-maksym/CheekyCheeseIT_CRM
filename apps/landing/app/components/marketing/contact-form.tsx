@@ -256,6 +256,8 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
               name="name"
               placeholder={t.namePlaceholder}
               required
+              autoCapitalize="words"
+              autoComplete="name"
               value={name}
               aria-invalid={fieldErrors.name ? true : undefined}
               aria-describedby={fieldErrors.name ? nameErrorId : undefined}
@@ -302,6 +304,10 @@ export function ContactForm({ dict }: { dict: Dictionary }) {
             id={emailId}
             name="email"
             type="email"
+            autoComplete="email"
+            autoCapitalize="off"
+            autoCorrect="off"
+            spellCheck={false}
             placeholder={t.emailPlaceholder}
             required
             value={email}
