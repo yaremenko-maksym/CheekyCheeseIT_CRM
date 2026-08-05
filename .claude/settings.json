@@ -63,6 +63,17 @@
         "id": "pre:bash:devserver-ttl-gate"
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-live-db-guard.sh"
+          }
+        ],
+        "description": "Live-DB guard — block dev-server boots (nest/vite/pnpm dev/dist-main) inside agent worktrees and claude scratchpads unless DATABASE_URL and port are explicitly set inline to non-live values (live-db-corruption prevention, 2026-08-05 incident PR #485)",
+        "id": "pre:bash:live-db-guard"
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
