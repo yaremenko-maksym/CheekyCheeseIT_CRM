@@ -1,17 +1,18 @@
 /**
  * Anti-Stale Mutation Tests — cache suite
  *
- * PURPOSE: Prove that with an ACTIVE Service Worker (Workbox NetworkFirst on
- * GET /api/*), UI mutations trigger TanStack Query invalidation → the SW
- * re-fetches from the real network → the UI shows FRESH data without a manual
- * page reload.
+ * PURPOSE: Prove that UI mutations trigger TanStack Query invalidation → a
+ * real network refetch → the UI shows FRESH data without a manual page
+ * reload — AND that this refetch is never served from a Service Worker
+ * cache (there is nothing under /api/* for the SW to go stale on, see
+ * "fix(web): stop routing API requests through the service worker").
  *
- * This is a REGRESSION GUARD. If someone changes the Workbox strategy from
- * NetworkFirst to StaleWhileRevalidate (or CacheFirst), TanStack Query's
- * invalidateQueries still fires — but the SW would serve a stale cached
- * response instead of the real backend data. The test would fail on the
- * "fresh data appears without reload" assertion because the UI would show
- * the pre-mutation state indefinitely.
+ * This is a REGRESSION GUARD, now cutting the other way from before: if
+ * someone reintroduces an `/api/*`-matching `runtimeCaching` rule (NetworkFirst,
+ * StaleWhileRevalidate, whatever), the "response was never fromServiceWorker"
+ * assertion below fails — catching the exact class of bug this PR fixes
+ * (SW-mediated caching of financial/PII API responses) before it needs a
+ * 16.7s-hang-style live repro to notice again.
  *
  * Scenarios covered:
  *   1. Finance — ADMIN creates EXPENSE via UI dialog →
@@ -35,11 +36,9 @@ import { test, expect } from '@playwright/test'
 import {
   clearSWAndCaches,
   navigateWithSWReady,
-  getCacheEntries,
   loginViaApi,
   SEED_ADMIN_EMAIL,
   REAL_API_BASE,
-  CACHE_NAMES,
 } from './helpers'
 
 // ─── Constants from seed.ts ──────────────────────────────────────────────────
@@ -75,7 +74,7 @@ async function deleteProjectViaApi(
 
 // ─── Suite ───────────────────────────────────────────────────────────────────
 
-test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFirst)', () => {
+test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by the SW', () => {
   // Serial: tests share mutable cleanup state (createdTransactionId /
   // createdProjectId) and each mutates seeded data, so they must not overlap
   // even if the global config enables fullyParallel.
@@ -110,36 +109,38 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
   //
   // Flow:
   //   1. Login as ADMIN, navigate to /finance (SW becomes active controller)
-  //   2. Wait until api-cache is populated (SW intercepted the GET /transactions)
+  //   2. Wait until real /api/* traffic has happened (GET /transactions)
   //   3. Intercept the POST /transactions network request to capture the created ID
   //   4. Click "Новая транзакция" → fill EXPENSE dialog → submit
   //   5. Assert the new tx row appears in the table WITHOUT any page.reload()
-  //   6. Assert api-cache has a fresh /transactions entry (SW re-fetched via network)
+  //   6. Assert NONE of the /api/* responses were served fromServiceWorker
+  //      (direct network — nothing to go stale on)
   //
-  test('Scenario 1 — Finance: EXPENSE via UI → new row in table without reload (SW NetworkFirst)', async ({
+  test('Scenario 1 — Finance: EXPENSE via UI → new row in table without reload (no SW caching)', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+
+    // Track every /api/* response for the whole test — used both as the
+    // "real traffic happened" precondition and the anti-stale proof below.
+    const apiResponses: { url: string; fromSW: boolean }[] = []
+    page.on('response', (response) => {
+      if (response.url().includes('/api/') && !response.url().includes('/api/auth/logout')) {
+        apiResponses.push({ url: response.url(), fromSW: response.fromServiceWorker() })
+      }
+    })
 
     // Double-goto: first navigation registers the SW, second fires requests
     // while the SW is already the active controller.
     await navigateWithSWReady(page, '/finance')
 
-    // Wait for api-cache to be populated — proves SW is caching the initial
-    // GET /transactions (NetworkFirst: network response cached by SW).
+    // Precondition: real /api/* traffic happened (GET /transactions etc.).
     await expect
-      .poll(
-        async () => {
-          const entries = await getCacheEntries(page, CACHE_NAMES.api)
-          return entries.some((url) => url.includes('/api/'))
-        },
-        {
-          message:
-            'Expected api-cache to be populated with at least one /api/* entry before mutation',
-          timeout: 25_000,
-          intervals: [500, 1000, 2000],
-        },
-      )
+      .poll(() => apiResponses.length > 0, {
+        message: 'Expected at least one /api/* response before mutation',
+        timeout: 25_000,
+        intervals: [500, 1000, 2000],
+      })
       .toBeTruthy()
 
     // Unique sentinel amount — makes the new row identifiable even when many
@@ -172,6 +173,15 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
       .first()
     await amountInput.fill(sentinelAmount)
 
+    // Receipt is required ("Чек обязателен: приложите файл или ссылку на
+    // blockchain-explorer") — switch the ReceiptInput to link mode and fill
+    // a placeholder URL. Not a caching concern, just satisfying form
+    // validation so the dialog actually submits.
+    await page.locator('[data-testid="receipt-input-mode-url"]').click()
+    await page
+      .locator('[data-testid="receipt-input-url-field"]')
+      .fill('https://etherscan.io/tx/0xtest')
+
     // Submit.
     await page.locator('[data-testid="create-transaction-submit"]').click()
 
@@ -188,7 +198,7 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
     })
 
     // KEY ASSERTION: After mutation, TanStack Query fires invalidateQueries(['transactions'])
-    // → SW re-fetches GET /transactions via NetworkFirst (real network, not stale cache)
+    // → a direct network refetch of GET /transactions (no SW cache in the loop)
     // → new row appears in the UI without page.reload().
     //
     // The new row has data-testid="tx-row-{id}". Since we may not always
@@ -221,55 +231,48 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
         .toBeTruthy()
     }
 
-    // ANTI-STALE PROOF: api-cache must still exist and contain a /transactions
-    // entry. This confirms the SW re-fetched from the real network (NetworkFirst)
-    // after invalidation — if SW had used StaleWhileRevalidate, the new row
-    // might not appear immediately (the cache would be served first and the
-    // background revalidation happens asynchronously, often too late for TQ).
-    await expect
-      .poll(
-        async () => {
-          const entries = await getCacheEntries(page, CACHE_NAMES.api)
-          return entries.some((url) => url.includes('/api/'))
-        },
-        {
-          message: 'Expected api-cache to still contain /api/* entries after mutation (SW active)',
-          timeout: 10_000,
-          intervals: [300, 500, 1000],
-        },
-      )
-      .toBeTruthy()
+    // ANTI-STALE PROOF: no /api/* response (before OR after the mutation) was
+    // ever served fromServiceWorker — every one hit the real network directly.
+    // That's why the new row appearing without a manual reload can't be a
+    // fluke of stale-cache-happens-to-match: there is no cache in the loop.
+    const anyFromSW = apiResponses.some((r) => r.fromSW)
+    expect(
+      anyFromSW,
+      `Expected NO /api/* response to be fromServiceWorker. Got: ${JSON.stringify(apiResponses)}`,
+    ).toBe(false)
   })
 
   // ── Scenario 2: Projects — create project shows fresh row ─────────────────
   //
   // Flow:
   //   1. Login as ADMIN, navigate to /projects (SW active)
-  //   2. Wait until api-cache is populated (GET /projects cached)
+  //   2. Wait until real /api/* traffic has happened (GET /projects)
   //   3. Intercept POST /projects to capture new project ID
   //   4. Click "Новый проект" → fill dialog → submit
   //   5. Assert new project row appears WITHOUT page.reload()
   //
-  test('Scenario 2 — Projects: create project via UI → new row in list without reload (SW NetworkFirst)', async ({
+  test('Scenario 2 — Projects: create project via UI → new row in list without reload (no SW caching)', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
 
+    // Track every /api/* response for the whole test.
+    const apiResponses: { url: string; fromSW: boolean }[] = []
+    page.on('response', (response) => {
+      if (response.url().includes('/api/') && !response.url().includes('/api/auth/logout')) {
+        apiResponses.push({ url: response.url(), fromSW: response.fromServiceWorker() })
+      }
+    })
+
     await navigateWithSWReady(page, '/projects')
 
-    // Wait for api-cache to be seeded.
+    // Precondition: real /api/* traffic happened (GET /projects etc.).
     await expect
-      .poll(
-        async () => {
-          const entries = await getCacheEntries(page, CACHE_NAMES.api)
-          return entries.some((url) => url.includes('/api/'))
-        },
-        {
-          message: 'Expected api-cache to be populated before projects mutation',
-          timeout: 25_000,
-          intervals: [500, 1000, 2000],
-        },
-      )
+      .poll(() => apiResponses.length > 0, {
+        message: 'Expected at least one /api/* response before projects mutation',
+        timeout: 25_000,
+        intervals: [500, 1000, 2000],
+      })
       .toBeTruthy()
 
     // Unique sentinel name — makes the new project identifiable in the list.
@@ -351,58 +354,49 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
       ).toBeVisible({ timeout: 15_000 })
     }
 
-    // ANTI-STALE PROOF: api-cache still populated (SW re-fetched via NetworkFirst
-    // after invalidateQueries(['projects'])).
-    await expect
-      .poll(
-        async () => {
-          const entries = await getCacheEntries(page, CACHE_NAMES.api)
-          return entries.some((url) => url.includes('/api/'))
-        },
-        {
-          message: 'Expected api-cache to still contain /api/* entries after project mutation',
-          timeout: 10_000,
-          intervals: [300, 500, 1000],
-        },
-      )
-      .toBeTruthy()
+    // ANTI-STALE PROOF: no /api/* response was ever served fromServiceWorker.
+    const anyFromSW = apiResponses.some((r) => r.fromSW)
+    expect(
+      anyFromSW,
+      `Expected NO /api/* response to be fromServiceWorker. Got: ${JSON.stringify(apiResponses)}`,
+    ).toBe(false)
   })
 
-  // ── Scenario 3: NetworkFirst contrast — api-cache exists but fresh data wins ─
+  // ── Scenario 3: fresh-data contrast — real traffic but UI shows data AFTER mutation ─
   //
   // Extra guard: verify that AFTER a UI mutation, the new data IS visible
-  // (i.e. NetworkFirst fetched the real network response, not served stale
-  // cache). This is the minimal "stale data NOT shown" assertion.
+  // (i.e. the refetch hit the real network, not a stale SW cache — there is
+  // no SW cache in the loop at all any more). This is the minimal "stale
+  // data NOT shown" assertion.
   //
   // Mechanism: we seed a unique amount, create the EXPENSE via UI, then verify
-  // the row appears. If SW served a stale cached GET /transactions from BEFORE
-  // the POST, the new row would be absent — test fails → regression detected.
+  // the row appears. If a future regression reintroduced SW caching of
+  // /api/*, a stale cached GET /transactions from BEFORE the POST could win
+  // the race — the new row would be absent → test fails → regression
+  // detected.
   //
-  test('Scenario 3 — NetworkFirst contrast: cache populated but UI shows data AFTER mutation (no stale)', async ({
+  test('Scenario 3 — fresh-data contrast: real /api/* traffic but UI shows data AFTER mutation (no stale)', async ({
     page,
   }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
+    // Track every /api/* response for the whole test.
+    const apiResponses: { url: string; fromSW: boolean }[] = []
+    page.on('response', (response) => {
+      if (response.url().includes('/api/') && !response.url().includes('/api/auth/logout')) {
+        apiResponses.push({ url: response.url(), fromSW: response.fromServiceWorker() })
+      }
+    })
+
     await navigateWithSWReady(page, '/finance')
 
-    // Verify api-cache IS populated (SW is working, NetworkFirst is caching).
+    // Verify real /api/* traffic happened before the mutation.
     await expect
-      .poll(
-        async () => {
-          const entries = await getCacheEntries(page, CACHE_NAMES.api)
-          return entries.some((url) => url.includes('/api/'))
-        },
-        {
-          message:
-            'Expected api-cache to exist and contain entries (SW is caching with NetworkFirst)',
-          timeout: 25_000,
-          intervals: [500, 1000, 2000],
-        },
-      )
+      .poll(() => apiResponses.length > 0, {
+        message: 'Expected at least one /api/* response before mutation',
+        timeout: 25_000,
+        intervals: [500, 1000, 2000],
+      })
       .toBeTruthy()
-
-    // Record the cache entry count BEFORE mutation.
-    const cacheEntriesBefore = await getCacheEntries(page, CACHE_NAMES.api)
-    expect(cacheEntriesBefore.length).toBeGreaterThan(0)
 
     // Sentinel amount — uniquely identifies this test's tx.
     const sentinelAmount = `${11 + (Date.now() % 77)}`
@@ -426,6 +420,14 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
       .locator('input[type="text"], input[inputmode="decimal"], input[placeholder]')
       .first()
     await amountInput.fill(sentinelAmount)
+
+    // Receipt is required — see the comment on the same two lines in
+    // Scenario 1 above.
+    await page.locator('[data-testid="receipt-input-mode-url"]').click()
+    await page
+      .locator('[data-testid="receipt-input-url-field"]')
+      .fill('https://etherscan.io/tx/0xtest')
+
     await page.locator('[data-testid="create-transaction-submit"]').click()
 
     const txResponse = await txResponsePromise
@@ -440,8 +442,8 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
     })
 
     // THE ANTI-STALE ASSERTION: new row is visible = TanStack Query got FRESH
-    // data from the real network (NetworkFirst re-fetched after invalidation).
-    // If SW had served stale cache, TQ would render the old list → row absent.
+    // data from a direct network refetch. There is no SW cache in the loop
+    // (see fromServiceWorker check below) to serve a stale pre-mutation list.
     if (createdTransactionId) {
       await expect(page.locator(`[data-testid="tx-row-${createdTransactionId}"]`)).toBeVisible({
         timeout: 15_000,
@@ -459,12 +461,18 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
             return false
           },
           {
-            message: `Expected tx row with sentinel amount "${sentinelAmount}" — NetworkFirst must serve fresh data post-invalidation`,
+            message: `Expected tx row with sentinel amount "${sentinelAmount}" — refetch must serve fresh data post-invalidation`,
             timeout: 15_000,
             intervals: [300, 500, 1000],
           },
         )
         .toBeTruthy()
     }
+
+    const anyFromSW = apiResponses.some((r) => r.fromSW)
+    expect(
+      anyFromSW,
+      `Expected NO /api/* response to be fromServiceWorker. Got: ${JSON.stringify(apiResponses)}`,
+    ).toBe(false)
   })
 })

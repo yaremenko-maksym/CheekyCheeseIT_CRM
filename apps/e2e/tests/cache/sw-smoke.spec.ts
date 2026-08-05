@@ -2,7 +2,8 @@
  * SW Smoke Tests — AC1, AC2, AC3
  *
  * Verify the fundamental SW lifecycle: registration, activation, and that
- * both runtime cache stores are created after a CRM page navigation.
+ * (after "fix(web): stop routing API requests through the service worker")
+ * api-cache is never created while the workbox precache still is.
  *
  * These tests run against vite preview (production build) because the SW is
  * disabled in dev mode (devOptions.enabled: false in vite.config.ts VitePWA).
@@ -22,6 +23,7 @@ import {
   loginViaApi,
   SEED_ADMIN_EMAIL,
   CACHE_NAMES,
+  PRECACHE_PREFIX,
 } from './helpers'
 
 test.describe('SW Smoke — registration and cache creation', () => {
@@ -56,31 +58,29 @@ test.describe('SW Smoke — registration and cache creation', () => {
   })
 
   // ── AC2 ─────────────────────────────────────────────────────────────────
-  test('AC2: api-cache store exists after CRM navigation', async ({ page }) => {
+  // Regression guard for "fix(web): stop routing API requests through the
+  // service worker" — api-cache must NEVER appear, no matter how much real
+  // /api/* traffic the SW sees. See api-cache.spec.ts for the dedicated
+  // suite; this smoke test keeps a minimal check alongside SW registration.
+  test('AC2: api-cache is never created, even after real CRM navigation', async ({ page }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
 
     // navigateWithSWReady: double goto ensures SW is active controller before
     // requests fire (see helpers.ts for full explanation).
     await navigateWithSWReady(page, '/')
+    await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {})
 
-    // Poll until api-cache appears in caches.keys().
-    await expect
-      .poll(
-        async () => {
-          const names = await getAllCacheNames(page)
-          return names.some((n) => n.includes(CACHE_NAMES.api))
-        },
-        {
-          message: `Expected '${CACHE_NAMES.api}' to appear in caches.keys()`,
-          timeout: 20_000,
-          intervals: [500, 500, 1000, 1000, 2000],
-        },
-      )
-      .toBeTruthy()
+    const names = await getAllCacheNames(page)
+    expect(
+      names.some((n) => n.includes(CACHE_NAMES.api)),
+      `Expected '${CACHE_NAMES.api}' to NEVER appear in caches.keys(). Got: ${JSON.stringify(names)}`,
+    ).toBe(false)
   })
 
   // ── AC3 ─────────────────────────────────────────────────────────────────
-  test('AC3: media-cache store is registered by the SW (exists in caches)', async ({ page }) => {
+  test('AC3: workbox precache is registered by the SW (proof the Workbox config loaded)', async ({
+    page,
+  }) => {
     await loginViaApi(page, SEED_ADMIN_EMAIL)
     // Double goto for SW controller warm-up.
     await navigateWithSWReady(page, '/')
@@ -108,18 +108,23 @@ test.describe('SW Smoke — registration and cache creation', () => {
     expect(activeReg).toBeTruthy()
 
     // media-cache may not exist yet if no external images loaded — that's
-    // acceptable for smoke. The existence of 'api-cache' proves the SW is
-    // running and the Workbox config is loaded. The full media-cache test
-    // is in media-cache.spec.ts with a synthetic cross-origin image.
+    // acceptable for smoke (full media-cache test is in media-cache.spec.ts
+    // with a synthetic cross-origin image). api-cache must NEVER exist (see
+    // AC2 above). The one runtime artifact guaranteed to exist as soon as
+    // the SW installs — regardless of what the page happened to fetch — is
+    // the workbox precache store (created eagerly for static assets), so we
+    // use that as proof the Workbox config actually loaded.
     const cacheNames = await getAllCacheNames(page)
 
-    // At least one runtime cache (api or media) should exist.
-    const hasRuntimeCache = cacheNames.some(
-      (n) => n.includes(CACHE_NAMES.api) || n.includes(CACHE_NAMES.media),
-    )
     expect(
-      hasRuntimeCache,
-      `Expected at least one of api-cache / media-cache in ${JSON.stringify(cacheNames)}`,
+      cacheNames.some((n) => n.includes(CACHE_NAMES.api)),
+      `api-cache must never exist. Got: ${JSON.stringify(cacheNames)}`,
+    ).toBe(false)
+
+    const hasPrecache = cacheNames.some((n) => n.includes(PRECACHE_PREFIX))
+    expect(
+      hasPrecache,
+      `Expected workbox precache store to exist in ${JSON.stringify(cacheNames)}`,
     ).toBe(true)
   })
 
