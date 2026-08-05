@@ -118,6 +118,52 @@ chmod 600 ~/.ssh/authorized_keys
    - Для каждого токена запомнить: Access Key ID, Secret Access Key.
 3. Endpoint R2 выглядит так: `https://<account-id>.r2.cloudflarestorage.com`
    (одинаковый endpoint для обоих токенов — endpoint не привязан к скоупу).
+4. **CORS-политика бакета `crm-documents-prod` — обязательна, добавлена 2026-08-05.**
+   R2 → бакет → Settings → CORS Policy:
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://app.cheekycheese.tech"],
+       "AllowedMethods": ["GET"],
+       "AllowedHeaders": ["*"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   Бакет `crm-backups` политики не требует — к нему браузер не обращается.
+
+> **Почему это не косметика и почему отказ бесшумный.** С 2026-08-05
+> (`task-scan-cache-leak`, PR #479) `document-image.tsx` запрашивает картинки в
+> CORS-режиме (`crossOrigin="anonymous"`). Так сделано не ради удобства: без него
+> ответ хранилища **непрозрачен**, из него нельзя прочитать `Cache-Control`, и
+> проверка `cacheWillUpdate` в service worker пропускала в кеш **всё подряд** —
+> сканы документов и резюме лежали на устройствах 30 дней вопреки честному
+> `private, no-store` от `s3.service.ts`. Читаемый ответ — единственный способ
+> отличить аватар (`public, immutable`, кешируем) от скана паспорта (`no-store`,
+> не кешируем).
+>
+> Цена: **если политику снять или сузить, картинки перестанут грузиться вообще** —
+> все 17 мест в CRM, где используется этот компонент (аватары, логотипы проектов,
+> превью документов). Отказ визуально бесшумный: `onError` прячет элемент
+> (`display:none`), в консоли — обычная CORS-ошибка, никакого сообщения
+> пользователю. То есть «картинок нет» будет выглядеть как «картинок и не было».
+>
+> Проверить политику, не заходя в панель (endpoint берётся из уже лежащего на VPS
+> файла; в вывод попадают только заголовки доступа, ключи — нет):
+>
+> ```bash
+> ( set -a; . /etc/crm-backup.env; set +a
+>   curl -sI -X OPTIONS "$S3_ENDPOINT/crm-documents-prod/" \
+>     -H 'Origin: https://app.cheekycheese.tech' \
+>     -H 'Access-Control-Request-Method: GET' ) | grep -i '^access-control'
+> ```
+>
+> Ожидается `Access-Control-Allow-Origin: https://app.cheekycheese.tech` и
+> `Access-Control-Allow-Methods: GET`. Пусто — политика не применилась.
+> Дополнительно `Access-Control-Expose-Headers` **не нужен**: `Cache-Control`
+> входит в список заголовков, читаемых при CORS по умолчанию.
 
 > **Почему два токена, а не один на оба бакета.** Единый токен на весь аккаунт
 > означал: компрометация контейнера `api` (единственное место, где живут
