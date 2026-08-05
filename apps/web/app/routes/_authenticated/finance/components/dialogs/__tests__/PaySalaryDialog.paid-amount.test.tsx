@@ -251,6 +251,40 @@ describe('PaySalaryDialog — amount validity (blocks, unlike the warning)', () 
     expect(paySalaryMock).not.toHaveBeenCalled()
   })
 
+  // security-review PR #485 (MED-1): an amount the numeric(18,6) column would
+  // round to 0.000000 must never reach the server — it would close the
+  // obligation in full with a payment recorded as ZERO.
+  it('blocks an amount too small to be stored (would be written as 0.000000)', async () => {
+    renderDialog()
+    await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))
+    fireEvent.change(amountInput(), { target: { value: '0.0000001' } })
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('pay-salary-submit'))
+    expect(await screen.findByTestId('pay-salary-amount-error')).toHaveTextContent('слишком мала')
+    expect(paySalaryMock).not.toHaveBeenCalled()
+  })
+
+  it('accepts exactly the smallest storable amount (other side of the same boundary)', async () => {
+    renderDialog()
+    await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))
+    fireEvent.change(amountInput(), { target: { value: '0.000001' } })
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('pay-salary-submit'))
+    expect((await lastPayload()).paidAmount).toBe(0.000001)
+  })
+
+  it('blocks more decimals than the column keeps, rather than rounding silently', async () => {
+    renderDialog()
+    await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))
+    fireEvent.change(amountInput(), { target: { value: '100.1234567' } })
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('pay-salary-submit'))
+    expect(await screen.findByTestId('pay-salary-amount-error')).toHaveTextContent(
+      'знаков после запятой',
+    )
+    expect(paySalaryMock).not.toHaveBeenCalled()
+  })
+
   it('blocks an amount above the BIZ-13 ceiling', async () => {
     renderDialog()
     await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))

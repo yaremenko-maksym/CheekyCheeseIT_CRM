@@ -363,6 +363,113 @@ describe.skipIf(!HAS_DB_URL)(
       expect(parseFloat(after.exchangeRate!)).toBe(1)
     })
 
+    // ── security-review PR #485 (MED-1) ──────────────────────────────────────
+
+    it('the column really does round a sub-micro amount to zero (why the floor exists)', async () => {
+      // Not a test of our code — a test of the PREMISE. `numeric(18,6)` silently
+      // rounds 1e-7 to 0.000000, which is exactly how a payment of "almost
+      // nothing" used to close an obligation in full while being recorded as
+      // ZERO. Pinned here so the floor below can never be dismissed as
+      // theoretical, and so a future column-type change is caught.
+      const result = (await dbSvc.db.execute(
+        sql`SELECT (0.0000001::numeric(18,6))::text AS stored`,
+      )) as unknown as { rows: { stored: string }[] }
+      expect(parseFloat(result.rows[0]!.stored)).toBe(0)
+    })
+
+    it('refuses an amount too small to be stored, instead of closing the obligation with zero', async () => {
+      await cleanup()
+      const pending = await svc.createSalary(
+        { receiverId: JUNIOR.id, amount: 800, currency: 'USD', salaryMonth: '2026-08' },
+        ADMIN,
+      )
+      await expect(
+        svc.paySalary(
+          pending.id,
+          {
+            fundingSource: 'ADMIN_PERSONAL',
+            payerAdminId: ADMIN.id,
+            currency: 'UAH',
+            paidAmount: 1e-7,
+            receiptExternalUrl: `${RECEIPT}8`,
+          },
+          ADMIN,
+        ),
+      ).rejects.toThrow(/слишком мала/)
+      // The obligation is untouched — not PAID, and certainly not PAID-with-zero.
+      const row = (await rawRow(pending.id))!
+      expect(row.status).toBe('PENDING')
+      expect(parseFloat(row.amount)).toBe(800)
+      expect(row.originalAmount).toBeNull()
+    })
+
+    it('accepts exactly the smallest storable amount, and it survives the round-trip', async () => {
+      await cleanup()
+      const pending = await svc.createSalary(
+        { receiverId: JUNIOR.id, amount: 800, currency: 'USD', salaryMonth: '2026-08' },
+        ADMIN,
+      )
+      const paid = await svc.paySalary(
+        pending.id,
+        {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN.id,
+          currency: 'UAH',
+          paidAmount: 0.000001,
+          receiptExternalUrl: `${RECEIPT}9`,
+        },
+        ADMIN,
+      )
+      expect(paid.status).toBe('PAID')
+      const row = (await rawRow(pending.id))!
+      // Stored as the value that was sent — NOT rounded away to zero.
+      expect(parseFloat(row.amount)).toBe(0.000001)
+      // The obligation is still exact…
+      expect(parseFloat(row.originalAmount!)).toBe(800)
+      // …while the ratio (1.25e-9) is below what numeric(18,8) can resolve, so
+      // it is recorded as NULL rather than as a flat, false «0.00000000».
+      // A derived convenience field must not veto a payment whose amounts are
+      // both perfectly storable — and must never claim a rate that was not
+      // applied. The truth stays fully derivable from the two amounts.
+      expect(row.exchangeRate).toBeNull()
+    })
+
+    it('records an unstorable exchange rate as NULL — no raw DB error, no false number', async () => {
+      // A ceiling-sized payment against a sub-unit obligation makes the derived
+      // rate (5e10) overflow `numeric(18,8)`. Postgres used to answer with a raw
+      // «numeric field overflow» 500 — it failed CLOSED, so no money moved on a
+      // broken rate, but nobody was told anything.
+      //
+      // Both amounts here ARE storable, so the payment itself is coherent and
+      // goes through; only the derived ratio cannot be recorded, and NULL is the
+      // honest way to say so. The rate never reaches the column, so the DB error
+      // cannot happen at all.
+      await cleanup()
+      const pending = await svc.createSalary(
+        { receiverId: JUNIOR.id, amount: 0.00001, currency: 'USD', salaryMonth: '2026-08' },
+        ADMIN,
+      )
+      const paid = await svc.paySalary(
+        pending.id,
+        {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN.id,
+          currency: 'UAH',
+          paidAmount: 500_000,
+          receiptExternalUrl: `${RECEIPT}10`,
+        },
+        ADMIN,
+      )
+
+      expect(paid.status).toBe('PAID')
+      const row = (await rawRow(pending.id))!
+      // Both sides of the truth are recorded exactly…
+      expect(parseFloat(row.amount)).toBe(500_000)
+      expect(parseFloat(row.originalAmount!)).toBe(0.00001)
+      // …and the ratio, which cannot be, is absent rather than wrong.
+      expect(row.exchangeRate).toBeNull()
+    })
+
     it('rejects a non-positive paid amount at the service boundary (defense in depth)', async () => {
       await cleanup()
       const pending = await svc.createSalary(

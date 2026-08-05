@@ -71,8 +71,32 @@ import {
   COMPANY_ACCOUNT_FUNDING_SOURCE,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
-import { receiptMandatoryError } from '@crm/shared'
+import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
 import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
+
+/**
+ * task-salary-pay-amount — bounds of `transactions.exchange_rate`
+ * (`numeric(18,8)`): 10 integer digits and 8 fractional ones.
+ *
+ * security-review PR #485 (related to MED-1). The rate is DERIVED
+ * (`paid / original`), so an extreme pair of amounts can produce a value the
+ * column cannot hold:
+ *   - at or above 1e10 Postgres raises a raw «numeric field overflow» — which
+ *     failed CLOSED (the pay transaction rolled back, the row stayed PENDING)
+ *     but told the user nothing;
+ *   - below 1e-8 there is no error at all, which is worse: the value is
+ *     silently stored as `0.00000000`, so the row claims a rate of ZERO when
+ *     the real one was merely tiny.
+ * Neither is written. The caller stores NULL instead — see the reasoning at the
+ * call site in `paySalary` for why a derived field's width must not veto a
+ * payment whose amounts are both storable.
+ */
+const EXCHANGE_RATE_MAX_EXCLUSIVE = 1e10
+const EXCHANGE_RATE_MIN = 1e-8
+
+function isStorableExchangeRate(rate: number): boolean {
+  return Number.isFinite(rate) && rate >= EXCHANGE_RATE_MIN && rate < EXCHANGE_RATE_MAX_EXCLUSIVE
+}
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -5745,23 +5769,53 @@ export class TransactionsService {
     // design, will not stop it.
     const obligationAmount = parseFloat(tx.amount)
     const paidAmountProvided = data.paidAmount !== undefined
-    // Defense-in-depth: Zod already bounds `paidAmount` (positive, ≤ ceiling) at
-    // the controller boundary. Re-checked here because this service method is
-    // also reachable from server-side callers that do not go through it, and
-    // because a non-finite amount would otherwise reach the balance gate below
-    // as NaN — where EVERY comparison is false, so the gate would wave a
-    // company-account debit through instead of refusing it.
-    if (paidAmountProvided && (!Number.isFinite(data.paidAmount) || data.paidAmount! <= 0)) {
-      throw new BadRequestException('Сумма выплаты должна быть больше нуля')
+    // Defense-in-depth: Zod already applies `transactionAmountError` at the
+    // controller boundary. Re-checked here through the SAME function (one rule,
+    // no drift) because this service method is also reachable from server-side
+    // callers that never pass through Zod — and because a non-finite amount
+    // would otherwise reach the balance gate below as NaN, where EVERY
+    // comparison is false, so the gate would wave a company-account debit
+    // through instead of refusing it.
+    //
+    // security-review PR #485 (MED-1): this is also what stops an amount too
+    // small for `numeric(18,6)` (`1e-7`) from being stored as `0.000000` — an
+    // obligation closed in full by a payment recorded as zero.
+    if (paidAmountProvided) {
+      const amountError = transactionAmountError(data.paidAmount!)
+      if (amountError) throw new BadRequestException(amountError)
     }
     const paidAmount = paidAmountProvided ? data.paidAmount! : obligationAmount
     // Effective applied rate = paid / original (units of the paid currency per 1
     // unit of the original one). Derived, never client-supplied — see the column
     // comment in schema.ts. NULL when the obligation amount is unusable as a
     // divisor (should not happen: amounts are positive by schema).
-    const exchangeRate =
+    const rawExchangeRate =
       Number.isFinite(obligationAmount) && obligationAmount > 0
-        ? (paidAmount / obligationAmount).toFixed(8)
+        ? paidAmount / obligationAmount
+        : null
+    // security-review PR #485 (related to MED-1) — an unrepresentable ratio is
+    // recorded as NULL, never as a wrong number, and never as a refusal.
+    //
+    // An extreme pair of amounts can produce a ratio `numeric(18,8)` cannot
+    // hold: at or above 1e10 Postgres rejects the write outright with a raw
+    // «numeric field overflow» (a 500 that tells the user nothing), and below
+    // 1e-8 it does something worse — stores a flat `0.00000000`, so the row
+    // claims a rate of ZERO when the real one was merely tiny.
+    //
+    // Refusing the PAYMENT in those cases was the first instinct, and it is
+    // wrong: it lets the width of a DERIVED convenience column veto a payment
+    // whose two amounts are both perfectly storable (a test caught this
+    // immediately — the smallest storable amount, 0.000001, against an ordinary
+    // obligation produces a sub-resolution ratio), and it smuggles back in the
+    // plausibility judgment this flow deliberately leaves to the client's
+    // warning. The authoritative record is the PAIR (original_amount, amount) —
+    // both written losslessly, both enough to re-derive the rate exactly. So
+    // when the ratio cannot be recorded faithfully, the honest value is NULL
+    // («not recorded»), and the write never reaches the column with a number
+    // that would overflow it.
+    const exchangeRate =
+      rawExchangeRate !== null && isStorableExchangeRate(rawExchangeRate)
+        ? rawExchangeRate.toFixed(8)
         : null
 
     // task-salary-pay-flow: stamp txDate = pay date (now). The salary was created

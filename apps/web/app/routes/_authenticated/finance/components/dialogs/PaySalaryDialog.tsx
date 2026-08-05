@@ -3,9 +3,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
 import {
-  MAX_TRANSACTION_AMOUNT,
   receiptMandatoryError,
   salaryPaidAmountDeviation,
+  transactionAmountError,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -94,19 +94,14 @@ export function PaySalaryDialog({
   // of the salary, while this returns NaN and asks the ADMIN to disambiguate.
   const parsedPaidAmount = parseStrictAmount(amountInput)
   const hasAmountInput = amountInput.trim() !== ''
-  // Live validity of what is typed. Mirrors `paySalarySchema.paidAmount` on the
-  // server (positive, ≤ BIZ-13 ceiling) via the SAME constant, so the two
-  // cannot drift. Silent while the field is empty — an error before the first
-  // keystroke is noise, and `handleSubmit` covers the empty case.
-  const liveAmountError = !hasAmountInput
-    ? null
-    : !Number.isFinite(parsedPaidAmount)
-      ? 'Введите сумму числом — например 1000.50'
-      : parsedPaidAmount <= 0
-        ? 'Сумма должна быть больше нуля'
-        : parsedPaidAmount > MAX_TRANSACTION_AMOUNT
-          ? `Сумма не может превышать ${MAX_TRANSACTION_AMOUNT.toLocaleString('ru-RU')}`
-          : null
+  // Live validity of what is typed — `transactionAmountError` is the SAME
+  // function `paySalarySchema.paidAmount` and the service re-check run, so the
+  // three cannot disagree about what is accepted or about what the user reads.
+  // That includes the MED-1 floor: an amount `numeric(18,6)` could not store
+  // without loss (`1e-7` → `0.000000`) is refused here too, inline, instead of
+  // coming back as a 400. Silent while the field is empty — an error before the
+  // first keystroke is noise, and `handleSubmit` covers the empty case.
+  const liveAmountError = !hasAmountInput ? null : transactionAmountError(parsedPaidAmount)
   const amountError = liveAmountError ?? amountSubmitError
 
   // task-salary-pay-amount (AC5): a WARNING, never a block. The owner may settle

@@ -363,6 +363,56 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
 export const MAX_TRANSACTION_AMOUNT = 500_000
 
 /**
+ * Scale of the money columns (`transactions.amount` — `numeric(18,6)`), and the
+ * smallest positive value that column can therefore hold.
+ *
+ * security-review PR #485 (MED-1). `paidAmount` had a ceiling but no FLOOR and
+ * no precision rule, so `1e-7` passed validation and then landed in
+ * `numeric(18,6)` as `0.000000` — a salary obligation closed in full by a
+ * payment recorded as ZERO. The bug was not the number being small; it was the
+ * schema promising to store a value it silently could not. Hence the rule
+ * below: a value that cannot be written WITHOUT LOSS is not accepted at all.
+ */
+export const AMOUNT_DECIMAL_PLACES = 6
+export const MIN_TRANSACTION_AMOUNT = 1e-6 // 0.000001 — one unit at scale 6
+
+/** Decimal places a JS number would need to be written out exactly. */
+function decimalPlacesOf(value: number): number {
+  const s = String(value)
+  // Exponential notation means the value is outside the plain-decimal range JS
+  // prints literally — below 1e-6 (already under MIN) or above 1e20 (already
+  // over MAX). Either way it cannot be written to the column as-is.
+  if (s.includes('e') || s.includes('E')) return Number.POSITIVE_INFINITY
+  const dot = s.indexOf('.')
+  return dot === -1 ? 0 : s.length - dot - 1
+}
+
+/**
+ * The ONE definition of "is this a storable money amount", shared verbatim by
+ * the Zod boundary, the service's defense-in-depth re-check and the client's
+ * inline validation — so the three can never disagree about what is accepted or
+ * about what the user is told. Returns a ready-to-show Russian message, or
+ * `null` when the amount is fine.
+ *
+ * Order matters: a too-small value is reported as too small, not as
+ * "too many decimals" (which is true of `1e-7` as well, but useless to read).
+ */
+export function transactionAmountError(value: number): string | null {
+  if (!Number.isFinite(value)) return 'Введите сумму числом — например 1000.50'
+  if (value <= 0) return 'Сумма должна быть больше нуля'
+  if (value < MIN_TRANSACTION_AMOUNT) {
+    return `Сумма слишком мала — минимум ${MIN_TRANSACTION_AMOUNT.toFixed(AMOUNT_DECIMAL_PLACES)}`
+  }
+  if (value > MAX_TRANSACTION_AMOUNT) {
+    return `Сумма не может превышать ${MAX_TRANSACTION_AMOUNT.toLocaleString('ru-RU')}`
+  }
+  if (decimalPlacesOf(value) > AMOUNT_DECIMAL_PLACES) {
+    return `Не больше ${AMOUNT_DECIMAL_PLACES} знаков после запятой — иначе сумма запишется округлённой`
+  }
+  return null
+}
+
+/**
  * Receipt payload — uploaded document FK XOR external URL.
  *
  * The transactions table enforces this exclusivity at the DB level with a
@@ -1044,16 +1094,28 @@ export const paySalarySchema = z
      *
      * OPTIONAL for backward compatibility: an omitted `paidAmount` keeps the
      * historical behaviour (the row's amount is carried over unchanged, only
-     * the currency LABEL changes). Same BIZ-13 ceiling as
-     * `createSalarySchema.amount` — one shared constant, and `.positive()`
-     * rejects 0 / negatives (a salary is never closed by paying nothing).
+     * the currency LABEL changes).
+     *
+     * Bounds come from `transactionAmountError` — the same function the client
+     * and the service use, so all three agree. It rejects 0 / negatives (a
+     * salary is never closed by paying nothing), keeps the BIZ-13 ceiling of
+     * `createSalarySchema.amount`, and — security-review PR #485 (MED-1) —
+     * refuses anything the `numeric(18,6)` column could not store WITHOUT LOSS:
+     * `1e-7` used to validate fine and then be written as `0.000000`, closing
+     * the obligation with a payment recorded as zero.
      *
      * The payment CLOSES the obligation in full regardless of this figure
      * (owner decision, 2026-08-05: there are no partial payments in the model),
      * which is exactly why the client warns on a large deviation from the
      * rate-derived expectation — see `salaryPaidAmountDeviation`.
      */
-    paidAmount: z.number().positive().max(MAX_TRANSACTION_AMOUNT).optional(),
+    paidAmount: z
+      .number()
+      .superRefine((v, ctx) => {
+        const message = transactionAmountError(v)
+        if (message) ctx.addIssue({ code: 'custom', message })
+      })
+      .optional(),
     txHash: z.string().max(255).optional().nullable(),
     // task-receipts-backend (#7): pay-time proof is now MANDATORY. Effective
     // currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only; else the

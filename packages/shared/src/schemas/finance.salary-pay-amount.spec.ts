@@ -17,6 +17,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   MAX_TRANSACTION_AMOUNT,
+  MIN_TRANSACTION_AMOUNT,
   SALARY_PAID_AMOUNT_WARN_THRESHOLD,
   createSalarySchema,
   paySalarySchema,
@@ -68,6 +69,48 @@ describe('paySalarySchema — paidAmount (task-salary-pay-amount)', () => {
     expect(
       createSalarySchema.safeParse({ ...createBase, amount: MAX_TRANSACTION_AMOUNT + 1 }).success,
     ).toBe(false)
+  })
+
+  // security-review PR #485 (MED-1): a value the numeric(18,6) column cannot
+  // store without loss must not be accepted at all — «1e-7» used to validate,
+  // then be written as 0.000000, closing the obligation with a ZERO payment.
+  it('rejects an amount below what the column can store (would round to 0.000000)', () => {
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1e-7 }).success).toBe(false)
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 0.0000005 }).success).toBe(false)
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1e-12 }).success).toBe(false)
+  })
+
+  it('accepts exactly the smallest storable amount (boundary: passes)', () => {
+    const result = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: MIN_TRANSACTION_AMOUNT })
+    expect(result.success).toBe(true)
+    // …and it survives the trip to the column verbatim, not as «1e-6».
+    expect(String(MIN_TRANSACTION_AMOUNT)).toBe('0.000001')
+  })
+
+  it('rejects more decimals than the column keeps (silent rounding, not an error)', () => {
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 100.1234567 }).success).toBe(false)
+    // …but the full scale of the column is fine.
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 100.123456 }).success).toBe(true)
+  })
+
+  it('rejects NaN and both infinities (they would reach the balance gate as NaN)', () => {
+    expect(paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: Number.NaN }).success).toBe(false)
+    expect(
+      paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: Number.POSITIVE_INFINITY }).success,
+    ).toBe(false)
+    expect(
+      paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: Number.NEGATIVE_INFINITY }).success,
+    ).toBe(false)
+  })
+
+  it('explains WHY in Russian, and reports a tiny amount as too small (not as too precise)', () => {
+    const tiny = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1e-7 })
+    expect(tiny.success).toBe(false)
+    if (!tiny.success) expect(tiny.error.issues[0]?.message).toContain('слишком мала')
+
+    const precise = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1.1234567 })
+    expect(precise.success).toBe(false)
+    if (!precise.success) expect(precise.error.issues[0]?.message).toContain('знаков после запятой')
   })
 
   it('still forces USDT for a company-account payout (existing refine untouched)', () => {
