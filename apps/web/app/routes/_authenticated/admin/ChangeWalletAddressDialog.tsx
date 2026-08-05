@@ -96,6 +96,10 @@ export function ChangeWalletAddressDialog({
                 value={address}
                 onChange={(e) => setAddress(e.target.value)}
                 placeholder="0x…"
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
                 className="h-9 pr-8 font-mono text-sm"
                 aria-describedby="wallet-addr-hint"
               />

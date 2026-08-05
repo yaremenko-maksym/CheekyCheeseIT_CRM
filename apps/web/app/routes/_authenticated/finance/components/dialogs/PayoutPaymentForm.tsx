@@ -226,6 +226,10 @@ export function PayoutPaymentForm({
                 value={txHash}
                 onChange={(e) => setTxHash(e.target.value)}
                 placeholder="0x..."
+                autoCapitalize="off"
+                autoCorrect="off"
+                spellCheck={false}
+                autoComplete="off"
                 className="h-9 text-sm font-mono"
                 disabled={payMutation.isPending || onChainStatus === 'confirmed'}
               />
@@ -429,6 +433,10 @@ export function PayoutPaymentForm({
                     value={manualTxHash}
                     onChange={(e) => setManualTxHash(e.target.value)}
                     placeholder="0x..."
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    autoComplete="off"
                     className="h-8 text-xs font-mono"
                   />
                 </div>

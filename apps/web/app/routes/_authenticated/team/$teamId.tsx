@@ -906,6 +906,10 @@ function TeamDetailPage() {
                       <Label htmlFor="edit-telegram">Telegram</Label>
                       <Input
                         id="edit-telegram"
+                        type="url"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
                         value={field.state.value}
                         onChange={(e) => field.handleChange(e.target.value)}
                         placeholder="https://t.me/team_chat"
