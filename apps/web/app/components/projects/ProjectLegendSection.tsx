@@ -317,6 +317,8 @@ export function ProjectLegendSection({ projectId, canAccess }: ProjectLegendSect
                     onBlur={field.handleBlur}
                     onChange={(e) => field.handleChange(e.target.value)}
                     placeholder="Иванов Иван Иванович"
+                    autoCapitalize="words"
+                    autoComplete="off"
                   />
                   {field.state.meta.errors.length > 0 && (
                     <p className="text-xs text-destructive">{String(field.state.meta.errors[0])}</p>
