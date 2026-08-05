@@ -17,7 +17,7 @@
  */
 import { useState } from 'react'
 import { Download, ExternalLink, FileWarning } from 'lucide-react'
-import type { VacancyApplication } from '@crm/shared'
+import { sanitizeDownloadFilename, type VacancyApplication } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -47,7 +47,16 @@ export function ResumePreviewDialog({
   application,
 }: ResumePreviewDialogProps) {
   const [isDownloading, setIsDownloading] = useState(false)
-  const filename = `${application.fullName}.pdf`
+  // code-review round 3: `application.fullName` is candidate-controlled,
+  // submitted through the anonymous public apply form — sanitize before it
+  // becomes a filename (both the `a.download` attribute below AND the
+  // `filename` prop PdfPreview forwards into its own `<object>` fallback
+  // link derive from this ONE value, so fixing it here covers both).
+  // Same shared sanitizer the backend already used for the Content-
+  // Disposition header (`ApplicationsService.presignResume`) — moved to
+  // `@crm/shared` so both sides use the identical rule instead of two
+  // independently-drifting copies.
+  const filename = `${sanitizeDownloadFilename(application.fullName)}.pdf`
 
   const { blobUrl, isLoading, hasError, isUnsupportedFormat } = useApplicationResumeBlob(
     vacancyId,
