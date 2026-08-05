@@ -147,10 +147,13 @@ export const pwaRuntimeCaching: PwaRuntimeCachingRule[] = [
             // Срезаем presigned query-параметры S3 (X-Amz-*, Expires, …)
             return u.origin + u.pathname
           },
-          // security MED-1: privacy-инвариант держится на КОДЕ, не на топологии
-          // деплоя. Catch-all ветка (destination === '') при будущем split-origin
-          // API (api.domain.com) может поймать контракт/инвойс-blob с no-store.
-          // Уважаем Cache-Control: no-store → не кешируем приватные документы.
+          // security: privacy-инвариант держится на КОДЕ (три независимых слоя,
+          // не один): (1) urlPattern выше теперь требует X-Amz-Signature для
+          // catch-all ветки (MED-3) — не топология деплоя; (2) crossOrigin на
+          // <img> (document-image.tsx, HIGH-1) делает ответ читаемым, чтобы
+          // ЭТА проверка вообще могла увидеть заголовок; (3) сама проверка —
+          // уважаем Cache-Control: no-store → не кешируем приватные документы,
+          // даже если первые два слоя почему-то не отсеяли запрос.
           cacheWillUpdate: async ({ response }: { response: Response }) => {
             const cc = response.headers.get('cache-control') ?? ''
             return cc.includes('no-store') ? null : response
