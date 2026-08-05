@@ -120,8 +120,8 @@ export class VacanciesController {
   }
 
   /**
-   * task-candidate-card-resume — in-CRM resume preview (inline disposition).
-   * Deliberately NO `@Roles('ADMIN','HR')` here (contrast with every other
+   * task-candidate-card-resume — in-CRM resume preview. Deliberately NO
+   * `@Roles('ADMIN','HR')` here (contrast with every other
    * handler in this controller) — `RolesGuard.canActivate` is a no-op when a
    * route carries no `@Roles` metadata (see roles.guard.ts), so RBAC for
    * THIS route lives entirely in `ApplicationsService.getResumePreviewUrl`,

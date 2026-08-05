@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import type { UserProfileDto } from '@crm/shared'
 import { UserAvatar } from '@/components/users/UserAvatar'
 import { hasRealPhone } from '@/lib/format-phone'
+import { safeTelegramHref } from '@/lib/tg-url'
 
 const ROLE_LABELS: Record<string, string> = {
   ADMIN: 'Администратор',
@@ -93,17 +94,31 @@ export function UserProfileHeader({
               {user.phone}
             </a>
           )}
-          {user.telegram && (
-            <a
-              href={`https://t.me/${user.telegram.replace(/^@/, '')}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors"
-            >
-              <Send className="h-4 w-4" />
-              {user.telegram}
-            </a>
-          )}
+          {user.telegram &&
+            (() => {
+              // code-review round 2: validate before building a t.me/ link —
+              // same guard `CandidateCard.tsx` uses for the (untrusted)
+              // public-apply-form telegram field, reused here so this
+              // CRM-internal field doesn't sit as the one unvalidated
+              // telegram-link path left in the app.
+              const href = safeTelegramHref(user.telegram)
+              const className =
+                'inline-flex items-center gap-1.5 underline-offset-4 hover:text-foreground hover:underline transition-colors'
+              if (!href) {
+                return (
+                  <span className="inline-flex items-center gap-1.5">
+                    <Send className="h-4 w-4" />
+                    {user.telegram}
+                  </span>
+                )
+              }
+              return (
+                <a href={href} target="_blank" rel="noopener noreferrer" className={className}>
+                  <Send className="h-4 w-4" />
+                  {user.telegram}
+                </a>
+              )
+            })()}
         </div>
 
         {showCreatedAt && (

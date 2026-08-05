@@ -215,8 +215,12 @@ export function useApplicationResumeUrl(
 }
 
 /**
- * task-candidate-card-resume (AC2) — inline-disposition presigned URL for
- * the in-CRM resume preview dialog. Same `staleTime: 0` as the sibling
+ * task-candidate-card-resume (AC2) — presigned URL for the in-CRM resume
+ * preview dialog (attachment disposition, same as the download hook below —
+ * the dialog always fetches this programmatically and builds a Blob, which
+ * never looks at Content-Disposition, so there is no reason to serve
+ * candidate-submitted bytes inline on a shared R2 origin). Same
+ * `staleTime: 0` as the sibling
  * download hook above (deliberately — every open re-fetches a fresh URL, so
  * the client-side query cache can never outlive the server's presign TTL;
  * see the task's "клиентский кеш не должен переживать подпись" AC).

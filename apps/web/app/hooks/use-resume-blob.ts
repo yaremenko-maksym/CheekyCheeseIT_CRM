@@ -1,7 +1,9 @@
 /**
  * useApplicationResumeBlob — task-candidate-card-resume (AC2). Presigned
- * inline URL → fetch → Blob → blobURL, for the CandidateCard resume preview
- * dialog.
+ * URL → fetch → Blob → blobURL, for the CandidateCard resume preview
+ * dialog (the resulting Blob is what actually renders inline in
+ * `PdfPreview`'s iframe — the presigned URL's own Content-Disposition is
+ * irrelevant to this hook, since `fetch()` never looks at it).
  *
  * Mirrors `useDocumentBlob` (apps/web/app/hooks/use-document-blob.ts) —
  * NOT a shared hook with it because the presigned-URL source differs

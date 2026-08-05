@@ -31,6 +31,7 @@ import {
 import { PdfPreview } from '@/components/documents/pdf-preview'
 import { useApplicationResumeBlob } from '@/hooks/use-resume-blob'
 import { useApplicationResumeUrl } from '@/hooks/use-vacancies'
+import { safeExternalHref } from '../constants'
 
 export interface ResumePreviewDialogProps {
   open: boolean
@@ -55,15 +56,43 @@ export function ResumePreviewDialog({
   )
   const resumeUrlQuery = useApplicationResumeUrl(vacancyId, application.id, { enabled: false })
 
-  // Same mobile-safe download as CandidateCard's own button (AC1) — see
-  // CandidateCard.tsx's handleDownload for the full popup-blocking rationale.
+  /**
+   * code-review round 2: the dialog already has the resume as a Blob (for
+   * the inline preview) — download straight from it instead of minting a
+   * fresh presigned URL. Two reasons this is strictly better here, not just
+   * "also works": (1) zero extra network round-trip, and (2) it never puts
+   * the bearer-style presigned URL (600s of unauthenticated access to a
+   * candidate's PII, per the task's own §2 note) into `window.location` or
+   * the browser's persistent downloads history, where it would keep
+   * "working" long past its own signature TTL on a shared machine. Same
+   * blob->`<a download>` pattern already used by `pdf-preview.tsx`'s own
+   * fallback links and `ContractPdfPreview.downloadPdf`.
+   *
+   * Falls back to the mobile-safe presigned-URL navigation (AC1 — see
+   * CandidateCard.tsx's handleDownload for the full popup-blocking
+   * rationale) only when there is no blob yet (still loading / unsupported
+   * format / load error) — `safeExternalHref` guards that fallback the same
+   * way CandidateCard's own button does.
+   */
   async function handleDownload() {
+    if (blobUrl) {
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = filename
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      return
+    }
+
     setIsDownloading(true)
     try {
       const result = await resumeUrlQuery.refetch()
       const url = result.data?.url
       if (!url) return
-      window.location.href = url
+      const safeUrl = safeExternalHref(url)
+      if (!safeUrl) return
+      window.location.href = safeUrl
     } finally {
       setIsDownloading(false)
     }

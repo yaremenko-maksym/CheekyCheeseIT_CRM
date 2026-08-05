@@ -34,12 +34,13 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import { getInitials } from '@/components/users/constants'
+import { safeTelegramHref } from '@/lib/tg-url'
 import {
   useApplicationResumeUrl,
   useDeleteVacancyApplication,
   useUpdateVacancyApplication,
 } from '@/hooks/use-vacancies'
-import { APPLICATION_STATUS_LABELS, safeExternalHref, safeTelegramHref } from '../constants'
+import { APPLICATION_STATUS_LABELS, safeExternalHref } from '../constants'
 import { ResumePreviewDialog } from './ResumePreviewDialog'
 
 const STATUS_OPTIONS: ReadonlyArray<SegmentedToggleOption<VacancyApplicationStatus>> = [
@@ -89,12 +90,21 @@ export function CandidateCard({ vacancyId, application }: CandidateCardProps) {
    * attachment` (`ApplicationsService.getResumeUrl` ->
    * `S3Service.getPresignedDownloadUrl(..., 'attachment')`), so the browser
    * downloads the file in place instead of navigating away.
+   *
+   * code-review round 2: unlike a `target="_blank"` open, a same-document
+   * `location.href` assignment leaves the CURRENT tab pointed at whatever
+   * URL it's given if that URL turns out not to be a real download —
+   * `safeExternalHref` (the same http(s)-only guard already used for
+   * candidate-supplied github/linkedin links) is a cheap defence-in-depth
+   * check before committing to the navigation.
    */
   async function handleDownload() {
     const result = await resumeUrlQuery.refetch()
     const url = result.data?.url
     if (!url) return
-    window.location.href = url
+    const safeUrl = safeExternalHref(url)
+    if (!safeUrl) return
+    window.location.href = safeUrl
   }
 
   const telegramHref = application.telegram ? safeTelegramHref(application.telegram) : undefined

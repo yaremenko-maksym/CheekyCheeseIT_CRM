@@ -549,20 +549,31 @@ export class ApplicationsService {
   }
 
   /**
-   * task-candidate-card-resume (AC2/AC3) — inline-disposition presigned URL
-   * for the in-CRM resume preview (CandidateCard "Просмотр"). Deliberately
-   * NOT gated by `@Roles('ADMIN','HR')` at the controller
-   * (`vacancies.controller.ts` — RolesGuard is a no-op without that
-   * decorator, see roles.guard.ts) — RBAC lives here instead, and denial is
-   * a 404, not `getResumeUrl`'s 403. This mirrors the established
-   * `DocumentsService.findActiveOrThrow` convention for the general RESUME/
-   * SCAN document categories (task-file-storage-hardening §1): "don't
-   * confirm this resource exists to a viewer who isn't allowed to see it".
-   * Preview and download allow the EXACT same role set (ADMIN | HR) —
-   * `getResumeUrl`'s existing 403 (defence-in-depth `@Roles` decorator +
-   * `assertAdminOrHr`, pinned by `vacancies.integration.spec.ts`'s RBAC
-   * matrix) is intentionally left untouched; only this NEW endpoint adopts
-   * the 404 convention.
+   * task-candidate-card-resume (AC2/AC3) — presigned URL for the in-CRM
+   * resume preview (CandidateCard "Просмотр"). Deliberately NOT gated by
+   * `@Roles('ADMIN','HR')` at the controller (`vacancies.controller.ts` —
+   * RolesGuard is a no-op without that decorator, see roles.guard.ts) —
+   * RBAC lives here instead, and denial is a 404, not `getResumeUrl`'s 403.
+   * This mirrors the established `DocumentsService.findActiveOrThrow`
+   * convention for the general RESUME/SCAN document categories
+   * (task-file-storage-hardening §1): "don't confirm this resource exists
+   * to a viewer who isn't allowed to see it". Preview and download allow
+   * the EXACT same role set (ADMIN | HR) — `getResumeUrl`'s existing 403
+   * (defence-in-depth `@Roles` decorator + `assertAdminOrHr`, pinned by
+   * `vacancies.integration.spec.ts`'s RBAC matrix) is intentionally left
+   * untouched; only this NEW endpoint adopts the 404 convention.
+   *
+   * Disposition is `'attachment'`, same as `getResumeUrl` — code-review
+   * round 2: the CRM's preview UI (`useApplicationResumeBlob`) always
+   * fetches the URL programmatically and builds a Blob, which never looks
+   * at `Content-Disposition` at all, so `'inline'` bought nothing
+   * functionally here. What it DID buy is a real footgun: this URL is
+   * candidate-controlled bytes (an anonymous public form's resume upload)
+   * on a shared R2 origin — `'inline'` means anyone who ends up with the
+   * raw URL within its 600s window (a copied link, a devtools inspection,
+   * a shared machine) gets those bytes rendered in-browser at that origin
+   * instead of prompted to save. `'attachment'` closes that off with zero
+   * loss to the actual feature.
    */
   async getResumePreviewUrl(
     actor: SessionUser,
@@ -572,7 +583,7 @@ export class ApplicationsService {
     if (actor.role !== 'ADMIN' && actor.role !== 'HR') {
       throw new NotFoundException('Отклик не найден')
     }
-    return this.presignResume(actor, vacancyId, applicationId, 'inline', 'PREVIEW')
+    return this.presignResume(actor, vacancyId, applicationId, 'attachment', 'PREVIEW')
   }
 
   /**

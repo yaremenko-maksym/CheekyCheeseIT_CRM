@@ -692,8 +692,9 @@ describe('ApplicationsService.getResumeUrl()', () => {
   })
 })
 
-// task-candidate-card-resume (AC2/AC3) — inline-disposition preview URL,
-// with its own 404-not-403 RBAC denial (see the method's doc comment).
+// task-candidate-card-resume (AC2/AC3) — preview URL (attachment
+// disposition, same as download — see the method's doc comment for why),
+// with its own 404-not-403 RBAC denial.
 describe('ApplicationsService.getResumePreviewUrl()', () => {
   const ADMIN_ACTOR = { id: 'admin-1', role: 'ADMIN' } as unknown as SessionUser
   const HR_ACTOR = { id: 'hr-1', role: 'HR' } as unknown as SessionUser
@@ -747,7 +748,7 @@ describe('ApplicationsService.getResumePreviewUrl()', () => {
   }
 
   it.each([ADMIN_ACTOR, HR_ACTOR])(
-    '$role gets a 200-shaped inline-disposition presigned URL',
+    '$role gets a 200-shaped presigned URL (attachment disposition, category RESUME)',
     async (actor) => {
       const { svc, s3 } = makeResumeHarness('Ivan Petrenko')
       const result = await svc.getResumePreviewUrl(actor, 'vac-1', 'app-1')
@@ -759,7 +760,7 @@ describe('ApplicationsService.getResumePreviewUrl()', () => {
         string,
         string,
       ]
-      expect(disposition).toBe('inline')
+      expect(disposition).toBe('attachment')
       expect(category).toBe('RESUME')
     },
   )

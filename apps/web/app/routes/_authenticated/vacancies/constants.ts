@@ -581,27 +581,8 @@ export function safeExternalHref(url: string): string | undefined {
   return /^https?:\/\//.test(url) ? url : undefined
 }
 
-// ---------------------------------------------------------------------------
-// task-candidate-card-resume §3 — telegram handle → clickable link.
-//
-// `application.telegram` is free text from an ANONYMOUS public form
-// (`applyVacancyFieldsSchema.telegram` — `z.string().max(120).optional()`,
-// no format validation on write). Never build a `t.me/` URL from it without
-// re-validating the shape on the READ side first — the same reasoning as
-// `safeExternalHref` above, just for a value that was never even asked to
-// look like a URL in the first place.
-// ---------------------------------------------------------------------------
-
-/** Telegram's own public-username rule: 5-32 chars, starts with a letter, then letters/digits/underscores. */
-const TELEGRAM_HANDLE_RE = /^[A-Za-z][A-Za-z0-9_]{4,31}$/
-
-/**
- * Strips one optional leading `@` and validates what remains against
- * Telegram's public-username format. Returns a `https://t.me/<handle>` URL
- * when valid, otherwise `undefined` — callers render the raw value as plain
- * text (unchanged current behaviour) for anything that fails the check.
- */
-export function safeTelegramHref(telegram: string): string | undefined {
-  const handle = telegram.startsWith('@') ? telegram.slice(1) : telegram
-  return TELEGRAM_HANDLE_RE.test(handle) ? `https://t.me/${handle}` : undefined
-}
+// task-candidate-card-resume §3 / code-review round 2 — the telegram-handle
+// validator (`safeTelegramHref`) moved to `@/lib/tg-url` — it is now also
+// reused by UserProfileHeader.tsx/UserRow.tsx (see that file's doc comment
+// for why), which sit outside the vacancies module and shouldn't reach into
+// a route-scoped constants file. Import it from `@/lib/tg-url` directly.

@@ -228,6 +228,18 @@ describe('CandidateCard — resume download (presigned URL, task-candidate-card-
     await waitFor(() => expect(window.location.href).toBe('https://r2.example/resume.pdf'))
     expect(apiGet).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1/resume-url')
   })
+
+  // code-review round 2: safeExternalHref guards the navigation — a
+  // non-http(s) URL from the API never reaches window.location.href.
+  it('rejects a non-http(s) presigned URL instead of navigating (defence-in-depth)', async () => {
+    apiGet.mockResolvedValue({
+      data: { url: 'javascript:alert(1)', expiresAt: '2026-01-01T00:10:00.000Z' },
+    })
+    renderCard(makeApplication())
+    fireEvent.click(screen.getByTestId('candidate-download-app-1'))
+    await waitFor(() => expect(apiGet).toHaveBeenCalled())
+    expect(window.location.href).toBe('')
+  })
 })
 
 // task-candidate-card-resume AC2 — «Просмотр» opens the resume preview

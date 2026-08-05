@@ -13,8 +13,14 @@
  * 2. isUnsupportedFormat=false -> renders PdfPreview with the blob props
  *    forwarded through unchanged.
  * 3. Closed (open=false) -> no dialog content in the DOM.
- * 4. Download button inside the dialog uses the SAME mobile-safe
- *    window.location.href navigation as CandidateCard's own button (AC1).
+ * 4. Download button — blob already loaded (the common case, since the
+ *    preview just fetched it): downloads straight from the blob, NO fresh
+ *    presigned-URL request (code-review round 2 — a presigned URL is a
+ *    600s bearer credential that shouldn't linger in the browser's
+ *    downloads history when a blob is already sitting right there).
+ * 5. Download button — no blob yet (still loading / unsupported / error):
+ *    falls back to the SAME mobile-safe window.location.href navigation as
+ *    CandidateCard's own button (AC1), guarded by safeExternalHref.
  */
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
@@ -113,7 +119,35 @@ describe('ResumePreviewDialog', () => {
     expect(screen.queryByText(/не поддерживается браузером/i)).not.toBeInTheDocument()
   })
 
-  describe('download button (task-candidate-card-resume AC1 — mobile-safe navigation)', () => {
+  describe('download button — blob already loaded (code-review round 2)', () => {
+    it('downloads from the blob directly — no presigned-URL fetch at all', () => {
+      useApplicationResumeBlobMock.mockReturnValue({
+        blobUrl: 'blob:http://localhost/fake-resume-uuid',
+        isLoading: false,
+        hasError: false,
+        isUnsupportedFormat: false,
+      })
+      const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+      const appendSpy = vi.spyOn(document.body, 'appendChild')
+
+      renderDialog(true)
+      fireEvent.click(screen.getByTestId('resume-preview-download'))
+
+      expect(clickSpy).toHaveBeenCalledTimes(1)
+      expect(apiGet).not.toHaveBeenCalled()
+      const anchor = appendSpy.mock.calls.find(
+        (call) => call[0] instanceof HTMLAnchorElement,
+      )?.[0] as HTMLAnchorElement
+      expect(anchor).toBeDefined()
+      expect(anchor.href).toBe('blob:http://localhost/fake-resume-uuid')
+      expect(anchor.download).toBe('Иван Петров.pdf')
+
+      clickSpy.mockRestore()
+      appendSpy.mockRestore()
+    })
+  })
+
+  describe('download button — no blob yet, fallback (task-candidate-card-resume AC1 — mobile-safe navigation)', () => {
     const originalLocation = window.location
 
     beforeEach(() => {
@@ -138,6 +172,16 @@ describe('ResumePreviewDialog', () => {
       fireEvent.click(screen.getByTestId('resume-preview-download'))
       await waitFor(() => expect(window.location.href).toBe('https://r2.example/resume.pdf'))
       expect(apiGet).toHaveBeenCalledWith('/vacancies/vac-1/applications/app-1/resume-url')
+    })
+
+    it('rejects a non-http(s) presigned URL instead of navigating (defence-in-depth)', async () => {
+      apiGet.mockResolvedValue({
+        data: { url: 'javascript:alert(1)', expiresAt: '2026-01-01T00:10:00.000Z' },
+      })
+      renderDialog(true)
+      fireEvent.click(screen.getByTestId('resume-preview-download'))
+      await waitFor(() => expect(apiGet).toHaveBeenCalled())
+      expect(window.location.href).toBe('')
     })
   })
 
