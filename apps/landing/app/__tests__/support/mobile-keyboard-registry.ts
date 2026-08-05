@@ -85,9 +85,9 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // ---- ui/input.tsx + ui/textarea.tsx — base wrapper's own inner native
   // element forwards `type` dynamically from the caller, never a literal.
   'app/components/ui/input.tsx#1':
-    'The base Input wrapper\'s OWN inner native <input> — its `type` is forwarded dynamically from whatever caller renders <Input>, never a literal, so this node itself can never satisfy a category; every call site is scanned separately.',
+    "The base Input wrapper's OWN inner native <input> — its `type` is forwarded dynamically from whatever caller renders <Input>, never a literal, so this node itself can never satisfy a category; every call site is scanned separately.",
   'app/components/ui/textarea.tsx#1':
-    'Same as ui/input.tsx#1 — the base Textarea wrapper\'s own inner native <textarea>, props forwarded dynamically from the caller.',
+    "Same as ui/input.tsx#1 — the base Textarea wrapper's own inner native <textarea>, props forwarded dynamically from the caller.",
 }
 
 /**
