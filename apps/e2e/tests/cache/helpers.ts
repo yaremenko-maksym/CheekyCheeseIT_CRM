@@ -13,7 +13,14 @@ import type { Page, Response } from '@playwright/test'
 // Constants
 // ---------------------------------------------------------------------------
 
-/** Names of runtime caches created by the Workbox SW (from vite.config.ts). */
+/**
+ * Names of runtime caches created by the Workbox SW (from
+ * apps/web/app/lib/pwa-runtime-caching.ts).
+ *
+ * `api` ('api-cache') is kept here as a NEGATIVE reference only — since
+ * "fix(web): stop routing API requests through the service worker" that
+ * cache name must NEVER appear in `caches.keys()`. See api-cache.spec.ts.
+ */
 export const CACHE_NAMES = {
   api: 'api-cache',
   media: 'media-cache',

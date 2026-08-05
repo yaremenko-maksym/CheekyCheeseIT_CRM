@@ -5,6 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 import tsConfigPaths from 'vite-tsconfig-paths'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import { pwaRuntimeCaching } from './app/lib/pwa-runtime-caching'
 
 export default defineConfig({
   // Per-build cache buster for persistQueryClient (see __root.tsx CACHE_BUSTER):
@@ -303,105 +304,66 @@ export default defineConfig({
         // TanStack Router разруливает маршруты на клиенте
         navigateFallback: '/index.html',
 
-        // НЕ перехватывать /api/* — auth/данные нельзя кешировать навигационно
+        // НЕ перехватывать /api/* — auth/данные нельзя кешировать навигационно.
+        // (Это ограничивает только navigation-фолбэк; /api/* GET-запросы XHR/fetch
+        // из SPA не являются навигациями и обходят SW отдельно — см. runtimeCaching
+        // ниже, там для /api/* больше НЕТ ни одного правила вообще.)
         navigateFallbackDenylist: [/^\/api\//],
 
-        // Удалять устаревшие кеши при обновлении SW
+        // Удалять устаревшие кеши при обновлении SW.
+        // ВАЖНО: это чистит только versioned PRECACHE-кеши (workbox-precache-*,
+        // имя меняется на каждом билде). Runtime-кеши с фиксированным именем
+        // (media-cache) этим НЕ затрагиваются — они живут, пока их явно не
+        // удалят (logout — см. app/lib/use-logout.ts) или не истечёт
+        // `expiration`. api-cache больше не существует как runtime-кеш вообще,
+        // поэтому очистка уже накопленного у пользователей идёт отдельным
+        // явным шагом — см. importScripts ниже.
         cleanupOutdatedCaches: true,
 
-        // SW немедленно берёт управление над всеми клиентами
+        // SW немедленно берёт управление над всеми клиентами (включая уже
+        // ЗАГРУЖЕННУЮ страницу посреди сессии), в паре со skipWaiting ниже.
+        //
+        // Это осознанно ОСТАВЛЕНО как есть (не отключено) — рассуждение из
+        // PR "fix(web): stop routing API requests through the service worker":
+        //   1. app/client.tsx уже давно и намеренно построен вокруг этой пары:
+        //      controllerchange → полный `window.location.reload()`
+        //      (app/lib/sw-reload.ts, unit-тесты покрывают решение) плюс
+        //      `vite:preloadError` → тот же forced reload (app/lib/preload-reload.ts).
+        //      Отключить clientsClaim — значит оставить старые вкладки работать
+        //      на устаревшем JS-бандле до следующей навигации (undermины
+        //      registerType: 'autoUpdate') и одновременно СЛОМАТЬ этот уже
+        //      протестированный механизм, который рассчитан именно на claim
+        //      посреди сессии.
+        //   2. Путь, который РЕАЛЬНО вызвал 16.7s зависание (см. PR) — это
+        //      /api/* GET через api-cache; после его удаления единственные
+        //      маршруты, которые SW ещё перехватывает (respondWith), — это
+        //      precache (JS/CSS/HTML, навигации) и media-cache
+        //      (кросс-origin картинки/PDF из S3/R2). Первый уже покрыт п.1
+        //      (forced reload вместо зависания). Второй — низкочастотный
+        //      (ленивая загрузка по требованию, не 5 параллельных вызовов на
+        //      каждом маунте приложения, как было с /api/*) и деградирует
+        //      мягко (просто картинка не подгрузится сразу — не блокирует
+        //      весь UI, как блокировали зависшие /api/* данные).
         clientsClaim: true,
 
         // Новый SW активируется без ожидания закрытия вкладок
         skipWaiting: true,
 
-        runtimeCaching: [
-          {
-            // S3-медиа (изображения + PDF): CacheFirst + нормализация ключа.
-            // S3-объекты иммутабельны — presigned URL меняется при каждом запросе,
-            // но контент по одному и тому же origin+pathname всегда одинаков.
-            // Кешируем по origin+pathname, игнорируя presigned query-параметры (X-Amz-*, Expires…).
-            //
-            // PDF fetch (documents-pdf-preview task):
-            //   Добавлен матч для кросс-origin GET-запросов с .pdf в pathname ИЛИ
-            //   любого кросс-origin-запроса без /api/ в pathname (presigned S3 blob fetch).
-            //   Контракты/инвойсы (same-origin /api/*) не матчатся — они уходят
-            //   в api-cache где cacheWillUpdate убивает no-store ответы.
-            //
-            // Prod NOTE: AWS S3 bucket CORS должен разрешать GET с web-origin
-            //   (AllowedOrigins: https://yourdomain.com, AllowedMethods: GET).
-            //   В dev MinIO уже сконфигурирован (OPTIONS → Access-Control-Allow-Origin).
-            urlPattern: ({ url, request }: { url: URL; request: Request }) => {
-              // Кросс-origin (не наш frontend)
-              if (url.origin === self.location.origin) return false
-              // Исключаем /api/ пути (same-origin proxy — не попадут сюда, но на всякий)
-              if (url.pathname.startsWith('/api/')) return false
-              // Изображения (по destination)
-              if (request.destination === 'image') return true
-              // PDF fetch — по расширению или Content-Type (presigned S3 blob)
-              if (url.pathname.toLowerCase().endsWith('.pdf')) return true
-              // Любой кросс-origin GET без расширения — может быть presigned blob
-              // (S3 keys не имеют расширения у PDF если загружен без него)
-              if (request.method === 'GET' && request.destination === '') return true
-              return false
-            },
-            handler: 'CacheFirst' as const,
-            options: {
-              cacheName: 'media-cache',
-              plugins: [
-                {
-                  cacheKeyWillBeUsed: async ({ request }: { request: Request }) => {
-                    const u = new URL(request.url)
-                    // Срезаем presigned query-параметры S3 (X-Amz-*, Expires, …)
-                    return u.origin + u.pathname
-                  },
-                  // security MED-1: privacy-инвариант держится на КОДЕ, не на топологии
-                  // деплоя. Catch-all ветка (destination === '') при будущем split-origin
-                  // API (api.domain.com) может поймать контракт/инвойс-blob с no-store.
-                  // Уважаем Cache-Control: no-store → не кешируем приватные документы.
-                  cacheWillUpdate: async ({ response }: { response: Response }) => {
-                    const cc = response.headers.get('cache-control') ?? ''
-                    return cc.includes('no-store') ? null : response
-                  },
-                },
-              ],
-              expiration: { maxEntries: 200, maxAgeSeconds: 2592000 },
-              cacheableResponse: { statuses: [0, 200] },
-            },
-          },
-          {
-            // API GET: NetworkFirst — свежее онлайн, кеш как офлайн-фолбэк (АНТИ-STALE).
-            // baseURL аксиоса = http://localhost:3001/api (dev) или VITE_API_URL (prod).
-            // Матчим по pathname /api/ + порт 3001 для dev; в prod API на том же origin
-            // через прокси (/api/*) — pathname-match покрывает оба сценария.
-            urlPattern: ({ url, request }: { url: URL; request: Request }) =>
-              url.pathname.startsWith('/api/') && request.method === 'GET',
-            handler: 'NetworkFirst' as const,
-            options: {
-              cacheName: 'api-cache',
-              networkTimeoutSeconds: 3,
-              expiration: { maxEntries: 200, maxAgeSeconds: 86400 },
-              cacheableResponse: { statuses: [200] },
-              plugins: [
-                {
-                  // security-MED-1: уважаем Cache-Control: no-store от бэкенда.
-                  // Workbox по умолчанию игнорирует no-store и кеширует ответ.
-                  // Это критично для PDF-эндпоинтов (employee-contracts,
-                  // signed-contracts, onboarding-contract) — приватные трудовые
-                  // договоры не должны попадать в api-cache даже временно.
-                  // Возвращаем null → Workbox пропускает запись в кеш для этого ответа.
-                  cacheWillUpdate: async ({ response }: { response: Response }) => {
-                    const cc = response.headers.get('cache-control') ?? ''
-                    if (cc.includes('no-store')) {
-                      return null
-                    }
-                    return response
-                  },
-                },
-              ],
-            },
-          },
-        ],
+        // Довесок к сгенерированному sw.js: один-в-один activate-обработчик,
+        // который удаляет ОСТАВШИЙСЯ на устройствах кеш `api-cache` (правило
+        // для него удалено ниже, но у уже установленных SW этот кеш мог
+        // накопиться за сутки — см. комментарий в самом файле). Файл лежит в
+        // public/ (копируется в билд как есть) и подключается через
+        // importScripts() внутри сгенерированного SW — штатный механизм
+        // workbox-build именно для такого случая (см. его типы:
+        // "useful when you want to let Workbox create your top-level service
+        // worker file, but want to include some additional code").
+        importScripts: ['/sw-purge-stale-api-cache.js'],
+
+        // Правила матчинга вынесены в app/lib/pwa-runtime-caching.ts —
+        // подробности (в т.ч. почему здесь больше нет /api/*-правила) там же,
+        // плюс регрессионный тест pwa-runtime-caching.spec.ts.
+        runtimeCaching: pwaRuntimeCaching,
       },
     }),
   ],
