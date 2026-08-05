@@ -11,10 +11,17 @@
  * fail-silent `reportClientError` pipeline as `window.onerror`/
  * `unhandledrejection` (same dedupe, same immediate-send, same disabled-SDK
  * no-op) — see `errors.ts`.
+ *
+ * security-review round 2, MED-1: routes `error` through
+ * `sanitizeErrorForReport` (the SAME funnel `use-global-error-handlers.ts`
+ * uses) rather than reading `error.message`/`.stack` directly — so an
+ * axios error thrown during render (however unlikely) can't slip a
+ * backend-echoed message past this entry point just because it's a
+ * different one from the other two.
  */
 import { Component, type ErrorInfo, type ReactNode } from 'react'
 import { Button } from '@/components/ui/button'
-import { reportClientError } from './errors'
+import { reportClientError, sanitizeErrorForReport } from './errors'
 
 interface TelemetryErrorBoundaryProps {
   children: ReactNode
@@ -35,7 +42,8 @@ export class TelemetryErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, info: ErrorInfo): void {
-    reportClientError(error.message, { stack: error.stack ?? info.componentStack ?? undefined })
+    const { message, stack } = sanitizeErrorForReport(error)
+    reportClientError(message, { stack: stack ?? info.componentStack ?? undefined })
   }
 
   private handleReload = (): void => {
