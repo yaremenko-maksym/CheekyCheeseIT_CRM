@@ -45,7 +45,14 @@ describe('normalizeDecimalInput — task-mobile-keyboards.md AC2', () => {
     expect(normalizeDecimalInput('$12.50')).toBe('12.50')
   })
 
-  it('keeps only the first separator typed (matches real decimal-input behavior)', () => {
+  it('single separator TYPE (even repeated): the FIRST occurrence is the decimal point', () => {
+    // ru/uk primary locale — a lone `,` is always a decimal separator here,
+    // never a thousands group, so "first wins" is the correct default, not
+    // an arbitrary one. Repeated occurrences of the SAME symbol are a user
+    // fat-fingering the separator key, not a thousands group (a real
+    // thousands group never repeats the grouping symbol twice in a row
+    // without digits between distinct groups the way `1,2,3` would parse if
+    // taken literally — this is the pre-existing pinned behavior).
     expect(normalizeDecimalInput('1,2,3')).toBe('1.23')
     expect(normalizeDecimalInput('1.2.3')).toBe('1.23')
   })
@@ -56,5 +63,32 @@ describe('normalizeDecimalInput — task-mobile-keyboards.md AC2', () => {
 
   it('handles an empty string', () => {
     expect(normalizeDecimalInput('')).toBe('')
+  })
+
+  // review round 2 (PR #481) — BOTH separators present. Position resolves
+  // it unambiguously regardless of which locale produced the string:
+  // thousands grouping always precedes the decimal point. Treating the
+  // FIRST symbol as decimal (the single-separator rule) silently misreads
+  // "1,000.50" as "1.00050" — ~1000x off, with no error raised anywhere
+  // downstream (every consumer is `z.number()` + `parseFloat`/`Number()`,
+  // and 1.00050 is a perfectly valid positive number to every one of them).
+  describe('mixed separators — US "1,000.50" and EU "1.000,50" thousands+decimal', () => {
+    it('US style: comma thousands, dot decimal', () => {
+      expect(normalizeDecimalInput('1,000.50')).toBe('1000.50')
+      expect(normalizeDecimalInput('1,000.50')).not.toBe('1.00050')
+    })
+
+    it('EU style: dot thousands, comma decimal', () => {
+      expect(normalizeDecimalInput('1.000,50')).toBe('1000.50')
+      expect(normalizeDecimalInput('1.000,50')).not.toBe('1.00050')
+    })
+
+    it('multiple thousands groups: "1,000,000.50"', () => {
+      expect(normalizeDecimalInput('1,000,000.50')).toBe('1000000.50')
+    })
+
+    it('pasted with a currency symbol and mixed separators still resolves correctly', () => {
+      expect(normalizeDecimalInput('$1,234.56')).toBe('1234.56')
+    })
   })
 })

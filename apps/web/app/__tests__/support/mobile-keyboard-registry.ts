@@ -20,6 +20,25 @@
  * `SliderNumberInput`, and `InterviewDetailSheet`'s local `FieldRow` all
  * render exactly one `<Input>`/`<input>` node reused across screens) — see
  * `input-scan.ts` module doc.
+ *
+ * `EXEMPT_FIELDS` is a `key -> reason` map, not a bare list (PR #481 review
+ * round 2, MED finding): a mutation test proved that moving a REAL money/
+ * wallet field into a bare exempt list is caught by nothing — the guard only
+ * ever checked "is this key present", never "is this exemption legitimate".
+ * Two checks close that gap (`mobile-keyboard-fields.spec.ts`):
+ *   1. every reason must be a substantive, non-empty explanation (a one-word
+ *      or empty "reason" fails) — raises the cost of a lazy fake exemption.
+ *   2. a key whose own text contains a money/contact-data keyword
+ *      (`SENSITIVE_KEYWORDS`) is refused unless ALSO listed in
+ *      `ACKNOWLEDGED_SENSITIVE_EXEMPTIONS` with its own reason addressing
+ *      the keyword specifically — this is the check that would have caught
+ *      the reviewer's exact repro (`testid:amount-currency-amount-input`
+ *      moved into the exempt list): the key text itself can't be faked
+ *      without renaming the real `data-testid` in source, which breaks
+ *      every other selector targeting that field.
+ * No automated check can fully replace human review of a registry the
+ * developer controls — this raises the bar, it does not claim to close the
+ * gap completely.
  */
 
 export type Category =
@@ -251,112 +270,192 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
  * Fields deliberately left plain — free text (descriptions, notes,
  * fictional legend/cover-story details, dynamic per-template custom
  * values, type-to-confirm boxes, …). Every entry is named explicitly so a
- * NEW field never lands here implicitly.
+ * NEW field never lands here implicitly, AND every entry carries its own
+ * substantive reason (checked by the guard — see module doc).
  */
-export const EXEMPT_FIELDS = new Set<string>([
-  // ---- archive/ArchiveConfirmDialog.tsx + users/ArchiveConfirmDialog.tsx — type-to-confirm text (must match a name, not autofill-worthy) ----
-  'testid:archive-confirm-input', // components/archive/ArchiveConfirmDialog.tsx
-  'testid:archive-confirm-name-input', // components/users/ArchiveConfirmDialog.tsx
+export const EXEMPT_FIELDS: Record<string, string> = {
+  // ---- archive/ArchiveConfirmDialog.tsx + users/ArchiveConfirmDialog.tsx ----
+  'testid:archive-confirm-input':
+    'Type-to-confirm box — user retypes an existing name to confirm a destructive action; not a data field, and autofill would defeat the point of typing it manually.',
+  'testid:archive-confirm-name-input':
+    'Same type-to-confirm pattern as archive-confirm-input, in the users list archive dialog.',
 
-  // ---- user-profile/admin-actions/ArchiveUserDialog.tsx — same type-to-confirm pattern ----
-  'app/components/user-profile/admin-actions/ArchiveUserDialog.tsx#1',
+  // ---- user-profile/admin-actions/ArchiveUserDialog.tsx ----
+  'app/components/user-profile/admin-actions/ArchiveUserDialog.tsx#1':
+    "Type-to-confirm box (retype the profile owner's display name) before archiving — same pattern as archive-confirm-input.",
 
-  // ---- user-profile/admin-actions/AdminNoteDialog.tsx — free-text internal note ----
-  'app/components/user-profile/admin-actions/AdminNoteDialog.tsx#1',
+  // ---- user-profile/admin-actions/AdminNoteDialog.tsx ----
+  'app/components/user-profile/admin-actions/AdminNoteDialog.tsx#1':
+    'Free-text internal admin note about the profile — arbitrary prose, no taxonomy class applies.',
 
-  // ---- contracts/AddCustomVariableDialog.tsx — Russian display label + example default value ----
-  'testid:cv-label-input',
-  'testid:cv-default-input',
+  // ---- contracts/AddCustomVariableDialog.tsx ----
+  'testid:cv-label-input':
+    'Russian display label the admin types for a custom contract variable (e.g. "Город подписания") — free text, not an identifier.',
+  'testid:cv-default-input':
+    'Example default value for a custom contract variable — arbitrary free text (could be a city, a date spelled out, anything the template author wants).',
 
-  // ---- contracts/VariablesPanel.tsx — inline rename of a variable's display label ----
-  'app/components/contracts/VariablesPanel.tsx#1',
+  // ---- contracts/VariablesPanel.tsx ----
+  'app/components/contracts/VariablesPanel.tsx#1':
+    "Inline rename of a contract variable's display label — same free-text Russian label as cv-label-input.",
 
-  // ---- ui/input.tsx + ui/textarea.tsx — the base wrapper's OWN inner
-  // native element (`<input type={type} …>`) is a distinct scanned node
-  // from every call site's `<Input type="...">` — its `type` is forwarded
-  // dynamically, not a literal, so it can never satisfy a category itself.
-  'app/components/ui/input.tsx#1',
-  'app/components/ui/textarea.tsx#1',
+  // ---- ui/input.tsx + ui/textarea.tsx ----
+  'app/components/ui/input.tsx#1':
+    "The base Input wrapper's OWN inner native <input> — its `type` is forwarded dynamically from whatever caller renders <Input>, never a literal, so this node itself can never satisfy a category; every call site is scanned separately.",
+  'app/components/ui/textarea.tsx#1':
+    "Same as ui/input.tsx#1 — the base Textarea wrapper's own inner native <textarea>, props forwarded dynamically from the caller.",
 
-  // ---- user-profile/contract/ContractFillForm.tsx — dynamic per-template custom value (any content type) ----
-  'app/components/user-profile/contract/ContractFillForm.tsx#1',
+  // ---- user-profile/contract/ContractFillForm.tsx ----
+  'app/components/user-profile/contract/ContractFillForm.tsx#1':
+    'Dynamic per-template custom contract value (v.key/v.label come from the template author) — content type is not statically knowable, could be a city, a date, anything.',
 
-  // ---- projects/ProjectCredentialsSection.tsx — service label + free-text notes ----
-  'testid:credentials-input-label',
-  'testid:credentials-input-notes',
+  // ---- projects/ProjectCredentialsSection.tsx ----
+  'testid:credentials-input-label':
+    'Free-text service name for a saved credential (e.g. "GitHub", "Jira") — a nickname the user picks, not a data value.',
+  'testid:credentials-input-notes': 'Free-text notes field attached to a saved credential entry.',
 
-  // ---- projects/ProjectLegendSection.tsx — per-project legend/cover story (all free text) ----
-  'testid:legend-entry-input', // "add legend entry" journal textarea
-  'testid:legend-input-dob',
-  'testid:legend-input-presented-role',
-  'testid:legend-input-presented-stack',
-  'testid:legend-input-address',
-  'testid:legend-input-backstory',
-  'testid:legend-input-hobbies',
-  'testid:legend-input-notes',
+  // ---- projects/ProjectLegendSection.tsx (per-project legend/cover story) ----
+  'testid:legend-entry-input':
+    'Free-text journal entry in the legend/cover-story timeline (e.g. "client asked about education, we said MSU").',
+  'testid:legend-input-dob':
+    'Fictional cover-story date of birth typed as free text — no existing date-picker is used here, and the task explicitly says not to invent one.',
+  'testid:legend-input-presented-role':
+    'Fictional job title presented to the client as part of the cover story — free text.',
+  'testid:legend-input-presented-stack':
+    'Fictional tech stack presented to the client as part of the cover story — free text.',
+  'testid:legend-input-address':
+    'Fictional home address for the cover-story persona — despite the word "address" this is NOT a crypto wallet address, just prose like a street/city.',
+  'testid:legend-input-backstory':
+    'Fictional backstory prose for the cover-story persona — free text by definition.',
+  'testid:legend-input-hobbies': 'Fictional hobbies list for the cover-story persona — free text.',
+  'testid:legend-input-notes':
+    'Free-text internal notes attached to the per-project legend/cover story.',
 
-  // ---- user-profile/self-edit/RequisitesEditForm.tsx — free-text labels ----
-  'app/components/user-profile/self-edit/RequisitesEditForm.tsx#id:walletUsdtLabel',
-  'app/components/user-profile/self-edit/RequisitesEditForm.tsx#id:bankName',
+  // ---- user-profile/self-edit/RequisitesEditForm.tsx ----
+  'app/components/user-profile/self-edit/RequisitesEditForm.tsx#id:walletUsdtLabel':
+    'Free-text NICKNAME for a saved wallet (e.g. "Основной") — not the address itself. The actual address field is id:walletUsdtErc20, classified WALLET_HASH above. See ACKNOWLEDGED_SENSITIVE_EXEMPTIONS below (key contains "wallet").',
+  'app/components/user-profile/self-edit/RequisitesEditForm.tsx#id:bankName':
+    'Free-text bank name (e.g. "ПриватБанк") the user types for their own reference — not a validated identifier like the IBAN/RNOKPP fields nearby.',
 
-  // ---- users/UserDialog.tsx — free text (registration address, wallet label, bank name) ----
-  'testid:user-dialog-registration-address',
-  'app/components/users/UserDialog.tsx#7', // walletUsdtLabel — no testid
-  'app/components/users/UserDialog.tsx#11', // bankUahBankName — no testid
+  // ---- users/UserDialog.tsx ----
+  'testid:user-dialog-registration-address':
+    'Free-text ФОП registration address ("г. Киев, ул. Крещатик, 1") used verbatim in the generated contract — prose, not a wallet/crypto address.',
+  'app/components/users/UserDialog.tsx#7':
+    "walletUsdtLabel (no testid on this occurrence) — same free-text nickname field as RequisitesEditForm's walletUsdtLabel, admin-create-user variant.",
+  'app/components/users/UserDialog.tsx#11':
+    "bankUahBankName (no testid on this occurrence) — same free-text bank-name field as RequisitesEditForm's bankName, admin-create-user variant.",
 
-  // ---- routes/_authenticated/legend.tsx — default persona template, fictional free text ----
-  'app/routes/_authenticated/legend.tsx#id:persona-address',
-  'app/routes/_authenticated/legend.tsx#id:persona-hobbies',
-  'app/routes/_authenticated/legend.tsx#id:cover-role',
-  'app/routes/_authenticated/legend.tsx#id:cover-stack',
-  'app/routes/_authenticated/legend.tsx#id:cover-backstory',
-  'testid:legend-entry-textarea',
+  // ---- routes/_authenticated/legend.tsx (default persona template) ----
+  'app/routes/_authenticated/legend.tsx#id:persona-address':
+    "Fictional default-template address — same reasoning as ProjectLegendSection's legend-input-address (prose, not a wallet address).",
+  'app/routes/_authenticated/legend.tsx#id:persona-hobbies':
+    'Fictional default-template hobbies — free text.',
+  'app/routes/_authenticated/legend.tsx#id:cover-role':
+    'Fictional default-template presented job title — free text.',
+  'app/routes/_authenticated/legend.tsx#id:cover-stack':
+    'Fictional default-template presented tech stack — free text.',
+  'app/routes/_authenticated/legend.tsx#id:cover-backstory':
+    'Fictional default-template backstory prose — free text.',
+  'testid:legend-entry-textarea':
+    "Free-text journal entry field on the default persona template page — same as ProjectLegendSection's legend-entry-input.",
 
-  // ---- routes/_authenticated/projects/index.tsx — free-text project fields ----
-  'app/routes/_authenticated/projects/index.tsx#2', // Название проекта
-  'app/routes/_authenticated/projects/index.tsx#3', // Компания
-  'app/routes/_authenticated/projects/index.tsx#5', // dynamic labels[fieldName]
-  'app/routes/_authenticated/projects/index.tsx#6', // Общие заметки
+  // ---- routes/_authenticated/projects/index.tsx ----
+  'app/routes/_authenticated/projects/index.tsx#2':
+    'Название проекта — free-text project name, no taxonomy class applies.',
+  'app/routes/_authenticated/projects/index.tsx#3': 'Компания — free-text client company name.',
+  'app/routes/_authenticated/projects/index.tsx#5':
+    'Dynamic labels[fieldName] (techStack/teamSize/benefits/salaryReview/corpTech) — content type varies per field, all free text by design.',
+  'app/routes/_authenticated/projects/index.tsx#6':
+    'Общие заметки — free-text general notes textarea.',
 
-  // ---- routes/_authenticated/projects/$projectId.tsx — same edit form, free text ----
-  'app/routes/_authenticated/projects/$projectId.tsx#1',
-  'app/routes/_authenticated/projects/$projectId.tsx#2',
-  'app/routes/_authenticated/projects/$projectId.tsx#3',
-  'app/routes/_authenticated/projects/$projectId.tsx#4',
+  // ---- routes/_authenticated/projects/$projectId.tsx ----
+  'app/routes/_authenticated/projects/$projectId.tsx#1':
+    'Название проекта (edit form) — same free-text project name as projects/index.tsx#2.',
+  'app/routes/_authenticated/projects/$projectId.tsx#2':
+    'Компания (edit form) — same free-text company name as projects/index.tsx#3.',
+  'app/routes/_authenticated/projects/$projectId.tsx#3':
+    'Dynamic labels[fieldName] (edit form) — same as projects/index.tsx#5.',
+  'app/routes/_authenticated/projects/$projectId.tsx#4':
+    'Общие заметки (edit form) — same free-text notes textarea as projects/index.tsx#6.',
 
-  // ---- routes/_authenticated/finance/index.tsx — delete/restore reason text ----
-  'testid:delete-tx-reason-input',
-  'testid:restore-tx-reason-input',
+  // ---- routes/_authenticated/finance/index.tsx ----
+  'testid:delete-tx-reason-input':
+    'Free-text reason typed before deleting a transaction — a human-readable justification, not a data value.',
+  'testid:restore-tx-reason-input':
+    'Free-text reason typed before restoring a deleted transaction.',
 
-  // ---- routes/_authenticated/team/$teamId.tsx — free text ----
-  'app/routes/_authenticated/team/$teamId.tsx#id:edit-name',
-  'app/routes/_authenticated/team/$teamId.tsx#id:edit-notes',
+  // ---- routes/_authenticated/team/$teamId.tsx ----
+  'app/routes/_authenticated/team/$teamId.tsx#id:edit-name': 'Free-text team name.',
+  'app/routes/_authenticated/team/$teamId.tsx#id:edit-notes': 'Free-text internal team notes.',
 
   // ---- finance dialogs — free-text notes ----
-  'app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx#1',
-  'testid:pay-salary-notes',
-  'testid:payout-detail-manual-note',
-  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#3',
-  'app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx#1',
-  'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#1', // salary month "2025-03" — no existing date picker here, not reinventing one
-  'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#2',
+  'app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx#1':
+    'Free-text "Заметки" field on the senior-income edit dialog.',
+  'testid:pay-salary-notes': 'Free-text "Заметки" field on the pay-salary dialog.',
+  'testid:payout-detail-manual-note': 'Free-text note describing a manual payout confirmation.',
+  'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#3':
+    'Free-text "Заметки" field on the create-transaction dialog (non-dividend types).',
+  'app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx#1':
+    'Free-text rejection reason typed by ACCOUNTANT when rejecting a transaction.',
+  'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#1':
+    'Salary month typed as a raw "2025-03" string — no existing date-picker component is used here, and the task explicitly says not to invent a new one for this PR.',
+  'app/routes/_authenticated/finance/components/dialogs/AdminEditTransactionDialog.tsx#2':
+    'Free-text "Заметки" field on the admin edit-transaction dialog.',
 
   // ---- interviews — free-text company/notes fields ----
-  'app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx#1',
-  'app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx#2',
-  'app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx#1', // Компания
-  'app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx#1', // FieldRow Textarea — always free text
+  'app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx#1':
+    'Название проекта — same free-text project name as elsewhere.',
+  'app/routes/_authenticated/interviews/components/CreateProjectFromHiredDialog.tsx#2':
+    'Компания — same free-text company name as elsewhere.',
+  'app/routes/_authenticated/interviews/components/CreateInterviewDialog.tsx#1':
+    'Компания — free-text company name on the create-interview dialog.',
+  'app/routes/_authenticated/interviews/components/InterviewDetailSheet.tsx#1':
+    'The local FieldRow Textarea — every textarea call site on this sheet is a free-text notes/description field by construction (the URL-capable one is the separate Input node, classified URL above).',
 
   // ---- vacancies — free-text title/description/SEO fields ----
-  'testid:vacancy-form-title',
-  'testid:vacancy-form-skills',
-  'testid:vacancy-form-qualifications',
-  'testid:vacancy-form-responsibilities',
-  'testid:vacancy-form-job-benefits',
-  'testid:vacancy-form-work-hours',
-  'app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx#1', // per-locale title (dynamic testid)
-  'app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx#2', // per-locale description (dynamic testid)
+  'testid:vacancy-form-title': 'Free-text vacancy title.',
+  'testid:vacancy-form-skills': 'Free-text comma-separated skills list.',
+  'testid:vacancy-form-qualifications':
+    'Free-text qualifications prose for Google-for-Jobs enrichment.',
+  'testid:vacancy-form-responsibilities':
+    'Free-text responsibilities prose for Google-for-Jobs enrichment.',
+  'testid:vacancy-form-job-benefits': 'Free-text benefits prose for Google-for-Jobs enrichment.',
+  'testid:vacancy-form-work-hours': 'Free-text work-hours description (e.g. "40 часов в неделю").',
+  'app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx#1':
+    'Per-locale vacancy title (dynamic testid per locale) — free-text translation.',
+  'app/routes/_authenticated/vacancies/components/VacancyTranslationFields.tsx#2':
+    'Per-locale vacancy description markdown (dynamic testid per locale) — free-text translation.',
 
-  // ---- ui/tech-autocomplete-input.tsx — tag/chip type-ahead, not a taxonomy class ----
-  'app/components/ui/tech-autocomplete-input.tsx#1',
-])
+  // ---- ui/tech-autocomplete-input.tsx ----
+  'app/components/ui/tech-autocomplete-input.tsx#1':
+    'Tag/chip type-ahead filter input for technology names — not a data-entry field in the taxonomy sense, it drives an autocomplete dropdown.',
+}
+
+/**
+ * Money/contact-data-shaped substrings. A key in `EXEMPT_FIELDS` that
+ * contains one of these (case-insensitive) is refused unless also present
+ * in `ACKNOWLEDGED_SENSITIVE_EXEMPTIONS` — see module doc.
+ */
+export const SENSITIVE_KEYWORDS = [
+  'amount',
+  'wallet',
+  'iban',
+  'phone',
+  'email',
+  'hash',
+  'password',
+  'salary',
+] as const
+
+/**
+ * Explicit, individually-justified override for a legitimate EXEMPT_FIELDS
+ * entry whose key happens to contain a SENSITIVE_KEYWORDS substring. The
+ * reason here must address the keyword specifically (why THIS field,
+ * despite looking sensitive by name, really is free text) — checked for
+ * substance by the same guard that checks EXEMPT_FIELDS reasons.
+ */
+export const ACKNOWLEDGED_SENSITIVE_EXEMPTIONS: Record<string, string> = {
+  'app/components/user-profile/self-edit/RequisitesEditForm.tsx#id:walletUsdtLabel':
+    'Key contains "wallet" only because this field sits next to the wallet address field in the same form section — it is the free-text NICKNAME (e.g. "Основной"), never the address. The address itself is id:walletUsdtErc20, which IS classified WALLET_HASH in FIELD_CATEGORIES above.',
+  'testid:pay-salary-notes':
+    'Key contains "salary" only because the testid is scoped to the PaySalaryDialog component name — this is that dialog\'s free-text "Заметки" note field, not the salary amount itself (which goes through AmountCurrencyInput, classified MONEY separately).',
+}

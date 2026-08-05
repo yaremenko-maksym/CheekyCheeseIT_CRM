@@ -22,10 +22,15 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { scanFile, type ScannedField } from './support/input-scan'
 import {
+  ACKNOWLEDGED_SENSITIVE_EXEMPTIONS,
   CATEGORY_REQUIREMENTS,
   EXEMPT_FIELDS,
   FIELD_CATEGORIES,
+  SENSITIVE_KEYWORDS,
 } from './support/mobile-keyboard-registry'
+
+/** Below this many trimmed characters, a "reason" is a lazy rubber stamp, not an explanation. */
+const MIN_REASON_LENGTH = 12
 
 const ROOT = resolve(__dirname, '..', '..') // apps/web
 const APP_DIR = resolve(ROOT, 'app')
@@ -66,7 +71,7 @@ describe('mobile keyboard attributes — task-mobile-keyboards.md', () => {
   it('every scanned field is either exempt (free text) or classified — no field falls through the cracks', () => {
     const unclassified = fields
       .filter((f) => !f.isNonTextType && !f.isNeverEditable)
-      .filter((f) => !EXEMPT_FIELDS.has(f.key) && !FIELD_CATEGORIES[f.key])
+      .filter((f) => !(f.key in EXEMPT_FIELDS) && !FIELD_CATEGORIES[f.key])
       .map((f) => `${f.file}:${f.line} (${f.tag}, key="${f.key}")`)
 
     expect(
@@ -108,10 +113,60 @@ describe('mobile keyboard attributes — task-mobile-keyboards.md', () => {
     // (renamed/removed field) silently stops protecting anything, and a
     // key present in both lists is an ambiguous, contradictory rule.
     const keys = new Set(fields.map((f) => f.key))
-    const staleExemptions = [...EXEMPT_FIELDS].filter((k) => !keys.has(k))
-    const doubleBooked = [...EXEMPT_FIELDS].filter((k) => FIELD_CATEGORIES[k])
+    const exemptKeys = Object.keys(EXEMPT_FIELDS)
+    const staleExemptions = exemptKeys.filter((k) => !keys.has(k))
+    const doubleBooked = exemptKeys.filter((k) => FIELD_CATEGORIES[k])
 
     expect(staleExemptions, 'EXEMPT_FIELDS lists keys the scanner no longer finds').toEqual([])
     expect(doubleBooked, 'Keys present in BOTH EXEMPT_FIELDS and FIELD_CATEGORIES').toEqual([])
+  })
+
+  // PR #481 review round 2 (MED) — a mutation test proved that moving a
+  // REAL classified field (e.g. the money input) into EXEMPT_FIELDS with a
+  // plausible-looking comment was caught by NOTHING: the guard only ever
+  // checked "is this key present somewhere", never "is this exemption
+  // legitimate". These two checks are the mitigation — not a claim that a
+  // determined rewrite of the registry can't still lie, but a real second
+  // signal that must ALSO be defeated.
+  it('every EXEMPT_FIELDS reason is a substantive explanation, not an empty/lazy rubber stamp', () => {
+    const weak = Object.entries(EXEMPT_FIELDS)
+      .filter(([, reason]) => reason.trim().length < MIN_REASON_LENGTH)
+      .map(([key, reason]) => `${key}: reason too short/empty ("${reason}")`)
+
+    expect(weak).toEqual([])
+  })
+
+  it('a money/wallet/contact-shaped key cannot hide in EXEMPT_FIELDS without an explicit acknowledged override', () => {
+    // The key text is derived by the scanner from the real `data-testid`/
+    // `id`/`name` in source — it can't be faked without renaming the
+    // attribute in source, which would also break every OTHER selector
+    // (unit + E2E) targeting that field. This is the check that catches
+    // the reviewer's exact repro: `testid:amount-currency-amount-input`
+    // moved into EXEMPT_FIELDS still contains "amount".
+    const unacknowledged = Object.keys(EXEMPT_FIELDS)
+      .filter((key) => SENSITIVE_KEYWORDS.some((kw) => key.toLowerCase().includes(kw)))
+      .filter((key) => !(key in ACKNOWLEDGED_SENSITIVE_EXEMPTIONS))
+
+    expect(
+      unacknowledged,
+      'Key(s) in EXEMPT_FIELDS look money/wallet/contact-shaped by name. Either classify the field ' +
+        'properly under FIELD_CATEGORIES, or — if it genuinely is free text despite the keyword — add ' +
+        'it to ACKNOWLEDGED_SENSITIVE_EXEMPTIONS with a reason addressing the keyword specifically.',
+    ).toEqual([])
+  })
+
+  it('every ACKNOWLEDGED_SENSITIVE_EXEMPTIONS override is itself substantive, and is not stale', () => {
+    const weak = Object.entries(ACKNOWLEDGED_SENSITIVE_EXEMPTIONS)
+      .filter(([, reason]) => reason.trim().length < MIN_REASON_LENGTH)
+      .map(([key, reason]) => `${key}: override reason too short/empty ("${reason}")`)
+    const stale = Object.keys(ACKNOWLEDGED_SENSITIVE_EXEMPTIONS).filter(
+      (key) => !(key in EXEMPT_FIELDS),
+    )
+
+    expect(weak).toEqual([])
+    expect(
+      stale,
+      'ACKNOWLEDGED_SENSITIVE_EXEMPTIONS lists a key no longer present in EXEMPT_FIELDS',
+    ).toEqual([])
   })
 })

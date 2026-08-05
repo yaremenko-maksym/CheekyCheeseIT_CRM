@@ -3,6 +3,10 @@
  * for `apps/landing`. See `apps/web/app/__tests__/support/mobile-keyboard-registry.ts`
  * for the full doc — same inverted-classification contract, smaller surface
  * (two public marketing forms: contact + vacancy application).
+ *
+ * `EXEMPT_FIELDS` is a `key -> reason` map, and a key that looks money/
+ * contact-shaped by name is refused without an explicit acknowledged
+ * override — same PR #481 review round 2 mitigation as the web registry.
  */
 
 export type Category = 'EMAIL' | 'URL' | 'HANDLE' | 'PERSON_NAME'
@@ -63,18 +67,47 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'app/components/marketing/vacancy-apply-form.tsx#name:github': 'URL',
 }
 
-export const EXEMPT_FIELDS = new Set<string>([
+export const EXEMPT_FIELDS: Record<string, string> = {
   // ---- contact-form.tsx — free text ----
-  'app/components/marketing/contact-form.tsx#name:company',
-  'app/components/marketing/contact-form.tsx#name:message', // Textarea
-  'app/components/marketing/contact-form.tsx#name:website', // honeypot — not user-facing (display:none, tabIndex=-1)
+  'app/components/marketing/contact-form.tsx#name:company':
+    'Free-text company name the visitor types about themselves — optional, no taxonomy class applies.',
+  'app/components/marketing/contact-form.tsx#name:message':
+    'Free-text inquiry message (Textarea) — arbitrary prose by definition.',
+  'app/components/marketing/contact-form.tsx#name:website':
+    'Anti-bot honeypot field — visually hidden (display:none, tabIndex=-1), never seen or filled by a real visitor, so no mobile keyboard concern applies.',
 
   // ---- vacancy-apply-form.tsx — free text ----
-  'app/components/marketing/vacancy-apply-form.tsx#name:cover', // Textarea
-  'app/components/marketing/vacancy-apply-form.tsx#id:website', // honeypot — not user-facing (display:none, tabIndex=-1)
+  'app/components/marketing/vacancy-apply-form.tsx#name:cover':
+    'Free-text cover-letter message (Textarea) — arbitrary prose by definition.',
+  'app/components/marketing/vacancy-apply-form.tsx#id:website':
+    'Anti-bot honeypot field — same as contact-form.tsx#name:website, visually hidden and never filled by a real visitor.',
 
   // ---- ui/input.tsx + ui/textarea.tsx — base wrapper's own inner native
   // element forwards `type` dynamically from the caller, never a literal.
-  'app/components/ui/input.tsx#1',
-  'app/components/ui/textarea.tsx#1',
-])
+  'app/components/ui/input.tsx#1':
+    'The base Input wrapper\'s OWN inner native <input> — its `type` is forwarded dynamically from whatever caller renders <Input>, never a literal, so this node itself can never satisfy a category; every call site is scanned separately.',
+  'app/components/ui/textarea.tsx#1':
+    'Same as ui/input.tsx#1 — the base Textarea wrapper\'s own inner native <textarea>, props forwarded dynamically from the caller.',
+}
+
+/**
+ * Money/contact-data-shaped substrings — see web registry's identically
+ * named export for the full rationale (PR #481 review round 2).
+ */
+export const SENSITIVE_KEYWORDS = [
+  'amount',
+  'wallet',
+  'iban',
+  'phone',
+  'email',
+  'hash',
+  'password',
+  'salary',
+] as const
+
+/**
+ * No landing EXEMPT_FIELDS key currently matches SENSITIVE_KEYWORDS — kept
+ * as an empty, typed export so the guard spec can import it unconditionally
+ * and so a future override has an obvious place to land.
+ */
+export const ACKNOWLEDGED_SENSITIVE_EXEMPTIONS: Record<string, string> = {}

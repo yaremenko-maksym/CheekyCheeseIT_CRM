@@ -166,8 +166,9 @@ async function fillSeniorIncomeForm(
   await dialog.getByRole('combobox').first().click()
   await page.getByRole('option', { name: PROJECT_NAME }).click()
 
-  // Сумма — input type=number (no testid; semantic input is the contract)
-  await dialog.locator('input[type="number"]').first().fill(amount)
+  // Сумма — AmountCurrencyInput (task-mobile-keyboards.md: type="text" +
+  // inputMode="decimal", not type="number" — target by its stable testid).
+  await dialog.getByTestId('amount-currency-amount-input').fill(amount)
 
   // Чек — обязателен для SENIOR_INCOME. Переключаемся на "Ссылка" режим.
   if (withReceipt) {
@@ -841,7 +842,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     const createDialog = seniorPage.getByTestId('create-transaction-dialog')
     await createDialog.getByRole('combobox').first().click()
     await seniorPage.getByRole('option', { name: PROJECT_NAME }).click()
-    await createDialog.locator('input[type="number"]').first().fill('5000')
+    await createDialog.getByTestId('amount-currency-amount-input').fill('5000')
     // Receipt URL обязателен — переключаемся и заполняем
     await createDialog.getByTestId('receipt-input-mode-url').click()
     await createDialog

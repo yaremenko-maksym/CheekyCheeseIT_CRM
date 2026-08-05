@@ -155,7 +155,9 @@ test.describe('AC5 — SALARY has NO funding-source selector', () => {
     await expect(listbox).toBeVisible()
     await listbox.getByText(USERS.hr.displayName, { exact: false }).click()
 
-    const amountInput = dialog.locator('input[type="number"]').first()
+    // AmountCurrencyInput (task-mobile-keyboards.md: type="text" +
+    // inputMode="decimal", not type="number" — target by its stable testid).
+    const amountInput = dialog.getByTestId('amount-currency-amount-input')
     await amountInput.fill('500')
 
     await dialog.getByTestId('create-transaction-submit').click()

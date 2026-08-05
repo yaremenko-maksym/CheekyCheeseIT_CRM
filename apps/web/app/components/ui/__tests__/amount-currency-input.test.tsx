@@ -73,4 +73,18 @@ describe('AmountCurrencyInput — task-mobile-keyboards.md', () => {
     expect(calls).not.toContain('15')
     expect(calls.every((v) => v !== '')).toBe(true)
   })
+
+  it('pasting a thousands-grouped amount (e.g. copied from a bank statement) resolves to the correct value, not a ~1000x misread (AC2, PR #481 round 2)', async () => {
+    const user = userEvent.setup()
+    const onAmountChange = vi.fn()
+    renderInput(onAmountChange)
+
+    const input = screen.getByTestId('amount-currency-amount-input')
+    await user.click(input)
+    await user.paste('1,000.50')
+
+    const calls = onAmountChange.mock.calls.map((c) => c[0] as string)
+    expect(calls.at(-1)).toBe('1000.50')
+    expect(calls).not.toContain('1.00050')
+  })
 })
