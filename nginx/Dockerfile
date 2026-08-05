@@ -138,6 +138,163 @@ COPY tsconfig.base.json ./
 RUN pnpm --filter @crm/shared build
 RUN pnpm --filter @crm/web build
 
+# ── Brotli module builder ──────────────────────────────────────────────────
+# task-infra-brotli-static: stock `nginx:1.27-alpine` ships gzip only — no
+# brotli support at all (verified: `nginx -V` on this exact base image below
+# carries no `--add-module`/`--add-dynamic-module` for brotli, and
+# `/usr/lib/nginx/modules/` ships only geoip/image-filter/js/xslt .so files,
+# confirmed against a live container of this exact tag). Brotli at its best
+# compression ratio (quality 11) beats this project's current gzip -9/-6
+# baseline by ~14.4% on a real production CRM bundle (assets/vendor-misc,
+# 979 512 raw bytes -> gzip -9 298 860 vs brotli -q11 255 879 — this is the
+# EXACT number this Dockerfile's own `static-compress` stage below produces,
+# verified by building this image end-to-end and inspecting the resulting
+# `.gz`/`.br` files, see this task's PR body for the full table) — matches
+# the "another 15-20%" estimate from the task brief.
+#
+# Built as an OUT-OF-TREE DYNAMIC MODULE (`--with-compat`, already present in
+# this exact base image's own configure arguments — verified via `nginx -V`)
+# against the nginx SOURCE TARBALL for the EXACT version this base image
+# ships (queried via `nginx -v` at build time, not hardcoded — self-adapts if
+# the FROM tag above is ever bumped to a new nginx point release without
+# anyone remembering to update a second, easily-forgotten version pin here).
+# This is the standard, documented way to add brotli to stock nginx without
+# forking the base image or trusting an unofficial pre-built nginx+brotli
+# image from Docker Hub (supply-chain surface we don't control).
+#
+# google/ngx_brotli (https://github.com/google/ngx_brotli) is the de-facto
+# standard brotli module for nginx (referenced from nginx.org's own
+# third-party module list) but has had no code changes since Oct 2023 (repo
+# not archived, 43 open issues as of this writing) — pinned to a specific
+# commit SHA (not a floating branch) for build reproducibility, same
+# pin-a-commit discipline as every other external dependency in this
+# Dockerfile. `--recurse-submodules` is NOT used on the initial clone (a
+# transient submodule-fetch failure would otherwise fail the whole clone
+# atomically with a less obvious error) — `git submodule update --init
+# --recursive` runs as a separate, clearer step instead.
+FROM nginx:1.27-alpine AS brotli-builder
+
+RUN apk add --no-cache \
+      build-base \
+      cmake \
+      git \
+      linux-headers \
+      openssl-dev \
+      pcre2-dev \
+      wget \
+      zlib-dev
+
+ARG NGX_BROTLI_COMMIT=a71f9312c2deb28875acc7bacfdd5695a111aa53
+WORKDIR /usr/src
+
+RUN git clone https://github.com/google/ngx_brotli.git && \
+    cd ngx_brotli && \
+    git checkout "$NGX_BROTLI_COMMIT" && \
+    git submodule update --init --recursive
+
+# Build the vendored brotli C library (libbrotlienc/libbrotlicommon) first —
+# the ngx_brotli module links against these static archives. Only the two
+# targets actually needed are built (not brotlidec/the brotli CLI) — this
+# project only ever COMPRESSES at the origin, decompression is the
+# requesting browser's job.
+RUN cd ngx_brotli/deps/brotli && \
+    mkdir out && cd out && \
+    cmake -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF .. && \
+    cmake --build . --target brotlienc brotlicommon --config Release
+
+# `--with-compat` (already part of this base image's own build, verified via
+# `nginx -V`) is what makes an out-of-tree dynamic module ABI-compatible
+# without needing to replicate every one of the base image's other configure
+# flags — only `--add-dynamic-module` is needed on top.
+#
+# task-infra-brotli-static (design decision, see PR body): only the STATIC
+# module (`ngx_http_brotli_static_module.so`, serves pre-existing `<file>.br`
+# siblings — mirrors nginx's own built-in `gzip_static`, already compiled
+# into this base image per `--with-http_gzip_static_module` in `nginx -V`)
+# is built AND loaded at runtime. The FILTER module (on-the-fly
+# per-request compression, `ngx_http_brotli_filter_module.so`) is
+# deliberately built here (`make modules` builds both from one invocation,
+# free) but NEVER loaded — measured locally (see PR body): brotli fast
+# enough for synchronous per-request use (quality ~4-6) is NO BETTER than
+# this project's existing gzip, sometimes WORSE (q4: 304 548 bytes vs gzip's
+# 299 235 on the same file) — the ~14.5% win only exists at quality 11,
+# which took 1.13s of CPU for a single ~1 MB file in a local benchmark, wildly
+# unacceptable to spend synchronously on every uncached request. Static
+# assets in THIS project's dist output are 100% build-time artifacts with
+# content-hashed, immutable filenames (`Cache-Control: public, immutable`,
+# see nginx/conf.d/crm.conf and landing.conf) — pre-compressing once at
+# `docker build` time and serving the byte-identical result on every request
+# thereafter is strictly better than the filter module on every axis (best
+# compression ratio available AND zero added per-request CPU) with no
+# downside for this project's specific asset-serving shape.
+RUN set -eu; \
+    NGINX_VERSION="$(nginx -v 2>&1 | sed -E 's#^nginx version: nginx/([0-9.]+)$#\1#')"; \
+    echo "==> Building ngx_brotli (static module only) against nginx $NGINX_VERSION"; \
+    wget -q "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz"; \
+    tar -xzf "nginx-${NGINX_VERSION}.tar.gz"; \
+    cd "nginx-${NGINX_VERSION}"; \
+    ./configure --with-compat --add-dynamic-module=../ngx_brotli; \
+    make modules
+
+RUN mkdir -p /out && \
+    cp /usr/src/nginx-*/objs/ngx_http_brotli_static_module.so /out/
+
+# ── Static asset pre-compression (gzip -9 + brotli -q11) ───────────────────
+# task-infra-brotli-static: runs against the FINAL dist output of both SPA
+# builders — after the landing SEO-prerender step above (so prerendered
+# locale HTML pages get compressed too, not just the CSR shell) and after the
+# CRM build. Deliberately a SEPARATE small stage (not `RUN apk add brotli
+# gzip` inside the `runtime` stage below) so the compression CLI tools
+# themselves never end up as installed packages in the image that actually
+# faces the internet.
+#
+# Extensions chosen to match this project's existing `gzip_types` in
+# nginx.conf (text/plain, text/css, text/javascript, application/javascript,
+# application/json, application/xml, image/svg+xml) PLUS `.html` — nginx's
+# gzip module always implicitly compresses `text/html` regardless of
+# `gzip_types` (documented nginx behaviour: "the text/html value is always
+# compressed" — verified live in this task's PR body: prod already gzips
+# index.html today even though `text/html` never appears in nginx.conf's
+# `gzip_types` list). `font/woff`/`font/woff2` are DELIBERATELY excluded —
+# WOFF2 is already brotli-compressed internally at the font-container format
+# level (WOFF is zlib-compressed); recompressing either wastes build time for
+# ~0% (occasionally negative) additional gain. Binary image formats
+# (png/ico/jpg/jpeg/webp/gif — SVG excepted, it is plain XML text and IS
+# covered by `-name '*.svg'` above) are excluded for the same reason
+# (already-compressed formats) — this mirrors nginx.conf's existing
+# `gzip_types` list omitting them today.
+#
+# `-k`/`--keep` on both tools: writes the `.br`/`.gz` sibling ALONGSIDE the
+# original, uncompressed file — required, since `brotli_static`/`gzip_static`
+# below fall back to serving the original file byte-for-byte whenever no
+# precompressed sibling exists (e.g. a client that sends neither `br` nor
+# `gzip` in `Accept-Encoding`, or the rare static file not in one of the
+# extensions this loop covers — the small IndexNow-key/Bing/Yandex
+# verification files written directly into the landing dist by the `runtime`
+# stage below, AFTER this copy, are one such case, and remain served
+# uncompressed exactly as before this change — they are tiny, well under any
+# compression `min_length` threshold, no behaviour change).
+FROM alpine:3.21 AS static-compress
+
+RUN apk add --no-cache brotli gzip
+
+COPY --from=landing-builder /app/apps/landing/dist /work/landing
+COPY --from=crm-builder     /app/apps/web/dist     /work/crm
+
+RUN set -eu; \
+    for root in /work/landing /work/crm; do \
+      find "$root" -type f \( \
+        -name '*.js' -o -name '*.css' -o -name '*.html' -o \
+        -name '*.svg' -o -name '*.xml' -o -name '*.json' -o -name '*.txt' \
+      \) -exec sh -c ' \
+        for f do \
+          gzip -9 -k -f "$f"; \
+          brotli -q 11 -k -f "$f"; \
+        done \
+      ' sh {} +; \
+    done; \
+    echo "==> Pre-compressed static assets (gzip -9 + brotli -q11) under /work/landing and /work/crm"
+
 # ── Final nginx image ─────────────────────────────────────────────────────
 FROM nginx:1.27-alpine AS runtime
 
@@ -279,10 +436,27 @@ RUN set -eu; \
 COPY nginx/njs/       /etc/nginx/njs/
 
 # Copy Landing SPA static files.
-COPY --from=landing-builder /app/apps/landing/dist /usr/share/nginx/html/landing
+# task-infra-brotli-static: sourced from `static-compress` (gzip -9 +
+# brotli -q11 pre-compressed siblings alongside every original file), NOT
+# `landing-builder` directly — see that stage's header comment.
+COPY --from=static-compress /work/landing /usr/share/nginx/html/landing
 
 # Copy CRM SPA static files.
-COPY --from=crm-builder /app/apps/web/dist /usr/share/nginx/html/crm
+# task-infra-brotli-static: sourced from `static-compress` — see above.
+COPY --from=static-compress /work/crm /usr/share/nginx/html/crm
+
+# task-infra-brotli-static: the out-of-tree brotli STATIC module (serves the
+# pre-compressed `.br` siblings the `static-compress` stage just wrote —
+# mirrors nginx's own built-in `gzip_static`, already compiled into this base
+# image) — see `brotli-builder`'s header comment for why only the static
+# module (not the on-the-fly filter module) is shipped. `/usr/lib/nginx/
+# modules/` is the REAL target of the `/etc/nginx/modules` symlink this base
+# image ships (verified: `ls -la /etc/nginx/modules` on this exact tag) —
+# copying here, not to the symlink path, so `load_module modules/...` in
+# nginx.conf below (relative, same pattern as the already-present
+# `ngx_http_js_module.so` load) resolves correctly regardless of which path
+# is used to reach it.
+COPY --from=brotli-builder /out/ngx_http_brotli_static_module.so /usr/lib/nginx/modules/
 
 # ── task-infra-locale-edge: search-engine verification / IndexNow files ───
 # Four OPTIONAL build-args, each independently no-op when unset (mirrors the
