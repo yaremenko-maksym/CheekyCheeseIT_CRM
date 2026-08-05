@@ -125,15 +125,23 @@ export function UploadProgress({
 
   return (
     <div className={cn('space-y-1.5', className)} data-testid={testId}>
-      <div className="flex items-center justify-between text-xs text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <PhaseIcon phase={phase} className="h-3.5 w-3.5 shrink-0" />
-          <span>
-            {phase === 'uploading' ? (label ?? DEFAULT_LABELS.uploading) : phaseLabel(state, label)}
+      {/* Error phase gets its own dedicated alert block below (icon + full
+          message + retry) — repeating the same icon+label pair up here would
+          just echo it a second time in the same component instance, so this
+          status line is skipped for 'error' only. */}
+      {phase !== 'error' && (
+        <div className="flex items-center justify-between text-xs text-muted-foreground">
+          <span className="flex items-center gap-1.5">
+            <PhaseIcon phase={phase} className="h-3.5 w-3.5 shrink-0" />
+            <span>
+              {phase === 'uploading'
+                ? (label ?? DEFAULT_LABELS.uploading)
+                : phaseLabel(state, label)}
+            </span>
           </span>
-        </span>
-        {phase === 'uploading' && <span className="tabular-nums">{state.percent ?? 0}%</span>}
-      </div>
+          {phase === 'uploading' && <span className="tabular-nums">{state.percent ?? 0}%</span>}
+        </div>
+      )}
 
       {phase !== 'error' && phase !== 'success' && (
         <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
@@ -163,7 +171,10 @@ export function UploadProgress({
               variant="outline"
               size="sm"
               onClick={onRetry}
-              className="h-6 shrink-0 gap-1 px-2 text-xs"
+              // Mobile-first: 44px hit area (responsive-design.md tap-target
+              // rule) on the base/mobile breakpoint; compact 24px pill from
+              // `sm:` up, where the dialog is comfortably mouse-driven.
+              className="h-11 px-3 sm:h-6 sm:px-2 shrink-0 gap-1 text-xs"
               data-testid={testId ? `${testId}-retry` : 'upload-progress-retry'}
             >
               <RotateCcw className="h-3 w-3" aria-hidden />
