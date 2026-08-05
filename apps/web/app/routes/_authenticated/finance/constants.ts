@@ -134,6 +134,56 @@ export function toUsd(amount: string | number, currency: string, rates: Exchange
 }
 
 /**
+ * Inverse of `toUsd` — a USD figure expressed in `currency`. Private: callers
+ * want `convertAmount` below, which is the round-trip and therefore the only
+ * direction-safe way to move between two non-USD currencies.
+ */
+function fromUsd(usd: number, currency: string, rates: ExchangeRates): number {
+  if (currency === 'USD' || currency === 'USDT') return usd
+  if (currency === 'EUR') return usd * (parseFloat(rates.usdUah) / parseFloat(rates.eurUah))
+  if (currency === 'UAH') return usd * parseFloat(rates.usdUah)
+  return usd
+}
+
+/**
+ * task-salary-pay-amount — `amount` denominated in `from`, re-expressed in `to`
+ * at the NBU rates, via USD (the pivot every rate in `ExchangeRates` is quoted
+ * against). Returns `null` when the conversion cannot be trusted — missing /
+ * unparseable / non-positive rates, or a non-finite amount — so a caller can
+ * render "—" instead of a confident wrong number.
+ *
+ * Lives here, next to `toUsd` / `fmtUsd` / `fmtRate`, rather than in a new
+ * module: this file is already the one place that owns NBU conversion for the
+ * web app, and a second implementation is exactly what would drift.
+ */
+export function convertAmount(
+  amount: string | number,
+  from: string,
+  to: string,
+  rates: ExchangeRates | undefined,
+): number | null {
+  const n = typeof amount === 'string' ? parseFloat(amount) : amount
+  if (!Number.isFinite(n)) return null
+  if (from === to) return n
+  // USDT is pegged 1:1 to USD, so a USD↔USDT pair is a relabel, not a
+  // conversion — answerable before the NBU rates have loaded (and the reason
+  // this check sits ABOVE the `!rates` guard).
+  const isUsdPegged = (c: string) => c === 'USD' || c === 'USDT'
+  if (isUsdPegged(from) && isUsdPegged(to)) return n
+  if (!rates) return null
+  // A zero/NaN rate would silently produce Infinity/NaN downstream (and a
+  // "converted" amount of Infinity would sail through a `> 0` check).
+  const usdUah = parseFloat(rates.usdUah)
+  const eurUah = parseFloat(rates.eurUah)
+  const needsUah = from === 'UAH' || to === 'UAH' || from === 'EUR' || to === 'EUR'
+  const needsEur = from === 'EUR' || to === 'EUR'
+  if (needsUah && (!Number.isFinite(usdUah) || usdUah <= 0)) return null
+  if (needsEur && (!Number.isFinite(eurUah) || eurUah <= 0)) return null
+  const converted = fromUsd(toUsd(n, from, rates), to, rates)
+  return Number.isFinite(converted) ? converted : null
+}
+
+/**
  * USD-converted amount for the transaction table («$7 777,00»). USDT is
  * pegged 1:1 to USD so it passes through. Non-USD currencies convert via the
  * NBU rates; without rates loaded we fall back to the original-currency
