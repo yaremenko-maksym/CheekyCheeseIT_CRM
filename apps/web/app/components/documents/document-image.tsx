@@ -14,13 +14,31 @@
  * Returns null (no element) when the thumbnail is unavailable AND the
  * parent supplied no fallback — the parent (DocumentCard) renders the
  * category icon overlay in that case.
+ *
+ * `crossOrigin="anonymous"` (security HIGH-1, task-scan-cache-leak):
+ * without it, a cross-origin `<img>` fetch is made in `no-cors` mode and the
+ * browser hands back an OPAQUE Response — status always `0`, every header
+ * (including `Cache-Control`) unreadable. The Service Worker's `media-cache`
+ * rule (apps/web/app/lib/pwa-runtime-caching.ts) relies on reading
+ * `Cache-Control` to keep sensitive categories (SCAN/RESUME/CONTRACT/
+ * RECEIPT/INVOICE — `private, no-store` per `cacheControlForCategory` in
+ * apps/api/src/documents/s3.service.ts) out of the cache; an opaque response
+ * defeats that check by construction, so those scans silently sat in the
+ * on-device cache for 30 days. `crossOrigin="anonymous"` switches the fetch
+ * to `cors` mode (no credentials sent — matches an unauthenticated presigned
+ * URL) so the response is transparent and the existing no-store check
+ * actually runs. This requires the storage bucket to allow GET from the web
+ * origin (already a hard requirement for `useDocumentBlob`'s
+ * `fetch(url, { mode: 'cors' })` PDF preview — see docs/runbooks/s3-storage.md
+ * §5 — so this doesn't add a new infra dependency, it just uses the same one
+ * consistently). AVATAR/LOGO responses (`public, max-age=31536000,
+ * immutable`) keep getting cached exactly as before — only the categories
+ * that were already SUPPOSED to be excluded lose the accidental opaque
+ * bypass.
  */
 import { ImageIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import {
-  useDocumentDownloadUrl,
-  useDocumentThumbnailUrl,
-} from '@/hooks/use-documents'
+import { useDocumentDownloadUrl, useDocumentThumbnailUrl } from '@/hooks/use-documents'
 
 interface DocumentImageProps {
   docId: string
@@ -62,10 +80,7 @@ export function DocumentImage({
   if (isLoading) {
     return (
       <div
-        className={cn(
-          'flex items-center justify-center bg-muted animate-pulse',
-          className,
-        )}
+        className={cn('flex items-center justify-center bg-muted animate-pulse', className)}
         aria-label="Загружается изображение"
       />
     )
@@ -78,10 +93,7 @@ export function DocumentImage({
     if (fallbackToParent) return null
     return (
       <div
-        className={cn(
-          'flex items-center justify-center bg-muted text-muted-foreground',
-          className,
-        )}
+        className={cn('flex items-center justify-center bg-muted text-muted-foreground', className)}
         aria-label="Превью недоступно"
       >
         <ImageIcon className="h-8 w-8" />
@@ -94,10 +106,11 @@ export function DocumentImage({
       src={data.url}
       alt={alt}
       loading="lazy"
+      crossOrigin="anonymous"
       className={cn('object-cover', className)}
       onError={(e) => {
         // Hide broken image; fallback handled by parent if needed.
-        (e.currentTarget as HTMLImageElement).style.display = 'none'
+        ;(e.currentTarget as HTMLImageElement).style.display = 'none'
       }}
     />
   )
