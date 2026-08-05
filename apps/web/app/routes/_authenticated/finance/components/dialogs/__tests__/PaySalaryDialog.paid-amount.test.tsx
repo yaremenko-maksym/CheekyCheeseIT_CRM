@@ -235,6 +235,21 @@ describe('PaySalaryDialog — amount validity (blocks, unlike the warning)', () 
     expect(paySalaryMock).not.toHaveBeenCalled()
   })
 
+  it('surfaces the amount AND receipt errors together, neither gating the other', async () => {
+    // Regression guard: an earlier version checked the amount first and
+    // returned, so the receipt error could only ever appear once the amount
+    // happened to be valid — making one required field's feedback depend on
+    // another field's async prefill (and on the E2E timing that pins it).
+    renderDialog()
+    await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))
+    fireEvent.change(amountInput(), { target: { value: '' } })
+    fireEvent.click(screen.getByTestId('pay-salary-submit'))
+
+    expect(await screen.findByTestId('pay-salary-amount-error')).toBeInTheDocument()
+    expect(screen.getByTestId('pay-salary-error-receipt')).toBeInTheDocument()
+    expect(paySalaryMock).not.toHaveBeenCalled()
+  })
+
   it('blocks an empty amount', async () => {
     renderDialog()
     await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))

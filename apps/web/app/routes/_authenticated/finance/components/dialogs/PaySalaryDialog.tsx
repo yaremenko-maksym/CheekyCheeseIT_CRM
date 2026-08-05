@@ -172,19 +172,21 @@ export function PaySalaryDialog({
   function handleSubmit() {
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
-    // task-salary-pay-amount: the amount is checked FIRST — an unusable amount
-    // is the more consequential of the two gates. The deviation WARNING is
-    // deliberately not consulted here: it must never block a payment.
-    if (!hasAmountInput) {
-      setAmountSubmitError('Укажите сумму выплаты')
-      return
-    }
-    if (liveAmountError) return
-    const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, effectiveCurrency)
-    if (err) {
-      setReceiptError(err)
-      return
-    }
+    // Both gates are evaluated INDEPENDENTLY and both errors surface at once —
+    // no early return between them. Ordering them would mean the receipt error
+    // could only appear once the amount happened to be valid, making one
+    // required field's feedback depend on another's timing (the amount is
+    // prefilled asynchronously). The user sees everything that is wrong.
+    //
+    // task-salary-pay-amount: the deviation WARNING is deliberately NOT
+    // consulted here — it must never block a payment.
+    const receiptErr = receiptMandatoryError(
+      { receiptDocumentId, receiptExternalUrl },
+      effectiveCurrency,
+    )
+    if (receiptErr) setReceiptError(receiptErr)
+    if (!hasAmountInput) setAmountSubmitError('Укажите сумму выплаты')
+    if (receiptErr || !hasAmountInput || liveAmountError) return
     mutation.mutate()
   }
 
