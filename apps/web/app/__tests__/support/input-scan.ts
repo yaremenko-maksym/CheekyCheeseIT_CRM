@@ -101,34 +101,48 @@ export class ScannedAttrs {
   }
 }
 
-/** Walks `expr`, collecting every reachable string-literal leaf (handles ternaries + parens). */
-function collectStringLiterals(expr: ts.Expression, out: Set<string>): void {
+interface CollectedLiterals {
+  strings: Set<string>
+  booleans: Set<boolean>
+}
+
+/**
+ * Walks `expr`, collecting every reachable string/boolean literal leaf —
+ * handles ternaries, parens, and `??` on EITHER side (so
+ * `type={showPassword ? 'text' : 'password'}` and
+ * `spellCheck={inputType === 'url' ? false : undefined}` both resolve to
+ * their real reachable literal(s) instead of being treated as opaque
+ * dynamic values).
+ */
+function collectLiterals(expr: ts.Expression, out: CollectedLiterals): void {
   if (ts.isStringLiteralLike(expr)) {
-    out.add(expr.text)
+    out.strings.add(expr.text)
+    return
+  }
+  if (expr.kind === ts.SyntaxKind.TrueKeyword) {
+    out.booleans.add(true)
+    return
+  }
+  if (expr.kind === ts.SyntaxKind.FalseKeyword) {
+    out.booleans.add(false)
     return
   }
   if (ts.isParenthesizedExpression(expr)) {
-    collectStringLiterals(expr.expression, out)
+    collectLiterals(expr.expression, out)
     return
   }
   if (ts.isConditionalExpression(expr)) {
-    collectStringLiterals(expr.whenTrue, out)
-    collectStringLiterals(expr.whenFalse, out)
+    collectLiterals(expr.whenTrue, out)
+    collectLiterals(expr.whenFalse, out)
     return
   }
   if (
     ts.isBinaryExpression(expr) &&
     expr.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
   ) {
-    collectStringLiterals(expr.left, out)
-    collectStringLiterals(expr.right, out)
+    collectLiterals(expr.left, out)
+    collectLiterals(expr.right, out)
   }
-}
-
-function boolLiteral(expr: ts.Expression): boolean | undefined {
-  if (expr.kind === ts.SyntaxKind.TrueKeyword) return true
-  if (expr.kind === ts.SyntaxKind.FalseKeyword) return false
-  return undefined
 }
 
 function extractAttrs(attributes: ts.JsxAttributes): ScannedAttrs {
@@ -147,17 +161,13 @@ function extractAttrs(attributes: ts.JsxAttributes): ScannedAttrs {
     }
     if (ts.isJsxExpression(prop.initializer) && prop.initializer.expression) {
       const inner = prop.initializer.expression
-      const bool = boolLiteral(inner)
-      if (bool !== undefined) {
-        attrs.addBool(name, bool)
-        continue
-      }
-      const literals = new Set<string>()
-      collectStringLiterals(inner, literals)
-      if (literals.size > 0) {
-        for (const v of literals) attrs.addString(name, v)
-      } else {
+      const found: CollectedLiterals = { strings: new Set(), booleans: new Set() }
+      collectLiterals(inner, found)
+      if (found.strings.size === 0 && found.booleans.size === 0) {
         attrs.markPresentDynamic(name)
+      } else {
+        for (const v of found.strings) attrs.addString(name, v)
+        for (const v of found.booleans) attrs.addBool(name, v)
       }
       continue
     }
