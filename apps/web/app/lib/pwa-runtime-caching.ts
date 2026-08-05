@@ -25,6 +25,36 @@
  *      didn't know about each other.
  * `/api/*` must never be matched by a runtimeCaching rule again.
  *
+ * IMPORTANT — security HIGH-1 (task-scan-cache-leak, security-review PR #477
+ * finding, pre-existing/out-of-diff at the time): the ONE remaining rule
+ * below (`media-cache`) had the SAME class of bug as `api-cache` above, just
+ * quieter — it cached document scans (SCAN/RESUME/CONTRACT/RECEIPT/INVOICE)
+ * for 30 days (`maxAgeSeconds: 2592000`) despite the API honestly setting
+ * `Cache-Control: private, no-store` for those categories
+ * (`cacheControlForCategory`, apps/api/src/documents/s3.service.ts):
+ *   1. `document-image.tsx` rendered the `<img>` WITHOUT `crossOrigin` →
+ *      the fetch ran in `no-cors` mode → the browser returned an OPAQUE
+ *      Response — status forced to `0`, every header (incl. `Cache-Control`)
+ *      unreadable.
+ *   2. `cacheWillUpdate` below reads `response.headers.get('cache-control')`
+ *      to reject `no-store` — on an opaque response that always reads `''`,
+ *      so the no-store check silently never fired for image thumbnails.
+ *   3. `cacheableResponse.statuses` used to explicitly list `0` alongside
+ *      `200` — i.e. it OPTED IN opaque responses instead of rejecting the
+ *      one status class that can't be inspected for `no-store` at all.
+ * Fixed two ways (belt-and-suspenders, not either/or):
+ *   - `document-image.tsx` now sets `crossOrigin="anonymous"`, so the
+ *     `<img>` fetch is `cors` mode and the response is transparent — the
+ *     existing `cacheWillUpdate` no-store check actually runs (root-cause
+ *     fix; AVATAR/LOGO — `public, max-age=31536000, immutable` — keep being
+ *     cached exactly as intended).
+ *   - `cacheableResponse.statuses` below is now `[200]` only — status `0`
+ *     (opaque, from ANY future caller that forgets `crossOrigin`, not just
+ *     this one) fails CLOSED instead of failing open. This is the
+ *     "protection that doesn't fire by construction" the finding called
+ *     out — the fix is deliberately not just "remember to set
+ *     `crossOrigin` everywhere forever".
+ *
  * IMPORTANT — serialization constraint (applies to every rule below):
  * `generateSW` (workbox-build) stringifies each function here via
  * `Function.prototype.toString()` and embeds the source text verbatim into
@@ -85,9 +115,26 @@ export const pwaRuntimeCaching: PwaRuntimeCachingRule[] = [
       if (request.destination === 'image') return true
       // PDF fetch — по расширению или Content-Type (presigned S3 blob)
       if (url.pathname.toLowerCase().endsWith('.pdf')) return true
-      // Любой кросс-origin GET без расширения — может быть presigned blob
-      // (S3 keys не имеют расширения у PDF если загружен без него)
-      if (request.method === 'GET' && request.destination === '') return true
+      // security MED-3 (task-scan-cache-leak): кросс-origin GET без
+      // destination может быть presigned S3/R2 blob-fetch (use-document-blob.ts
+      // — S3 keys без расширения у PDF, если загружен без него, дают
+      // destination==='' у fetch(mode:'cors')). Раньше условие матчило ЛЮБОЙ
+      // такой GET, полагаясь на то, что API живёт на том же origin (тогда
+      // проверка pathname выше уже его отсеяла) — приватность держалась на
+      // ТОПОЛОГИИ деплоя, а не на содержимом запроса. При вынесении API на
+      // отдельный поддомен (api.domain.com) обычный JSON GET той же формы
+      // (destination==='') поймал бы это правило и лёг бы в 30-дневный кеш.
+      // Теперь условие сужено до присутствия AWS SigV4 presigned-параметра
+      // (X-Amz-Signature) — его ВСЕГДА ставит getSignedUrl() из
+      // @aws-sdk/s3-request-presigner (apps/api/src/documents/s3.service.ts)
+      // и НИКОГДА не будет у обычного JSON API-ответа. Проверка привязана к
+      // протоколу хранилища, а не к тому, где живёт API.
+      if (
+        request.method === 'GET' &&
+        request.destination === '' &&
+        url.searchParams.has('X-Amz-Signature')
+      )
+        return true
       return false
     },
     handler: 'CacheFirst' as const,
@@ -111,7 +158,11 @@ export const pwaRuntimeCaching: PwaRuntimeCachingRule[] = [
         },
       ],
       expiration: { maxEntries: 200, maxAgeSeconds: 2592000 },
-      cacheableResponse: { statuses: [0, 200] },
+      // security HIGH-1: was `[0, 200]` — status 0 (opaque response, no
+      // headers readable) used to be explicitly opted in, which is exactly
+      // what let sensitive-category scans bypass the `cacheWillUpdate`
+      // no-store check above. See the file header for the full writeup.
+      cacheableResponse: { statuses: [200] },
     },
   },
 ]
