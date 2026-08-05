@@ -126,6 +126,10 @@ export const PROSE_KEYS: ReadonlySet<string> = new Set([
 export const ELLIPSIS_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   'home.contactForm.submitting',
   'vacancy.apply.submitting',
+  // task-upload-freeze-and-progress.md — same pending-state convention as
+  // `submitting` above (100% sent ≠ done; this is the distinct label shown
+  // while the server is still writing the CV to storage).
+  'vacancy.apply.processing',
   'vacancy.apply.linkedinPlaceholder',
   'vacancy.apply.githubPlaceholder',
 ])
