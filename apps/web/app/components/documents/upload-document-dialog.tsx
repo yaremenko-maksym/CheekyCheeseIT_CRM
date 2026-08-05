@@ -37,9 +37,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import { UploadProgress } from '@/components/ui/upload-progress'
 import { cn } from '@/lib/utils'
 import { formatBytes } from '@/lib/format-bytes'
 import { useUploadDocument } from '@/hooks/use-documents'
+import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 
 interface ProjectOption {
   id: string
@@ -103,11 +105,11 @@ export function UploadDocumentDialog({
   const [category, setCategory] = useState<DocumentCategory>(defaultCategory)
   const [projectId, setProjectId] = useState<string | undefined>(defaultProjectId)
   const [ownerId, setOwnerId] = useState<string | undefined>(defaultOwnerId)
-  const [progress, setProgress] = useState<number | null>(null)
   const [isDragging, setIsDragging] = useState(false)
 
   const inputRef = useRef<HTMLInputElement>(null)
   const upload = useUploadDocument()
+  const progress = useUploadProgressState()
 
   // Reset form when the dialog opens (so re-opening from the same trigger
   // doesn't leak stale state).
@@ -117,10 +119,10 @@ export function UploadDocumentDialog({
       setCategory(defaultCategory)
       setProjectId(defaultProjectId)
       setOwnerId(defaultOwnerId)
-      setProgress(null)
       setIsDragging(false)
+      progress.reset()
     }
-  }, [open, defaultCategory, defaultProjectId, defaultOwnerId])
+  }, [open, defaultCategory, defaultProjectId, defaultOwnerId, progress.reset])
 
   const categoriesToShow = allowedCategories ?? DEFAULT_ALLOWED
   const requiresProject = category === 'CONTRACT'
@@ -150,22 +152,22 @@ export function UploadDocumentDialog({
     if (!file) return
     // Re-parse category to ensure it matches the shared enum at the boundary.
     const parsedCategory = documentCategorySchema.parse(category)
-    setProgress(0)
+    progress.prepare()
     upload.mutate(
       {
         file,
         category: parsedCategory,
         projectId: projectId ?? null,
         ownerId: ownerId ?? null,
-        onProgress: (p) => setProgress(p),
+        onProgress: progress.onProgress,
       },
       {
         onSuccess: () => {
-          setProgress(null)
+          progress.success()
           onOpenChange(false)
           onUploaded?.()
         },
-        onError: () => setProgress(null),
+        onError: (e) => progress.error(e.message || 'Не удалось загрузить документ'),
       },
     )
   }
@@ -326,24 +328,7 @@ export function UploadDocumentDialog({
           ) : null}
 
           {/* Progress */}
-          {progress !== null ? (
-            <div className="space-y-1">
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>Загрузка</span>
-                <span>{progress}%</span>
-              </div>
-              <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-                <div
-                  className="h-full bg-primary transition-[width] duration-150"
-                  style={{ width: `${progress}%` }}
-                  role="progressbar"
-                  aria-valuenow={progress}
-                  aria-valuemin={0}
-                  aria-valuemax={100}
-                />
-              </div>
-            </div>
-          ) : null}
+          <UploadProgress state={progress.state} onRetry={handleSubmit} testId="upload-progress" />
         </CrmDialogBody>
 
         <CrmDialogFooter>

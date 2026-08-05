@@ -19,11 +19,13 @@
  */
 import { useEffect, useRef } from 'react'
 import { motion } from 'framer-motion'
-import { FileImage, FileText, Link as LinkIcon, Loader2, Paperclip, X } from 'lucide-react'
+import { FileImage, FileText, Link as LinkIcon, Paperclip, X } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { UploadProgress } from '@/components/ui/upload-progress'
 import { useDocumentDownloadUrl, useUploadDocument } from '@/hooks/use-documents'
+import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 
 export type ReceiptMode = 'file' | 'url'
 
@@ -119,6 +121,7 @@ export function ReceiptInput({
 }: ReceiptInputProps) {
   const fileInputRef = useRef<HTMLInputElement>(null)
   const uploadMutation = useUploadDocument()
+  const progress = useUploadProgressState()
 
   // task-receipts-frontend: when explorerOnly flips true while the user has
   // a file selected, auto-normalize to an empty url-mode state — a file
@@ -201,11 +204,14 @@ export function ReceiptInput({
       mimeType: file.type,
     })
 
+    progress.prepare()
     try {
       const doc = await uploadMutation.mutateAsync({
         file,
         category: 'RECEIPT',
+        onProgress: progress.onProgress,
       })
+      progress.success()
       // Revoke the local blob — we'll use the presigned URL going forward
       // (downloadQuery is enabled for state.documentId on next render).
       URL.revokeObjectURL(localPreview)
@@ -217,8 +223,14 @@ export function ReceiptInput({
         previewUrl: null, // will be populated via downloadQuery → useEffect
         mimeType: doc.mimeType,
       })
-    } catch {
-      // useUploadDocument shows a toast; revert to empty so the user can retry.
+    } catch (err) {
+      // useUploadDocument shows a toast; revert to empty so the user can
+      // retry (there's no file left to retry IN PLACE — the picker resets —
+      // so no `onRetry` is wired into the progress display; the 'error'
+      // phase itself stays visible in the (now-empty) picker button below
+      // until the user picks a new file, which calls `progress.prepare()`
+      // and clears it — matching AC3 without a dangling retry action).
+      progress.error(err instanceof Error ? err.message : 'Не удалось загрузить чек')
       URL.revokeObjectURL(localPreview)
       onChange(emptyReceiptState())
     }
@@ -318,7 +330,11 @@ export function ReceiptInput({
               )}
               {uploading && (
                 <div className="absolute inset-0 bg-background/70 flex items-center justify-center">
-                  <Loader2 className="h-5 w-5 animate-spin text-primary" />
+                  <UploadProgress
+                    state={progress.state}
+                    size="sm"
+                    testId="receipt-input-progress"
+                  />
                 </div>
               )}
               {!uploading && (
@@ -351,20 +367,26 @@ export function ReceiptInput({
                 uploading && 'opacity-50 cursor-not-allowed',
               )}
             >
-              {uploading ? (
-                <Loader2 className="h-5 w-5 animate-spin text-primary" />
-              ) : (
+              {progress.state.phase === 'idle' ? (
                 <div className="flex gap-2">
                   <FileImage className="h-5 w-5 opacity-60" />
                   <FileText className="h-5 w-5 opacity-60" />
                 </div>
+              ) : (
+                <UploadProgress
+                  state={progress.state}
+                  size="sm"
+                  testId="receipt-input-progress-idle"
+                />
               )}
-              <div className="text-center">
-                <div className="text-xs font-medium text-foreground/70">
-                  {uploading ? 'Загрузка...' : 'Нажмите для выбора файла'}
+              {progress.state.phase === 'idle' && (
+                <div className="text-center">
+                  <div className="text-xs font-medium text-foreground/70">
+                    Нажмите для выбора файла
+                  </div>
+                  <div className="text-[10px] mt-0.5">JPG, PNG, PDF — до 10 МБ</div>
                 </div>
-                <div className="text-[10px] mt-0.5">JPG, PNG, PDF — до 10 МБ</div>
-              </div>
+              )}
             </button>
           )}
         </div>

@@ -166,25 +166,45 @@ function errorKindForStatus(status: number): SubmitApplicationErrorKind {
   }
 }
 
-/** POST /api/public/vacancies/:slug/apply — multipart (fields + `resume` PDF). */
-export async function submitApplication(
+/**
+ * POST /api/public/vacancies/:slug/apply — multipart (fields + `resume`
+ * PDF). Uses `XMLHttpRequest` rather than `fetch` (task-upload-freeze-and-
+ * progress.md) SPECIFICALLY so `onProgress` can report real upload percent
+ * — the Fetch API has no equivalent of XHR's `upload.onprogress`, and a
+ * candidate applying from a phone on a slow connection is exactly the case
+ * this task's own measurement targeted. Same external contract as before
+ * (status-code -> `SubmitApplicationErrorKind` mapping unchanged); `onProgress`
+ * is a new, optional, backward-compatible 3rd parameter.
+ */
+export function submitApplication(
   slug: string,
   formData: FormData,
+  onProgress?: (percent: number) => void,
 ): Promise<SubmitApplicationResult> {
-  let res: Response
-  try {
-    res = await fetch(`/api/public/vacancies/${encodeURIComponent(slug)}/apply`, {
-      method: 'POST',
-      body: formData,
-    })
-  } catch {
-    return { ok: false, errorKind: 'network', message: ERROR_COPY.network }
-  }
+  return new Promise((resolve) => {
+    const xhr = new XMLHttpRequest()
+    xhr.open('POST', `/api/public/vacancies/${encodeURIComponent(slug)}/apply`)
 
-  if (res.ok) return { ok: true }
+    if (onProgress) {
+      xhr.upload.onprogress = (event) => {
+        if (!event.lengthComputable) return
+        onProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+      }
+    }
 
-  const kind = errorKindForStatus(res.status)
-  return { ok: false, errorKind: kind, message: ERROR_COPY[kind] }
+    xhr.onerror = () => resolve({ ok: false, errorKind: 'network', message: ERROR_COPY.network })
+
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve({ ok: true })
+        return
+      }
+      const kind = errorKindForStatus(xhr.status)
+      resolve({ ok: false, errorKind: kind, message: ERROR_COPY[kind] })
+    }
+
+    xhr.send(formData)
+  })
 }
 
 // ---------------------------------------------------------------------------

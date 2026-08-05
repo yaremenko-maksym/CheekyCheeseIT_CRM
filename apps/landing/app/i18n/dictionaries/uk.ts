@@ -322,6 +322,7 @@ export const uk: Dictionary = {
       cvTooLarge: 'Файл більший за 5 МБ.',
       submit: 'Надіслати відгук',
       submitting: 'Надсилаємо…',
+      processing: 'Обробляємо…',
       protectedBy: 'Захищено невидимою капчею — без головоломок.',
       successHeading: 'Відгук отримано',
       successThanks: 'Дякуємо',

@@ -258,6 +258,14 @@ export interface Dictionary {
       cvTooLarge: string
       submit: string
       submitting: string
+      /**
+       * task-upload-freeze-and-progress.md — shown once the CV's bytes have
+       * all been sent but the server hasn't confirmed yet (still writing to
+       * storage). Distinct from `submitting` (which now also carries a live
+       * `NN%` alongside it while bytes are actually in flight) — 100% sent
+       * is NOT the same as done.
+       */
+      processing: string
       protectedBy: string
       successHeading: string
       successThanks: string

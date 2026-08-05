@@ -191,6 +191,7 @@ export const CLAIMLESS_HEADING_KEYS: ReadonlySet<string> = new Set([
   'vacancy.apply.cvRemoveAriaLabel',
   'vacancy.apply.submit',
   'vacancy.apply.submitting',
+  'vacancy.apply.processing',
   'vacancy.apply.successHeading',
   'vacancy.apply.successThanks',
   'vacancy.apply.successBodyBefore',

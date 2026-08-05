@@ -324,6 +324,7 @@ export const ru: Dictionary = {
       cvTooLarge: 'Файл больше 5 МБ.',
       submit: 'Отправить отклик',
       submitting: 'Отправляем…',
+      processing: 'Обрабатываем…',
       protectedBy: 'Защищено невидимой капчей — без головоломок.',
       successHeading: 'Отклик получен',
       successThanks: 'Спасибо',

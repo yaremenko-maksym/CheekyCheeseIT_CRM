@@ -16,12 +16,14 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { ImagePlus, Link2, Loader2, Paperclip, X } from 'lucide-react'
+import { ImagePlus, Link2, Paperclip, X } from 'lucide-react'
 import { DOCUMENT_MAX_BYTES, DOCUMENT_MIME_WHITELIST, type DocumentCategory } from '@crm/shared'
 import { Button } from './button'
 import { Input } from './input'
+import { UploadProgress } from './upload-progress'
 import { cn } from '@/lib/utils'
 import { useUploadDocument } from '@/hooks/use-documents'
+import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 import { DocumentImage } from '@/components/documents/document-image'
 
 export interface ImageUploadFieldValue {
@@ -68,10 +70,10 @@ export function ImageUploadField({
   const initialMode: 'file' | 'url' = value.externalUrl ? 'url' : 'file'
   const [mode, setMode] = useState<'file' | 'url'>(initialMode)
   const [urlDraft, setUrlDraft] = useState<string>(value.externalUrl ?? '')
-  const [uploadProgress, setUploadProgress] = useState<number | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
 
   const upload = useUploadDocument()
+  const progress = useUploadProgressState()
 
   // Keep urlDraft synced with parent when value.externalUrl changes externally
   // (e.g. form reset, async data load).
@@ -91,21 +93,23 @@ export function ImageUploadField({
       toast.error('Файл больше 10 МБ — выберите другой')
       return
     }
+    progress.prepare()
     try {
-      setUploadProgress(0)
       const doc = await upload.mutateAsync({
         file,
         category,
         ...(projectId !== undefined ? { projectId } : {}),
         ...(ownerId !== undefined ? { ownerId } : {}),
-        onProgress: (p) => setUploadProgress(p),
+        onProgress: progress.onProgress,
       })
       // Switching to documentId clears externalUrl per XOR contract.
       onChange({ documentId: doc.id, externalUrl: null })
-      setUploadProgress(null)
-    } catch {
-      // The mutation hook already toasts the error message.
-      setUploadProgress(null)
+      progress.success()
+    } catch (err) {
+      // The mutation hook already toasts the error message — this just
+      // drives the inline state so the picker button shows something
+      // besides a silent revert to its idle label.
+      progress.error(err instanceof Error ? err.message : 'Не удалось загрузить файл')
     }
   }
 
@@ -243,22 +247,28 @@ export function ImageUploadField({
               disabled={disabled || upload.isPending}
               data-testid="image-upload-field-pick"
             >
-              {upload.isPending ? (
-                <>
-                  <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />
-                  Загрузка {uploadProgress ?? 0}%
-                </>
-              ) : (
+              {progress.state.phase === 'idle' ? (
                 <>
                   <ImagePlus className="h-3.5 w-3.5 mr-1" />
                   Выбрать файл
                 </>
+              ) : (
+                <UploadProgress
+                  state={progress.state}
+                  size="sm"
+                  testId="image-upload-field-progress"
+                />
               )}
             </Button>
           )}
-          {!showPreview && (
+          {!showPreview && progress.state.phase !== 'error' && (
             <p className="text-[11px] text-muted-foreground text-center">
               PNG, JPEG, WebP — до 10 МБ. Файл загружается в защищённое хранилище.
+            </p>
+          )}
+          {!showPreview && progress.state.phase === 'error' && (
+            <p className="text-[11px] text-muted-foreground text-center">
+              Нажмите ещё раз, чтобы повторить загрузку.
             </p>
           )}
         </div>
