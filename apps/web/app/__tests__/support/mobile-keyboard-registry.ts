@@ -144,7 +144,7 @@ export const CATEGORY_REQUIREMENTS: Record<Category, Requirement[]> = {
  */
 export const FIELD_CATEGORIES: Record<string, Category> = {
   // ---- Shared components (fix once, covers every call site) ----
-  'app/components/ui/amount-currency-input.tsx#1': 'MONEY', // AmountCurrencyInput — money/rate everywhere
+  'testid:amount-currency-amount-input': 'MONEY', // AmountCurrencyInput — money/rate everywhere
   'app/components/ui/phone-input.tsx#1': 'PHONE', // PhoneInput's underlying text input
   'app/components/ui/share-slider.tsx#2': 'INTEGER_SPINNER', // % share number input (paired with range slider)
   'app/components/ui/slider-number-input.tsx#2': 'INTEGER_SPINNER', // generic number input (paired with range slider)
@@ -153,7 +153,7 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
   'testid:image-upload-field-url-input': 'URL',
 
   // ---- contracts/AddCustomVariableDialog.tsx ----
-  'app/components/contracts/AddCustomVariableDialog.tsx#id:cv-key': 'HANDLE', // latin/camelCase variable key
+  'testid:cv-key-input': 'HANDLE', // latin/camelCase variable key
 
   // ---- projects/ProjectCredentialsSection.tsx ----
   'testid:credentials-input-login': 'HANDLE',
@@ -255,8 +255,8 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
  */
 export const EXEMPT_FIELDS = new Set<string>([
   // ---- archive/ArchiveConfirmDialog.tsx + users/ArchiveConfirmDialog.tsx — type-to-confirm text (must match a name, not autofill-worthy) ----
-  'app/components/archive/ArchiveConfirmDialog.tsx#1',
-  'testid:archive-confirm-name-input', // users/ArchiveConfirmDialog.tsx
+  'testid:archive-confirm-input', // components/archive/ArchiveConfirmDialog.tsx
+  'testid:archive-confirm-name-input', // components/users/ArchiveConfirmDialog.tsx
 
   // ---- user-profile/admin-actions/ArchiveUserDialog.tsx — same type-to-confirm pattern ----
   'app/components/user-profile/admin-actions/ArchiveUserDialog.tsx#1',
@@ -265,16 +265,28 @@ export const EXEMPT_FIELDS = new Set<string>([
   'app/components/user-profile/admin-actions/AdminNoteDialog.tsx#1',
 
   // ---- contracts/AddCustomVariableDialog.tsx — Russian display label + example default value ----
-  'app/components/contracts/AddCustomVariableDialog.tsx#id:cv-label',
-  'app/components/contracts/AddCustomVariableDialog.tsx#id:cv-default',
+  'testid:cv-label-input',
+  'testid:cv-default-input',
 
   // ---- contracts/VariablesPanel.tsx — inline rename of a variable's display label ----
   'app/components/contracts/VariablesPanel.tsx#1',
 
+  // ---- ui/input.tsx + ui/textarea.tsx — the base wrapper's OWN inner
+  // native element (`<input type={type} …>`) is a distinct scanned node
+  // from every call site's `<Input type="...">` — its `type` is forwarded
+  // dynamically, not a literal, so it can never satisfy a category itself.
+  'app/components/ui/input.tsx#1',
+  'app/components/ui/textarea.tsx#1',
+
   // ---- user-profile/contract/ContractFillForm.tsx — dynamic per-template custom value (any content type) ----
   'app/components/user-profile/contract/ContractFillForm.tsx#1',
 
+  // ---- projects/ProjectCredentialsSection.tsx — service label + free-text notes ----
+  'testid:credentials-input-label',
+  'testid:credentials-input-notes',
+
   // ---- projects/ProjectLegendSection.tsx — per-project legend/cover story (all free text) ----
+  'testid:legend-entry-input', // "add legend entry" journal textarea
   'testid:legend-input-dob',
   'testid:legend-input-presented-role',
   'testid:legend-input-presented-stack',
@@ -282,8 +294,6 @@ export const EXEMPT_FIELDS = new Set<string>([
   'testid:legend-input-backstory',
   'testid:legend-input-hobbies',
   'testid:legend-input-notes',
-  // the "add legend entry" journal textarea has no id/testid of its own:
-  'app/components/projects/ProjectLegendSection.tsx#1',
 
   // ---- user-profile/self-edit/RequisitesEditForm.tsx — free-text labels ----
   'app/components/user-profile/self-edit/RequisitesEditForm.tsx#id:walletUsdtLabel',
@@ -315,8 +325,8 @@ export const EXEMPT_FIELDS = new Set<string>([
   'app/routes/_authenticated/projects/$projectId.tsx#4',
 
   // ---- routes/_authenticated/finance/index.tsx — delete/restore reason text ----
-  'app/routes/_authenticated/finance/index.tsx#id:delete-tx-reason',
-  'app/routes/_authenticated/finance/index.tsx#id:restore-tx-reason',
+  'testid:delete-tx-reason-input',
+  'testid:restore-tx-reason-input',
 
   // ---- routes/_authenticated/team/$teamId.tsx — free text ----
   'app/routes/_authenticated/team/$teamId.tsx#id:edit-name',
@@ -324,7 +334,7 @@ export const EXEMPT_FIELDS = new Set<string>([
 
   // ---- finance dialogs — free-text notes ----
   'app/routes/_authenticated/finance/components/dialogs/EditSeniorIncomeDialog.tsx#1',
-  'app/routes/_authenticated/finance/components/dialogs/PaySalaryDialog.tsx#1',
+  'testid:pay-salary-notes',
   'testid:payout-detail-manual-note',
   'app/routes/_authenticated/finance/components/dialogs/CreateTransactionDialog.tsx#3',
   'app/routes/_authenticated/finance/components/dialogs/ValidateDialog.tsx#1',

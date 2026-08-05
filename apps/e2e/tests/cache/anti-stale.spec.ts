@@ -306,8 +306,10 @@ test.describe('Anti-stale: UI mutation → fresh data with SW active (NetworkFir
       .getByRole('combobox')
       .selectOption(SEED_SENIOR_ID)
 
-    // Set rate — spinbutton inside the Ставка wrapper.
-    await dialog.getByRole('spinbutton').fill('1000')
+    // Set rate — the AmountCurrencyInput amount field (task-mobile-keyboards.md:
+    // `type="text"` + `inputMode="decimal"`, not `type="number"`, so this is no
+    // longer a `spinbutton` — target it by its stable testid instead).
+    await dialog.getByTestId('amount-currency-amount-input').fill('1000')
 
     // Start capturing POST /projects response RIGHT BEFORE submit, so the
     // 15 s deadline starts from the moment of the network request, not from

@@ -153,6 +153,7 @@ const PhoneTextInput = forwardRef<HTMLInputElement, ComponentProps<'input'>>(
     return (
       <Input
         {...props}
+        type="tel"
         ref={setRefs}
         className={cn('rounded-s-none rounded-e-md border-l-0', className)}
         placeholder="Номер телефона"

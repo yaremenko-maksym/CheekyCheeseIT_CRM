@@ -56,6 +56,7 @@ export function SliderNumberInput({
       />
       <input
         type="number"
+        inputMode="numeric"
         min={min}
         max={max}
         step={step}
