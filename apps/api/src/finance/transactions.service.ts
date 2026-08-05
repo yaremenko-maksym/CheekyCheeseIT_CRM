@@ -5744,16 +5744,17 @@ export class TransactionsService {
     // deviation (salaryPaidAmountDeviation) precisely because the server, by
     // design, will not stop it.
     const obligationAmount = parseFloat(tx.amount)
+    const paidAmountProvided = data.paidAmount !== undefined
     // Defense-in-depth: Zod already bounds `paidAmount` (positive, ≤ ceiling) at
-    // the controller boundary. Re-check here because this service method is also
-    // reachable from other server-side callers/tests that do not go through it,
-    // and because a non-finite amount would otherwise reach the balance gate
-    // below as NaN — where EVERY comparison is false and the gate would silently
-    // let a company-account debit through.
-    const paidAmount = data.paidAmount ?? obligationAmount
-    if (!Number.isFinite(paidAmount) || paidAmount <= 0) {
+    // the controller boundary. Re-checked here because this service method is
+    // also reachable from server-side callers that do not go through it, and
+    // because a non-finite amount would otherwise reach the balance gate below
+    // as NaN — where EVERY comparison is false, so the gate would wave a
+    // company-account debit through instead of refusing it.
+    if (paidAmountProvided && (!Number.isFinite(data.paidAmount) || data.paidAmount! <= 0)) {
       throw new BadRequestException('Сумма выплаты должна быть больше нуля')
     }
+    const paidAmount = paidAmountProvided ? data.paidAmount! : obligationAmount
     // Effective applied rate = paid / original (units of the paid currency per 1
     // unit of the original one). Derived, never client-supplied — see the column
     // comment in schema.ts. NULL when the obligation amount is unusable as a
@@ -5771,8 +5772,11 @@ export class TransactionsService {
       status: 'PAID' as const,
       fundingSource: isCompanyFunded ? ('COMPANY_ACCOUNT' as const) : ('ADMIN_PERSONAL' as const),
       currency,
-      // The FACT of the payment…
-      amount: String(paidAmount),
+      // The FACT of the payment — written ONLY when the caller actually stated
+      // one. An omitted `paidAmount` leaves `amount` completely untouched
+      // (byte-for-byte the legacy behaviour), rather than rewriting the stored
+      // numeric string with a re-serialised copy of itself.
+      ...(paidAmountProvided ? { amount: String(paidAmount) } : {}),
       // …and the OBLIGATION it settled, snapshotted from the row as it stood a
       // moment ago. Stamped on EVERY pay (not only when the amount changed) so
       // the pair is uniform: a reader never has to guess whether a NULL means
@@ -5888,7 +5892,7 @@ export class TransactionsService {
           // knows, now carrying the FACT that was paid; the obligation it
           // settled is recorded next to it so the audit trail alone answers
           // «what was owed and what actually went out».
-          amount: paidSet.amount,
+          amount: paidAmountProvided ? String(paidAmount) : tx.amount,
           currency,
           originalAmount: tx.amount,
           originalCurrency: tx.currency,

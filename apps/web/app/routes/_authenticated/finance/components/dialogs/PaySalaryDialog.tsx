@@ -194,8 +194,11 @@ export function PaySalaryDialog({
 
   // Whether a conversion is actually in play — drives the «расчёт по курсу» row
   // (AC1: the amount due in the chosen currency; the rate itself is rendered by
-  // AmountCurrencyInput's own hint below).
-  const isConverted = effectiveCurrency !== tx.currency
+  // AmountCurrencyInput's own hint below). Compared on the FIGURE, not on the
+  // currency code: paying a USD obligation in USDT is a 1:1 relabel, and a row
+  // announcing «500 USD = 500 USDT» is noise, not information.
+  const isConverted =
+    expectedAmount !== null && Math.abs(expectedAmount - parseFloat(tx.amount)) > 0.005
 
   return (
     <Dialog
