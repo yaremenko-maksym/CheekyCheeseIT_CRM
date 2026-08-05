@@ -21,6 +21,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
 import { api } from '@/lib/axios'
+import { parseStrictAmount } from '@/lib/utils'
 import { financeApi } from '../../api'
 import { convertAmount, fmtAmount, fmtDate, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
@@ -85,7 +86,13 @@ export function PaySalaryDialog({
     setAmountInput(expectedAmount.toFixed(2))
   }, [expectedAmount, amountTouched])
 
-  const parsedPaidAmount = parseFloat(amountInput)
+  // `parseStrictAmount`, NOT `parseFloat` — mandated for every call site whose
+  // value flows through `normalizeDecimalInput` (PR #481 review round 3, which
+  // owns the money-input parsing this dialog reuses). An amount the normalizer
+  // deliberately leaves ambiguous («1,000» — 1000 or 1.0?) stays raw text;
+  // `parseFloat` would silently truncate it to `1` and quietly pay a thousandth
+  // of the salary, while this returns NaN and asks the ADMIN to disambiguate.
+  const parsedPaidAmount = parseStrictAmount(amountInput)
   const hasAmountInput = amountInput.trim() !== ''
   // Live validity of what is typed. Mirrors `paySalarySchema.paidAmount` on the
   // server (positive, ≤ BIZ-13 ceiling) via the SAME constant, so the two
@@ -94,7 +101,7 @@ export function PaySalaryDialog({
   const liveAmountError = !hasAmountInput
     ? null
     : !Number.isFinite(parsedPaidAmount)
-      ? 'Введите сумму числом'
+      ? 'Введите сумму числом — например 1000.50'
       : parsedPaidAmount <= 0
         ? 'Сумма должна быть больше нуля'
         : parsedPaidAmount > MAX_TRANSACTION_AMOUNT

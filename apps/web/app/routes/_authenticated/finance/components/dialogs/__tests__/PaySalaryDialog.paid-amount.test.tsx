@@ -175,6 +175,32 @@ describe('PaySalaryDialog — custom paid amount (AC2)', () => {
     expect((await lastPayload()).paidAmount).toBe(700)
   })
 
+  it('accepts a comma as the decimal separator (parsing delegated to the shared input)', async () => {
+    renderDialog()
+    await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))
+    // The dialog contains NO parser of its own: the comma is normalised by
+    // AmountCurrencyInput (`normalizeDecimalInput`, PR #481), so this asserts
+    // the wiring — «700,5» must mean 700.5, never 7005.
+    fireEvent.change(amountInput(), { target: { value: '700,5' } })
+    expect(amountInput().value).toBe('700.5')
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('pay-salary-submit'))
+    expect((await lastPayload()).paidAmount).toBe(700.5)
+  })
+
+  it('refuses to guess an ambiguous «1,000» instead of silently paying 1', async () => {
+    // The shared normaliser deliberately leaves «1,000» as raw text (1000? 1.0?).
+    // `parseFloat` would have truncated it to 1 — a thousand-fold underpayment
+    // that closes the obligation in full. It must be rejected, not guessed.
+    renderDialog()
+    await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))
+    fireEvent.change(amountInput(), { target: { value: '1,000' } })
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('pay-salary-submit'))
+    expect(await screen.findByTestId('pay-salary-amount-error')).toBeInTheDocument()
+    expect(paySalaryMock).not.toHaveBeenCalled()
+  })
+
   it('can restore the suggestion after a manual edit', async () => {
     renderDialog()
     await waitFor(() => expect(amountInput().value).toBe(EXPECTED_USDT))
