@@ -87,4 +87,22 @@ describe('AmountCurrencyInput — task-mobile-keyboards.md', () => {
     expect(calls.at(-1)).toBe('1000.50')
     expect(calls).not.toContain('1.00050')
   })
+
+  it('pasting a genuinely ambiguous thousands-only amount ("1,000") is left as-is — never silently resolved to 1 or guessed as 1000 (AC2, PR #481 round 3)', async () => {
+    const user = userEvent.setup()
+    const onAmountChange = vi.fn()
+    renderInput(onAmountChange)
+
+    const input = screen.getByTestId('amount-currency-amount-input')
+    await user.click(input)
+    await user.paste('1,000')
+
+    const calls = onAmountChange.mock.calls.map((c) => c[0] as string)
+    // The field shows exactly what was pasted — neither of the two
+    // plausible-but-1000x-apart readings is silently picked.
+    expect(calls.at(-1)).toBe('1,000')
+    expect(calls).not.toContain('1.000')
+    expect(calls).not.toContain('1')
+    expect(calls).not.toContain('1000')
+  })
 })

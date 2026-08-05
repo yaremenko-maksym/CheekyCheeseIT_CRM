@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
-import { cn } from '@/lib/utils'
+import { cn, parseStrictAmount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -62,7 +62,7 @@ export function AdminEditTransactionDialog({
 
   const mutation = useMutation({
     mutationFn: () => {
-      const amt = parseFloat(amount)
+      const amt = parseStrictAmount(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
       const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
       const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null

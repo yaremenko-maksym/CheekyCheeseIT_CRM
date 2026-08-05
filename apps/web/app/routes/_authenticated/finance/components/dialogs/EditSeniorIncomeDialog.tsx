@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TransactionDto } from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
+import { parseStrictAmount } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -66,7 +67,7 @@ export function EditSeniorIncomeDialog({
 
   const mutation = useMutation({
     mutationFn: () => {
-      const amt = parseFloat(amount)
+      const amt = parseStrictAmount(amount)
       if (isNaN(amt) || amt <= 0) throw new Error('Некорректная сумма')
       const nextReceiptDocId = receipt.mode === 'file' ? receipt.documentId : null
       const nextReceiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null

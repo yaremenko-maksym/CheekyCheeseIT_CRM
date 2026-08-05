@@ -74,7 +74,7 @@ import { TechAutocompleteInput } from '@/components/ui/tech-autocomplete-input'
 import { AmountCurrencyInput, type Currency } from '@/components/ui/amount-currency-input'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { api } from '@/lib/axios'
-import { cn } from '@/lib/utils'
+import { cn, parseStrictAmount } from '@/lib/utils'
 import { CreateWizardStepper } from './CreateWizardStepper'
 import {
   useEmployeeContract,
@@ -553,7 +553,7 @@ export function UserDialog(props: UserDialogProps) {
       const computeMonthlySalaryUsd = (): number | null => {
         const raw = String(value.monthlySalary).trim()
         if (!raw) return null
-        const num = parseFloat(raw)
+        const num = parseStrictAmount(raw)
         if (!isFinite(num) || num < 0) return null
         if (!exchangeRates) return num // shouldn't happen — query enabled on open
         return Number(toUsd(num, value.salaryCurrency, exchangeRates).toFixed(2))
