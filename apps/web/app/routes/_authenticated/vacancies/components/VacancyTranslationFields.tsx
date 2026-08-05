@@ -30,11 +30,27 @@
  *
  * design-review round 2 (PR #422, LOW-1) — "переведено"/"ошибка" used to
  * differ ONLY by dot colour (green/red), unreadable for colour-blind users
- * or in grayscale. Replaced the dot with 3 SHAPE-distinct glyphs
- * (`lucide-react`, `size-3`): plain outline circle = не переведено,
- * check-in-circle = переведено, triangle with "!" = ошибка — each shape is
- * distinguishable on its own, colour is now reinforcement, not the only
- * signal.
+ * or in grayscale. Replaced the dot with SHAPE-distinct glyphs
+ * (`lucide-react`, `size-3`): check-in-circle = переведено, triangle with
+ * "!" = ошибка — each shape is distinguishable on its own, colour is now
+ * reinforcement, not the only signal. (Superseded for the untranslated
+ * state by round 3 below — the outline-circle glyph that used to stand for
+ * "не переведено" was removed, not replaced.)
+ *
+ * design-review round 3 (task-translation-tabs-clarity) — the outline
+ * circle for "не переведено" collided with the tab's OWN selection idiom:
+ * an empty circle already means "unselected radio option" everywhere else
+ * in the UI, so a non-active tab carrying a circle glyph and an active tab
+ * carrying a check-glyph read as "two conflicting answers to which tab is
+ * selected" (glyph contrast beats the muted background). Fix: no glyph at
+ * all for "не переведено" — absence of a check/alert glyph IS the signal,
+ * same logic as an unchecked checkbox needing no separate "unchecked" icon.
+ * `translated`/`hasError` still read from the SAME shape-distinct icons as
+ * round 2 (grayscale-safe), so the fix removes a false signal instead of
+ * adding a new one. The icon slot stays a fixed `size-3` box either way
+ * (occupied or empty) so a tab's width — and the row's width, which round 1
+ * measured against the narrowest Sheet context — doesn't shift when a
+ * locale flips from untranslated to translated while the user types.
  *
  * design-review round 1 (PR #422, HIGH-2) — "ошибка валидации абсолютно
  * беззвучна", made worse by tabs (an invalid field can hide in a closed
@@ -63,13 +79,17 @@
  * `aria-describedby` pointing at it — a screen reader now announces both
  * "invalid" and the message text when the field receives focus.
  *
- * design-review round 2 — tab-trigger height (28px) stays as-is: above the
- * WCAG 2.2 AA target-size minimum (24px), below the CRM's usual 44px touch
- * target — an intentional density trade-off for a 4-tab row inside an
- * already-narrow Sheet, not an oversight (see PR body).
+ * design-review round 2 — tab-trigger height (28px) was an intentional
+ * density trade-off for a 4-tab row inside an already-narrow Sheet, kept
+ * above the WCAG 2.2 AA target-size minimum (24px) but below the CRM's
+ * usual 44px touch target (see PR body). Round 3
+ * (`.claude/rules/common/responsive-design.md` ≥44px mobile touch-target
+ * rule) resolves the trade-off responsively instead of picking one size for
+ * every viewport: `h-11` (44px) below the `sm` breakpoint, reverting to the
+ * original compact height at `sm:` and up, where the Sheet has room.
  */
 import { useEffect, useState } from 'react'
-import { Circle, CircleCheck, TriangleAlert } from 'lucide-react'
+import { CircleCheck, TriangleAlert } from 'lucide-react'
 import type { VacancyTranslationLocale } from '@crm/shared'
 import { VACANCY_TRANSLATION_LOCALES, vacancyTranslationSchema } from '@crm/shared'
 import { cn } from '@/lib/utils'
@@ -132,8 +152,7 @@ export function VacancyTranslationFields({
     <div className="space-y-1.5">
       <Label>Переводы (необязательно)</Label>
       <p className="text-xs text-muted-foreground">
-        Название и описание вакансии для лендинга на других языках. Без перевода на языке
-        показывается оригинал (английский).
+        Название и описание вакансии для лендинга на других языках.
       </p>
       <Tabs
         value={activeLocale}
@@ -141,7 +160,7 @@ export function VacancyTranslationFields({
       >
         <TabsList
           data-testid="vacancy-translations-tabs"
-          className="w-full justify-start overflow-x-auto"
+          className="h-11 w-full justify-start overflow-x-auto sm:h-9"
         >
           {VACANCY_TRANSLATION_LOCALES.map((locale) => {
             const hasSubmitError = Boolean(
@@ -176,33 +195,40 @@ export function VacancyTranslationFields({
                     : status.translated
                       ? 'переведено'
                       : 'не переведено'
-                  // design-review round 2 (LOW-1) — shape, not just colour,
-                  // carries the status: outline circle / check-circle /
-                  // triangle-alert are distinguishable in grayscale.
+                  // design-review round 3 — no glyph for "не переведено":
+                  // an outline circle reads as "unselected radio option",
+                  // which fights the tab's own active/inactive background.
+                  // Shape (not colour) still carries переведено/ошибка, so
+                  // grayscale distinguishability holds — see module doc.
                   const StatusIcon = hasError
                     ? TriangleAlert
                     : status.translated
                       ? CircleCheck
-                      : Circle
+                      : null
                   return (
                     <TabsTrigger
                       value={locale}
                       data-testid={`vacancy-translation-tab-${locale}`}
                       data-has-error={hasError || undefined}
-                      className="shrink-0 gap-1.5"
+                      className="h-11 shrink-0 gap-1.5 sm:h-auto"
                       aria-label={`${VACANCY_TRANSLATION_LOCALE_LABELS[locale]} — ${statusLabel}`}
                     >
-                      <StatusIcon
+                      {/* Fixed-size slot even when empty (не переведено) —
+                          keeps tab width stable as a locale's status flips
+                          while the user types (see module doc). */}
+                      <span
                         aria-hidden="true"
-                        className={cn(
-                          'size-3 shrink-0',
-                          hasError
-                            ? 'text-destructive'
-                            : status.translated
-                              ? 'text-green-500'
-                              : 'text-muted-foreground/40',
+                        className="flex size-3 shrink-0 items-center justify-center"
+                      >
+                        {StatusIcon && (
+                          <StatusIcon
+                            className={cn(
+                              'size-3',
+                              hasError ? 'text-destructive' : 'text-green-500',
+                            )}
+                          />
                         )}
-                      />
+                      </span>
                       {locale.toUpperCase()}
                     </TabsTrigger>
                   )
@@ -211,6 +237,9 @@ export function VacancyTranslationFields({
             )
           })}
         </TabsList>
+        <p className="text-xs text-muted-foreground">
+          Без перевода на языке показывается оригинал (английский).
+        </p>
 
         {VACANCY_TRANSLATION_LOCALES.map((locale: VacancyTranslationLocale) => {
           const titlePath = `translations.${locale}.title`
