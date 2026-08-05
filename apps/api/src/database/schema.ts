@@ -542,6 +542,52 @@ export const transactions = pgTable(
     amount: numeric('amount', { precision: 18, scale: 6 }).notNull(),
     // currency always stored; USDT for crypto flows, USD for salary/expenses
     currency: currencyEnum().notNull().default('USDT'),
+    /**
+     * task-salary-pay-amount — OBLIGATION snapshot, written ONCE by `paySalary`
+     * at the PENDING→PAID flip. All three are NULL on every other row.
+     *
+     * WHY THIS EXISTS. A salary is created as a PENDING reminder denominated in
+     * the obligation's own currency («800 USD»). It is settled later, possibly
+     * in another currency, and the owner requires `amount`/`currency` above to
+     * carry the FACT of that payment («30 000 UAH») so a bank statement
+     * reconciles one-to-one. Overwriting them with the fact and nothing else
+     * would DESTROY the obligation — and USD reporting, balances and the
+     * «projects unpaid this month» metric are all built on it. So the fact goes
+     * into `amount`/`currency`, and the obligation it settled is preserved
+     * here. Nothing is lost; both readings of the row stay derivable forever.
+     *
+     *   original_amount   — `amount`   as it stood immediately BEFORE payment.
+     *   original_currency — `currency` as it stood immediately BEFORE payment.
+     *   exchange_rate     — the EFFECTIVE applied rate, `paid / original`
+     *                       (units of the paid currency per 1 unit of the
+     *                       original). Computed SERVER-SIDE from the two
+     *                       amounts, never accepted from the client: the payer
+     *                       settles at their own bank's rate, which is by
+     *                       definition whatever those two amounts imply, so a
+     *                       client-supplied rate would add nothing but a
+     *                       spoofable field. A SNAPSHOT of what was applied at
+     *                       pay time (like `senior_share_percent`) — a later
+     *                       `adminEditTransaction` on `amount` does not rewrite
+     *                       it; the audit log records that edit separately.
+     *                       scale 8 (not the 6 used for money) so a
+     *                       sub-unit rate — e.g. UAH→USD ≈ 0.02666667 — keeps
+     *                       full precision; it is a ratio, not an amount.
+     *
+     * NULLABLE, NO DEFAULT, NO BACKFILL — deliberately. NULL reads as «this row
+     * was never paid through the amount-aware flow», which is the literal truth
+     * for every legacy row: their `amount` still means exactly what it always
+     * meant, so there is nothing to migrate and every existing balance/metric
+     * keeps returning the same number it returned before this column existed.
+     *
+     * ADD COLUMN DDL (prod is applied via deploy.yml — there is no SSH; see
+     * apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql):
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS original_amount numeric(18,6);
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS original_currency currency;
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS exchange_rate numeric(18,8);
+     */
+    originalAmount: numeric('original_amount', { precision: 18, scale: 6 }),
+    originalCurrency: currencyEnum('original_currency'),
+    exchangeRate: numeric('exchange_rate', { precision: 18, scale: 8 }),
     // Sender: real user or null (use senderLabel for named non-user entities)
     senderId: uuid('sender_id').references(() => users.id, { onDelete: 'set null' }),
     // "CheekyCheeseIT", "Project: Acme Corp", expense category, etc.
