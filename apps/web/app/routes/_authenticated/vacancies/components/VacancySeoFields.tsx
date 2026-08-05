@@ -51,6 +51,7 @@ export function VacancySeoFields({ form }: VacancySeoFieldsProps) {
             <Label className="text-xs">Требуемый опыт (месяцев)</Label>
             <Input
               type="number"
+              inputMode="numeric"
               min={0}
               max={600}
               value={field.state.value ?? ''}

@@ -161,12 +161,15 @@ export function InterviewDetailSheet({
     placeholder,
     schema,
     textarea = false,
+    inputType,
   }: {
     name: keyof typeof form.state.values
     label: string
     placeholder: string
     schema: z.ZodTypeAny
     textarea?: boolean
+    /** task-mobile-keyboards.md — set 'url' for a link field (vacancyUrl) to get the right mobile keyboard + anti-autocorrect attrs. */
+    inputType?: 'url'
   }) {
     return (
       <form.Field
@@ -198,6 +201,10 @@ export function InterviewDetailSheet({
                   onChange={(e) => field.handleChange(e.target.value)}
                   onBlur={field.handleBlur}
                   placeholder={placeholder}
+                  type={inputType === 'url' ? 'url' : undefined}
+                  autoCapitalize={inputType === 'url' ? 'off' : undefined}
+                  autoCorrect={inputType === 'url' ? 'off' : undefined}
+                  spellCheck={inputType === 'url' ? false : undefined}
                   className={cn(hasError && 'border-destructive focus-visible:ring-destructive/30')}
                 />
               )}
@@ -272,6 +279,7 @@ export function InterviewDetailSheet({
                   label="Ссылка на вакансию"
                   placeholder="https://..."
                   schema={z.string().url('Введите корректный URL (https://...)').or(z.literal(''))}
+                  inputType="url"
                 />
               </div>
 
