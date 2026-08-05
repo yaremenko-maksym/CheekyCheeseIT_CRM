@@ -26,8 +26,10 @@ import {
 } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
 import { SegmentedToggle, type SegmentedToggleOption } from '@/components/ui/segmented-toggle'
+import { UploadProgress } from '@/components/ui/upload-progress'
 import { useUpdateMe } from '@/hooks/use-user-profile'
 import { useUploadDocument } from '@/hooks/use-documents'
+import { useUploadProgressState } from '@/hooks/use-upload-progress-state'
 import { cn } from '@/lib/utils'
 import { getCroppedDataUrl } from './cropImage'
 
@@ -89,6 +91,7 @@ export function AvatarUploadDialog({
   const fileRef = useRef<HTMLInputElement>(null)
   const updateMe = useUpdateMe()
   const uploadDoc = useUploadDocument()
+  const progress = useUploadProgressState()
 
   function reset() {
     setStep('source')
@@ -101,6 +104,7 @@ export function AvatarUploadDialog({
     setZoom(1)
     setCroppedAreaPixels(null)
     setSaving(false)
+    progress.reset()
   }
 
   function handleClose() {
@@ -126,11 +130,18 @@ export function AvatarUploadDialog({
       setError(`Файл ${(file.size / 1024).toFixed(0)} KB — максимум 5 MB`)
       return
     }
+    progress.prepare()
     const fr = new FileReader()
     fr.onload = () => {
+      // The read is done — hand off to the crop step. Its own progress
+      // starts fresh at 'idle' (that step tracks the upload, not the read).
+      progress.reset()
       startCrop(fr.result as string)
     }
-    fr.onerror = () => setError('Не удалось прочитать файл')
+    fr.onerror = () => {
+      progress.reset()
+      setError('Не удалось прочитать файл')
+    }
     fr.readAsDataURL(file)
   }
 
@@ -186,6 +197,10 @@ export function AvatarUploadDialog({
     }
     setSaving(true)
     setError(null)
+    // 'preparing' covers the synchronous canvas crop/re-encode below — a
+    // real, measured main-thread cost on a large source photo (see PR body)
+    // — before a single upload byte goes out.
+    progress.prepare()
     try {
       const dataUrl = await getCroppedDataUrl(sourceImage, croppedAreaPixels, OUTPUT_SIZE, 0.9)
       const file = dataUrlToFile(dataUrl, `avatar-${Date.now()}.jpg`)
@@ -193,23 +208,28 @@ export function AvatarUploadDialog({
         file,
         category: 'AVATAR',
         ownerId: userId,
+        onProgress: progress.onProgress,
       })
+      // Still 'processing' here (100% sent, waiting on the server) through
+      // this second PATCH request too — it's the same "server hasn't
+      // confirmed yet" wait from the user's point of view.
       updateMe.mutate(
         { avatarDocumentId: doc.id },
         {
           onSuccess: () => {
+            progress.success()
             toast.success('Аватар обновлён')
             handleClose()
           },
           onError: () => {
             setSaving(false)
-            setError('Не удалось сохранить аватар')
+            progress.error('Не удалось сохранить аватар')
           },
         },
       )
     } catch (err) {
       setSaving(false)
-      setError(err instanceof Error ? err.message : 'Не удалось обрезать изображение')
+      progress.error(err instanceof Error ? err.message : 'Не удалось обрезать изображение')
     }
   }
 
@@ -298,13 +318,23 @@ export function AvatarUploadDialog({
                       variant="outline"
                       className="w-full gap-2"
                       onClick={() => fileRef.current?.click()}
+                      disabled={progress.state.phase === 'preparing'}
                     >
                       <ImagePlus className="h-4 w-4" />
                       Выбрать изображение
                     </Button>
-                    <p className="text-xs text-muted-foreground">
-                      Перетащите файл в окно или нажмите кнопку выше.
-                    </p>
+                    {progress.state.phase === 'preparing' ? (
+                      <UploadProgress
+                        state={progress.state}
+                        size="sm"
+                        label="Чтение файла…"
+                        testId="avatar-upload-read-progress"
+                      />
+                    ) : (
+                      <p className="text-xs text-muted-foreground">
+                        Перетащите файл в окно или нажмите кнопку выше.
+                      </p>
+                    )}
                   </div>
                 )}
 
@@ -387,6 +417,11 @@ export function AvatarUploadDialog({
               />
               <ZoomIn className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden />
             </div>
+            <UploadProgress
+              state={progress.state}
+              onRetry={handleSaveCrop}
+              testId="avatar-upload-progress"
+            />
           </div>
         )}
 
