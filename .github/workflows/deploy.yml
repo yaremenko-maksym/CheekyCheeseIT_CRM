@@ -874,6 +874,47 @@ jobs:
           # apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql
 
+      # ── salary paid-amount DDL — GUARDED, same reason as the blocks above ──
+      # task-salary-pay-amount (PR #485, feature/salary-pay-amount): adds three nullable
+      # columns to `transactions` — original_amount / original_currency / exchange_rate —
+      # so paying a PENDING salary can record the amount ACTUALLY paid (`amount`/`currency`
+      # become the payment FACT) while preserving the obligation it settled (USD reporting,
+      # balances and the "projects unpaid this month" metric all depend on it). DevOps
+      # zone-of-write excludes apps/api/**, so this wiring lands separately from the Coder
+      # branch that creates the file — same guarded copy + notice-skip pattern as every block
+      # above.
+      #
+      # ORDER REQUIRED, unlike e.g. Step 2o vs Step 2n above (mutually independent): the api
+      # reads these three columns on EVERY transaction read (part of the row SELECT and the
+      # DTO) — a new image against an un-migrated DB errors on every transactions query. Per
+      # the DDL file's own header, this file MUST land before the new api image serves
+      # traffic; the deploy job's matching apply step below therefore runs before Step 3
+      # starts/updates the api and nginx containers, same placement as every DDL step in that
+      # job. The reverse order is safe: applying this file while the OLD image still runs is a
+      # no-op for it (it never references the new columns).
+      - name: Check for salary paid-amount DDL file (guard until PR #485 merges)
+        id: salary-paid-amount-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql not found in checkout — task-salary-pay-amount (PR #485) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy salary paid-amount DDL via SCP (only if present)
+        if: steps.salary-paid-amount-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -1629,6 +1670,45 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$NON_DELETED_TX_VIEW_FILE"
               echo "==> non_deleted_transactions view DDL applied successfully"
+            fi
+
+            # ── Step 2q: salary paid-amount columns on transactions (idempotent, GUARDED) ─────
+            # task-salary-pay-amount (PR #485): original_amount / original_currency /
+            # exchange_rate preserve the pay-time obligation snapshot when a PENDING salary is
+            # paid in a different amount/currency than it was created in — `amount`/`currency`
+            # become the payment FACT, these three columns keep the obligation they settled
+            # (USD reporting / balances / the "projects unpaid this month" metric all depend on
+            # it). See the DDL file's own header for the full reasoning (no backfill by design:
+            # NULL on every pre-existing row means "never paid through the amount-aware flow").
+            # GUARDED for the same reason as the blocks above — DevOps zone-of-write excludes
+            # apps/api/**, this wiring lands separately from the Coder branch, and a missing
+            # file here is the expected steady state until #485 merges, not an error.
+            # copy-compose job's matching "Check for salary paid-amount DDL file" step mirrors
+            # this guard on the scp side.
+            # ORDER REQUIRED, unlike e.g. Step 2n vs Step 2o above (mutually independent): the
+            # api reads these three columns on EVERY transaction read (part of the row SELECT
+            # and the DTO) — a new image against an un-migrated DB errors on every transactions
+            # query. This step, like every DDL apply step above, runs BEFORE Step 3 starts /
+            # updates the api and nginx containers, so the columns are always present before
+            # the new image can serve a single request. The reverse order is safe: applying
+            # this file while the OLD image still runs is a no-op for it (it never references
+            # the new columns).
+            # Idempotent: ADD COLUMN IF NOT EXISTS ×3 — safe to re-run on every deploy, forever.
+            # Source: apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql
+            SALARY_PAID_AMOUNT_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql"
+
+            if [ ! -f "$SALARY_PAID_AMOUNT_FILE" ]; then
+              echo "::notice::Salary paid-amount DDL file not found at $SALARY_PAID_AMOUNT_FILE — task-salary-pay-amount (PR #485) has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying salary paid-amount DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$SALARY_PAID_AMOUNT_FILE"
+              echo "==> salary paid-amount DDL applied successfully"
             fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
