@@ -154,7 +154,11 @@ function isNonTextType(attrs: ScannedAttrs): boolean {
   return true
 }
 
-export function scanFileSource(sourceText: string, absPath: string, rootDir: string): ScannedField[] {
+export function scanFileSource(
+  sourceText: string,
+  absPath: string,
+  rootDir: string,
+): ScannedField[] {
   const sourceFile = ts.createSourceFile(
     absPath,
     sourceText,

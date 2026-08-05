@@ -8,7 +8,11 @@ import { readdirSync, statSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { scanFile, type ScannedField } from './support/input-scan'
-import { CATEGORY_REQUIREMENTS, EXEMPT_FIELDS, FIELD_CATEGORIES } from './support/mobile-keyboard-registry'
+import {
+  CATEGORY_REQUIREMENTS,
+  EXEMPT_FIELDS,
+  FIELD_CATEGORIES,
+} from './support/mobile-keyboard-registry'
 
 const ROOT = resolve(__dirname, '..', '..') // apps/landing
 const APP_DIR = resolve(ROOT, 'app')
@@ -20,7 +24,11 @@ function listTsxFiles(dir: string, out: string[] = []): string[] {
     const stat = statSync(full)
     if (stat.isDirectory()) {
       listTsxFiles(full, out)
-    } else if (entry.endsWith('.tsx') && !entry.endsWith('.test.tsx') && !entry.endsWith('.spec.tsx')) {
+    } else if (
+      entry.endsWith('.tsx') &&
+      !entry.endsWith('.test.tsx') &&
+      !entry.endsWith('.spec.tsx')
+    ) {
       out.push(full)
     }
   }
@@ -60,12 +68,16 @@ describe('mobile keyboard attributes — task-mobile-keyboards.md (landing)', ()
     for (const [key, category] of Object.entries(FIELD_CATEGORIES)) {
       const field = byKey.get(key)
       if (!field) {
-        violations.push(`${key}: registered under FIELD_CATEGORIES but no longer found by the scanner (stale entry)`)
+        violations.push(
+          `${key}: registered under FIELD_CATEGORIES but no longer found by the scanner (stale entry)`,
+        )
         continue
       }
       for (const req of CATEGORY_REQUIREMENTS[category]) {
         if (!req.check(field.attrs)) {
-          violations.push(`${field.file}:${field.line} (${key}, category=${category}) missing: ${req.describe}`)
+          violations.push(
+            `${field.file}:${field.line} (${key}, category=${category}) missing: ${req.describe}`,
+          )
         }
       }
     }
