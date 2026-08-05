@@ -125,6 +125,36 @@ export const transactionSchema = z.object({
   status: transactionStatusSchema,
   amount: z.string(), // numeric string from DB
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+  /**
+   * task-salary-pay-amount — OBLIGATION snapshot, stamped by `paySalary` at the
+   * moment a PENDING salary flips to PAID.
+   *
+   * From that task on, `amount`/`currency` above carry the FACT of the payment
+   * (what actually left the payer's account — e.g. «30 000 UAH», so a bank
+   * statement reconciles one-to-one), which may be denominated differently from
+   * the obligation the row was created with (e.g. «800 USD»). These three fields
+   * preserve that obligation so USD reporting, balances and the
+   * «projects unpaid this month» metric never lose the original denomination:
+   *
+   *   originalAmount   — `amount` as it stood immediately BEFORE the payment.
+   *   originalCurrency — `currency` as it stood immediately BEFORE the payment.
+   *   exchangeRate     — the EFFECTIVE applied rate, computed server-side as
+   *                      `paidAmount / originalAmount` (units of the paid
+   *                      currency per 1 unit of the original one). Never
+   *                      client-supplied: the payer's own bank rate is whatever
+   *                      the two amounts imply, so accepting a rate from the
+   *                      client would only add a spoofable field.
+   *
+   * `null` on every row that was never paid through this flow (all non-SALARY
+   * types, PENDING salaries, and every salary paid before this task shipped) —
+   * legacy rows keep `amount` meaning exactly what it always meant.
+   * `.optional()` (alongside `.nullable()`) keeps every pre-existing fixture /
+   * mock DTO across the codebase valid without a rewrite — same pattern as
+   * `dropCascadeOrigin` / `deletedAt`.
+   */
+  originalAmount: z.string().nullable().optional(),
+  originalCurrency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).nullable().optional(),
+  exchangeRate: z.string().nullable().optional(),
   senderId: z.string().uuid().nullable(),
   senderLabel: z.string().nullable(),
   senderName: z.string().nullable(), // resolved from user if senderId set
@@ -321,6 +351,66 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
 // ---------------------------------------------------------------------------
 // Create / Update schemas
 // ---------------------------------------------------------------------------
+
+/**
+ * BIZ-13 — the single reasonable ceiling every money amount in this module is
+ * capped by. Was a bare `500_000` literal repeated at ~10 call sites (each with
+ * its own `// BIZ-13` comment); named here so a new amount field (e.g.
+ * task-salary-pay-amount's `paidAmount`) can carry PROVABLY the same ceiling as
+ * `createSalarySchema.amount` — referencing one symbol rather than re-typing a
+ * literal that could silently drift.
+ */
+export const MAX_TRANSACTION_AMOUNT = 500_000
+
+/**
+ * Scale of the money columns (`transactions.amount` — `numeric(18,6)`), and the
+ * smallest positive value that column can therefore hold.
+ *
+ * security-review PR #485 (MED-1). `paidAmount` had a ceiling but no FLOOR and
+ * no precision rule, so `1e-7` passed validation and then landed in
+ * `numeric(18,6)` as `0.000000` — a salary obligation closed in full by a
+ * payment recorded as ZERO. The bug was not the number being small; it was the
+ * schema promising to store a value it silently could not. Hence the rule
+ * below: a value that cannot be written WITHOUT LOSS is not accepted at all.
+ */
+export const AMOUNT_DECIMAL_PLACES = 6
+export const MIN_TRANSACTION_AMOUNT = 1e-6 // 0.000001 — one unit at scale 6
+
+/** Decimal places a JS number would need to be written out exactly. */
+function decimalPlacesOf(value: number): number {
+  const s = String(value)
+  // Exponential notation means the value is outside the plain-decimal range JS
+  // prints literally — below 1e-6 (already under MIN) or above 1e20 (already
+  // over MAX). Either way it cannot be written to the column as-is.
+  if (s.includes('e') || s.includes('E')) return Number.POSITIVE_INFINITY
+  const dot = s.indexOf('.')
+  return dot === -1 ? 0 : s.length - dot - 1
+}
+
+/**
+ * The ONE definition of "is this a storable money amount", shared verbatim by
+ * the Zod boundary, the service's defense-in-depth re-check and the client's
+ * inline validation — so the three can never disagree about what is accepted or
+ * about what the user is told. Returns a ready-to-show Russian message, or
+ * `null` when the amount is fine.
+ *
+ * Order matters: a too-small value is reported as too small, not as
+ * "too many decimals" (which is true of `1e-7` as well, but useless to read).
+ */
+export function transactionAmountError(value: number): string | null {
+  if (!Number.isFinite(value)) return 'Введите сумму числом — например 1000.50'
+  if (value <= 0) return 'Сумма должна быть больше нуля'
+  if (value < MIN_TRANSACTION_AMOUNT) {
+    return `Сумма слишком мала — минимум ${MIN_TRANSACTION_AMOUNT.toFixed(AMOUNT_DECIMAL_PLACES)}`
+  }
+  if (value > MAX_TRANSACTION_AMOUNT) {
+    return `Сумма не может превышать ${MAX_TRANSACTION_AMOUNT.toLocaleString('ru-RU')}`
+  }
+  if (decimalPlacesOf(value) > AMOUNT_DECIMAL_PLACES) {
+    return `Не больше ${AMOUNT_DECIMAL_PLACES} знаков после запятой — иначе сумма запишется округлённой`
+  }
+  return null
+}
 
 /**
  * Receipt payload — uploaded document FK XOR external URL.
@@ -554,7 +644,7 @@ function refineCompanyAccountUsdt(
 export const createAdminIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -600,7 +690,7 @@ export const COMPANY_ACCOUNT_RECEIVER = 'COMPANY_ACCOUNT'
 export const createUsdtIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
     currency: z.literal('USDT'),
     receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]),
     // Security-review PR #367 (MED-1) — idempotencyKey: REQUIRED client-generated
@@ -629,7 +719,7 @@ export type CreateUsdtIncomeDto = z.infer<typeof createUsdtIncomeSchema>
 export const createSeniorIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -657,7 +747,7 @@ export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
 export const createDropIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -674,7 +764,7 @@ export type CreateDropIncomeDto = z.infer<typeof createDropIncomeSchema>
 // Update REJECTED senior income (resets to PENDING)
 export const updateSeniorIncomeSchema = z
   .object({
-    amount: z.number().positive().max(500_000).optional(), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT).optional(), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -686,7 +776,7 @@ export type UpdateSeniorIncomeDto = z.infer<typeof updateSeniorIncomeSchema>
 // Parallel to updateSeniorIncomeSchema — DROP role resubmission path.
 export const updateDropIncomeSchema = z
   .object({
-    amount: z.number().positive().max(500_000).optional(), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT).optional(), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -700,7 +790,7 @@ export type UpdateDropIncomeDto = z.infer<typeof updateDropIncomeSchema>
 // balance, gated by available funds). Currency forced to USDT. Absent → legacy.
 export const createExpenseSchema = z
   .object({
-    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     category: z.string().min(1).max(255),
     notes: z.string().max(1000).optional().nullable(),
@@ -731,7 +821,7 @@ export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 // nominal of the reminder (default USD); it is overridden by the pay-time choice.
 export const createSalarySchema = z.object({
   receiverId: z.string().uuid(),
-  amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+  amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USD'),
   salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
   notes: z.string().max(1000).optional().nullable(),
@@ -748,7 +838,7 @@ export const createAdminTransferSchema = z
   .object({
     senderId: z.string().uuid().optional(),
     receiverId: z.string().uuid(),
-    amount: z.number().positive().max(500_000), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
     // task-receipts-backend (#8): receipt now MANDATORY + currency-aware (default
     // USDT → explorer-only). The default is applied before the refine runs, so
@@ -958,7 +1048,7 @@ export type UpdateProjectFinanceSettingsDto = z.infer<typeof updateProjectFinanc
 // Admin edit any transaction (ADMIN only, blocks PAYOUT/PAYOUT_ADMIN on backend)
 export const adminUpdateTransactionSchema = z
   .object({
-    amount: z.number().positive().max(500_000).optional(), // BIZ-13: reasonable ceiling
+    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT).optional(), // BIZ-13: reasonable ceiling
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     notes: z.string().max(1000).optional().nullable(),
     ...receiptFields,
@@ -991,6 +1081,41 @@ export const paySalarySchema = z
     // ADMIN (validated server-side). Ignored for COMPANY_ACCOUNT.
     payerAdminId: z.string().uuid().optional(),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
+    /**
+     * task-salary-pay-amount — the amount ACTUALLY paid, in `currency`.
+     *
+     * The obligation the salary row was created with is denominated in its own
+     * currency (typically USD). When an ADMIN settles it in another one, the
+     * figure that must land on the row is the one their bank statement shows
+     * (e.g. «30 000 UAH»), not the untouched nominal — otherwise reconciliation
+     * never matches. The server stamps the pre-payment amount/currency into
+     * `original_amount`/`original_currency` and derives `exchange_rate`, so the
+     * obligation is preserved rather than overwritten (see `transactionSchema`).
+     *
+     * OPTIONAL for backward compatibility: an omitted `paidAmount` keeps the
+     * historical behaviour (the row's amount is carried over unchanged, only
+     * the currency LABEL changes).
+     *
+     * Bounds come from `transactionAmountError` — the same function the client
+     * and the service use, so all three agree. It rejects 0 / negatives (a
+     * salary is never closed by paying nothing), keeps the BIZ-13 ceiling of
+     * `createSalarySchema.amount`, and — security-review PR #485 (MED-1) —
+     * refuses anything the `numeric(18,6)` column could not store WITHOUT LOSS:
+     * `1e-7` used to validate fine and then be written as `0.000000`, closing
+     * the obligation with a payment recorded as zero.
+     *
+     * The payment CLOSES the obligation in full regardless of this figure
+     * (owner decision, 2026-08-05: there are no partial payments in the model),
+     * which is exactly why the client warns on a large deviation from the
+     * rate-derived expectation — see `salaryPaidAmountDeviation`.
+     */
+    paidAmount: z
+      .number()
+      .superRefine((v, ctx) => {
+        const message = transactionAmountError(v)
+        if (message) ctx.addIssue({ code: 'custom', message })
+      })
+      .optional(),
     txHash: z.string().max(255).optional().nullable(),
     // task-receipts-backend (#7): pay-time proof is now MANDATORY. Effective
     // currency = USDT for COMPANY_ACCOUNT (USDT-only) → explorer-only; else the
@@ -1005,6 +1130,43 @@ export const paySalarySchema = z
     mandatoryReceiptRefine((d) => (d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : d.currency)),
   )
 export type PaySalaryDto = z.infer<typeof paySalarySchema>
+
+/**
+ * task-salary-pay-amount — relative deviation above which a hand-entered paid
+ * amount is worth warning about.
+ *
+ * 5%: comfortably above a real bank/exchange spread over the NBU reference rate
+ * the expectation is derived from (typically 1-3%, occasionally ~4% for cash),
+ * so an honest payment at the payer's own rate does NOT nag; and vastly below
+ * the order-of-magnitude slip this exists to catch (300 typed instead of
+ * 30 000 = 99% deviation). Deliberately a WARNING, never a block — the owner
+ * may legitimately pay at a rate we have no way of knowing, and the payment
+ * closes the obligation in full either way, so a hard gate would only teach
+ * people to work around it.
+ */
+export const SALARY_PAID_AMOUNT_WARN_THRESHOLD = 0.05
+
+/**
+ * Relative deviation of an entered `paidAmount` from the rate-derived
+ * expectation, or `null` when it is within tolerance / not comparable.
+ *
+ * Returns a fraction (0.99 = «отличается на 99%») so the caller renders the
+ * number in its own copy. Shared (not UI-local) because it is the pure,
+ * unit-testable core of the typo guard — and because the SAME rule must hold
+ * wherever a paid amount is entered next.
+ */
+export function salaryPaidAmountDeviation(
+  paidAmount: number,
+  expectedAmount: number,
+  threshold: number = SALARY_PAID_AMOUNT_WARN_THRESHOLD,
+): number | null {
+  // Not comparable: no usable expectation (rates not loaded, zero/garbage
+  // obligation) or no usable input yet — say nothing rather than cry wolf.
+  if (!Number.isFinite(paidAmount) || !Number.isFinite(expectedAmount)) return null
+  if (expectedAmount <= 0 || paidAmount <= 0) return null
+  const deviation = Math.abs(paidAmount - expectedAmount) / expectedAmount
+  return deviation > threshold ? deviation : null
+}
 
 // Drop role - phase 3 (spec §8.4). Manual payout confirmation — ACCOUNTANT/ADMIN
 // confirms a PAYOUT actually arrived to a selected admin partner. Body carries

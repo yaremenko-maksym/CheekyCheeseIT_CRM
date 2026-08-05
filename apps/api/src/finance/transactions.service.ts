@@ -71,8 +71,32 @@ import {
   COMPANY_ACCOUNT_FUNDING_SOURCE,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
-import { receiptMandatoryError } from '@crm/shared'
+import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
 import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
+
+/**
+ * task-salary-pay-amount — bounds of `transactions.exchange_rate`
+ * (`numeric(18,8)`): 10 integer digits and 8 fractional ones.
+ *
+ * security-review PR #485 (related to MED-1). The rate is DERIVED
+ * (`paid / original`), so an extreme pair of amounts can produce a value the
+ * column cannot hold:
+ *   - at or above 1e10 Postgres raises a raw «numeric field overflow» — which
+ *     failed CLOSED (the pay transaction rolled back, the row stayed PENDING)
+ *     but told the user nothing;
+ *   - below 1e-8 there is no error at all, which is worse: the value is
+ *     silently stored as `0.00000000`, so the row claims a rate of ZERO when
+ *     the real one was merely tiny.
+ * Neither is written. The caller stores NULL instead — see the reasoning at the
+ * call site in `paySalary` for why a derived field's width must not veto a
+ * payment whose amounts are both storable.
+ */
+const EXCHANGE_RATE_MAX_EXCLUSIVE = 1e10
+const EXCHANGE_RATE_MIN = 1e-8
+
+function isStorableExchangeRate(rate: number): boolean {
+  return Number.isFinite(rate) && rate >= EXCHANGE_RATE_MIN && rate < EXCHANGE_RATE_MAX_EXCLUSIVE
+}
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -807,6 +831,16 @@ export class TransactionsService {
       status: tx.status,
       amount: tx.amount,
       currency: tx.currency,
+      // task-salary-pay-amount — the OBLIGATION this row settled, kept
+      // alongside the FACT of the payment above (`amount`/`currency`).
+      // Deliberately NOT masked: these are the same amount that `amount`
+      // already exposes to this viewer, merely in its pre-payment
+      // denomination — masking one without the other would only make the two
+      // numbers contradict each other. Counterparty masking (who paid whom)
+      // is unaffected. NULL on every row not paid through this flow.
+      originalAmount: tx.originalAmount,
+      originalCurrency: tx.originalCurrency,
+      exchangeRate: tx.exchangeRate,
       senderId: senderMasked ? null : tx.senderId,
       senderLabel: senderMasked ? 'CheekyCheeseIT' : tx.senderLabel,
       senderName: senderMasked ? null : (tx.sender?.displayName ?? null),
@@ -5644,6 +5678,11 @@ export class TransactionsService {
       // For ADMIN_PERSONAL — whose personal account pays; must be an ADMIN.
       payerAdminId?: string | undefined
       currency: 'USDT' | 'USD' | 'EUR' | 'UAH'
+      // task-salary-pay-amount: the amount ACTUALLY paid, in `currency`. When
+      // omitted the row's own amount is carried over unchanged (legacy
+      // behaviour — only the currency LABEL changed). Zod bounds it at the
+      // boundary (positive, ≤ MAX_TRANSACTION_AMOUNT).
+      paidAmount?: number | undefined
       txHash?: string | null | undefined
       // task-receipts-backend (#7): pay-time proof MANDATORY, currency-aware
       // (COMPANY_ACCOUNT → USDT → explorer-only). Zod enforces at the boundary.
@@ -5712,6 +5751,73 @@ export class TransactionsService {
       currency = data.currency
     }
 
+    // ── task-salary-pay-amount: the FACT of the payment vs the OBLIGATION ────
+    //
+    // `amount`/`currency` on the row become what ACTUALLY left the payer's
+    // account (owner decision, 2026-08-05: a bank statement must reconcile
+    // one-to-one), which may be denominated differently from the obligation the
+    // salary was created with. The obligation is NOT overwritten — it is
+    // snapshotted into original_amount / original_currency, with the effective
+    // rate derived from the pair. Without that snapshot the USD reporting,
+    // balances and the «projects unpaid this month» metric that are built on the
+    // original denomination would silently lose their input.
+    //
+    // The payment CLOSES the obligation in full regardless of the figure (there
+    // are no partial payments in this model), so nothing here compares the two
+    // amounts or rejects a mismatch — the client warns about an implausible
+    // deviation (salaryPaidAmountDeviation) precisely because the server, by
+    // design, will not stop it.
+    const obligationAmount = parseFloat(tx.amount)
+    const paidAmountProvided = data.paidAmount !== undefined
+    // Defense-in-depth: Zod already applies `transactionAmountError` at the
+    // controller boundary. Re-checked here through the SAME function (one rule,
+    // no drift) because this service method is also reachable from server-side
+    // callers that never pass through Zod — and because a non-finite amount
+    // would otherwise reach the balance gate below as NaN, where EVERY
+    // comparison is false, so the gate would wave a company-account debit
+    // through instead of refusing it.
+    //
+    // security-review PR #485 (MED-1): this is also what stops an amount too
+    // small for `numeric(18,6)` (`1e-7`) from being stored as `0.000000` — an
+    // obligation closed in full by a payment recorded as zero.
+    if (paidAmountProvided) {
+      const amountError = transactionAmountError(data.paidAmount!)
+      if (amountError) throw new BadRequestException(amountError)
+    }
+    const paidAmount = paidAmountProvided ? data.paidAmount! : obligationAmount
+    // Effective applied rate = paid / original (units of the paid currency per 1
+    // unit of the original one). Derived, never client-supplied — see the column
+    // comment in schema.ts. NULL when the obligation amount is unusable as a
+    // divisor (should not happen: amounts are positive by schema).
+    const rawExchangeRate =
+      Number.isFinite(obligationAmount) && obligationAmount > 0
+        ? paidAmount / obligationAmount
+        : null
+    // security-review PR #485 (related to MED-1) — an unrepresentable ratio is
+    // recorded as NULL, never as a wrong number, and never as a refusal.
+    //
+    // An extreme pair of amounts can produce a ratio `numeric(18,8)` cannot
+    // hold: at or above 1e10 Postgres rejects the write outright with a raw
+    // «numeric field overflow» (a 500 that tells the user nothing), and below
+    // 1e-8 it does something worse — stores a flat `0.00000000`, so the row
+    // claims a rate of ZERO when the real one was merely tiny.
+    //
+    // Refusing the PAYMENT in those cases was the first instinct, and it is
+    // wrong: it lets the width of a DERIVED convenience column veto a payment
+    // whose two amounts are both perfectly storable (a test caught this
+    // immediately — the smallest storable amount, 0.000001, against an ordinary
+    // obligation produces a sub-resolution ratio), and it smuggles back in the
+    // plausibility judgment this flow deliberately leaves to the client's
+    // warning. The authoritative record is the PAIR (original_amount, amount) —
+    // both written losslessly, both enough to re-derive the rate exactly. So
+    // when the ratio cannot be recorded faithfully, the honest value is NULL
+    // («not recorded»), and the write never reaches the column with a number
+    // that would overflow it.
+    const exchangeRate =
+      rawExchangeRate !== null && isStorableExchangeRate(rawExchangeRate)
+        ? rawExchangeRate.toFixed(8)
+        : null
+
     // task-salary-pay-flow: stamp txDate = pay date (now). The salary was created
     // (PENDING) on an earlier date, but the business-time of the actual payment
     // is when an ADMIN pays it. The funding source / currency / sender are
@@ -5720,6 +5826,18 @@ export class TransactionsService {
       status: 'PAID' as const,
       fundingSource: isCompanyFunded ? ('COMPANY_ACCOUNT' as const) : ('ADMIN_PERSONAL' as const),
       currency,
+      // The FACT of the payment — written ONLY when the caller actually stated
+      // one. An omitted `paidAmount` leaves `amount` completely untouched
+      // (byte-for-byte the legacy behaviour), rather than rewriting the stored
+      // numeric string with a re-serialised copy of itself.
+      ...(paidAmountProvided ? { amount: String(paidAmount) } : {}),
+      // …and the OBLIGATION it settled, snapshotted from the row as it stood a
+      // moment ago. Stamped on EVERY pay (not only when the amount changed) so
+      // the pair is uniform: a reader never has to guess whether a NULL means
+      // "unchanged" or "unpaid through this flow".
+      originalAmount: tx.amount,
+      originalCurrency: tx.currency,
+      exchangeRate,
       senderId,
       senderLabel,
       txHash: data.txHash ?? null,
@@ -5744,7 +5862,15 @@ export class TransactionsService {
       // company-account advisory lock; the second concurrent debit blocks,
       // re-reads the reduced balance and correctly fails. The status re-check
       // inside the lock guards against a double-flip of the SAME row.
-      const amount = parseFloat(tx.amount)
+      //
+      // task-salary-pay-amount: the gate MUST measure the amount that is
+      // actually about to be debited (`paidAmount`, which is what gets written
+      // to `amount` and therefore what the ledger formula subtracts) — NOT the
+      // row's pre-payment amount. Gating on the old figure while writing a
+      // larger one would let a payout exceed the balance and drive the company
+      // account negative; the company account is USDT-only (currency is forced
+      // to USDT above), so the two are directly comparable with no conversion.
+      const amount = paidAmount
       await this.db.db.transaction(async (dbtx) => {
         await lockCompanyAccount(dbtx)
         // security-review PR #456 (MED-1): re-check deleted_at IS NULL too —
@@ -5816,8 +5942,15 @@ export class TransactionsService {
         action: 'PAY',
         metadata: {
           type: 'SALARY',
-          amount: tx.amount,
+          // task-salary-pay-amount: `amount` stays the field an auditor already
+          // knows, now carrying the FACT that was paid; the obligation it
+          // settled is recorded next to it so the audit trail alone answers
+          // «what was owed and what actually went out».
+          amount: paidAmountProvided ? String(paidAmount) : tx.amount,
           currency,
+          originalAmount: tx.amount,
+          originalCurrency: tx.currency,
+          exchangeRate,
           fundingSource: paidSet.fundingSource,
         },
       })
