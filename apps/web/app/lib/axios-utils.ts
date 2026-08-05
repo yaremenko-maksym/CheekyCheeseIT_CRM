@@ -25,6 +25,22 @@ export function getAxiosStatus(err: unknown): number | undefined {
 }
 
 /**
+ * Strips the query string off a request URL/path before it's ever logged
+ * anywhere (console OR telemetry) — security-review round 2, MED-2: a query
+ * string can carry PII (`?email=user@example.com`) exactly like a response
+ * body can, so it gets the same treatment. ONE policy, used everywhere a
+ * request URL is logged (`axios.ts`'s `console.error`, telemetry's
+ * `sanitizeErrorForReport`) — path + method + status is enough to debug an
+ * API failure; the full URL (with params) is already in the browser's
+ * Network tab for anyone who needs it.
+ */
+export function stripQueryString(url: string | undefined): string {
+  if (url === undefined) return '?'
+  const i = url.indexOf('?')
+  return i === -1 ? url : url.slice(0, i)
+}
+
+/**
  * Extracts a message the BACKEND explicitly put in the response body, or
  * `undefined` if the body carried nothing usable. Shared by
  * `getApiErrorMessage` (below — falls through to axios's own generic

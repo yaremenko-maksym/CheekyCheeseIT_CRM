@@ -1,5 +1,32 @@
 import { describe, expect, it } from 'vitest'
-import { getAxiosStatus, getApiErrorMessage, getUserFacingErrorMessage } from './axios-utils'
+import {
+  getAxiosStatus,
+  getApiErrorMessage,
+  getUserFacingErrorMessage,
+  stripQueryString,
+} from './axios-utils'
+
+// security-review round 2, MED-2: one consistent policy — never log a
+// query string anywhere (console OR telemetry), since it can carry PII
+// just like a response body can.
+describe('stripQueryString', () => {
+  it('removes the query string, keeping only the path', () => {
+    expect(stripQueryString('/users?email=vasya@example.com')).toBe('/users')
+  })
+
+  it('leaves a path with no query string untouched', () => {
+    expect(stripQueryString('/documents')).toBe('/documents')
+  })
+
+  it('handles multiple query params and a fragment-like trailing "?"', () => {
+    expect(stripQueryString('/documents?ownerId=abc&category=RECEIPT')).toBe('/documents')
+    expect(stripQueryString('/documents?')).toBe('/documents')
+  })
+
+  it('returns "?" for undefined (no url on the config)', () => {
+    expect(stripQueryString(undefined)).toBe('?')
+  })
+})
 
 describe('getAxiosStatus', () => {
   it('returns status from axios-like error', () => {
