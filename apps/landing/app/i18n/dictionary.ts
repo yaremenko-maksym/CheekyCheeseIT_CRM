@@ -1,3 +1,4 @@
+import type { VacancyDomain } from '@crm/shared'
 import type { TagVariant } from '@/components/ui/tag'
 import type { Locale } from './locale'
 
@@ -142,7 +143,16 @@ export interface Dictionary {
     servicesH2Line1: string
     servicesH2Line2: string
     servicesP: string
-    services: [ServiceItem, ServiceItem, ServiceItem]
+    /**
+     * task-domains-expansion — FOUR cards, not three. The first three are the
+     * domains we have actually shipped in (the same three the case studies
+     * above document); the fourth states, in as many words, that any other
+     * domain is welcome and that there is no case study for it yet. Adding a
+     * fabricated fourth CASE STUDY would have made `workP` ("the numbers are
+     * exactly as they happened") a lie, so the fourth card sells the practice
+     * — discovery, senior pod, weekly increment — and nothing else.
+     */
+    services: [ServiceItem, ServiceItem, ServiceItem, ServiceItem]
     processEyebrow: string
     processH2Line1: string
     processH2Line2: string
@@ -220,7 +230,19 @@ export interface Dictionary {
     notFoundBody: string
     backToCareers: string
     allRoles: string
-    domainLabels: Record<'AI' | 'EDTECH' | 'ECOMMERCE' | 'OTHER', string>
+    /**
+     * task-domains-expansion — keyed off `VacancyDomain` (`@crm/shared`), not
+     * a hand-written union: the union WAS a second copy of the enum, and the
+     * moment the enum grew past four values it would have let a locale ship
+     * a vacancy tag with no label at all. Type-only import, so no runtime
+     * dependency on the shared barrel is added to the public bundle.
+     *
+     * Industry jargon is deliberately NOT translated (skill `copywriting` §5
+     * — "FinTech"/"SaaS"/"iGaming" live as-is on the ru/uk markets); ordinary
+     * words that DO have a native equivalent (Logistics, Travel, Media,
+     * Cybersecurity, Other) are localized per locale.
+     */
+    domainLabels: Record<VacancyDomain, string>
     employmentTypeLabels: Record<'FULL_TIME' | 'PART_TIME' | 'CONTRACT', string>
     /** task-vacancy-salary-range — period suffix for the salary range tag; numbers/currency are NOT translated. */
     salaryPeriodLabels: Record<'HOUR' | 'DAY' | 'WEEK' | 'MONTH' | 'YEAR', string>

@@ -154,17 +154,22 @@ export const en: Dictionary = {
     challengeLabel: 'Challenge',
     solutionLabel: 'Solution',
     servicesEyebrow: 'Services',
-    servicesH2Line1: 'Three domains,',
-    servicesH2Line2: 'learned the hard way',
+    // task-domains-expansion (owner, 2026-08-05): the old heading — "Three
+    // domains, learned the hard way" — promised exactly three and nothing
+    // outside them, which is the opposite of the positioning the owner asked
+    // for. The claim now has two halves and both must survive translation:
+    // any domain is on the table, AND three of them are already in production.
+    servicesH2Line1: 'Any domain,',
+    servicesH2Line2: 'three already in production',
     servicesP:
-      'We go deep, not wide. Every engineer here has shipped production systems in the domain they work in.',
+      'The hard parts repeat across industries: latency, data models, payments, scale. Only the vocabulary changes, and we pick that up in discovery. AI, EdTech and E-Commerce are where we have shipped already — the rest we take on the same way.',
     services: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
         title: 'Applied AI & ML',
         description:
-          'Inference platforms, RAG pipelines, recommendation and vision systems — fast, observable and affordable once they are in production.',
+          'Model serving for a vision SaaS, RAG pipelines and recommendation systems — fast, observable and affordable once they are in production.',
         bullets: ['Model serving & MLOps', 'LLM & RAG applications', 'Data & feature pipelines'],
       },
       {
@@ -172,7 +177,7 @@ export const en: Dictionary = {
         domainLabel: 'EdTech',
         title: 'EdTech platforms',
         description:
-          'Adaptive learning, assessment engines and content tooling — engaging for learners, measurable for the institutions paying for them.',
+          'Adaptive learning paths for a K-12 network, assessment engines and content tooling — engaging for learners, measurable for the institutions paying for them.',
         bullets: ['Adaptive learning paths', 'Assessment & analytics', 'Authoring & LMS tooling'],
       },
       {
@@ -180,8 +185,20 @@ export const en: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'E-Commerce systems',
         description:
-          'Headless storefronts, checkout and inventory at scale — resilient on launch days, fast for shoppers everywhere.',
+          'A headless storefront for a global DTC brand, checkout and inventory at scale — resilient on launch days, fast for shoppers everywhere.',
         bullets: ['Headless storefronts', 'Edge checkout & payments', 'Inventory & fulfilment'],
+      },
+      // The fourth card is the openness claim made concrete. It names the
+      // absence of a case study out loud — the alternative (inventing a
+      // fourth "client" in FinTech or iGaming) would contradict `workP` two
+      // sections above, which promises the numbers on this page are real.
+      {
+        domain: 'neutral',
+        domainLabel: 'Any domain',
+        title: "The domain you're in",
+        description:
+          'No case study here yet, and we would rather say that than invent one. What carries over is the practice: discovery first, a senior pod, something shippable in the first week — the same way the three above started.',
+        bullets: ['Discovery before code', 'Senior-only pod', 'Your repo, your stack'],
       },
     ],
     processEyebrow: 'How we work',
@@ -282,7 +299,25 @@ export const en: Dictionary = {
     notFoundBody: "This role isn't open anymore — but there may be others.",
     backToCareers: 'Back to careers',
     allRoles: 'All roles',
-    domainLabels: { AI: 'AI / ML', EDTECH: 'EdTech', ECOMMERCE: 'E-Commerce', OTHER: 'Other' },
+    domainLabels: {
+      AI: 'AI / ML',
+      EDTECH: 'EdTech',
+      ECOMMERCE: 'E-Commerce',
+      FINTECH: 'FinTech',
+      IGAMING: 'iGaming',
+      ADULT: 'Adult',
+      SAAS: 'SaaS',
+      HEALTHTECH: 'HealthTech',
+      ADTECH: 'AdTech',
+      LOGISTICS: 'Logistics',
+      PROPTECH: 'PropTech',
+      TRAVEL: 'Travel',
+      MEDIA: 'Media',
+      WEB3: 'Web3',
+      HRTECH: 'HR Tech',
+      CYBERSEC: 'Cybersecurity',
+      OTHER: 'Other',
+    },
     employmentTypeLabels: { FULL_TIME: 'Full-time', PART_TIME: 'Part-time', CONTRACT: 'Contract' },
     salaryPeriodLabels: {
       HOUR: 'per hour',

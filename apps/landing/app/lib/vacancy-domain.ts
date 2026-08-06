@@ -3,10 +3,16 @@ import type { TagVariant } from '@/components/ui/tag'
 import type { Dictionary } from '@/i18n/dictionary'
 
 /**
- * Maps the API's `VacancyDomain` enum (AI | EDTECH | ECOMMERCE | OTHER) to the
- * marketing `Tag` variant + display label used on VacancyCard and the vacancy
- * detail page. `OTHER` renders as the neutral tag style (landing-redesign.md
- * §3.3 only defines 3 domain hues on purpose).
+ * Maps the API's `VacancyDomain` enum to the marketing `Tag` variant + display
+ * label used on VacancyCard and the vacancy detail page.
+ *
+ * Only three domains have a brand hue (landing-redesign.md §3.3 defines
+ * exactly `--tag-ai` / `--tag-edtech` / `--tag-ecommerce`, on purpose).
+ * `OTHER` has always rendered `neutral`, and so do the 13 domains added by
+ * task-domains-expansion: widening an enum must not invent 13 new colours in
+ * the design system — that is a designer's call, and a partial map + neutral
+ * fallback keeps a new domain from silently rendering as `undefined` styling
+ * in the meantime.
  *
  * Domain/employment-type LABELS are locale-aware (task-landing-i18n.md) —
  * `domainLabel`/`employmentTypeLabel` take a REQUIRED `dict` slice
@@ -18,15 +24,14 @@ import type { Dictionary } from '@/i18n/dictionary'
  * barrel itself. Every real call site (`vacancy-card.tsx`,
  * `vacancy-detail-page-content.tsx`) already threads its own `dict` through.
  */
-const DOMAIN_TAG_VARIANT: Record<VacancyDomain, TagVariant> = {
+const DOMAIN_TAG_VARIANT: Partial<Record<VacancyDomain, TagVariant>> = {
   AI: 'ai',
   EDTECH: 'edtech',
   ECOMMERCE: 'ecommerce',
-  OTHER: 'neutral',
 }
 
 export function domainTagVariant(domain: VacancyDomain): TagVariant {
-  return DOMAIN_TAG_VARIANT[domain]
+  return DOMAIN_TAG_VARIANT[domain] ?? 'neutral'
 }
 
 export function domainLabel(domain: VacancyDomain, dict: Dictionary['vacancy']): string {

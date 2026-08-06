@@ -30,8 +30,15 @@ export const HEADING_CLAIMS: Readonly<Record<string, string>> = {
   'home.aboutH2Line1': 'the team on your account is small',
   'home.aboutH2Line2': 'and it is senior-only — no juniors on your budget',
   'home.workH2': 'the cases are anonymised but the numbers are real',
-  'home.servicesH2Line1': 'we work in exactly three domains',
-  'home.servicesH2Line2': 'and we learned them the hard way, in production',
+  // task-domains-expansion (owner, 2026-08-05) — the previous claim pair was
+  // "we work in exactly three domains" + "learned the hard way", i.e. an
+  // exclusivity promise. The owner asked for the opposite: no domain lock-in,
+  // with the proven experience stated as evidence rather than as a boundary.
+  // Both halves are load-bearing — a locale that keeps only "any domain"
+  // turns the section into an unsupported boast, and one that keeps only
+  // "three in production" re-states the promise this change removed.
+  'home.servicesH2Line1': 'we are not limited to one domain — whichever you are in, we take it on',
+  'home.servicesH2Line2': 'and three of them are already in production (AI, EdTech, E-Commerce)',
   'home.processH2Line1': 'the engagement is four steps',
   'home.processH2Line2': 'and none of it is a black box to you',
   'home.techStackH2': 'this is the stack we start from by default',
@@ -153,9 +160,25 @@ export const CLAIMLESS_HEADING_KEYS: ReadonlySet<string> = new Set([
   'vacancy.notFoundH1',
   'vacancy.backToCareers',
   'vacancy.allRoles',
+  // task-domains-expansion — one entry per `VacancyDomain` (`@crm/shared`).
+  // Enum labels, not marketing: they name the industry a vacancy is posted
+  // in and assert nothing about the company.
   'vacancy.domainLabels.AI',
   'vacancy.domainLabels.EDTECH',
   'vacancy.domainLabels.ECOMMERCE',
+  'vacancy.domainLabels.FINTECH',
+  'vacancy.domainLabels.IGAMING',
+  'vacancy.domainLabels.ADULT',
+  'vacancy.domainLabels.SAAS',
+  'vacancy.domainLabels.HEALTHTECH',
+  'vacancy.domainLabels.ADTECH',
+  'vacancy.domainLabels.LOGISTICS',
+  'vacancy.domainLabels.PROPTECH',
+  'vacancy.domainLabels.TRAVEL',
+  'vacancy.domainLabels.MEDIA',
+  'vacancy.domainLabels.WEB3',
+  'vacancy.domainLabels.HRTECH',
+  'vacancy.domainLabels.CYBERSEC',
   'vacancy.domainLabels.OTHER',
   'vacancy.employmentTypeLabels.FULL_TIME',
   'vacancy.employmentTypeLabels.PART_TIME',
