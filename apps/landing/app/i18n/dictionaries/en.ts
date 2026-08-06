@@ -221,7 +221,7 @@ export const en: Dictionary = {
       // fourth "client" in FinTech or iGaming) would contradict `workP` two
       // sections above, which promises the numbers on this page are real.
       {
-        domain: 'neutral',
+        domain: 'open',
         domainLabel: 'Any domain',
         title: "The domain you're in",
         description:

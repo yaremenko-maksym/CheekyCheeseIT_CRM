@@ -192,7 +192,7 @@ export const uk: Dictionary = {
       // Вигаданий четвертий кейс зробив би брехнею обіцянку з розділу
       // «Роботи»: цифри там рівно ті, що були.
       {
-        domain: 'neutral',
+        domain: 'open',
         domainLabel: 'Будь-який домен',
         title: 'Ваш домен',
         description:
