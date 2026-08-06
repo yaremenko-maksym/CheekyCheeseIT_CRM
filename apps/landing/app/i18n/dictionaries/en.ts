@@ -80,8 +80,16 @@ export const en: Dictionary = {
     // we deliver, which is checkable.
     heroH1Line1: 'Hard parts,',
     heroH1Highlight: 'every week',
+    // task-domains-expansion, review round 2 (HIGH-1): this used to read
+    // "Three domains we know cold" — a statement about the BOUNDARY of what we
+    // take on, sitting above the fold, i.e. read before the services section
+    // that now says the opposite. (`heroChip`/`seoTitle` still name the three
+    // domains, deliberately: they LIST them as keywords, which is compatible
+    // with "three already in production". This sentence did not list, it
+    // limited.) Claim now: senior-only studio for international product
+    // companies + any domain + 4h overlap — all three in all five locales.
     heroParagraph:
-      'A senior-only engineering studio for international product companies. Three domains we know cold, four-plus hours of overlap with your working day.',
+      'A senior-only engineering studio for international product companies. Whatever domain you are in, four-plus hours of overlap with your working day.',
     ctaStartProject: 'Start a project',
     ctaSeeRoles: 'See open roles',
     aboutEyebrow: 'About us',
@@ -160,7 +168,20 @@ export const en: Dictionary = {
     // for. The claim now has two halves and both must survive translation:
     // any domain is on the table, AND three of them are already in production.
     servicesH2Line1: 'Any domain,',
-    servicesH2Line2: 'three already in production',
+    // Round 2 (MED-2): "three already in production" hung `production` alone on
+    // a third line at 320 AND 375 (measured via `Range.getClientRects()`; the
+    // old heading gave clean two-liners in the same DOM, so it was a
+    // regression, not inherited). `text-balance` cannot fix it — the explicit
+    // `<br/>` makes each line its own balancing box, so this is a text defect
+    // and the fix is words.
+    //
+    // Review proposed "three already shipped"; A/B-ing five candidates in the
+    // real <h2> showed that still wraps at 320 (fits from 375 up), so it is
+    // dropped in favour of the two that hold two lines at BOTH widths —
+    // "three already live" and this one. Chose "in production" because it is
+    // the exact phrase the other four locales carry (в проде / в проді /
+    // en producción / em produção); "already" was emphasis, not the claim.
+    servicesH2Line2: 'three in production',
     servicesP:
       'The hard parts repeat across industries: latency, data models, payments, scale. Only the vocabulary changes, and we pick that up in discovery. AI, EdTech and E-Commerce are where we have shipped already — the rest we take on the same way.',
     services: [

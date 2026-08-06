@@ -71,8 +71,12 @@ export const pt: Dictionary = {
     heroChip: 'Outsourcing e outstaffing · AI · EdTech · E-Commerce',
     heroH1Line1: 'O difícil,',
     heroH1Highlight: 'semanalmente',
+    // Revisão rodada 2 (HIGH-1): dizia «Três domínios que conhecemos de
+    // perto» — um limite declarado acima da dobra e antes da seção de
+    // serviços, que agora diz o contrário. Não repete o título («Qualquer
+    // domínio») de propósito: mesma afirmação, outras palavras.
     heroParagraph:
-      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Três domínios que conhecemos de perto e 4+ horas de sobreposição com o seu expediente.',
+      'Estúdio de engenharia apenas-sênior para empresas de produto internacionais. Seja qual for o seu domínio, 4+ horas de sobreposição com o seu expediente.',
     ctaStartProject: 'Iniciar um projeto',
     ctaSeeRoles: 'Ver vagas abertas',
     aboutEyebrow: 'Sobre nós',
@@ -188,7 +192,10 @@ export const pt: Dictionary = {
       {
         domain: 'neutral',
         domainLabel: 'Qualquer domínio',
-        title: 'O domínio em que você está',
+        // Rodada 2 (LOW): «O domínio em que você está» jogava «está» para uma
+        // segunda linha a 320 px. «Seu domínio» cabe em uma, e alinha com
+        // ru/uk («Ваш домен»), que já resolviam assim.
+        title: 'Seu domínio',
         description:
           'Aqui ainda não há case, e preferimos dizer isso a inventar um. O que se transfere é a prática: discovery primeiro, um time só de sêniores e algo entregável já na primeira semana. Os três cards ao lado começaram igual.',
         bullets: ['Discovery antes do código', 'Time apenas-sênior', 'Seu repositório, seu stack'],
@@ -297,7 +304,9 @@ export const pt: Dictionary = {
       ECOMMERCE: 'E-Commerce',
       FINTECH: 'FinTech',
       IGAMING: 'iGaming',
-      ADULT: 'Adult',
+      // Rodada 2 (MED-3): «Adult» é uma palavra comum com equivalente
+      // natural, como Travel/Media/Logistics — traduz-se.
+      ADULT: 'Conteúdo adulto',
       SAAS: 'SaaS',
       HEALTHTECH: 'HealthTech',
       ADTECH: 'AdTech',

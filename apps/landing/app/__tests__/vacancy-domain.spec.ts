@@ -47,6 +47,19 @@ describe('vacancy domain labels and tags', () => {
     }
   })
 
+  it('keeps ADULT Latin on ru/uk and translated on es/pt — the one deliberate split', () => {
+    // Review round 2 (MED-3). `ADULT` is an ordinary word, so the default is
+    // "translate it" — es/pt do. ru/uk are the documented exception: the
+    // vertical is named in Latin in the ru/uk hiring market ("adult-индустрия"),
+    // where «Взрослый контент» reads as a description rather than an industry.
+    // Pinned so the next editor changes it on purpose, not by tidying up what
+    // looks like an oversight (which is exactly how it reached review).
+    expect(domainLabel('ADULT', getDictionary('ru').vacancy)).toBe('Adult')
+    expect(domainLabel('ADULT', getDictionary('uk').vacancy)).toBe('Adult')
+    expect(domainLabel('ADULT', getDictionary('es').vacancy)).toBe('Contenido adulto')
+    expect(domainLabel('ADULT', getDictionary('pt').vacancy)).toBe('Conteúdo adulto')
+  })
+
   it('uses a brand tag only for the three domains that have one, neutral for the rest', () => {
     expect(domainTagVariant('AI')).toBe('ai')
     expect(domainTagVariant('EDTECH')).toBe('edtech')

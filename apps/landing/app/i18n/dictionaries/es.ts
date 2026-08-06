@@ -72,8 +72,12 @@ export const es: Dictionary = {
     heroChip: 'Outsourcing y outstaffing · AI · EdTech · E-Commerce',
     heroH1Line1: 'Lo difícil,',
     heroH1Highlight: 'semanalmente',
+    // Revisión ronda 2 (HIGH-1): decía «Tres dominios que conocemos al
+    // detalle» — un límite declarado por encima del pliegue y antes de la
+    // sección de servicios, que ahora dice lo contrario. No repite el titular
+    // («Cualquier dominio») a propósito: misma afirmación, otras palabras.
     heroParagraph:
-      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Tres dominios que conocemos al detalle y 4+ horas de solape con tu jornada.',
+      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Sea cual sea tu dominio, 4+ horas de solape con tu jornada.',
     ctaStartProject: 'Iniciar un proyecto',
     ctaSeeRoles: 'Ver vacantes abiertas',
     aboutEyebrow: 'Sobre nosotros',
@@ -151,7 +155,10 @@ export const es: Dictionary = {
     // titular anterior («Tres dominios, aprendidos a golpes») prometía tres
     // y nada fuera de ellos.
     servicesH2Line1: 'Cualquier dominio,',
-    servicesH2Line2: 'tres ya en producción',
+    // Ronda 2 (MED-2): «tres ya en producción» dejaba «producción» sola en una
+    // tercera línea a 320 px (medido con `Range.getClientRects()`). «Lanzados»
+    // entra en dos líneas a 320 y 375, y dice lo mismo: ya están fuera.
+    servicesH2Line2: 'tres ya lanzados',
     servicesP:
       'Lo difícil se repite de un sector a otro: latencia, modelo de datos, pagos, carga. Lo que cambia es el vocabulario, y eso lo aprendemos en discovery. En AI, EdTech y E-Commerce ya hemos llegado a producción; el resto lo tomamos igual.',
     services: [
@@ -193,7 +200,10 @@ export const es: Dictionary = {
       {
         domain: 'neutral',
         domainLabel: 'Cualquier dominio',
-        title: 'El dominio en el que estás',
+        // Ronda 2 (LOW): «El dominio en el que estás» partía «estás» a una
+        // segunda línea a 320 px. «Tu dominio» entra en una, y coincide con
+        // ru/uk («Ваш домен»), que ya lo resolvían así.
+        title: 'Tu dominio',
         description:
           'Aquí todavía no hay caso de estudio, y preferimos decirlo antes que inventarlo. Lo que sí se traslada es la práctica: discovery primero, un equipo solo-senior y algo entregable en la primera semana. Las tres tarjetas de al lado empezaron igual.',
         bullets: ['Discovery antes que código', 'Equipo solo-senior', 'Tu repositorio, tu stack'],
@@ -302,7 +312,9 @@ export const es: Dictionary = {
       ECOMMERCE: 'E-Commerce',
       FINTECH: 'FinTech',
       IGAMING: 'iGaming',
-      ADULT: 'Adult',
+      // Ronda 2 (MED-3): «Adult» es una palabra corriente con equivalente
+      // natural, como Travel/Media/Logistics — se traduce.
+      ADULT: 'Contenido adulto',
       SAAS: 'SaaS',
       HEALTHTECH: 'HealthTech',
       ADTECH: 'AdTech',
