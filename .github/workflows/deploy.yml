@@ -915,6 +915,48 @@ jobs:
           # apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-05_salary_paid_amount.sql
 
+      # ── vacancy domain expansion DDL — GUARDED, same reason as the blocks above ──
+      # feature/domains-expansion (parallel branch, not yet merged to main at the time
+      # this infra-PR lands, no PR number assigned yet): widens the `vacancy_domain`
+      # enum from its current 4 values (AI/EDTECH/ECOMMERCE/OTHER) with roughly fifteen
+      # new domain values. DevOps zone-of-write excludes apps/api/**, so this wiring
+      # lands separately from the Coder branch that creates the file — same guarded
+      # copy + notice-skip pattern as every block above.
+      #
+      # ORDER REQUIRED, and stricter than usual: this is an enum widening
+      # (`ALTER TYPE ... ADD VALUE`), not a nullable-column addition — the new API code
+      # will start WRITING values the current type does not know about the moment its
+      # image goes live. If the image ships before this DDL applies, every vacancy
+      # create/update using a new domain value fails outright (invalid input value for
+      # enum vacancy_domain), not just degrades. So, same placement discipline as every
+      # DDL step above (before Step 3 starts/updates the api and nginx containers) but
+      # called out explicitly here because the failure mode on the wrong order is a
+      # hard error, not a silent gap. The reverse order is safe: applying this file
+      # while the OLD image still runs is a no-op for it (it never writes the new
+      # values).
+      - name: Check for vacancy domain expansion DDL file (guard until feature/domains-expansion merges)
+        id: vacancy-domain-expansion-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-05_vacancy_domain_expansion.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-05_vacancy_domain_expansion.sql not found in checkout — feature/domains-expansion has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy vacancy domain expansion DDL via SCP (only if present)
+        if: steps.vacancy-domain-expansion-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-05_vacancy_domain_expansion.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-05_vacancy_domain_expansion.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-05_vacancy_domain_expansion.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -1709,6 +1751,56 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$SALARY_PAID_AMOUNT_FILE"
               echo "==> salary paid-amount DDL applied successfully"
+            fi
+
+            # ── Step 2r: vacancy_domain enum expansion (idempotent, GUARDED, ORDER-CRITICAL) ──
+            # feature/domains-expansion (parallel branch, not yet merged to main at the time
+            # this infra-PR lands, no PR number assigned yet): widens the `vacancy_domain` enum
+            # from its current 4 values (AI/EDTECH/ECOMMERCE/OTHER) with roughly fifteen new
+            # domain values via `ALTER TYPE vacancy_domain ADD VALUE IF NOT EXISTS '...'`.
+            # GUARDED for the same reason as the blocks above — DevOps zone-of-write excludes
+            # apps/api/**, this wiring lands separately from the Coder branch, and a missing
+            # file here is the expected steady state until that branch merges, not an error.
+            # copy-compose job's matching "Check for vacancy domain expansion DDL file" step
+            # mirrors this guard on the scp side.
+            #
+            # ORDER CRITICAL, stricter than the usual "new columns" case above (e.g. Step 2q):
+            # the new api image starts WRITING domain values the current enum type does not
+            # know about the moment it serves traffic — if this DDL applies AFTER the new
+            # image is live, every vacancy create/update using a new domain value fails
+            # outright (`invalid input value for enum vacancy_domain`), not a degraded read.
+            # This step therefore runs BEFORE Step 3 starts/updates the api and nginx
+            # containers, same placement as every DDL step above. The reverse order is safe:
+            # applying this file while the OLD image still runs is a no-op for it (it never
+            # writes the new values).
+            #
+            # `ALTER TYPE ... ADD VALUE` cannot run inside a multi-statement transaction block
+            # together with other statements in the same transaction on older Postgres, and
+            # cannot be used in the same transaction it was added in either way — this
+            # workflow's plain `psql -v ON_ERROR_STOP=1 < file` invocation (no `-1` /
+            # `--single-transaction`, same as every apply step above) gives each statement its
+            # own implicit transaction, which is exactly the mode this needs. Verified
+            # EMPIRICALLY (same discipline as Step 2n's CONCURRENTLY note above), not by
+            # reading Postgres docs alone: ran a same-shaped 15-statement `ADD VALUE IF NOT
+            # EXISTS` file against a scratch Postgres 16 container with this exact invocation
+            # — first run applied all 15 values cleanly (exit 0); a second full re-run printed
+            # `NOTICE: enum label "..." already exists, skipping` for every statement and
+            # still exited 0 — confirming the file is safe to re-run on every deploy, forever.
+            # Source: apps/api/drizzle/manual/2026-08-05_vacancy_domain_expansion.sql
+            VACANCY_DOMAIN_EXPANSION_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-05_vacancy_domain_expansion.sql"
+
+            if [ ! -f "$VACANCY_DOMAIN_EXPANSION_FILE" ]; then
+              echo "::notice::vacancy_domain expansion DDL file not found at $VACANCY_DOMAIN_EXPANSION_FILE — feature/domains-expansion has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying vacancy_domain expansion DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$VACANCY_DOMAIN_EXPANSION_FILE"
+              echo "==> vacancy_domain expansion DDL applied successfully"
             fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
