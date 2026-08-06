@@ -52,7 +52,7 @@ import {
   APPLICATION_STATUS_LABELS,
   buildVacancyDto,
   computeVacancySubmitErrors,
-  DOMAIN_DOT_COLOR,
+  domainDotColor,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
   emptySalaryFormValues,
@@ -266,7 +266,7 @@ function VacancyDetailPage() {
 
   const { canDelete, tooltip: deleteTooltip } = getVacancyDeleteGate(vacancy)
   const statusBadge = VACANCY_STATUS_BADGE[vacancy.status]
-  const dotColor = DOMAIN_DOT_COLOR[vacancy.domain]
+  const dotColor = domainDotColor(vacancy.domain)
 
   const applications = applicationsQuery.data ?? []
   const newCount = applications.filter((a) => a.status === 'NEW').length
