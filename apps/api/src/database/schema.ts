@@ -184,7 +184,36 @@ export const invoiceSignatureMethodEnum = pgEnum('invoice_signature_method', [
 ])
 
 // task-vacancies-api — public vacancies (landing) + admin CRUD (CRM).
-export const vacancyDomainEnum = pgEnum('vacancy_domain', ['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'])
+/**
+ * task-domains-expansion — order MUST match `VACANCY_DOMAINS` (`@crm/shared`)
+ * and the live prod type: the original four first, then the 2026-08-05
+ * additions in the order `drizzle/manual/2026-08-05_vacancy_domain_expansion.sql`
+ * appends them. Spelled out literally rather than imported from `@crm/shared`
+ * on purpose — `drizzle-kit` loads this file with its own loader, so keeping
+ * it dependency-free keeps `db:push` (dev/CI) working regardless of workspace
+ * resolution. The three definitions (this one, the shared const, the prod DDL)
+ * are tied together by `vacancy-domain-enum-consistency.spec.ts`, which fails
+ * on any drift instead of leaving it to be discovered on prod.
+ */
+export const vacancyDomainEnum = pgEnum('vacancy_domain', [
+  'AI',
+  'EDTECH',
+  'ECOMMERCE',
+  'OTHER',
+  'FINTECH',
+  'IGAMING',
+  'ADULT',
+  'SAAS',
+  'HEALTHTECH',
+  'ADTECH',
+  'LOGISTICS',
+  'PROPTECH',
+  'TRAVEL',
+  'MEDIA',
+  'WEB3',
+  'HRTECH',
+  'CYBERSEC',
+])
 export const vacancySeniorityEnum = pgEnum('vacancy_seniority', ['SENIOR', 'LEAD'])
 export const vacancyEmploymentTypeEnum = pgEnum('vacancy_employment_type', [
   'FULL_TIME',

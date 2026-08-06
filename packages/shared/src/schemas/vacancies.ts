@@ -29,7 +29,59 @@ import { z } from 'zod'
 // Enums
 // ---------------------------------------------------------------------------
 
-export const vacancyDomainSchema = z.enum(['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'])
+/**
+ * task-domains-expansion (owner request 2026-08-05: "расширь список доменов…
+ * около 15 доменов и опция «прочее»") — the domain a vacancy is posted for.
+ *
+ * ORDER IS THE POSTGRES ENUM ORDER, not a display order. The first four
+ * values are the original ones (`vacancy_domain` was created with exactly
+ * them in `drizzle/manual/2026-07-22_vacancies.sql`); everything after
+ * `OTHER` is appended in the exact sequence of the `ALTER TYPE … ADD VALUE`
+ * statements in `drizzle/manual/2026-08-05_vacancy_domain_expansion.sql`, so
+ * this array and the live prod type list the values in the same order and
+ * `drizzle-kit push` sees no diff to "fix". A drift guard spec compares the
+ * two sides on every run (`apps/api/src/database/vacancy-domain-enum-consistency.spec.ts`).
+ * Display order is a separate, derived concern — see `DOMAIN_OPTIONS` in
+ * `apps/web/.../vacancies/constants.ts` (sorted by label, `OTHER` last).
+ *
+ * **Values are permanent.** Postgres cannot rename or remove an enum value
+ * that rows already reference, so these identifiers were chosen to survive
+ * label changes: they name the industry, never its current marketing
+ * spelling (`IGAMING` renders as "iGaming", `HRTECH` as "HR Tech",
+ * `CYBERSEC` as "Cybersecurity" — see the label maps). Adding a domain later
+ * is cheap and additive (one more `ADD VALUE IF NOT EXISTS` line); renaming
+ * one is not, which is why this list is deliberately broad from the start.
+ *
+ * Labels are NOT part of the contract: the CRM renders these in Latin
+ * (`DOMAIN_LABELS`), the landing renders them per locale
+ * (`Dictionary['vacancy'].domainLabels`), and industry jargon (FinTech,
+ * SaaS, iGaming…) is deliberately left untranslated there (skill
+ * `copywriting` §5) while ordinary words (Logistics, Travel, Media,
+ * Cybersecurity) are localized.
+ */
+export const VACANCY_DOMAINS = [
+  // ── original four (created 2026-07-22, already set on live rows) ─────────
+  'AI',
+  'EDTECH',
+  'ECOMMERCE',
+  'OTHER',
+  // ── appended 2026-08-05 (task-domains-expansion) ─────────────────────────
+  'FINTECH',
+  'IGAMING',
+  'ADULT',
+  'SAAS',
+  'HEALTHTECH',
+  'ADTECH',
+  'LOGISTICS',
+  'PROPTECH',
+  'TRAVEL',
+  'MEDIA',
+  'WEB3',
+  'HRTECH',
+  'CYBERSEC',
+] as const
+
+export const vacancyDomainSchema = z.enum(VACANCY_DOMAINS)
 export type VacancyDomain = z.infer<typeof vacancyDomainSchema>
 
 export const vacancySenioritySchema = z.enum(['SENIOR', 'LEAD'])
