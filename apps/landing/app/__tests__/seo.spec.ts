@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest'
 import type { PublicVacancy, PublicVacancyDetail, VacancyLocale } from '@crm/shared'
-import { VACANCY_LOCALES } from '@crm/shared'
+import { VACANCY_DOMAINS, VACANCY_LOCALES } from '@crm/shared'
 import {
   SITE_NAME,
   SITE_ORIGIN,
@@ -321,6 +321,18 @@ describe('buildJobPostingJsonLd', () => {
       expect(buildJobPostingJsonLd({ ...vacancy, domain: 'OTHER' }, descriptionHtml).industry).toBe(
         'Information Technology',
       )
+    })
+
+    // task-domains-expansion — `industry` is read by a jobs crawler, so every
+    // one of the 17 domains must resolve to a real classification string. A
+    // missing entry would emit `industry: undefined` into the JSON-LD, which
+    // is worse than the pre-expansion state (Google then guesses again).
+    it('derives a non-empty industry for EVERY domain, never the raw enum value', () => {
+      for (const domain of VACANCY_DOMAINS) {
+        const industry = buildJobPostingJsonLd({ ...vacancy, domain }, descriptionHtml).industry
+        expect(industry, `no industry mapped for ${domain}`).toBeTruthy()
+        expect(industry).not.toBe(domain)
+      }
     })
 
     it('omits skills/experienceRequirements/qualifications/responsibilities/jobBenefits/workHours when the vacancy has none set (never invented)', () => {
