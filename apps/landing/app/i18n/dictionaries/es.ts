@@ -156,9 +156,15 @@ export const es: Dictionary = {
     // y nada fuera de ellos.
     servicesH2Line1: 'Cualquier dominio,',
     // Ronda 2 (MED-2): «tres ya en producción» dejaba «producción» sola en una
-    // tercera línea a 320 px (medido con `Range.getClientRects()`). «Lanzados»
-    // entra en dos líneas a 320 y 375, y dice lo mismo: ya están fuera.
-    servicesH2Line2: 'tres ya lanzados',
+    // tercera línea a 320 px (medido con `Range.getClientRects()`).
+    //
+    // Ronda 3: lo que sobraba era «ya», no «en producción». Medido de nuevo a
+    // 320 / 375 / 768: «tres en producción» entra en dos líneas en las tres
+    // anchuras, así que el español vuelve a la formulación que comparten las
+    // otras cuatro locales — que era el sentido de tenerla. Igual que en
+    // inglés, se cae el adverbio («ya» / «already»), no la afirmación:
+    // ru/uk/pt sí lo conservan porque ahí sí cabe.
+    servicesH2Line2: 'tres en producción',
     servicesP:
       'Lo difícil se repite de un sector a otro: latencia, modelo de datos, pagos, carga. Lo que cambia es el vocabulario, y eso lo aprendemos en discovery. En AI, EdTech y E-Commerce ya hemos llegado a producción; el resto lo tomamos igual.',
     services: [

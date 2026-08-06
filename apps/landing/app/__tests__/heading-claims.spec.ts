@@ -29,6 +29,21 @@ const headingKeys = headingKeysOf(DICTIONARIES.en)
 const proseClaimKeys = new Set(Object.keys(PROSE_CLAIMS))
 const proseKeys = proseKeysOf(DICTIONARIES.en)
 
+/**
+ * Floor for the vacuity guard below. The dictionary carries 49 prose keys
+ * today (14 claim-bearing + 35 claim-free — counted, not estimated); this sits
+ * well under that on purpose. It is not a headcount of the copy, it is the
+ * line under which the classification must have COLLAPSED rather than merely
+ * changed: ordinary editing (deleting a form error, merging two paragraphs)
+ * must not trip it, because a test that cries wolf on routine copy work gets
+ * deleted, and then nothing guards the registry at all.
+ *
+ * Move it only if the dictionary genuinely loses that much prose — never to
+ * make a red build go green. If this fires, the bug is in PROSE_KEYS
+ * (support/heading-keys.ts), not in this number.
+ */
+const MIN_PROSE_KEYS = 30
+
 describe('heading claims — registry covers every heading (task-landing-copy-refactor.md)', () => {
   it('every heading key is declared either claim-bearing or claim-free', () => {
     const undeclared = [...headingKeys]
@@ -101,11 +116,33 @@ describe('prose claims — registry covers every paragraph too (review round 2)'
     // If `PROSE_KEYS` ever drifts away from the dictionary shape, every
     // coverage assertion below would pass over an empty set while claiming
     // the copy is guarded — the precise illusion this whole file exists to
-    // destroy. `home.heroParagraph` is pinned by name: it is the key that
-    // escaped in round 2.
-    expect(proseKeys.size).toBeGreaterThan(30)
-    expect(proseKeys.has('home.heroParagraph')).toBe(true)
-    expect(proseClaimKeys.has('home.heroParagraph')).toBe(true)
+    // destroy. Round 2's reviewer simulated exactly that: 12 of the 13 tests
+    // here went green over nothing, and only this one failed.
+    expect(
+      proseKeys.size,
+      `Only ${proseKeys.size} prose keys found (floor: ${MIN_PROSE_KEYS}). PROSE_KEYS ` +
+        '(support/heading-keys.ts) has drifted from the dictionary shape, so the ' +
+        'coverage tests below are now asserting over an almost-empty set — they ' +
+        'will pass while guarding nothing. Fix the classification, not this number.',
+    ).toBeGreaterThan(MIN_PROSE_KEYS)
+
+    // Named separately from the count, because the count cannot see it: losing
+    // one key leaves the set far above the floor, so the guard above would stay
+    // green while the single key this registry was built for walked out. Round
+    // 2's reviewer verified that independently. Pinned by name, not arithmetic.
+    expect(
+      proseKeys.has('home.heroParagraph'),
+      '`home.heroParagraph` is no longer classified as prose. If it was renamed, ' +
+        'update PROSE_KEYS and PROSE_CLAIMS together; if it became a heading, it ' +
+        'belongs in HEADING_CLAIMS. Either way it must stay under a registry — ' +
+        'being outside one is how it shipped a claim nobody was checking.',
+    ).toBe(true)
+    expect(
+      proseClaimKeys.has('home.heroParagraph'),
+      '`home.heroParagraph` is prose but no longer claim-bearing. It sits above ' +
+        'the fold and states what the company takes on, so it carries a claim by ' +
+        'nature — moving it to CLAIMLESS_PROSE_KEYS re-opens exactly the round-2 gap.',
+    ).toBe(true)
   })
 
   it('every prose key is declared either claim-bearing or claim-free', () => {

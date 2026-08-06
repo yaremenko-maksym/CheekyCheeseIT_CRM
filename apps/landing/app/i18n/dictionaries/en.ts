@@ -178,9 +178,16 @@ export const en: Dictionary = {
     // Review proposed "three already shipped"; A/B-ing five candidates in the
     // real <h2> showed that still wraps at 320 (fits from 375 up), so it is
     // dropped in favour of the two that hold two lines at BOTH widths —
-    // "three already live" and this one. Chose "in production" because it is
-    // the exact phrase the other four locales carry (в проде / в проді /
-    // en producción / em produção); "already" was emphasis, not the claim.
+    // "three already live" and this one. Chose "in production" to keep one
+    // shared formulation across all five locales; "already" was emphasis, not
+    // the claim, so dropping it costs nothing.
+    //
+    // Round 3: this note used to assert the other four locales all carried
+    // "in production" — while the very commit that wrote it moved Spanish to
+    // "tres ya lanzados". Rather than soften the note to match, es came back
+    // to "tres en producción" (re-measured: two lines at 320/375/768). What
+    // varies now is only the adverb, and only where width forces it: en/es
+    // drop it, ru/uk/pt keep it (в проде / в проді / em produção).
     servicesH2Line2: 'three in production',
     servicesP:
       'The hard parts repeat across industries: latency, data models, payments, scale. Only the vocabulary changes, and we pick that up in discovery. AI, EdTech and E-Commerce are where we have shipped already — the rest we take on the same way.',
