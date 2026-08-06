@@ -72,8 +72,12 @@ export const es: Dictionary = {
     heroChip: 'Outsourcing y outstaffing · AI · EdTech · E-Commerce',
     heroH1Line1: 'Lo difícil,',
     heroH1Highlight: 'semanalmente',
+    // Revisión ronda 2 (HIGH-1): decía «Tres dominios que conocemos al
+    // detalle» — un límite declarado por encima del pliegue y antes de la
+    // sección de servicios, que ahora dice lo contrario. No repite el titular
+    // («Cualquier dominio») a propósito: misma afirmación, otras palabras.
     heroParagraph:
-      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Tres dominios que conocemos al detalle y 4+ horas de solape con tu jornada.',
+      'Estudio de ingeniería solo-senior para empresas de producto internacionales. Sea cual sea tu dominio, 4+ horas de solape con tu jornada.',
     ctaStartProject: 'Iniciar un proyecto',
     ctaSeeRoles: 'Ver vacantes abiertas',
     aboutEyebrow: 'Sobre nosotros',
@@ -146,17 +150,24 @@ export const es: Dictionary = {
     challengeLabel: 'Desafío',
     solutionLabel: 'Solución',
     servicesEyebrow: 'Servicios',
-    servicesH2Line1: 'Tres dominios,',
-    servicesH2Line2: 'aprendidos a golpes',
+    // task-domains-expansion — las dos mitades de la afirmación tienen que
+    // llegar al español: cualquier dominio Y tres ya en producción. El
+    // titular anterior («Tres dominios, aprendidos a golpes») prometía tres
+    // y nada fuera de ellos.
+    servicesH2Line1: 'Cualquier dominio,',
+    // Ronda 2 (MED-2): «tres ya en producción» dejaba «producción» sola en una
+    // tercera línea a 320 px (medido con `Range.getClientRects()`). «Lanzados»
+    // entra en dos líneas a 320 y 375, y dice lo mismo: ya están fuera.
+    servicesH2Line2: 'tres ya lanzados',
     servicesP:
-      'Vamos a fondo, no a lo ancho. Cada ingeniero de aquí ya ha llevado sistemas en producción dentro de su dominio.',
+      'Lo difícil se repite de un sector a otro: latencia, modelo de datos, pagos, carga. Lo que cambia es el vocabulario, y eso lo aprendemos en discovery. En AI, EdTech y E-Commerce ya hemos llegado a producción; el resto lo tomamos igual.',
     services: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
         title: 'AI y ML aplicados',
         description:
-          'Plataformas de inferencia, pipelines RAG, sistemas de recomendación y visión — rápidos, observables y sostenibles en costo una vez en producción.',
+          'Model serving para un SaaS de visión, pipelines RAG y sistemas de recomendación — rápidos, observables y sostenibles en costo una vez en producción.',
         bullets: [
           'Model serving y MLOps',
           'Aplicaciones LLM y RAG',
@@ -168,7 +179,7 @@ export const es: Dictionary = {
         domainLabel: 'EdTech',
         title: 'Plataformas EdTech',
         description:
-          'Aprendizaje adaptativo, motores de evaluación y herramientas de contenido — atractivos para el alumno y medibles para quien los paga.',
+          'Rutas de aprendizaje adaptativo para una red de colegios K-12, motores de evaluación y herramientas de contenido — atractivos para el alumno y medibles para quien los paga.',
         bullets: [
           'Rutas de aprendizaje adaptativo',
           'Evaluación y analítica',
@@ -180,8 +191,22 @@ export const es: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'Sistemas de E-Commerce',
         description:
-          'Tiendas headless, checkout e inventario a escala — aguantan los días de lanzamiento y siguen rápidos en cualquier parte.',
+          'Una tienda headless para una marca DTC global, checkout e inventario a escala — aguantan los días de lanzamiento y siguen rápidos en cualquier parte.',
         bullets: ['Tiendas headless', 'Checkout y pagos en el edge', 'Inventario y fulfillment'],
+      },
+      // La cuarta tarjeta dice en voz alta lo de «no atados a un dominio».
+      // Inventar un cuarto caso convertiría en mentira la promesa de la
+      // sección «Trabajos»: ahí las cifras son exactamente las que fueron.
+      {
+        domain: 'neutral',
+        domainLabel: 'Cualquier dominio',
+        // Ronda 2 (LOW): «El dominio en el que estás» partía «estás» a una
+        // segunda línea a 320 px. «Tu dominio» entra en una, y coincide con
+        // ru/uk («Ваш домен»), que ya lo resolvían así.
+        title: 'Tu dominio',
+        description:
+          'Aquí todavía no hay caso de estudio, y preferimos decirlo antes que inventarlo. Lo que sí se traslada es la práctica: discovery primero, un equipo solo-senior y algo entregable en la primera semana. Las tres tarjetas de al lado empezaron igual.',
+        bullets: ['Discovery antes que código', 'Equipo solo-senior', 'Tu repositorio, tu stack'],
       },
     ],
     processEyebrow: 'Cómo trabajamos',
@@ -278,7 +303,30 @@ export const es: Dictionary = {
     notFoundBody: 'Esta vacante ya no está abierta — pero puede haber otras.',
     backToCareers: 'Volver a empleo',
     allRoles: 'Todas las vacantes',
-    domainLabels: { AI: 'AI / ML', EDTECH: 'EdTech', ECOMMERCE: 'E-Commerce', OTHER: 'Otro' },
+    // La jerga del sector no se traduce (skill `copywriting` §5: FinTech,
+    // SaaS, iGaming se usan tal cual); las palabras corrientes con
+    // equivalente natural en español, sí.
+    domainLabels: {
+      AI: 'AI / ML',
+      EDTECH: 'EdTech',
+      ECOMMERCE: 'E-Commerce',
+      FINTECH: 'FinTech',
+      IGAMING: 'iGaming',
+      // Ronda 2 (MED-3): «Adult» es una palabra corriente con equivalente
+      // natural, como Travel/Media/Logistics — se traduce.
+      ADULT: 'Contenido adulto',
+      SAAS: 'SaaS',
+      HEALTHTECH: 'HealthTech',
+      ADTECH: 'AdTech',
+      LOGISTICS: 'Logística',
+      PROPTECH: 'PropTech',
+      TRAVEL: 'Viajes',
+      MEDIA: 'Medios',
+      WEB3: 'Web3',
+      HRTECH: 'HR Tech',
+      CYBERSEC: 'Ciberseguridad',
+      OTHER: 'Otro',
+    },
     employmentTypeLabels: {
       FULL_TIME: 'Tiempo completo',
       PART_TIME: 'Tiempo parcial',

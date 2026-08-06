@@ -5,10 +5,70 @@
  * salary-range formatting helper only.
  */
 import { describe, expect, it } from 'vitest'
-import { formatSalaryRange } from '@/lib/vacancy-domain'
+import { VACANCY_DOMAINS } from '@crm/shared'
+import { domainLabel, domainTagVariant, formatSalaryRange } from '@/lib/vacancy-domain'
 import { getDictionary } from '@/i18n/dictionaries'
+import { LOCALES } from '@/i18n/locale'
 
 const dict = getDictionary('en')
+
+/**
+ * task-domains-expansion — a vacancy in any of the 17 domains is public copy:
+ * it renders on `/careers` in five languages. The type system guarantees a key
+ * EXISTS for each domain in each locale; these assert the two things it cannot
+ * — that the value is real copy rather than the raw enum value, and that a
+ * domain with no brand hue degrades to the neutral tag instead of `undefined`.
+ */
+describe('vacancy domain labels and tags', () => {
+  it.each(LOCALES)('labels every domain in %s (never the raw enum value)', (locale) => {
+    const vacancy = getDictionary(locale).vacancy
+    for (const domain of VACANCY_DOMAINS) {
+      const label = domainLabel(domain, vacancy)
+      expect(label, `${locale}: missing label for ${domain}`).toBeTruthy()
+      expect(label, `${locale}: ${domain} renders its raw enum value`).not.toBe(domain)
+    }
+  })
+
+  it('keeps industry jargon identical across locales (skill copywriting §5)', () => {
+    // Deliberately NOT translated: these are how the ru/uk/es/pt markets write
+    // them. `LOGISTICS`/`TRAVEL`/`MEDIA`/`CYBERSEC`/`OTHER` are the opposite
+    // case (ordinary words) and are asserted to differ below.
+    for (const domain of ['FINTECH', 'IGAMING', 'SAAS', 'ADTECH', 'WEB3'] as const) {
+      const rendered = new Set(LOCALES.map((l) => domainLabel(domain, getDictionary(l).vacancy)))
+      expect([...rendered], `${domain} should read the same everywhere`).toHaveLength(1)
+    }
+  })
+
+  it('localizes the ordinary words that have a native equivalent', () => {
+    for (const domain of ['LOGISTICS', 'TRAVEL', 'CYBERSEC', 'OTHER'] as const) {
+      const en = domainLabel(domain, getDictionary('en').vacancy)
+      const ru = domainLabel(domain, getDictionary('ru').vacancy)
+      expect(ru, `${domain} was left in English on ru`).not.toBe(en)
+    }
+  })
+
+  it('keeps ADULT Latin on ru/uk and translated on es/pt — the one deliberate split', () => {
+    // Review round 2 (MED-3). `ADULT` is an ordinary word, so the default is
+    // "translate it" — es/pt do. ru/uk are the documented exception: the
+    // vertical is named in Latin in the ru/uk hiring market ("adult-индустрия"),
+    // where «Взрослый контент» reads as a description rather than an industry.
+    // Pinned so the next editor changes it on purpose, not by tidying up what
+    // looks like an oversight (which is exactly how it reached review).
+    expect(domainLabel('ADULT', getDictionary('ru').vacancy)).toBe('Adult')
+    expect(domainLabel('ADULT', getDictionary('uk').vacancy)).toBe('Adult')
+    expect(domainLabel('ADULT', getDictionary('es').vacancy)).toBe('Contenido adulto')
+    expect(domainLabel('ADULT', getDictionary('pt').vacancy)).toBe('Conteúdo adulto')
+  })
+
+  it('uses a brand tag only for the three domains that have one, neutral for the rest', () => {
+    expect(domainTagVariant('AI')).toBe('ai')
+    expect(domainTagVariant('EDTECH')).toBe('edtech')
+    expect(domainTagVariant('ECOMMERCE')).toBe('ecommerce')
+    const rest = VACANCY_DOMAINS.filter((d) => !['AI', 'EDTECH', 'ECOMMERCE'].includes(d))
+    expect(rest.length).toBeGreaterThan(0)
+    for (const domain of rest) expect(domainTagVariant(domain)).toBe('neutral')
+  })
+})
 
 const FILLED = {
   salaryMin: '3000.00',

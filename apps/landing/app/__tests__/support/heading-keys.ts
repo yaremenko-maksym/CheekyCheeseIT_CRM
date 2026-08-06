@@ -142,3 +142,23 @@ export function headingKeysOf(dict: unknown): Set<string> {
       .map((leaf) => leaf.key),
   )
 }
+
+/**
+ * Normalised keys of every PROSE leaf actually present in the dictionary —
+ * the other half of `headingKeysOf`, added by task-domains-expansion review
+ * round 2 (HIGH-1).
+ *
+ * Why it exists: the claim registry only ever governed headings, so a claim
+ * living in a paragraph had nothing watching it. `home.heroParagraph` said
+ * "Three domains we know cold" — a hard boundary claim, above the fold — and
+ * survived a whole PR that existed to remove exactly that framing, because
+ * being prose put it structurally out of the registry's reach. Claims do not
+ * respect the heading/prose split, so the registry no longer does either.
+ */
+export function proseKeysOf(dict: unknown): Set<string> {
+  return new Set(
+    leavesOf(dict)
+      .filter((leaf) => PROSE_KEYS.has(leaf.key))
+      .map((leaf) => leaf.key),
+  )
+}

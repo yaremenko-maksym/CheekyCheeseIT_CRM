@@ -33,7 +33,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ContractEditor } from '@/components/user-profile/contract/ContractEditor'
-import { DOMAIN_LABELS, EMPLOYMENT_TYPE_LABELS, slugifyTitle, zodIssueRu } from '../constants'
+import {
+  DOMAIN_LABELS,
+  DOMAIN_OPTIONS,
+  EMPLOYMENT_TYPE_LABELS,
+  slugifyTitle,
+  zodIssueRu,
+} from '../constants'
 import { VacancySalaryFields } from './VacancySalaryFields'
 import { VacancySeoFields } from './VacancySeoFields'
 import {
@@ -85,7 +91,9 @@ export type AnyForm = ReactFormExtendedApi<
 >
 /* eslint-enable @typescript-eslint/no-explicit-any */
 
-const DOMAIN_OPTIONS = ['AI', 'EDTECH', 'ECOMMERCE', 'OTHER'] as const
+// `DOMAIN_OPTIONS` now lives in `../constants` — derived from `VACANCY_DOMAINS`
+// (`@crm/shared`) and sorted by label, so the 17-value list can't drift from
+// the enum the API validates against (task-domains-expansion).
 const EMPLOYMENT_TYPE_OPTIONS = ['FULL_TIME', 'PART_TIME', 'CONTRACT'] as const
 
 export interface VacancyFormFieldsProps {

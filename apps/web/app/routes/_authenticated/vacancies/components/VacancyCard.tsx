@@ -50,7 +50,7 @@ import {
 } from '@/components/ui/alert-dialog'
 import { useDeleteVacancy, useUpdateVacancy } from '@/hooks/use-vacancies'
 import {
-  DOMAIN_DOT_COLOR,
+  domainDotColor,
   DOMAIN_LABELS,
   EMPLOYMENT_TYPE_LABELS,
   getVacancyDeleteGate,
@@ -116,7 +116,7 @@ export function VacancyCard({ vacancy, onEdit }: VacancyCardProps) {
   const { canDelete, tooltip: deleteTooltip } = getVacancyDeleteGate(vacancy)
 
   const statusBadge = VACANCY_STATUS_BADGE[vacancy.status]
-  const dotColor = DOMAIN_DOT_COLOR[vacancy.domain]
+  const dotColor = domainDotColor(vacancy.domain)
 
   return (
     <div

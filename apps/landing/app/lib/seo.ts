@@ -294,6 +294,22 @@ const INDUSTRY_BY_DOMAIN: Record<PublicVacancyDetail['domain'], string> = {
   AI: 'Artificial Intelligence',
   EDTECH: 'Education Technology',
   ECOMMERCE: 'E-Commerce',
+  // task-domains-expansion — spelled out for Google rather than reusing the
+  // site's marketing labels: `industry` is read by a crawler, not a visitor,
+  // so "iGaming"/"AdTech" become the terms a jobs index actually classifies on.
+  FINTECH: 'Financial Technology',
+  IGAMING: 'Online Gaming and Gambling',
+  ADULT: 'Adult Entertainment',
+  SAAS: 'Software as a Service',
+  HEALTHTECH: 'Health Technology',
+  ADTECH: 'Advertising Technology',
+  LOGISTICS: 'Logistics and Supply Chain',
+  PROPTECH: 'Real Estate Technology',
+  TRAVEL: 'Travel and Hospitality',
+  MEDIA: 'Media and Entertainment',
+  WEB3: 'Blockchain and Web3',
+  HRTECH: 'Human Resources Technology',
+  CYBERSEC: 'Cybersecurity',
   OTHER: 'Information Technology',
 }
 

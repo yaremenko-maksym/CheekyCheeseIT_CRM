@@ -283,7 +283,12 @@ export function HomePageContent({
                 {t.servicesP}
               </p>
             </ScrollReveal>
-            <div className="grid grid-cols-1 gap-5 md:grid-cols-3 md:gap-7">
+            {/* task-domains-expansion — four cards now (the three domains we
+               have shipped in + "any domain"), so the row of three became a
+               2×2 grid from `md` up: four columns at 1024px would leave each
+               card ~200px wide, which wraps the bullet list into unreadable
+               ribbons. One column below `md` as before. */}
+            <div className="grid grid-cols-1 gap-5 md:grid-cols-2 md:gap-7">
               {t.services.map((service, i) => (
                 <ScrollReveal key={service.title} revealAt={0.6 + i * 0.05}>
                   <ServiceCard service={service} />

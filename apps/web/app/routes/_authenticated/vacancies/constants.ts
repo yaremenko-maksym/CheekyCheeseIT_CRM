@@ -19,7 +19,7 @@ import type {
   VacancyTranslationLocale,
   VacancyTranslations,
 } from '@crm/shared'
-import { VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
+import { VACANCY_DOMAINS, VACANCY_TRANSLATION_LOCALES } from '@crm/shared'
 
 // ---------------------------------------------------------------------------
 // task-vacancy-i18n-jobposting — translation tab labels. Driven by
@@ -422,19 +422,67 @@ export function computeVacancySubmitErrors(
 // §3.4 — domain badge text (latin) + dot color (fixed hue, not theme-derived)
 // ---------------------------------------------------------------------------
 
+/**
+ * Latin on purpose (spec §3.4 — domain names are industry terms, unlike
+ * `EMPLOYMENT_TYPE_LABELS` which are ordinary Russian words). The map is
+ * `Record<VacancyDomain, …>`, so adding a value to `VACANCY_DOMAINS`
+ * (`@crm/shared`) fails typecheck here until it has a label — the compiler,
+ * not a reviewer, is what keeps a new domain from rendering as a raw
+ * `HEALTHTECH` in the badge.
+ */
 export const DOMAIN_LABELS: Record<VacancyDomain, string> = {
   AI: 'AI',
   EDTECH: 'EdTech',
   ECOMMERCE: 'E-Commerce',
+  FINTECH: 'FinTech',
+  IGAMING: 'iGaming',
+  ADULT: 'Adult',
+  SAAS: 'SaaS',
+  HEALTHTECH: 'HealthTech',
+  ADTECH: 'AdTech',
+  LOGISTICS: 'Logistics',
+  PROPTECH: 'PropTech',
+  TRAVEL: 'Travel',
+  MEDIA: 'Media',
+  WEB3: 'Web3',
+  HRTECH: 'HR Tech',
+  CYBERSEC: 'Cybersecurity',
   OTHER: 'Other',
 }
 
-/** `null` for OTHER — no colored dot, spec §3.4 (falls back to muted-foreground text only). */
-export const DOMAIN_DOT_COLOR: Record<VacancyDomain, string | null> = {
+/**
+ * Select options for the domain field. DERIVED from `VACANCY_DOMAINS` rather
+ * than hand-listed (a second copy of 17 values would drift the first time
+ * someone appends a domain — this used to be a literal tuple in
+ * `VacancyFormFields.tsx`), sorted by visible label so a 17-item Select can
+ * be scanned alphabetically, with «Other» pinned last where a catch-all
+ * belongs.
+ */
+export const DOMAIN_OPTIONS: readonly VacancyDomain[] = [
+  ...VACANCY_DOMAINS.filter((d) => d !== 'OTHER').sort((a, b) =>
+    DOMAIN_LABELS[a].localeCompare(DOMAIN_LABELS[b], 'en'),
+  ),
+  'OTHER',
+]
+
+/**
+ * Only the three domains the brand actually has a hue for (`--tag-ai` /
+ * `--tag-edtech` / `--tag-ecommerce`, landing-redesign.md §3.3). Everything
+ * else — including the 13 domains added by task-domains-expansion — renders
+ * dotless, exactly as `OTHER` always has (spec §3.4: falls back to
+ * muted-foreground text only). Inventing 13 more badge hues is a design
+ * decision, not a side effect of widening an enum; deliberately left to the
+ * designer.
+ */
+const DOMAIN_DOT_COLORS: Partial<Record<VacancyDomain, string>> = {
   AI: 'var(--tag-ai)',
   EDTECH: 'var(--tag-edtech)',
   ECOMMERCE: 'var(--tag-ecommerce)',
-  OTHER: null,
+}
+
+/** `null` when the domain has no brand hue — the caller renders no dot. */
+export function domainDotColor(domain: VacancyDomain): string | null {
+  return DOMAIN_DOT_COLORS[domain] ?? null
 }
 
 // ---------------------------------------------------------------------------

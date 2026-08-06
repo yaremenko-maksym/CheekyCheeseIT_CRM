@@ -80,8 +80,16 @@ export const en: Dictionary = {
     // we deliver, which is checkable.
     heroH1Line1: 'Hard parts,',
     heroH1Highlight: 'every week',
+    // task-domains-expansion, review round 2 (HIGH-1): this used to read
+    // "Three domains we know cold" — a statement about the BOUNDARY of what we
+    // take on, sitting above the fold, i.e. read before the services section
+    // that now says the opposite. (`heroChip`/`seoTitle` still name the three
+    // domains, deliberately: they LIST them as keywords, which is compatible
+    // with "three already in production". This sentence did not list, it
+    // limited.) Claim now: senior-only studio for international product
+    // companies + any domain + 4h overlap — all three in all five locales.
     heroParagraph:
-      'A senior-only engineering studio for international product companies. Three domains we know cold, four-plus hours of overlap with your working day.',
+      'A senior-only engineering studio for international product companies. Whatever domain you are in, four-plus hours of overlap with your working day.',
     ctaStartProject: 'Start a project',
     ctaSeeRoles: 'See open roles',
     aboutEyebrow: 'About us',
@@ -154,17 +162,35 @@ export const en: Dictionary = {
     challengeLabel: 'Challenge',
     solutionLabel: 'Solution',
     servicesEyebrow: 'Services',
-    servicesH2Line1: 'Three domains,',
-    servicesH2Line2: 'learned the hard way',
+    // task-domains-expansion (owner, 2026-08-05): the old heading — "Three
+    // domains, learned the hard way" — promised exactly three and nothing
+    // outside them, which is the opposite of the positioning the owner asked
+    // for. The claim now has two halves and both must survive translation:
+    // any domain is on the table, AND three of them are already in production.
+    servicesH2Line1: 'Any domain,',
+    // Round 2 (MED-2): "three already in production" hung `production` alone on
+    // a third line at 320 AND 375 (measured via `Range.getClientRects()`; the
+    // old heading gave clean two-liners in the same DOM, so it was a
+    // regression, not inherited). `text-balance` cannot fix it — the explicit
+    // `<br/>` makes each line its own balancing box, so this is a text defect
+    // and the fix is words.
+    //
+    // Review proposed "three already shipped"; A/B-ing five candidates in the
+    // real <h2> showed that still wraps at 320 (fits from 375 up), so it is
+    // dropped in favour of the two that hold two lines at BOTH widths —
+    // "three already live" and this one. Chose "in production" because it is
+    // the exact phrase the other four locales carry (в проде / в проді /
+    // en producción / em produção); "already" was emphasis, not the claim.
+    servicesH2Line2: 'three in production',
     servicesP:
-      'We go deep, not wide. Every engineer here has shipped production systems in the domain they work in.',
+      'The hard parts repeat across industries: latency, data models, payments, scale. Only the vocabulary changes, and we pick that up in discovery. AI, EdTech and E-Commerce are where we have shipped already — the rest we take on the same way.',
     services: [
       {
         domain: 'ai',
         domainLabel: 'AI / ML',
         title: 'Applied AI & ML',
         description:
-          'Inference platforms, RAG pipelines, recommendation and vision systems — fast, observable and affordable once they are in production.',
+          'Model serving for a vision SaaS, RAG pipelines and recommendation systems — fast, observable and affordable once they are in production.',
         bullets: ['Model serving & MLOps', 'LLM & RAG applications', 'Data & feature pipelines'],
       },
       {
@@ -172,7 +198,7 @@ export const en: Dictionary = {
         domainLabel: 'EdTech',
         title: 'EdTech platforms',
         description:
-          'Adaptive learning, assessment engines and content tooling — engaging for learners, measurable for the institutions paying for them.',
+          'Adaptive learning paths for a K-12 network, assessment engines and content tooling — engaging for learners, measurable for the institutions paying for them.',
         bullets: ['Adaptive learning paths', 'Assessment & analytics', 'Authoring & LMS tooling'],
       },
       {
@@ -180,8 +206,20 @@ export const en: Dictionary = {
         domainLabel: 'E-Commerce',
         title: 'E-Commerce systems',
         description:
-          'Headless storefronts, checkout and inventory at scale — resilient on launch days, fast for shoppers everywhere.',
+          'A headless storefront for a global DTC brand, checkout and inventory at scale — resilient on launch days, fast for shoppers everywhere.',
         bullets: ['Headless storefronts', 'Edge checkout & payments', 'Inventory & fulfilment'],
+      },
+      // The fourth card is the openness claim made concrete. It names the
+      // absence of a case study out loud — the alternative (inventing a
+      // fourth "client" in FinTech or iGaming) would contradict `workP` two
+      // sections above, which promises the numbers on this page are real.
+      {
+        domain: 'neutral',
+        domainLabel: 'Any domain',
+        title: "The domain you're in",
+        description:
+          'No case study here yet, and we would rather say that than invent one. What carries over is the practice: discovery first, a senior pod, something shippable in the first week — the same way the three above started.',
+        bullets: ['Discovery before code', 'Senior-only pod', 'Your repo, your stack'],
       },
     ],
     processEyebrow: 'How we work',
@@ -282,7 +320,25 @@ export const en: Dictionary = {
     notFoundBody: "This role isn't open anymore — but there may be others.",
     backToCareers: 'Back to careers',
     allRoles: 'All roles',
-    domainLabels: { AI: 'AI / ML', EDTECH: 'EdTech', ECOMMERCE: 'E-Commerce', OTHER: 'Other' },
+    domainLabels: {
+      AI: 'AI / ML',
+      EDTECH: 'EdTech',
+      ECOMMERCE: 'E-Commerce',
+      FINTECH: 'FinTech',
+      IGAMING: 'iGaming',
+      ADULT: 'Adult',
+      SAAS: 'SaaS',
+      HEALTHTECH: 'HealthTech',
+      ADTECH: 'AdTech',
+      LOGISTICS: 'Logistics',
+      PROPTECH: 'PropTech',
+      TRAVEL: 'Travel',
+      MEDIA: 'Media',
+      WEB3: 'Web3',
+      HRTECH: 'HR Tech',
+      CYBERSEC: 'Cybersecurity',
+      OTHER: 'Other',
+    },
     employmentTypeLabels: { FULL_TIME: 'Full-time', PART_TIME: 'Part-time', CONTRACT: 'Contract' },
     salaryPeriodLabels: {
       HOUR: 'per hour',
