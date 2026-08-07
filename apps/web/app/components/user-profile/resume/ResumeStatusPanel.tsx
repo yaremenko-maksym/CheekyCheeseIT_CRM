@@ -115,7 +115,10 @@ export function ResumeStatusPanel({
           variant="outline"
           size="sm"
           onClick={onRetry}
-          className="shrink-0"
+          // min-h-11: every other actionable control in this feature is
+          // ≥44px on mobile (foundation.md §10) — `size="sm"` alone renders
+          // at 32px, the one control here that missed it.
+          className="min-h-11 shrink-0"
           data-testid="resume-retry-upload"
         >
           Загрузить заново

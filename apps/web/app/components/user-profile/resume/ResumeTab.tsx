@@ -289,7 +289,12 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
             onChange={(experience) => setDraft({ ...draft, experience })}
           />
         ) : view.experience.length > 0 ? (
-          <ol className="space-y-3" data-testid="resume-experience-view">
+          // divide-y (not a bordered box per item, per foundation.md §6 "не
+          // карточка в карточке") — a real resume runs to 6-8+ jobs, and
+          // without a rule between them a dense mobile column reads as one
+          // undifferentiated ribbon of bullets with no landmark for where
+          // one job ends and the next begins.
+          <ol className="divide-y divide-border" data-testid="resume-experience-view">
             {view.experience.map((item, i) => (
               <ExperienceRow key={i} item={item} index={i} />
             ))}
@@ -419,7 +424,10 @@ function TextOrPlaceholder({ value, testid }: { value: string; testid: string })
 
 function ExperienceRow({ item, index }: { item: ResumeExperienceItem; index: number }) {
   return (
-    <li className="space-y-1" data-testid={`resume-experience-row-${index}`}>
+    <li
+      className="space-y-1 py-3 first:pt-0 last:pb-0"
+      data-testid={`resume-experience-row-${index}`}
+    >
       <p className="text-sm font-medium">
         {item.role}
         {item.company && <span className="text-muted-foreground"> — {item.company}</span>}
