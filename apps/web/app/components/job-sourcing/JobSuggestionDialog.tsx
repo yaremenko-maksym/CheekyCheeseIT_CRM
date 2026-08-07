@@ -42,22 +42,36 @@ import { isSafeExternalUrl, openOriginalPosting } from './open-original'
  * controlled (pinned by a test that feeds exactly that):
  *
  *   1. `urlTransform` — ours, https-only, same predicate as the one guarding
- *      `window.open`. Not the library default.
+ *      `window.open`. Not the library default: react-markdown's default only
+ *      blocks dangerous SCHEMES (`javascript:`, `data:`) and happily passes
+ *      plain `http:` and any foreign host. This prop is the SOLE URL gate, and
+ *      it covers every url-bearing node, including ones we have not overridden.
+ *      Pinned by "pins urlTransform …" — a test that reddens when THIS prop is
+ *      removed and stays green when the `a` component is.
  *   2. `img: () => null` — a third-party job ad NEVER renders a remote image in
  *      our authenticated origin. This kills the beacon class outright (read
  *      receipt + viewer IP), regardless of how the markdown was produced.
  *      `img-src` in our CSP is a blanket `https:` (noted in #470), so the
  *      browser would not have stopped it either.
- *   3. `a` — our own anchor: destination re-validated, `rel="noopener
- *      noreferrer nofollow"`, opens in a new tab. An unsafe destination
- *      degrades to plain text rather than a live link.
+ *   3. `a` — link hygiene: `rel="noopener noreferrer nofollow"` + new tab, and
+ *      an EMPTY href (what layer 1 leaves behind when it rejects a URL)
+ *      degrades to plain text instead of a dead anchor. Deliberately does NOT
+ *      re-run the URL predicate — see the comment on the component itself.
+ *      Pinned by "pins the `a` component …", which reddens on ITS removal and
+ *      not on layer 1's.
  */
-const MARKDOWN_URL_TRANSFORM = (url: string): string => (isSafeExternalUrl(url) ? url : '')
+export const MARKDOWN_URL_TRANSFORM = (url: string): string => (isSafeExternalUrl(url) ? url : '')
 
 const MARKDOWN_COMPONENTS: Components = {
   img: () => null,
+  // Link HYGIENE only — the URL was already gated by MARKDOWN_URL_TRANSFORM,
+  // which blanks anything that is not https. Re-running the same predicate here
+  // would make the two props indistinguishable: removing either would leave the
+  // other covering for it, and NEITHER could then be pinned by a test. (That is
+  // exactly how `urlTransform` shipped unverified in round 2.) An empty href —
+  // what the transform produces for a rejected URL — degrades to plain text.
   a: ({ href, children }) =>
-    isSafeExternalUrl(href) ? (
+    href ? (
       <a href={href} target="_blank" rel="noopener noreferrer nofollow">
         {children}
       </a>

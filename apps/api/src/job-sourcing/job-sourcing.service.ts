@@ -95,7 +95,12 @@ export class JobSourcingService {
     if (user.role === 'SENIOR') return user.id
 
     if (!requestedSeniorId) {
-      throw new BadRequestException('seniorId обязателен')
+      // Code review round 3: this used to read "seniorId обязателен", which is
+      // an API-shape complaint aimed at a developer. The people who actually
+      // hit it are an ADMIN or HR whose board has no senior selected yet.
+      throw new BadRequestException(
+        'Выберите синьора, для которого подбираются вакансии — на канбане пока не выбран ни один',
+      )
     }
 
     if (user.role === 'ADMIN') return requestedSeniorId
@@ -481,6 +486,21 @@ export class JobSourcingService {
 
     const config = (source.config ?? {}) as Record<string, unknown>
     const postings = await provider.collect(config)
+
+    // Security/code review round 3: a source that changed its format (or
+    // started serving an error page with a 200) yields ZERO postings while
+    // every call still "succeeds". Marking that run as collected made a BROKEN
+    // SOURCE indistinguishable from a quiet day — the senior just sees "no new
+    // vacancies" forever and nobody is paged. An empty result is therefore an
+    // ERROR, not a result: `lastCollectedAt` is left untouched (so the staleness
+    // is visible in the data) and collectAll logs it as a failed source.
+    if (postings.length === 0) {
+      throw new Error(
+        `Source ${source.type} returned 0 usable postings — feed format changed, ` +
+          'source is down, or every entry was rejected. lastCollectedAt left unchanged.',
+      )
+    }
+
     const { created, duplicates, invalid } = await this.persistPostings(source.id, postings)
     const suggestionsCreated = await this.createSuggestions(created)
 
@@ -530,12 +550,19 @@ export class JobSourcingService {
   async purgeStalePostings(now: Date = new Date()): Promise<number> {
     const cutoff = new Date(now.getTime() - POSTING_RETENTION_DAYS * 24 * 60 * 60 * 1000)
 
-    const appliedPostingIds = await this.db.db
+    // Code review round 3 — AC4 hole. This used to keep only APPLIED postings.
+    // A REJECTED suggestion cascades away with its posting (`ON DELETE
+    // CASCADE`), so after 90 days the vacancy could be collected again, find no
+    // suggestion row, and be offered to the same senior a second time — the
+    // exact "уже отклонённое не показывать повторно" promise, broken by the
+    // retention job rather than by the filter. Anything the senior has ANSWERED
+    // (applied or rejected) is a decision we must not forget.
+    const decidedPostingIds = await this.db.db
       .selectDistinct({ postingId: jobSuggestions.postingId })
       .from(jobSuggestions)
-      .where(eq(jobSuggestions.status, 'APPLIED'))
+      .where(inArray(jobSuggestions.status, ['APPLIED', 'REJECTED']))
 
-    const keep = appliedPostingIds.map((r) => r.postingId)
+    const keep = decidedPostingIds.map((r) => r.postingId)
     const deleted = await this.db.db
       .delete(jobPostings)
       .where(

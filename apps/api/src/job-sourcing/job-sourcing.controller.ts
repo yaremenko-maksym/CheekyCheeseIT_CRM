@@ -35,7 +35,7 @@ const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
  * Authentication comes from the global JwtAuthGuard (AppModule APP_GUARD).
  * `@Roles` + `RolesGuard` is the role-SET gate; the per-senior SCOPE (HR only
  * their teams, SENIOR only themselves) lives in JobSourcingService and is
- * pinned by job-sourcing-rbac.integration.spec.ts against a real database —
+ * pinned by job-sourcing.integration.spec.ts against a real database —
  * mocked E2E cannot prove a backend guard (a lesson this repo learned three
  * times over).
  *

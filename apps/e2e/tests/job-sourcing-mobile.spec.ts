@@ -180,6 +180,75 @@ async function mockJobSourcing(page: Page, items: unknown[] = [SUGGESTION]) {
   )
 }
 
+/**
+ * Round 3, BLOCKER 2 — the assertion this replaces could not fail.
+ *
+ * It read `document.documentElement.scrollWidth > clientWidth`. A Radix dialog
+ * is `position: fixed`, so it never contributes to the document's scroll width:
+ * the check was green no matter how wide the dialog got. Worse, the page BEHIND
+ * the dialog is the interviews board, whose column strip is deliberately
+ * horizontally scrollable — measured at 1749px inside a 393px viewport — so any
+ * page-level width probe is meaningless here in both directions.
+ *
+ * What actually matters, measured on the dialog itself:
+ *   - its box stays inside the viewport (`left >= 0`, `right <= innerWidth`);
+ *   - nothing INSIDE it is wider than the viewport (long unbreakable tokens in
+ *     a third-party description are the realistic cause);
+ *   - it has no horizontal content overflow of its own
+ *     (`scrollWidth <= clientWidth`).
+ *
+ * NOTE on the review's "858px in a 393px viewport": re-measured directly and it
+ * does not reproduce — at 320/375/393 the dialog is exactly viewport-wide
+ * (left 0, right = innerWidth) with zero overflowing descendants; at 768 it is
+ * 672 (`sm:max-w-2xl`) and centred. 858 is an instrumentation artifact — the
+ * kanban scroller behind the dialog is the element that really is wider than
+ * the viewport. Numbers are in the PR comment.
+ */
+async function expectDialogFitsViewport(page: Page) {
+  const dialog = page.getByTestId('job-suggestion-dialog')
+
+  // The dialog enters with `zoom-in-95` + `slide-in-from-left-1/2` on top of a
+  // permanent `translate-x-[-50%]`, so its box is in motion for the first few
+  // frames — measured mid-flight it reports `left: -173` in a 393px viewport.
+  // Wait for the animations themselves to finish rather than sleeping: this is
+  // exact, and it keeps the assertion measuring the settled layout.
+  await dialog.evaluate(async (el) => {
+    await Promise.all(
+      el.getAnimations({ subtree: true }).map((animation) => animation.finished.catch(() => null)),
+    )
+  })
+
+  const geometry = await dialog.evaluate((el) => {
+    const rect = el.getBoundingClientRect()
+    const tooWide: string[] = []
+    for (const child of Array.from(el.querySelectorAll('*'))) {
+      const box = child.getBoundingClientRect()
+      if (box.width > window.innerWidth + 1) {
+        tooWide.push(
+          `${child.tagName}.${String(child.className).slice(0, 40)}=${Math.round(box.width)}`,
+        )
+      }
+    }
+    return {
+      innerWidth: window.innerWidth,
+      left: Math.round(rect.left),
+      right: Math.round(rect.right),
+      scrollWidth: el.scrollWidth,
+      clientWidth: el.clientWidth,
+      tooWide,
+    }
+  })
+
+  expect(geometry.left, 'dialog starts off-screen to the left').toBeGreaterThanOrEqual(-1)
+  expect(geometry.right, 'dialog extends past the right edge').toBeLessThanOrEqual(
+    geometry.innerWidth + 1,
+  )
+  expect(geometry.tooWide, 'element(s) inside the dialog wider than the viewport').toEqual([])
+  expect(geometry.scrollWidth, 'dialog scrolls horizontally').toBeLessThanOrEqual(
+    geometry.clientWidth + 1,
+  )
+}
+
 async function openDialog(page: Page) {
   await page.goto('/interviews')
   await expect(page.getByTestId('interviews-page')).toBeVisible()
@@ -231,6 +300,30 @@ test.describe('Job sourcing modal — mobile profile', () => {
     }
   })
 
+  /**
+   * Code review round 3: `order-last` was applied but pinned by nothing.
+   * `CrmDialogFooter` is `flex-col-reverse` on mobile, so without it «Открыть
+   * оригинал» — the FIRST thing a user does — sinks below both verdicts. The
+   * assertion is on real rendered geometry, so it fails if the class is dropped
+   * or the shared footer's direction changes underneath us.
+   */
+  test('«Открыть оригинал» sits above the two verdicts on a phone', async ({ page }) => {
+    await openDialog(page)
+
+    const top = async (testid: string) => {
+      const box = await page.getByTestId(testid).boundingBox()
+      return box!.y
+    }
+    const [open, rejected, applied] = await Promise.all([
+      top('job-open-original'),
+      top('job-mark-rejected'),
+      top('job-mark-applied'),
+    ])
+
+    expect(open, '«Открыть оригинал» must be the topmost action').toBeLessThan(rejected)
+    expect(rejected, '«Не подходит» must sit above «Откликнулись»').toBeLessThan(applied)
+  })
+
   test('AC6: an injected <script> in the description is not executed or rendered', async ({
     page,
   }) => {
@@ -252,11 +345,7 @@ test.describe('Job sourcing modal — mobile profile', () => {
 
   test('the dialog fits the phone viewport — no horizontal overflow', async ({ page }) => {
     await openDialog(page)
-
-    const overflow = await page.evaluate(
-      () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-    )
-    expect(overflow).toBe(false)
+    await expectDialogFitsViewport(page)
   })
 
   test('statuses and the empty state work on mobile', async ({ page }) => {
@@ -307,14 +396,9 @@ test.describe('Job sourcing modal — responsive widths (AC7)', () => {
       await expect(page.getByTestId('job-mark-applied')).toBeVisible()
       await expect(page.getByTestId('job-mark-rejected')).toBeVisible()
 
-      const overflow = await page.evaluate(
-        () => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1,
-      )
-      expect(overflow, `horizontal overflow at ${width}px`).toBe(false)
-
-      // The dialog itself must not be wider than the viewport.
-      const box = await page.getByTestId('job-suggestion-dialog').boundingBox()
-      expect(box!.width).toBeLessThanOrEqual(width)
+      // Same working check as the mobile suite — the page-level scrollWidth
+      // probe that used to live here could not fail (see its docblock).
+      await expectDialogFitsViewport(page)
     })
   }
 

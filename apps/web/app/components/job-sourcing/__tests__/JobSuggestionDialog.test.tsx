@@ -3,7 +3,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { JobSuggestionDto } from '@crm/shared'
 
-import { JobSuggestionDialog } from '../JobSuggestionDialog'
+import { JobSuggestionDialog, MARKDOWN_URL_TRANSFORM } from '../JobSuggestionDialog'
+import { isSafeExternalUrl } from '../open-original'
 
 /**
  * JobSuggestionDialog — task-job-sourcing-slice1 AC5 + AC6.
@@ -225,7 +226,24 @@ describe('JobSuggestionDialog', () => {
     expect(link?.getAttribute('target')).toBe('_blank')
   })
 
-  it('HIGH-1: a non-https markdown link is rendered as text, by OUR urlTransform', async () => {
+  /**
+   * Round 3, BLOCKER 1 — the previous test called itself "by OUR urlTransform"
+   * but was satisfied by the `a` component: deleting `urlTransform` entirely
+   * left 23/23 green. The two props now have DISTINCT jobs, and these two tests
+   * discriminate between them (verified by removing each prop separately):
+   *
+   *   prop removed      | "pins urlTransform" | "pins the a component"
+   *   ------------------|---------------------|-----------------------
+   *   urlTransform      | FAILS               | passes
+   *   a                 | passes              | FAILS
+   *
+   * `http:` (not `javascript:`) is the probe on purpose: react-markdown's
+   * DEFAULT transform already blocks dangerous schemes, so a `javascript:`
+   * payload cannot tell our prop apart from the library's. Plain `http:` is
+   * allowed by the default and rejected by ours — the one behaviour that is
+   * unambiguously OURS.
+   */
+  it('pins urlTransform: an http: link never reaches the DOM as a live href', async () => {
     mockQueue = {
       items: [suggestion({ descriptionMd: '[click](http://insecure.example/x)' })],
       total: 1,
@@ -233,8 +251,23 @@ describe('JobSuggestionDialog', () => {
     renderDialog()
 
     const description = await screen.findByTestId('job-suggestion-description')
-    expect(description.querySelector('a')).toBeNull()
+    const hrefs = Array.from(description.querySelectorAll('a')).map((a) => a.getAttribute('href'))
+    expect(hrefs.filter((h) => h && h.length > 0)).toEqual([])
+    expect(description.innerHTML).not.toContain('insecure.example')
     expect(description.textContent).toContain('click')
+  })
+
+  it('pins the `a` component: an https link gets rel/noopener and a new tab', async () => {
+    mockQueue = {
+      items: [suggestion({ descriptionMd: '[Apply](https://jobs.dou.ua/x/1)' })],
+      total: 1,
+    }
+    renderDialog()
+
+    const link = (await screen.findByTestId('job-suggestion-description')).querySelector('a')
+    expect(link?.getAttribute('href')).toBe('https://jobs.dou.ua/x/1')
+    expect(link?.getAttribute('rel')).toBe('noopener noreferrer nofollow')
+    expect(link?.getAttribute('target')).toBe('_blank')
   })
 
   it('renders the angle-bracket destination form the API now emits', async () => {
@@ -248,7 +281,15 @@ describe('JobSuggestionDialog', () => {
     expect(link?.getAttribute('href')).toBe('https://jobs.dou.ua/x/1')
   })
 
-  it('AC6: a markdown link to javascript: is not rendered as a live href', async () => {
+  it('AC6: a javascript: destination is rejected by OUR transform, not the library’s', async () => {
+    // Round 3: this test used to assert only that no `javascript:` href reached
+    // the DOM — a property react-markdown's DEFAULT transform already provides,
+    // so it passed whether or not our code did anything. It now asserts our own
+    // predicate directly (the same one that guards `window.open`), which is the
+    // part we are actually responsible for.
+    expect(isSafeExternalUrl('javascript:alert(1)')).toBe(false)
+    expect(MARKDOWN_URL_TRANSFORM('javascript:alert(1)')).toBe('')
+
     mockQueue = {
       items: [suggestion({ descriptionMd: '[click me](javascript:alert(1))' })],
       total: 1,
@@ -256,10 +297,8 @@ describe('JobSuggestionDialog', () => {
     renderDialog()
 
     const description = await screen.findByTestId('job-suggestion-description')
-    const link = description.querySelector('a')
-    // react-markdown's default urlTransform strips unsafe protocols; whatever it
-    // leaves behind must not be a javascript: href.
-    expect(link?.getAttribute('href') ?? '').not.toContain('javascript:')
+    expect(description.querySelector('a[href]')).toBeNull()
+    expect(description.textContent).toContain('click me')
   })
 
   // ── Statuses + empty state ────────────────────────────────────────────────

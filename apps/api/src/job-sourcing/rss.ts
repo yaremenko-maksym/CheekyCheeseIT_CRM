@@ -128,8 +128,11 @@ function extractTag(block: string, tag: string): string {
 /**
  * Extract `<item>` elements from an RSS document.
  *
- * Never throws on malformed input: a feed we cannot read yields `[]`, which the
- * collector logs as "0 fetched" instead of turning into a 500.
+ * Malformed input yields `[]` rather than an exception — a feed we cannot read
+ * is "0 items", not a 500. The ONE exception is a body over `MAX_FEED_BYTES`,
+ * which throws: that is a resource-exhaustion signal, and silently returning
+ * `[]` for it would look identical to an empty feed (code review round 3 — the
+ * docblock used to claim "never throws", which was simply untrue).
  */
 export function parseRssItems(xml: string): RawRssItem[] {
   if (typeof xml !== 'string' || xml.length === 0) return []

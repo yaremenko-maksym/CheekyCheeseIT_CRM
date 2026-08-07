@@ -157,6 +157,15 @@ describe('htmlToMarkdown — link-destination breakout (HIGH-1)', () => {
     )
   })
 
+  it('does not let a trailing `!` before a link assemble into an image', () => {
+    // Security-review round 3: `Great job!` + `[x](<url>)` is markdown for an
+    // IMAGE. The exclamation mark comes from the description TEXT, the link
+    // from a perfectly legitimate `<a>` — neither half looks hostile alone.
+    const md = htmlToMarkdown('Great job!<a href="https://evil.example/px.png?leak=1">x</a>')
+    expect(md).not.toMatch(/(?<!\\)!\[/)
+    expect(md).toContain('\\!')
+  })
+
   it('never emits an image, whatever the feed does', () => {
     for (const input of [
       '<img src="https://evil.example/px.png">',

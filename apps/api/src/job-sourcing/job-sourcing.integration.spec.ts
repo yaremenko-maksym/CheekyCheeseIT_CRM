@@ -630,6 +630,74 @@ describe('Job sourcing — real DB integration', () => {
     expect(await service.purgeStalePostings()).toBe(0)
   })
 
+  /**
+   * Code review round 3 — the AC4 hole. Retention used to keep only APPLIED
+   * postings, so a REJECTED one was deleted with its suggestion (cascade) and
+   * could be re-collected and re-offered to the same senior 90 days later.
+   */
+  it('AC4: a REJECTED posting survives retention, so it can never be re-offered', async () => {
+    if (!dbAvailable) return
+    await service.collectSource(source)
+    const queue = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    const rejected = queue.items[0]!
+    await service.updateStatus(rejected.id, { status: 'REJECTED' }, SENIOR_B)
+
+    await dbSvc.db
+      .update(jobPostings)
+      .set({ collectedAt: new Date('2020-01-01T00:00:00Z') })
+      .where(eq(jobPostings.sourceId, SOURCE_ID))
+
+    await service.purgeStalePostings()
+
+    // The posting is still there, and so is the REJECTED decision.
+    const survivors = await dbSvc.db
+      .select()
+      .from(jobPostings)
+      .where(eq(jobPostings.id, rejected.posting.id))
+    expect(survivors).toHaveLength(1)
+
+    // Re-collecting cannot turn it back into a NEW suggestion.
+    await service.collectSource(source)
+    const after = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
+    expect(after.items.map((i) => i.posting.id)).not.toContain(rejected.posting.id)
+    expect((await service.countSuggestionsByStatus(SENIOR_B.id))['REJECTED']).toBe(1)
+  })
+
+  /** Code review round 3 — a broken source must not look like a quiet day. */
+  it('a feed that yields no postings fails loudly and does NOT mark the source collected', async () => {
+    if (!dbAvailable) return
+    await service.collectSource(source)
+    const [before] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_ID))
+    expect(before!.lastCollectedAt).not.toBeNull()
+
+    // The feed changed shape — still HTTP 200, but nothing we can parse.
+    provider.feedXml = '<?xml version="1.0"?><feed><entry><name>new format</name></entry></feed>'
+
+    await expect(service.collectSource(source)).rejects.toThrow(/0 usable postings/)
+
+    const [after] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_ID))
+    expect(after!.lastCollectedAt?.getTime()).toBe(before!.lastCollectedAt?.getTime())
+  })
+
+  it('collectAll survives one broken source and reports it', async () => {
+    if (!dbAvailable) return
+    provider.feedXml = '<?xml version="1.0"?><rss><channel></channel></rss>'
+
+    // collectAll swallows per-source failures by design (a third-party outage
+    // must not kill the cron) — the failure surfaces as a missing result plus
+    // an error log, not as a thrown exception.
+    const results = await service.collectAll()
+    expect(results.find((r) => r.sourceType === 'DOU_RSS')).toBeUndefined()
+  })
+
+  it('tells an ADMIN/HR to pick a senior instead of complaining about a parameter', async () => {
+    if (!dbAvailable) return
+    await expect(service.listSuggestions(undefined, ADMIN)).rejects.toThrow(/Выберите синьора/)
+    await expect(service.listSuggestions(undefined, HR_A)).rejects.toThrow(/Выберите синьора/)
+    // A SENIOR never needs the parameter — their own queue is implied.
+    await expect(service.listSuggestions(undefined, SENIOR_B)).resolves.toBeDefined()
+  })
+
   // ── Untrusted content, end to end ──────────────────────────────────────────
 
   it('stores a hostile description as markdown with no HTML and no script', async () => {
@@ -702,7 +770,31 @@ describe('Job sourcing — real DB integration', () => {
     expect(other.items.map((i) => i.posting.companyName)).toContain('Ромашка Digital')
   })
 
-  it('drops a feed entry whose link is not https', async () => {
+  it('drops a feed entry whose link is not https but keeps the rest of the batch', async () => {
+    if (!dbAvailable) return
+    provider.feedXml =
+      `<?xml version="1.0"?><rss><channel>` +
+      `<item><title>Evil в Hacker, Kyiv</title>` +
+      `<link>javascript:alert(1)</link><guid>javascript:alert(1)</guid>` +
+      `<description>x</description></item>` +
+      `<item><title>Good в Devart, Київ</title>` +
+      `<link>https://jobs.dou.ua/companies/devart/vacancies/900/</link>` +
+      `<guid>https://jobs.dou.ua/companies/devart/vacancies/900/?1</guid>` +
+      `<description>ok</description></item>` +
+      `</channel></rss>`
+
+    const result = await service.collectSource(source)
+    expect(result.created).toBe(1)
+
+    const rows = await dbSvc.db
+      .select()
+      .from(jobPostings)
+      .where(eq(jobPostings.sourceId, SOURCE_ID))
+    expect(rows.map((r) => r.companyName)).toEqual(['Devart'])
+    expect(rows.every((r) => r.url.startsWith('https://'))).toBe(true)
+  })
+
+  it('a feed where EVERY entry is unusable is treated as a broken source', async () => {
     if (!dbAvailable) return
     provider.feedXml =
       `<?xml version="1.0"?><rss><channel><item>` +
@@ -710,8 +802,7 @@ describe('Job sourcing — real DB integration', () => {
       `<link>javascript:alert(1)</link><guid>javascript:alert(1)</guid>` +
       `<description>x</description></item></channel></rss>`
 
-    const result = await service.collectSource(source)
-    expect(result.created).toBe(0)
+    await expect(service.collectSource(source)).rejects.toThrow(/0 usable postings/)
     expect(
       await dbSvc.db.select().from(jobPostings).where(eq(jobPostings.sourceId, SOURCE_ID)),
     ).toHaveLength(0)

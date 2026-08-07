@@ -220,8 +220,25 @@ export class DouRssProvider implements JobSourceProvider {
    * `String.length`, which counts UTF-16 units, not bytes.
    */
   protected async fetchFeed(url: string): Promise<string> {
+    // AbortController + clearTimeout in `finally` — the convention every other
+    // outbound-HTTP service here uses (GoogleIndexingService.fetchWithTimeout,
+    // EtherscanService.fetchWithTimeout, NbuCurrencyService.fetchRates,
+    // TurnstileService.verify). `AbortSignal.timeout()` behaved identically but
+    // was the only spelling in the codebase (code review round 3). The timer is
+    // cleared only in `finally`, AFTER the body has been streamed, so the
+    // timeout still bounds a stalled body — not just the response headers.
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS)
+    try {
+      return await this.readFeed(url, controller.signal)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  private async readFeed(url: string, signal: AbortSignal): Promise<string> {
     const response = await fetch(url, {
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      signal,
       headers: {
         // Identify ourselves honestly — this is an official feed, read politely.
         'user-agent': 'CheekyCheeseIT-CRM/1.0 (job sourcing; +https://cheekycheese.tech)',
