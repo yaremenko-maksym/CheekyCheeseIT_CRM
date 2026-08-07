@@ -288,6 +288,10 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   'app/components/user-profile/admin-actions/AdminNoteDialog.tsx#1':
     'Free-text internal admin note about the profile — arbitrary prose, no taxonomy class applies.',
 
+  // ---- job-sourcing/JobSuggestionDialog.tsx ----
+  'testid:job-exclusion-input':
+    'Company name or stop-word the user types to exclude a vacancy («EPAM», «gambling», «ТОВ Ромашка») — arbitrary free text in any alphabet; no numeric/contact taxonomy class applies and autofill would offer the wrong kind of value.',
+
   // ---- contracts/AddCustomVariableDialog.tsx ----
   'testid:cv-label-input':
     'Russian display label the admin types for a custom contract variable (e.g. "Город подписания") — free text, not an identifier.',
