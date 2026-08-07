@@ -28,6 +28,7 @@ import {
   isSafeResumeUrl,
   type ResumeContent,
   type ResumeExperienceItem,
+  type ResumeLink,
 } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -59,9 +60,12 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   const saveMutation = useSaveResumeContent(userId)
   const uploadMutation = useUploadResumeSource(userId)
   const textMutation = useIngestResumeText(userId)
-  const sourceQuery = useResumeSourceUrl(userId, Boolean(data?.hasSourceFile))
+  // `resume` is null until the senior has one; `canEdit` sits OUTSIDE it
+  // precisely so the empty state still knows whether to offer the upload UI.
+  const resume = data?.resume ?? null
+  const sourceQuery = useResumeSourceUrl(userId, Boolean(resume?.hasSourceFile))
 
-  const serverContent = data?.content ?? EMPTY_RESUME_CONTENT
+  const serverContent = resume?.content ?? EMPTY_RESUME_CONTENT
   const canEdit = data?.canEdit ?? false
   const isBusy = uploadMutation.isPending || textMutation.isPending
 
@@ -73,7 +77,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   // Reset the draft whenever the server content changes and nothing is being
   // edited — so a finished extraction shows up immediately, but never wipes
   // an edit in progress.
-  const serverVersionKey = `${data?.version ?? -1}:${data?.status ?? 'none'}`
+  const serverVersionKey = `${resume?.version ?? -1}:${resume?.status ?? 'none'}`
   const lastSyncedRef = useRef<string>('')
   useEffect(() => {
     if (editing !== null) return
@@ -127,8 +131,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   }
 
   const hasContent =
-    data !== null &&
-    data !== undefined &&
+    resume !== null &&
     (serverContent.summary.trim() !== '' ||
       serverContent.skills.length > 0 ||
       serverContent.experience.length > 0 ||
@@ -136,10 +139,10 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
       serverContent.languages.length > 0 ||
       serverContent.links.length > 0)
 
-  const isExtracting = data?.status === 'QUEUED' || data?.status === 'RUNNING'
+  const isExtracting = resume?.status === 'QUEUED' || resume?.status === 'RUNNING'
 
   // Empty + never uploaded + not extracting -> pure invitation screen.
-  if (!hasContent && !isExtracting && data?.status !== 'FAILED') {
+  if (!hasContent && !isExtracting && resume?.status !== 'FAILED') {
     return (
       <div className="space-y-4" data-testid="resume-tab">
         {canEdit ? (
@@ -176,12 +179,12 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   return (
     <div className="space-y-4 pb-4" data-testid="resume-tab">
       {/* State banner: progress or an actionable failure. Never blocks the form. */}
-      {data && (
+      {resume && (
         <ResumeStatusPanel
-          status={data.status}
-          errorCode={data.errorCode}
-          errorMessage={data.errorMessage}
-          quotaResetsAt={data.quotaResetsAt}
+          status={resume.status}
+          errorCode={resume.errorCode}
+          errorMessage={resume.errorMessage}
+          quotaResetsAt={resume.quotaResetsAt}
           canEdit={canEdit}
           onRetry={() => setShowIntake(true)}
         />
@@ -190,18 +193,18 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
       {/* Toolbar */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 text-xs text-muted-foreground">
-          {data && (
+          {resume && (
             <span className="inline-flex items-center gap-1.5">
               <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="truncate">
-                Версия {data.version}
-                {data.updatedByName ? ` · последним менял ${data.updatedByName}` : ''}
+                Версия {resume.version}
+                {resume.updatedByName ? ` · последним менял ${resume.updatedByName}` : ''}
               </span>
             </span>
           )}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          {data?.hasSourceFile && sourceQuery.data?.url && (
+          {resume?.hasSourceFile && sourceQuery.data?.url && (
             // Plain <a>: the presigned URL is already in hand, so no
             // post-await window.open (which mobile browsers block).
             <Button asChild variant="outline" className="min-h-11">
@@ -225,7 +228,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
         </div>
       </div>
 
-      {canEdit && (showIntake || data?.status === 'FAILED') && (
+      {canEdit && (showIntake || resume?.status === 'FAILED') && (
         <ResumeIntake
           variant="compact"
           onUploadFile={(file) => {
@@ -361,17 +364,9 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
 
       <ResumeSectionCard title="Ссылки" {...sectionProps('links')}>
         {editing === 'links' ? (
-          <PairListEditor
-            rows={draft.links.map((l) => [l.label, l.url])}
-            labels={['Название', 'Ссылка (https:// или mailto:)']}
-            idPrefix="links"
-            addLabel="Добавить ссылку"
-            onChange={(rows) =>
-              setDraft({
-                ...draft,
-                links: rows.map(([label, url]) => ({ label: label ?? '', url: url ?? '' })),
-              })
-            }
+          <ResumeLinksEditor
+            links={draft.links}
+            onChange={(links) => setDraft({ ...draft, links })}
           />
         ) : view.links.length > 0 ? (
           <ul className="space-y-1.5 text-sm" data-testid="resume-links-view">
@@ -444,9 +439,87 @@ function ExperienceRow({ item, index }: { item: ResumeExperienceItem; index: num
 }
 
 /**
- * Generic editor for the small "list of N text fields" sections (education,
- * languages, links). One component instead of three near-identical ones —
- * they differ only in labels and arity.
+ * Links editor — kept SEPARATE from the generic `PairListEditor` even though
+ * the layout is nearly identical, because a URL field is not free text: it
+ * needs `type="url"` (URL keyboard on mobile) plus the anti-autocorrect trio,
+ * or iOS will happily capitalise and "correct" a pasted address into garbage.
+ * The project's mobile-keyboard registry enforces exactly this distinction,
+ * and a shared component with dynamically-forwarded props could not satisfy
+ * it statically.
+ */
+function ResumeLinksEditor({
+  links,
+  onChange,
+}: {
+  links: ResumeLink[]
+  onChange: (links: ResumeLink[]) => void
+}) {
+  function patch(index: number, changes: Partial<ResumeLink>) {
+    onChange(links.map((link, i) => (i === index ? { ...link, ...changes } : link)))
+  }
+
+  return (
+    <div className="space-y-3">
+      {links.map((link, index) => (
+        <div
+          key={index}
+          className="flex flex-col gap-2 rounded-md border bg-muted/20 p-3 sm:flex-row sm:items-center"
+          data-testid={`resume-links-item-${index}`}
+        >
+          <div className="grid flex-1 gap-2 sm:grid-cols-2">
+            <Input
+              value={link.label}
+              onChange={(e) => patch(index, { label: e.target.value })}
+              placeholder="Название"
+              aria-label={`Название ссылки, строка ${index + 1}`}
+              data-testid={`resume-links-label-${index}`}
+              // Static `name` (inert — no <form>) so the mobile-keyboard
+              // registry gets a stable key; the testid is a template literal
+              // and cannot be resolved statically.
+              name="resumeLinkLabel"
+            />
+            <Input
+              type="url"
+              value={link.url}
+              onChange={(e) => patch(index, { url: e.target.value })}
+              placeholder="https://… или mailto:…"
+              aria-label={`Ссылка, строка ${index + 1}`}
+              data-testid={`resume-links-url-${index}`}
+              name="resumeLinkUrl"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+            />
+          </div>
+          <Button
+            variant="ghost"
+            size="icon"
+            onClick={() => onChange(links.filter((_, i) => i !== index))}
+            aria-label={`Удалить ссылку ${index + 1}`}
+            data-testid={`resume-links-remove-${index}`}
+            className="h-11 w-11 shrink-0 self-end text-destructive sm:h-9 sm:w-9 sm:self-auto"
+          >
+            <span aria-hidden>×</span>
+          </Button>
+        </div>
+      ))}
+      <Button
+        variant="outline"
+        onClick={() => onChange([...links, { label: '', url: '' }])}
+        data-testid="resume-links-add"
+        className="min-h-11 w-full sm:w-auto"
+      >
+        Добавить ссылку
+      </Button>
+    </div>
+  )
+}
+
+/**
+ * Generic editor for the small "list of N free-text fields" sections
+ * (education, languages). One component instead of two near-identical ones —
+ * they differ only in labels and arity. Links are NOT handled here: see
+ * `ResumeLinksEditor`.
  */
 function PairListEditor({
   rows,
@@ -486,6 +559,9 @@ function PairListEditor({
                 placeholder={label}
                 aria-label={`${label}, строка ${rowIndex + 1}`}
                 data-testid={`resume-${idPrefix}-${colIndex}-${rowIndex}`}
+                // Static `name` (inert — no <form>) so the mobile-keyboard
+                // registry gets a stable key rather than a positional one.
+                name="resumePairField"
               />
             ))}
           </div>

@@ -24,13 +24,13 @@ export function useSeniorResume(userId: string | undefined, enabled = true) {
   return useQuery({
     queryKey: resumeQueryKey(userId ?? ''),
     queryFn: () =>
-      api.get<SeniorResumeResponse>(`/users/${userId}/resume`).then((r) => r.data ?? null),
+      api.get<SeniorResumeResponse>(`/users/${userId}/resume`).then((r) => r.data),
     enabled: enabled && !!userId,
     // Personal data + a state machine that moves on the server: never serve a
     // stale snapshot from cache when the tab is re-opened.
     staleTime: 0,
     refetchInterval: (query) => {
-      const status = query.state.data?.status
+      const status = query.state.data?.resume?.status
       return status === 'QUEUED' || status === 'RUNNING' ? POLL_INTERVAL_MS : false
     },
   })
@@ -43,7 +43,7 @@ export function useSaveResumeContent(userId: string) {
     mutationFn: (content: ResumeContent) =>
       api
         .put<SeniorResumeResponse>(`/users/${userId}/resume`, { content })
-        .then((r) => r.data ?? null),
+        .then((r) => r.data),
     onSuccess: (data) => {
       // Write the server's answer straight into the cache so `version` and
       // `updatedBy` are correct immediately, then revalidate.
@@ -70,7 +70,7 @@ export function useUploadResumeSource(userId: string) {
           // client's default JSON Content-Type).
           headers: { 'Content-Type': undefined as unknown as string },
         })
-        .then((r) => r.data ?? null)
+        .then((r) => r.data)
     },
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
@@ -87,7 +87,7 @@ export function useIngestResumeText(userId: string) {
     mutationFn: (text: string) =>
       api
         .post<SeniorResumeResponse>(`/users/${userId}/resume/text`, { text })
-        .then((r) => r.data ?? null),
+        .then((r) => r.data),
     onSuccess: (data) => {
       qc.setQueryData(resumeQueryKey(userId), data)
       toast.success('Текст принят, распознаём резюме')

@@ -103,6 +103,11 @@ export function ResumeExperienceEditor({ items, onChange }: ResumeExperienceEdit
               placeholder="Должность"
               aria-label={`Должность, место работы ${index + 1}`}
               data-testid={`resume-experience-role-${index}`}
+              // Static `name` (no <form> here, so it is inert at runtime) gives
+              // the mobile-keyboard registry a stable key instead of a
+              // positional one — the testid is a template literal and cannot be
+              // read statically. Same on the sibling fields below.
+              name="resumeExperienceRole"
             />
             <Input
               value={item.company}
@@ -110,6 +115,7 @@ export function ResumeExperienceEditor({ items, onChange }: ResumeExperienceEdit
               placeholder="Компания"
               aria-label={`Компания, место работы ${index + 1}`}
               data-testid={`resume-experience-company-${index}`}
+              name="resumeExperienceCompany"
             />
           </div>
           <Input
@@ -118,6 +124,7 @@ export function ResumeExperienceEditor({ items, onChange }: ResumeExperienceEdit
             placeholder="Период, например 2021 — наст. время"
             aria-label={`Период, место работы ${index + 1}`}
             data-testid={`resume-experience-period-${index}`}
+            name="resumeExperiencePeriod"
           />
           <Textarea
             value={item.bullets.join('\n')}
@@ -132,6 +139,7 @@ export function ResumeExperienceEditor({ items, onChange }: ResumeExperienceEdit
             rows={4}
             aria-label={`Достижения, место работы ${index + 1}`}
             data-testid={`resume-experience-bullets-${index}`}
+            name="resumeExperienceBullets"
           />
         </div>
       ))}

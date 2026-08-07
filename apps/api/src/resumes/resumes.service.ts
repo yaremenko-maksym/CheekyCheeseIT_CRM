@@ -34,6 +34,7 @@ import {
   type ResumeContent,
   type ResumeFailureCode,
   type SeniorResumeDto,
+  type SeniorResumeResponse,
   type SessionUser,
 } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
@@ -109,12 +110,19 @@ export class SeniorResumesService {
   // Read
   // ==========================================================================
 
-  /** GET — `null` when the senior has no resume row yet (empty state). */
-  async getForUser(viewer: SessionUser, targetUserId: string): Promise<SeniorResumeDto | null> {
+  /**
+   * GET. `resume` is `null` when the senior has no row yet — but `canEdit` is
+   * still answered, because it describes the VIEWER's rights, not the row's
+   * existence. Without that, the empty state could not know whether to offer
+   * the upload button (see the response schema's doc).
+   */
+  async getForUser(viewer: SessionUser, targetUserId: string): Promise<SeniorResumeResponse> {
     await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
-    if (!row) return null
-    return this.toDto(row, viewer)
+    if (!row) {
+      return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+    }
+    return this.toResponse(row, viewer)
   }
 
   /** Presigned download of the ORIGINAL uploaded file (never public). */
@@ -172,7 +180,7 @@ export class SeniorResumesService {
     viewer: SessionUser,
     targetUserId: string,
     content: ResumeContent,
-  ): Promise<SeniorResumeDto> {
+  ): Promise<SeniorResumeResponse> {
     await this.assertAccess(viewer, targetUserId, 'write')
     // Re-validate server-side: never persist client-shaped JSON unchecked.
     const validated = resumeContentSchema.parse(content)
@@ -195,7 +203,7 @@ export class SeniorResumesService {
       .returning()
 
     if (!updated) throw new NotFoundException('Резюме не найдено')
-    return this.toDto(updated, viewer)
+    return this.toResponse(updated, viewer)
   }
 
   /**
@@ -206,7 +214,7 @@ export class SeniorResumesService {
     viewer: SessionUser,
     targetUserId: string,
     file: ResumeSourceFile,
-  ): Promise<SeniorResumeDto> {
+  ): Promise<SeniorResumeResponse> {
     await this.assertAccess(viewer, targetUserId, 'write')
 
     if (file.buffer.length === 0) throw new UnsupportedMediaTypeException('Файл пустой')
@@ -256,7 +264,7 @@ export class SeniorResumesService {
     }
 
     this.startExtraction(row.id, () => this.extraction.extract(file.buffer, detected))
-    return this.toDto(queued, viewer)
+    return this.toResponse(queued, viewer)
   }
 
   /**
@@ -268,7 +276,7 @@ export class SeniorResumesService {
     viewer: SessionUser,
     targetUserId: string,
     text: string,
-  ): Promise<SeniorResumeDto> {
+  ): Promise<SeniorResumeResponse> {
     await this.assertAccess(viewer, targetUserId, 'write')
     const row = await this.ensureRow(targetUserId)
 
@@ -288,7 +296,7 @@ export class SeniorResumesService {
     if (!queued) throw new NotFoundException('Резюме не найдено')
 
     this.startExtraction(row.id, () => Promise.resolve(text))
-    return this.toDto(queued, viewer)
+    return this.toResponse(queued, viewer)
   }
 
   // ==========================================================================
@@ -489,7 +497,7 @@ export class SeniorResumesService {
     return created
   }
 
-  private async toDto(row: SeniorResume, viewer: SessionUser): Promise<SeniorResumeDto> {
+  private async toResponse(row: SeniorResume, viewer: SessionUser): Promise<SeniorResumeResponse> {
     const editor = row.updatedByUserId
       ? await this.db.db.query.users.findFirst({
           where: (tbl, { eq: equals }) => equals(tbl.id, row.updatedByUserId as string),
@@ -498,21 +506,23 @@ export class SeniorResumesService {
       : undefined
 
     return {
-      id: row.id,
-      userId: row.userId,
-      content: this.safeContent(row.content),
-      status: row.status,
-      errorCode: (row.errorCode as SeniorResumeDto['errorCode']) ?? null,
-      errorMessage: row.errorMessage,
-      quotaResetsAt: row.quotaResetsAt?.toISOString() ?? null,
-      sourceFileName: row.sourceFileName,
-      sourceFileSizeBytes: row.sourceFileSizeBytes,
-      hasSourceFile: Boolean(row.sourceS3Key),
-      version: row.version,
-      updatedByUserId: row.updatedByUserId,
-      updatedByName: editor?.displayName ?? null,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
+      resume: {
+        id: row.id,
+        userId: row.userId,
+        content: this.safeContent(row.content),
+        status: row.status,
+        errorCode: (row.errorCode as SeniorResumeDto['errorCode']) ?? null,
+        errorMessage: row.errorMessage,
+        quotaResetsAt: row.quotaResetsAt?.toISOString() ?? null,
+        sourceFileName: row.sourceFileName,
+        sourceFileSizeBytes: row.sourceFileSizeBytes,
+        hasSourceFile: Boolean(row.sourceS3Key),
+        version: row.version,
+        updatedByUserId: row.updatedByUserId,
+        updatedByName: editor?.displayName ?? null,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
+      },
       // Server-computed, never echoed from the client.
       canEdit: canAccessResume(viewer, row.userId, 'write'),
     }

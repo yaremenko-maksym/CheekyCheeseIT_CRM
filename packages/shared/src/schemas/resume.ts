@@ -218,13 +218,24 @@ export const seniorResumeDtoSchema = z.object({
   updatedByName: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
-  /** Whether THIS viewer may write (server-computed, never trusted from client). */
-  canEdit: z.boolean(),
 })
 export type SeniorResumeDto = z.infer<typeof seniorResumeDtoSchema>
 
-/** GET returns `null` when the senior has no resume yet (empty state). */
-export const seniorResumeResponseSchema = seniorResumeDtoSchema.nullable()
+/**
+ * Every resume endpoint answers with this envelope.
+ *
+ * `resume` is `null` when the senior has no resume row yet — but `canEdit` is
+ * a property of the (viewer, target) PAIR, not of the row, so it lives OUTSIDE
+ * and is always present. That distinction is load-bearing: with `canEdit`
+ * inside a nullable DTO, the empty state carried no permission signal at all
+ * and the UI had to either guess (defaulting to read-only, which would hide
+ * the upload button from the very people meant to create the resume) or
+ * re-derive the RBAC rule client-side. Server-computed, never echoed back.
+ */
+export const seniorResumeResponseSchema = z.object({
+  resume: seniorResumeDtoSchema.nullable(),
+  canEdit: z.boolean(),
+})
 export type SeniorResumeResponse = z.infer<typeof seniorResumeResponseSchema>
 
 // ---------------------------------------------------------------------------

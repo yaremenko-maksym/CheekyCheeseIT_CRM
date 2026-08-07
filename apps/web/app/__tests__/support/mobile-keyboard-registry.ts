@@ -264,6 +264,13 @@ export const FIELD_CATEGORIES: Record<string, Category> = {
 
   // ---- user-profile/AvatarUploadDialog.tsx ----
   'app/components/user-profile/AvatarUploadDialog.tsx#2': 'URL', // avatar-by-URL tab
+
+  // ---- user-profile/resume/ResumeTab.tsx (task-resume-base) ----
+  // Portfolio / GitHub / mailto link on a senior's resume. Classified (not
+  // exempted) precisely BECAUSE it is a URL: iOS autocapitalisation and
+  // autocorrect corrupt pasted addresses, and the server only accepts
+  // https:/mailto: — a "corrected" value is a rejected value.
+  'app/components/user-profile/resume/ResumeTab.tsx#name:resumeLinkUrl': 'URL',
 }
 
 /**
@@ -428,6 +435,29 @@ export const EXEMPT_FIELDS: Record<string, string> = {
   // ---- ui/tech-autocomplete-input.tsx ----
   'app/components/ui/tech-autocomplete-input.tsx#1':
     'Tag/chip type-ahead filter input for technology names — not a data-entry field in the taxonomy sense, it drives an autocomplete dropdown.',
+
+  // ---- user-profile/resume/** (task-resume-base) ----
+  // A resume is prose end to end. The ONLY structured value anywhere in it is
+  // the link URL, which is classified URL in FIELD_CATEGORIES above — every
+  // field below is genuinely free text a person writes in their own words.
+  'testid:resume-summary-input':
+    'Раздел «О себе» — free-form prose the senior writes about themselves; no taxonomy class applies.',
+  'testid:resume-skills-input':
+    'Newline-separated list of skill names ("TypeScript", "Проектирование систем") — arbitrary words in either alphabet, not identifiers.',
+  'testid:resume-text-input':
+    'Paste-the-whole-resume fallback textarea used when a PDF has no text layer — an entire CV as prose.',
+  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperienceRole':
+    'Job title as written on the resume ("Технический лидер") — free text, and autocapitalising it is if anything desirable.',
+  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperienceCompany':
+    'Employer name ("Акме Технологии") — a proper noun in free text, not an identifier.',
+  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperiencePeriod':
+    'Deliberately free-form employment period ("2021 — наст. время") — the schema stores it as a string, not a date range, so no numeric/date keyboard fits.',
+  'app/components/user-profile/resume/ResumeExperienceEditor.tsx#name:resumeExperienceBullets':
+    'Achievements, one per line — prose sentences.',
+  'app/components/user-profile/resume/ResumeTab.tsx#name:resumeLinkLabel':
+    'Human-readable caption for a link ("GitHub", "Портфолио") — free text. The URL beside it is classified URL in FIELD_CATEGORIES.',
+  'app/components/user-profile/resume/ResumeTab.tsx#name:resumePairField':
+    'Shared field of the education/languages rows (institution, degree, period, language, level) — every column is free-text prose.',
 }
 
 /**

@@ -226,26 +226,26 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
   it('R-INT-1. ADMIN reads and writes a foreign senior resume', async () => {
     if (!dbAvailable) return
     const read = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
-    expect(read?.content.summary).toBe(SENIOR_B_SECRET)
-    expect(read?.canEdit).toBe(true)
+    expect(read.resume?.content.summary).toBe(SENIOR_B_SECRET)
+    expect(read.canEdit).toBe(true)
 
     const written = await service.updateContent(session(ADMIN_USER), SENIOR_B.id, {
       ...SENIOR_B_CONTENT,
       skills: ['админ правил'],
     })
-    expect(written.content.skills).toEqual(['админ правил'])
+    expect(written.resume?.content.skills).toEqual(['админ правил'])
   })
 
   it('R-INT-2. HR reads and writes a foreign senior resume', async () => {
     if (!dbAvailable) return
     const read = await service.getForUser(session(HR_USER), SENIOR_B.id)
-    expect(read?.content.summary).toBe(SENIOR_B_SECRET)
+    expect(read.resume?.content.summary).toBe(SENIOR_B_SECRET)
 
     const written = await service.updateContent(session(HR_USER), SENIOR_B.id, {
       ...SENIOR_B_CONTENT,
       skills: ['hr правил'],
     })
-    expect(written.content.skills).toEqual(['hr правил'])
+    expect(written.resume?.content.skills).toEqual(['hr правил'])
   })
 
   // ── R-INT-3: SENIOR — own resume ──────────────────────────────────────────
@@ -256,11 +256,11 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
       ...EMPTY_RESUME_CONTENT,
       summary: 'моё резюме',
     })
-    expect(saved.content.summary).toBe('моё резюме')
+    expect(saved.resume?.content.summary).toBe('моё резюме')
     expect(saved.canEdit).toBe(true)
 
     const read = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-    expect(read?.content.summary).toBe('моё резюме')
+    expect(read.resume?.content.summary).toBe('моё резюме')
   })
 
   // ── R-INT-4: SENIOR -> ANOTHER SENIOR (existing id!) — denied everywhere ───
@@ -355,6 +355,23 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
     )
   })
 
+  // ── Empty state still carries the permission signal ──────────────────────
+
+  it('a senior with NO resume row yet still gets canEdit=true (so the upload UI shows)', async () => {
+    if (!dbAvailable) return
+    // SENIOR_A's row may exist from an earlier test in this file — drop it so
+    // this exercises the genuine "never created" path.
+    await dbSvc.db.delete(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id))
+
+    const own = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
+    expect(own.resume).toBeNull()
+    expect(own.canEdit).toBe(true)
+
+    const asAdmin = await service.getForUser(session(ADMIN_USER), SENIOR_A.id)
+    expect(asAdmin.resume).toBeNull()
+    expect(asAdmin.canEdit).toBe(true)
+  })
+
   // ── R-INT-8: the resource only exists for SENIOR targets ─────────────────
 
   it('R-INT-8. ADMIN asking for a JUNIOR resume gets 404 (resume is a senior artefact)', async () => {
@@ -375,16 +392,16 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
         originalname: 'резюме.docx',
       })
       // The HTTP-facing return value is the pre-extraction state.
-      expect(queued.status).toBe('QUEUED')
-      expect(queued.hasSourceFile).toBe(true)
-      expect(queued.sourceFileName).toBe('резюме.docx')
+      expect(queued.resume?.status).toBe('QUEUED')
+      expect(queued.resume?.hasSourceFile).toBe(true)
+      expect(queued.resume?.sourceFileName).toBe('резюме.docx')
 
       await vi.waitFor(async () => {
         const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-        expect(dto?.status).toBe('READY')
+        expect(dto.resume?.status).toBe('READY')
       })
       const done = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-      expect(done?.content.summary).toBe('извлечено')
+      expect(done.resume?.content.summary).toBe('извлечено')
       // The text handed to the model really came out of the DOCX.
       expect(String(ai.extractStructure.mock.calls.at(-1)?.[0])).toContain('Иван Петров')
     })
@@ -400,11 +417,11 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
 
       await vi.waitFor(async () => {
         const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-        expect(dto?.status).toBe('FAILED')
+        expect(dto.resume?.status).toBe('FAILED')
       })
       const failed = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-      expect(failed?.errorCode).toBe('NO_TEXT')
-      expect(failed?.errorMessage).toMatch(/вставьте текст/i)
+      expect(failed.resume?.errorCode).toBe('NO_TEXT')
+      expect(failed.resume?.errorMessage).toMatch(/вставьте текст/i)
     })
 
     it('a QUOTA_EXCEEDED model result is persisted with its reset time (AC5)', async () => {
@@ -421,11 +438,11 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
 
       await vi.waitFor(async () => {
         const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-        expect(dto?.status).toBe('FAILED')
+        expect(dto.resume?.status).toBe('FAILED')
       })
       const failed = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-      expect(failed?.errorCode).toBe('QUOTA_EXCEEDED')
-      expect(failed?.quotaResetsAt).toBe(resetAt)
+      expect(failed.resume?.errorCode).toBe('QUOTA_EXCEEDED')
+      expect(failed.resume?.quotaResetsAt).toBe(resetAt)
 
       // AC5: manual completion still works while the quota is exhausted, and
       // saving clears the banner.
@@ -433,9 +450,9 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
         ...EMPTY_RESUME_CONTENT,
         summary: 'заполнено руками',
       })
-      expect(manual.status).toBe('READY')
-      expect(manual.errorCode).toBeNull()
-      expect(manual.quotaResetsAt).toBeNull()
+      expect(manual.resume?.status).toBe('READY')
+      expect(manual.resume?.errorCode).toBeNull()
+      expect(manual.resume?.quotaResetsAt).toBeNull()
     })
 
     it('version grows by exactly one per save', async () => {
@@ -445,9 +462,9 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
         ...EMPTY_RESUME_CONTENT,
         summary: 'ещё правка',
       })
-      expect(after.version).toBe((before?.version ?? 0) + 1)
-      expect(after.updatedByUserId).toBe(SENIOR_A.id)
-      expect(after.updatedByName).toBe(SENIOR_A.displayName)
+      expect(after.resume?.version).toBe((before.resume?.version ?? 0) + 1)
+      expect(after.resume?.updatedByUserId).toBe(SENIOR_A.id)
+      expect(after.resume?.updatedByName).toBe(SENIOR_A.displayName)
     })
 
     it('sweeps a row abandoned in RUNNING into FAILED/STALLED', async () => {
@@ -462,8 +479,8 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
       expect(swept).toBeGreaterThanOrEqual(1)
 
       const dto = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
-      expect(dto?.status).toBe('FAILED')
-      expect(dto?.errorCode).toBe('STALLED')
+      expect(dto.resume?.status).toBe('FAILED')
+      expect(dto.resume?.errorCode).toBe('STALLED')
     })
 
     it('does NOT sweep a RUNNING row that is still within its deadline', async () => {
