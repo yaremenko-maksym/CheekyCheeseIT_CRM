@@ -158,7 +158,7 @@ function ExclusionsPanel({
                   type="button"
                   aria-label={`Удалить исключение ${item.value}`}
                   onClick={() => deleteExclusion.mutate(item.id as string)}
-                  className="ml-0.5 inline-flex h-5 w-5 min-h-[20px] min-w-[20px] items-center justify-center rounded-full hover:bg-muted"
+                  className="ml-0.5 inline-flex h-6 w-6 min-h-[24px] min-w-[24px] items-center justify-center rounded-full hover:bg-muted"
                 >
                   <X className="h-3 w-3" aria-hidden />
                 </button>
