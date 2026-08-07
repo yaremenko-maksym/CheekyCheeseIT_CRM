@@ -20,6 +20,8 @@ const searchSchema = z.object({
       'requisites',
       'documents',
       'contract',
+      // task-resume-base — deep-linkable so HR can share a link to a senior's resume.
+      'resume',
     ])
     .default('overview'),
 })

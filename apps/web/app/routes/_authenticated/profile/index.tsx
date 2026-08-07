@@ -14,6 +14,8 @@ const searchSchema = z.object({
       'requisites',
       'documents',
       'contract',
+      // task-resume-base — deep-linkable so "открой мне своё резюме" is a URL.
+      'resume',
     ])
     .default('overview'),
 })
