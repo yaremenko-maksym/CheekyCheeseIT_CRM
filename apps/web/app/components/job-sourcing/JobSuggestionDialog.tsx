@@ -261,7 +261,14 @@ export function JobSuggestionDialog({
             onClick={handleOpenOriginal}
             disabled={!current}
             data-testid="job-open-original"
-            className="min-h-[44px] w-full sm:w-auto"
+            /*
+              `order-last` looks backwards but is right: CrmDialogFooter is
+              `flex-col-reverse` on mobile, so the LAST child renders at the
+              TOP. Opening the original is the first thing the user does, so on
+              a phone it belongs above the two verdicts; on `sm:` the footer is
+              a normal row again and the ordering resets.
+            */
+            className="order-last min-h-[44px] w-full sm:order-none sm:w-auto"
           >
             <ExternalLink className="mr-2 h-4 w-4 shrink-0" aria-hidden />
             Открыть оригинал
