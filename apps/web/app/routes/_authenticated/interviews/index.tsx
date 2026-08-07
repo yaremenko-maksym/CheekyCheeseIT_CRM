@@ -16,7 +16,7 @@ import { arrayMove } from '@dnd-kit/sortable'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { motion } from 'framer-motion'
 import { z } from 'zod'
-import { Plus } from 'lucide-react'
+import { Plus, Search } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import type { InterviewDto, InterviewStage } from '@crm/shared'
 import { useAuth } from '@/context/auth'
@@ -31,6 +31,7 @@ import { UsersRound } from 'lucide-react'
 import { ACTIVE_STAGES, ALL_STAGES, TERMINAL_STAGES } from './constants'
 import { InterviewCardStatic, KanbanColumn } from './components/KanbanColumn'
 import { InterviewDetailSheet } from './components/InterviewDetailSheet'
+import { JobSuggestionDialog } from '@/components/job-sourcing/JobSuggestionDialog'
 import { CreateInterviewDialog } from './components/CreateInterviewDialog'
 import { CreateProjectFromHiredDialog } from './components/CreateProjectFromHiredDialog'
 
@@ -144,6 +145,7 @@ function InterviewsPage() {
   const search = Route.useSearch()
   const navigate = useNavigate()
   const [createOpen, setCreateOpen] = useState(false)
+  const [jobSourcingOpen, setJobSourcingOpen] = useState(false)
   const [selectedCard, setSelectedCard] = useState<InterviewDto | null>(null)
   const [activeCardId, setActiveCardId] = useState<string | null>(null)
 
@@ -388,6 +390,24 @@ function InterviewsPage() {
               Новая карточка
             </Button>
           )}
+
+          {/*
+            task-job-sourcing-slice1 §4 — entry point to the vacancy queue.
+            Lives next to «Новая карточка» because it feeds the same board: a
+            vacancy the senior applies to becomes the next interview card.
+            Same audience as the board itself (ADMIN / HR / SENIOR).
+          */}
+          {canCreate && (
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => setJobSourcingOpen(true)}
+              data-testid="open-job-sourcing"
+            >
+              <Search className="mr-1.5 h-4 w-4" />
+              Подбор вакансий
+            </Button>
+          )}
         </div>
       </motion.div>
 
@@ -480,6 +500,20 @@ function InterviewsPage() {
           seniors={seniors}
           defaultSeniorId={isSenior ? (user?.id ?? '') : effectiveSeniorId}
           isSenior={isSenior}
+        />
+      )}
+
+      {/*
+        Job sourcing queue (task-job-sourcing-slice1). A SENIOR passes no
+        seniorId — the API resolves it to themselves and ignores anything else,
+        so the board's senior-picker cannot be used to peek at someone else.
+      */}
+      {jobSourcingOpen && (
+        <JobSuggestionDialog
+          open={jobSourcingOpen}
+          onClose={() => setJobSourcingOpen(false)}
+          seniorId={isSenior ? undefined : effectiveSeniorId}
+          canManageGlobal={isAdmin || isHR}
         />
       )}
 
