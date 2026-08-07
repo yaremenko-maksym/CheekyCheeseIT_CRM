@@ -13,7 +13,7 @@ import {
   type JobSuggestionStatus,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
-import { getApiErrorMessage } from '@/lib/axios-utils'
+import { getUserFacingErrorMessage } from '@/lib/axios-utils'
 
 /**
  * Job sourcing queries — task-job-sourcing-slice1.
@@ -83,8 +83,8 @@ export function useUpdateJobSuggestionStatus(seniorId: string | undefined) {
       void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
       toast.success(updated.status === 'APPLIED' ? 'Отмечено: откликнулись' : 'Вакансия скрыта')
     },
-    onError: () => {
-      toast.error('Не удалось сохранить статус')
+    onError: (error) => {
+      toast.error(getUserFacingErrorMessage(error))
     },
   })
 }
@@ -106,7 +106,13 @@ export function useCreateJobExclusion(seniorId: string | undefined) {
       // Surface the server's own words (e.g. "Выберите синьора…") instead of a
       // generic failure — design review round 3: a refusal the user cannot act
       // on is barely better than the silent no-op it replaced.
-      toast.error(getApiErrorMessage(error, 'Не удалось добавить исключение'))
+      //
+      // `getUserFacingErrorMessage`, not `getApiErrorMessage`: the latter falls
+      // through to axios's raw `.message`, so a dropped connection showed a
+      // Russian-speaking user the string "Network Error" (caught by the test
+      // for this handler). This one maps every non-backend case to a Russian
+      // sentence and still passes a real backend message through untouched.
+      toast.error(getUserFacingErrorMessage(error))
     },
   })
 }
@@ -123,8 +129,8 @@ export function useDeleteJobExclusion(seniorId: string | undefined) {
       void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
       toast.success('Исключение удалено')
     },
-    onError: () => {
-      toast.error('Не удалось удалить исключение')
+    onError: (error) => {
+      toast.error(getUserFacingErrorMessage(error))
     },
   })
 }

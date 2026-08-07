@@ -1,5 +1,5 @@
 import { drizzle } from 'drizzle-orm/node-postgres'
-import { eq, inArray } from 'drizzle-orm'
+import { eq, inArray, isNull } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
@@ -453,6 +453,80 @@ describe('Job sourcing — real DB integration', () => {
     }
   })
 
+  /**
+   * Code + security review round 4 — the CREATE path had zero tests while the
+   * delete path had four, and the line that decides ownership
+   * (`assertCanAccessSenior(user, dto.seniorId ?? undefined)`) became
+   * load-bearing exactly when the client stopped sending an id. A mutation to
+   * "trust the client" (`seniorId = dto.seniorId ?? user.id`) left 37/37 green.
+   *
+   * Both tests below fail on that mutation: the first because the row would be
+   * created against the id the client asked for, the second because an
+   * ADMIN/HR with no id would silently get a row of their own instead of a
+   * refusal.
+   */
+  it('a SENIOR who passes ANOTHER senior’s id still gets the row on themselves', async () => {
+    if (!dbAvailable) return
+    const created = await service.createExclusion(
+      // SENIOR_B asking for SENIOR_A's list — the shape an IDOR attempt takes.
+      { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Wetelo' },
+      SENIOR_B,
+    )
+
+    expect(created.seniorId).toBe(SENIOR_B.id)
+    const [row] = await dbSvc.db
+      .select()
+      .from(jobExclusionFilters)
+      .where(eq(jobExclusionFilters.id, created.id!))
+    expect(row!.seniorId).toBe(SENIOR_B.id)
+
+    // …and SENIOR_A's own list is untouched.
+    const victim = await service.listExclusions(SENIOR_A.id, ADMIN)
+    expect(victim.items.filter((i) => i.origin === 'MANUAL').map((i) => i.value)).not.toContain(
+      'Wetelo',
+    )
+  })
+
+  it('an ADMIN/HR without a senior gets a refusal, not a studio-wide row', async () => {
+    if (!dbAvailable) return
+    const globalsBefore = await dbSvc.db
+      .select()
+      .from(jobExclusionFilters)
+      .where(isNull(jobExclusionFilters.seniorId))
+
+    for (const actor of [ADMIN, HR_A]) {
+      await expect(
+        service.createExclusion({ scope: 'SENIOR', kind: 'COMPANY', value: 'Mobilunity' }, actor),
+      ).rejects.toThrow(/Выберите синьора/)
+    }
+
+    // Nothing leaked into the GLOBAL list (senior_id IS NULL) as a side effect.
+    const globalsAfter = await dbSvc.db
+      .select()
+      .from(jobExclusionFilters)
+      .where(isNull(jobExclusionFilters.seniorId))
+    expect(globalsAfter).toHaveLength(globalsBefore.length)
+  })
+
+  it('HR cannot create an exclusion for a senior outside their teams', async () => {
+    if (!dbAvailable) return
+    await expect(
+      service.createExclusion(
+        { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Ciklum' },
+        HR_A,
+      ),
+    ).rejects.toThrow(/не в ваших командах/)
+  })
+
+  it('HR CAN create an exclusion for a senior in their own team', async () => {
+    if (!dbAvailable) return
+    const created = await service.createExclusion(
+      { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Ciklum' },
+      HR_A,
+    )
+    expect(created.seniorId).toBe(SENIOR_A.id)
+  })
+
   it('a SENIOR cannot create a studio-wide exclusion', async () => {
     if (!dbAvailable) return
     await expect(
@@ -686,8 +760,13 @@ describe('Job sourcing — real DB integration', () => {
     // collectAll swallows per-source failures by design (a third-party outage
     // must not kill the cron) — the failure surfaces as a missing result plus
     // an error log, not as a thrown exception.
-    const results = await service.collectAll()
+    const { results, failures } = await service.collectAll()
     expect(results.find((r) => r.sourceType === 'DOU_RSS')).toBeUndefined()
+    // The failure is RETURNED, not merely logged — this is what lets the
+    // ADMIN-triggered endpoint answer 503 instead of an innocuous `200 []`.
+    expect(failures).toHaveLength(1)
+    expect(failures[0]?.sourceType).toBe('DOU_RSS')
+    expect(failures[0]?.message).toMatch(/0 usable postings/)
   })
 
   it('tells an ADMIN/HR to pick a senior instead of complaining about a parameter', async () => {

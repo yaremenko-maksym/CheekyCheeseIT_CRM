@@ -10,11 +10,12 @@ import {
   Patch,
   Post,
   Query,
+  ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common'
 import {
   createJobExclusionSchema,
-  jobCollectionResultSchema,
+  jobCollectionRunSchema,
   jobExclusionListSchema,
   jobExclusionSchema,
   jobSuggestionListSchema,
@@ -113,7 +114,19 @@ export class JobSourcingController {
   @Post('collect')
   @Roles('ADMIN')
   async collect() {
-    const results = await this.service.collectAll()
-    return results.map((result) => jobCollectionResultSchema.parse(result))
+    const run = await this.service.collectAll()
+
+    // Code review round 4: this used to answer `200 []` when the only source
+    // was broken — indistinguishable from "no new vacancies today" for the
+    // admin who pressed the button. A run in which NOTHING succeeded is a
+    // failure and says so with a 503; a partial run returns 200 but carries the
+    // `failures` array, so a broken source is never invisible either way.
+    if (run.results.length === 0 && run.failures.length > 0) {
+      throw new ServiceUnavailableException(
+        `Сбор не удался: ${run.failures.map((f) => `${f.sourceType} — ${f.message}`).join('; ')}`,
+      )
+    }
+
+    return jobCollectionRunSchema.parse(run)
   }
 }

@@ -230,6 +230,18 @@ async function expectDialogFitsViewport(page: Page) {
           `${child.tagName}.${String(child.className).slice(0, 40)}=${Math.round(box.width)}`,
         )
       }
+      // Content overflow INSIDE the dialog. Needed because the width check
+      // above only fires when a child is wider than the VIEWPORT: a 900px child
+      // inside a 672px dialog is invisible to it at 1024/1440 (measured — the
+      // same mutation that reddens 320 and 768 passed both desktop widths
+      // without this branch). `clientWidth > 1` skips `sr-only` nodes, which
+      // are clipped to exactly 1px by design and would otherwise always report
+      // their text as overflowing (the dialog's own sr-only description did).
+      if (child.clientWidth > 1 && child.scrollWidth > child.clientWidth + 1) {
+        tooWide.push(
+          `${child.tagName}.${String(child.className).slice(0, 40)} content=${child.scrollWidth}>${child.clientWidth}`,
+        )
+      }
     }
     return {
       innerWidth: window.innerWidth,

@@ -27,14 +27,17 @@ export class JobSourcingCronService {
   @Cron('0 5 * * *')
   async handleDailyCollection(): Promise<void> {
     try {
-      const results = await this.service.collectAll()
+      const { results, failures } = await this.service.collectAll()
       for (const result of results) {
         this.logger.log(
           `Job sourcing [${result.sourceType}]: fetched=${result.fetched}, new=${result.created}, ` +
             `duplicates=${result.duplicates}, suggestions=${result.suggestionsCreated}`,
         )
       }
-      if (results.length === 0) {
+      for (const failure of failures) {
+        this.logger.error(`Job sourcing [${failure.sourceType}] FAILED: ${failure.message}`)
+      }
+      if (results.length === 0 && failures.length === 0) {
         this.logger.warn('Job sourcing: no enabled sources configured — nothing collected')
       }
 

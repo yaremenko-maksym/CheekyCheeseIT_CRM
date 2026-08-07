@@ -179,6 +179,23 @@ export const jobCollectionResultSchema = z.object({
   suggestionsCreated: z.number().int().nonnegative(),
 })
 
+/**
+ * One source that could not be collected. Reported ALONGSIDE the successful
+ * results rather than only logged: `POST /job-sourcing/collect` used to answer
+ * `200 []` when a source was broken, which is byte-for-byte what a quiet day
+ * looks like — the admin who pressed the button had no way to tell "nothing new
+ * today" from "the feed changed shape and we have been blind for a week".
+ */
+export const jobCollectionFailureSchema = z.object({
+  sourceType: jobSourceTypeSchema,
+  message: z.string().max(1000),
+})
+
+export const jobCollectionRunSchema = z.object({
+  results: z.array(jobCollectionResultSchema),
+  failures: z.array(jobCollectionFailureSchema),
+})
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -196,3 +213,5 @@ export type JobExclusionDto = z.infer<typeof jobExclusionSchema>
 export type JobExclusionListDto = z.infer<typeof jobExclusionListSchema>
 export type CreateJobExclusionDto = z.infer<typeof createJobExclusionSchema>
 export type JobCollectionResultDto = z.infer<typeof jobCollectionResultSchema>
+export type JobCollectionFailureDto = z.infer<typeof jobCollectionFailureSchema>
+export type JobCollectionRunDto = z.infer<typeof jobCollectionRunSchema>

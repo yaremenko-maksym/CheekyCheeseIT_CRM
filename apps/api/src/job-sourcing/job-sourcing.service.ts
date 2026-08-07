@@ -8,7 +8,9 @@ import {
 import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm'
 import type {
   CreateJobExclusionDto,
+  JobCollectionFailureDto,
   JobCollectionResultDto,
+  JobCollectionRunDto,
   JobExclusionDto,
   JobSourceType,
   JobSuggestionDto,
@@ -524,28 +526,42 @@ export class JobSourcingService {
    * third-party outage must not stop the others (or, when called from the cron,
    * kill the scheduler).
    */
-  async collectAll(): Promise<JobCollectionResultDto[]> {
+  async collectAll(): Promise<JobCollectionRunDto> {
     const sources = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
 
     const results: JobCollectionResultDto[] = []
+    const failures: JobCollectionFailureDto[] = []
+
     for (const source of sources) {
       try {
         results.push(await this.collectSource(source))
       } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err)
+        // RETURNED, not just logged (code review round 4). Swallowing the error
+        // here is right for the cron — one dead third party must not stop the
+        // others — but the caller still has to be able to SEE it. The manual
+        // ADMIN trigger answered `200 []` for a broken source, i.e. exactly what
+        // a quiet day looks like: the same "breakage disguised as silence"
+        // defect that was fixed inside collectSource, surfacing one level up.
+        failures.push({ sourceType: source.type, message })
         this.logger.error(
           `Job collection failed for source ${source.type} (${source.id})`,
           err instanceof Error ? err.stack : String(err),
         )
       }
     }
-    return results
+    return { results, failures }
   }
 
   /**
-   * Drop postings older than `POSTING_RETENTION_DAYS` that nobody APPLIED to.
-   * Without this the table only ever grows: the feed adds ~25 rows a day
-   * forever, and a stale ad is worse than no ad. Postings behind an APPLIED
-   * suggestion are kept — that is the senior's own application history.
+   * Drop postings older than `POSTING_RETENTION_DAYS` that no senior has
+   * ANSWERED. Without this the table only ever grows: the feed adds ~25 rows a
+   * day forever, and a stale ad is worse than no ad.
+   *
+   * A posting is kept when any senior applied to it (their application history)
+   * OR rejected it (deleting that row would let the vacancy be re-collected and
+   * re-offered — see the AC4 note on the query below). Only postings nobody
+   * ever decided on are dropped.
    */
   async purgeStalePostings(now: Date = new Date()): Promise<number> {
     const cutoff = new Date(now.getTime() - POSTING_RETENTION_DAYS * 24 * 60 * 60 * 1000)
