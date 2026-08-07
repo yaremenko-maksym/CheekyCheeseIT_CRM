@@ -197,12 +197,14 @@ async function mockJobSourcing(page: Page, items: unknown[] = [SUGGESTION]) {
  *   - it has no horizontal content overflow of its own
  *     (`scrollWidth <= clientWidth`).
  *
- * NOTE on the review's "858px in a 393px viewport": re-measured directly and it
- * does not reproduce — at 320/375/393 the dialog is exactly viewport-wide
- * (left 0, right = innerWidth) with zero overflowing descendants; at 768 it is
- * 672 (`sm:max-w-2xl`) and centred. 858 is an instrumentation artifact — the
- * kanban scroller behind the dialog is the element that really is wider than
- * the viewport. Numbers are in the PR comment.
+ * NOTE on the review's "858px in a 393px viewport": that figure came from the
+ * reviewer's OWN mutation (`min-w-[900px]` injected to prove this assertion was
+ * dead) — not from a live defect. Confirmed independently twice: measured here
+ * at 320/375/393 (dialog exactly viewport-wide, left 0, right = innerWidth,
+ * zero overflowing descendants; 672 and centred at 768), and by the design
+ * fidelity audit at 320/375/393/768/1024/1280/1440/1920 with deliberately
+ * hostile content. There is no layout bug to fix — only this assertion, which
+ * genuinely was dead.
  */
 async function expectDialogFitsViewport(page: Page) {
   const dialog = page.getByTestId('job-suggestion-dialog')

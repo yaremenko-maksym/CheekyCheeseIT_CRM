@@ -127,9 +127,25 @@ function ExclusionsPanel({
 
   const submit = () => {
     const trimmed = value.trim()
-    if (trimmed.length < 2 || !seniorId) return
+    if (trimmed.length < 2) return
+    // Design review round 3: this used to bail out when `seniorId` was
+    // undefined — which is EXACTLY the case on a senior's own screen, where the
+    // dialog deliberately passes no id so the API resolves the queue to the
+    // caller. The result was a button that silently did nothing for the role
+    // that needs it most, with no request in the server log to explain it.
+    //
+    // `seniorId` is now simply forwarded (omitted when unknown) and the server
+    // decides: for a SENIOR it resolves to themselves; for an ADMIN/HR with no
+    // senior picked it answers with "Выберите синьора…", which the mutation's
+    // onError surfaces verbatim. Either a working path or a stated refusal —
+    // never silence.
     createExclusion.mutate(
-      { scope: 'SENIOR', seniorId, kind: 'COMPANY', value: trimmed },
+      {
+        scope: 'SENIOR',
+        ...(seniorId ? { seniorId } : {}),
+        kind: 'COMPANY',
+        value: trimmed,
+      },
       { onSuccess: () => setValue('') },
     )
   }

@@ -21,12 +21,13 @@ import { isSafeExternalUrl } from '../open-original'
  */
 
 const mutate = vi.fn()
+const createExclusion = vi.fn()
 
 vi.mock('@/hooks/use-job-sourcing', () => ({
   useJobSuggestions: () => ({ data: mockQueue, isLoading: false, isError: false }),
   useJobExclusions: () => ({ data: { items: [] }, isLoading: false }),
   useUpdateJobSuggestionStatus: () => ({ mutate, isPending: false }),
-  useCreateJobExclusion: () => ({ mutate: vi.fn(), isPending: false }),
+  useCreateJobExclusion: () => ({ mutate: createExclusion, isPending: false }),
   useDeleteJobExclusion: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
@@ -69,6 +70,7 @@ describe('JobSuggestionDialog', () => {
   beforeEach(() => {
     mockQueue = { items: [suggestion()], total: 3 }
     mutate.mockClear()
+    createExclusion.mockClear()
   })
 
   afterEach(() => {
@@ -323,6 +325,40 @@ describe('JobSuggestionDialog', () => {
         status: 'REJECTED',
       }),
     )
+  })
+
+  /**
+   * Design review round 3: on a SENIOR's own screen the dialog passes
+   * `seniorId={undefined}` (the API resolves the queue to the caller), and the
+   * submit handler bailed out on exactly that — «Добавить» did nothing at all,
+   * with no request reaching the server. The role that most needs a personal
+   * exclusion was the one role that could not create one.
+   */
+  it('a SENIOR can add their own exclusion even though seniorId is undefined', async () => {
+    renderDialog()
+
+    const input = await screen.findByTestId('job-exclusion-input')
+    fireEvent.change(input, { target: { value: 'Ciklum' } })
+
+    const addButton = screen.getByTestId('job-exclusion-add')
+    expect(addButton).not.toBeDisabled()
+    fireEvent.click(addButton)
+
+    await waitFor(() => expect(createExclusion).toHaveBeenCalledTimes(1))
+    expect(createExclusion.mock.calls[0]?.[0]).toEqual({
+      scope: 'SENIOR',
+      kind: 'COMPANY',
+      value: 'Ciklum',
+    })
+  })
+
+  it('does not submit a value too short to be a company (visible refusal, not silence)', async () => {
+    renderDialog()
+
+    fireEvent.change(await screen.findByTestId('job-exclusion-input'), { target: { value: 'a' } })
+    // The refusal is VISIBLE — the control is disabled, not silently inert.
+    expect(screen.getByTestId('job-exclusion-add')).toBeDisabled()
+    expect(createExclusion).not.toHaveBeenCalled()
   })
 
   it('shows an empty state when nothing passes the filters', async () => {

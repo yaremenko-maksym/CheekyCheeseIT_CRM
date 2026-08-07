@@ -13,6 +13,7 @@ import {
   type JobSuggestionStatus,
 } from '@crm/shared'
 import { api } from '@/lib/axios'
+import { getApiErrorMessage } from '@/lib/axios-utils'
 
 /**
  * Job sourcing queries — task-job-sourcing-slice1.
@@ -101,8 +102,11 @@ export function useCreateJobExclusion(seniorId: string | undefined) {
       void queryClient.invalidateQueries({ queryKey: jobSuggestionsQueryKey(seniorId) })
       toast.success('Исключение добавлено')
     },
-    onError: () => {
-      toast.error('Не удалось добавить исключение')
+    onError: (error) => {
+      // Surface the server's own words (e.g. "Выберите синьора…") instead of a
+      // generic failure — design review round 3: a refusal the user cannot act
+      // on is barely better than the silent no-op it replaced.
+      toast.error(getApiErrorMessage(error, 'Не удалось добавить исключение'))
     },
   })
 }
