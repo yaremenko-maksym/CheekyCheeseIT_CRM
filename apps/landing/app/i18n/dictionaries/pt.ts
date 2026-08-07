@@ -190,7 +190,7 @@ export const pt: Dictionary = {
       // Inventar um quarto case tornaria mentira a promessa da seção
       // «Trabalhos»: ali os números são exatamente os que foram.
       {
-        domain: 'neutral',
+        domain: 'open',
         domainLabel: 'Qualquer domínio',
         // Rodada 2 (LOW): «O domínio em que você está» jogava «está» para uma
         // segunda linha a 320 px. «Seu domínio» cabe em uma, e alinha com

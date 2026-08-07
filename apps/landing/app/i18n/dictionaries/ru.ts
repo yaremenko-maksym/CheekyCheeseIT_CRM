@@ -194,7 +194,7 @@ export const ru: Dictionary = {
       // прямо. Придуманный четвёртый кейс сделал бы ложью обещание из
       // раздела «Работы»: цифры там ровно те, что были.
       {
-        domain: 'neutral',
+        domain: 'open',
         domainLabel: 'Любой домен',
         title: 'Ваш домен',
         description:

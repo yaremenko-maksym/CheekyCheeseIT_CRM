@@ -204,7 +204,7 @@ export const es: Dictionary = {
       // Inventar un cuarto caso convertiría en mentira la promesa de la
       // sección «Trabajos»: ahí las cifras son exactamente las que fueron.
       {
-        domain: 'neutral',
+        domain: 'open',
         domainLabel: 'Cualquier dominio',
         // Ronda 2 (LOW): «El dominio en el que estás» partía «estás» a una
         // segunda línea a 320 px. «Tu dominio» entra en una, y coincide con
