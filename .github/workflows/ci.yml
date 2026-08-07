@@ -448,7 +448,14 @@ jobs:
             # unlikely to make it the new critical-path leg.
             files: tests/finance.spec.ts tests/finance-senior-flow.spec.ts tests/company-share-cta.spec.ts
           - name: misc
-            files: tests/interviews.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm
+            # tests/job-sourcing-mobile.spec.ts (task-job-sourcing-slice1, PR #493): the "Подбор
+            # вакансий" modal on the kanban — same screen/mock-stack shape as
+            # tests/interviews.spec.ts right next to it (page.route mocks only, no live
+            # backend), 11 tests, ~5s. Placed here rather than a new shard: misc is already the
+            # heaviest shard by both file count (16 specs) and wall time (~4:53 of a 15-minute
+            # job timeout on a recent main run, gh run 31194170529) but has ample headroom —
+            # 11 fast mocked tests do not meaningfully move that number.
+            files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm
           - name: drop-finance
             files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts
           # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
