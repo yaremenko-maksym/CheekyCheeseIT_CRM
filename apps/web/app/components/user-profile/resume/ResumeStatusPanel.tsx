@@ -47,7 +47,9 @@ function failureHint(code: ResumeFailureCode | null, quotaResetsAt: string | nul
         ? `Суточный лимит бесплатных запросов исчерпан. Лимит обнулится ${formatResetTime(quotaResetsAt)} — до этого заполните резюме вручную, форма ниже работает.`
         : 'Суточный лимит бесплатных запросов исчерпан. Заполните резюме вручную — форма ниже работает.'
     case 'AI_NOT_CONFIGURED':
-      return 'Автоматическое распознавание пока не подключено. Заполните разделы вручную.'
+      // The server message already says "не настроен" — this line must ADD
+      // something, not restate it: what the user gets if they type it in.
+      return 'Заполненное вручную резюме ничем не отличается: те же разделы, тот же экспорт в PDF.'
     case 'STALLED':
       return 'Распознавание прервалось на стороне сервера. Загрузите файл ещё раз или заполните резюме вручную.'
     default:

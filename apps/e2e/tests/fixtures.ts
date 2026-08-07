@@ -439,13 +439,26 @@ export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof US
   // ADMIN viewing non-ADMIN: includes 'contract' tab (A3-2).
   // ADMIN viewing another ADMIN (self or peer): no 'contract' tab (ADMINs have no contracts).
   const contractTab = targetUser.role !== 'ADMIN' ? ['contract'] : []
+  // task-resume-base §4: the resume tab exists ONLY on a SENIOR card. Mirrors
+  // users-access.service.ts (`targetIsSenior && canSeeResumeTab(...)`), appended
+  // last so no existing tab shifts position.
+  const resumeTab = targetUser.role === 'SENIOR' ? ['resume'] : []
   // RBAC 2026-06-09: ADMIN can view+edit legend of SENIOR/DROP targets (subject excluded)
   const legendField =
     targetUser.role === 'SENIOR' || targetUser.role === 'DROP' ? { legend: true as const } : {}
   return {
     user: { ...targetUser, ...profileExtras(targetUser) },
     permissions: {
-      tabs: ['overview', 'finance', 'projects', 'team', 'requisites', 'documents', ...contractTab],
+      tabs: [
+        'overview',
+        'finance',
+        'projects',
+        'team',
+        'requisites',
+        'documents',
+        ...contractTab,
+        ...resumeTab,
+      ],
       actions: [
         'edit-profile',
         'change-role',
@@ -471,10 +484,13 @@ export function buildAdminViewingUser(targetUser: (typeof USERS)[keyof typeof US
  *  RBAC 2026-06-09: HR can view+edit legend of SENIOR/DROP in their team. */
 export function buildHrViewingSenior(senior: (typeof USERS)[keyof typeof USERS]): object {
   const isLegendTarget = senior.role === 'SENIOR' || senior.role === 'DROP'
+  // task-resume-base §4: HR maintains a senior's resume, so the tab is present
+  // for a SENIOR target (mirrors users-access.service.ts).
+  const resumeTab = senior.role === 'SENIOR' ? ['resume'] : []
   return {
     user: { ...senior, ...profileExtras(senior) },
     permissions: {
-      tabs: ['overview', 'projects', 'team'],
+      tabs: ['overview', 'projects', 'team', ...resumeTab],
       actions: [],
       fields: {
         techStack: true,
@@ -552,6 +568,9 @@ export function buildSelfView(user: (typeof USERS)[keyof typeof USERS]): object 
     if (user.role === 'SENIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT') {
       tabs.push('finance')
     }
+    // task-resume-base §4: a SENIOR maintains their OWN resume, so their
+    // self-view carries the tab. Appended last, mirroring users-access.service.
+    if (user.role === 'SENIOR') tabs.push('resume')
   }
 
   const isSalaryRole = user.role === 'JUNIOR' || user.role === 'HR' || user.role === 'ACCOUNTANT'
