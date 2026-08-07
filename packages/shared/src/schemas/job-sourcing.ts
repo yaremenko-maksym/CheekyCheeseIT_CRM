@@ -16,8 +16,11 @@ import { z } from 'zod'
  *     `javascript:`/`data:` URL from the feed can never reach `window.open`;
  *   - `descriptionMd` is markdown-with-no-raw-HTML by construction — the API
  *     converts the feed's HTML into markdown and drops every tag it does not
- *     understand (apps/api/src/job-sourcing/html-to-markdown.ts), and the web
- *     renders it with react-markdown WITHOUT rehype-raw;
+ *     understand (apps/api/src/job-sourcing/html-to-markdown.ts). Note that
+ *     "no raw HTML" is only half the story: a MARKDOWN-level payload (an image
+ *     beacon, a phishing link) needs its own defence, which lives in the web
+ *     renderer's explicit `urlTransform` / `img` / `a` props — see
+ *     apps/web/app/components/job-sourcing/JobSuggestionDialog.tsx;
  *   - lengths are capped so a hostile feed cannot blow up a payload.
  *
  * NOT exported from `packages/shared/src/public.ts` — this is CRM-internal and

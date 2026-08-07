@@ -142,10 +142,10 @@ describe('JobSuggestionDialog', () => {
       ],
       total: 1,
     }
-    const { container } = renderDialog()
+    renderDialog()
 
     const description = await screen.findByTestId('job-suggestion-description')
-    expect(container.querySelector('script')).toBeNull()
+    expect(document.body.querySelector('script')).toBeNull()
     expect(description.innerHTML).not.toContain('<script')
     expect(description.textContent).toContain('Real description text')
   })
@@ -155,11 +155,97 @@ describe('JobSuggestionDialog', () => {
       items: [suggestion({ descriptionMd: '<img src=x onerror="alert(1)"> Job text' })],
       total: 1,
     }
-    const { container } = renderDialog()
+    renderDialog()
+
+    const description = await screen.findByTestId('job-suggestion-description')
+    // No element, and no element carrying the handler as a real ATTRIBUTE…
+    expect(document.body.querySelector('img')).toBeNull()
+    expect(document.body.querySelector('[onerror]')).toBeNull()
+    // …the payload is inert TEXT. (Asserting `innerHTML` has no `onerror`
+    // SUBSTRING would be wrong: escaped text legitimately contains the word,
+    // and that is exactly the safe outcome.)
+    expect(description.textContent).toContain('<img src=x onerror="alert(1)">')
+  })
+
+  /**
+   * Security-review round 2, HIGH-1 — LAYER INDEPENDENCE.
+   *
+   * Each test below feeds the description the API would produce IF the ingest
+   * layer had failed completely, i.e. the raw attacker-authored markdown. They
+   * pass only because of props this component sets itself (`urlTransform`,
+   * `img`, `a`) — not because of anything the API did, and not because of
+   * react-markdown's default behaviour, which the previous round leaned on
+   * without knowing it.
+   */
+  it('HIGH-1: a markdown image beacon is not rendered even if it reaches the client', async () => {
+    mockQueue = {
+      items: [
+        suggestion({
+          descriptionMd:
+            '[t](https://ok.example/x)![](https://evil.example/px.png?leak=1) Job text',
+        }),
+      ],
+      total: 1,
+    }
+    renderDialog()
 
     await screen.findByTestId('job-suggestion-description')
-    expect(container.querySelector('img')).toBeNull()
-    expect(container.innerHTML).not.toContain('onerror')
+    // No request to a foreign host is possible: no <img> is rendered at all.
+    expect(document.body.querySelector('img')).toBeNull()
+    expect(document.body.innerHTML).not.toContain('evil.example')
+    expect(screen.getByTestId('job-suggestion-description').textContent).toContain('Job text')
+  })
+
+  it('HIGH-1: no <img> is rendered for ANY markdown image syntax', async () => {
+    mockQueue = {
+      items: [
+        suggestion({ descriptionMd: '![alt](https://evil.example/a.png) and ![](/local.png)' }),
+      ],
+      total: 1,
+    }
+    renderDialog()
+
+    await screen.findByTestId('job-suggestion-description')
+    expect(document.body.querySelectorAll('img')).toHaveLength(0)
+    expect(document.body.innerHTML).not.toContain('evil.example')
+  })
+
+  it('HIGH-1: a phishing link injected as markdown still gets rel/noopener and https-only', async () => {
+    mockQueue = {
+      items: [suggestion({ descriptionMd: '[Apply here](https://evil.example/phish)' })],
+      total: 1,
+    }
+    renderDialog()
+
+    const link = (await screen.findByTestId('job-suggestion-description')).querySelector('a')
+    // It is still a link (we cannot tell a phishing host from a real one), but
+    // it can never reach back into our window and never leaks our URL.
+    expect(link?.getAttribute('rel')).toContain('noopener')
+    expect(link?.getAttribute('rel')).toContain('noreferrer')
+    expect(link?.getAttribute('target')).toBe('_blank')
+  })
+
+  it('HIGH-1: a non-https markdown link is rendered as text, by OUR urlTransform', async () => {
+    mockQueue = {
+      items: [suggestion({ descriptionMd: '[click](http://insecure.example/x)' })],
+      total: 1,
+    }
+    renderDialog()
+
+    const description = await screen.findByTestId('job-suggestion-description')
+    expect(description.querySelector('a')).toBeNull()
+    expect(description.textContent).toContain('click')
+  })
+
+  it('renders the angle-bracket destination form the API now emits', async () => {
+    mockQueue = {
+      items: [suggestion({ descriptionMd: '[Apply](<https://jobs.dou.ua/x/1>)' })],
+      total: 1,
+    }
+    renderDialog()
+
+    const link = (await screen.findByTestId('job-suggestion-description')).querySelector('a')
+    expect(link?.getAttribute('href')).toBe('https://jobs.dou.ua/x/1')
   })
 
   it('AC6: a markdown link to javascript: is not rendered as a live href', async () => {

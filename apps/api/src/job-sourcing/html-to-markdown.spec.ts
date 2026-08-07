@@ -49,8 +49,9 @@ describe('htmlToMarkdown — script injection (AC6)', () => {
   })
 
   it('keeps a normal https link', () => {
+    // Angle-bracket destination form since HIGH-1 — see the breakout suite below.
     expect(htmlToMarkdown('<a href="https://example.com/job">Apply</a>')).toBe(
-      '[Apply](https://example.com/job)',
+      '[Apply](<https://example.com/job>)',
     )
   })
 
@@ -81,6 +82,86 @@ describe('htmlToMarkdown — script injection (AC6)', () => {
       // tag; `\<x` is literal text and is the correct, safe output.
       expect(md, `input: ${input}`).not.toMatch(/(?<!\\)<[a-z!/]/i)
       expect(md, `input: ${input}`).not.toContain('javascript:')
+    }
+  })
+})
+
+/**
+ * Security-review round 2, HIGH-1 — the EXACT payload, not the class.
+ *
+ * The old suite asserted "no raw tag" and "no `javascript:` substring". This
+ * payload contains neither: it breaks out of the link DESTINATION with a `)`
+ * (which `\S+` accepted) and the remainder becomes attacker-authored MARKDOWN.
+ * Every case below is a concrete string, so a regression cannot hide behind a
+ * generic "injection" assertion again.
+ */
+describe('htmlToMarkdown — link-destination breakout (HIGH-1)', () => {
+  it('does not let a `)` in href close the link and start a markdown image', () => {
+    const md = htmlToMarkdown(
+      '<a href="https://ok.example/x)![](https://evil.example/px.png?leak=1">t</a>',
+    )
+    // The beacon must not exist in ANY form — neither as markdown image syntax
+    // nor as a bare mention of the attacker host.
+    expect(md).not.toContain('![](')
+    expect(md).not.toContain('evil.example')
+    expect(md).toBe('t')
+  })
+
+  it('does not let a `)` in href inject a second, phishing link', () => {
+    const md = htmlToMarkdown(
+      '<a href="https://ok.example/x)[Apply here](https://evil.example/phish">t</a>',
+    )
+    expect(md).not.toContain('evil.example')
+    expect(md).toBe('t')
+  })
+
+  it('rejects every character that could break out of a quoted attribute', () => {
+    // These all survive HTML attribute tokenization intact, so the destination
+    // check is the ONLY thing standing between them and the output.
+    for (const href of [
+      'https://ok.example/a b',
+      'https://ok.example/a(b',
+      'https://ok.example/a)b',
+      'https://ok.example/a[b',
+      'https://ok.example/a]b',
+      'https://ok.example/a<b',
+      "https://ok.example/a'b",
+      'https://ok.example/a\\b',
+    ]) {
+      const md = htmlToMarkdown(`<a href="${href}">t</a>`)
+      expect(md, `href: ${href}`).not.toContain('](')
+      expect(md, `href: ${href}`).toContain('t')
+    }
+  })
+
+  it('truncates at the attribute/tag terminator rather than emitting the remainder', () => {
+    // `"` closes the attribute and `>` closes the tag, so the href IS the safe
+    // prefix — the leftover is stray text, never part of the destination. This
+    // is asserted rather than left implicit because "it got truncated" and "it
+    // got rejected" look identical from the outside and only one is safe.
+    expect(htmlToMarkdown('<a href="https://ok.example/a"b">t</a>')).toBe(
+      '[t](<https://ok.example/a>)',
+    )
+    expect(htmlToMarkdown('<a href="https://ok.example/a>b">t</a>')).not.toContain('](')
+  })
+
+  it('emits a legitimate destination in angle-bracket form (cannot be closed by `)`)', () => {
+    expect(htmlToMarkdown('<a href="https://jobs.dou.ua/x/1">Apply</a>')).toBe(
+      '[Apply](<https://jobs.dou.ua/x/1>)',
+    )
+    // A real DOU URL with hyphens and a query string still passes.
+    expect(htmlToMarkdown('<a href="https://jobs.dou.ua/companies/epam-systems/?a=1">x</a>')).toBe(
+      '[x](<https://jobs.dou.ua/companies/epam-systems/?a=1>)',
+    )
+  })
+
+  it('never emits an image, whatever the feed does', () => {
+    for (const input of [
+      '<img src="https://evil.example/px.png">',
+      '<a href="https://ok.example/x)![](https://evil.example/px.png">t</a>',
+      '<p>text</p><img src=x onerror=alert(1)>',
+    ]) {
+      expect(htmlToMarkdown(input), `input: ${input}`).not.toContain('![')
     }
   })
 })

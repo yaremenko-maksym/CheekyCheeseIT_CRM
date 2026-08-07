@@ -19,6 +19,35 @@ import { companyNamesMatch, normalizeCompanyName, textMatchesKeyword } from '@cr
 export interface FilterablePosting {
   companyName: string
   title: string
+  /**
+   * Where the posting came from. Used to derive extra company spellings from
+   * the URL — see `companyAliases` (security-review round 2, MED-3).
+   */
+  sourceType?: string
+  url?: string
+}
+
+/**
+ * Extra spellings of the posting's company, derived from its URL.
+ *
+ * Security-review round 2, MED-3: `companyFromDouUrl` existed and was used as a
+ * fallback when the title had no company, but it never took part in MATCHING —
+ * so a posting whose title said `Ромашка Digital` while its URL said
+ * `/companies/epam-systems/` was judged only on the title. The URL slug is
+ * assigned by the board, not typed by the advertiser, which makes it the harder
+ * of the two to spoof; consulting BOTH strictly widens what the exclusion
+ * catches and can never narrow it (an alias only adds match opportunities).
+ */
+export function companyAliases(posting: FilterablePosting): string[] {
+  if (!posting.url) return []
+  // DOU is the only source in slice 1; a second source adds its own branch here
+  // (kept in the policy layer so provider code stays about fetching/parsing).
+  if (posting.sourceType !== undefined && posting.sourceType !== 'DOU_RSS') return []
+
+  const match = /\/companies\/([^/]+)\//.exec(`${posting.url}/`)
+  const slug = match?.[1]?.replace(/[-_]+/g, ' ').trim()
+  if (!slug || slug.length === 0) return []
+  return companyNamesMatch(slug, posting.companyName) ? [] : [slug]
 }
 
 /**
@@ -94,14 +123,17 @@ export function findMatchingExclusion(
   posting: FilterablePosting,
   exclusions: JobExclusionDto[],
 ): JobExclusionDto | null {
+  // MED-3: the advertiser-typed company AND the board-assigned URL slug.
+  const names = [posting.companyName, ...companyAliases(posting)]
+
   for (const exclusion of exclusions) {
     if (exclusion.kind === 'COMPANY') {
-      if (companyNamesMatch(posting.companyName, exclusion.value)) return exclusion
+      if (names.some((name) => companyNamesMatch(name, exclusion.value))) return exclusion
       continue
     }
     if (
       textMatchesKeyword(posting.title, exclusion.value) ||
-      textMatchesKeyword(posting.companyName, exclusion.value)
+      names.some((name) => textMatchesKeyword(name, exclusion.value))
     ) {
       return exclusion
     }

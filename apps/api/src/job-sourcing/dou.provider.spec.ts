@@ -1,13 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   ALLOWED_CATEGORIES,
   DouRssProvider,
   buildDouFeedUrl,
   companyFromDouUrl,
   parseDouTitle,
+  stripUnstorableChars,
 } from './dou.provider'
 import { canonicalizePostingUrl, computePostingFingerprint } from './job-source.provider'
-import { parseRssItems } from './rss'
+import { MAX_FEED_BYTES, parseRssItems } from './rss'
 
 const provider = new DouRssProvider()
 
@@ -168,6 +169,90 @@ describe('computePostingFingerprint', () => {
     expect(computePostingFingerprint('DOU_RSS', 'https://jobs.dou.ua/x/1')).not.toBe(
       computePostingFingerprint('DOU_RSS', 'https://jobs.dou.ua/x/2'),
     )
+  })
+})
+
+describe('stripUnstorableChars (MED-2)', () => {
+  it('removes NUL bytes and leaves everything else alone', () => {
+    expect(stripUnstorableChars('a\u0000b')).toBe('ab')
+    expect(stripUnstorableChars('\u0000\u0000')).toBe('')
+    expect(stripUnstorableChars('Київ — EPAM, $1100–1300')).toBe('Київ — EPAM, $1100–1300')
+  })
+})
+
+describe('fetchFeed size cap (MED-1)', () => {
+  /** Streams `total` bytes in 64 KiB chunks, counting what was actually pulled. */
+  function streamingResponse(total: number, onPull: (sent: number) => void): Response {
+    let sent = 0
+    const stream = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent >= total) {
+          controller.close()
+          return
+        }
+        const size = Math.min(64 * 1024, total - sent)
+        sent += size
+        onPull(sent)
+        controller.enqueue(new Uint8Array(size))
+      },
+    })
+    return new Response(stream, { status: 200, headers: { 'content-type': 'application/rss+xml' } })
+  }
+
+  it('aborts mid-download instead of buffering a huge body first', async () => {
+    let pulled = 0
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(streamingResponse(MAX_FEED_BYTES * 8, (s) => (pulled = s)))
+
+    await expect(new DouRssProvider().collect({})).rejects.toThrow(/too large/)
+
+    // The point of the fix: we stopped early. A `response.text()` implementation
+    // would have pulled all 16 MiB before any check ran.
+    //
+    // Tolerance is TWO chunks, not one: a ReadableStream keeps one chunk queued
+    // ahead of the reader (measured — the overshoot is exactly 2 × 64 KiB), so
+    // demanding a tighter bound would be asserting against stream backpressure
+    // rather than against our own check.
+    expect(pulled).toBeLessThanOrEqual(MAX_FEED_BYTES + 2 * 64 * 1024)
+    // …and, the part that actually matters, nowhere near the full body.
+    expect(pulled).toBeLessThan(MAX_FEED_BYTES * 2)
+    fetchMock.mockRestore()
+  })
+
+  it('rejects up front when content-length already exceeds the cap', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('x', {
+        status: 200,
+        headers: { 'content-length': String(MAX_FEED_BYTES + 1) },
+      }),
+    )
+
+    await expect(new DouRssProvider().collect({})).rejects.toThrow(/content-length/)
+    fetchMock.mockRestore()
+  })
+
+  it('accepts a normal-sized feed', async () => {
+    const body = douFeed([
+      { title: 'Dev в EPAM, Київ', link: 'https://jobs.dou.ua/companies/epam/vacancies/1/' },
+    ])
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response(body, { status: 200 }))
+
+    const postings = await new DouRssProvider().collect({})
+    expect(postings).toHaveLength(1)
+    expect(postings[0]?.companyName).toBe('EPAM')
+    fetchMock.mockRestore()
+  })
+
+  it('throws on a non-200 response', async () => {
+    const fetchMock = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('nope', { status: 503, statusText: 'Service Unavailable' }))
+
+    await expect(new DouRssProvider().collect({})).rejects.toThrow(/503/)
+    fetchMock.mockRestore()
   })
 })
 

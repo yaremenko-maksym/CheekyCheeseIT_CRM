@@ -521,6 +521,75 @@ describe('Job sourcing — real DB integration', () => {
     expect(counts['APPLIED']).toBeUndefined()
   })
 
+  /**
+   * Security-review round 2, HIGH-2 — the paired tests that did not exist.
+   *
+   * `updateStatus` had an IDOR test; `deleteExclusion` had none, and its check
+   * was `await assertCanAccessSenior(user, row.seniorId)` with the RESULT
+   * THROWN AWAY. For a SENIOR that method returns `user.id` unconditionally
+   * without consulting the argument, so the call asserted nothing at all: any
+   * senior could delete any other senior's exclusion by id and silently
+   * re-expose the company their colleague had shut out.
+   */
+  it('RBAC: a SENIOR cannot delete ANOTHER senior’s exclusion (HIGH-2)', async () => {
+    if (!dbAvailable) return
+    const victim = await service.createExclusion(
+      { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Ciklum' },
+      ADMIN,
+    )
+
+    await expect(service.deleteExclusion(victim.id!, SENIOR_B)).rejects.toThrow(/Нет доступа/)
+
+    // Still there — the check must PREVENT the delete, not merely complain.
+    const stillThere = await dbSvc.db
+      .select()
+      .from(jobExclusionFilters)
+      .where(eq(jobExclusionFilters.id, victim.id!))
+    expect(stillThere).toHaveLength(1)
+  })
+
+  it('RBAC: HR cannot delete an exclusion of a senior outside their teams (HIGH-2)', async () => {
+    if (!dbAvailable) return
+    const victim = await service.createExclusion(
+      { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Devart' },
+      ADMIN,
+    )
+
+    await expect(service.deleteExclusion(victim.id!, HR_A)).rejects.toThrow(/не в ваших командах/)
+    expect(
+      await dbSvc.db
+        .select()
+        .from(jobExclusionFilters)
+        .where(eq(jobExclusionFilters.id, victim.id!)),
+    ).toHaveLength(1)
+  })
+
+  it('RBAC: a SENIOR can delete their OWN exclusion (the check does not over-block)', async () => {
+    if (!dbAvailable) return
+    const own = await service.createExclusion(
+      { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Devart' },
+      SENIOR_B,
+    )
+
+    await service.deleteExclusion(own.id!, SENIOR_B)
+    expect(
+      await dbSvc.db.select().from(jobExclusionFilters).where(eq(jobExclusionFilters.id, own.id!)),
+    ).toHaveLength(0)
+  })
+
+  it('RBAC: a SENIOR cannot delete a GLOBAL exclusion', async () => {
+    if (!dbAvailable) return
+    const global = await service.createExclusion(
+      { scope: 'GLOBAL', kind: 'COMPANY', value: 'GlobalOnly' },
+      ADMIN,
+    )
+    try {
+      await expect(service.deleteExclusion(global.id!, SENIOR_B)).rejects.toThrow(/ADMIN и HR/)
+    } finally {
+      await dbSvc.db.delete(jobExclusionFilters).where(eq(jobExclusionFilters.id, global.id!))
+    }
+  })
+
   it('RBAC: HR cannot act on a suggestion of a senior outside their teams', async () => {
     if (!dbAvailable) return
     await service.collectSource(source)
@@ -583,6 +652,54 @@ describe('Job sourcing — real DB integration', () => {
     expect(row!.descriptionMd).toContain('Real **text**')
     expect(row!.descriptionMd).not.toContain('alert')
     expect(row!.descriptionMd).not.toMatch(/(?<!\\)<[a-z!/]/i)
+  })
+
+  /** Security-review round 2, MED-2 — one hostile row must not sink the batch. */
+  it('MED-2: a NUL byte in the feed does not abort the whole collection run', async () => {
+    if (!dbAvailable) return
+    const nul = '\u0000'
+    provider.feedXml = douFeed([
+      {
+        title: `Dev${nul} в Ciklum, Київ`,
+        path: '/companies/ciklum/vacancies/501/',
+        description: `Before${nul}after`,
+      },
+      { title: 'Second в Devart, Київ', path: '/companies/devart/vacancies/502/' },
+    ])
+
+    const result = await service.collectSource(source)
+
+    // BOTH rows land: the NUL is stripped at normalize time rather than being
+    // handed to Postgres (which rejects a NUL byte in a text column, 22021).
+    expect(result.created).toBe(2)
+    const rows = await dbSvc.db
+      .select()
+      .from(jobPostings)
+      .where(eq(jobPostings.sourceId, SOURCE_ID))
+    expect(rows).toHaveLength(2)
+    expect(rows.every((r) => !r.title.includes(nul) && !r.descriptionMd.includes(nul))).toBe(true)
+  })
+
+  /** Security-review round 2, MED-3 — the URL slug takes part in matching. */
+  it('MED-3: an exclusion matches the company in the URL even when the title says otherwise', async () => {
+    if (!dbAvailable) return
+    // Title claims an innocuous company; the board-assigned URL slug says EPAM.
+    provider.feedXml = douFeed([
+      {
+        title: 'Senior Engineer в Ромашка Digital, Київ',
+        path: '/companies/epam-systems/vacancies/777/',
+      },
+    ])
+    await service.collectSource(source)
+
+    // SENIOR_A's project client is "EPAM Systems Inc." — the derived exclusion
+    // must catch this posting through the URL, not the (spoofed) title.
+    const queue = await service.listSuggestions(SENIOR_A.id, ADMIN)
+    expect(queue.items.map((i) => i.posting.companyName)).not.toContain('Ромашка Digital')
+
+    // …and a senior without that client still sees it.
+    const other = await service.listSuggestions(SENIOR_B.id, ADMIN)
+    expect(other.items.map((i) => i.posting.companyName)).toContain('Ромашка Digital')
   })
 
   it('drops a feed entry whose link is not https', async () => {

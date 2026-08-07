@@ -8,7 +8,7 @@ import {
   computePostingFingerprint,
   normalizedCompany,
 } from './job-source.provider'
-import { type RawRssItem, parseRssItems } from './rss'
+import { MAX_FEED_BYTES, type RawRssItem, parseRssItems } from './rss'
 
 /**
  * DOU.ua RSS provider — the ONE source of slice 1.
@@ -172,6 +172,31 @@ function parsePubDate(raw: string): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed
 }
 
+/** Join streamed chunks into one buffer (no intermediate copies per chunk). */
+function concatChunks(chunks: Uint8Array[], totalBytes: number): Uint8Array {
+  const out = new Uint8Array(totalBytes)
+  let offset = 0
+  for (const chunk of chunks) {
+    out.set(chunk, offset)
+    offset += chunk.byteLength
+  }
+  return out
+}
+
+/**
+ * Strip characters Postgres cannot store in a `text` column.
+ *
+ * Security-review round 2, MED-2: a NUL byte from the feed reached the INSERT
+ * and Postgres rejected the statement with `22021` — and because postings were
+ * inserted one by one in a bare loop, that single hostile row aborted the whole
+ * collection run (every later posting silently lost). Stripping at normalize
+ * time keeps the payload out; the per-row try/catch in the service keeps one
+ * bad row from taking the batch down even if something else throws.
+ */
+export function stripUnstorableChars(value: string): string {
+  return value.replace(/\u0000/g, '')
+}
+
 @Injectable()
 export class DouRssProvider implements JobSourceProvider {
   readonly type: JobSourceType = 'DOU_RSS'
@@ -183,7 +208,17 @@ export class DouRssProvider implements JobSourceProvider {
     return this.normalize(parseRssItems(xml))
   }
 
-  /** Isolated for tests (which stub it rather than hitting the network). */
+  /**
+   * Isolated for tests (which stub it rather than hitting the network).
+   *
+   * Security-review round 2, MED-1: the body is read as a STREAM and aborted
+   * the moment it exceeds `MAX_FEED_BYTES`. The previous version awaited
+   * `response.text()` — i.e. buffered the whole response into memory first —
+   * so the cap in `parseRssItems` only ever ran on something we had already
+   * paid for in full, leaving the 15 s timeout as the only real limit (at a
+   * modest rate that is still hundreds of MB). It also measured
+   * `String.length`, which counts UTF-16 units, not bytes.
+   */
   protected async fetchFeed(url: string): Promise<string> {
     const response = await fetch(url, {
       signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
@@ -196,7 +231,37 @@ export class DouRssProvider implements JobSourceProvider {
     if (!response.ok) {
       throw new Error(`DOU feed responded ${response.status} ${response.statusText}`)
     }
-    return await response.text()
+
+    // Cheap pre-check when the server is honest about the size; the streaming
+    // check below is what actually enforces it when it is not.
+    const declared = Number(response.headers.get('content-length') ?? '')
+    if (Number.isFinite(declared) && declared > MAX_FEED_BYTES) {
+      throw new Error(`DOU feed too large: content-length ${declared} > ${MAX_FEED_BYTES}`)
+    }
+
+    if (!response.body) return ''
+
+    const reader = response.body.getReader()
+    const chunks: Uint8Array[] = []
+    let received = 0
+    try {
+      for (;;) {
+        const { done, value } = await reader.read()
+        if (done) break
+        if (!value) continue
+        received += value.byteLength
+        if (received > MAX_FEED_BYTES) {
+          // Stop pulling bytes immediately — do not finish the download.
+          await reader.cancel()
+          throw new Error(`DOU feed too large: exceeded ${MAX_FEED_BYTES} bytes`)
+        }
+        chunks.push(value)
+      }
+    } finally {
+      reader.releaseLock()
+    }
+
+    return new TextDecoder('utf-8').decode(concatChunks(chunks, received))
   }
 
   /**
@@ -230,15 +295,18 @@ export class DouRssProvider implements JobSourceProvider {
         continue
       }
 
+      // MED-2: every free-text field the feed controls is scrubbed of
+      // characters Postgres cannot store BEFORE it can reach an INSERT.
+      const location = parsed.location ? stripUnstorableChars(parsed.location).slice(0, 500) : null
       postings.push({
         sourceType: this.type,
         externalId: canonicalUrl,
         url: canonicalUrl,
-        title: title.slice(0, 500),
-        companyName: companyName.slice(0, 255),
+        title: stripUnstorableChars(title).slice(0, 500),
+        companyName: stripUnstorableChars(companyName).slice(0, 255),
         companyNameNormalized: normalizedCompany(companyName).slice(0, 255),
-        location: parsed.location ? parsed.location.slice(0, 500) : null,
-        descriptionMd: htmlToMarkdown(item.description),
+        location: location && location.length > 0 ? location : null,
+        descriptionMd: stripUnstorableChars(htmlToMarkdown(item.description)),
         publishedAt: parsePubDate(item.pubDate),
         fingerprint: computePostingFingerprint(this.type, canonicalUrl),
       })

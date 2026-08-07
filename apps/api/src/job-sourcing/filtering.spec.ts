@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import type { JobExclusionDto } from '@crm/shared'
-import { deriveProjectExclusions, findMatchingExclusion, isPostingExcluded } from './filtering'
+import {
+  companyAliases,
+  deriveProjectExclusions,
+  findMatchingExclusion,
+  isPostingExcluded,
+} from './filtering'
 
 const SENIOR_ID = '11111111-1111-4111-8111-111111111111'
 
@@ -153,6 +158,89 @@ describe('deriveProjectExclusions (AC3)', () => {
       deriveProjectExclusions(SENIOR_ID, [
         { name: 'Internal', companyName: '  ', archivedAt: null },
       ]),
+    ).toEqual([])
+  })
+})
+
+/**
+ * Security-review round 2, MED-3.
+ *
+ * `companyFromDouUrl` existed but never took part in matching. The URL slug is
+ * assigned by the job board, not typed by the advertiser, so it is the harder
+ * of the two to spoof — and on a PUBLIC board (anyone can post a vacancy) the
+ * title is exactly what an advertiser controls.
+ */
+describe('companyAliases — URL-derived company (MED-3)', () => {
+  const excl = [manualCompany('EPAM')]
+
+  it('catches a posting whose TITLE hides the company but whose URL does not', () => {
+    expect(
+      isPostingExcluded(
+        {
+          companyName: 'Ромашка Digital',
+          title: 'Senior Engineer',
+          sourceType: 'DOU_RSS',
+          url: 'https://jobs.dou.ua/companies/epam-systems/vacancies/777',
+        },
+        excl,
+      ),
+    ).toBe(true)
+  })
+
+  it('returns the alias only when it adds something', () => {
+    // Same company in both places → no redundant alias.
+    expect(
+      companyAliases({
+        companyName: 'EPAM',
+        title: 't',
+        sourceType: 'DOU_RSS',
+        url: 'https://jobs.dou.ua/companies/epam/vacancies/1',
+      }),
+    ).toEqual([])
+    expect(
+      companyAliases({
+        companyName: 'Ромашка',
+        title: 't',
+        sourceType: 'DOU_RSS',
+        url: 'https://jobs.dou.ua/companies/epam-systems/vacancies/1',
+      }),
+    ).toEqual(['epam systems'])
+  })
+
+  it('does not invent an alias when the URL carries no company segment', () => {
+    expect(
+      companyAliases({
+        companyName: 'Ромашка',
+        title: 't',
+        sourceType: 'DOU_RSS',
+        url: 'https://jobs.dou.ua/vacancies/1',
+      }),
+    ).toEqual([])
+    expect(companyAliases({ companyName: 'Ромашка', title: 't' })).toEqual([])
+  })
+
+  it('does not widen matching for an unrelated company in the URL', () => {
+    expect(
+      isPostingExcluded(
+        {
+          companyName: 'Ciklum',
+          title: 'Dev',
+          sourceType: 'DOU_RSS',
+          url: 'https://jobs.dou.ua/companies/ciklum/vacancies/5',
+        },
+        excl,
+      ),
+    ).toBe(false)
+  })
+
+  it('ignores the URL for a source that is not DOU', () => {
+    expect(
+      companyAliases({
+        companyName: 'Ромашка',
+        title: 't',
+        sourceType: 'FUTURE_SOURCE',
+        url: 'https://example.com/companies/epam/vacancies/1',
+      }),
     ).toEqual([])
   })
 })
