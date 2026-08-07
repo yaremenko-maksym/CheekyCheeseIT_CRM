@@ -226,6 +226,16 @@ export const vacancyApplicationStatusEnum = pgEnum('vacancy_application_status',
   'VIEWED',
   'REJECTED',
 ])
+// task-job-sourcing-slice1 — external job sourcing (DOU RSS today, aggregators
+// in a later slice). Mirrors packages/shared/src/schemas/job-sourcing.ts, which
+// is the wire-level source of truth for these same value sets.
+export const jobSourceTypeEnum = pgEnum('job_source_type', ['DOU_RSS'])
+export const jobSuggestionStatusEnum = pgEnum('job_suggestion_status', [
+  'NEW',
+  'APPLIED',
+  'REJECTED',
+])
+export const jobExclusionKindEnum = pgEnum('job_exclusion_kind', ['COMPANY', 'KEYWORD'])
 // task-vacancy-salary-range — matches Google's JobPosting baseSalary.value.unitText
 // enum exactly (case-sensitive) + packages/shared's VACANCY_SALARY_PERIODS.
 export const vacancySalaryPeriodEnum = pgEnum('vacancy_salary_period', [
@@ -1738,6 +1748,136 @@ export const vacancyApplications = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Job sourcing (task-job-sourcing-slice1) — EXTERNAL vacancies a senior can
+// apply to. The mirror image of the `vacancies` block above: those are OUR
+// openings shown on the landing; these are OTHER companies' openings pulled in
+// from a third-party feed and offered to our seniors.
+// ---------------------------------------------------------------------------
+//
+// Everything in `job_postings` is UNTRUSTED third-party content — see the
+// header of packages/shared/src/schemas/job-sourcing.ts for the full contract
+// (https-only URLs, markdown-without-raw-HTML descriptions).
+
+/**
+ * A configured feed. `config` holds ONLY source-specific knobs (for DOU: the
+ * category, validated against an allow-list) — deliberately NOT a URL: letting
+ * an admin store an arbitrary URL here would turn the collector into an SSRF
+ * primitive. The endpoint is a constant in the provider implementation.
+ */
+export const jobSources = pgTable(
+  'job_sources',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    type: jobSourceTypeEnum('type').notNull(),
+    config: jsonb('config').notNull().default({}),
+    enabled: boolean('enabled').notNull().default(true),
+    lastCollectedAt: timestamp('last_collected_at', { withTimezone: true }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // One row per (type, settings) pair — re-seeding the same source is a
+    // no-op instead of silently doubling every collection run.
+    unique('uq_job_sources_type_config').on(t.type, t.config),
+  ],
+)
+
+export const jobPostings = pgTable(
+  'job_postings',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    sourceType: jobSourceTypeEnum('source_type').notNull(),
+    sourceId: uuid('source_id').references(() => jobSources.id, { onDelete: 'set null' }),
+    /** Stable identity WITHIN a source — the canonical, query-stripped URL. */
+    externalId: text('external_id').notNull(),
+    /** Original posting URL. https-only, enforced at ingest and on the wire. */
+    url: text('url').notNull(),
+    title: text('title').notNull(),
+    companyName: text('company_name').notNull(),
+    /**
+     * `normalizeCompanyName(companyName)` — persisted so company filtering is a
+     * plain string comparison instead of re-folding every row on every read.
+     * Recomputed on every ingest, never edited by hand.
+     */
+    companyNameNormalized: text('company_name_normalized').notNull(),
+    location: text('location'),
+    /** Markdown, never raw HTML — converted + stripped at ingest. */
+    descriptionMd: text('description_md').notNull(),
+    publishedAt: timestamp('published_at', { withTimezone: true }),
+    /**
+     * sha256(sourceType + '|' + canonical URL) — the dedupe key (AC1). It is
+     * computed from the CANONICALIZED url (query string stripped) because DOU's
+     * `<guid>` carries a fresh timestamp query on every fetch, so a raw-URL
+     * fingerprint would treat the same vacancy as new on every single run.
+     */
+    fingerprint: text('fingerprint').notNull(),
+    collectedAt: timestamp('collected_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    uniqueIndex('uq_job_postings_fingerprint').on(t.fingerprint),
+    index('idx_job_postings_published_at').on(t.publishedAt.desc()),
+    index('idx_job_postings_company_normalized').on(t.companyNameNormalized),
+  ],
+)
+
+export const jobSuggestions = pgTable(
+  'job_suggestions',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    postingId: uuid('posting_id')
+      .notNull()
+      .references(() => jobPostings.id, { onDelete: 'cascade' }),
+    seniorId: uuid('senior_id')
+      .notNull()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    status: jobSuggestionStatusEnum('status').notNull().default('NEW'),
+    statusChangedAt: timestamp('status_changed_at', { withTimezone: true }),
+    statusChangedBy: uuid('status_changed_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // One suggestion per (posting, senior). This is what makes a REJECTED
+    // posting stay rejected (AC4): a later collection run cannot insert a
+    // second NEW row for the same pair.
+    uniqueIndex('uq_job_suggestions_posting_senior').on(t.postingId, t.seniorId),
+    index('idx_job_suggestions_senior_status').on(t.seniorId, t.status),
+  ],
+)
+
+/**
+ * Manual exclusions. `senior_id IS NULL` means the studio-wide (GLOBAL) list.
+ *
+ * NOT stored here: exclusions derived from the senior's own projects — those
+ * are recomputed on every read (see JobSourcingService.buildExclusionSet) so
+ * they can never go stale after a project is added, renamed or archived.
+ */
+export const jobExclusionFilters = pgTable(
+  'job_exclusion_filters',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    seniorId: uuid('senior_id').references(() => users.id, { onDelete: 'cascade' }),
+    kind: jobExclusionKindEnum('kind').notNull(),
+    /** As typed by the human — shown in the UI. */
+    value: text('value').notNull(),
+    /** Canonical form used for matching (`normalizeCompanyName`). */
+    normalizedValue: text('normalized_value').notNull(),
+    createdBy: uuid('created_by').references(() => users.id, { onDelete: 'set null' }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // Two PARTIAL unique indexes rather than one `NULLS NOT DISTINCT` index:
+    // in Postgres NULLs are distinct by default, so a plain unique index on a
+    // nullable senior_id would happily accept the same GLOBAL entry twice.
+    uniqueIndex('uq_job_exclusions_global').on(t.kind, t.normalizedValue).where(isNull(t.seniorId)),
+    uniqueIndex('uq_job_exclusions_senior')
+      .on(t.seniorId, t.kind, t.normalizedValue)
+      .where(sql`${t.seniorId} IS NOT NULL`),
+    index('idx_job_exclusions_senior').on(t.seniorId),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Telemetry (task-telemetry-api) — prod-error tracking + UX-analytics.
 // ---------------------------------------------------------------------------
 //
@@ -2083,6 +2223,29 @@ export const documentsRelations = relations(documents, ({ one }) => ({
   }),
 }))
 
+// Job sourcing relations (task-job-sourcing-slice1)
+export const jobPostingsRelations = relations(jobPostings, ({ one, many }) => ({
+  source: one(jobSources, { fields: [jobPostings.sourceId], references: [jobSources.id] }),
+  suggestions: many(jobSuggestions),
+}))
+
+export const jobSuggestionsRelations = relations(jobSuggestions, ({ one }) => ({
+  posting: one(jobPostings, {
+    fields: [jobSuggestions.postingId],
+    references: [jobPostings.id],
+  }),
+  senior: one(users, {
+    fields: [jobSuggestions.seniorId],
+    references: [users.id],
+    relationName: 'jobSuggestionsAsSenior',
+  }),
+  statusChangedByUser: one(users, {
+    fields: [jobSuggestions.statusChangedBy],
+    references: [users.id],
+    relationName: 'jobSuggestionsAsStatusChanger',
+  }),
+}))
+
 // Onboarding relations
 export const contractTemplatesRelations = relations(contractTemplates, ({ one, many }) => ({
   createdBy: one(users, {
@@ -2146,6 +2309,14 @@ export type Interview = typeof interviews.$inferSelect
 export type NewInterview = typeof interviews.$inferInsert
 export type Transaction = typeof transactions.$inferSelect
 export type NewTransaction = typeof transactions.$inferInsert
+export type JobSource = typeof jobSources.$inferSelect
+export type NewJobSource = typeof jobSources.$inferInsert
+export type JobPosting = typeof jobPostings.$inferSelect
+export type NewJobPosting = typeof jobPostings.$inferInsert
+export type JobSuggestion = typeof jobSuggestions.$inferSelect
+export type NewJobSuggestion = typeof jobSuggestions.$inferInsert
+export type JobExclusionFilter = typeof jobExclusionFilters.$inferSelect
+export type NewJobExclusionFilter = typeof jobExclusionFilters.$inferInsert
 export type PayoutRequest = typeof payoutRequests.$inferSelect
 export type NewPayoutRequest = typeof payoutRequests.$inferInsert
 export type UserAuditLogEntry = typeof userAuditLog.$inferSelect
