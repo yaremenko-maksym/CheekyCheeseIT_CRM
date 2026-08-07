@@ -330,13 +330,26 @@ jobs:
           # visible ::warning:: in the deploy log — see the explicit check
           # below (still non-fatal).
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          # task-infra-wire-cloudflare-ai: both OPTIONAL, same class as
+          # GOOGLE_INDEXING_SA_*/PUBLIC_LANDING_ORIGIN above — the resume-
+          # generation layer that will actually call Cloudflare Workers AI
+          # (POST .../ai/run/<model>) has not merged yet, so apps/api does not
+          # read either var today; a future deploy simply starts picking them
+          # up once that layer lands. No fail-loud check here on purpose. The
+          # `deploy` job's own "Verify Cloudflare Workers AI token" step (runs
+          # on the runner, before this job even starts pulling images) is the
+          # only place these two are checked for validity — see that step's
+          # own header comment and docs/runbooks/deployment.md "Cloudflare
+          # Workers AI".
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
           GH_ACTOR: ${{ github.actor }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           # Pass env vars declared above into the remote shell.
-          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,GH_ACTOR
+          envs: IMAGE_TAG,POSTGRES_PASSWORD,GOOGLE_CLIENT_ID,GOOGLE_CLIENT_SECRET,JWT_SECRET,SESSION_SECRET,CREDENTIALS_ENC_KEY,S3_ENDPOINT,S3_FORCE_PATH_STYLE,S3_REGION,S3_BUCKET,AWS_ACCESS_KEY_ID,AWS_SECRET_ACCESS_KEY,TURNSTILE_SECRET_KEY,TELEMETRY_DIGEST_TOKEN,TELEMETRY_SESSION_SALT,GOOGLE_INDEXING_SA_EMAIL,GOOGLE_INDEXING_SA_KEY_B64,PUBLIC_LANDING_ORIGIN,RESEND_API_KEY,CLOUDFLARE_AI_TOKEN,CLOUDFLARE_ACCOUNT_ID,GH_ACTOR
           script: |
             set -euo pipefail
 
@@ -453,6 +466,22 @@ jobs:
             # string". The ::warning:: above already surfaced the unset case.
             if [ -n "$RESEND_API_KEY" ]; then
               printf 'RESEND_API_KEY=%s\n' "$RESEND_API_KEY" >> /opt/crm/.env.production
+            fi
+
+            # task-infra-wire-cloudflare-ai: same conditional-write pattern as
+            # GOOGLE_INDEXING_SA_*/RESEND_API_KEY above — skip the line entirely
+            # when unset rather than writing an empty `CLOUDFLARE_AI_TOKEN=`. The
+            # resume-generation layer that reads these has not merged yet, so an
+            # unset value here is today's expected steady state, not drift (no
+            # ::warning:: needed, unlike RESEND_API_KEY which the owner had
+            # already provisioned ahead of its consumer). The `deploy` job's
+            # "Verify Cloudflare Workers AI token" step is where these two are
+            # actually validated — see that step's header comment.
+            if [ -n "$CLOUDFLARE_AI_TOKEN" ]; then
+              printf 'CLOUDFLARE_AI_TOKEN=%s\n' "$CLOUDFLARE_AI_TOKEN" >> /opt/crm/.env.production
+            fi
+            if [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+              printf 'CLOUDFLARE_ACCOUNT_ID=%s\n' "$CLOUDFLARE_ACCOUNT_ID" >> /opt/crm/.env.production
             fi
 
             printf 'IMAGE_TAG=%s\n'               "$IMAGE_TAG"         >> /opt/crm/.env.production
@@ -976,6 +1005,94 @@ jobs:
       issues: write
 
     steps:
+      # ── 0. Cloudflare Workers AI token check (task-infra-wire-cloudflare-ai) ──
+      # The resume-generation layer of "подача на вакансии" will call the Workers
+      # AI REST API directly from apps/api (POST .../ai/run/<model> — no Worker to
+      # deploy, see the task file) once it merges. This step verifies the two
+      # GitHub Secrets it will need (CLOUDFLARE_AI_TOKEN, CLOUDFLARE_ACCOUNT_ID)
+      # are actually usable, catching a bad paste/insufficient scope at deploy
+      # time instead of as a mystery 401/403 the first time that future code path
+      # runs in prod.
+      #
+      # RUNS ON THE RUNNER, not via SSH — unlike the backup-freshness check further
+      # down this job, there is no VPS-locality constraint here (nothing analogous
+      # to the deliberately-VPS-only /etc/crm-backup.env split): both values are
+      # plain GitHub Secrets, equally reachable from the runner as from the VPS.
+      # Same shape as the "Ping IndexNow" step in this job (runner-side HTTPS call
+      # gated on an optional secret), not the SSH-only backup-freshness check.
+      #
+      # Hits GET .../ai/models/search?per_page=1 — deliberately NOT
+      # .../ai/run/<model> (which would run real inference and burn neurons off the
+      # free tier's 10,000/day budget on every single deploy). models/search only
+      # lists catalog metadata, so this step costs nothing per run.
+      #
+      # SOFT-SKIP when unset: the resume-generation layer has not merged yet, so
+      # today both secrets may legitimately be absent — same ::notice:: + skip
+      # convention as the guarded DDL-file checks earlier in this workflow, not a
+      # fail-loud check like TURNSTILE_SECRET_KEY in the write-env job.
+      #
+      # NON-BLOCKING once the secrets ARE set: `continue-on-error: true` — same
+      # principle as the backup-freshness check below (a bad/under-scoped token is
+      # a CONFIGURATION signal, not evidence this deploy's actual application code
+      # is broken, so it must never turn the whole rollout red). Both this step and
+      # every step after it stay on the job's default `if:` (nothing upstream can
+      # fail it — this is the very first step) so a failure here can never skip the
+      # real deploy steps that follow (the exact class of incident from
+      # 2026-08-05, where a `continue-on-error` present on one step but missing on
+      # its neighbor cascaded into two lost deploys — checked here: this is a
+      # single step, so there is no neighbor for the flag to drift out of sync
+      # with).
+      #
+      # LOG SECRECY: the token only ever appears as a shell env var populated via
+      # this step's own `env:` block (never interpolated into the `run:` script
+      # string — same injection-prevention convention as every secret-handling
+      # step in this file, see the write-env job's header comment) — GitHub Actions
+      # only echoes the literal YAML script text for `run:` steps, which contains
+      # `$CLOUDFLARE_AI_TOKEN` as a variable NAME, never its value. `curl -s`
+      # (silent — no progress meter) discards the response body entirely
+      # (`-o /dev/null`); only the 3-digit `%{http_code}` is captured and logged.
+      # No `set -x`. Verified by inspecting this step's own log on a real run —
+      # same verification discipline as check-backup-freshness.sh's log-secrecy
+      # guarantee.
+      - name: Verify Cloudflare Workers AI token
+        id: cloudflare_ai_token_check
+        continue-on-error: true
+        env:
+          CLOUDFLARE_AI_TOKEN: ${{ secrets.CLOUDFLARE_AI_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          set -uo pipefail
+
+          if [ -z "$CLOUDFLARE_AI_TOKEN" ] || [ -z "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "::notice::CLOUDFLARE_AI_TOKEN/CLOUDFLARE_ACCOUNT_ID secret(s) not set — skipping the Workers AI token check. Expected until the resume-generation layer merges; see docs/runbooks/deployment.md 'Cloudflare Workers AI'."
+            exit 0
+          fi
+
+          set +e
+          HTTP_CODE=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 \
+            -H "Authorization: Bearer ${CLOUDFLARE_AI_TOKEN}" \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/ai/models/search?per_page=1")
+          CURL_EXIT=$?
+          set -e
+
+          if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "200" ]; then
+            echo "==> Cloudflare Workers AI token verified (HTTP 200)."
+            exit 0
+          fi
+
+          if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "401" ]; then
+            echo "::warning::Cloudflare Workers AI token check got HTTP 401 (unauthorized) — CLOUDFLARE_AI_TOKEN is invalid or was not copied in full. Re-generate/re-paste the secret; see docs/runbooks/deployment.md 'Cloudflare Workers AI'."
+            exit 1
+          fi
+
+          if [ "$CURL_EXIT" -eq 0 ] && [ "$HTTP_CODE" = "403" ]; then
+            echo "::warning::Cloudflare Workers AI token check got HTTP 403 (forbidden) — the token is missing the 'Workers AI — Read'/'Workers AI — Edit' permissions. Re-create it with those scopes; see docs/runbooks/deployment.md 'Cloudflare Workers AI'."
+            exit 1
+          fi
+
+          echo "::warning::Cloudflare Workers AI token check got an unexpected result (curl exit ${CURL_EXIT}, HTTP ${HTTP_CODE:-none}; expected 200) — not one of the two known auth-failure codes (401/403), most likely a transient network issue or a Cloudflare-side outage, not our configuration. See docs/runbooks/deployment.md 'Cloudflare Workers AI'."
+          exit 1
+
       - name: Pull, up, migrate, health-check via SSH
         uses: appleboy/ssh-action@v1.2.0
         env:
