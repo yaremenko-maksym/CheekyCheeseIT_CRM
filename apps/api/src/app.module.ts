@@ -28,6 +28,7 @@ import { UsersModule } from './users/users.module'
 import { LegendsModule } from './legends/legends.module'
 import { TelemetryModule } from './telemetry/telemetry.module'
 import { VacanciesModule } from './vacancies/vacancies.module'
+import { SeniorResumesModule } from './resumes/resumes.module'
 
 @Module({
   imports: [
@@ -79,6 +80,9 @@ import { VacanciesModule } from './vacancies/vacancies.module'
     AdminModule,
     // task-vacancies-api: public vacancies (landing) + admin CRUD (CRM).
     VacanciesModule,
+    // task-resume-base: canonical structured resume of a SENIOR — upload +
+    // one-shot AI extraction + editable structure + PDF export.
+    SeniorResumesModule,
     // task-telemetry-api: prod-error tracking + UX-event analytics + digest.
     TelemetryModule,
     // task-landing-contact-and-hiring-strip: public "Start a project" contact
