@@ -5,11 +5,13 @@ import { MAX_DESCRIPTION_CHARS, htmlToMarkdown } from './html-to-markdown'
  * AC6 — "Описание с внедрённым скриптом рендерится безопасно".
  *
  * This is the INGEST half of that guarantee: whatever the feed sends, what
- * lands in `job_postings.description_md` contains no HTML at all. The RENDER
- * half (react-markdown without rehype-raw) is pinned separately in
- * apps/web/app/components/job-sourcing/__tests__/JobSuggestionDialog.test.tsx.
- * Both layers are tested because either one alone would be a single point of
- * failure for stored XSS in an authenticated origin.
+ * lands in `job_postings.description_md` contains no HTML at all — and, since
+ * the HIGH-1 finding below, no markdown syntax the feed did not legitimately
+ * earn either. The RENDER half is pinned separately in
+ * apps/web/app/components/job-sourcing/__tests__/JobSuggestionDialog.test.tsx,
+ * where the guarantee rests on props that component sets ITSELF (urlTransform /
+ * img / a) rather than on "we don't enable rehype-raw", which turned out not to
+ * apply to a markdown-level payload at all.
  */
 describe('htmlToMarkdown — script injection (AC6)', () => {
   it('drops a <script> tag AND its contents', () => {
