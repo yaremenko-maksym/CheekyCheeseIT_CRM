@@ -301,10 +301,13 @@ describe('HR teammate profile RBAC — real DB integration (task-hr-rbac-teammat
 
   // ── HR-INT-4: HR → SENIOR same team → 200, full senior surface (regression) ───
 
-  it('HR-INT-4. HR viewing SENIOR teammate → 200, tabs=["overview","projects","team","interviews"] (regression)', async () => {
+  it('HR-INT-4. HR viewing SENIOR teammate → 200, tabs=["overview","projects","team","interviews","resume"] (regression)', async () => {
     if (!dbAvailable) return
     const view = await usersService.buildProfileView(HR, SENIOR_MATE.id)
-    expect(view.permissions.tabs).toEqual(['overview', 'projects', 'team', 'interviews'])
+    // task-resume-base §4: 'resume' appended for a SENIOR target (HR maintains
+    // a senior's resume). The four tabs this regression test was written to
+    // guard are unchanged, in the same order.
+    expect(view.permissions.tabs).toEqual(['overview', 'projects', 'team', 'interviews', 'resume'])
     // SENIOR contacts visible, finance still masked for HR.
     expect(view.user.email).toBe(SENIOR_MATE.email)
     expect(view.user.monthlySalary).toBeNull()
