@@ -341,6 +341,50 @@ firewall-локдаун недостаточен (например, динами
 
 ---
 
+### 1.9 Cloudflare Workers AI — генерация резюме (task-infra-wire-cloudflare-ai)
+
+> **Секреты уже заведены владельцем** (`CLOUDFLARE_AI_TOKEN` / `CLOUDFLARE_ACCOUNT_ID`) — этот
+> раздел документирует, что они означают и как проверяется их работоспособность, а не как их
+> создавать заново.
+
+**Зачем.** Следующий слой фичи «подача на вакансии» генерирует резюме через Cloudflare Workers AI.
+Worker разворачивать не нужно — `apps/api` дёргает REST API напрямую:
+
+```
+POST https://api.cloudflare.com/client/v4/accounts/{ACCOUNT_ID}/ai/run/{model}
+Authorization: Bearer {TOKEN}
+```
+
+| Secret                  | Значение                                                                                    |
+| ----------------------- | ------------------------------------------------------------------------------------------- |
+| `CLOUDFLARE_AI_TOKEN`   | API-токен с правами **Workers AI — Read** и **Workers AI — Edit** (My Profile → API Tokens) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID (Dashboard → правая колонка любого домена)                            |
+
+**Оба ОПЦИОНАЛЬНЫ до мержа слоя генерации** — `apps/api` их пока не читает (код приедет отдельным
+PR). `write-env` job `deploy.yml` пишет их в `/opt/crm/.env.production` **только если непустые**
+(тот же conditional-write паттерн, что `GOOGLE_INDEXING_SA_*`/`RESEND_API_KEY`, см. §3) — деплой не
+падает ни в их отсутствие, ни при их наличии до появления кода-потребителя.
+
+**Проверка токена на каждом деплое.** `deploy` job'а шаг **"Verify Cloudflare Workers AI token"**
+(первый шаг job'а, до `docker compose up`) дёргает `GET .../ai/models/search?per_page=1` —
+намеренно НЕ `.../ai/run/<model>` (та точка входа расходует neurons бесплатного тарифа, 10 000/сутки
+— каталожный `models/search` ничего не тратит). Три исхода:
+
+- **HTTP 200** — токен рабочий.
+- **HTTP 401** — токен неверный или скопирован не полностью. Перевыпустить/перевставить секрет.
+- **HTTP 403** — токену не хватает прав `Workers AI — Read`/`Workers AI — Edit`. Пересоздать с
+  нужными скоупами.
+- Сеть/5xx/неожиданный код — сторона Cloudflare или временная проблема, не наша конфигурация.
+
+Секреты не заданы → `::notice::` и мягкий пропуск (тот же паттерн, что у guarded DDL-шагов и
+IndexNow-пинга). Провал самой проверки (401/403/сеть) **не валит деплой** —
+`continue-on-error: true`, тот же принцип, что у проверки свежести бэкапов (§8.1): это сигнал о
+конфигурации, а не о работоспособности приложения. В журнал не попадает ни одного символа токена —
+значение передаётся только через `env:`-блок (никогда не подставляется в текст `run:`-скрипта), тело
+ответа отбрасывается (`-o /dev/null`), логируется только 3-значный HTTP-код.
+
+---
+
 ## 2. Установка Docker на VPS
 
 ```bash
@@ -375,28 +419,30 @@ docker compose version   # должно показать Compose plugin v2.x
 Добавить в **GitHub → Settings → Secrets and variables → Actions → Secrets** (уровень Repository).
 Дополнительно создать **Environment "production"** и добавить туда же для дополнительной защиты.
 
-| Secret                       | Значение / как получить                                                                                                                       |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `VPS_HOST`                   | IP-адрес VPS (из §1.1)                                                                                                                        |
-| `VPS_USER`                   | SSH-пользователь (обычно `root` или выделенный deploy-user)                                                                                   |
-| `VPS_SSH_KEY`                | Содержимое приватного ключа `~/.ssh/crm_deploy_key` (весь файл включая `-----BEGIN...-----`)                                                  |
-| `POSTGRES_PASSWORD`          | `openssl rand -base64 32` — сильный пароль (≥32 символа)                                                                                      |
-| `JWT_SECRET`                 | `openssl rand -base64 48` — минимум 32 символа                                                                                                |
-| `SESSION_SECRET`             | `openssl rand -base64 48` — минимум 32 символа                                                                                                |
-| `CREDENTIALS_ENC_KEY`        | `openssl rand -base64 32` — должно быть ровно 32 байта AES-256                                                                                |
-| `GOOGLE_CLIENT_ID`           | Из Google Cloud Console → OAuth 2.0 Client (§1.3)                                                                                             |
-| `GOOGLE_CLIENT_SECRET`       | Оттуда же                                                                                                                                     |
-| `S3_ENDPOINT`                | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint)                              |
-| `S3_REGION`                  | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                                                  |
-| `S3_BUCKET`                  | `crm-documents-prod` (документы — **НЕ** `crm-backups`, см. врезку ниже)                                                                      |
-| `S3_FORCE_PATH_STYLE`        | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                                                          |
-| `AWS_ACCESS_KEY_ID`          | **Documents token** Access Key ID (§1.5) — скоуп ТОЛЬКО `crm-documents-prod`, или AWS IAM ключ                                                |
-| `AWS_SECRET_ACCESS_KEY`      | **Documents token** Secret (§1.5) — тот же скоуп, что и выше, или AWS IAM секрет                                                              |
-| `TURNSTILE_SECRET_KEY`       | Cloudflare Turnstile Secret Key (§1.7). **Обязателен ДО мержа PR #390** — иначе прод-API crash-loop на буте.                                  |
-| `VITE_TURNSTILE_SITE_KEY`    | Cloudflare Turnstile Site Key (§1.7). Опционален до #390 — пустое значение не роняет билд лендинга.                                           |
-| `GOOGLE_INDEXING_SA_EMAIL`   | Полностью опционален (§1.8). `client_email` из GCP service-account JSON-ключа. Пусто → indexing-сервис в no-op режиме, деплой не блокируется. |
-| `GOOGLE_INDEXING_SA_KEY_B64` | Полностью опционален (§1.8). base64(`private_key` PEM) из того же JSON-ключа, одна строка.                                                    |
-| `PUBLIC_LANDING_ORIGIN`      | Полностью опционален (§1.8). Нужен, только если базовый URL лендинга изменится — в коде уже есть default `https://cheekycheese.tech`.         |
+| Secret                       | Значение / как получить                                                                                                                                                           |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `VPS_HOST`                   | IP-адрес VPS (из §1.1)                                                                                                                                                            |
+| `VPS_USER`                   | SSH-пользователь (обычно `root` или выделенный deploy-user)                                                                                                                       |
+| `VPS_SSH_KEY`                | Содержимое приватного ключа `~/.ssh/crm_deploy_key` (весь файл включая `-----BEGIN...-----`)                                                                                      |
+| `POSTGRES_PASSWORD`          | `openssl rand -base64 32` — сильный пароль (≥32 символа)                                                                                                                          |
+| `JWT_SECRET`                 | `openssl rand -base64 48` — минимум 32 символа                                                                                                                                    |
+| `SESSION_SECRET`             | `openssl rand -base64 48` — минимум 32 символа                                                                                                                                    |
+| `CREDENTIALS_ENC_KEY`        | `openssl rand -base64 32` — должно быть ровно 32 байта AES-256                                                                                                                    |
+| `GOOGLE_CLIENT_ID`           | Из Google Cloud Console → OAuth 2.0 Client (§1.3)                                                                                                                                 |
+| `GOOGLE_CLIENT_SECRET`       | Оттуда же                                                                                                                                                                         |
+| `S3_ENDPOINT`                | R2: `https://<account-id>.r2.cloudflarestorage.com`; AWS S3: оставить пустым (SDK использует дефолтный endpoint)                                                                  |
+| `S3_REGION`                  | R2: `auto`; AWS S3 Frankfurt: `eu-central-1`                                                                                                                                      |
+| `S3_BUCKET`                  | `crm-documents-prod` (документы — **НЕ** `crm-backups`, см. врезку ниже)                                                                                                          |
+| `S3_FORCE_PATH_STYLE`        | R2: `false`; AWS S3: `false` (virtual-hosted style). `true` — только локальный MinIO                                                                                              |
+| `AWS_ACCESS_KEY_ID`          | **Documents token** Access Key ID (§1.5) — скоуп ТОЛЬКО `crm-documents-prod`, или AWS IAM ключ                                                                                    |
+| `AWS_SECRET_ACCESS_KEY`      | **Documents token** Secret (§1.5) — тот же скоуп, что и выше, или AWS IAM секрет                                                                                                  |
+| `TURNSTILE_SECRET_KEY`       | Cloudflare Turnstile Secret Key (§1.7). **Обязателен ДО мержа PR #390** — иначе прод-API crash-loop на буте.                                                                      |
+| `VITE_TURNSTILE_SITE_KEY`    | Cloudflare Turnstile Site Key (§1.7). Опционален до #390 — пустое значение не роняет билд лендинга.                                                                               |
+| `GOOGLE_INDEXING_SA_EMAIL`   | Полностью опционален (§1.8). `client_email` из GCP service-account JSON-ключа. Пусто → indexing-сервис в no-op режиме, деплой не блокируется.                                     |
+| `GOOGLE_INDEXING_SA_KEY_B64` | Полностью опционален (§1.8). base64(`private_key` PEM) из того же JSON-ключа, одна строка.                                                                                        |
+| `PUBLIC_LANDING_ORIGIN`      | Полностью опционален (§1.8). Нужен, только если базовый URL лендинга изменится — в коде уже есть default `https://cheekycheese.tech`.                                             |
+| `CLOUDFLARE_AI_TOKEN`        | Полностью опционален до мержа слоя генерации резюме (§1.9). Права `Workers AI — Read` + `Workers AI — Edit`. Каждый деплой проверяет его работоспособность (не блокирует деплой). |
+| `CLOUDFLARE_ACCOUNT_ID`      | Cloudflare account ID (§1.9) — не секрет по сути, но заведён тем же каналом, что и токен выше.                                                                                    |
 
 > `GITHUB_TOKEN` (для GHCR login в deploy) генерируется GHA автоматически — добавлять не нужно.
 >
