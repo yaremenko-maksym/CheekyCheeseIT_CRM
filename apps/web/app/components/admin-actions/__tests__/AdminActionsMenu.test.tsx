@@ -27,10 +27,12 @@ vi.mock('sonner', () => ({
 
 import { AdminActionsMenu } from '../AdminActionsMenu'
 
-function renderMenu(props: {
-  entityType?: 'team' | 'project'
-  isArchived?: boolean
-} = {}) {
+function renderMenu(
+  props: {
+    entityType?: 'team' | 'project'
+    isArchived?: boolean
+  } = {},
+) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   })
@@ -89,7 +91,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
 
     const trigger = screen.getByTestId('admin-actions-trigger')
     trigger.focus()
-    expect(document.activeElement).toBe(trigger)
+    expect(trigger).toHaveFocus()
 
     await user.keyboard('{Enter}')
     expect(await screen.findByTestId('admin-action-archive')).toBeInTheDocument()

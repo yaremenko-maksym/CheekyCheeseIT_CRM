@@ -25,7 +25,7 @@
  *    candidate-controlled (anonymous public apply form); an RLO character
  *    in it must never reach `a.download` unsanitized.
  */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { VacancyApplication } from '@crm/shared'
@@ -107,9 +107,11 @@ describe('ResumePreviewDialog', () => {
       isUnsupportedFormat: false,
     })
     renderDialog(true)
+    // The shared PdfPreview titles its iframe, so it is reachable by accessible
+    // name inside the preview container — no querySelector (task-lint-teeth).
     const preview = screen.getByTestId('candidate-resume-preview')
-    const iframe = preview.querySelector('iframe')
-    expect(iframe?.getAttribute('src')).toBe('blob:http://localhost/fake-resume-uuid')
+    const iframe = within(preview).getByTitle(/^Предпросмотр/)
+    expect(iframe).toHaveAttribute('src', 'blob:http://localhost/fake-resume-uuid')
   })
 
   it('unsupported format: honest card, no "browser doesn\'t support" wording (regression for #470)', () => {

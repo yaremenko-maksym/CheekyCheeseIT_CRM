@@ -46,7 +46,7 @@ describe('Badge', () => {
     render(
       <Badge variant="outline" className="border-primary/30 text-primary">
         We&apos;re hiring
-      </Badge>
+      </Badge>,
     )
     expect(screen.getByText("We're hiring")).toBeTruthy()
   })
@@ -62,13 +62,13 @@ describe('Button', () => {
     render(
       <Button asChild>
         <a href="mailto:hr@cheekycheese.tech">Contact Us</a>
-      </Button>
+      </Button>,
     )
     // `asChild` must render the anchor itself, not wrap it in a <button> —
     // asserting the link role proves exactly that.
     expect(screen.getByRole('link', { name: 'Contact Us' })).toHaveAttribute(
       'href',
-      'mailto:hr@cheekycheese.tech'
+      'mailto:hr@cheekycheese.tech',
     )
   })
 

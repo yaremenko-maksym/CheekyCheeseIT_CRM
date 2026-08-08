@@ -1,4 +1,4 @@
-import { render } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 
 // Test the ADMIN-only tab visibility logic via the helper function
@@ -168,23 +168,19 @@ vi.mock('../ContractPdfPreview', () => ({
 
 describe('ContractTab read-only mode (canEdit=false)', () => {
   it('renders contract-tab-readonly testid when canEdit=false', () => {
-    const { getByTestId } = renderWithProvider(
-      <ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />,
-    )
-    expect(getByTestId('contract-tab-readonly')).toBeInTheDocument()
+    renderWithProvider(<ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />)
+    expect(screen.getByTestId('contract-tab-readonly')).toBeInTheDocument()
   })
 
   it('does NOT render the full editor (contract-tab testid) when canEdit=false', () => {
-    const { queryByTestId } = renderWithProvider(
-      <ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />,
-    )
-    expect(queryByTestId('contract-tab')).not.toBeInTheDocument()
+    renderWithProvider(<ContractTab userId="drop-uuid" targetRole="DROP" canEdit={false} />)
+    expect(screen.queryByTestId('contract-tab')).not.toBeInTheDocument()
   })
 
   it('renders contract-tab (full editor) testid when canEdit=true', () => {
-    const { getByTestId } = renderWithProvider(
+    renderWithProvider(
       <ContractTab userId="admin-viewing-uuid" targetRole="SENIOR" canEdit={true} />,
     )
-    expect(getByTestId('contract-tab')).toBeInTheDocument()
+    expect(screen.getByTestId('contract-tab')).toBeInTheDocument()
   })
 })

@@ -118,7 +118,7 @@ describe('CandidateCard — conditional chips + cover letter', () => {
 
   it('github/linkedin chips link to the real URL, not a placeholder #', () => {
     renderCard(makeApplication({ githubUrl: 'https://github.com/ivan' }))
-    expect(screen.getByText('GitHub').closest('a')).toHaveAttribute(
+    expect(screen.getByRole('link', { name: 'GitHub' })).toHaveAttribute(
       'href',
       'https://github.com/ivan',
     )
@@ -131,14 +131,14 @@ describe('CandidateCard — conditional chips + cover letter', () => {
   it('renders a non-clickable chip (no <a>) when githubUrl is a javascript: URL', () => {
     renderCard(makeApplication({ githubUrl: 'javascript:alert(1)' }))
     const chip = screen.getByText('GitHub')
-    expect(chip.closest('a')).toBeNull()
+    expect(screen.queryByRole('link', { name: 'GitHub' })).toBeNull()
     expect(chip.tagName.toLowerCase()).not.toBe('a')
   })
 
   it('renders a non-clickable chip when linkedinUrl is a javascript: URL', () => {
     renderCard(makeApplication({ linkedinUrl: 'javascript:alert(1)' }))
-    const chip = screen.getByText('LinkedIn')
-    expect(chip.closest('a')).toBeNull()
+    expect(screen.getByText('LinkedIn')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'LinkedIn' })).toBeNull()
   })
 
   // task-candidate-card-resume AC4 — telegram: valid handle -> clickable
@@ -155,7 +155,10 @@ describe('CandidateCard — conditional chips + cover letter', () => {
   it('invalid telegram value (free text from the public form) stays plain, non-clickable text', () => {
     renderCard(makeApplication({ telegram: 'пишите мне в телеграм плз' }))
     expect(screen.queryByTestId('candidate-telegram-link')).not.toBeInTheDocument()
-    expect(screen.getByText('пишите мне в телеграм плз').closest('a')).toBeNull()
+    // Role query rather than `closest('a')` on the text node (task-lint-teeth):
+    // states "this free text is not a link" as a user would experience it.
+    expect(screen.getByText('пишите мне в телеграм плз')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'пишите мне в телеграм плз' })).toBeNull()
   })
 
   it('telegram handle below the 5-char minimum stays plain text (boundary)', () => {

@@ -56,12 +56,13 @@ describe('i18n dictionaries — key-set parity (task-landing-i18n.md A2)', () =>
     const stringLeaves = LOCALES.flatMap((locale) =>
       [...flattened.get(locale)!]
         .filter(([, value]) => typeof value === 'string')
-        .map(([path, value]) => [`${locale}.${path}`, value as string] as const)
+        .map(([path, value]) => [`${locale}.${path}`, value as string] as const),
     )
 
-    expect(stringLeaves.length, 'expected the dictionaries to contain string leaves').toBeGreaterThan(
-      0
-    )
+    expect(
+      stringLeaves.length,
+      'expected the dictionaries to contain string leaves',
+    ).toBeGreaterThan(0)
     for (const [path, value] of stringLeaves) {
       expect(value.trim().length, `${path} is empty`).toBeGreaterThan(0)
     }

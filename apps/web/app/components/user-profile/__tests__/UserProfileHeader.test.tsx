@@ -55,22 +55,29 @@ function makeUser(overrides: Partial<UserProfileDto> = {}): UserProfileDto {
 }
 
 describe('UserProfileHeader — telegram link (code-review round 2)', () => {
+  // Role queries instead of `closest('a')` / `document.querySelector`
+  // (task-lint-teeth) — same guarantees, asserted the way the link is actually
+  // perceived rather than through DOM ancestry.
   it('valid handle renders as a clickable https://t.me/ link', () => {
     render(<UserProfileHeader user={makeUser({ telegram: '@armghyan' })} />)
-    const link = screen.getByText('@armghyan').closest('a')
+    const link = screen.getByRole('link', { name: '@armghyan' })
     expect(link).toHaveAttribute('href', 'https://t.me/armghyan')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('invalid telegram value stays plain, non-clickable text', () => {
     render(<UserProfileHeader user={makeUser({ telegram: 'not a real handle!!' })} />)
-    const text = screen.getByText('not a real handle!!')
-    expect(text.closest('a')).toBeNull()
+    expect(screen.getByText('not a real handle!!')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'not a real handle!!' })).toBeNull()
   })
 
   it('renders no t.me link when telegram is null', () => {
     render(<UserProfileHeader user={makeUser({ telegram: null })} />)
     expect(screen.queryByRole('link', { name: /t\.me/i })).not.toBeInTheDocument()
-    expect(document.querySelector('a[href^="https://t.me/"]')).toBeNull()
+    expect(
+      screen
+        .queryAllByRole('link')
+        .filter((a) => a.getAttribute('href')?.startsWith('https://t.me/')),
+    ).toHaveLength(0)
   })
 })
