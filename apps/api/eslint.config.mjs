@@ -1,5 +1,8 @@
 import tseslint from '@typescript-eslint/eslint-plugin'
 import tsparser from '@typescript-eslint/parser'
+import vitest from '@vitest/eslint-plugin'
+
+import { vitestTestQualityRules } from '../../eslint.test-rules.mjs'
 
 export default [
   {
@@ -128,5 +131,20 @@ export default [
         },
       ],
     },
+  },
+  {
+    files: ['src/**/*.spec.ts'],
+    plugins: {
+      vitest,
+    },
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+      globals: vitest.environments.env.globals,
+    },
+    rules: vitestTestQualityRules,
   },
 ]

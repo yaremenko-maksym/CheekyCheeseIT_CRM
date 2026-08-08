@@ -35,7 +35,11 @@
  * 'file' if stripping leaves nothing usable (e.g. the input was entirely
  * control/bidi characters).
  */
-// eslint-disable-next-line no-control-regex -- intentional: stripping control/bidi chars is the whole point.
+// NOTE: this pattern intentionally matches control characters — stripping
+// control/bidi chars is the whole point of it. If `no-control-regex` is ever
+// enabled for this package, re-add an `eslint-disable-next-line` here.
+// (The directive that used to live on this line was inert: no config enabled
+// that rule, so ESLint reported it as an unused directive — task-lint-teeth.)
 const UNSAFE_FILENAME_CHARS = new RegExp(
   '[\\u0000-\\u001F\\u007F-\\u009F\\u202A-\\u202E\\u2066-\\u2069"\\\\/\\r\\n]',
   'g',

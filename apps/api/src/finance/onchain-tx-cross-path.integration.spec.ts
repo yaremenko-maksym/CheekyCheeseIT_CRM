@@ -1659,9 +1659,15 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
 
     const fulfilled = results.filter((r) => r.status === 'fulfilled')
     expect(fulfilled.length).toBe(1) // exactly one winner
-    for (const r of results) {
+    // Partition instead of `if (r.status === 'rejected') expect(...)` inside the
+    // loop (task-lint-teeth): with the assertion behind the branch, a run where
+    // nothing rejected checked nothing. Two settled promises with exactly one
+    // winner means exactly one loser, so that count is pinned too.
+    const rejections = results.filter((r) => r.status === 'rejected')
+    expect(rejections.length).toBe(1)
+    for (const r of rejections) {
       // The loser must be a clean 400, never a 500 / raw pg error.
-      if (r.status === 'rejected') expect(r.reason).toBeInstanceOf(BadRequestException)
+      expect(r.reason).toBeInstanceOf(BadRequestException)
     }
 
     const paidRequests = await dbSvc.db
@@ -1702,8 +1708,14 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
     // so we assert on the money, not on the promise states.)
     expect(await balance()).toBeCloseTo(before + payable, 6)
 
-    for (const r of [payoutResult, depositResult]) {
-      if (r.status === 'rejected') expect(r.reason).toBeInstanceOf(BadRequestException)
+    // Partitioned rather than branching inside the loop (task-lint-teeth).
+    // Unlike the payout-vs-payout race above, ZERO rejections is a legitimate
+    // outcome here — the comment above explains a losing deposit can resolve
+    // via the idempotent re-read — so the count is deliberately not pinned;
+    // the money assertion on the line above is what makes this test fail.
+    const rejections = [payoutResult, depositResult].filter((r) => r.status === 'rejected')
+    for (const r of rejections) {
+      expect(r.reason).toBeInstanceOf(BadRequestException)
     }
 
     const registry = await dbSvc.db

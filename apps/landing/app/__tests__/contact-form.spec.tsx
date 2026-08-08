@@ -71,7 +71,7 @@ describe('ContactForm', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     await screen.findByText('Please enter your name.')
-    expect(document.activeElement).toBe(screen.getByLabelText(/^Name/))
+    expect(screen.getByLabelText(/^Name/)).toHaveFocus()
   })
 
   it('design round 1 LOW-1 — Name валиден, Email/Message невалидны → фокус на Email (следующее по порядку)', async () => {
@@ -82,7 +82,7 @@ describe('ContactForm', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     await screen.findByText('Enter a valid email.')
-    expect(document.activeElement).toBe(screen.getByLabelText(/^Email/))
+    expect(screen.getByLabelText(/^Email/)).toHaveFocus()
   })
 
   it('design round 1 LOW-1 — только Message невалиден → фокус на Message', async () => {
@@ -94,7 +94,7 @@ describe('ContactForm', () => {
     await user.click(screen.getByRole('button', { name: 'Send message' }))
 
     await screen.findByText('Tell us a bit more (at least 10 characters).')
-    expect(document.activeElement).toBe(screen.getByLabelText(/What are you building\?/))
+    expect(screen.getByLabelText(/What are you building\?/)).toHaveFocus()
   })
 
   it('валид (happy path) — успешный submit переводит форму в success-состояние', async () => {

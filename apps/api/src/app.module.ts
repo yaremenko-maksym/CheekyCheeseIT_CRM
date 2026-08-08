@@ -18,6 +18,7 @@ import { DocumentsModule } from './documents/documents.module'
 import { HealthModule } from './health/health.module'
 import { FinanceModule } from './finance/finance.module'
 import { InterviewsModule } from './interviews/interviews.module'
+import { JobSourcingModule } from './job-sourcing/job-sourcing.module'
 import { InvoicesModule } from './invoices/invoices.module'
 import { NotificationsModule } from './notifications/notifications.module'
 import { OnboardingModule } from './onboarding/onboarding.module'
@@ -63,6 +64,7 @@ import { SeniorResumesModule } from './resumes/resumes.module'
     TeamsModule,
     ProjectsModule,
     InterviewsModule,
+    JobSourcingModule,
     DocumentsModule,
     NotificationsModule,
     InvoicesModule,

@@ -58,6 +58,13 @@
 # own header — same install step) and `python3` (Ubuntu Server ships it by
 # default; used only for portable ISO-8601 age arithmetic).
 #
+# Tests: scripts/devops/tests/test-check-backup-freshness.sh — positive AND
+# negative cases. Note this guard's red is the STATUS line above, not the exit
+# code, so the tests assert both: STATUS=stale/not_configured for an observed bad
+# state, and exit 1 with NO verdict at all when the aws call fails (a guard that
+# reported "no backups" on a network blip would cry wolf; one that reported
+# "fresh" would hide an outage — both directions are asserted).
+#
 # Optional env — TEST-ONLY, never set these in the real cron/SSH invocation:
 #   CRM_BACKUP_ENV_FILE   override the config file path (default:
 #                         /etc/crm-backup.env) — lets tests point at a temp
@@ -94,6 +101,33 @@ else
     emit not_configured none n/a
     exit 0
   fi
+
+  # Clear the vars this script reads BEFORE sourcing, so that what we check
+  # below is exactly what the config file defines — not what happened to be in
+  # the caller's environment.
+  #
+  # FOUND BY THIS SCRIPT'S OWN TEST, 2026-08-07 (task-guards-teeth): the check
+  # below reads the process environment after sourcing, which cannot tell
+  # "defined in /etc/crm-backup.env" from "inherited from whoever invoked us".
+  # The header above states the contract in terms of the FILE ("a file missing
+  # any of those four required vars ... yields STATUS=not_configured"), so the
+  # implementation simply did not match its own documented contract. It surfaced
+  # when the new test ran on the GitHub Actions runner, where the calling job
+  # exports AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / S3_ENDPOINT for the API's
+  # MinIO config: a deliberately-incomplete config file was reported as fully
+  # configured, and the script went on to call `aws` with credentials belonging
+  # to an entirely different bucket.
+  #
+  # Not a live prod bug today (deploy.yml invokes this over SSH with a clean
+  # env, and the cron path sources the same file), and the failure direction was
+  # the safe one — the mismatched credentials would have made `aws` fail, i.e.
+  # exit 1 "could not determine", never a false "fresh". But a script whose
+  # verdict about prod backups depends on who called it is not one to leave
+  # standing, and this is the whole reason the guards got tests.
+  #
+  # S3_ENDPOINT is included even though it is optional: an inherited endpoint
+  # would silently point the freshness query at the wrong service.
+  unset S3_BUCKET AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY S3_REGION S3_ENDPOINT
 
   # Source into this process's env — never echoed, never written anywhere
   # else. `set -a` so plain KEY=value lines in the file become env for the

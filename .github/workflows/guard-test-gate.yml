@@ -32,9 +32,19 @@
 #      data rather than 403.
 #   security-reviewer + Manual QA on the live stack remain mandatory for these.
 #
-# Branch protection has no required checks today, so a red check here is a loud
-# advisory; it future-proofs for when required checks are enabled. Fail-closed:
-# `set -euo pipefail` makes any crash fail the step (red job), never silent-pass.
+# ENFORCEMENT STATUS — corrected 2026-08-07 (task-guards-teeth). This header used
+# to claim "branch protection has no required checks today". That stopped being
+# true on 2026-07-28, and ci.yml's own header (lines 16-19) has said the opposite
+# ever since — two workflows in this directory asserting opposite things about the
+# same repo setting. Verified against the API on 2026-08-07:
+#   required contexts = "Typecheck · Lint · Unit Tests", "E2E Tests"
+#   required reviews  = none
+# This gate is NOT one of those contexts, so a red check HERE is still a loud
+# advisory rather than a merge blocker — the practical conclusion is unchanged,
+# but the reason is the opposite of what was written. If this gate should become
+# blocking, add its context to branch protection; do not infer from this comment.
+# Fail-closed: `set -euo pipefail` makes any crash fail the step (red job), never
+# silent-pass.
 
 name: Guard-test gate (FM-5)
 

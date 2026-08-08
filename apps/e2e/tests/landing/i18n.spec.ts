@@ -207,8 +207,22 @@ test.describe('orchestrator finding — /:locale/careers/ renders the CAREERS pa
       // MUST differ from that SAME locale's home, regardless of what the
       // translated copy actually says.
       expect(careersH1).not.toBe(homeH1)
+      // `prefer-web-first-assertions` wants `toHaveAttribute` here, and it is
+      // right in general — that form retries, a captured string does not. It
+      // cannot apply to these two lines: both compare the CAREERS page's value
+      // against a value captured from a DIFFERENT navigation (this locale's
+      // home, read before `gotoStable(page, careers)` above). A retrying
+      // locator assertion has no way to express "differs from what another page
+      // rendered". The snapshots are taken after `gotoStable`, which already
+      // waits for the page to settle, so there is no race being papered over.
+      // The single-page form of this check is converted properly below.
+      // (task-lint-teeth)
+      // eslint-disable-next-line playwright/prefer-web-first-assertions
       expect(careersCanonical).not.toBe(homeCanonical)
-      expect(careersCanonical).toBe(`${SITE_ORIGIN}${careers}`)
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+        'href',
+        `${SITE_ORIGIN}${careers}`,
+      )
 
       // The vacancy LIST is genuinely rendered, not just "some non-empty
       // h1" — a real link to this locale's own vacancy-detail page for the
@@ -237,8 +251,13 @@ test.describe('orchestrator finding — vacancy DETAIL pages render the DETAIL c
         page.locator(`h1[data-vacancy-slug="${FULLY_TRANSLATED_VACANCY_SLUG}"]`),
       ).toBeVisible()
 
-      const canonical = await page.locator('link[rel="canonical"]').getAttribute('href')
-      expect(canonical).toBe(`${SITE_ORIGIN}${detailPath}`)
+      // Retrying form (task-lint-teeth): the previous
+      // `expect(await …getAttribute('href')).toBe(…)` read the attribute once
+      // and raced the page, which is how landing specs have gone flaky before.
+      await expect(page.locator('link[rel="canonical"]')).toHaveAttribute(
+        'href',
+        `${SITE_ORIGIN}${detailPath}`,
+      )
     })
   }
 })

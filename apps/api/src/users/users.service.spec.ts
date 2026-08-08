@@ -944,13 +944,16 @@ describe('UsersService.adminUpdateUser', () => {
     })
     expect(result.registrationAddress).toBe('м. Київ, вул. Хрещатик, 1')
 
-    // Verify .set() received the field
+    // Verify .set() received the field. The non-empty check is load-bearing:
+    // this assertion used to sit inside `if (setCalls?.length)`, so a change
+    // that stopped calling `.set()` at all skipped it and the test still
+    // passed. (task-lint-teeth)
     const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
-    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
-    if (setCalls?.length) {
-      const setArg = setCalls[0][0] as Record<string, unknown>
-      expect(setArg).toHaveProperty('registrationAddress', 'м. Київ, вул. Хрещатик, 1')
-    }
+    const setCalls = (updateMock.mock.results[0]?.value?.set?.mock?.calls ?? []) as unknown[][]
+    expect(setCalls.length, 'expected .set() to have been called').toBeGreaterThan(0)
+
+    const setArg = setCalls[0]?.[0] as Record<string, unknown>
+    expect(setArg).toHaveProperty('registrationAddress', 'м. Київ, вул. Хрещатик, 1')
   })
 
   it('clears registrationAddress when set to null', async () => {
@@ -971,12 +974,15 @@ describe('UsersService.adminUpdateUser', () => {
 
     await service.adminUpdateUser('user-1', { displayName: 'Only Name' })
 
+    // Same as above — and here the `if` mattered even more: the whole point of
+    // this test is the absence of a key in `.set()`'s argument, so an empty
+    // `setCalls` made it assert nothing at all while reporting green.
     const updateMock = (db.db as unknown as { update: ReturnType<typeof vi.fn> }).update
-    const setCalls = updateMock.mock.results[0]?.value?.set?.mock?.calls
-    if (setCalls?.length) {
-      const setArg = setCalls[0][0] as Record<string, unknown>
-      expect(setArg).not.toHaveProperty('registrationAddress')
-    }
+    const setCalls = (updateMock.mock.results[0]?.value?.set?.mock?.calls ?? []) as unknown[][]
+    expect(setCalls.length, 'expected .set() to have been called').toBeGreaterThan(0)
+
+    const setArg = setCalls[0]?.[0] as Record<string, unknown>
+    expect(setArg).not.toHaveProperty('registrationAddress')
   })
 })
 

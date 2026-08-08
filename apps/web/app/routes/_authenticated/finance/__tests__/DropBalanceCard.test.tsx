@@ -35,7 +35,11 @@ function makeSummary(dropBalances: FinanceSummaryDto['dropBalances']): FinanceSu
 describe('DropBalanceCard', () => {
   it('returns null when dropBalances is empty', () => {
     const { container } = render(<DropBalanceCard summary={makeSummary([])} />)
-    expect(container.firstChild).toBeNull()
+    // `toBeEmptyDOMElement()` instead of `container.firstChild).toBeNull()`
+    // (task-lint-teeth): same guarantee — the component rendered nothing —
+    // without reaching into DOM internals, and with a far better failure
+    // message (it prints what WAS rendered).
+    expect(container).toBeEmptyDOMElement()
   })
 
   describe('empty-state (balance = 0)', () => {

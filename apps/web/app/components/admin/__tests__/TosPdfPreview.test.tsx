@@ -125,9 +125,11 @@ describe('TosPdfPreview', () => {
 
     vi.useRealTimers()
 
-    const iframe = document.querySelector('iframe')
+    // Found by its accessible title (TosPdfPreview.tsx sets one) instead of
+    // document.querySelector — task-lint-teeth.
+    const iframe = screen.getByTitle('Предпросмотр Terms of Service')
     expect(iframe).toBeInTheDocument()
-    expect(iframe?.src).toContain('blob:')
+    expect(iframe).toHaveAttribute('src', expect.stringContaining('blob:'))
     expect(mockToastError).not.toHaveBeenCalled()
   })
 

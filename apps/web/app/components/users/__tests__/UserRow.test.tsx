@@ -67,21 +67,30 @@ function renderRow(user: UserProfileDto) {
 }
 
 describe('UserRow — telegram link (code-review round 2)', () => {
+  // Queried by role rather than by walking up from the text with `closest('a')`
+  // (task-lint-teeth). `getByRole('link', { name })` asserts the same thing —
+  // this handle IS a link — and asserts it the way a user and a screen reader
+  // encounter it, instead of via DOM ancestry that a markup refactor can shift
+  // without changing behaviour.
   it('valid handle renders as a clickable https://t.me/ link', () => {
     renderRow(makeUser({ telegram: '@armghyan' }))
-    const link = screen.getByText('@armghyan').closest('a')
+    const link = screen.getByRole('link', { name: '@armghyan' })
     expect(link).toHaveAttribute('href', 'https://t.me/armghyan')
     expect(link).toHaveAttribute('rel', 'noopener noreferrer')
   })
 
   it('invalid telegram value stays plain, non-clickable text', () => {
     renderRow(makeUser({ telegram: 'not a real handle!!' }))
-    const text = screen.getByText('not a real handle!!')
-    expect(text.closest('a')).toBeNull()
+    expect(screen.getByText('not a real handle!!')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'not a real handle!!' })).toBeNull()
   })
 
   it('renders no t.me link when telegram is null', () => {
     renderRow(makeUser({ telegram: null }))
-    expect(document.querySelector('a[href^="https://t.me/"]')).toBeNull()
+    expect(
+      screen
+        .queryAllByRole('link')
+        .filter((a) => a.getAttribute('href')?.startsWith('https://t.me/')),
+    ).toHaveLength(0)
   })
 })

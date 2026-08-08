@@ -66,6 +66,15 @@
 #      script and nginx/conf.d/csp-map.conf could silently disagree about
 #      CRM's actual mode if only one of the two was updated on a flip.
 #
+# Tests: scripts/devops/tests/test-check-security-headers.sh — positive AND
+# negative cases against a controllable stub origin (tests/lib/fake-origin.py),
+# including a CSP header that is present and wide open (`default-src *`), the
+# PR #429 regressions (landing losing Turnstile, CRM asset locations losing every
+# header), and a fixture/guard disagreement about CRM_CSP_MODE. Those cases prove
+# THIS SCRIPT's logic; that nginx itself is configured correctly is proven by
+# deploy.yml's FATAL post-deploy smoke step, which runs this script against the
+# real VPS.
+#
 # Usage:
 #   scripts/devops/check-security-headers.sh [origin]
 #   ORIGIN=https://cheekycheese.tech scripts/devops/check-security-headers.sh

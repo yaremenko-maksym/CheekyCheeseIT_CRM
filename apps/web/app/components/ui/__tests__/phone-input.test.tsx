@@ -180,7 +180,7 @@ describe('PhoneInput component', () => {
     const { input } = setup()
     input.focus()
     await user.type(input, '+380661234567')
-    expect(document.activeElement).toBe(input)
+    expect(input).toHaveFocus()
   })
 
   it('does not call onChange when input would exceed max length', async () => {
@@ -210,7 +210,7 @@ describe('PhoneInput component', () => {
     const { input } = setup()
     input.focus()
     await user.type(input, '+38066')
-    expect(document.activeElement).toBe(input)
+    expect(input).toHaveFocus()
   })
 
   // ---------------------------------------------------------------------------

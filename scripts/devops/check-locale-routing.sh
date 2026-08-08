@@ -7,6 +7,14 @@
 # smoke check) and reports PASS/FAIL per case. Exit code is non-zero if any
 # case fails — safe to wire into CI or a manual pre/post-deploy check.
 #
+# Tests: scripts/devops/tests/test-check-locale-routing.sh — positive AND
+# negative cases against a controllable stub origin (tests/lib/fake-origin.py):
+# a Vary header that is present but omits a field that decides the locale, an
+# ignored pref_locale cookie, prefixed URLs that start redirecting again, a
+# redirect into a locale the page was never prerendered in, a 302 that loses
+# no-store, and a simulated ReDoS. Those prove THIS SCRIPT's logic; that nginx/njs
+# is correct is proven by running this script against a real origin.
+#
 # Usage:
 #   scripts/devops/check-locale-routing.sh [origin]
 #   ORIGIN=https://cheekycheese.tech scripts/devops/check-locale-routing.sh

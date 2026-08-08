@@ -154,13 +154,13 @@ describe('vacancies schemas', () => {
     it('defaults seniority to SENIOR when omitted', () => {
       const result = createVacancySchema.safeParse(base)
       expect(result.success).toBe(true)
-      if (result.success) expect(result.data.seniority).toBe('SENIOR')
+      expect(result.data?.seniority).toBe('SENIOR')
     })
 
     it('defaults location to Remote when omitted', () => {
       const result = createVacancySchema.safeParse(base)
       expect(result.success).toBe(true)
-      if (result.success) expect(result.data.location).toBe('Remote')
+      expect(result.data?.location).toBe('Remote')
     })
 
     it('still accepts an explicit seniority/location override (e.g. a direct API caller)', () => {
@@ -170,10 +170,8 @@ describe('vacancies schemas', () => {
         location: 'Berlin',
       })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.seniority).toBe('LEAD')
-        expect(result.data.location).toBe('Berlin')
-      }
+      expect(result.data?.seniority).toBe('LEAD')
+      expect(result.data?.location).toBe('Berlin')
     })
   })
 
@@ -186,10 +184,8 @@ describe('vacancies schemas', () => {
     it('accepts an empty object (no-op update)', () => {
       const result = updateVacancySchema.safeParse({})
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.seniority).toBeUndefined()
-        expect(result.data.location).toBeUndefined()
-      }
+      expect(result.data?.seniority).toBeUndefined()
+      expect(result.data?.location).toBeUndefined()
     })
 
     it('rejects an invalid status value', () => {
@@ -207,28 +203,22 @@ describe('vacancies schemas', () => {
     it('a partial update touching only title does NOT inject seniority/location defaults', () => {
       const result = updateVacancySchema.safeParse({ title: 'New Title Only' })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.seniority).toBeUndefined()
-        expect(result.data.location).toBeUndefined()
-      }
+      expect(result.data?.seniority).toBeUndefined()
+      expect(result.data?.location).toBeUndefined()
     })
 
     it('a pure status transition does NOT inject seniority/location defaults', () => {
       const result = updateVacancySchema.safeParse({ status: 'CLOSED' })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.seniority).toBeUndefined()
-        expect(result.data.location).toBeUndefined()
-      }
+      expect(result.data?.seniority).toBeUndefined()
+      expect(result.data?.location).toBeUndefined()
     })
 
     it('still accepts an explicit seniority/location override', () => {
       const result = updateVacancySchema.safeParse({ seniority: 'LEAD', location: 'Kyiv' })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.seniority).toBe('LEAD')
-        expect(result.data.location).toBe('Kyiv')
-      }
+      expect(result.data?.seniority).toBe('LEAD')
+      expect(result.data?.location).toBe('Kyiv')
     })
   })
 
@@ -393,10 +383,8 @@ describe('vacancies schemas', () => {
         uk: { title: 'Провідний інженер', description: 'Опис вакансії тут.' },
       })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.uk?.title).toBe('Провідний інженер')
-        expect(result.data.ru).toBeUndefined()
-      }
+      expect(result.data?.uk?.title).toBe('Провідний інженер')
+      expect(result.data?.ru).toBeUndefined()
     })
 
     it('accepts all 4 translation locales populated', () => {
@@ -440,11 +428,9 @@ describe('vacancies schemas', () => {
     it('omitting translations/SEO fields on create leaves them undefined (service maps undefined -> null)', () => {
       const result = createVacancySchema.safeParse(base)
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.translations).toBeUndefined()
-        expect(result.data.skills).toBeUndefined()
-        expect(result.data.experienceMonths).toBeUndefined()
-      }
+      expect(result.data?.translations).toBeUndefined()
+      expect(result.data?.skills).toBeUndefined()
+      expect(result.data?.experienceMonths).toBeUndefined()
     })
 
     it('accepts an explicit translations + SEO enrichment payload on create', () => {
@@ -459,10 +445,8 @@ describe('vacancies schemas', () => {
         workHours: '40 hours per week',
       })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.skills).toEqual(['TypeScript', 'React'])
-        expect(result.data.experienceMonths).toBe(36)
-      }
+      expect(result.data?.skills).toEqual(['TypeScript', 'React'])
+      expect(result.data?.experienceMonths).toBe(36)
     })
 
     it('accepts explicit null for any SEO field (clearing a previously-set value)', () => {
@@ -480,11 +464,9 @@ describe('vacancies schemas', () => {
     it('a partial update touching only title does NOT inject translations/SEO defaults', () => {
       const result = updateVacancySchema.safeParse({ title: 'New Title Only' })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.translations).toBeUndefined()
-        expect(result.data.skills).toBeUndefined()
-        expect(result.data.experienceMonths).toBeUndefined()
-      }
+      expect(result.data?.translations).toBeUndefined()
+      expect(result.data?.skills).toBeUndefined()
+      expect(result.data?.experienceMonths).toBeUndefined()
     })
 
     it('a partial update CAN explicitly set translations/SEO fields', () => {
@@ -493,10 +475,8 @@ describe('vacancies schemas', () => {
         qualifications: null,
       })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.skills).toEqual(['Node.js'])
-        expect(result.data.qualifications).toBeNull()
-      }
+      expect(result.data?.skills).toEqual(['Node.js'])
+      expect(result.data?.qualifications).toBeNull()
     })
   })
 
@@ -567,10 +547,8 @@ describe('vacancies schemas', () => {
       }
       const result = publicVacancySchema.safeParse(legacyShapedItem)
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.salaryMin).toBeUndefined()
-        expect(result.data.salaryMax).toBeUndefined()
-      }
+      expect(result.data?.salaryMin).toBeUndefined()
+      expect(result.data?.salaryMax).toBeUndefined()
     })
 
     it('detail DTO caps relatedVacancies at 3', () => {
@@ -630,12 +608,10 @@ describe('vacancies schemas', () => {
     it('accepts a full, valid salary range', () => {
       const result = createVacancySchema.safeParse({ ...base, ...VALID_SALARY })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.salaryMin).toBe(3000)
-        expect(result.data.salaryMax).toBe(5000)
-        expect(result.data.salaryCurrency).toBe('USDT')
-        expect(result.data.salaryPeriod).toBe('MONTH')
-      }
+      expect(result.data?.salaryMin).toBe(3000)
+      expect(result.data?.salaryMax).toBe(5000)
+      expect(result.data?.salaryCurrency).toBe('USDT')
+      expect(result.data?.salaryPeriod).toBe('MONTH')
     })
 
     it('rejects a create payload with NO salary fields at all', () => {
@@ -696,19 +672,15 @@ describe('vacancies schemas', () => {
     it('a pure status transition does NOT require salary fields (schema level — the mandatory-at-publish gate lives in VacanciesService)', () => {
       const result = updateVacancySchema.safeParse({ status: 'PUBLISHED' })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.salaryMin).toBeUndefined()
-        expect(result.data.salaryMax).toBeUndefined()
-      }
+      expect(result.data?.salaryMin).toBeUndefined()
+      expect(result.data?.salaryMax).toBeUndefined()
     })
 
     it('still accepts an explicit full range on PATCH', () => {
       const result = updateVacancySchema.safeParse({ ...VALID_SALARY })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.salaryMin).toBe(3000)
-        expect(result.data.salaryCurrency).toBe('USDT')
-      }
+      expect(result.data?.salaryMin).toBe(3000)
+      expect(result.data?.salaryCurrency).toBe('USDT')
     })
 
     it('rejects a negative salaryMin even on a partial PATCH', () => {

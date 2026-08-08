@@ -428,10 +428,13 @@ describe('company-account deposits — auto-credit invariant + idempotency (real
 
     // Neither request may 500 — a loser is either the idempotent re-read of the
     // winner's row or a clean 400.
-    for (const r of results) {
-      if (r.status === 'rejected') {
-        expect(r.reason).toBeInstanceOf(BadRequestException)
-      }
+    // Partitioned rather than branching inside the loop (task-lint-teeth) —
+    // zero rejections is legitimate here (both submits can resolve, one via the
+    // idempotent re-read), so only the shape of an actual rejection is pinned.
+    // The row-count and balance assertions below are what fail on a regression.
+    const rejections = results.filter((r) => r.status === 'rejected')
+    for (const r of rejections) {
+      expect(r.reason).toBeInstanceOf(BadRequestException)
     }
 
     const rows = await dbSvc.db
