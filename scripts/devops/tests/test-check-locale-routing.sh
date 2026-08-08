@@ -47,6 +47,16 @@ assert_red "cookie pref_locale ignored, Accept-Language wins instead -> red" \
   --contains "B2: Cookie pref_locale" \
   -- run_case cookie-ignored
 
+# Review round 2, MED: every other case here could be satisfied by a guard that
+# only checked the STATUS code. Nothing held the Location header, so "redirects
+# to the RIGHT locale" — the entire purpose of this edge layer — was untested.
+# Here the 302, the Vary and the Cache-Control are all correct; only the target
+# language is wrong.
+assert_red "302 to the WRONG locale (status and headers all correct) -> red" \
+  --contains "B1: Accept-Language: ru -> 302 /ru/" \
+  --contains "deep path: /careers/" \
+  -- run_case wrong-locale-redirect
+
 assert_red "already-prefixed URLs start redirecting again (crawler safety) -> red" \
   --contains "B3: /uk/ never redirects" \
   -- run_case prefixed-redirects

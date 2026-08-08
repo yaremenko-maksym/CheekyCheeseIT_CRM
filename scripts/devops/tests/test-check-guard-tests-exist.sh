@@ -49,6 +49,38 @@ assert_green "guard does not explode on good input" -- true
 EOF
 }
 
+# Review round 2, H2 — the reviewer's exact attack. Every real negative call is
+# deleted; only the header survives, and that header mentions the helper twice
+# BECAUSE IT IS EXPLAINING THE RULE. This is the shape a well-documented test
+# decays into when someone strips its body, which makes it the likeliest way
+# this meta-guard would be fooled in practice rather than an adversarial edge.
+write_test_with_negative_only_in_prose() {
+  cat >"$1" <<'EOF'
+#!/usr/bin/env bash
+# This test asserts both directions. Every case below uses assert_green for the
+# healthy input and assert_red for the input the guard MUST reject — see
+# lib/harness.sh for why the negative half is the one that matters.
+set -u
+. "$(dirname "${BASH_SOURCE[0]}")/lib/harness.sh"
+assert_green "guard does not explode on good input" -- true
+EOF
+}
+
+# A call that is real, but indented inside a conditional — must still count.
+# Guards against "fix" the anchor into something that only accepts calls in
+# column 0 and quietly stops seeing most of the suite.
+write_test_with_indented_negative() {
+  cat >"$1" <<'EOF'
+#!/usr/bin/env bash
+set -u
+. "$(dirname "${BASH_SOURCE[0]}")/lib/harness.sh"
+assert_green "good input passes" -- true
+if [ -n "${RUN_NEGATIVES:-1}" ]; then
+    assert_red_signal "bad input is rejected" --contains "STATUS=stale" -- true
+fi
+EOF
+}
+
 # ── fixtures ───────────────────────────────────────────────────────────────────
 COMPLIANT="$(new_case compliant)"
 write_guard "$COMPLIANT/guards/check-fixture-alpha.sh"
@@ -76,6 +108,14 @@ EMPTY_TEST="$(new_case empty-test)"
 write_guard "$EMPTY_TEST/guards/check-fixture-alpha.sh"
 : >"$EMPTY_TEST/tests/test-check-fixture-alpha.sh"
 
+PROSE_ONLY="$(new_case prose-only-negative)"
+write_guard "$PROSE_ONLY/guards/check-fixture-alpha.sh"
+write_test_with_negative_only_in_prose "$PROSE_ONLY/tests/test-check-fixture-alpha.sh"
+
+INDENTED="$(new_case indented-negative)"
+write_guard "$INDENTED/guards/check-fixture-alpha.sh"
+write_test_with_indented_negative "$INDENTED/tests/test-check-fixture-alpha.sh"
+
 NO_GUARDS="$(new_case no-guards)"
 
 run_guard() { bash "$GUARD" "$1/guards" "$1/tests"; }
@@ -97,6 +137,10 @@ assert_green "the real scripts/devops tree satisfies its own meta-guard" \
   --contains "every check-* script has a test" \
   -- run_guard_on_this_repo
 
+assert_green "an indented assert_red (inside an if) still counts as a real call" \
+  --contains "1 guarded, 0 unguarded" \
+  -- run_guard "$INDENTED"
+
 # ── negative ───────────────────────────────────────────────────────────────────
 assert_red "THE POINT: a new guard arrives with no test -> red" \
   --contains "have NO test at all" \
@@ -111,6 +155,11 @@ assert_red "THE OTHER POINT: test exists but only ever asserts green -> red" \
 assert_red "an empty test file (touch) does not count -> red" \
   --contains "never assert the guard goes RED" \
   -- run_guard "$EMPTY_TEST"
+
+assert_red "H2: the only 'assert_red' is in a comment explaining the rule -> red" \
+  --contains "never assert the guard goes RED" \
+  --contains "check-fixture-alpha.sh" \
+  -- run_guard "$PROSE_ONLY"
 
 assert_red "pointed at a directory with no guards at all -> red, not vacuously green" \
   --contains "no check-* scripts found" \

@@ -274,6 +274,12 @@ class Handler(BaseHTTPRequestHandler):
             self.send_body(200, "<html>en (no localized page)</html>", headers)
             return
 
+        if ARGS.flaw == "wrong-locale-redirect":
+            # Redirect happens, status is right, Vary and Cache-Control are
+            # right — only the LANGUAGE is wrong. Nothing about the response
+            # looks broken except the one field that carries the whole point.
+            target = "es" if target != "es" else "pt"
+
         self.send_body(302, "", headers + [("Location", "/" + target + "/" + rel)])
 
     # ── verb handlers ─────────────────────────────────────────────────────────

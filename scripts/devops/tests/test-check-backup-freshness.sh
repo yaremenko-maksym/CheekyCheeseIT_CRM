@@ -67,6 +67,54 @@ exit 255")"
 GARBAGE_SHIM="$(make_aws_shim garbage "#!/bin/sh
 echo 'yesterday-ish'")"
 
+# Records the argv it was called with, then behaves like FRESH_SHIM.
+#
+# Review round 2, MED: the ambient-environment fix unsets S3_ENDPOINT as well as
+# the credentials, and the reasoning for that ("an inherited endpoint would
+# silently redirect the freshness query at another service") was written down but
+# never checked. It is invisible in the guard's stdout — STATUS=fresh looks
+# identical either way — so the only way to hold it is to look at what the S3
+# query was actually invoked with.
+ARGS_FILE="$WS/aws-args.txt"
+RECORDING_SHIM_BODY='#!/bin/sh
+echo "$@" >>"$SHIM_ARGS_FILE"
+echo TIMESTAMP_PLACEHOLDER'
+RECORDING_SHIM="$(make_aws_shim recording "${RECORDING_SHIM_BODY/TIMESTAMP_PLACEHOLDER/$NOW_ISO}")"
+
+# Runs the guard with the recording shim, then prints what `aws` received, so
+# the assertion helpers can look at both the verdict and the invocation.
+# $1 = config file
+run_guard_recording_args() {
+  local env_file="$1"
+  : >"$ARGS_FILE"
+  PATH="$RECORDING_SHIM:$PATH" CRM_BACKUP_ENV_FILE="$env_file" SHIM_ARGS_FILE="$ARGS_FILE" \
+    S3_ENDPOINT=http://ambient-endpoint.invalid \
+    AWS_ACCESS_KEY_ID=ambient-key-from-caller \
+    AWS_SECRET_ACCESS_KEY=ambient-secret-from-caller \
+    bash "$GUARD"
+  echo "aws-invoked-with: $(cat "$ARGS_FILE")"
+}
+
+# Same, but the config file legitimately defines its own S3_ENDPOINT.
+run_guard_recording_args_with_configured_endpoint() {
+  local env_file="$1"
+  : >"$ARGS_FILE"
+  PATH="$RECORDING_SHIM:$PATH" CRM_BACKUP_ENV_FILE="$env_file" SHIM_ARGS_FILE="$ARGS_FILE" \
+    S3_ENDPOINT=http://ambient-endpoint.invalid \
+    bash "$GUARD"
+  echo "aws-invoked-with: $(cat "$ARGS_FILE")"
+}
+
+# A complete config that deliberately does NOT set S3_ENDPOINT (an AWS-native
+# bucket rather than R2 — the endpoint is genuinely optional).
+NO_ENDPOINT_ENV_FILE="$WS/crm-backup-no-endpoint.env"
+cat >"$NO_ENDPOINT_ENV_FILE" <<'ENVEOF'
+S3_BUCKET=crm-backups-fixture
+AWS_ACCESS_KEY_ID=file-key-id
+AWS_SECRET_ACCESS_KEY=file-secret
+S3_REGION=auto
+ENVEOF
+
 # Runs the guard with a shimmed PATH and an explicit config-file override.
 # $1 = PATH prefix dir, $2 = config file
 run_guard() {
@@ -140,6 +188,20 @@ assert_red_signal "ambient AWS creds in the caller's env do NOT make an incomple
   --contains "AWS_ACCESS_KEY_ID" \
   --not-contains "STATUS=fresh" \
   -- run_guard_with_ambient_creds "$FRESH_SHIM" "$INCOMPLETE_ENV_FILE"
+
+# The other half of that same fix — see run_guard_recording_args's comment for
+# why this needs the invocation and not the verdict.
+assert_green "an inherited S3_ENDPOINT never reaches the S3 query when the config omits it" \
+  --contains "STATUS=fresh" \
+  --not-contains "ambient-endpoint.invalid" \
+  --not-contains "--endpoint-url" \
+  -- run_guard_recording_args "$NO_ENDPOINT_ENV_FILE"
+
+assert_green "the config file's OWN S3_ENDPOINT is still used (fix did not break R2)" \
+  --contains "STATUS=fresh" \
+  --contains "--endpoint-url https://fixture.r2.cloudflarestorage.com" \
+  --not-contains "ambient-endpoint.invalid" \
+  -- run_guard_recording_args_with_configured_endpoint "$ENV_FILE"
 
 assert_red "aws call fails -> exit 1 and NO verdict at all (never 'backups missing')" \
   --contains "do not trust this as 'no backups'" \

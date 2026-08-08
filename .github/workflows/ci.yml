@@ -192,7 +192,14 @@ jobs:
       # Tests" — verified against the API on 2026-08-07, see guard-test-gate.yml's
       # corrected header). A standalone job would be visible but not required, i.e.
       # ignorable — which is the same "looks like a check, isn't one" failure this
-      # task is about. Cost is ~10s wall-clock, no install/build dependency.
+      # task is about.
+      #
+      # Cost: seconds, not minutes, and no install/build dependency — the step
+      # needs only bash/python3/node/curl. A wall-clock figure is deliberately not
+      # quoted here: the first version of this comment said "~10s", which was
+      # already wrong when written and drifted further as cases were added. The
+      # run's own timing in the Actions UI is the authoritative number, and unlike
+      # a comment it cannot go stale.
       - name: Guard tests (every check-* script, both directions)
         if: steps.scope.outputs.code == 'true'
         run: bash scripts/devops/tests/run-guard-tests.sh

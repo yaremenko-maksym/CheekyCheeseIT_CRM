@@ -67,7 +67,10 @@ write_page "$NO_JOBPOSTING/apps/landing/dist/careers/senior-react/index.html" "$
 NO_DETAIL="$(new_dist no-detail-pages)"
 write_page "$NO_DETAIL/apps/landing/dist/careers/index.html" "$ITEMLIST_FULL"
 
-NO_DIST="$(guard_test_workspace)"
+# Under $WS, not its own mktemp -d, so the trap above actually reclaims it
+# (review round 2, LOW: this one leaked a directory per run).
+NO_DIST="$WS/no-dist"
+mkdir -p "$NO_DIST"
 
 echo "== test-check-landing-seo-coverage.sh =="
 echo

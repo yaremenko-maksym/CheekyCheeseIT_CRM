@@ -32,27 +32,40 @@ comments while nothing copied or applied it. Found on PR #498, where the author
 noted the guard "goes green because my own comments and step names contain the
 string". A guard that a comment can satisfy is decoration.
 
-Now BOTH of these must hold, and comment-only lines are stripped before any
-matching, so prose can never satisfy either:
+Now BOTH of these must hold:
 
   COPY  — the filename appears in the `source:` value of an appleboy/scp-action
-          step. If that `source:` is an expression (`${{ steps.X.outputs.Y }}` —
-          used by the guarded, conditional copies), the referenced step X's own
-          body is searched instead, since that is where the file list is built.
-  APPLY — the filename appears on a non-comment line, together with the
-          server-side path root (/opt/crm), inside a step that actually runs
-          `psql`. That is the `FOO_FILE="/opt/crm/apps/api/drizzle/manual/..."`
-          assignment that gets fed to psql — writing it is doing the work.
+          step (inline or `|` block scalar). If that `source:` is an expression
+          (`${{ steps.X.outputs.Y }}` — used by the guarded, conditional copies),
+          the referenced step X's own body is searched instead, since that is
+          where the file list is built.
+  APPLY — the filename appears together with the server-side path root
+          (/opt/crm) inside a step that actually INVOKES `psql`. That is the
+          `FOO_FILE="/opt/crm/apps/api/drizzle/manual/..."` assignment that gets
+          fed to psql — writing it is doing the work.
+
+Text a human reads, rather than text the deploy acts on, is removed before any
+matching happens — in three places, each one a hole someone walked through:
+  - whole-line comments;
+  - TRAILING comments (`source: 'x.yml'   # also ships foo.sql`) — added review
+    round 2 after a reviewer made the guard green with zero copies and zero
+    applies while it printed "Comment-only mentions do NOT count";
+  - GitHub log annotations (`echo "::notice::foo.sql not found — skipping
+    copy"`), which assert the opposite of wiring;
+and `psql` must be invoked rather than named, so a step that only ECHOES a psql
+command line no longer counts as applying anything.
 
 Failure modes are reported separately (never copied / copied but never applied /
 applied but never copied), because "the scp list was updated but the apply step
 was forgotten" is a real and differently-diagnosed bug from "nothing at all".
 
-KNOWN LIMITATION, stated rather than implied: this proves the two steps EXIST
+KNOWN LIMITATIONS, stated rather than implied: this proves the two steps EXIST
 and name the file. It does not prove the apply step runs on every deploy (it may
-sit behind an `if:`), nor that the SQL itself is correct or idempotent. It is a
-wiring check. The proof that a migration actually applied is deploy.yml's own
-fail-loud apply step and the prod schema afterwards.
+sit behind an `if:`), that the psql invocation it found is the one that consumes
+THIS file, nor that the SQL itself is correct or idempotent. A shell variable
+holding a psql command string without ever running it would also still count. It
+is a wiring check. The proof that a migration actually applied is deploy.yml's
+own fail-loud apply step and the prod schema afterwards.
 
 Tests: scripts/devops/tests/test-check-prod-ddl-wiring.sh (positive AND negative
 cases — including the comment-only cheat above, which must go red).
@@ -134,16 +147,56 @@ STEP_START_RE = re.compile(
 )
 COMMENT_LINE_RE = re.compile(r"^\s*#")
 ID_RE = re.compile(r"^\s*id:\s*(\S+)\s*$")
-SOURCE_RE = re.compile(r"^\s*source:\s*(.+?)\s*$")
+SOURCE_KEY_RE = re.compile(r"^(\s*)source:\s*(.*?)\s*$")
+BLOCK_SCALAR_RE = re.compile(r"^[|>][+-]?$")
 STEPS_EXPR_RE = re.compile(r"\$\{\{\s*steps\.([A-Za-z0-9_-]+)\.outputs\.[A-Za-z0-9_-]+\s*\}\}")
+
+# GitHub Actions log annotations are human-facing prose that happens to live on
+# an executable line. `echo "::notice::<file> not found — skipping copy"` says
+# the OPPOSITE of "this file is wired", so counting it as evidence of wiring
+# inverts the guard's meaning (review round 2, MED). Same reasoning as comments:
+# text a person reads is not text the deploy acts on.
+ANNOTATION_RE = re.compile(r"::(?:notice|warning|error|debug)\s*(?:::|\s|$)")
+
+# `psql` must be INVOKED, not merely named. `echo "then run: psql -f ..."`
+# documents an apply step; it does not perform one (review round 2, MED).
+PSQL_INVOCATION_RE = re.compile(r"(?:^|[|&;()]|\s)psql\b")
+ECHO_LINE_RE = re.compile(r"^\s*(?:echo|printf)\b")
+
+
+def strip_trailing_comment(line):
+    """Drop a trailing ` # ...` comment, respecting quotes.
+
+    THE H1 FIX (review round 2). Dropping whole comment LINES was not enough:
+    `source: 'docker-compose.prod.yml'   # also ships 2026-08-07_x.sql` and
+    `F="/opt/crm/.../other.sql"   # supersedes 2026-08-07_x.sql` made the guard
+    green with zero copies and zero applies — the same "prose satisfies the
+    check" defect this guard was rewritten to remove, just moved to the right
+    of the code instead of above it. Worse, the guard printed "Comment-only
+    mentions do NOT count" while accepting exactly that.
+
+    A `#` only opens a comment when it is outside quotes AND preceded by
+    whitespace (or starts the line). That keeps `echo "# heading"` and
+    `https://host/path#frag` intact, which both occur in this workflow.
+    """
+    in_single = False
+    in_double = False
+    for i, ch in enumerate(line):
+        if ch == "'" and not in_double:
+            in_single = not in_single
+        elif ch == '"' and not in_single:
+            in_double = not in_double
+        elif ch == "#" and not in_single and not in_double:
+            if i == 0 or line[i - 1] in " \t":
+                return line[:i]
+    return line
 
 
 class Step(object):
     def __init__(self, indent):
         self.indent = indent
-        self.lines = []  # comment-only lines already stripped
+        self.lines = []  # comment-only lines dropped, trailing comments stripped
         self.step_id = None
-        self.source_values = []
 
     @property
     def text(self):
@@ -151,11 +204,12 @@ class Step(object):
 
 
 def parse_steps(content):
-    """Split deploy.yml into step blocks, dropping comment-only lines.
+    """Split deploy.yml into step blocks with all comment text removed.
 
     Comment stripping is the load-bearing part: the cheat this guard exists to
     refuse ("the filename is mentioned, therefore it must be wired") lives
-    entirely in comments and step names.
+    entirely in comments — whole-line ones above the code and trailing ones
+    beside it.
     """
     steps = []
     current = None
@@ -176,14 +230,52 @@ def parse_steps(content):
                     current = None
         if current is None:
             continue
-        current.lines.append(raw)
-        m_id = ID_RE.match(raw)
+        line = strip_trailing_comment(raw)
+        current.lines.append(line)
+        m_id = ID_RE.match(line)
         if m_id:
             current.step_id = m_id.group(1)
-        m_src = SOURCE_RE.match(raw)
-        if m_src:
-            current.source_values.append(m_src.group(1))
     return steps
+
+
+def source_values(step):
+    """Values of every `source:` key in this step, block scalars included.
+
+    `source: |` puts the real file list on the FOLLOWING, more-indented lines.
+    Reading only the text on the `source:` line itself saw an empty value there
+    and reported a legitimately-wired file as unwired — a false RED, which is
+    the one failure mode that gets a guard disabled rather than fixed (review
+    round 2, MED).
+    """
+    values = []
+    lines = step.lines
+    i = 0
+    while i < len(lines):
+        m = SOURCE_KEY_RE.match(lines[i])
+        if not m:
+            i += 1
+            continue
+        key_indent = len(m.group(1))
+        inline_value = m.group(2)
+        if BLOCK_SCALAR_RE.match(inline_value):
+            block = []
+            j = i + 1
+            while j < len(lines):
+                nxt = lines[j]
+                if not nxt.strip():
+                    block.append("")
+                    j += 1
+                    continue
+                if len(nxt) - len(nxt.lstrip(" ")) <= key_indent:
+                    break
+                block.append(nxt)
+                j += 1
+            values.append("\n".join(block))
+            i = j
+        else:
+            values.append(inline_value)
+            i += 1
+    return values
 
 
 def mentions(text, filename):
@@ -194,6 +286,11 @@ def mentions(text, filename):
     return re.search(re.escape(filename) + r"(?![\w.-])", text) is not None
 
 
+def evidence_lines(text):
+    """Lines of `text` that carry wiring, with prose-only lines removed."""
+    return [ln for ln in text.split("\n") if not ANNOTATION_RE.search(ln)]
+
+
 def build_zones(steps):
     """Return (copy_texts, apply_texts): the two zones a file must appear in."""
     by_id = {s.step_id: s for s in steps if s.step_id}
@@ -202,19 +299,22 @@ def build_zones(steps):
     apply_texts = []
     for step in steps:
         if "appleboy/scp-action" in step.text:
-            for value in step.source_values:
-                copy_texts.append(value)
+            for value in source_values(step):
+                copy_texts.extend(evidence_lines(value))
                 # `source: '${{ steps.X.outputs.source_list }}'` — the real file
                 # list lives in step X, which is where to look instead.
                 for ref in STEPS_EXPR_RE.findall(value):
                     producer = by_id.get(ref)
                     if producer is not None:
-                        copy_texts.append(producer.text)
+                        copy_texts.extend(evidence_lines(producer.text))
 
-        if "psql" in step.text:
+        runs_psql = any(
+            PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in step.lines
+        )
+        if runs_psql:
             # Only lines that name the server-side path count — that is the
             # variable actually fed to psql, not prose about it.
-            for line in step.lines:
+            for line in evidence_lines(step.text):
                 if "/opt/crm" in line:
                     apply_texts.append(line)
 

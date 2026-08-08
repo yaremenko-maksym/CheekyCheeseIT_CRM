@@ -19,13 +19,26 @@
 # guard whose body is `exit 0` — which is exactly the disease being treated one
 # level up. A guard is only worth having if someone has watched it go red.
 #
-# KNOWN LIMITATION, stated rather than implied: this checks that a negative
-# assertion is PRESENT, not that it is meaningful. `assert_red "x" -- false`
-# would satisfy it. That is a deliberate stopping point — a check strong enough
-# to judge whether an assertion is meaningful is a code reviewer, not a grep.
-# What this closes is the gap that actually occurred (a guard shipped with no
-# test at all, and a test shipped with no red case), not every conceivable way to
-# write a bad test on purpose.
+# WHY THE ANCHOR (review round 2, H2). The first version grepped for the helper
+# name anywhere in the file. A reviewer deleted all seven real negative calls
+# from test-check-backup-freshness.sh, left only its header — which mentions
+# `assert_red` twice while EXPLAINING the rule — and this script reported "10
+# guarded, 0 unguarded". So the meta-guard was satisfiable by a comment: exactly
+# the defect it was written to stop, reproduced inside the thing meant to stop
+# it. The pattern is now anchored to the start of a line, so prose about the
+# helper is not the helper.
+#
+# I had documented a limitation here ("`assert_red \"x\" -- false` would satisfy
+# it") which was true but drew the line in the wrong place — the real hole was
+# that no call had to exist at all. Keeping the note is worth more than deleting
+# it: a stated boundary is only as good as the check under it.
+#
+# REMAINING LIMITATION, still true: this checks that a negative assertion is
+# PRESENT and is a real call, not that it is MEANINGFUL. `assert_red "x" -- false`
+# passes. That is a deliberate stopping point — a check strong enough to judge
+# meaningfulness is a code reviewer, not a grep. What this closes is the gap that
+# actually occurred (a guard with no test; a test with no red case; a test whose
+# only "red case" is prose), not every way to write a bad test on purpose.
 #
 # Self-referential on purpose: this script is itself a check-*, so it must have
 # its own test with its own negative case, and it does
@@ -45,10 +58,12 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GUARDS_DIR="${1:-$SCRIPT_DIR}"
 TESTS_DIR="${2:-$SCRIPT_DIR/tests}"
 
-# The helper names from tests/lib/harness.sh that denote a negative case. Kept
-# as a grep pattern rather than a list of exact names so `assert_red_signal`
-# (the stdout-contract variant, for check-backup-freshness.sh) counts too.
-NEGATIVE_ASSERTION_RE='assert_red'
+# The helper names from tests/lib/harness.sh that denote a negative case.
+# Anchored to line start (leading whitespace allowed) so that only an actual
+# CALL counts — a mention inside a comment or a string does not. `assert_red`
+# without a `$` suffix so `assert_red_signal` (the stdout-contract variant, for
+# check-backup-freshness.sh) counts too. See the H2 note in the header.
+NEGATIVE_ASSERTION_RE='^[[:space:]]*assert_red'
 
 PASS=0
 FAIL=0

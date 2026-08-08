@@ -205,15 +205,20 @@ guard_test_shim() {
 
 # ── fake origin lifecycle (for the three curl-based nginx guards) ──────────────
 # Starts lib/fake-origin.py in the background and blocks until it reports its
-# bound port. Sets FAKE_ORIGIN_URL. stop_fake_origin kills it.
+# bound port. Sets FAKE_ORIGIN_URL. stop_fake_origin kills it AND removes its
+# workspace — the first version leaked one mktemp dir per case (~16 per suite
+# run), which is exactly the kind of quiet mess a test suite has no business
+# leaving on a developer's machine (review round 2, LOW).
 FAKE_ORIGIN_PID=""
 FAKE_ORIGIN_URL=""
+FAKE_ORIGIN_DIR=""
 
 start_fake_origin() {
   local suite="$1"
   shift
   local root
   root="$(guard_test_workspace)"
+  FAKE_ORIGIN_DIR="$root"
   local portfile="$root/port"
 
   python3 "$LIB_DIR/fake-origin.py" --suite "$suite" --port-file "$portfile" "$@" \
@@ -229,6 +234,8 @@ start_fake_origin() {
     if ! kill -0 "$FAKE_ORIGIN_PID" 2>/dev/null; then
       echo "harness: fake-origin died on startup:" >&2
       cat "$root/server.log" >&2
+      rm -rf "$root"
+      FAKE_ORIGIN_DIR=""
       return 1
     fi
     # 50ms — `sleep 0.05` is coreutils/bash-portable enough for macOS + ubuntu.
@@ -237,6 +244,8 @@ start_fake_origin() {
   done
   echo "harness: fake-origin did not report a port in time" >&2
   cat "$root/server.log" >&2
+  rm -rf "$root"
+  FAKE_ORIGIN_DIR=""
   return 1
 }
 
@@ -245,6 +254,10 @@ stop_fake_origin() {
     kill "$FAKE_ORIGIN_PID" 2>/dev/null || true
     wait "$FAKE_ORIGIN_PID" 2>/dev/null || true
     FAKE_ORIGIN_PID=""
+  fi
+  if [ -n "$FAKE_ORIGIN_DIR" ]; then
+    rm -rf "$FAKE_ORIGIN_DIR"
+    FAKE_ORIGIN_DIR=""
   fi
 }
 
