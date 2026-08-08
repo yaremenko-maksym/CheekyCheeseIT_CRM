@@ -76,19 +76,15 @@ describe('createUserSchema — legalFullName superRefine (A3-3 / A2c)', () => {
   it('fails when SENIOR has no legalFullName', () => {
     const result = createUserSchema.safeParse(seniorBase)
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('fails when SENIOR has blank legalFullName', () => {
     const result = createUserSchema.safeParse({ ...seniorBase, legalFullName: '   ' })
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('passes when SENIOR has valid legalFullName', () => {
@@ -102,10 +98,8 @@ describe('createUserSchema — legalFullName superRefine (A3-3 / A2c)', () => {
   it('fails when JUNIOR has no legalFullName', () => {
     const result = createUserSchema.safeParse(juniorBase)
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('fails when HR has no legalFullName', () => {
@@ -120,10 +114,8 @@ describe('createUserSchema — legalFullName superRefine (A3-3 / A2c)', () => {
     }
     const result = createUserSchema.safeParse(payload)
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('fails when ACCOUNTANT has no legalFullName', () => {
@@ -138,10 +130,8 @@ describe('createUserSchema — legalFullName superRefine (A3-3 / A2c)', () => {
     }
     const result = createUserSchema.safeParse(payload)
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('fails when DROP has no legalFullName', () => {
@@ -156,20 +146,16 @@ describe('createUserSchema — legalFullName superRefine (A3-3 / A2c)', () => {
     }
     const result = createUserSchema.safeParse(payload)
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('legalFullName issue path is exactly ["legalFullName"]', () => {
     const result = createUserSchema.safeParse(seniorBase)
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const legalIssue = result.error.issues.find((i) => i.path[0] === 'legalFullName')
-      expect(legalIssue).toBeDefined()
-      expect(legalIssue?.path).toEqual(['legalFullName'])
-    }
+    const legalIssue = (result.error?.issues ?? []).find((i) => i.path[0] === 'legalFullName')
+    expect(legalIssue).toBeDefined()
+    expect(legalIssue?.path).toEqual(['legalFullName'])
   })
 })
 
@@ -209,19 +195,15 @@ describe('createDropSchema — accountant optional', () => {
   it('still requires at least one HR (empty hrIds fails on the hrIds path)', () => {
     const result = createDropSchema.safeParse({ ...dropBase, hrIds: [] })
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('hrIds')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('hrIds')
   })
 
   it('rejects a non-UUID accountantId when supplied', () => {
     const result = createDropSchema.safeParse({ ...dropBase, accountantId: 'not-a-uuid' })
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('accountantId')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('accountantId')
   })
 })
 
@@ -249,19 +231,15 @@ describe('createDropSchema — legalFullName/registrationAddress persistence', (
   it('fails when legalFullName is missing (required for contract)', () => {
     const result = createDropSchema.safeParse(dropNoContract)
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('fails when legalFullName is blank/whitespace', () => {
     const result = createDropSchema.safeParse({ ...dropNoContract, legalFullName: '   ' })
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const paths = result.error.issues.map((i) => i.path.join('.'))
-      expect(paths).toContain('legalFullName')
-    }
+    const paths = (result.error?.issues ?? []).map((i) => i.path.join('.'))
+    expect(paths).toContain('legalFullName')
   })
 
   it('passes with a valid legalFullName', () => {
@@ -279,10 +257,8 @@ describe('createDropSchema — legalFullName/registrationAddress persistence', (
       registrationAddress: 'м. Київ, вул. Хрещатик, 1',
     })
     expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.registrationAddress).toBe('м. Київ, вул. Хрещатик, 1')
-      expect(result.data.legalFullName).toBe('Дропенко Дроп Дропович')
-    }
+    expect(result.data?.registrationAddress).toBe('м. Київ, вул. Хрещатик, 1')
+    expect(result.data?.legalFullName).toBe('Дропенко Дроп Дропович')
   })
 
   it('registrationAddress stays optional (payload valid without it)', () => {

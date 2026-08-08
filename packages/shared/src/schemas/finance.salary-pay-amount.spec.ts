@@ -36,13 +36,13 @@ describe('paySalarySchema — paidAmount (task-salary-pay-amount)', () => {
   it('parses without paidAmount — legacy callers keep working', () => {
     const result = paySalarySchema.safeParse(BASE_PAY)
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data.paidAmount).toBeUndefined()
+    expect(result.data?.paidAmount).toBeUndefined()
   })
 
   it('accepts a hand-entered paid amount', () => {
     const result = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 30_000 })
     expect(result.success).toBe(true)
-    if (result.success) expect(result.data.paidAmount).toBe(30_000)
+    expect(result.data?.paidAmount).toBe(30_000)
   })
 
   it('rejects zero and negative amounts (a salary is never closed by paying nothing)', () => {
@@ -106,11 +106,11 @@ describe('paySalarySchema — paidAmount (task-salary-pay-amount)', () => {
   it('explains WHY in Russian, and reports a tiny amount as too small (not as too precise)', () => {
     const tiny = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1e-7 })
     expect(tiny.success).toBe(false)
-    if (!tiny.success) expect(tiny.error.issues[0]?.message).toContain('слишком мала')
+    expect((tiny.error?.issues ?? [])[0]?.message).toContain('слишком мала')
 
     const precise = paySalarySchema.safeParse({ ...BASE_PAY, paidAmount: 1.1234567 })
     expect(precise.success).toBe(false)
-    if (!precise.success) expect(precise.error.issues[0]?.message).toContain('знаков после запятой')
+    expect((precise.error?.issues ?? [])[0]?.message).toContain('знаков после запятой')
   })
 
   it('still forces USDT for a company-account payout (existing refine untouched)', () => {
@@ -164,25 +164,21 @@ describe('transactionSchema — obligation snapshot (AC4)', () => {
       exchangeRate: '37.5',
     })
     expect(result.success).toBe(true)
-    if (result.success) {
-      // The FACT of the payment…
-      expect(result.data.amount).toBe('30000')
-      expect(result.data.currency).toBe('UAH')
-      // …and the OBLIGATION it settled — both present, neither overwritten.
-      expect(result.data.originalAmount).toBe('800')
-      expect(result.data.originalCurrency).toBe('USD')
-      expect(result.data.exchangeRate).toBe('37.5')
-    }
+    // The FACT of the payment…
+    expect(result.data?.amount).toBe('30000')
+    expect(result.data?.currency).toBe('UAH')
+    // …and the OBLIGATION it settled — both present, neither overwritten.
+    expect(result.data?.originalAmount).toBe('800')
+    expect(result.data?.originalCurrency).toBe('USD')
+    expect(result.data?.exchangeRate).toBe('37.5')
   })
 
   it('parses a legacy row that has no snapshot at all (additive, not breaking)', () => {
     const result = transactionSchema.safeParse(BASE_TX)
     expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.originalAmount).toBeUndefined()
-      expect(result.data.originalCurrency).toBeUndefined()
-      expect(result.data.exchangeRate).toBeUndefined()
-    }
+    expect(result.data?.originalAmount).toBeUndefined()
+    expect(result.data?.originalCurrency).toBeUndefined()
+    expect(result.data?.exchangeRate).toBeUndefined()
   })
 
   it('accepts explicit nulls (unpaid / non-salary rows come back null from the DB)', () => {

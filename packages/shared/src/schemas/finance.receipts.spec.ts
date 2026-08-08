@@ -362,9 +362,7 @@ describe('settleSeniorPayoutSchema — effective currency (COMPANY_ACCOUNT → U
     // settle time (pending-settlement.service.ts), which now also re-asserts
     // the BIZ-03 whitelist against that resolved value (security-review
     // PR #381, MED fix).
-    if (result.success) {
-      expect(result.data.currency).toBeUndefined()
-    }
+    expect(result.data?.currency).toBeUndefined()
   })
 })
 

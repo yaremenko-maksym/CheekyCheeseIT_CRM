@@ -100,9 +100,7 @@ describe('customVariableSchema', () => {
         defaultValue: '31.12.2026',
       })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.defaultValue).toBe('31.12.2026')
-      }
+      expect(result.data?.defaultValue).toBe('31.12.2026')
     })
 
     it('defaultValue is absent when not provided', () => {
@@ -111,9 +109,7 @@ describe('customVariableSchema', () => {
         label: 'Дата',
       })
       expect(result.success).toBe(true)
-      if (result.success) {
-        expect(result.data.defaultValue).toBeUndefined()
-      }
+      expect(result.data?.defaultValue).toBeUndefined()
     })
   })
 
@@ -164,9 +160,7 @@ describe('createContractTemplateSchema', () => {
       bodyMarkdown: '# Contract\n\n{{employeeName}}',
     })
     expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.customVariables).toEqual([])
-    }
+    expect(result.data?.customVariables).toEqual([])
   })
 
   it('accepts customVariables array with valid entries', () => {
@@ -179,11 +173,9 @@ describe('createContractTemplateSchema', () => {
       ],
     })
     expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.customVariables).toHaveLength(2)
-      expect(result.data.customVariables[0]?.key).toBe('projectName')
-      expect(result.data.customVariables[1]?.defaultValue).toBe('01.01.2026')
-    }
+    expect(result.data?.customVariables).toHaveLength(2)
+    expect(result.data?.customVariables[0]?.key).toBe('projectName')
+    expect(result.data?.customVariables[1]?.defaultValue).toBe('01.01.2026')
   })
 
   it('rejects customVariables array containing invalid key', () => {
@@ -202,8 +194,6 @@ describe('createContractTemplateSchema', () => {
       customVariables: [],
     })
     expect(result.success).toBe(true)
-    if (result.success) {
-      expect(result.data.customVariables).toEqual([])
-    }
+    expect(result.data?.customVariables).toEqual([])
   })
 })
