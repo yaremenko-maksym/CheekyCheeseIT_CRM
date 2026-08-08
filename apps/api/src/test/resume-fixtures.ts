@@ -257,3 +257,50 @@ export function buildDocxDeflated(paragraphs: string[]): Buffer {
     },
   ])
 }
+
+/**
+ * The HIGH-1 bypass: the real document body lives at a NON-.xml path.
+ *
+ * `mammoth` resolves the main part from `_rels/.rels` and accepts any target
+ * that exists (`findPartPath` -> `validTargets[0]`), so the extension is
+ * decoration. A decoy `word/document.xml` keeps content-type detection happy
+ * while the body — and all the parser work — sits in `word/document.dat`.
+ */
+export function buildDocxWithRenamedBody(
+  paragraphs: string[],
+  bodyName = 'word/document.dat',
+): Buffer {
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="${bodyName}"/>
+</Relationships>`
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
+    { name: '_rels/.rels', data: Buffer.from(rels, 'utf8'), deflate: true },
+    // Decoy: present so the zip carries the literal name, tiny so a
+    // by-extension budget sees almost nothing.
+    { name: 'word/document.xml', data: Buffer.from(documentXml(['decoy']), 'utf8'), deflate: true },
+    { name: bodyName, data: Buffer.from(documentXml(paragraphs), 'utf8'), deflate: true },
+  ])
+}
+
+/**
+ * A resume with a real embedded image, so budget-split assertions have
+ * something to split. `imageBytes` of incompressible-ish PNG-named payload
+ * lands in `word/media/`, which the parse budget must ignore.
+ */
+export function buildDocxWithMedia(paragraphs: string[], imageBytes: number): Buffer {
+  // Pseudo-random so it does not compress to nothing — we want real weight.
+  const media = Buffer.alloc(imageBytes)
+  for (let i = 0; i < imageBytes; i += 1) media[i] = (i * 2654435761) % 251
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
+    { name: '_rels/.rels', data: Buffer.from(RELS, 'utf8'), deflate: true },
+    {
+      name: 'word/document.xml',
+      data: Buffer.from(documentXml(paragraphs), 'utf8'),
+      deflate: true,
+    },
+    { name: 'word/media/image1.png', data: media },
+  ])
+}

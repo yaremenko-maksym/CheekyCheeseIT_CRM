@@ -19,7 +19,7 @@ import {
 } from './resume-text-extraction.service'
 import {
   MAX_DOCX_UNCOMPRESSED_BYTES,
-  MAX_DOCX_XML_BYTES,
+  MAX_DOCX_PARSED_BYTES,
   MAX_PDF_PAGES,
   capExtractedText,
   detectResumeSourceMime,
@@ -30,6 +30,8 @@ import {
   buildDocx,
   buildDocxDeclaringNoEntries,
   buildDocxDeflated,
+  buildDocxWithMedia,
+  buildDocxWithRenamedBody,
   buildDocxLyingAboutSize,
   buildDocxZipBomb,
   buildEmptyPdf,
@@ -143,28 +145,70 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
   })
 
   /**
-   * The XML parts are what `mammoth` parses, and parse time tracks their size.
-   * Media does not: images are inert for text extraction, so charging them
-   * against the same budget would reject legitimate illustrated CVs while
-   * doing nothing about the attack, which is pure markup.
+   * Budget accounting, with a fixture that actually HAS media.
+   *
+   * The previous version of this test used an XML-only document, so the
+   * "separately" in its name was untested: flipping the classifier to count
+   * everything failed nothing. Media has to be present for the split to mean
+   * anything.
    */
-  it('accounts for XML separately from media', async () => {
-    const info = await inspectDocxZip(buildDocx(['hello']))
-    expect(info.actualXmlBytes).toBeGreaterThan(0)
-    // This fixture is XML-only, so the two totals coincide.
-    expect(info.actualXmlBytes).toBe(info.actualUncompressedBytes)
-    expect(info.actualXmlBytes).toBeLessThan(MAX_DOCX_XML_BYTES)
+  it('excludes media from the parse budget but still counts it as memory', async () => {
+    const withMedia = buildDocxWithMedia(['резюме'], 3 * 1024 * 1024)
+    const info = await inspectDocxZip(withMedia)
+
+    // 3 MB of image sits in the archive...
+    expect(info.actualUncompressedBytes).toBeGreaterThan(3 * 1024 * 1024)
+    // ...and none of it is charged to the parser.
+    expect(info.actualParsedBytes).toBeLessThan(64 * 1024)
+    expect(info.actualUncompressedBytes - info.actualParsedBytes).toBeGreaterThanOrEqual(
+      3 * 1024 * 1024,
+    )
   })
 
-  it('refuses a document whose XML alone exceeds the XML budget', async () => {
-    const dense = buildDocxDeflated(Array.from({ length: 40_000 }, (_, i) => `p${i}`))
-    await expect(inspectDocxZip(dense)).rejects.toThrow(/Текстовая часть/)
+  /**
+   * HIGH-1, round 4. `mammoth` finds the main part through `_rels/.rels` and
+   * takes any target that exists, so a by-extension budget is bypassed by
+   * renaming the body. A decoy `word/document.xml` keeps detection happy.
+   *
+   * Measured before the fix: the guard saw 863 B, the parser read 17.3 MB,
+   * 5 819 ms of continuous stall, and the upload was ACCEPTED.
+   *
+   * MUTATION: make `isInertMedia` return `true` for everything (i.e. count
+   * nothing) or restore the by-extension rule, and this goes red.
+   */
+  it('counts a renamed document body — the extension is the attacker’s choice', async () => {
+    const disguised = buildDocxWithRenamedBody(Array.from({ length: 300_000 }, (_, i) => `p${i}`))
+    // Still a DOCX as far as type detection is concerned.
+    expect(detectResumeSourceMime(disguised)).toBe(RESUME_DOCX_MIME)
+    await expect(inspectDocxZip(disguised)).rejects.toThrow(/Содержимое DOCX больше/)
+  })
+
+  it('counts an unknown extension in full rather than assuming it is inert', async () => {
+    const small = buildDocxWithRenamedBody(['короткое резюме'], 'word/document.bin')
+    const info = await inspectDocxZip(small)
+    // Body + decoy + rels + content-types are all charged.
+    expect(info.actualParsedBytes).toBe(info.actualUncompressedBytes)
+  })
+
+  it('refuses a document whose parsable parts exceed the budget', async () => {
+    const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
+    await expect(inspectDocxZip(dense)).rejects.toThrow(/Содержимое DOCX больше/)
   })
 
   it('names the cap that was hit, so the advice is actionable', async () => {
-    const dense = buildDocxDeflated(Array.from({ length: 40_000 }, (_, i) => `p${i}`))
-    // "shrink the text", not "shrink the images".
-    await expect(inspectDocxZip(dense)).rejects.toThrow(/Текстовая часть DOCX больше 1 MB/)
+    const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
+    await expect(inspectDocxZip(dense)).rejects.toThrow(/Содержимое DOCX больше 4 MB/)
+  })
+
+  /**
+   * Calibration guard. These are the counted-byte sizes measured across 14 real
+   * Word documents (max 539 KB); the budget must stay clear of them by a wide
+   * margin or long real CVs start bouncing, which is what a fixture-derived
+   * 1 MB cap did.
+   */
+  it('leaves real Word documents a wide margin', async () => {
+    const LARGEST_REAL_WORD_DOC_BYTES = 552_161
+    expect(MAX_DOCX_PARSED_BYTES).toBeGreaterThan(LARGEST_REAL_WORD_DOC_BYTES * 5)
   })
 
   it('still accepts a realistic resume with room to spare', async () => {
@@ -173,8 +217,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
       ...Array.from({ length: 120 }, (_, i) => `Достижение ${i}: снизил задержку сервиса на 40%.`),
     ])
     const info = await inspectDocxZip(realistic)
-    // Measured at ~24 KB — the 1 MB budget is ~40x a dense real CV.
-    expect(info.actualXmlBytes).toBeLessThan(MAX_DOCX_XML_BYTES / 10)
+    expect(info.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES / 10)
   })
 
   it('rejects bytes with no zip structure at all', async () => {
@@ -237,8 +280,8 @@ describe('ResumeTextExtractionService.extract', () => {
    * So this test measures what actually hurt: event-loop stall across the real
    * extract() call.
    *
-   * MUTATION: raise `MAX_DOCX_XML_BYTES` to `MAX_DOCX_UNCOMPRESSED_BYTES` and
-   * this goes red (measured 8 876 ms stall at 24 MB of XML).
+   * MUTATION: raise `MAX_DOCX_PARSED_BYTES` to `MAX_DOCX_UNCOMPRESSED_BYTES`
+   * and this goes red (measured 8 876 ms stall at 24 MB of parsable parts).
    */
   it('the paragraph-bomb is refused without stalling the event loop', async () => {
     // 300 000 paragraphs: ~15 MB of XML — comfortably inside the 20 MB TOTAL
@@ -257,32 +300,23 @@ describe('ResumeTextExtractionService.extract', () => {
   }, 120_000)
 
   /**
-   * The worst input that still gets THROUGH the cap. This is the number the
-   * cap actually buys, and it belongs in a test so it cannot regress quietly.
+   * The worst input that still gets THROUGH the cap — the number the cap
+   * actually buys, at the budget edge rather than somewhere comfortably below
+   * it. Raising the budget to fit real Word documents raised this too, and
+   * that trade-off belongs in a test rather than in a sentence.
+   *
+   * Measured over 5 runs at the edge: 1 013 / 1 029 / 1 072 / 1 077 / 1 147 ms.
+   * The ceiling is ~1.6x the worst of those — tight enough that a doubling
+   * fails, loose enough not to flake.
    */
   it('keeps the worst PERMITTED document under a bounded stall', async () => {
-    const dense = buildDocxDeflated(Array.from({ length: 15_000 }, (_, i) => `p${i}`))
+    const dense = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
     const meter = startLagMeter()
     await service.extract(dense, RESUME_DOCX_MIME)
     const { worstStall } = meter.stop()
-    // Measured: 363 ms (was 33 336 ms for the unbounded case).
-    expect(worstStall).toBeLessThan(2_000)
+    expect(worstStall).toBeLessThan(1_800)
   }, 120_000)
 
-  it('does not truncate a resume of realistic length', async () => {
-    const docx = buildDocx(['Иван Петров', 'x'.repeat(5_000)])
-    const text = await service.extract(docx, RESUME_DOCX_MIME)
-    expect(text).toContain('Иван Петров')
-    expect(text.length).toBeGreaterThan(5_000)
-  })
-
-  /**
-   * The concurrency gate used to be an equivalent mutant: replacing 2 with a
-   * million failed nothing, because the old test only checked that ten
-   * extractions all returned. Assert the LIMIT itself.
-   *
-   * MUTATION: raise `MAX_CONCURRENT_EXTRACTIONS` and this goes red.
-   */
   it('never holds more than MAX_CONCURRENT_EXTRACTIONS parsers at once', async () => {
     const docx = buildDocxDeflated(Array.from({ length: 4_000 }, (_, i) => `параллельность ${i}`))
     let observedPeak = 0

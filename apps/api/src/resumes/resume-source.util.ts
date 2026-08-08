@@ -35,32 +35,30 @@ const MAX_ZIP_ENTRIES = 2000
 export const MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
 
 /**
- * Max total uncompressed size of the XML PARTS — the bound that actually
- * governs CPU, and the one this file was missing.
+ * Max total uncompressed size of the parts `mammoth` may actually parse — the
+ * bound that governs CPU.
  *
- * Measured on the real path, not guessed. Parser cost tracks XML size almost
- * linearly, and the shape that hurts is many tiny paragraphs, not many
- * characters (which is why a character cap downstream did nothing):
+ * ACCOUNTED BY EXCLUSION, NOT BY EXTENSION. The previous version counted only
+ * `.xml` / `.rels`, which is trivially bypassed: `mammoth` locates the main
+ * document part through `_rels/.rels` and accepts ANY target that exists
+ * (`docx-reader.js` `findPartPath` -> `validTargets[0]`), so the extension is
+ * decoration. Putting the body in `word/document.dat` and leaving a 900-byte
+ * decoy at `word/document.xml` made this budget see 863 B while the parser
+ * chewed through 17.3 MB — measured at 5 819 ms of continuous main-thread
+ * stall. An allow-list keyed on a name the attacker chooses is not a bound, so
+ * everything counts unless it is provably inert (`isInertMedia`).
  *
- *   XML size   paragraphs   mammoth worst continuous stall
- *    1.5 MB        26 214       866 ms
- *    3.0 MB        52 428     1 166 ms
- *    6.0 MB       104 857     1 847 ms
- *   12.1 MB       209 715     4 433 ms
- *   24.3 MB       419 430     8 876 ms
- *   58.1 MB     1 000 000    33 336 ms   <- 165 KB on disk, passed every gate
+ * SIZE CALIBRATED ON 14 REAL WORD DOCUMENTS, not on a generated fixture. The
+ * fixture used previously spends ~60 bytes per paragraph where real Word spends
+ * ~1 KB, so the "40x headroom" it implied was fiction. Counted bytes across
+ * those files: 78, 80, 80, 96, 107, 240, 288, 328, 331, 344, 353, 353, 538,
+ * 539 KB. 4 MB is ~7.4x the largest real document seen, which restores room
+ * for the long academic CVs a 1 MB cap rejected outright.
  *
- * A real resume of 120 dense bullets is 24 KB of XML. 1 MB is ~40x that and
- * still roomy for a formatting-heavy Word export.
- *
- * Enforced DURING the bounded inflate, so an archive over the cap is rejected
- * the moment the budget runs out: the 58 MB case above costs tens of
- * milliseconds because the remaining 57 MB is never inflated at all.
- *
- * Media is deliberately excluded — `extractRawText` does not parse images, so
- * they cost memory (bounded above) but not parse time.
+ * Enforced DURING the bounded inflate, so an over-cap archive is refused the
+ * moment the budget runs out and the remainder is never inflated at all.
  */
-export const MAX_DOCX_XML_BYTES = 1024 * 1024
+export const MAX_DOCX_PARSED_BYTES = 4 * 1024 * 1024
 
 /** DEFLATE and STORED are the only methods a real DOCX ever uses. */
 const ZIP_METHOD_STORED = 0
@@ -123,8 +121,8 @@ export interface ZipInspection {
   declaredUncompressedBytes: number
   /** What it ACTUALLY expands to, measured by inflating under a hard budget. */
   actualUncompressedBytes: number
-  /** Of that, how much is XML — the part `mammoth` actually parses. */
-  actualXmlBytes: number
+  /** Of that, how much the parser may actually read (everything but media). */
+  actualParsedBytes: number
 }
 
 interface ZipEntryHeader {
@@ -135,13 +133,51 @@ interface ZipEntryHeader {
 }
 
 /**
- * True for the parts `mammoth` parses as XML (document, styles, numbering,
- * relationships, content types). Images and fonts are inert for text
- * extraction, so they are charged against memory but not against parse time.
+ * Extensions that `extractRawText` provably never parses: raster images,
+ * audio/video, and embedded fonts. Verified against 14 real Word documents —
+ * one carries 8 MB of images and still counts only 331 KB.
+ *
+ * This list is the ONLY thing excluded from the parse budget, and it is
+ * deliberately narrow: anything not named here counts, so an unknown or
+ * invented extension (`.dat`, `.bin`, `.txt`) is charged in full. Note what is
+ * NOT here — `.svg` is XML and is counted, because "it is referenced as an
+ * image" is an assumption about the parser rather than a fact about the bytes,
+ * and that class of assumption is what this whole finding was.
  */
-function isXmlPart(name: string): boolean {
+const INERT_MEDIA_EXTENSIONS = new Set([
+  '.png',
+  '.jpg',
+  '.jpeg',
+  '.gif',
+  '.bmp',
+  '.tif',
+  '.tiff',
+  '.emf',
+  '.wmf',
+  '.ico',
+  '.webp',
+  '.heic',
+  '.mp3',
+  '.mp4',
+  '.wav',
+  '.avi',
+  '.m4a',
+  '.mov',
+  '.wmv',
+  '.ttf',
+  '.otf',
+  '.odttf',
+  '.eot',
+  '.woff',
+  '.woff2',
+])
+
+/** True only for parts that cost memory but no parse time. */
+function isInertMedia(name: string): boolean {
   const lower = name.toLowerCase()
-  return lower.endsWith('.xml') || lower.endsWith('.rels')
+  const dot = lower.lastIndexOf('.')
+  if (dot < 0) return false // no extension at all -> count it
+  return INERT_MEDIA_EXTENSIONS.has(lower.slice(dot))
 }
 
 /**
@@ -174,30 +210,34 @@ function isXmlPart(name: string): boolean {
 export async function inspectDocxZip(
   buf: Buffer,
   maxUncompressedBytes: number = MAX_DOCX_UNCOMPRESSED_BYTES,
-  maxXmlBytes: number = MAX_DOCX_XML_BYTES,
+  maxParsedBytes: number = MAX_DOCX_PARSED_BYTES,
 ): Promise<ZipInspection> {
   const { headers, declaredUncompressedBytes } = readCentralDirectory(buf, maxUncompressedBytes)
 
   let actualUncompressedBytes = 0
-  let actualXmlBytes = 0
+  let actualParsedBytes = 0
   for (const header of headers) {
-    const xml = isXmlPart(header.name)
-    // An XML part gets the SMALLER of the two remaining budgets, so zlib stops
-    // the moment either is spent — the 58 MB attack dies a few dozen
-    // milliseconds in, with 57 MB of it never inflated.
-    const budget = xml
-      ? Math.min(maxUncompressedBytes - actualUncompressedBytes, maxXmlBytes - actualXmlBytes)
-      : maxUncompressedBytes - actualUncompressedBytes
-    const size = await measureEntry(buf, header, budget, xml ? maxXmlBytes : maxUncompressedBytes)
+    const inert = isInertMedia(header.name)
+    // A parsable part gets the SMALLER of the two remaining budgets, so zlib
+    // stops the moment either is spent and the rest is never inflated.
+    const budget = inert
+      ? maxUncompressedBytes - actualUncompressedBytes
+      : Math.min(maxUncompressedBytes - actualUncompressedBytes, maxParsedBytes - actualParsedBytes)
+    const size = await measureEntry(
+      buf,
+      header,
+      budget,
+      inert ? maxUncompressedBytes : maxParsedBytes,
+    )
     actualUncompressedBytes += size
-    if (xml) actualXmlBytes += size
+    if (!inert) actualParsedBytes += size
   }
 
   return {
     entries: headers.length,
     declaredUncompressedBytes,
     actualUncompressedBytes,
-    actualXmlBytes,
+    actualParsedBytes,
   }
 }
 
@@ -344,10 +384,10 @@ async function measureEntry(
  * send someone shrinking images when the problem is the document body.
  */
 function tooBig(cap: number): string {
-  const isXmlCap = cap === MAX_DOCX_XML_BYTES
+  const isParsedCap = cap === MAX_DOCX_PARSED_BYTES
   const mb = Math.max(1, Math.floor(cap / 1024 / 1024))
-  return isXmlCap
-    ? `Текстовая часть DOCX больше ${mb} MB (реальный размер, а не заявленный) — это не похоже на резюме`
+  return isParsedCap
+    ? `Содержимое DOCX больше ${mb} MB (реальный размер, а не заявленный) — это не похоже на резюме`
     : `Распакованный DOCX больше ${mb} MB (реальный размер, а не заявленный)`
 }
 
