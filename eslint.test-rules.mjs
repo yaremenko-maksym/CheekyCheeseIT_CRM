@@ -51,7 +51,17 @@ export const vitestTestQualityRules = {
   // A malformed assertion: `expect(x).toBe` with the matcher never called,
   // `expect()` with no argument, a missing `await` on an async matcher. Reads
   // like a check, executes as nothing — the classic can't-fail test.
-  'vitest/valid-expect': 'error',
+  //
+  // `maxArgs: 2` is a correction, not a loosening. Vitest's documented
+  // signature is `expect(actual, message?)` — the second argument is the custom
+  // failure message (https://vitest.dev/api/expect). The rule defaults to
+  // `maxArgs: 1` (Jest's signature), which reports every one of our
+  // `expect(value, 'why this matters')` call sites as malformed. Leaving the
+  // default would have meant either deleting real diagnostic messages or
+  // switching the whole rule off — and the rule's actual teeth (matcher never
+  // invoked, `expect()` with no argument) come from `minArgs` and the
+  // matcher check, both untouched here.
+  'vitest/valid-expect': ['error', { maxArgs: 2 }],
 
   // `expect(promise).resolves...` whose promise is neither awaited nor
   // returned. The assertion resolves after the test has already passed, so a
@@ -109,7 +119,9 @@ export const playwrightTestQualityRules = {
   'playwright/expect-expect': 'error',
   'playwright/no-conditional-expect': 'error',
   'playwright/no-standalone-expect': 'error',
-  'playwright/valid-expect': 'error',
+  // `maxArgs: 2` for the same reason as the Vitest rule above — Playwright's
+  // signature is `expect(actual, message?)` too.
+  'playwright/valid-expect': ['error', { maxArgs: 2 }],
   'playwright/valid-expect-in-promise': 'error',
   'playwright/valid-describe-callback': 'error',
 

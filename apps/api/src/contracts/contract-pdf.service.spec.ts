@@ -317,18 +317,32 @@ describe('ContractPdfService', () => {
       const leftColRightEdge = LEFT_COL_X + COL_WIDTH
       const rightColRightEdge = RIGHT_COL_X + COL_WIDTH
 
-      for (const { text, opts } of calls) {
-        if (opts.x >= LEFT_COL_X && opts.x < RIGHT_COL_X - 1) {
-          // This is a left-column draw — must not start beyond left col right edge
-          expect(opts.x, `Left col token "${text}" starts past right edge`).toBeLessThanOrEqual(
-            leftColRightEdge,
-          )
-        } else if (opts.x >= RIGHT_COL_X - 1 && opts.x <= RIGHT_EDGE) {
-          // This is a right-column draw — must not start beyond right col right edge
-          expect(opts.x, `Right col token "${text}" starts past right edge`).toBeLessThanOrEqual(
-            rightColRightEdge,
-          )
-        }
+      // Partition first, then assert — the assertions used to sit inside the
+      // `if`/`else if` of this loop, so a run in which NO draw landed in either
+      // column zone (a regression that stopped drawing the table at all, or
+      // moved it) executed zero assertions and passed. The non-empty checks
+      // below make that failure mode loud. (task-lint-teeth)
+      const leftColCalls = calls.filter(
+        ({ opts }) => opts.x >= LEFT_COL_X && opts.x < RIGHT_COL_X - 1,
+      )
+      const rightColCalls = calls.filter(
+        ({ opts }) => opts.x >= RIGHT_COL_X - 1 && opts.x <= RIGHT_EDGE,
+      )
+
+      expect(leftColCalls.length, 'expected at least one left-column draw').toBeGreaterThan(0)
+      expect(rightColCalls.length, 'expected at least one right-column draw').toBeGreaterThan(0)
+
+      for (const { text, opts } of leftColCalls) {
+        // Must not start beyond the left column's right edge.
+        expect(opts.x, `Left col token "${text}" starts past right edge`).toBeLessThanOrEqual(
+          leftColRightEdge,
+        )
+      }
+      for (const { text, opts } of rightColCalls) {
+        // Must not start beyond the right column's right edge.
+        expect(opts.x, `Right col token "${text}" starts past right edge`).toBeLessThanOrEqual(
+          rightColRightEdge,
+        )
       }
     })
 
@@ -342,14 +356,22 @@ describe('ContractPdfService', () => {
       // Must not throw; each drawn token x must be within left column bounds.
       const calls = await drawnCalls(makeParams({ bodyMarkdown: body }))
 
-      for (const { text, opts } of calls) {
-        // Tokens from the left column (not from header/signature/etc.)
-        if (opts.x >= LEFT_COL_X && opts.x < RIGHT_COL_X - 1) {
-          expect(
-            opts.x,
-            `Token "${text.slice(0, 20)}…" exceeds left col right edge`,
-          ).toBeLessThanOrEqual(LEFT_COL_X + COL_WIDTH)
-        }
+      // Tokens from the left column (not from header/signature/etc.). Filtered
+      // up front so a run that drew nothing in that column fails instead of
+      // asserting nothing — see the partition note in the previous test.
+      const leftColCalls = calls.filter(
+        ({ opts }) => opts.x >= LEFT_COL_X && opts.x < RIGHT_COL_X - 1,
+      )
+      expect(
+        leftColCalls.length,
+        'expected the 200-char token to produce left-column draws',
+      ).toBeGreaterThan(0)
+
+      for (const { text, opts } of leftColCalls) {
+        expect(
+          opts.x,
+          `Token "${text.slice(0, 20)}…" exceeds left col right edge`,
+        ).toBeLessThanOrEqual(LEFT_COL_X + COL_WIDTH)
       }
     })
 
