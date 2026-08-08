@@ -165,6 +165,18 @@ const envSchema = z
     // Visible fallback address shown to visitors (landing UI + the 502/503
     // error copy below) when the form itself is unavailable or fails.
     CONTACT_PUBLIC_EMAIL: z.email().default('hr@cheekycheese.tech'),
+
+    // task-resume-base: Cloudflare Workers AI credentials used ONCE per resume
+    // upload to turn extracted text into structured content. Same
+    // deliberately-OPTIONAL-with-no-default pattern as RESEND_API_KEY: left
+    // unset (dev/CI, and any deploy where the secrets are absent) the API boots
+    // fine, `ResumeAiService` logs one warning and reports
+    // `AI_NOT_CONFIGURED`, and the resume form stays fully usable by hand —
+    // never a boot failure, never a silent live call in tests.
+    // Both secrets already exist in GitHub and are wired into
+    // .github/workflows/deploy.yml (PR #494).
+    CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
+    CLOUDFLARE_AI_TOKEN: z.string().min(1).optional(),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:

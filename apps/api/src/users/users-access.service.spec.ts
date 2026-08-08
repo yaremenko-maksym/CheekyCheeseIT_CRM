@@ -79,7 +79,7 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).toHaveLength(7)
   })
 
-  it('ADMIN viewing SENIOR has 7 tabs — contract tab added, interviews moved to header link, no audit', async () => {
+  it('ADMIN viewing SENIOR has 8 tabs — contract + resume, interviews moved to header link, no audit', async () => {
     const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
     const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
@@ -87,7 +87,9 @@ describe('UsersAccessService.getViewPermissions', () => {
     expect(p.tabs).not.toContain('audit')
     expect(p.tabs).toContain('documents')
     expect(p.tabs).toContain('contract')
-    expect(p.tabs).toHaveLength(7)
+    // task-resume-base: 'resume' is the 8th tab on a SENIOR card for ADMIN.
+    expect(p.tabs).toContain('resume')
+    expect(p.tabs).toHaveLength(8)
   })
 
   it('HR viewing SENIOR in own team — no finance, no requisites, no audit', async () => {
@@ -793,14 +795,57 @@ describe('UsersAccessService.getViewPermissions', () => {
   })
 
   // Regression: HR → SENIOR teammate keeps the full senior surface (unchanged).
-  it('HR viewing SENIOR teammate — keeps [overview, projects, team, interviews] (regression)', async () => {
+  it('HR viewing SENIOR teammate — keeps [overview, projects, team, interviews] + resume (regression)', async () => {
     ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
       .fn()
       .mockResolvedValue(true)
     const viewer = makeUser({ id: 'hr1', role: 'HR' })
     const target = makeUser({ id: 'sr1', role: 'SENIOR' })
     const p = await service.getViewPermissions(viewer, target)
-    expect(p.tabs).toEqual(['overview', 'projects', 'team', 'interviews'])
+    // task-resume-base: 'resume' appended; the pre-existing four are unchanged,
+    // which is what this regression test was guarding.
+    expect(p.tabs).toEqual(['overview', 'projects', 'team', 'interviews', 'resume'])
+  })
+
+  // ---- task-resume-base §4: resume tab visibility -------------------------
+
+  it('SENIOR self-view gets the resume tab', async () => {
+    const viewer = makeUser({ id: 'sr-self', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, viewer)
+    expect(p.tabs).toContain('resume')
+  })
+
+  it('resume tab is absent on a non-SENIOR card (ADMIN viewing a JUNIOR)', async () => {
+    const viewer = makeUser({ id: 'admin-id', role: 'ADMIN' })
+    const target = makeUser({ id: 'jr-id', role: 'JUNIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).not.toContain('resume')
+  })
+
+  it('SENIOR viewing ANOTHER senior gets no resume tab (and no card at all)', async () => {
+    const viewer = makeUser({ id: 'sr-a', role: 'SENIOR' })
+    const target = makeUser({ id: 'sr-b', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).not.toContain('resume')
+    expect(p.tabs).toHaveLength(0)
+  })
+
+  it('ACCOUNTANT viewing a SENIOR gets the usual tabs but NOT resume', async () => {
+    const viewer = makeUser({ id: 'acc-id', role: 'ACCOUNTANT' })
+    const target = makeUser({ id: 'sr-id', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toContain('overview')
+    expect(p.tabs).not.toContain('resume')
+  })
+
+  it('HR viewing a SENIOR OUTSIDE their team still gets zero tabs (resume must not widen the card)', async () => {
+    ;(service as unknown as Record<string, unknown>).isHrInTargetTeam = vi
+      .fn()
+      .mockResolvedValue(false)
+    const viewer = makeUser({ id: 'hr1', role: 'HR' })
+    const target = makeUser({ id: 'sr-other-team', role: 'SENIOR' })
+    const p = await service.getViewPermissions(viewer, target)
+    expect(p.tabs).toEqual([])
   })
 
   // Regression: HR → JUNIOR teammate keeps overview/projects/team + credential flags.

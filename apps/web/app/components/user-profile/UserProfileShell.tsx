@@ -30,6 +30,7 @@ import { ProjectsTab } from './tabs/ProjectsTab'
 import { RequisitesTab } from './tabs/RequisitesTab'
 import { TeamTab } from './tabs/TeamTab'
 import { ContractTab } from './contract/ContractTab'
+import { ResumeTab } from './resume/ResumeTab'
 
 const TAB_LABELS: Record<string, string> = {
   overview: 'Обзор',
@@ -40,6 +41,7 @@ const TAB_LABELS: Record<string, string> = {
   requisites: 'Реквизиты',
   documents: 'Документы',
   contract: 'Контракт',
+  resume: 'Резюме',
 }
 
 export interface UserProfileShellProps {
@@ -56,19 +58,28 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
   const query = mode === 'self' ? meQuery : userQuery
   const { data, isLoading, isError, error } = query
   const [avatarOpen, setAvatarOpen] = useState(false)
-  // Dirty guard: ContractTab registers its isDirty state here via onDirtyChange.
-  // When the user tries to switch tabs away from contract with unsaved changes,
-  // we show an AlertDialog (consistent with ContractActionBar UX, no event-loop block).
-  const contractDirtyRef = useRef(false)
+  // Dirty guard: a tab registers its own isDirty state here via onDirtyChange.
+  // When the user tries to switch away from a tab with unsaved changes we show
+  // an AlertDialog (consistent with ContractActionBar UX, no event-loop block).
+  //
+  // task-resume-base: generalised from "contract only" to a per-tab map, so the
+  // resume tab (which also edits in place, without autosave) gets exactly the
+  // same protection instead of a second, parallel guard.
+  const dirtyTabsRef = useRef<Record<string, boolean>>({})
   const [dirtyGuardOpen, setDirtyGuardOpen] = useState(false)
+  const [dirtyGuardTab, setDirtyGuardTab] = useState<string | null>(null)
   const pendingTabRef = useRef<string | null>(null)
   const handleContractDirtyChange = useCallback((dirty: boolean) => {
-    contractDirtyRef.current = dirty
+    dirtyTabsRef.current['contract'] = dirty
+  }, [])
+  const handleResumeDirtyChange = useCallback((dirty: boolean) => {
+    dirtyTabsRef.current['resume'] = dirty
   }, [])
   const handleTabChange = useCallback(
     (nextTab: string) => {
-      if (tab === 'contract' && contractDirtyRef.current) {
+      if (dirtyTabsRef.current[tab]) {
         pendingTabRef.current = nextTab
+        setDirtyGuardTab(tab)
         setDirtyGuardOpen(true)
         return
       }
@@ -146,7 +157,11 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
 
   // §2c: on own profile show only overview + requisites + contract.
   // view-mode is unchanged (backend permissions govern what's shown there).
-  const SELF_ALLOWED_TABS = ['overview', 'requisites', 'contract'] as const
+  // task-resume-base: 'resume' joins the self allow-list — a SENIOR maintaining
+  // their OWN resume is half the point of the feature (§4: SENIOR own = R/W).
+  // The backend still decides whether the tab is offered at all, so a non-SENIOR
+  // self-view never gets it.
+  const SELF_ALLOWED_TABS = ['overview', 'requisites', 'contract', 'resume'] as const
   const visibleTabs = !permissions
     ? []
     : mode === 'self'
@@ -256,7 +271,9 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
       <AlertDialog open={dirtyGuardOpen} onOpenChange={setDirtyGuardOpen}>
         <AlertDialogContent data-testid="contract-dirty-guard-dialog">
           <AlertDialogHeader>
-            <AlertDialogTitle>Покинуть вкладку «Контракт»?</AlertDialogTitle>
+            <AlertDialogTitle>
+              Покинуть вкладку «{TAB_LABELS[dirtyGuardTab ?? 'contract'] ?? 'Контракт'}»?
+            </AlertDialogTitle>
             <AlertDialogDescription>
               Есть несохранённые изменения. При переходе они будут потеряны.
             </AlertDialogDescription>
@@ -322,6 +339,9 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
                   canEdit={viewer?.role === 'ADMIN'}
                   onDirtyChange={handleContractDirtyChange}
                 />
+              )}
+              {activeTab === 'resume' && visibleTabs.includes('resume') && (
+                <ResumeTab userId={profileUser.id} onDirtyChange={handleResumeDirtyChange} />
               )}
             </>
           )

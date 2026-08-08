@@ -18,7 +18,7 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import type { VacancyTranslations } from '@crm/shared'
+import { EMPTY_RESUME_CONTENT, type ResumeContent, type VacancyTranslations } from '@crm/shared'
 
 // PostgreSQL `inet` column type — stores IPv4 / IPv6 addresses with native
 // validation + index support. Drizzle has no first-class `inet` builder, so
@@ -264,6 +264,17 @@ export const telemetryEventTypeEnum = pgEnum('telemetry_event_type', [
 // task-csp-reports-and-flip — Часть A. Latest occurrence's disposition on an
 // aggregated CSP violation row (see `cspReports` below).
 export const cspDispositionEnum = pgEnum('csp_disposition', ['report', 'enforce'])
+
+// task-resume-base — state of the one-shot AI extraction that turns an
+// uploaded PDF/DOCX (or pasted text) into structured resume content.
+// QUEUED → RUNNING → READY | FAILED. Mirrors packages/shared
+// `resumeExtractionStatusSchema` (SSOT).
+export const resumeExtractionStatusEnum = pgEnum('resume_extraction_status', [
+  'QUEUED',
+  'RUNNING',
+  'READY',
+  'FAILED',
+])
 
 // ---------------------------------------------------------------------------
 // Users
@@ -1990,8 +2001,87 @@ export const cspReports = pgTable(
 )
 
 // ---------------------------------------------------------------------------
+// Senior resume (task-resume-base)
+// ---------------------------------------------------------------------------
+
+/**
+ * One canonical resume per senior. The uploaded file is an INPUT only: after
+ * a single AI extraction the system works with `content` (JSONB), never with
+ * the file. `version` grows on every content save so task-resume-tailoring can
+ * detect vacancy-tailored variants built from a now-stale base.
+ *
+ * `user_id` is UNIQUE — enforced at the DB level, so two concurrent
+ * "create my resume" requests can never produce two rows (the loser gets a
+ * unique-violation, which the service turns into a re-read).
+ */
+export const seniorResumes = pgTable(
+  'senior_resumes',
+  {
+    id: uuid('id').defaultRandom().primaryKey(),
+    userId: uuid('user_id')
+      .notNull()
+      .unique()
+      .references(() => users.id, { onDelete: 'cascade' }),
+    /** ResumeContent (packages/shared). UNTRUSTED — validated on read + write. */
+    content: jsonb('content').$type<ResumeContent>().notNull().default(EMPTY_RESUME_CONTENT),
+    status: resumeExtractionStatusEnum('status').notNull().default('READY'),
+    /** ResumeFailureCode (packages/shared) — set together with `error_message`. */
+    errorCode: text('error_code'),
+    errorMessage: text('error_message'),
+    /** When the Cloudflare daily allowance resets (QUOTA_EXCEEDED only). */
+    quotaResetsAt: timestamp('quota_resets_at', { withTimezone: true }),
+    /** Set when a RUNNING extraction started — drives the stuck-sweep cron. */
+    extractionStartedAt: timestamp('extraction_started_at', { withTimezone: true }),
+    /**
+     * Identifies WHICH extraction attempt currently owns this row.
+     *
+     * Generated when a run claims the row and required (unchanged) by that
+     * run's terminal write. Anything that supersedes the run — a second upload,
+     * a pasted text, a manual save — clears it, so the superseded run finds no
+     * matching row and discards its result instead of overwriting newer data
+     * with the contents of a file that has already been deleted.
+     */
+    extractionRunId: uuid('extraction_run_id'),
+    /** Neurons/tokens spent on the last extraction — makes the spend visible. */
+    lastExtractionTokens: integer('last_extraction_tokens'),
+    /** Private R2/S3 key of the original file — served only via our endpoint. */
+    sourceS3Key: text('source_s3_key'),
+    sourceFileName: text('source_file_name'),
+    sourceFileSizeBytes: integer('source_file_size_bytes'),
+    sourceMimeType: text('source_mime_type'),
+    version: integer('version').notNull().default(0),
+    updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
+      onDelete: 'set null',
+    }),
+    createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
+    updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  },
+  (t) => [
+    // The stuck-RUNNING sweep filters on exactly this pair.
+    index('idx_senior_resumes_status').on(t.status, t.extractionStartedAt),
+    // The abandoned-QUEUED sweep filters on a DIFFERENT pair: a QUEUED row has
+    // no `extraction_started_at` (nothing ever claimed it), so it can only be
+    // aged by `updated_at`. The index above does not serve that query at all.
+    index('idx_senior_resumes_status_updated_at').on(t.status, t.updatedAt),
+  ],
+)
+
+// ---------------------------------------------------------------------------
 // Relations
 // ---------------------------------------------------------------------------
+
+export const seniorResumesRelations = relations(seniorResumes, ({ one }) => ({
+  user: one(users, {
+    fields: [seniorResumes.userId],
+    references: [users.id],
+    relationName: 'seniorResumeOwner',
+  }),
+  updatedBy: one(users, {
+    fields: [seniorResumes.updatedByUserId],
+    references: [users.id],
+    relationName: 'seniorResumeEditor',
+  }),
+}))
 
 export const employeeContractsRelations = relations(employeeContracts, ({ one }) => ({
   user: one(users, { fields: [employeeContracts.userId], references: [users.id] }),
@@ -2345,3 +2435,5 @@ export type EmployeeContract = typeof employeeContracts.$inferSelect
 export type NewEmployeeContract = typeof employeeContracts.$inferInsert
 export type Legend = typeof legends.$inferSelect
 export type NewLegend = typeof legends.$inferInsert
+export type SeniorResume = typeof seniorResumes.$inferSelect
+export type NewSeniorResume = typeof seniorResumes.$inferInsert
