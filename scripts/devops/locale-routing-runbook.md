@@ -235,20 +235,50 @@ To verify against a real (or locally running) origin:
 scripts/devops/check-locale-routing.sh https://cheekycheese.tech
 ```
 
-This runs the full curl matrix (37 cases as of the §13 indexability fix —
+This runs the full curl matrix (39 cases as of the §13 indexability fix —
 accept-language best-match, cookie priority, all 4 locale-prefixed URLs,
 geolocation NOT redirecting a preference-less client, `/en/` collapsing onto
-`/`, Vary/Cache-Control headers, deep-path/trailing-slash preservation,
-partial-prerender guard correctness, ReDoS-hardening timing, plus the four
-`INDEX-*` sweeps over the live sitemap) and prints `PASS`/`FAIL` per case,
-exiting non-zero on any failure. Safe to run repeatedly against production
-(read-only GET requests, no state mutated).
+`/` with the query string intact, Vary/Cache-Control headers,
+deep-path/trailing-slash preservation, partial-prerender guard correctness,
+ReDoS-hardening timing, plus the four `INDEX-*` sweeps over the live sitemap)
+and prints `PASS`/`FAIL` per case, exiting non-zero on any failure. Safe to run
+repeatedly against production (read-only GET requests, no state mutated).
+
+**Every case is expected to pass against production.** That is a deliberate
+property, not an accident: the script is recommended as a post-deploy gate, so
+a case that can only pass against a fixture would turn every deploy red. The
+deep-path redirect cases therefore derive their path from the origin's OWN
+sitemap (deepest unprefixed URL whose `/uk/` twin is also advertised) rather
+than hardcoding a slug. Before that change the suite hardcoded
+`/careers/my-slug/`, which passes against a local fixture and fails against
+production, where no such vacancy exists. **If you add a case, check it against
+production before merging** — `bash scripts/devops/check-locale-routing.sh https://cheekycheese.tech`
+— and make it origin-shape-independent, or do not add it.
 
 The `INDEX-*` sweeps read `sitemap.xml` from the origin under test and fetch
 every URL in it, so they scale with the live vacancy count and need no
-maintenance when a posting is added or closed. They fail loudly if the sitemap
-is unreachable or has fewer than 5 URLs — a sweep over an empty list is a
-check that cannot fail, which is the exact defect class §13 was about.
+maintenance when a posting is added or closed. An unreachable or near-empty
+sitemap reds the dedicated floor case AND all four sweeps: each sweep re-checks
+the URL count itself, because a loop body that never runs otherwise reports
+`0/0` as a success — a check that cannot fail, which is the exact defect class
+§13 was about.
+
+**What the sweeps can and cannot catch, stated plainly.** The `INDEX-*` sweeps
+send no `Accept-Language`. Against a **local** origin with nothing in front,
+that means no `CF-IPCountry` either — so a geo-tier regression is invisible to
+them locally: run against the pre-fix config on a local container, `INDEX-1..4`
+report 20/20 green while only the header-driven cases (B5) go red. Behind
+Cloudflare the header is injected on every request, and the same sweeps go red
+(verified against production: 4 of 20 URLs redirecting). So:
+
+- the **B5** cases are the deterministic, CDN-independent catcher for the geo
+  class — they send the header explicitly and work anywhere;
+- the **`INDEX-*`** sweeps are what catch it (and anything else that redirects
+  an advertised URL) **in the environment that actually matters**, and they
+  require a run against production to do so.
+
+A local dry-run is therefore not a substitute for the post-deploy run against
+`https://cheekycheese.tech`. Both are listed in §13.
 
 ### Local dry-run before any nginx/\*\* change
 
@@ -668,7 +698,17 @@ would fail if anyone ever "fixed" a future regression that way.
   longer varies by it); `/en/…` now `301`s onto the canonical unprefixed URL.
 - `scripts/devops/check-locale-routing.sh` — B5 inverted (geo must NOT
   redirect), `/en/` cases, and the four `INDEX-*` sitemap sweeps.
-- `scripts/devops/tests/` — five new negative cases, one per failure shape.
+- `scripts/devops/tests/` — seven new negative cases, one per failure shape.
+
+Two of those came out of review round 1 and are worth naming, because both
+were "the guard looks fine" defects rather than product defects:
+
+- `location = /en` used `return 301 /`, and `return` — unlike `rewrite` —
+  does **not** re-append the query string. `/en?utm=1` landed on a bare `/`.
+  Fixed with `$is_args$args`; pinned by the `en-alias-drops-query` case.
+- the sweeps printed `0/0` as a PASS on an empty sitemap. Only the dedicated
+  floor case went red, so the claim "the sweeps fail loudly" was false as
+  written. Each sweep now re-checks the count; pinned by `empty-sitemap`.
 
 **Why `/en/` was in scope.** It was never a route — no route file, nothing
 links to it, not in the sitemap — but the SPA fallback (`try_files … /index.html`)
@@ -684,12 +724,20 @@ the ambiguity being removed.
 scripts/devops/check-locale-routing.sh https://cheekycheese.tech
 ```
 
-All cases must pass. `INDEX-1`/`INDEX-2` are the ones that would have caught
-this incident on the day it shipped; they are also the ones that will catch it
-if a future change reintroduces any signal that redirects a preference-less
-client. Then, in Search Console, re-request indexing for the four English URLs
-— the pages will not return on their own schedule quickly, and the redirect
-being gone is a precondition, not the whole recovery.
+All cases must pass — see §6 on why that is achievable against production and
+must stay so. For reference, the same command against production BEFORE this
+change reports `21 passed, 18 failed`, and every one of those 18 is something
+this change fixes (5 × B5 geo, 5 × `/en/`, 2 × `Vary`, the `de-DE` no-match
+case and the `no Accept-Language` bot case that geo was overriding, and the 4
+`INDEX-*` sweeps). If a run after the deploy shows anything still red, it is
+not leftover noise from this incident.
+
+`INDEX-1`/`INDEX-2` are the ones that would have caught this incident on the
+day it shipped — **but only from outside Cloudflare** (§6: locally nothing
+injects `CF-IPCountry`, so they stay green on a broken config; the B5 cases are
+the local catcher). Then, in Search Console, re-request indexing for the four
+English URLs — the pages will not return on their own schedule quickly, and the
+redirect being gone is a precondition, not the whole recovery.
 
 **Why the existing case matrix did not catch it.** Every case above B4 sets a
 header and asserts the decision made from it. The decision was correct

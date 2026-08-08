@@ -125,4 +125,22 @@ assert_red "Vary advertises CF-IPCountry after the geo tier is gone -> red" \
   --contains "FAIL  B4: Vary header present" \
   -- run_case vary-claims-geo
 
+# Review round 1, finding 1: `rewrite` re-appends the query string, `return`
+# does not — so the slashless `/en` branch dropped it. A campaign link to
+# /en?utm=x landed on / with no attribution, and every other case stayed green.
+assert_red "/en?utm=1 loses the query string on the 301 -> red" \
+  --contains "FAIL  /en?utm=1 -> 301 keeps the query string" \
+  -- run_case en-alias-drops-query
+
+# Review round 1, finding 3: an empty sitemap left the sweeps iterating
+# nothing and printing "0/0" as a PASS. Each sweep now re-checks the count
+# itself, so a sweep cannot go green without having swept anything.
+assert_red "an empty sitemap makes the sweeps themselves red, not just the floor -> red" \
+  --contains "FAIL  sitemap.xml is reachable and non-empty" \
+  --contains "FAIL  INDEX-1" \
+  --contains "FAIL  INDEX-2" \
+  --contains "FAIL  INDEX-3" \
+  --contains "FAIL  INDEX-4" \
+  -- run_case empty-sitemap
+
 guard_test_summary "test-check-locale-routing.sh"

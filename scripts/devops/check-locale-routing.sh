@@ -139,6 +139,70 @@ check_path_exact() {
 echo "== check-locale-routing.sh — origin: $ORIGIN =="
 echo
 
+# ── Live inventory — read ONCE, drives every sitemap-derived case below ───
+# Fetched up here (not down in the INDEXABILITY section that consumes most of
+# it) because the deep-path cases in the middle of this file need it too.
+GOOGLEBOT_UA='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
+# A healthy sitemap is 5 locales × (home + careers + N vacancies). The floor
+# is deliberately low (the vacancy count is live data and legitimately
+# changes) but non-zero: a sweep over an empty list is a check that cannot
+# fail, which is the exact defect class the INDEX-* section was written to end.
+MIN_SITEMAP_URLS=5
+
+# Absolute URL -> origin-relative path. sitemap.xml and the canonical/hreflang
+# markup always carry PRODUCTION-absolute URLs (SITE_ORIGIN in
+# apps/landing/app/lib/seo.ts), including in a local dry-run container, so
+# every advertised URL is re-pointed at $ORIGIN before being fetched.
+url_path() {
+  local rest="${1#*://}"
+  case "$rest" in
+    */*) printf '/%s' "${rest#*/}" ;;
+    *) printf '/' ;;
+  esac
+}
+
+extract_hrefs() {
+  grep -oE 'href="[^"]+"' | sed -E 's/^href="//; s/"$//'
+}
+
+sitemap_body="$(curl -s -k --max-time 15 "$ORIGIN/sitemap.xml" 2>/dev/null)"
+SITEMAP_URLS="$(printf '%s' "$sitemap_body" | grep -oE '<loc>[^<]+</loc>' | sed -E 's|</?loc>||g')"
+sitemap_count="$(printf '%s' "$SITEMAP_URLS" | grep -c . || true)"
+
+# The deep-path redirect cases need an UNPREFIXED path that genuinely has a
+# prerendered `/uk/` twin — otherwise the merge-order guard correctly refuses
+# to redirect and the case fails for a reason that is not a defect. This used
+# to be a hardcoded `/careers/my-slug/`, which passes against a local fixture
+# and FAILS against production (no such vacancy: verified, `/careers/my-slug/`
+# with `Accept-Language: uk` answers 200 there) — an inherited fixture-ism
+# that would have made this script unusable as the post-deploy gate it is
+# recommended as. Derived from the live sitemap instead: deepest unprefixed
+# URL whose `/uk/` counterpart is also advertised.
+DEEP_PATH="/careers/"
+deep_path_depth=0
+for url in $SITEMAP_URLS; do
+  candidate="$(url_path "$url")"
+  case "$candidate" in
+    /uk/* | /ru/* | /es/* | /pt/* | /) continue ;;
+  esac
+  scheme="${url%%://*}"
+  host_and_path="${url#*://}"
+  twin="$scheme://${host_and_path%%/*}/uk$candidate"
+  case "
+$SITEMAP_URLS
+" in
+    *"
+$twin
+"*) ;;
+    *) continue ;;
+  esac
+  depth="$(printf '%s' "$candidate" | tr -cd '/' | wc -c | tr -d ' ')"
+  if [ "$depth" -gt "$deep_path_depth" ]; then
+    DEEP_PATH="$candidate"
+    deep_path_depth="$depth"
+  fi
+done
+
 # ── B1: Accept-Language -> 302, plain "en" -> 200 ──────────────────────────
 check "B1: Accept-Language: ru -> 302 /ru/" 302 "/ru/" \
   -H 'Accept-Language: ru'
@@ -184,6 +248,12 @@ check "B3: bot with NO Accept-Language header -> 200 EN" 200 ""
 # now asserted ABSENT. A Vary listing a header the response no longer depends
 # on is not harmless: it splits every shared cache on a value that differs
 # per visitor, and it tells the next reader that geo still decides something.
+# NOTE on running this through Cloudflare: the 200 branch comes back with TWO
+# `Vary` headers — CF's own `Accept-Encoding` AND the origin's, unmodified. So
+# `$vary` here is both lines, and these substring tests still read the origin's
+# value correctly. (Verified against production. Worth stating because a
+# `grep`-filtered view of this script's own output shows only the first line
+# and makes it look as though CF had replaced the header.)
 assert_vary() {
   local desc="$1" vary="$2"
   if [[ "$vary" == *"Accept-Language"* && "$vary" == *"Cookie"* && "$vary" != *"CF-IPCountry"* ]]; then
@@ -265,11 +335,19 @@ check_path_exact "/en/ -> 301 / (no duplicate address for the same page)" "/en/"
 check_path_exact "/en -> 301 /" "/en" 301 "/"
 check_path_exact "/en/careers/ -> 301 /careers/ (deep path preserved)" \
   "/en/careers/" 301 "/careers/"
+# Both /en/ branches must carry the query string across. `rewrite` re-appends
+# it for free; the slashless `return 301` needed an explicit `$is_args$args`
+# and did NOT have it in review round 1 — a campaign/UTM link to /en?utm=x
+# silently lost its attribution.
+check_path_exact "/en/careers/?utm=1 -> 301 keeps the query string" \
+  "/en/careers/?utm=1" 301 "/careers/?utm=1"
+check_path_exact "/en?utm=1 -> 301 keeps the query string (the `return` branch)" \
+  "/en?utm=1" 301 "/?utm=1"
 
 # ── Trailing-slash / deep-path preservation (plan §1) ──────────────────────
 check_path "deep path: /careers/ + ru -> 302 /ru/careers/ (trailing slash kept)" "/careers/" 302 "/ru/careers/" \
   -H 'Accept-Language: ru'
-check_path "deep path: /careers/my-slug/ + uk -> 302 /uk/careers/my-slug/" "/careers/my-slug/" 302 "/uk/careers/my-slug/" \
+check_path "deep path: $DEEP_PATH + uk -> 302 /uk$DEEP_PATH (from live sitemap)" "$DEEP_PATH" 302 "/uk$DEEP_PATH" \
   -H 'Accept-Language: uk'
 
 # code-review round (PR #423): partial-prerender guard correctness — a path
@@ -305,32 +383,16 @@ check_path "partial-prerender: nonexistent deep slug + uk -> 200 EN (no silent m
 # produce the identical result to the anonymous pass. Serving crawlers
 # something different from humans is cloaking; this pair is what would catch
 # someone "fixing" a future regression that way.
-GOOGLEBOT_UA='Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)'
-# A healthy sitemap is 5 locales × (home + careers + N vacancies). The floor
-# is deliberately low (the vacancy count is live data and legitimately
-# changes) but non-zero: a sweep over an empty list is a check that cannot
-# fail, which is the exact defect class this section was written to end.
-MIN_SITEMAP_URLS=5
-
-# Absolute URL -> origin-relative path. sitemap.xml and the canonical/hreflang
-# markup always carry PRODUCTION-absolute URLs (SITE_ORIGIN in
-# apps/landing/app/lib/seo.ts), including in a local dry-run container, so
-# every advertised URL is re-pointed at $ORIGIN before being fetched.
-url_path() {
-  local rest="${1#*://}"
-  case "$rest" in
-    */*) printf '/%s' "${rest#*/}" ;;
-    *) printf '/' ;;
-  esac
-}
-
-extract_hrefs() {
-  grep -oE 'href="[^"]+"' | sed -E 's/^href="//; s/"$//'
-}
-
-sitemap_body="$(curl -s -k --max-time 15 "$ORIGIN/sitemap.xml" 2>/dev/null)"
-SITEMAP_URLS="$(printf '%s' "$sitemap_body" | grep -oE '<loc>[^<]+</loc>' | sed -E 's|</?loc>||g')"
-sitemap_count="$(printf '%s' "$SITEMAP_URLS" | grep -c . || true)"
+# $SITEMAP_URLS / $sitemap_count / $GOOGLEBOT_UA / $MIN_SITEMAP_URLS and the
+# url_path/extract_hrefs helpers are all set in the "Live inventory" block
+# near the top of this file — the deep-path cases above need them too.
+#
+# EVERY sweep below re-checks the URL count, not just the dedicated floor
+# case: a sweep whose loop body never executes reports "0/0 fine" otherwise,
+# which is the same vacuous-green this section exists to prevent. The floor
+# case names the problem; these make each sweep individually incapable of
+# passing without having actually swept something.
+enough_urls() { [ "$sitemap_count" -ge "$MIN_SITEMAP_URLS" ]; }
 
 if [ "$sitemap_count" -ge "$MIN_SITEMAP_URLS" ]; then
   PASS=$((PASS + 1))
@@ -391,13 +453,14 @@ done
 sitemap_alternates="$(printf '%s' "$sitemap_body" | grep -oE '<xhtml:link[^>]*>' | extract_hrefs)"
 ADVERTISED_ALTERNATES="$ADVERTISED_ALTERNATES$sitemap_alternates"
 
-if [ -z "$anon_failures" ]; then
+if [ -z "$anon_failures" ] && enough_urls; then
   PASS=$((PASS + 1))
   printf 'PASS  %-70s %s/%s\n' "INDEX-1: every sitemap URL -> 200, no Accept-Language sent" \
     "$sitemap_count" "$sitemap_count"
 else
   FAIL=$((FAIL + 1))
-  printf 'FAIL  %-70s\n' "INDEX-1: every sitemap URL -> 200, no Accept-Language sent"
+  printf 'FAIL  %-70s (%s URLs swept)\n' \
+    "INDEX-1: every sitemap URL -> 200, no Accept-Language sent" "$sitemap_count"
   printf '%s' "$anon_failures"
 fi
 
@@ -412,23 +475,25 @@ for url in $SITEMAP_URLS; do
 "
   fi
 done
-if [ -z "$bot_failures" ]; then
+if [ -z "$bot_failures" ] && enough_urls; then
   PASS=$((PASS + 1))
   printf 'PASS  %-70s %s/%s\n' "INDEX-2: every sitemap URL -> 200 under Googlebot's UA" \
     "$sitemap_count" "$sitemap_count"
 else
   FAIL=$((FAIL + 1))
-  printf 'FAIL  %-70s\n' "INDEX-2: every sitemap URL -> 200 under Googlebot's UA"
+  printf 'FAIL  %-70s (%s URLs swept)\n' \
+    "INDEX-2: every sitemap URL -> 200 under Googlebot's UA" "$sitemap_count"
   printf '%s' "$bot_failures"
 fi
 
-if [ -z "$canonical_mismatches" ]; then
+if [ -z "$canonical_mismatches" ] && enough_urls; then
   PASS=$((PASS + 1))
   printf 'PASS  %-70s %s/%s\n' "INDEX-3: every sitemap URL is self-canonical" \
     "$sitemap_count" "$sitemap_count"
 else
   FAIL=$((FAIL + 1))
-  printf 'FAIL  %-70s\n' "INDEX-3: every sitemap URL is self-canonical"
+  printf 'FAIL  %-70s (%s URLs swept)\n' \
+    "INDEX-3: every sitemap URL is self-canonical" "$sitemap_count"
   printf '%s' "$canonical_mismatches"
 fi
 

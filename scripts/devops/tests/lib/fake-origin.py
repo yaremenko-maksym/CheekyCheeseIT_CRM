@@ -304,6 +304,8 @@ class Handler(BaseHTTPRequestHandler):
     # ── locale suite ──────────────────────────────────────────────────────────
     def locale_response(self):
         path = self.path.split("?")[0]
+        # Everything from "?" on, "" when absent — nginx's $is_args$args.
+        raw_query = self.path[len(path) :]
         accept_language = self.headers.get("Accept-Language", "")
         cookie = self.headers.get("Cookie", "")
         country = self.headers.get("CF-IPCountry", "")
@@ -333,7 +335,16 @@ class Handler(BaseHTTPRequestHandler):
             headers.append(("Cache-Control", "no-store"))
 
         if path == "/sitemap.xml":
-            self.send_body(200, sitemap_xml(), headers, content_type="application/xml")
+            body = sitemap_xml()
+            if ARGS.flaw == "empty-sitemap":
+                # Well-formed and utterly empty — the shape a build that ran
+                # against zero data produces. Every INDEX-* sweep then has
+                # nothing to iterate and must NOT report a vacuous success.
+                body = (
+                    '<?xml version="1.0" encoding="UTF-8"?>'
+                    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+                )
+            self.send_body(200, body, headers, content_type="application/xml")
             return
 
         # `/en/…` is not a route (English is unprefixed) — it exists only as a
@@ -344,7 +355,12 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_body(200, page_html("en", ""), headers)
                 return
             rest = path[len("/en/") :] if path.startswith("/en/") else ""
-            self.send_body(301, "", headers + [("Location", "/" + rest)])
+            # nginx's `rewrite` re-appends the query string for free, its
+            # `return` does not — the slashless `/en` branch shipped without
+            # an explicit `$is_args$args` in review round 1, silently dropping
+            # UTM parameters. Modelled here so the guard case has teeth.
+            query = "" if ARGS.flaw == "en-alias-drops-query" else raw_query
+            self.send_body(301, "", headers + [("Location", "/" + rest + query)])
             return
 
         # Already-prefixed URLs must NEVER redirect (crawler safety).
