@@ -25,7 +25,8 @@ import {
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common'
-import { and, eq, lt } from 'drizzle-orm'
+import { randomUUID } from 'node:crypto'
+import { and, eq, lt, sql } from 'drizzle-orm'
 import {
   EMPTY_RESUME_CONTENT,
   RESUME_LIMITS,
@@ -196,6 +197,10 @@ export class SeniorResumesService {
         errorMessage: null,
         quotaResetsAt: null,
         extractionStartedAt: null,
+        // Disown any extraction in flight: the human just decided what this
+        // resume says, and a model that started earlier must not land on top
+        // of that decision a few seconds later.
+        extractionRunId: null,
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
@@ -251,6 +256,11 @@ export class SeniorResumesService {
         errorMessage: null,
         quotaResetsAt: null,
         extractionStartedAt: null,
+        // Re-arming the queue from ANY state (including RUNNING) is deliberate
+        // — the newest upload is what the user wants — but it must also DISOWN
+        // whatever is still running, or the older run finishes second and wins,
+        // writing the contents of the file we are about to delete.
+        extractionRunId: null,
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
@@ -288,6 +298,8 @@ export class SeniorResumesService {
         errorMessage: null,
         quotaResetsAt: null,
         extractionStartedAt: null,
+        // Same reason as in `uploadSource`: supersede, and disown what ran.
+        extractionRunId: null,
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })
@@ -320,26 +332,34 @@ export class SeniorResumesService {
   /**
    * QUEUED -> RUNNING -> READY | FAILED. Public so the cron can re-drive an
    * abandoned QUEUED row through exactly the same code path.
+   *
+   * Every write below carries the run token from `claimForExtraction`. That is
+   * what makes a slow run harmless: if anything superseded it while the model
+   * was thinking — a newer upload, a pasted text, a manual save by HR — the
+   * token no longer matches, the UPDATE touches zero rows, and this run drops
+   * its result instead of overwriting fresher data (or resurrecting the
+   * contents of a file that has since been deleted from storage).
    */
   async runExtraction(resumeId: string, loadText: () => Promise<string>): Promise<void> {
-    const claimed = await this.claimForExtraction(resumeId)
-    if (!claimed) return // someone else is already running it
+    const runId = await this.claimForExtraction(resumeId)
+    if (runId === null) return // someone else is already running it
 
     let text: string
     try {
       text = await loadText()
     } catch (err: unknown) {
-      await this.failExtraction(
-        resumeId,
-        err instanceof ResumeFileUnreadableError ? 'UNREADABLE_FILE' : 'MODEL_ERROR',
-        err instanceof Error ? err.message : 'Не удалось прочитать файл',
+      // Detail stays in the server log; the user gets our own wording.
+      this.logger.warn(
+        `Resume ${resumeId}: could not load text — ${err instanceof Error ? err.message : 'unknown'}`,
       )
+      await this.failExtraction(resumeId, runId, ...describeLoadFailure(err))
       return
     }
 
     if (text.trim().length < RESUME_LIMITS.minExtractableChars) {
       await this.failExtraction(
         resumeId,
+        runId,
         'NO_TEXT',
         'Из файла не удалось извлечь текст (вероятно, это скан или картинка). Вставьте текст резюме вручную.',
       )
@@ -350,6 +370,7 @@ export class SeniorResumesService {
     if (!result.ok) {
       await this.failExtraction(
         resumeId,
+        runId,
         result.code,
         result.message,
         result.quotaResetsAt,
@@ -358,7 +379,7 @@ export class SeniorResumesService {
       return
     }
 
-    await this.db.db
+    const written = await this.db.db
       .update(seniorResumes)
       .set({
         content: result.content,
@@ -367,28 +388,59 @@ export class SeniorResumesService {
         errorMessage: null,
         quotaResetsAt: null,
         extractionStartedAt: null,
+        extractionRunId: null,
         lastExtractionTokens: result.tokensUsed,
+        // The extraction REPLACES the content, so it is a content change like
+        // any other and must move `version` — that field is what
+        // task-resume-tailoring reads to notice a stale base, and a silent
+        // content swap underneath a stable version is exactly the case it
+        // would miss.
+        version: sql`${seniorResumes.version} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, resumeId))
+      .where(this.ownedByRun(resumeId, runId))
+      .returning({ id: seniorResumes.id })
+
+    if (written.length === 0) {
+      this.logger.log(
+        `Resume ${resumeId}: extraction result discarded — the row was superseded while the model ran`,
+      )
+    }
   }
 
   /**
-   * Atomically move QUEUED -> RUNNING. The `status = 'QUEUED'` predicate in the
-   * UPDATE is the lock: a second worker (cron re-drive racing the detached
-   * run) updates zero rows and backs off, so the model is never paid twice.
+   * Atomically move QUEUED -> RUNNING and stamp a fresh run token.
+   *
+   * The `status = 'QUEUED'` predicate is the lock: a second worker (cron
+   * re-drive racing the detached run) updates zero rows and backs off, so the
+   * model is never paid twice. Returns the token the run must present on its
+   * terminal write, or `null` when the claim was lost.
    */
-  private async claimForExtraction(resumeId: string): Promise<boolean> {
+  private async claimForExtraction(resumeId: string): Promise<string | null> {
+    const runId = randomUUID()
     const claimed = await this.db.db
       .update(seniorResumes)
-      .set({ status: 'RUNNING', extractionStartedAt: new Date() })
+      .set({ status: 'RUNNING', extractionStartedAt: new Date(), extractionRunId: runId })
       .where(and(eq(seniorResumes.id, resumeId), eq(seniorResumes.status, 'QUEUED')))
       .returning({ id: seniorResumes.id })
-    return claimed.length > 0
+    return claimed.length > 0 ? runId : null
+  }
+
+  /**
+   * "This row, still RUNNING, still owned by MY attempt." Every terminal write
+   * of an extraction is gated on it — see `runExtraction`.
+   */
+  private ownedByRun(resumeId: string, runId: string) {
+    return and(
+      eq(seniorResumes.id, resumeId),
+      eq(seniorResumes.status, 'RUNNING'),
+      eq(seniorResumes.extractionRunId, runId),
+    )
   }
 
   private async failExtraction(
     resumeId: string,
+    runId: string,
     code: ResumeFailureCode,
     message: string,
     quotaResetsAt: string | null = null,
@@ -402,7 +454,27 @@ export class SeniorResumesService {
         errorMessage: message,
         quotaResetsAt: quotaResetsAt ? new Date(quotaResetsAt) : null,
         extractionStartedAt: null,
+        extractionRunId: null,
         lastExtractionTokens: tokensUsed,
+        updatedAt: new Date(),
+      })
+      .where(this.ownedByRun(resumeId, runId))
+  }
+
+  /** Mark a row FAILED regardless of ownership (used by the sweeps). */
+  private async failUnclaimed(
+    resumeId: string,
+    code: ResumeFailureCode,
+    message: string,
+  ): Promise<void> {
+    await this.db.db
+      .update(seniorResumes)
+      .set({
+        status: 'FAILED',
+        errorCode: code,
+        errorMessage: message,
+        extractionStartedAt: null,
+        extractionRunId: null,
         updatedAt: new Date(),
       })
       .where(eq(seniorResumes.id, resumeId))
@@ -422,6 +494,7 @@ export class SeniorResumesService {
         errorMessage:
           'Распознавание прервалось (перезапуск сервиса). Загрузите файл ещё раз или заполните резюме вручную.',
         extractionStartedAt: null,
+        extractionRunId: null,
         updatedAt: now,
       })
       .where(
@@ -449,7 +522,9 @@ export class SeniorResumesService {
       const key = row.sourceS3Key
       const mime = row.sourceMimeType
       if (!key || !mime) {
-        await this.failExtraction(
+        // This row is still QUEUED — nothing ever claimed it, so there is no
+        // run token to present; fail it directly.
+        await this.failUnclaimed(
           row.id,
           'STALLED',
           'Распознавание прервалось (перезапуск сервиса). Вставьте текст резюме ещё раз или заполните форму вручную.',
@@ -540,6 +615,24 @@ export class SeniorResumesService {
     this.logger.warn('Stored resume content failed validation — serving empty content')
     return EMPTY_RESUME_CONTENT
   }
+}
+
+/**
+ * Turn a "could not get the text" throw into (code, message) SAFE TO DISPLAY.
+ *
+ * `errorMessage` is rendered verbatim in the resume panel, so only messages
+ * this codebase wrote may reach it. `ResumeFileUnreadableError` carries exactly
+ * those — Russian, user-facing, deliberately phrased ("в PDF больше 30
+ * страниц"). Everything else is a storage client or a parser talking to itself:
+ * bucket names, key paths, endpoint hosts, stack-shaped internals. Those are
+ * logged, never shown.
+ */
+function describeLoadFailure(err: unknown): [ResumeFailureCode, string] {
+  if (err instanceof ResumeFileUnreadableError) return ['UNREADABLE_FILE', err.message]
+  return [
+    'MODEL_ERROR',
+    'Не удалось прочитать исходный файл резюме. Загрузите его ещё раз или вставьте текст.',
+  ]
 }
 
 /**

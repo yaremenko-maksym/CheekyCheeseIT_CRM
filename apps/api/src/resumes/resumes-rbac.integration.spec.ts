@@ -36,7 +36,12 @@ import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
-import { EMPTY_RESUME_CONTENT, type ResumeContent, type SessionUser } from '@crm/shared'
+import {
+  EMPTY_RESUME_CONTENT,
+  RESUME_DOCX_MIME,
+  type ResumeContent,
+  type SessionUser,
+} from '@crm/shared'
 import * as schema from '../database/schema'
 import { seniorResumes, users, type User } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
@@ -516,6 +521,249 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
         }),
       ).rejects.toThrow(/PDF и DOCX/)
       expect(s3.upload).not.toHaveBeenCalled()
+    })
+  })
+
+  // ── R-INT-10: whoever finishes last must NOT automatically win ─────────────
+
+  /**
+   * The extraction's terminal write is the one place where a slow background
+   * job can silently overwrite something a human just decided. These tests pin
+   * BOTH directions: the stale run must lose, and the current run must win.
+   *
+   * MUTATION: relax `ownedByRun` back to `eq(seniorResumes.id, resumeId)` —
+   * "R-INT-10a" and "R-INT-10b" go red together.
+   */
+  describe('R-INT-10. an extraction may only finish the row it still owns', () => {
+    /** A promise this test resolves by hand, so "while the model runs" is real. */
+    function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+      let resolve!: (value: T) => void
+      const promise = new Promise<T>((r) => {
+        resolve = r
+      })
+      return { promise, resolve }
+    }
+
+    const extracted = (summary: string) => ({
+      ok: true as const,
+      content: { ...EMPTY_RESUME_CONTENT, summary },
+      tokensUsed: 7,
+    })
+
+    async function waitForStatus(status: string): Promise<void> {
+      await vi.waitFor(async () => {
+        const [row] = await dbSvc.db
+          .select()
+          .from(seniorResumes)
+          .where(eq(seniorResumes.userId, SENIOR_A.id))
+        expect(row?.status).toBe(status)
+      })
+    }
+
+    it('R-INT-10a. a manual save during extraction is not overwritten by the model', async () => {
+      if (!dbAvailable) return
+      const model = deferred<ReturnType<typeof extracted>>()
+      ai.extractStructure.mockImplementationOnce(() => model.promise)
+
+      await service.ingestText(session(HR_USER), SENIOR_A.id, 'Иван Петров, синьор. '.repeat(20))
+      await waitForStatus('RUNNING')
+
+      // HR types the resume by hand while the model is still thinking.
+      const saved = await service.updateContent(session(HR_USER), SENIOR_A.id, {
+        ...EMPTY_RESUME_CONTENT,
+        summary: 'написано человеком',
+      })
+      expect(saved.resume?.status).toBe('READY')
+
+      // ...and only now does the model answer, with something else entirely.
+      model.resolve(extracted('придумано моделью'))
+      await vi.waitFor(() => expect(ai.extractStructure).toHaveBeenCalled())
+      await new Promise((r) => setTimeout(r, 50))
+
+      const after = await service.getForUser(session(HR_USER), SENIOR_A.id)
+      expect(after.resume?.content.summary).toBe('написано человеком')
+      expect(after.resume?.status).toBe('READY')
+      // The human's save is still the latest version — the run wrote nothing.
+      expect(after.resume?.version).toBe(saved.resume?.version)
+    })
+
+    it('R-INT-10b. a superseded upload loses to the newer one, whichever finishes first', async () => {
+      if (!dbAvailable) return
+      const first = deferred<ReturnType<typeof extracted>>()
+      const second = deferred<ReturnType<typeof extracted>>()
+      ai.extractStructure.mockImplementationOnce(() => first.promise)
+      ai.extractStructure.mockImplementationOnce(() => second.promise)
+
+      await service.ingestText(session(HR_USER), SENIOR_A.id, 'Первый вариант резюме. '.repeat(20))
+      await waitForStatus('RUNNING')
+
+      // A second submission arrives while the first is still running.
+      await service.ingestText(session(HR_USER), SENIOR_A.id, 'Второй вариант резюме. '.repeat(20))
+      await waitForStatus('RUNNING')
+
+      // The NEWER run finishes first, the older one second — the order that
+      // used to hand victory to the stale attempt.
+      second.resolve(extracted('второй файл'))
+      await vi.waitFor(async () => {
+        const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
+        expect(dto.resume?.status).toBe('READY')
+      })
+      first.resolve(extracted('первый файл — уже удалён'))
+      await new Promise((r) => setTimeout(r, 50))
+
+      const after = await service.getForUser(session(HR_USER), SENIOR_A.id)
+      expect(after.resume?.content.summary).toBe('второй файл')
+    })
+
+    /**
+     * `version` is the field task-resume-tailoring reads to notice that a
+     * tailored variant was built on a base that has since changed. An
+     * extraction REPLACES the content, so it has to move that field — writing
+     * new content under an unchanged version is precisely the case the
+     * follow-up task would fail to detect.
+     *
+     * MUTATION: drop the `version: sql\`version + 1\`` line — this goes red.
+     */
+    it('R-INT-10c. a completed extraction bumps version like any other content change', async () => {
+      if (!dbAvailable) return
+      ai.extractStructure.mockResolvedValueOnce(extracted('распознано моделью'))
+      const before = await service.getForUser(session(HR_USER), SENIOR_A.id)
+
+      await service.ingestText(session(HR_USER), SENIOR_A.id, 'Иван Петров, синьор. '.repeat(20))
+      await vi.waitFor(async () => {
+        const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
+        expect(dto.resume?.status).toBe('READY')
+      })
+
+      const after = await service.getForUser(session(HR_USER), SENIOR_A.id)
+      expect(after.resume?.content.summary).toBe('распознано моделью')
+      expect(after.resume?.version).toBe((before.resume?.version ?? 0) + 1)
+    })
+  })
+
+  // ── R-INT-11: the abandoned-QUEUED half of the sweep ──────────────────────
+
+  /**
+   * `requeueAbandoned` is the ONLY path in this module that reads the file back
+   * out of storage, and until now nothing exercised it — the stuck-RUNNING half
+   * was pinned and this half was not, so "the sweep is covered" was half true.
+   *
+   * MUTATION: make `requeueAbandoned` return 0 without doing anything — all
+   * three tests below go red.
+   */
+  describe('R-INT-11. abandoned QUEUED rows are re-driven from storage', () => {
+    const staleTime = () => new Date(Date.now() - STUCK_EXTRACTION_TIMEOUT_MS - 60_000)
+
+    it('R-INT-11a. re-reads the stored source and finishes the extraction', async () => {
+      if (!dbAvailable) return
+      const docx = buildDocx(['Иван Петров', 'Синьор-разработчик в Acme, 2019–2024'])
+      s3.getObject.mockResolvedValueOnce(docx)
+      ai.extractStructure.mockResolvedValueOnce({
+        ok: true,
+        content: { ...EMPTY_RESUME_CONTENT, summary: 'поднято подметателем' },
+        tokensUsed: 11,
+      })
+
+      // A container died between "row marked QUEUED" and "detached run began".
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          status: 'QUEUED',
+          sourceS3Key: 'senior-resumes/abandoned.docx',
+          sourceMimeType: RESUME_DOCX_MIME,
+          extractionRunId: null,
+          updatedAt: staleTime(),
+        })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+
+      const handled = await service.requeueAbandoned()
+      expect(handled).toBeGreaterThanOrEqual(1)
+      expect(s3.getObject).toHaveBeenCalledWith('senior-resumes/abandoned.docx')
+
+      await vi.waitFor(async () => {
+        const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
+        expect(dto.resume?.status).toBe('READY')
+      })
+      const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
+      expect(dto.resume?.content.summary).toBe('поднято подметателем')
+    })
+
+    it('R-INT-11b. a stale QUEUED row with no stored file is failed, not left spinning', async () => {
+      if (!dbAvailable) return
+      s3.getObject.mockClear()
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          status: 'QUEUED',
+          sourceS3Key: null,
+          sourceMimeType: null,
+          extractionRunId: null,
+          updatedAt: staleTime(),
+        })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+
+      expect(await service.requeueAbandoned()).toBeGreaterThanOrEqual(1)
+      expect(s3.getObject).not.toHaveBeenCalled()
+
+      const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
+      expect(dto.resume?.status).toBe('FAILED')
+      expect(dto.resume?.errorCode).toBe('STALLED')
+      expect(dto.resume?.errorMessage).toMatch(/вручную/i)
+    })
+
+    it('R-INT-11c. a QUEUED row still inside its deadline is left alone', async () => {
+      if (!dbAvailable) return
+      s3.getObject.mockClear()
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ status: 'QUEUED', extractionRunId: null, updatedAt: new Date() })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+
+      await service.requeueAbandoned()
+      expect(s3.getObject).not.toHaveBeenCalled()
+
+      const [row] = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+      expect(row?.status).toBe('QUEUED')
+
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ status: 'READY' })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+    })
+
+    /**
+     * A storage failure must not leak its wording to the screen: the message
+     * lands in `errorMessage`, which the resume panel renders verbatim. Bucket
+     * names, key paths and endpoint hosts are not user-facing copy.
+     */
+    it('R-INT-11d. a storage failure surfaces OUR wording, not the client’s', async () => {
+      if (!dbAvailable) return
+      s3.getObject.mockRejectedValueOnce(
+        new Error('NoSuchKey: crm-prod-bucket/senior-resumes/x at https://r2.internal'),
+      )
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          status: 'QUEUED',
+          sourceS3Key: 'senior-resumes/gone.docx',
+          sourceMimeType: RESUME_DOCX_MIME,
+          extractionRunId: null,
+          updatedAt: staleTime(),
+        })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+
+      await service.requeueAbandoned()
+      await vi.waitFor(async () => {
+        const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
+        expect(dto.resume?.status).toBe('FAILED')
+      })
+
+      const dto = await service.getForUser(session(HR_USER), SENIOR_A.id)
+      expect(dto.resume?.errorMessage).not.toMatch(/NoSuchKey|bucket|https?:/i)
+      expect(dto.resume?.errorMessage).toMatch(/вставьте текст/i)
     })
   })
 })

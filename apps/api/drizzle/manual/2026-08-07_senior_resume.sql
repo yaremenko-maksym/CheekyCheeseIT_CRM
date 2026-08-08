@@ -73,3 +73,26 @@ CREATE TABLE IF NOT EXISTS senior_resumes (
 -- this pair: status = 'RUNNING' AND extraction_started_at < cutoff.
 CREATE INDEX IF NOT EXISTS idx_senior_resumes_status
   ON senior_resumes (status, extraction_started_at);
+
+-- -----------------------------------------------------------------------------
+-- 3. Extraction ownership token
+-- -----------------------------------------------------------------------------
+-- Which attempt owns the row right now. A run stamps this when it claims the
+-- row and its terminal write requires the value to be unchanged; a newer
+-- upload / pasted text / manual save clears it. Without it, a slow extraction
+-- could finish last and overwrite a manual save — or the result of a file the
+-- user has already replaced.
+--
+-- Nullable and unindexed on purpose: it is only ever read as an equality
+-- predicate on a row already located by primary key.
+ALTER TABLE senior_resumes ADD COLUMN IF NOT EXISTS extraction_run_id uuid;
+
+-- -----------------------------------------------------------------------------
+-- 4. Index for the abandoned-QUEUED sweep
+-- -----------------------------------------------------------------------------
+-- The index above serves `status = 'RUNNING' AND extraction_started_at < cutoff`.
+-- The other half of the sweep asks a DIFFERENT question — `status = 'QUEUED'
+-- AND updated_at < cutoff` — because a QUEUED row was never claimed and so has
+-- no extraction_started_at to age it by. That query had no index at all.
+CREATE INDEX IF NOT EXISTS idx_senior_resumes_status_updated_at
+  ON senior_resumes (status, updated_at);

@@ -1892,6 +1892,16 @@ export const seniorResumes = pgTable(
     quotaResetsAt: timestamp('quota_resets_at', { withTimezone: true }),
     /** Set when a RUNNING extraction started — drives the stuck-sweep cron. */
     extractionStartedAt: timestamp('extraction_started_at', { withTimezone: true }),
+    /**
+     * Identifies WHICH extraction attempt currently owns this row.
+     *
+     * Generated when a run claims the row and required (unchanged) by that
+     * run's terminal write. Anything that supersedes the run — a second upload,
+     * a pasted text, a manual save — clears it, so the superseded run finds no
+     * matching row and discards its result instead of overwriting newer data
+     * with the contents of a file that has already been deleted.
+     */
+    extractionRunId: uuid('extraction_run_id'),
     /** Neurons/tokens spent on the last extraction — makes the spend visible. */
     lastExtractionTokens: integer('last_extraction_tokens'),
     /** Private R2/S3 key of the original file — served only via our endpoint. */
@@ -1909,6 +1919,10 @@ export const seniorResumes = pgTable(
   (t) => [
     // The stuck-RUNNING sweep filters on exactly this pair.
     index('idx_senior_resumes_status').on(t.status, t.extractionStartedAt),
+    // The abandoned-QUEUED sweep filters on a DIFFERENT pair: a QUEUED row has
+    // no `extraction_started_at` (nothing ever claimed it), so it can only be
+    // aged by `updated_at`. The index above does not serve that query at all.
+    index('idx_senior_resumes_status_updated_at').on(t.status, t.updatedAt),
   ],
 )
 
