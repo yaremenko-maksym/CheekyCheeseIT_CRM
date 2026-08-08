@@ -116,7 +116,21 @@ export const testingLibraryTestQualityRules = {
  * Applies to: @crm/e2e, whose 110 spec files had no linter at all.
  */
 export const playwrightTestQualityRules = {
-  'playwright/expect-expect': 'error',
+  // Same convention as the Vitest rule above: a spec may delegate its
+  // assertions to a shared `assertX(...)` helper (e.g. the per-role
+  // `assertManualSectionHidden` in phase8-payout-company.spec.ts). Without this
+  // the rule reads those tests as assertion-free.
+  //
+  // NOTE the different option: this plugin's `assertFunctionNames` matches
+  // EXACT names only — the `assert*` glob the Vitest plugin accepts is silently
+  // ignored here (verified against the rule source, which feeds the list to a
+  // literal name match and keeps regexes in a separate `assertFunctionPatterns`
+  // option). Getting this wrong is invisible: the config loads fine and the
+  // rule just keeps reporting.
+  'playwright/expect-expect': [
+    'error',
+    { assertFunctionPatterns: ['^assert', '^verify', '^expect'] },
+  ],
   'playwright/no-conditional-expect': 'error',
   'playwright/no-standalone-expect': 'error',
   // `maxArgs: 2` for the same reason as the Vitest rule above — Playwright's

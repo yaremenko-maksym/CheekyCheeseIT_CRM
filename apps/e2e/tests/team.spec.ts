@@ -124,7 +124,11 @@ test.describe('Team page', () => {
 
       await page.getByTitle('Удалить команду').click()
       await page.getByRole('button', { name: 'Удалить' }).last().click()
-      await deleteReq
+      // Assert on the resolved request rather than just awaiting it
+      // (task-lint-teeth): a bare `await deleteReq` does fail the test on
+      // timeout, but it leaves the spec with no assertion of its own, so
+      // nothing states what the test actually proved.
+      expect((await deleteReq).method()).toBe('DELETE')
     })
 
     test.skip('cancel closes dialog without DELETE', async ({ asAdmin: page }) => {
@@ -168,7 +172,7 @@ test.describe('Team page', () => {
         .getByRole('dialog')
         .getByRole('button', { name: /^Добавить/ })
         .click()
-      await postReq
+      expect((await postReq).method()).toBe('POST')
     })
 
     test('cancel closes dialog without POST', async ({ asAdmin: page }) => {
@@ -199,7 +203,7 @@ test.describe('Team page', () => {
 
       // Two accountants in team — neither is "last" so both have remove buttons
       await page.getByTitle('Исключить').first().click()
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
   })
 

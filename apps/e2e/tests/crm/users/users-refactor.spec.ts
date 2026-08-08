@@ -253,7 +253,7 @@ test.describe('Users page refactor (PR 2)', () => {
         (req) => req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
       )
       await page.getByTestId('archive-confirm-submit').click()
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
 
     test('Enter in name input submits when name matches', async ({ asAdmin: page }) => {
@@ -265,7 +265,7 @@ test.describe('Users page refactor (PR 2)', () => {
         (req) => req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
       )
       await input.press('Enter')
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
   })
 
@@ -336,7 +336,7 @@ test.describe('Users page refactor (PR 2)', () => {
           req.url().includes(`/api/users/${USERS.junior.id}/unarchive`) && req.method() === 'POST',
       )
       await page.getByTestId(`user-row-unarchive-${USERS.junior.id}`).click()
-      await unarchiveReq
+      expect((await unarchiveReq).method()).toBe('POST')
     })
   })
 

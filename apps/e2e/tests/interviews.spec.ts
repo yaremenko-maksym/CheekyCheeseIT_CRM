@@ -446,7 +446,7 @@ test.describe('Interviews (Kanban) page', () => {
 
       await page.getByTitle('Удалить карточку').click()
       await page.getByRole('button', { name: 'Удалить' }).last().click()
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
   })
 

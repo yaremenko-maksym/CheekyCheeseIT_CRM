@@ -400,7 +400,7 @@ test.describe('Users management page', () => {
       )
       await page.getByTestId('archive-confirm-name-input').fill('Senior Dev')
       await page.getByTestId('archive-confirm-submit').click()
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
 
     test('cancel closes dialog without DELETE', async ({ asAdmin: page }) => {
