@@ -33,6 +33,20 @@ export const RESUME_LIMITS = {
   links: 20,
   /** Max characters of raw resume text we ever send to the model (token cap). */
   extractionInputChars: 12_000,
+  /**
+   * Hard ceiling on how many characters of resume text ever exist in memory —
+   * whether pasted by a human or produced by the PDF/DOCX parsers.
+   *
+   * This is a DoS bound, not a token bound. A perfectly honest 52 KB DOCX can
+   * inflate to 50 MiB of characters, and any per-character pass over that
+   * (normalisation, regex, JSON) blocks the single-threaded event loop for
+   * seconds — with the upload endpoint throttled at 10/min that is tens of
+   * seconds of API-wide unavailability per minute. So extraction TRUNCATES to
+   * this before it touches the text at all, and the paste endpoint refuses
+   * more than this. 200 000 characters is ~25x the longest real CV and
+   * normalises in about a millisecond.
+   */
+  extractionRawChars: 200_000,
   /** Below this the text is not a resume — fail loudly instead of paying for a model call. */
   minExtractableChars: 40,
 } as const
@@ -138,13 +152,25 @@ function normalizeUrlForSchemeCheck(raw: string): string {
  * read off the NORMALISED string (see `normalizeUrlForSchemeCheck`),
  * lower-cased and compared. `https:` additionally requires a real `//host`
  * part, so scheme-relative junk (`https:foo`) and empty hosts are rejected.
+ *
+ * The authority must ALSO be free of a `user:password@` part. Credentials in
+ * a URL are a phishing primitive, not a resume feature: `https://github.com@evil.tld`
+ * reads as "github.com" to a human skimming the link text but sends the browser
+ * to `evil.tld`, and this link comes from an uploaded file plus an LLM — i.e.
+ * from an attacker's keyboard. Nothing legitimate in a CV needs them.
  */
 export function isSafeResumeUrl(raw: string): boolean {
   const normalized = normalizeUrlForSchemeCheck(raw)
   if (normalized === '') return false
 
   const scheme = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(normalized)?.[1]?.toLowerCase()
-  if (scheme === 'https') return /^https:\/\/[^/?#\s]+/i.test(normalized)
+  if (scheme === 'https') {
+    const authority = /^https:\/\/([^/?#\s]+)/i.exec(normalized)?.[1]
+    if (authority === undefined) return false
+    // `@` anywhere in the authority means credentials (the host is whatever
+    // follows the LAST `@`) — reject rather than try to out-parse the browser.
+    return !authority.includes('@')
+  }
   if (scheme === 'mailto') return normalized.length > 'mailto:'.length
   return false
 }
@@ -261,7 +287,9 @@ export const ingestResumeTextSchema = z.object({
   text: z
     .string()
     .min(RESUME_LIMITS.minExtractableChars, 'Текст резюме слишком короткий')
-    .max(200_000),
+    // Same ceiling the file path truncates to — one number, so pasted text and
+    // extracted text can never disagree about how much text may exist.
+    .max(RESUME_LIMITS.extractionRawChars),
 })
 export type IngestResumeTextInput = z.infer<typeof ingestResumeTextSchema>
 
