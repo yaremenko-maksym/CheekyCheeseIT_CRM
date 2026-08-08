@@ -74,6 +74,17 @@ run_guard() {
   PATH="$shim_dir:$PATH" CRM_BACKUP_ENV_FILE="$env_file" bash "$GUARD"
 }
 
+# Same, but with AWS credentials and an endpoint deliberately present in the
+# CALLER's environment. See the case below for why this exists.
+run_guard_with_ambient_creds() {
+  local shim_dir="$1" env_file="$2"
+  PATH="$shim_dir:$PATH" CRM_BACKUP_ENV_FILE="$env_file" \
+    AWS_ACCESS_KEY_ID=ambient-key-from-caller \
+    AWS_SECRET_ACCESS_KEY=ambient-secret-from-caller \
+    S3_ENDPOINT=http://localhost:9000 \
+    bash "$GUARD"
+}
+
 # No shim needed: FAKE_MODE bypasses both the config read and the aws call.
 run_fake() {
   FAKE_MODE=1 FAKE_LATEST_TIMESTAMP="$1" bash "$GUARD"
@@ -115,6 +126,20 @@ assert_red_signal "config file present but missing required vars -> not_configur
   --contains "missing required var(s)" \
   --not-contains "STATUS=fresh" \
   -- run_guard "$FRESH_SHIM" "$INCOMPLETE_ENV_FILE"
+
+# REGRESSION, found by this very test on the CI runner (2026-08-07): the
+# `quality` job exports AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / S3_ENDPOINT
+# for the API's MinIO config, and the guard read the process environment after
+# sourcing the config file — so an incomplete /etc/crm-backup.env was reported
+# as fully configured and the S3 query ran with credentials for a different
+# bucket entirely. The guard now unsets those vars before sourcing; this case
+# holds it to that. A verdict about prod backups must not depend on who invoked
+# the script.
+assert_red_signal "ambient AWS creds in the caller's env do NOT make an incomplete config look configured" \
+  --contains "STATUS=not_configured" \
+  --contains "AWS_ACCESS_KEY_ID" \
+  --not-contains "STATUS=fresh" \
+  -- run_guard_with_ambient_creds "$FRESH_SHIM" "$INCOMPLETE_ENV_FILE"
 
 assert_red "aws call fails -> exit 1 and NO verdict at all (never 'backups missing')" \
   --contains "do not trust this as 'no backups'" \
