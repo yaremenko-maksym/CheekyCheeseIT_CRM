@@ -26,10 +26,41 @@ const MAX_ZIP_ENTRIES = 2000
 /**
  * Max total UNCOMPRESSED size of a DOCX. A DOCX is a zip, so its on-disk size
  * says nothing about what it expands to: a few-KB "zip bomb" can decompress
- * into gigabytes and take the API process down. 60 MB is ~6x the largest
- * plausible real resume with images.
+ * into gigabytes and take the API process down.
+ *
+ * Lowered from 60 MB: the upload is capped at 10 MB, so anything past this is
+ * necessarily highly-compressible content, and every megabyte here is memory
+ * the extractor has to hold.
  */
-export const MAX_DOCX_UNCOMPRESSED_BYTES = 60 * 1024 * 1024
+export const MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
+
+/**
+ * Max total uncompressed size of the XML PARTS — the bound that actually
+ * governs CPU, and the one this file was missing.
+ *
+ * Measured on the real path, not guessed. Parser cost tracks XML size almost
+ * linearly, and the shape that hurts is many tiny paragraphs, not many
+ * characters (which is why a character cap downstream did nothing):
+ *
+ *   XML size   paragraphs   mammoth worst continuous stall
+ *    1.5 MB        26 214       866 ms
+ *    3.0 MB        52 428     1 166 ms
+ *    6.0 MB       104 857     1 847 ms
+ *   12.1 MB       209 715     4 433 ms
+ *   24.3 MB       419 430     8 876 ms
+ *   58.1 MB     1 000 000    33 336 ms   <- 165 KB on disk, passed every gate
+ *
+ * A real resume of 120 dense bullets is 24 KB of XML. 1 MB is ~40x that and
+ * still roomy for a formatting-heavy Word export.
+ *
+ * Enforced DURING the bounded inflate, so an archive over the cap is rejected
+ * the moment the budget runs out: the 58 MB case above costs tens of
+ * milliseconds because the remaining 57 MB is never inflated at all.
+ *
+ * Media is deliberately excluded — `extractRawText` does not parse images, so
+ * they cost memory (bounded above) but not parse time.
+ */
+export const MAX_DOCX_XML_BYTES = 1024 * 1024
 
 /** DEFLATE and STORED are the only methods a real DOCX ever uses. */
 const ZIP_METHOD_STORED = 0
@@ -92,12 +123,25 @@ export interface ZipInspection {
   declaredUncompressedBytes: number
   /** What it ACTUALLY expands to, measured by inflating under a hard budget. */
   actualUncompressedBytes: number
+  /** Of that, how much is XML — the part `mammoth` actually parses. */
+  actualXmlBytes: number
 }
 
 interface ZipEntryHeader {
+  name: string
   method: number
   declaredUncompressedSize: number
   localHeaderOffset: number
+}
+
+/**
+ * True for the parts `mammoth` parses as XML (document, styles, numbering,
+ * relationships, content types). Images and fonts are inert for text
+ * extraction, so they are charged against memory but not against parse time.
+ */
+function isXmlPart(name: string): boolean {
+  const lower = name.toLowerCase()
+  return lower.endsWith('.xml') || lower.endsWith('.rels')
 }
 
 /**
@@ -130,16 +174,31 @@ interface ZipEntryHeader {
 export async function inspectDocxZip(
   buf: Buffer,
   maxUncompressedBytes: number = MAX_DOCX_UNCOMPRESSED_BYTES,
+  maxXmlBytes: number = MAX_DOCX_XML_BYTES,
 ): Promise<ZipInspection> {
   const { headers, declaredUncompressedBytes } = readCentralDirectory(buf, maxUncompressedBytes)
 
   let actualUncompressedBytes = 0
+  let actualXmlBytes = 0
   for (const header of headers) {
-    const remaining = maxUncompressedBytes - actualUncompressedBytes
-    actualUncompressedBytes += await measureEntry(buf, header, remaining)
+    const xml = isXmlPart(header.name)
+    // An XML part gets the SMALLER of the two remaining budgets, so zlib stops
+    // the moment either is spent — the 58 MB attack dies a few dozen
+    // milliseconds in, with 57 MB of it never inflated.
+    const budget = xml
+      ? Math.min(maxUncompressedBytes - actualUncompressedBytes, maxXmlBytes - actualXmlBytes)
+      : maxUncompressedBytes - actualUncompressedBytes
+    const size = await measureEntry(buf, header, budget, xml ? maxXmlBytes : maxUncompressedBytes)
+    actualUncompressedBytes += size
+    if (xml) actualXmlBytes += size
   }
 
-  return { entries: headers.length, declaredUncompressedBytes, actualUncompressedBytes }
+  return {
+    entries: headers.length,
+    declaredUncompressedBytes,
+    actualUncompressedBytes,
+    actualXmlBytes,
+  }
 }
 
 /** Pass 1 — parse the central directory, trusting nothing but the signatures. */
@@ -206,7 +265,8 @@ function readCentralDirectory(
       )
     }
 
-    headers.push({ method, declaredUncompressedSize: uncompressed, localHeaderOffset })
+    const name = buf.subarray(cursor + 46, cursor + 46 + nameLen).toString('utf8')
+    headers.push({ name, method, declaredUncompressedSize: uncompressed, localHeaderOffset })
     cursor += 46 + nameLen + extraLen + commentLen
   }
 
@@ -228,7 +288,12 @@ function readCentralDirectory(
  * controlled too, and zlib stops cleanly at the end of the deflate stream and
  * ignores whatever follows it (verified against Node 20's `inflateRaw`).
  */
-async function measureEntry(buf: Buffer, header: ZipEntryHeader, budget: number): Promise<number> {
+async function measureEntry(
+  buf: Buffer,
+  header: ZipEntryHeader,
+  budget: number,
+  reportedCap: number,
+): Promise<number> {
   const nameLen = readU16LE(buf, header.localHeaderOffset + 26)
   const extraLen = readU16LE(buf, header.localHeaderOffset + 28)
   if (
@@ -247,7 +312,7 @@ async function measureEntry(buf: Buffer, header: ZipEntryHeader, budget: number)
     // physically present.
     const available = buf.length - dataStart
     const size = Math.min(header.declaredUncompressedSize, available)
-    if (size > budget) throw new RangeError(tooBig(budget))
+    if (size > budget) throw new RangeError(tooBig(reportedCap))
     return size
   }
 
@@ -257,7 +322,7 @@ async function measureEntry(buf: Buffer, header: ZipEntryHeader, budget: number)
 
   // `maxOutputLength: 0` is treated as "no limit" by zlib, so a spent budget
   // has to be refused before the call rather than passed into it.
-  if (budget <= 0) throw new RangeError(tooBig(0))
+  if (budget <= 0) throw new RangeError(tooBig(reportedCap))
 
   try {
     const inflated = await inflateRawAsync(buf.subarray(dataStart), { maxOutputLength: budget })
@@ -268,15 +333,21 @@ async function measureEntry(buf: Buffer, header: ZipEntryHeader, budget: number)
     // any `instanceof RangeError` branch, or the bomb reports itself as a
     // generic Node buffer message instead of our bounded-size failure.
     const code = (err as { code?: string } | null)?.code
-    if (code === 'ERR_BUFFER_TOO_LARGE') throw new RangeError(tooBig(budget))
+    if (code === 'ERR_BUFFER_TOO_LARGE') throw new RangeError(tooBig(reportedCap))
     throw new RangeError('Не удалось распаковать содержимое DOCX')
   }
 }
 
-function tooBig(budget: number): string {
-  const mb = Math.max(1, Math.floor(MAX_DOCX_UNCOMPRESSED_BYTES / 1024 / 1024))
-  return budget <= 0
-    ? `Распакованный DOCX больше ${mb} MB`
+/**
+ * Name the cap that was actually hit. The XML cap and the total cap are very
+ * different numbers, and "DOCX is too big" pointing at the wrong one would
+ * send someone shrinking images when the problem is the document body.
+ */
+function tooBig(cap: number): string {
+  const isXmlCap = cap === MAX_DOCX_XML_BYTES
+  const mb = Math.max(1, Math.floor(cap / 1024 / 1024))
+  return isXmlCap
+    ? `Текстовая часть DOCX больше ${mb} MB (реальный размер, а не заявленный) — это не похоже на резюме`
     : `Распакованный DOCX больше ${mb} MB (реальный размер, а не заявленный)`
 }
 

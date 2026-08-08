@@ -15,16 +15,24 @@
  * Both were verified to load and extract under `require()` in this repo's
  * Node 20 CJS setup before being committed.
  *
- * Bounds (a resume upload must not be a DoS vector) — all THREE are needed,
- * because each one measures a different thing and the file that hurt us
- * measured small on the other two:
- *   - page cap for PDFs (`MAX_PDF_PAGES`) — bounds the pages,
- *   - real (not declared) uncompressed-size + entry-count cap for DOCX,
- *     established by `inspectDocxZip` before `mammoth` sees the buffer,
- *   - CHARACTER cap on the extractor's output (`capExtractedText`), applied
- *     BEFORE normalisation. Nothing above bounds characters: a legitimate
- *     52 KB DOCX that passes every size gate still yields 50 MiB of text, and
- *     one per-character pass over that freezes the whole API for seconds.
+ * Bounds (a resume upload must not be a DoS vector). Each measures a DIFFERENT
+ * thing, and the file that hurt us measured small on all the others — which is
+ * the whole lesson here, so they are listed by what they actually bound:
+ *
+ *   - `MAX_DOCX_XML_BYTES` bounds PARSER WORK, and is the one that matters.
+ *     `mammoth.extractRawText` runs on the main thread, before any downstream
+ *     cap can apply, and its cost tracks the size of the XML parts. A 165 KB
+ *     file of a million tiny paragraphs passed the byte, type and page gates
+ *     and stalled the event loop for 33 336 ms continuously. Capping the XML
+ *     refuses it from metadata in ~1 ms and holds the worst PERMITTED document
+ *     to 363 ms. Both numbers are asserted in the spec by measuring loop lag.
+ *   - `MAX_DOCX_UNCOMPRESSED_BYTES` bounds MEMORY (real size, not declared).
+ *   - `MAX_PDF_PAGES` bounds pages for the PDF branch.
+ *   - `capExtractedText` bounds CHARACTERS carried downstream, applied before
+ *     normalisation. Necessary but NOT sufficient on its own: it runs after the
+ *     parser, so it cannot help with parser cost — the mistake this file made
+ *     in the previous round.
+ *   - `MAX_CONCURRENT_EXTRACTIONS` bounds simultaneous peak memory (only).
  */
 import { Injectable, Logger } from '@nestjs/common'
 import { RESUME_DOCX_MIME, RESUME_PDF_MIME } from '@crm/shared'
@@ -37,14 +45,23 @@ import {
 } from './resume-source.util'
 
 /**
- * How many extractions may run at once, process-wide.
+ * How many extractions may hold parser state at once, process-wide.
  *
- * Extraction is CPU- and memory-hungry (a PDF parse is synchronous JS) and the
- * upload endpoint lets ten requests a minute through per address. Without a
- * gate, ten simultaneous uploads mean ten parsers competing for one thread and
- * ten peak buffers at once; with it, the work is bounded and the rest simply
- * wait their turn in QUEUED — which is exactly the state the UI already
- * renders honestly.
+ * BE PRECISE ABOUT WHAT THIS DOES AND DOES NOT BUY, because the first version
+ * of this constant was untestable and therefore worthless:
+ *
+ *   - it does NOT reduce main-thread work. Serialising CPU-bound parses moves
+ *     the same milliseconds around; the bound that actually cut them is
+ *     `MAX_DOCX_XML_BYTES` (33 336 ms -> 363 ms worst continuous stall).
+ *   - it DOES bound peak MEMORY. Each in-flight extraction can hold up to
+ *     `MAX_DOCX_UNCOMPRESSED_BYTES` of inflated parts plus the parser's own
+ *     structures, and the upload endpoint admits ten requests a minute. Two at
+ *     a time is a bounded working set; ten is ten times the peak for no gain,
+ *     since one thread executes them serially anyway.
+ *
+ * Observable through `activeExtractions` so the limit is a tested fact rather
+ * than a comforting constant — swap the 2 for a large number and the
+ * concurrency test fails.
  */
 export const MAX_CONCURRENT_EXTRACTIONS = 2
 
@@ -62,6 +79,16 @@ export class ResumeTextExtractionService {
 
   private running = 0
   private readonly waiting: Array<() => void> = []
+
+  /** In-flight extractions right now — the gate's only observable effect. */
+  get activeExtractions(): number {
+    return this.running
+  }
+
+  /** Extractions admitted but waiting for a slot. */
+  get queuedExtractions(): number {
+    return this.waiting.length
+  }
 
   /**
    * Extract plain text from a validated resume buffer.

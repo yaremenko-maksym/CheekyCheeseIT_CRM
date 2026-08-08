@@ -244,3 +244,16 @@ export function buildDocxDeclaringNoEntries(): Buffer {
     { declaredEntryCount: 0 },
   )
 }
+
+/** An honest, DEFLATE-compressed .docx — small on disk, whatever size in XML. */
+export function buildDocxDeflated(paragraphs: string[]): Buffer {
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
+    { name: '_rels/.rels', data: Buffer.from(RELS, 'utf8'), deflate: true },
+    {
+      name: 'word/document.xml',
+      data: Buffer.from(documentXml(paragraphs), 'utf8'),
+      deflate: true,
+    },
+  ])
+}
