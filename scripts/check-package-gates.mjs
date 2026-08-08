@@ -152,7 +152,15 @@ function report(offenders, { scope }) {
  */
 function selfCheck() {
   const expected = ['missing-both', 'missing-lint', 'missing-typecheck']
-  const found = findUnguardedPackages(fixturesRoot, ['packages/*'])
+  // NOTE the missing second argument (code-review MED-1). Passing the globs
+  // explicitly — `findUnguardedPackages(fixturesRoot, ['packages/*'])` — left
+  // `readWorkspaceGlobs` out of the self-check entirely, so the ONE piece of
+  // this script that can silently under-report was the one piece never
+  // exercised. A mutation that made the parser drop `packages/*` produced
+  // "✔ every workspace package declares both" and exit 0, having examined
+  // nothing. Letting the fixture's own pnpm-workspace.yaml drive the run puts
+  // the parser on the self-checked path, so partial rot fails like total rot.
+  const found = findUnguardedPackages(fixturesRoot)
   const foundNames = found.map((o) => o.dir.replace(/^packages\//, '')).sort()
 
   if (JSON.stringify(foundNames) !== JSON.stringify(expected)) {
