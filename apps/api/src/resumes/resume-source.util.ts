@@ -255,14 +255,18 @@ async function measureEntry(buf: Buffer, header: ZipEntryHeader, budget: number)
     throw new RangeError(`Неподдерживаемый метод сжатия внутри DOCX (${header.method})`)
   }
 
+  // `maxOutputLength: 0` is treated as "no limit" by zlib, so a spent budget
+  // has to be refused before the call rather than passed into it.
+  if (budget <= 0) throw new RangeError(tooBig(0))
+
   try {
-    // `maxOutputLength: 0` is treated as "no limit" by zlib, so a spent budget
-    // has to be refused before the call rather than passed into it.
-    if (budget <= 0) throw new RangeError(tooBig(0))
     const inflated = await inflateRawAsync(buf.subarray(dataStart), { maxOutputLength: budget })
     return inflated.length
   } catch (err: unknown) {
-    if (err instanceof RangeError) throw err
+    // zlib signals "output exceeded maxOutputLength" with an ERR_BUFFER_TOO_LARGE
+    // error that IS itself a RangeError — so the CODE has to be inspected before
+    // any `instanceof RangeError` branch, or the bomb reports itself as a
+    // generic Node buffer message instead of our bounded-size failure.
     const code = (err as { code?: string } | null)?.code
     if (code === 'ERR_BUFFER_TOO_LARGE') throw new RangeError(tooBig(budget))
     throw new RangeError('Не удалось распаковать содержимое DOCX')

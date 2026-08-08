@@ -13,6 +13,7 @@
  * The zip writer emits STORED (uncompressed) entries only — enough for
  * `mammoth`, and it keeps the code short and readable.
  */
+import { deflateRawSync } from 'node:zlib'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 
 // ---------------------------------------------------------------------------
@@ -51,6 +52,23 @@ interface ZipEntry {
    * "zip bomb": tiny on disk, enormous by declaration.
    */
   declaredUncompressedSize?: number
+  /**
+   * DEFLATE the payload instead of storing it. Needed for the archive that
+   * lies DOWNWARDS — declaring a harmless size while shipping a stream that
+   * really does expand to hundreds of megabytes. A stored entry cannot lie
+   * that way (its bytes are physically present), so only a compressed one can
+   * express the attack a declaration-only guard misses.
+   */
+  deflate?: boolean
+}
+
+interface ZipOptions {
+  /**
+   * Force the entry count written into the End Of Central Directory record.
+   * A tampered archive can claim zero entries to switch a count-driven walk —
+   * and with it the whole size accounting — off entirely.
+   */
+  declaredEntryCount?: number
 }
 
 const CRC_TABLE = (() => {
@@ -69,14 +87,16 @@ function crc32(buf: Buffer): number {
   return (c ^ 0xffffffff) >>> 0
 }
 
-/** Minimal ZIP writer (STORED entries) — see the module doc for the why. */
-export function buildZip(entries: ZipEntry[]): Buffer {
+/** Minimal ZIP writer (STORED or DEFLATE entries) — see the module doc. */
+export function buildZip(entries: ZipEntry[], options: ZipOptions = {}): Buffer {
   const locals: Buffer[] = []
   const centrals: Buffer[] = []
   let offset = 0
 
   for (const entry of entries) {
     const name = Buffer.from(entry.name, 'utf8')
+    const payload = entry.deflate ? deflateRawSync(entry.data) : entry.data
+    const method = entry.deflate ? 8 : 0
     const size = entry.declaredUncompressedSize ?? entry.data.length
     const crc = crc32(entry.data)
 
@@ -84,26 +104,26 @@ export function buildZip(entries: ZipEntry[]): Buffer {
     local.writeUInt32LE(0x04034b50, 0)
     local.writeUInt16LE(20, 4)
     local.writeUInt16LE(0, 6)
-    local.writeUInt16LE(0, 8) // stored
+    local.writeUInt16LE(method, 8)
     local.writeUInt16LE(0, 10)
     local.writeUInt16LE(0, 12)
     local.writeUInt32LE(crc, 14)
-    local.writeUInt32LE(entry.data.length, 18)
+    local.writeUInt32LE(payload.length, 18)
     local.writeUInt32LE(size, 22)
     local.writeUInt16LE(name.length, 26)
     local.writeUInt16LE(0, 28)
-    locals.push(local, name, entry.data)
+    locals.push(local, name, payload)
 
     const central = Buffer.alloc(46)
     central.writeUInt32LE(0x02014b50, 0)
     central.writeUInt16LE(20, 4)
     central.writeUInt16LE(20, 6)
     central.writeUInt16LE(0, 8)
-    central.writeUInt16LE(0, 10)
+    central.writeUInt16LE(method, 10)
     central.writeUInt16LE(0, 12)
     central.writeUInt16LE(0, 14)
     central.writeUInt32LE(crc, 16)
-    central.writeUInt32LE(entry.data.length, 20)
+    central.writeUInt32LE(payload.length, 20)
     central.writeUInt32LE(size, 24)
     central.writeUInt16LE(name.length, 28)
     central.writeUInt16LE(0, 30)
@@ -114,16 +134,17 @@ export function buildZip(entries: ZipEntry[]): Buffer {
     central.writeUInt32LE(offset, 42)
     centrals.push(central, name)
 
-    offset += 30 + name.length + entry.data.length
+    offset += 30 + name.length + payload.length
   }
 
   const centralBuf = Buffer.concat(centrals)
+  const declaredCount = options.declaredEntryCount ?? entries.length
   const eocd = Buffer.alloc(22)
   eocd.writeUInt32LE(0x06054b50, 0)
   eocd.writeUInt16LE(0, 4)
   eocd.writeUInt16LE(0, 6)
-  eocd.writeUInt16LE(entries.length, 8)
-  eocd.writeUInt16LE(entries.length, 10)
+  eocd.writeUInt16LE(declaredCount, 8)
+  eocd.writeUInt16LE(declaredCount, 10)
   eocd.writeUInt32LE(centralBuf.length, 12)
   eocd.writeUInt32LE(offset, 16)
   eocd.writeUInt16LE(0, 20)
@@ -181,4 +202,45 @@ export function buildDocxZipBomb(): Buffer {
       declaredUncompressedSize: 4_000_000_000,
     },
   ])
+}
+
+/**
+ * The bomb that a DECLARATION-ONLY guard waves through: the central directory
+ * claims a harmless `declaredUncompressedSize`, while the entry really carries
+ * a deflate stream that expands to `realBytes`.
+ *
+ * This is the shape the old guard missed — it summed the claims, found them
+ * tiny, and handed the buffer to `mammoth`, which only discovered the truth
+ * after inflating the whole thing into memory.
+ */
+export function buildDocxLyingAboutSize(realBytes: number): Buffer {
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8') },
+    {
+      name: 'word/document.xml',
+      // Highly compressible: megabytes of one byte cost a few hundred on disk.
+      data: Buffer.alloc(realBytes, 0x41),
+      declaredUncompressedSize: 128,
+      deflate: true,
+    },
+  ])
+}
+
+/**
+ * A structurally fine archive whose tail record claims it holds ZERO entries.
+ * A walk driven by that count never inspects anything, so every size bound it
+ * feeds silently reports "nothing here".
+ */
+export function buildDocxDeclaringNoEntries(): Buffer {
+  return buildZip(
+    [
+      { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8') },
+      {
+        name: 'word/document.xml',
+        data: Buffer.from(documentXml(['bomb']), 'utf8'),
+        declaredUncompressedSize: 4_000_000_000,
+      },
+    ],
+    { declaredEntryCount: 0 },
+  )
 }

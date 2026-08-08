@@ -40,6 +40,61 @@ describe('isSafeResumeUrl (AC7 — injected content)', () => {
     expect(isSafeResumeUrl('java\nscript:alert(1)')).toBe(false)
   })
 
+  /**
+   * The two cases above reject with OR without the normalisation step (the
+   * scheme regex simply fails to match `java<TAB>script:` either way), so they
+   * pin nothing about it. These do: each one flips from true to false the
+   * moment a piece of `normalizeUrlForSchemeCheck` is removed.
+   */
+  describe('normalisation is load-bearing, not decorative', () => {
+    it('strips ASCII tab/CR/LF from the MIDDLE, exactly like the URL parser', () => {
+      // Reachable as `https://example.com` by any browser — so it must be
+      // judged by what it really resolves to.
+      expect(isSafeResumeUrl('https:/\t/example.com')).toBe(true)
+      expect(isSafeResumeUrl('https:/\r\n/example.com')).toBe(true)
+    })
+
+    it('trims leading C0 controls, not merely spaces', () => {
+      // Built with fromCharCode so no control byte is ever a LITERAL in this
+      // source file: a literal NUL makes git treat the spec as binary and the
+      // diff stops being reviewable.
+      const soh = String.fromCharCode(0x01)
+      const nul = String.fromCharCode(0x00)
+      expect(isSafeResumeUrl(`${soh}https://example.com`)).toBe(true)
+      expect(isSafeResumeUrl(`${nul} https://example.com`)).toBe(true)
+    })
+
+    it('compares the scheme case-insensitively', () => {
+      expect(isSafeResumeUrl('HTTPS://example.com')).toBe(true)
+      expect(isSafeResumeUrl('MailTo:a@b.co')).toBe(true)
+    })
+
+    it('requires an actual address after mailto:', () => {
+      expect(isSafeResumeUrl('mailto:')).toBe(false)
+      expect(isSafeResumeUrl('mailto:a')).toBe(true)
+    })
+  })
+
+  /**
+   * Credentials in the authority are a phishing primitive: `https://github.com@evil.tld`
+   * reads as "github.com" to anyone skimming, and the browser goes to `evil.tld`.
+   * These links come out of an uploaded file and an LLM, i.e. from an attacker.
+   */
+  describe('credentials in the authority', () => {
+    it.each([
+      'https://github.com@evil.tld',
+      'https://user:password@evil.tld',
+      'https://user@evil.tld/cv.pdf',
+    ])('rejects %s', (raw) => {
+      expect(isSafeResumeUrl(raw)).toBe(false)
+    })
+
+    it('still accepts an @ that is part of the PATH, not the authority', () => {
+      expect(isSafeResumeUrl('https://example.com/~user@home/cv.pdf')).toBe(true)
+      expect(isSafeResumeUrl('https://example.com/?to=a@b.co')).toBe(true)
+    })
+  })
+
   it('rejects unsafe links at the schema level too', () => {
     expect(resumeLinkSchema.safeParse({ label: 'CV', url: 'javascript:alert(1)' }).success).toBe(
       false,

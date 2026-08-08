@@ -160,8 +160,10 @@ function normalizeUrlForSchemeCheck(raw: string): string {
  * from an attacker's keyboard. Nothing legitimate in a CV needs them.
  */
 export function isSafeResumeUrl(raw: string): boolean {
+  // No `normalized === ''` short-circuit: the scheme regex already fails to
+  // match an empty string, so the guard would be unreachable-by-outcome — a
+  // line no test could ever distinguish from its own deletion.
   const normalized = normalizeUrlForSchemeCheck(raw)
-  if (normalized === '') return false
 
   const scheme = /^([a-zA-Z][a-zA-Z0-9+\-.]*):/.exec(normalized)?.[1]?.toLowerCase()
   if (scheme === 'https') {
