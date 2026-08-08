@@ -199,11 +199,13 @@ test.describe('Users page refactor (PR 2)', () => {
       await page.getByTestId(`user-row-edit-${USERS.junior.id}`).click()
       // JUNIOR Edit shows read-only project list
       const projects = page.getByTestId('user-dialog-junior-projects')
-      // May be empty since fixtures have minimal project data
+      // May be empty since fixtures have minimal project data. Asserted as
+      // "every rendered row is visible" rather than `if (count > 0) expect(
+      // visible)` (task-lint-teeth): the branch form checked nothing at all on
+      // the empty path, while this holds on both — and a present-but-hidden
+      // list, the actual defect worth catching, still fails.
       const projectsCount = await projects.count()
-      if (projectsCount > 0) {
-        await expect(projects).toBeVisible()
-      }
+      expect(await projects.filter({ visible: true }).count()).toBe(projectsCount)
       // Link to /projects always present
       await expect(
         page.getByRole('dialog').getByRole('link', { name: /Управлять в Проектах/ }),
@@ -253,7 +255,7 @@ test.describe('Users page refactor (PR 2)', () => {
         (req) => req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
       )
       await page.getByTestId('archive-confirm-submit').click()
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
 
     test('Enter in name input submits when name matches', async ({ asAdmin: page }) => {
@@ -265,7 +267,7 @@ test.describe('Users page refactor (PR 2)', () => {
         (req) => req.url().includes(`/api/users/${USERS.junior.id}`) && req.method() === 'DELETE',
       )
       await input.press('Enter')
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
   })
 
@@ -336,7 +338,7 @@ test.describe('Users page refactor (PR 2)', () => {
           req.url().includes(`/api/users/${USERS.junior.id}/unarchive`) && req.method() === 'POST',
       )
       await page.getByTestId(`user-row-unarchive-${USERS.junior.id}`).click()
-      await unarchiveReq
+      expect((await unarchiveReq).method()).toBe('POST')
     })
   })
 

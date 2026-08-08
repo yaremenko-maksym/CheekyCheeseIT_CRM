@@ -14,7 +14,7 @@
  *    Enter fires the callback — AC4 "проверка с клавиатуры").
  * 6. size="sm" renders the compact inline variant (icon + text, no bar).
  */
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import { UploadProgress, type UploadProgressState } from '../upload-progress'
@@ -28,7 +28,7 @@ describe('UploadProgress', () => {
 
   it('preparing: indeterminate progressbar with the Russian label, no aria-valuenow', () => {
     render(<UploadProgress state={{ phase: 'preparing' }} testId="up" />)
-    const bar = screen.getByTestId('up').querySelector('[role="progressbar"]')
+    const bar = within(screen.getByTestId('up')).queryByRole('progressbar')
     expect(bar).not.toBeNull()
     expect(bar).not.toHaveAttribute('aria-valuenow')
     expect(bar).toHaveAttribute('aria-valuetext', 'Подготовка файла…')
@@ -37,7 +37,7 @@ describe('UploadProgress', () => {
 
   it('uploading: determinate progressbar with aria-valuenow=percent and NN% text', () => {
     render(<UploadProgress state={{ phase: 'uploading', percent: 42 }} testId="up" />)
-    const bar = screen.getByTestId('up').querySelector('[role="progressbar"]')
+    const bar = within(screen.getByTestId('up')).queryByRole('progressbar')
     expect(bar).toHaveAttribute('aria-valuenow', '42')
     expect(bar).toHaveAttribute('aria-valuemin', '0')
     expect(bar).toHaveAttribute('aria-valuemax', '100')
@@ -52,7 +52,7 @@ describe('UploadProgress', () => {
   it('success: distinct "Готово" label, no progressbar (nothing left to measure)', () => {
     render(<UploadProgress state={{ phase: 'success' }} testId="up" />)
     expect(screen.getByText('Готово')).toBeInTheDocument()
-    expect(screen.getByTestId('up').querySelector('[role="progressbar"]')).toBeNull()
+    expect(within(screen.getByTestId('up')).queryByRole('progressbar')).toBeNull()
   })
 
   it('error: role=alert with the message, no Retry button when onRetry is absent', () => {

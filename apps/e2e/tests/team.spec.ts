@@ -124,7 +124,11 @@ test.describe('Team page', () => {
 
       await page.getByTitle('Удалить команду').click()
       await page.getByRole('button', { name: 'Удалить' }).last().click()
-      await deleteReq
+      // Assert on the resolved request rather than just awaiting it
+      // (task-lint-teeth): a bare `await deleteReq` does fail the test on
+      // timeout, but it leaves the spec with no assertion of its own, so
+      // nothing states what the test actually proved.
+      expect((await deleteReq).method()).toBe('DELETE')
     })
 
     test.skip('cancel closes dialog without DELETE', async ({ asAdmin: page }) => {
@@ -168,7 +172,7 @@ test.describe('Team page', () => {
         .getByRole('dialog')
         .getByRole('button', { name: /^Добавить/ })
         .click()
-      await postReq
+      expect((await postReq).method()).toBe('POST')
     })
 
     test('cancel closes dialog without POST', async ({ asAdmin: page }) => {
@@ -199,7 +203,7 @@ test.describe('Team page', () => {
 
       // Two accountants in team — neither is "last" so both have remove buttons
       await page.getByTitle('Исключить').first().click()
-      await deleteReq
+      expect((await deleteReq).method()).toBe('DELETE')
     })
   })
 
@@ -498,11 +502,14 @@ test.describe('Team page', () => {
       const teams = await apiResponse.json()
 
       expect(Array.isArray(teams)).toBe(true)
-      if (teams.length > 0) {
-        // Check that team objects have telegram and notes properties (can be null)
-        expect(teams[0]).toHaveProperty('telegram')
-        expect(teams[0]).toHaveProperty('notes')
-      }
+      // The mocked GET /api/teams always serves the TEAMS fixture, which has at
+      // least one entry — so `if (teams.length > 0)` never legitimately skipped
+      // anything, it only meant an empty response would pass this test while
+      // checking no property at all. Pinned instead. (task-lint-teeth)
+      expect(teams.length).toBeGreaterThan(0)
+      // Check that team objects have telegram and notes properties (can be null)
+      expect(teams[0]).toHaveProperty('telegram')
+      expect(teams[0]).toHaveProperty('notes')
     })
 
     test('PATCH /api/teams/:id accepts and saves telegram and notes', async ({ asAdmin: page }) => {

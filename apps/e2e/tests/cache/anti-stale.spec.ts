@@ -47,6 +47,29 @@ import {
  *  creating a test project. Mirrors apps/api/src/database/seed.ts. */
 const SEED_SENIOR_ID = 'c1e2f3a4-b5c6-4d7e-8f9a-0b1c2d3e4f55'
 
+// ─── Helper: locate the transaction row a mutation should have produced ──────
+
+/**
+ * The new row carries `data-testid="tx-row-{id}"`. We do not always capture the
+ * id (e.g. a non-201 response shape), so fall back to any tx row containing the
+ * run's unique sentinel amount.
+ *
+ * Returning a locator — rather than branching around two separate `expect`
+ * calls at each call site (task-lint-teeth) — keeps ONE unconditional assertion
+ * per scenario. It also replaces a hand-rolled `expect.poll` that scanned rows
+ * with `textContent()`: `filter({ hasText })` expresses the same thing and
+ * Playwright retries it natively.
+ */
+function newRowLocator(
+  page: import('@playwright/test').Page,
+  createdTransactionId: string | null,
+  sentinelAmount: string,
+) {
+  return createdTransactionId
+    ? page.locator(`[data-testid="tx-row-${createdTransactionId}"]`)
+    : page.locator('[data-testid^="tx-row-"]').filter({ hasText: sentinelAmount }).first()
+}
+
 // ─── Helper: delete a transaction via real API (cleanup) ─────────────────────
 
 async function deleteTransactionViaApi(
@@ -205,31 +228,13 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     // capture the ID (e.g. non-201 response shape), we fall back to checking
     // that a tx-row with [data-tx-type="EXPENSE"] containing the sentinel
     // amount text appears in the table.
-    if (createdTransactionId) {
-      await expect(page.locator(`[data-testid="tx-row-${createdTransactionId}"]`)).toBeVisible({
-        timeout: 15_000,
-      })
-    } else {
-      // Fallback: check that some row with the sentinel amount appeared.
-      await expect
-        .poll(
-          async () => {
-            const rows = page.locator('[data-testid^="tx-row-"]')
-            const count = await rows.count()
-            for (let i = 0; i < count; i++) {
-              const text = await rows.nth(i).textContent()
-              if (text?.includes(sentinelAmount)) return true
-            }
-            return false
-          },
-          {
-            message: `Expected a tx row with sentinel amount "${sentinelAmount}" to appear after mutation`,
-            timeout: 15_000,
-            intervals: [300, 500, 1000],
-          },
-        )
-        .toBeTruthy()
-    }
+    // Pick the locator, then assert once — instead of an if/else with a
+    // separate assertion in each branch (task-lint-teeth). Same coverage, one
+    // code path, and the hand-rolled `expect.poll` row scan collapses into
+    // `filter({ hasText })`, which Playwright already retries for us.
+    await expect(newRowLocator(page, createdTransactionId, sentinelAmount)).toBeVisible({
+      timeout: 15_000,
+    })
 
     // ANTI-STALE PROOF: no /api/* response (before OR after the mutation) was
     // ever served fromServiceWorker — every one hit the real network directly.
@@ -345,16 +350,13 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     // KEY ASSERTION: new project row appears without page reload.
     // projects list uses data-testid="projects-list" and each row has
     // data-testid="project-card-{id}".
-    if (createdProjectId) {
-      await expect(page.locator(`[data-testid="project-card-${createdProjectId}"]`)).toBeVisible({
-        timeout: 15_000,
-      })
-    } else {
-      // Fallback: project name appears somewhere in the list.
-      await expect(
-        page.locator('[data-testid="projects-list"]').getByText(projectName),
-      ).toBeVisible({ timeout: 15_000 })
-    }
+    // One locator, one assertion — see the note on the same pattern above.
+    // Fallback (no id captured): the project name appears somewhere in the list.
+    await expect(
+      createdProjectId
+        ? page.locator(`[data-testid="project-card-${createdProjectId}"]`)
+        : page.locator('[data-testid="projects-list"]').getByText(projectName),
+    ).toBeVisible({ timeout: 15_000 })
 
     // ANTI-STALE PROOF: no /api/* response was ever served fromServiceWorker.
     const anyFromSW = apiResponses.some((r) => r.fromSW)
@@ -446,30 +448,10 @@ test.describe('Anti-stale: UI mutation → fresh data, /api/* never cached by th
     // THE ANTI-STALE ASSERTION: new row is visible = TanStack Query got FRESH
     // data from a direct network refetch. There is no SW cache in the loop
     // (see fromServiceWorker check below) to serve a stale pre-mutation list.
-    if (createdTransactionId) {
-      await expect(page.locator(`[data-testid="tx-row-${createdTransactionId}"]`)).toBeVisible({
-        timeout: 15_000,
-      })
-    } else {
-      await expect
-        .poll(
-          async () => {
-            const rows = page.locator('[data-testid^="tx-row-"]')
-            const count = await rows.count()
-            for (let i = 0; i < count; i++) {
-              const text = await rows.nth(i).textContent()
-              if (text?.includes(sentinelAmount)) return true
-            }
-            return false
-          },
-          {
-            message: `Expected tx row with sentinel amount "${sentinelAmount}" — refetch must serve fresh data post-invalidation`,
-            timeout: 15_000,
-            intervals: [300, 500, 1000],
-          },
-        )
-        .toBeTruthy()
-    }
+    // One locator, one assertion — see the note on the same pattern above.
+    await expect(newRowLocator(page, createdTransactionId, sentinelAmount)).toBeVisible({
+      timeout: 15_000,
+    })
 
     const anyFromSW = apiResponses.some((r) => r.fromSW)
     expect(

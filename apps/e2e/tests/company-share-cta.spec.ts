@@ -289,13 +289,27 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
   }) => {
     await mockTransactions(asSenior, [OUTSTANDING_INCOME])
     let createCalls = 0
-    let resolveCreate: (() => void) | null = null
+    // The POST handler blocks on this gate so the create mutation stays in
+    // flight while we assert the button is disabled below.
+    //
+    // The gate is built up front rather than by capturing `resolve` from inside
+    // the handler (task-lint-teeth). The old shape declared
+    // `let resolveCreate: (() => void) | null = null` and assigned it inside the
+    // route callback, which TS cannot see: at the call site the variable was
+    // still narrowed to `null`, so `resolveCreate?.()` was TS2349 "not callable"
+    // — and, worse, an optional call on a value the compiler believed was always
+    // null. Had the route never fired, that line would have silently done
+    // nothing instead of failing. Definite-assignment (`!`) is accurate here:
+    // a Promise executor runs synchronously, so `releaseCreate` is assigned
+    // before the next statement.
+    let releaseCreate!: () => void
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve
+    })
     await asSenior.route(new RegExp(`${API}/payout-requests$`), async (r) => {
       if (r.request().method() === 'POST') {
         createCalls += 1
-        await new Promise<void>((resolve) => {
-          resolveCreate = resolve
-        })
+        await createGate
         return r.fulfill({
           status: 201,
           contentType: 'application/json',
@@ -322,7 +336,7 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     // physically cannot reach the handler.
     await expect(submit).toBeDisabled()
 
-    resolveCreate?.()
+    releaseCreate()
     await expect(asSenior.getByTestId('payout-detail-payable')).toBeVisible()
     expect(createCalls).toBe(1)
   })

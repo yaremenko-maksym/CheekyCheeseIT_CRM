@@ -150,12 +150,25 @@ test.describe('Drop confirm-payout — RBAC (AC4)', () => {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const { payout, confirmed } = await confirmPayoutViaAPI(page, payoutTxId, MAKSYM_ID)
       expect(payout.status).toBe('PAID')
-      // `confirmed` may be null if the post-write lookup races the commit,
-      // but the controller call returned 200 already (helper throws on
-      // non-2xx). Spec accepts either shape for the row read-back.
-      if (confirmed) {
-        expect(confirmed.recipientId).toBe(MAKSYM_ID)
-      }
+      // The read-back is NOT racy, despite what this comment used to claim:
+      // `confirmPayout` inserts the PAYOUT_CONFIRMED row inside a db
+      // transaction and only reads it back AFTER that transaction resolves,
+      // by a predicate that includes the per-confirmation `notes` marker
+      // (transactions.service.ts). A null here means the row the endpoint
+      // promised to create is not there — which is exactly what this test
+      // should fail on.
+      //
+      // The previous form, `expect(confirmed?.recipientId ?? MAKSYM_ID)
+      // .toBe(MAKSYM_ID)`, compared a value with itself whenever `confirmed`
+      // was null, so it could not fail on that path (code-review MED-2).
+      // Worse than the `if` it replaced: an `if` is at least visible to the
+      // no-conditional-expect rule this PR turns on, whereas a `??` default
+      // hides the skip from both the linter and the reader.
+      expect(
+        confirmed,
+        'confirm-payout must return the PAYOUT_CONFIRMED row it created',
+      ).not.toBeNull()
+      expect(confirmed?.recipientId).toBe(MAKSYM_ID)
     } finally {
       await cleanupDropViaAPI(page, dropId)
     }

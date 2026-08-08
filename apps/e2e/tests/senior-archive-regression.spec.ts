@@ -58,7 +58,7 @@ test.describe('Senior archive — pair-archive regression (AC7)', () => {
     await page.getByTestId(`user-row-archive-${USERS.senior.id}`).click()
     await page.getByTestId('archive-confirm-name-input').fill(USERS.senior.displayName)
     await page.getByTestId('archive-confirm-submit').click()
-    await deleteReq
+    expect((await deleteReq).method()).toBe('DELETE')
   })
 
   test('Drop entities (drop user row) untouched after archiving a senior', async ({

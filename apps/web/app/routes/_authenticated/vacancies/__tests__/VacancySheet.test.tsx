@@ -295,7 +295,10 @@ describe('VacancySheet — invalid translation hidden in an inactive tab (HIGH-2
     expect(ruTitleInput).toHaveAttribute('aria-invalid', 'true')
     const describedBy = ruTitleInput.getAttribute('aria-describedby')
     expect(describedBy).toBe('vacancy-translation-ru-title-error')
-    expect(document.getElementById(describedBy as string)).toHaveTextContent('Минимум 3 символов')
+    // `toHaveAccessibleDescription` resolves aria-describedby the way assistive
+    // tech does, so it proves the id RESOLVES to that text — the thing this
+    // test is about — without `document.getElementById` (task-lint-teeth).
+    expect(ruTitleInput).toHaveAccessibleDescription('Минимум 3 символов')
   })
 })
 

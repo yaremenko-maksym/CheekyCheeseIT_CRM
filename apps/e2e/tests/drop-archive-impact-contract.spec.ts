@@ -146,10 +146,12 @@ test.describe('Drop archive-impact contract — real API', () => {
     expect(body.teamType).toBe('SENIOR')
     // dropName / seniorWillBeDetached should be absent on senior-teams
     // (or null/undefined). Loose check: not equal to a non-empty string.
-    if (body.dropName !== undefined) {
-      // Backend may omit the field entirely OR send empty string — both
-      // are acceptable. A non-empty dropName on a senior-team would be a bug.
-      expect(body.dropName).toBe('')
-    }
+    // Backend may omit the field entirely OR send empty string — both are
+    // acceptable. A non-empty dropName on a senior-team would be a bug.
+    // Normalising with `?? ''` states exactly that in one unconditional
+    // assertion; the previous `if (body.dropName !== undefined)` form skipped
+    // the check on the omitted path, which is the more likely shape.
+    // (task-lint-teeth)
+    expect(body.dropName ?? '').toBe('')
   })
 })

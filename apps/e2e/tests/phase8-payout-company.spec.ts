@@ -395,7 +395,11 @@ test.describe('Deferred #3 — ConfirmPayoutDialog: COMPANY_ACCOUNT click-throug
 
     await asAdmin.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/manual-confirm$`), (r) => {
       if (r.request().method() !== 'POST') return r.fallback()
-      capturedPayoutRequestId = r.request().url().split('/').slice(-2, -1)[0]
+      // `?? null` keeps the declared `string | null` honest — `noUncheckedIndexedAccess`
+      // types the indexed read as possibly-undefined. A missing segment is not
+      // silently tolerated: line ~438 asserts this equals CONFIRM_PR_ID, so null
+      // fails the test loudly. (task-lint-teeth)
+      capturedPayoutRequestId = r.request().url().split('/').slice(-2, -1)[0] ?? null
       manualConfirmCalled = true
       return jsonOk(r, {
         id: capturedPayoutRequestId,

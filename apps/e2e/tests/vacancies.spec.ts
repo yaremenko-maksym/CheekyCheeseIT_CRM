@@ -546,12 +546,17 @@ test.describe.serial('Резюме кандидата — превью, моби
         fullPage: false,
       })
 
-      // Touch-target floor (responsive-design.md) on mobile only.
-      if (width === 320) {
-        const telegramBox = await card.getByTestId('candidate-telegram-link').boundingBox()
-        expect(telegramBox).toBeTruthy()
-        expect(telegramBox!.height).toBeGreaterThanOrEqual(44)
-      }
+      // Touch-target floor (responsive-design.md) on mobile only. Expressed as
+      // an unconditional assertion on a per-width EXPECTED minimum rather than
+      // an `if (width === 320) { expect(...) }` block (task-lint-teeth): the
+      // rule that catches assertion-behind-a-branch cannot tell this
+      // loop-constant guard from one that silently skips, and the branch form
+      // also meant a regression in `boundingBox()` on the three desktop widths
+      // was never looked at.
+      const minTouchTargetPx = width === 320 ? 44 : 0
+      const telegramBox = await card.getByTestId('candidate-telegram-link').boundingBox()
+      expect(telegramBox, `telegram link has no box at ${width}px`).toBeTruthy()
+      expect(telegramBox?.height ?? 0).toBeGreaterThanOrEqual(minTouchTargetPx)
 
       await card.getByTestId(`candidate-preview-${applicationId}`).click()
       await expect(page.getByTestId('resume-preview-dialog')).toBeVisible()
