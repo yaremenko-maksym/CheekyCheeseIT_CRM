@@ -151,17 +151,30 @@ function report(offenders, { scope }) {
  * Prove the detector still detects. Returns nothing; throws if it has rotted.
  */
 function selfCheck() {
-  const expected = ['missing-both', 'missing-lint', 'missing-typecheck']
+  // Offenders are listed by FULL relative path, one under each workspace root.
+  //
+  // Both roots are load-bearing (code-review round 2). The fixture used to
+  // declare only `packages/*`, which left a whole class of parser rot
+  // undetected: a mutation dropping `apps/*` did not disturb the self-check at
+  // all, so the script reported "✔ every workspace package declares both" and
+  // exited 0 while never looking at `apps/e2e` — the very package this task
+  // exists because nothing was checking. A self-check only proves what it
+  // exercises, so it must exercise the same glob shapes as the real run: a
+  // broken package under `apps/` AND one under `packages/`.
+  const expected = [
+    'apps/broken-app',
+    'packages/missing-both',
+    'packages/missing-lint',
+    'packages/missing-typecheck',
+  ]
   // NOTE the missing second argument (code-review MED-1). Passing the globs
   // explicitly — `findUnguardedPackages(fixturesRoot, ['packages/*'])` — left
   // `readWorkspaceGlobs` out of the self-check entirely, so the ONE piece of
   // this script that can silently under-report was the one piece never
-  // exercised. A mutation that made the parser drop `packages/*` produced
-  // "✔ every workspace package declares both" and exit 0, having examined
-  // nothing. Letting the fixture's own pnpm-workspace.yaml drive the run puts
+  // exercised. Letting the fixture's own pnpm-workspace.yaml drive the run puts
   // the parser on the self-checked path, so partial rot fails like total rot.
   const found = findUnguardedPackages(fixturesRoot)
-  const foundNames = found.map((o) => o.dir.replace(/^packages\//, '')).sort()
+  const foundNames = found.map((o) => o.dir).sort()
 
   if (JSON.stringify(foundNames) !== JSON.stringify(expected)) {
     throw new Error(
@@ -174,10 +187,15 @@ function selfCheck() {
     )
   }
 
-  // The compliant fixture must NOT be reported — a detector that flags
-  // everything is as useless as one that flags nothing.
-  if (foundNames.includes('ok')) {
-    throw new Error('Self-check FAILED: the detector flagged the compliant fixture package.')
+  // The compliant fixtures must NOT be reported — a detector that flags
+  // everything is as useless as one that flags nothing. One per root, so this
+  // also catches a mutation that turns a glob into a match-everything pattern.
+  for (const compliant of ['apps/ok-app', 'packages/ok']) {
+    if (foundNames.includes(compliant)) {
+      throw new Error(
+        `Self-check FAILED: the detector flagged the compliant fixture package ${compliant}.`,
+      )
+    }
   }
 }
 
@@ -195,7 +213,9 @@ function main() {
 
   if (demoFailure) {
     // Show what a violation looks like, using the fixtures as the "workspace".
-    const offenders = findUnguardedPackages(fixturesRoot, ['packages/*'])
+    // No explicit globs here either — the fixture's own pnpm-workspace.yaml
+    // drives it, so what this prints is exactly what the self-check verifies.
+    const offenders = findUnguardedPackages(fixturesRoot)
     report(offenders, { scope: 'fixture workspace — scripts/__fixtures__/package-gates' })
     console.error('(--demo-failure: this is the intended red output, not a real repo problem)\n')
     process.exit(1)

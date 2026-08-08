@@ -1,5 +1,14 @@
 # Fixture workspace for scripts/check-package-gates.mjs.
 # Not a real pnpm workspace and never installed — it exists so the checker can
 # prove, on every run, that it still detects a package missing its gate scripts.
+#
+# BOTH globs are declared on purpose (code-review round 2). The real
+# pnpm-workspace.yaml has `apps/*` and `packages/*`; when this fixture declared
+# only `packages/*`, a parser mutation that dropped `apps/*` left the self-check
+# untouched and the script happily reported a clean workspace while never
+# looking at apps/e2e. The self-check only proves what it exercises, so it has
+# to exercise the same glob shapes the real run does — hence a broken package
+# under each root below.
 packages:
+  - 'apps/*'
   - 'packages/*'

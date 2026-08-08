@@ -30,6 +30,22 @@
 export const vitestTestQualityRules = {
   // A test body with no assertion at all. The headline defect: it cannot fail,
   // so it reports "passing" for code that was never exercised.
+  //
+  // KNOWN LIMIT — read before trusting this rule (code-review round 2,
+  // measured, not assumed): the allow-list below matches on the CALLEE NAME
+  // ONLY. The rule never looks inside the named function. Two mutations proved
+  // it: renaming a real helper `assertNavigatedTo` → `navigateTo`, body
+  // untouched, produced 4 errors; keeping the name and EMPTYING the body
+  // produced 0 errors and exit 0. So an assertion-free helper called
+  // `assertFoo()` satisfies this rule completely.
+  //
+  // That makes "the helper really asserts" a human-verified property, not a
+  // linted one — and 24 test bodies now lean on it (20 in apps/e2e, 4 in
+  // apps/api). It is a deliberate trade: without the allow-list, every spec
+  // that legitimately factors assertions into a shared helper reports as
+  // assertion-free, which would bury the real signal. Closing the gap needs
+  // mutation testing (a gutted helper fails when the mutant survives), which
+  // is the next wave of this programme — NOT something this rule can do.
   'vitest/expect-expect': [
     'error',
     {
@@ -127,6 +143,12 @@ export const playwrightTestQualityRules = {
   // literal name match and keeps regexes in a separate `assertFunctionPatterns`
   // option). Getting this wrong is invisible: the config loads fine and the
   // rule just keeps reporting.
+  //
+  // The same KNOWN LIMIT as the Vitest rule applies here, and this is where
+  // most of the exposure sits: `assertFunctionPatterns` matches the callee NAME
+  // only, so an emptied helper named `assertX` passes. 20 of the 24 test bodies
+  // relying on that are in this package. See the Vitest note above for the
+  // measurements and why mutation testing — not this rule — is what closes it.
   'playwright/expect-expect': [
     'error',
     { assertFunctionPatterns: ['^assert', '^verify', '^expect'] },
