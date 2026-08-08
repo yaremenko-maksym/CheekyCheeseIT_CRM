@@ -81,9 +81,22 @@ describe('test-quality lint rules', () => {
       expect(sourceLines[160]).toContain("expect(container.querySelector('img')).toBeNull()")
     })
 
-    it('also flags the raw DOM access those assertions rely on', async () => {
+    it('does NOT rely on no-node-access, which is exempt for this path', async () => {
+      // Documents a real property of the config rather than asserting a rule we
+      // do not actually enforce here. `eslint.config.mjs` turns
+      // `testing-library/no-node-access` OFF for this file: its repaired,
+      // present-day version asserts that an injected `<script>`/`<img>` was
+      // never created, scoped to `document.body` precisely BECAUSE the dialog
+      // portals there — and "no script element exists" has no accessible-query
+      // form. `no-container`, asserted above, is the rule that actually catches
+      // the vacuum test, and it stays ON for this path.
+      //
+      // If someone ever removes that exemption, this expectation flips and they
+      // will be told to update it — which is the point: the test tracks the
+      // config, it does not quietly assume it.
       const messages = await lintAs(vacuumSource, asPath)
-      expect(rulesFired(messages)).toContain('testing-library/no-node-access')
+      expect(rulesFired(messages)).not.toContain('testing-library/no-node-access')
+      expect(rulesFired(messages)).toContain('testing-library/no-container')
     })
 
     it('accepts the screen-scoped form the fix replaced it with', async () => {
