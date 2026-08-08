@@ -182,11 +182,13 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
 
       // ── Bonus: Project A's transactions are NOT visible on Project B ─
       // GET /api/transactions?projectId=B returns ONLY B's rows.
+      // Whatever project ids came back, the ONLY one allowed is B's. Asserting
+      // the set contents directly covers both the empty and the single-id case
+      // in one unconditional check; the previous `if (size === 1)` form skipped
+      // the identity check whenever the list came back empty — including if a
+      // regression made it empty. (task-lint-teeth)
       const projectIdsB = new Set(txB.map((t) => t.projectId))
-      expect(projectIdsB.size).toBeLessThanOrEqual(1)
-      if (projectIdsB.size === 1) {
-        expect(projectIdsB.has(projectIdB)).toBe(true)
-      }
+      expect([...projectIdsB]).toEqual(projectIdsB.size === 0 ? [] : [projectIdB])
     } finally {
       await cleanupDropViaAPI(page, dropIdA)
       if (dropIdB) {

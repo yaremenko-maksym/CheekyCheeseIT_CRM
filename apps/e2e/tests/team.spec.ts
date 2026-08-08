@@ -502,11 +502,14 @@ test.describe('Team page', () => {
       const teams = await apiResponse.json()
 
       expect(Array.isArray(teams)).toBe(true)
-      if (teams.length > 0) {
-        // Check that team objects have telegram and notes properties (can be null)
-        expect(teams[0]).toHaveProperty('telegram')
-        expect(teams[0]).toHaveProperty('notes')
-      }
+      // The mocked GET /api/teams always serves the TEAMS fixture, which has at
+      // least one entry — so `if (teams.length > 0)` never legitimately skipped
+      // anything, it only meant an empty response would pass this test while
+      // checking no property at all. Pinned instead. (task-lint-teeth)
+      expect(teams.length).toBeGreaterThan(0)
+      // Check that team objects have telegram and notes properties (can be null)
+      expect(teams[0]).toHaveProperty('telegram')
+      expect(teams[0]).toHaveProperty('notes')
     })
 
     test('PATCH /api/teams/:id accepts and saves telegram and notes', async ({ asAdmin: page }) => {

@@ -266,11 +266,18 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on project detail
       await membersTab.click()
     }
 
-    // Effective team card should show senior but NOT junior link
-    const effectiveTeamCard = page.getByTestId('effective-team-card')
-    if (await effectiveTeamCard.isVisible()) {
-      await expect(effectiveTeamCard.getByText(USERS.junior.displayName)).not.toBeVisible()
-    }
+    // Effective team card should show senior but NOT junior link.
+    //
+    // Asserted against the whole page, unconditionally, rather than only when
+    // the card happens to be visible (task-lint-teeth). This is an RBAC test:
+    // with the check behind `if (await effectiveTeamCard.isVisible())`, a page
+    // that failed to render the card — for any reason, including a selector
+    // drift — reported PASS without ever verifying that the junior's identity
+    // was absent, which is the single thing this test exists to prove. The
+    // page-wide form is also strictly stronger: it catches the name leaking
+    // anywhere else on the screen, and it matches the assertion the sibling
+    // team-page test above already uses.
+    await expect(page.getByText(USERS.junior.displayName)).not.toBeVisible()
   })
 })
 

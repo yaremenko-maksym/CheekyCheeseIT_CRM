@@ -682,10 +682,13 @@ test.describe('AC2 — JUNIOR /legend', () => {
 
     // Existing entry text
     await expect(block.getByTestId('legend-entry-item').first()).toBeVisible()
-    const firstEntry = LEGEND_FIXTURE.entries[0]
-    if (firstEntry) {
-      await expect(block.getByText(firstEntry.text)).toBeVisible()
-    }
+    // `!` rather than `if (firstEntry)` (task-lint-teeth): the guard existed
+    // only because `noUncheckedIndexedAccess` types an index read as possibly
+    // undefined. LEGEND_FIXTURE is a literal in this file with a fixed first
+    // entry, so the branch could never legitimately skip — it could only hide
+    // the assertion if the fixture were ever emptied.
+    const firstEntry = LEGEND_FIXTURE.entries[0]!
+    await expect(block.getByText(firstEntry.text)).toBeVisible()
 
     // Add-entry button
     await expect(block.getByTestId('legend-entry-add-btn')).toBeVisible()

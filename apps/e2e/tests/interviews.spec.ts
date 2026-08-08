@@ -325,15 +325,21 @@ test.describe('Interviews (Kanban) page', () => {
 
       // Scope to the sheet so the /client/i match resolves to the in-sheet
       // stage-move button, not a same-named Kanban column header.
+      // Runtime skip instead of wrapping the body in `if (await
+      // clientMoveBtn.isVisible())` (task-lint-teeth): with the whole check
+      // behind the branch, a build that stopped rendering the stage button
+      // reported PASS having asserted nothing. A skip says what actually
+      // happened and leaves the payload assertion unconditional.
       const clientMoveBtn = sheet.getByRole('button', { name: /client/i })
-      if (await clientMoveBtn.isVisible()) {
-        const moveReq = page.waitForRequest(
-          (req) => req.url().includes('/move') && req.method() === 'PATCH',
-        )
-        await clientMoveBtn.click()
-        const req = await moveReq
-        expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
-      }
+      const hasClientMove = await clientMoveBtn.isVisible()
+      test.skip(!hasClientMove, 'interview sheet did not render a CLIENT stage-move button')
+
+      const moveReq = page.waitForRequest(
+        (req) => req.url().includes('/move') && req.method() === 'PATCH',
+      )
+      await clientMoveBtn.click()
+      const req = await moveReq
+      expect(JSON.parse(req.postData() ?? '{}')).toMatchObject({ stage: 'CLIENT_INTERVIEW' })
     })
 
     test('terminal stage buttons (Нанят / Отказ / Архив) visible for SENIOR own board', async ({

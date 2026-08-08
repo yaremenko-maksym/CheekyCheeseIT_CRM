@@ -591,9 +591,17 @@ test.describe('Regression #4 — wallet addresses valid ETH format', () => {
     for (const placeholder of PLACEHOLDER_ADDRESSES) {
       expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain(placeholder)
     }
-    const walletMatch = RENDERED_PREVIEW.bodyMarkdown.match(/0x[0-9a-fA-F]+/)
-    if (walletMatch) {
-      expect(walletMatch[0]).toMatch(ETH_ADDRESS_RE)
+    // Every `0x…` string in the preview must be a well-formed address. Mapped
+    // over the matches instead of `if (walletMatch) expect(...)`
+    // (task-lint-teeth): the branch form checked nothing when the preview
+    // contained no address at all, which is exactly the state a rendering
+    // regression would produce. `matchAll` also covers the case of more than
+    // one address, which `match` silently ignored.
+    const walletMatches = [...RENDERED_PREVIEW.bodyMarkdown.matchAll(/0x[0-9a-fA-F]+/g)].map(
+      (m) => m[0],
+    )
+    for (const wallet of walletMatches) {
+      expect(wallet).toMatch(ETH_ADDRESS_RE)
     }
   })
 

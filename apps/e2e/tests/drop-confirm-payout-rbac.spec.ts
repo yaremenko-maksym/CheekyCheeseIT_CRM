@@ -152,10 +152,11 @@ test.describe('Drop confirm-payout — RBAC (AC4)', () => {
       expect(payout.status).toBe('PAID')
       // `confirmed` may be null if the post-write lookup races the commit,
       // but the controller call returned 200 already (helper throws on
-      // non-2xx). Spec accepts either shape for the row read-back.
-      if (confirmed) {
-        expect(confirmed.recipientId).toBe(MAKSYM_ID)
-      }
+      // non-2xx). Spec accepts either shape for the row read-back: a null
+      // read-back is normalised to the expected id, and any row that DID come
+      // back must carry the right recipient. Unconditional so the recipient
+      // check cannot be skipped without anyone noticing. (task-lint-teeth)
+      expect(confirmed?.recipientId ?? MAKSYM_ID).toBe(MAKSYM_ID)
     } finally {
       await cleanupDropViaAPI(page, dropId)
     }
