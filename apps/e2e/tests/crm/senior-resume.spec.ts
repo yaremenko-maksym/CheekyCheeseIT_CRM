@@ -123,6 +123,26 @@ async function mockResumeEndpoints(
   await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/text$`), (route) =>
     route.fulfill(json(resumeResponse({ status: 'QUEUED' }), 201)),
   )
+  /**
+   * The presigned-source query fires as soon as the tab knows a file exists
+   * (`hasSourceFile: true`), so it MUST be mocked here rather than per-test.
+   *
+   * Leaving it out does not fail honestly: with no API running, the request
+   * merely errors and the download button stays hidden — locally green. In CI
+   * the API *is* running, answers 401, and the axios interceptor navigates to
+   * /login, so the whole tab vanishes and every later locator times out with a
+   * message that says nothing about the real cause. Exactly the trap the
+   * fixtures file documents for /api/notifications.
+   */
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/source$`), (route) =>
+    route.fulfill(
+      json({
+        url: 'https://example.invalid/source',
+        expiresAt: '2030-01-01T00:00:00.000Z',
+        fileName: 'резюме.pdf',
+      }),
+    ),
+  )
 }
 
 /** Register a DELETE handler and report what it received. */
@@ -382,6 +402,9 @@ test.describe('Резюме — удаление', () => {
       resumeResponse({ content: FILLED_CONTENT, hasSourceFile: true }),
     ])
     const del = await mockResumeDelete(page)
+    // Wait for the tab itself before reaching for anything inside it, so a
+    // failure points at the missing control rather than at page load.
+    await expect(page.getByTestId('resume-tab')).toBeVisible()
 
     await page.getByTestId('resume-delete').click()
     const dialog = page.getByTestId('resume-delete-confirm-dialog')
