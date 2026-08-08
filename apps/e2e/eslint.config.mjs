@@ -1,19 +1,19 @@
 import tseslint from '@typescript-eslint/eslint-plugin'
 import tsparser from '@typescript-eslint/parser'
-import vitest from '@vitest/eslint-plugin'
-import testingLibrary from 'eslint-plugin-testing-library'
+import playwright from 'eslint-plugin-playwright'
 
-import {
-  testingLibraryTestQualityRules,
-  vitestTestQualityRules,
-} from '../../eslint.test-rules.mjs'
+import { playwrightTestQualityRules } from '../../eslint.test-rules.mjs'
 
+// task-lint-teeth (2026-08-08): this package had NO eslint config, no `lint`
+// script and no `typecheck` script. 110 Playwright spec files — the exact
+// place our repeat defects live — were checked by nothing at all. `tsc
+// --noEmit` on the existing tsconfig surfaced 28 real type errors on day one.
 export default [
   {
-    ignores: ['dist/**', 'app/routeTree.gen.ts'],
+    ignores: ['dist/**', 'playwright-report/**', 'test-results/**'],
   },
   {
-    files: ['app/**/*.{ts,tsx}'],
+    files: ['tests/**/*.ts', 'scripts/**/*.ts', 'playwright.config.ts'],
     plugins: {
       '@typescript-eslint': tseslint,
     },
@@ -35,24 +35,17 @@ export default [
     },
   },
   {
-    // Same glob as vitest.config.ts `test.include`.
-    files: ['app/**/*.{spec,test}.{ts,tsx}'],
+    files: ['tests/**/*.spec.ts'],
     plugins: {
-      vitest,
-      'testing-library': testingLibrary,
+      playwright,
     },
     languageOptions: {
       parser: tsparser,
       parserOptions: {
         ecmaVersion: 'latest',
         sourceType: 'module',
-        ecmaFeatures: { jsx: true },
       },
-      globals: vitest.environments.env.globals,
     },
-    rules: {
-      ...vitestTestQualityRules,
-      ...testingLibraryTestQualityRules,
-    },
+    rules: playwrightTestQualityRules,
   },
 ]

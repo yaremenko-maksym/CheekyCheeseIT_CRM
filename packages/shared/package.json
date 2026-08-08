@@ -18,6 +18,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
+    "lint": "eslint src",
     "build": "tsc --outDir dist",
     "test": "vitest run",
     "test:watch": "vitest"
