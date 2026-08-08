@@ -234,8 +234,11 @@ class Handler(BaseHTTPRequestHandler):
             # decision — a cache would then serve one visitor's locale to another.
             vary = "Accept-Language"
 
-        cache_control = "no-store"
-        headers = [("Vary", vary), ("Cache-Control", cache_control)]
+        headers = [("Vary", vary)]
+        if ARGS.flaw != "no-cache-control":
+            # A 302 that a shared cache may store hands one visitor's locale to
+            # the next visitor behind the same cache key.
+            headers.append(("Cache-Control", "no-store"))
 
         # Already-prefixed URLs must NEVER redirect (crawler safety).
         first_segment = path.strip("/").split("/")[0] if path.strip("/") else ""
@@ -267,7 +270,7 @@ class Handler(BaseHTTPRequestHandler):
         # Partial-prerender guard: never redirect into a locale where the page
         # does not exist — that would be a silent language mismatch / 404.
         rel = path.lstrip("/")
-        if rel not in PRERENDERED:
+        if rel not in PRERENDERED and ARGS.flaw != "redirect-into-missing-page":
             self.send_body(200, "<html>en (no localized page)</html>", headers)
             return
 
