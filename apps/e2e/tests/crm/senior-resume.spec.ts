@@ -125,6 +125,20 @@ async function mockResumeEndpoints(
   )
 }
 
+/** Register a DELETE handler and report what it received. */
+async function mockResumeDelete(page: Page): Promise<{ calls: string[] }> {
+  const calls: string[] = []
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume$`), async (route) => {
+    if (route.request().method() !== 'DELETE') {
+      await route.fallback()
+      return
+    }
+    calls.push(route.request().url())
+    await route.fulfill(json(resumeResponse(null)))
+  })
+  return { calls }
+}
+
 /**
  * Open a senior's resume tab as ADMIN. Resume routes are registered AFTER
  * `mockAuthAs` on purpose: Playwright resolves the most recently registered
@@ -330,6 +344,72 @@ test.describe('Резюме — правка по секциям', () => {
     await expect(page.getByTestId('resume-summary-input')).toHaveValue(
       'Черновик, который легко потерять',
     )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Unsaved edits are not lost by moving between sections (§3 hard condition)
+// ---------------------------------------------------------------------------
+
+test.describe('Резюме — несохранённые правки', () => {
+  test('переход к другому разделу не стирает черновик', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    await page.getByTestId('resume-edit-summary').click()
+    await page.getByTestId('resume-summary-input').fill('Черновик, который легко потерять')
+
+    // While one section is open, the others cannot be started.
+    await expect(page.getByTestId('resume-edit-skills')).toBeDisabled()
+    await expect(page.getByTestId('resume-edit-experience')).toBeDisabled()
+
+    // The draft is still there, and the summary is still the open section.
+    await expect(page.getByTestId('resume-summary-input')).toHaveValue(
+      'Черновик, который легко потерять',
+    )
+
+    await page.getByTestId('resume-cancel-summary').click()
+    await expect(page.getByTestId('resume-edit-skills')).toBeEnabled()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// Erasure (personal data)
+// ---------------------------------------------------------------------------
+
+test.describe('Резюме — удаление', () => {
+  test('удаление спрашивает подтверждение и возвращает пустое состояние', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [
+      resumeResponse({ content: FILLED_CONTENT, hasSourceFile: true }),
+    ])
+    const del = await mockResumeDelete(page)
+
+    await page.getByTestId('resume-delete').click()
+    const dialog = page.getByTestId('resume-delete-confirm-dialog')
+    await expect(dialog).toBeVisible()
+    // It names the file that goes with the record.
+    await expect(dialog).toContainText('резюме.pdf')
+
+    await page.getByTestId('resume-delete-cancel').click()
+    await expect(dialog).toBeHidden()
+    expect(del.calls).toHaveLength(0)
+
+    await page.getByTestId('resume-delete').click()
+    await page.getByTestId('resume-delete-confirm').click()
+
+    await expect(page.getByTestId('resume-intake')).toBeVisible()
+    expect(del.calls).toHaveLength(1)
+  })
+
+  test('синьор не видит кнопку удаления в чужом резюме (только чтение)', async ({ page }) => {
+    await mockAuthAs(page, USERS.admin)
+    await page.route(`${API_GLOB}/users/${SENIOR_ID}`, (r) =>
+      r.fulfill(json(buildAdminViewingUser(USERS.senior))),
+    )
+    await mockResumeEndpoints(page, [resumeResponse({ content: FILLED_CONTENT }, false)])
+    await page.goto(`/profile/${SENIOR_ID}?tab=resume`)
+
+    await expect(page.getByTestId('resume-summary-view')).toBeVisible()
+    await expect(page.getByTestId('resume-delete')).toHaveCount(0)
   })
 })
 
