@@ -63,15 +63,17 @@ type SectionId = 'summary' | 'skills' | 'experience' | 'education' | 'languages'
 /**
  * May `requested` be opened for editing while `current` is open?
  *
- * Extracted as a pure, exported rule ON PURPOSE. The visible half of this
- * behaviour is the disabled Изменить button, and a disabled button is
- * untouchable from a test: React reads `disabled` from its own props, so
- * stripping the DOM attribute never reaches the handler. That made the guard
- * inside `startEdit` unfalsifiable — deleting it failed nothing, which is the
- * same "protection nobody has ever seen work" this PR keeps removing.
+ * THE SINGLE SOURCE for that decision. Both the handler (`startEdit`) and the
+ * button's `disabled` prop call it, so there is one condition to get right
+ * rather than two hand-written copies that can drift apart.
  *
- * As a named function the rule can be asserted directly, so both halves are
- * pinned: this decides, `disableEdit` displays.
+ * Why it is a named export rather than an inline check: the visible half of the
+ * behaviour is the disabled button, and a disabled button cannot be driven from
+ * a test — React reads `disabled` from its own props, so stripping the DOM
+ * attribute never reaches the handler. Any rule expressed only inside
+ * `startEdit` is therefore unfalsifiable. Naming it makes the decision
+ * assertable on its own terms, and routing the UI through it means a mutation
+ * to this function shows up in the interface tests too.
  */
 export function mayStartEditing(current: SectionId | null, requested: SectionId): boolean {
   // Re-opening the section already open is a no-op, not a switch.
@@ -154,9 +156,9 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
    *
    * Refuses while ANOTHER section is open: `setDraft(serverContent)` would
    * throw away whatever is being typed there, and it did so silently — no
-   * prompt, no undo. The section cards disable their own edit buttons for the
-   * same reason (that is the visible half of this rule); this guard is the half
-   * that holds even if a card is rendered without it.
+   * prompt, no undo. The decision itself lives in `mayStartEditing`, which the
+   * section cards' `disabled` prop also consults, so the handler and the
+   * interface cannot disagree about what is allowed.
    */
   const startEdit = useCallback(
     (section: SectionId) => {
@@ -329,7 +331,10 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
     isDirty,
     isSaving: saveMutation.isPending,
     // One section at a time — see `startEdit`.
-    disableEdit: editing !== null && editing !== id,
+    // Derived from the SAME rule the handler consults — see `mayStartEditing`.
+    // These were two hand-written copies of one condition, and the copy that
+    // drives the UI was the only one anything could observe.
+    disableEdit: !mayStartEditing(editing, id),
     onStartEdit: () => startEdit(id),
     onCancel: cancelEdit,
     onSave: saveSection,

@@ -27,7 +27,7 @@ import {
   UnsupportedMediaTypeException,
 } from '@nestjs/common'
 import { randomUUID } from 'node:crypto'
-import { and, eq, lt, sql } from 'drizzle-orm'
+import { and, asc, eq, lt, sql } from 'drizzle-orm'
 import {
   EMPTY_RESUME_CONTENT,
   RESUME_LIMITS,
@@ -651,6 +651,10 @@ export class SeniorResumesService {
       .select()
       .from(seniorResumes)
       .where(and(eq(seniorResumes.status, 'QUEUED'), lt(seniorResumes.updatedAt, cutoff)))
+      // Oldest first: the row that has been stuck longest is the one a user is
+      // most likely staring at, and a deterministic order makes the batch's
+      // behaviour reproducible instead of dependent on physical row layout.
+      .orderBy(asc(seniorResumes.updatedAt))
       .limit(20)
 
     let handled = 0

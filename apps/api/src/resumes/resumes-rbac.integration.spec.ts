@@ -785,6 +785,79 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
     })
 
     /**
+     * MED-3. `failUnclaimed` used to write unconditionally, so between the
+     * sweep's SELECT and its UPDATE it could stamp FAILED over a row that had
+     * just been re-queued — showing a failure for work that is running, and
+     * orphaning the run that had taken the row (its terminal write then matches
+     * nothing).
+     *
+     * The race is made deterministic rather than hoped for: the sweep now
+     * processes oldest-first, so SENIOR_A (older, has a file) is handled first
+     * and its storage read is the seam where SENIOR_B is re-queued underneath
+     * the batch — exactly the interleaving that happens in production when an
+     * upload lands mid-sweep.
+     *
+     * MUTATION: drop the `status`/`updatedAt` predicate from `failUnclaimed`
+     * and this goes red.
+     */
+    it('R-INT-11e. does not fail a row that was re-queued mid-sweep', async () => {
+      if (!dbAvailable) return
+      const older = new Date(Date.now() - STUCK_EXTRACTION_TIMEOUT_MS - 120_000)
+      const newer = new Date(Date.now() - STUCK_EXTRACTION_TIMEOUT_MS - 60_000)
+
+      // A: stale, HAS a stored file -> the sweep reads storage for it first.
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          status: 'QUEUED',
+          sourceS3Key: 'senior-resumes/a.docx',
+          sourceMimeType: RESUME_DOCX_MIME,
+          extractionRunId: null,
+          updatedAt: older,
+        })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+
+      // B: stale, NO stored file -> the failUnclaimed path.
+      await dbSvc.db
+        .insert(seniorResumes)
+        .values({ userId: SENIOR_B.id, content: SENIOR_B_CONTENT })
+        .onConflictDoNothing({ target: seniorResumes.userId })
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          status: 'QUEUED',
+          sourceS3Key: null,
+          sourceMimeType: null,
+          extractionRunId: null,
+          updatedAt: newer,
+        })
+        .where(eq(seniorResumes.userId, SENIOR_B.id))
+
+      s3.getObject.mockReset()
+      s3.getObject.mockImplementation(async () => {
+        // A new upload lands for SENIOR_B while the batch is mid-flight.
+        await dbSvc.db
+          .update(seniorResumes)
+          .set({ status: 'QUEUED', updatedAt: new Date() })
+          .where(eq(seniorResumes.userId, SENIOR_B.id))
+        return buildDocx(['Иван Петров', 'Синьор-разработчик'])
+      })
+
+      await service.requeueAbandoned()
+
+      // B was re-queued after the sweep read it, so the sweep must leave it be.
+      const [rowB] = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_B.id))
+      expect(rowB?.status).toBe('QUEUED')
+      expect(rowB?.errorCode).toBeNull()
+
+      s3.getObject.mockReset()
+      await dbSvc.db.delete(seniorResumes).where(eq(seniorResumes.userId, SENIOR_B.id))
+    })
+
+    /**
      * A storage failure must not leak its wording to the screen: the message
      * lands in `errorMessage`, which the resume panel renders verbatim. Bucket
      * names, key paths and endpoint hosts are not user-facing copy.
