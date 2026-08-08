@@ -83,11 +83,96 @@ NGINX_ERROR_PAGE = (
 BODY_LIMITS = {CRM_HOST: 12 * 1024 * 1024, LANDING_HOST: 7 * 1024 * 1024}
 
 SUPPORTED_LOCALES = ("uk", "ru", "es", "pt")
+# All five locales, in the order apps/landing/app/i18n/locale.ts lists them.
+# `en` is the default and is published WITHOUT a prefix.
+LOCALES = ("en",) + SUPPORTED_LOCALES
 COUNTRY_TO_LOCALE = {"UA": "uk", "RU": "ru", "BR": "pt", "MX": "es", "ES": "es", "PT": "pt"}
 # Paths that exist in the prerendered output for every locale. Anything else
 # must NOT be redirected into a language the page does not exist in (the
-# partial-prerender guard check-locale-routing.sh asserts).
+# partial-prerender guard check-locale-routing.sh asserts). The same list is
+# what sitemap.xml advertises — in the real app both come from one prerender
+# pass, so keeping one list here preserves that property instead of letting
+# the fixture drift into a shape production cannot produce.
 PRERENDERED = ("", "careers/", "careers/my-slug/")
+# Production-absolute origin, as it appears in sitemap.xml and in every
+# canonical/hreflang href — apps/landing/app/lib/seo.ts SITE_ORIGIN. Those
+# URLs stay production-absolute even when the site is served from a local
+# container, which is why check-locale-routing.sh re-points them at $ORIGIN
+# before fetching.
+SITE = "https://cheekycheese.tech"
+
+
+def locale_path(locale, page):
+    """`/careers/` for en, `/uk/careers/` for uk — mirrors localizedPath()."""
+    prefix = "" if locale == "en" else locale + "/"
+    return "/" + prefix + page
+
+
+def split_locale_path(path):
+    """(locale, page) for a request path. Unprefixed paths are `en`."""
+    rel = path.lstrip("/")
+    first = rel.split("/")[0] if rel else ""
+    if first in SUPPORTED_LOCALES:
+        return first, rel[len(first) + 1 :]
+    return "en", rel
+
+
+def sitemap_xml():
+    """5 locales × PRERENDERED pages, each with a reciprocal alternate cluster."""
+    out = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" '
+        'xmlns:xhtml="http://www.w3.org/1999/xhtml">',
+    ]
+    for locale in LOCALES:
+        for page in PRERENDERED:
+            out.append("<url>")
+            out.append("<loc>%s%s</loc>" % (SITE, locale_path(locale, page)))
+            for alt in LOCALES:
+                out.append(
+                    '<xhtml:link rel="alternate" hreflang="%s" href="%s%s"/>'
+                    % (alt, SITE, locale_path(alt, page))
+                )
+            out.append(
+                '<xhtml:link rel="alternate" hreflang="x-default" href="%s%s"/>'
+                % (SITE, locale_path("en", page))
+            )
+            out.append("</url>")
+    out.append("</urlset>")
+    return "".join(out)
+
+
+def page_html(locale, page):
+    """A page's <head> as the prerenderer writes it: self-canonical + cluster."""
+    canonical = SITE + locale_path(locale, page)
+    if ARGS.flaw == "canonical-cross-points" and locale != "en":
+        # The page defers to a DIFFERENT URL — i.e. asks to be dropped from
+        # the index. This is the shape the English pages ended up in when
+        # Google followed the geo 302 and read the Ukrainian markup instead.
+        canonical = SITE + locale_path("en", page)
+
+    def alternate_href(target_locale):
+        if ARGS.flaw == "hreflang-points-at-redirect" and target_locale == "en":
+            # Advertises the `/en/` alias — an address that answers 301, not
+            # 200. Points a crawler at a hop instead of a page.
+            return SITE + "/en" + locale_path("en", page)
+        return SITE + locale_path(target_locale, page)
+
+    links = ['<link rel="canonical" href="%s">' % canonical]
+    for alt in LOCALES:
+        links.append(
+            '<link rel="alternate" hreflang="%s" href="%s" data-hreflang-alternate="true">'
+            % (alt, alternate_href(alt))
+        )
+    links.append(
+        '<link rel="alternate" hreflang="x-default" href="%s" data-hreflang-alternate="true">'
+        % alternate_href("en")
+    )
+    return '<html lang="%s"><head>%s</head><body>%s</body></html>' % (
+        locale,
+        "".join(links),
+        locale + ":" + (page or "home"),
+    )
 
 ARGS = None
 
@@ -218,7 +303,7 @@ class Handler(BaseHTTPRequestHandler):
 
     # ── locale suite ──────────────────────────────────────────────────────────
     def locale_response(self):
-        path = self.path
+        path = self.path.split("?")[0]
         accept_language = self.headers.get("Accept-Language", "")
         cookie = self.headers.get("Cookie", "")
         country = self.headers.get("CF-IPCountry", "")
@@ -228,11 +313,18 @@ class Handler(BaseHTTPRequestHandler):
             # pathological header costs orders of magnitude more than a normal one.
             time.sleep(1.5)
 
-        vary = "Accept-Language, Cookie, CF-IPCountry"
+        # Exactly the request headers the locale decision reads. `CF-IPCountry`
+        # belonged here while geolocation was a tier; the 2026-08-08
+        # indexability fix removed that tier, so claiming it now would be a
+        # cache split on a value that differs per visitor.
+        vary = "Accept-Language, Cookie"
         if ARGS.flaw == "vary-partial":
             # Header present, but it omits a field that participates in the
             # decision — a cache would then serve one visitor's locale to another.
             vary = "Accept-Language"
+        elif ARGS.flaw == "vary-claims-geo":
+            # The opposite dishonesty: Vary advertises a header nothing reads.
+            vary = "Accept-Language, Cookie, CF-IPCountry"
 
         headers = [("Vary", vary)]
         if ARGS.flaw != "no-cache-control":
@@ -240,14 +332,30 @@ class Handler(BaseHTTPRequestHandler):
             # the next visitor behind the same cache key.
             headers.append(("Cache-Control", "no-store"))
 
+        if path == "/sitemap.xml":
+            self.send_body(200, sitemap_xml(), headers, content_type="application/xml")
+            return
+
+        # `/en/…` is not a route (English is unprefixed) — it exists only as a
+        # duplicate the SPA fallback used to answer 200. Permanently collapsed
+        # onto the canonical URL.
+        if path == "/en" or path.startswith("/en/"):
+            if ARGS.flaw == "en-alias-200":
+                self.send_body(200, page_html("en", ""), headers)
+                return
+            rest = path[len("/en/") :] if path.startswith("/en/") else ""
+            self.send_body(301, "", headers + [("Location", "/" + rest)])
+            return
+
         # Already-prefixed URLs must NEVER redirect (crawler safety).
         first_segment = path.strip("/").split("/")[0] if path.strip("/") else ""
         if first_segment in SUPPORTED_LOCALES:
+            locale, page = split_locale_path(path)
             if ARGS.flaw == "prefixed-redirects":
                 target = "/" + first_segment + "/"
                 self.send_body(302, "", headers + [("Location", target)])
                 return
-            self.send_body(200, "<html>prefixed</html>", headers)
+            self.send_body(200, page_html(locale, page if page in PRERENDERED else ""), headers)
             return
 
         target = None
@@ -260,11 +368,26 @@ class Handler(BaseHTTPRequestHandler):
             target = cookie_locale
         elif accept_language:
             target = parse_accept_language(accept_language)
-        elif country:
-            target = COUNTRY_TO_LOCALE.get(country.upper())
+
+        if target is None and ARGS.flaw == "geo-redirects-no-preference":
+            # THE PRODUCTION DEFECT, reproduced. Cloudflare injects
+            # CF-IPCountry on every request, so with a geo tier in place a
+            # client that expressed NO language preference gets redirected by
+            # its IP address — and the clients that express none are almost
+            # exclusively crawlers. The header is defaulted here rather than
+            # required, because that is what the origin actually sees behind
+            # the CDN: absent from curl, present by the time nginx reads it.
+            target = COUNTRY_TO_LOCALE.get((country or "UA").upper())
 
         if not target or target == "en" or target not in SUPPORTED_LOCALES:
-            self.send_body(200, "<html>en</html>", headers)
+            page = path.lstrip("/")
+            if ARGS.flaw == "sitemap-url-redirects" and page == "careers/my-slug/":
+                # ONE advertised URL bounces a preference-less client. Every
+                # per-header case in the guard still passes — the header cases
+                # never look at an advertised URL without a preference set.
+                self.send_body(302, "", headers + [("Location", "/uk/" + page)])
+                return
+            self.send_body(200, page_html("en", page if page in PRERENDERED else ""), headers)
             return
 
         # Partial-prerender guard: never redirect into a locale where the page
