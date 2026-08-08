@@ -3,6 +3,7 @@ import { eq, inArray, isNull } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+import { jobCollectionRunSchema } from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import {
@@ -17,6 +18,8 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { DouRssProvider } from './dou.provider'
+import type { NormalizedPosting } from './job-source.provider'
+import { MAX_FAILURE_MESSAGE_CHARS } from './safe-failure-message'
 import { JobSourcingService } from './job-sourcing.service'
 
 /**
@@ -119,6 +122,17 @@ function douFeed(
 /** Real provider with ONLY the network call replaced. */
 class StubDouProvider extends DouRssProvider {
   feedXml = ''
+  /** Set to a category to make THAT source fail — used for the partial-run test. */
+  failForCategory: string | null = null
+  failWith: Error = new Error('stub failure')
+
+  override collect(config: Record<string, unknown> = {}): Promise<NormalizedPosting[]> {
+    if (this.failForCategory && config['category'] === this.failForCategory) {
+      return Promise.reject(this.failWith)
+    }
+    return super.collect(config)
+  }
+
   protected override fetchFeed(): Promise<string> {
     return Promise.resolve(this.feedXml)
   }
@@ -767,6 +781,53 @@ describe('Job sourcing — real DB integration', () => {
     expect(failures).toHaveLength(1)
     expect(failures[0]?.sourceType).toBe('DOU_RSS')
     expect(failures[0]?.message).toMatch(/0 usable postings/)
+  })
+
+  /**
+   * Security-review round 5 — the PARTIAL-success path, which needs two enabled
+   * sources to exist at all (the seed ships one, which is why this stayed
+   * latent). One source succeeds, the other throws a realistic Drizzle failure;
+   * the run must come back reportable rather than blowing up its own schema.
+   */
+  it('a run with one broken source is reportable, not a 400, and leaks no SQL', async () => {
+    if (!dbAvailable) return
+
+    const [secondSource] = await dbSvc.db
+      .insert(jobSources)
+      .values({ type: 'DOU_RSS', config: { category: 'PHP' } })
+      .returning()
+
+    // The stub fails for the second source's config and works for the first.
+    provider.failForCategory = 'PHP'
+    provider.failWith = new Error(
+      'Failed query: insert into "job_postings" ("id", "source_type", "url", "title", ' +
+        '"company_name", "description_md", "fingerprint") values (default, $1, $2, $3, $4, $5, $6) ' +
+        'returning "id", "source_type", "url", "title", "company_name"\n' +
+        'params: DOU_RSS,https://jobs.dou.ua/companies/epam-systems/vacancies/356562,' +
+        `Senior Engineer,EPAM,${'long description '.repeat(60)},abc123`,
+    )
+
+    try {
+      const run = await service.collectAll()
+
+      expect(run.results).toHaveLength(1)
+      expect(run.failures).toHaveLength(1)
+
+      // THE regression: the controller `.parse()`s this on the way out. With a
+      // raw message it threw, and the admin got "Validation failed" instead of
+      // both the working source's numbers and the name of the broken one.
+      expect(() => jobCollectionRunSchema.parse(run)).not.toThrow()
+
+      const [failure] = run.failures
+      expect(failure!.message.length).toBeLessThanOrEqual(MAX_FAILURE_MESSAGE_CHARS)
+      expect(failure!.message).not.toContain('insert into')
+      expect(failure!.message).not.toContain('job_postings')
+      expect(failure!.message).not.toContain('params:')
+      expect(failure!.message).not.toContain('$1')
+    } finally {
+      provider.failForCategory = null
+      await dbSvc.db.delete(jobSources).where(eq(jobSources.id, secondSource!.id))
+    }
   })
 
   it('tells an ADMIN/HR to pick a senior instead of complaining about a parameter', async () => {

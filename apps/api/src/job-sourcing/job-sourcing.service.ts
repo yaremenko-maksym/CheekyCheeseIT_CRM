@@ -33,6 +33,7 @@ import {
 } from '../database/schema'
 import { DouRssProvider } from './dou.provider'
 import { deriveProjectExclusions, findMatchingExclusion } from './filtering'
+import { toSafeFailureMessage } from './safe-failure-message'
 import type { JobSourceProvider, NormalizedPosting } from './job-source.provider'
 
 /**
@@ -536,7 +537,11 @@ export class JobSourcingService {
       try {
         results.push(await this.collectSource(source))
       } catch (err: unknown) {
-        const message = err instanceof Error ? err.message : String(err)
+        // Sanitized + capped BEFORE it can reach the response schema — a raw
+        // library message is both too long for the wire contract (turning this
+        // very report into a 400) and, for a database error, a dump of the
+        // statement and its parameters. See safe-failure-message.ts.
+        const message = toSafeFailureMessage(err)
         // RETURNED, not just logged (code review round 4). Swallowing the error
         // here is right for the cron — one dead third party must not stop the
         // others — but the caller still has to be able to SEE it. The manual
