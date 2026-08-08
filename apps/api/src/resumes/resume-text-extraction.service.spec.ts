@@ -304,43 +304,60 @@ describe('ResumeTextExtractionService.extract', () => {
   }, 120_000)
 
   /**
-   * The worst input that still gets THROUGH the cap — the number the cap
-   * actually buys, at the budget edge rather than somewhere comfortably below.
-   * Raising the budget to fit real Word documents raised this too, and that
-   * trade-off belongs in a test rather than in a sentence.
+   * What the cap buys, asserted FUNCTIONALLY: the densest document the budget
+   * permits is accepted, and one step past it is refused.
    *
-   * MEASURED RELATIVE TO A REFERENCE WORKLOAD, not against a wall-clock
-   * constant. An absolute ceiling asserts on the hardware: this suite ran on a
-   * machine at load average 174 and on a CI runner of unknown speed, and a
-   * fixed millisecond bound flakes on both while proving nothing about the
-   * code. The ratio is the property we actually care about — "the worst
-   * document the budget permits costs no more than N times an ordinary dense
-   * one" — and it holds on any CPU.
+   * The timing counterpart lives below and is opt-in, deliberately. Event-loop
+   * lag measured inside a parallel test runner is a property of the machine,
+   * not of the code: the suite spreads across workers, so a document's measured
+   * stall moved by 3-5x between runs on the same commit and failed roughly one
+   * run in three whether the ceiling was absolute or relative to a reference.
+   * A test that red-lights a third of the time teaches people to re-run the
+   * suite, which is worse than no test. The security-relevant timing
+   * assertions — the ones proving an attack is refused in milliseconds — stay
+   * always-on above, where the margin is four orders of magnitude and no amount
+   * of CPU contention can blur the verdict.
    *
-   * Locally: reference ~306 ms, worst permitted ~1 076 ms, ratio ~3.5.
-   *
-   * MUTATION: raise `MAX_DOCX_PARSED_BYTES` and the ratio climbs with it.
+   * Recorded from the opt-in run: reference ~306 ms, worst permitted ~1 076 ms.
    */
-  it('keeps the worst PERMITTED document proportionate to an ordinary one', async () => {
-    const ordinary = buildDocxDeflated(Array.from({ length: 10_000 }, (_, i) => `p${i}`))
+  it('accepts the densest permitted document and refuses the next step up', async () => {
     const atTheCap = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+    await expect(service.extract(atTheCap, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
 
-    const sample = async (doc: Buffer): Promise<number> => {
-      const meter = startLagMeter()
-      await service.extract(doc, RESUME_DOCX_MIME)
-      return meter.stop().worstStall
-    }
-    const median = async (doc: Buffer): Promise<number> => {
-      const runs = [await sample(doc), await sample(doc), await sample(doc)]
-      return runs.sort((a, b) => a - b)[1] as number
-    }
-
-    const reference = await median(ordinary)
-    const worst = await median(atTheCap)
-
-    expect(reference).toBeGreaterThan(0)
-    expect(worst / reference).toBeLessThan(6)
+    const overTheCap = buildDocxDeflated(Array.from({ length: 80_000 }, (_, i) => `p${i}`))
+    await expect(service.extract(overTheCap, RESUME_DOCX_MIME)).rejects.toBeInstanceOf(
+      ResumeFileUnreadableError,
+    )
   }, 300_000)
+
+  /**
+   * Opt-in performance characterisation: `RESUME_PERF=1 pnpm --filter @crm/api
+   * test resume-text-extraction`. Run it on a quiet machine when changing a
+   * budget; it is not a gate, and it is not allowed to flake one.
+   */
+  it.skipIf(process.env['RESUME_PERF'] !== '1')(
+    'keeps the worst PERMITTED document proportionate to an ordinary one',
+    async () => {
+      const ordinary = buildDocxDeflated(Array.from({ length: 10_000 }, (_, i) => `p${i}`))
+      const atTheCap = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+
+      const sample = async (doc: Buffer): Promise<number> => {
+        const meter = startLagMeter()
+        await service.extract(doc, RESUME_DOCX_MIME)
+        return meter.stop().worstStall
+      }
+      const referenceRuns: number[] = []
+      const worstRuns: number[] = []
+      for (let run = 0; run < 3; run += 1) {
+        referenceRuns.push(await sample(ordinary))
+        worstRuns.push(await sample(atTheCap))
+      }
+      const median = (runs: number[]): number => runs.sort((a, b) => a - b)[1] as number
+
+      expect(median(worstRuns) / median(referenceRuns)).toBeLessThan(6)
+    },
+    300_000,
+  )
 
   it('never holds more than MAX_CONCURRENT_EXTRACTIONS parsers at once', async () => {
     const docx = buildDocxDeflated(Array.from({ length: 4_000 }, (_, i) => `параллельность ${i}`))
