@@ -20,10 +20,12 @@ import {
 import {
   MAX_DOCX_UNCOMPRESSED_BYTES,
   MAX_DOCX_PARSED_BYTES,
+  MAX_PDF_TEXT_OPERATORS,
   MAX_PDF_PAGES,
   capExtractedText,
   detectResumeSourceMime,
   inspectDocxZip,
+  inspectPdfContent,
   normalizeExtractedText,
 } from './resume-source.util'
 import {
@@ -35,6 +37,8 @@ import {
   buildDocxLyingAboutSize,
   buildDocxZipBomb,
   buildEmptyPdf,
+  buildPdfSharedContentStream,
+  buildPdfWithFlateImage,
   buildPdfWithText,
   buildZip,
 } from '../test/resume-fixtures'
@@ -301,21 +305,42 @@ describe('ResumeTextExtractionService.extract', () => {
 
   /**
    * The worst input that still gets THROUGH the cap — the number the cap
-   * actually buys, at the budget edge rather than somewhere comfortably below
-   * it. Raising the budget to fit real Word documents raised this too, and
-   * that trade-off belongs in a test rather than in a sentence.
+   * actually buys, at the budget edge rather than somewhere comfortably below.
+   * Raising the budget to fit real Word documents raised this too, and that
+   * trade-off belongs in a test rather than in a sentence.
    *
-   * Measured over 5 runs at the edge: 1 013 / 1 029 / 1 072 / 1 077 / 1 147 ms.
-   * The ceiling is ~1.6x the worst of those — tight enough that a doubling
-   * fails, loose enough not to flake.
+   * MEASURED RELATIVE TO A REFERENCE WORKLOAD, not against a wall-clock
+   * constant. An absolute ceiling asserts on the hardware: this suite ran on a
+   * machine at load average 174 and on a CI runner of unknown speed, and a
+   * fixed millisecond bound flakes on both while proving nothing about the
+   * code. The ratio is the property we actually care about — "the worst
+   * document the budget permits costs no more than N times an ordinary dense
+   * one" — and it holds on any CPU.
+   *
+   * Locally: reference ~306 ms, worst permitted ~1 076 ms, ratio ~3.5.
+   *
+   * MUTATION: raise `MAX_DOCX_PARSED_BYTES` and the ratio climbs with it.
    */
-  it('keeps the worst PERMITTED document under a bounded stall', async () => {
-    const dense = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
-    const meter = startLagMeter()
-    await service.extract(dense, RESUME_DOCX_MIME)
-    const { worstStall } = meter.stop()
-    expect(worstStall).toBeLessThan(1_800)
-  }, 120_000)
+  it('keeps the worst PERMITTED document proportionate to an ordinary one', async () => {
+    const ordinary = buildDocxDeflated(Array.from({ length: 10_000 }, (_, i) => `p${i}`))
+    const atTheCap = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+
+    const sample = async (doc: Buffer): Promise<number> => {
+      const meter = startLagMeter()
+      await service.extract(doc, RESUME_DOCX_MIME)
+      return meter.stop().worstStall
+    }
+    const median = async (doc: Buffer): Promise<number> => {
+      const runs = [await sample(doc), await sample(doc), await sample(doc)]
+      return runs.sort((a, b) => a - b)[1] as number
+    }
+
+    const reference = await median(ordinary)
+    const worst = await median(atTheCap)
+
+    expect(reference).toBeGreaterThan(0)
+    expect(worst / reference).toBeLessThan(6)
+  }, 300_000)
 
   it('never holds more than MAX_CONCURRENT_EXTRACTIONS parsers at once', async () => {
     const docx = buildDocxDeflated(Array.from({ length: 4_000 }, (_, i) => `параллельность ${i}`))
@@ -348,6 +373,85 @@ describe('ResumeTextExtractionService.extract', () => {
     await expect(service.extract(Buffer.from('not a docx'), RESUME_DOCX_MIME)).rejects.toThrow()
     expect(service.activeExtractions).toBe(0)
     expect(service.queuedExtractions).toBe(0)
+  })
+})
+
+/**
+ * HIGH-2. The PDF branch had NO size guard: file size measures compressed
+ * bytes, the page cap measures pages, and `extractText` pays per operator.
+ * Measured on the intake path before this bound existed:
+ *
+ *   30 pages, 12 KB file -> accepted,  6 109 ms stall
+ *   30 pages, 24 KB file -> accepted, 23 267 ms stall, 884 MB resident
+ */
+describe('PDF content-stream guard (HIGH-2)', () => {
+  it('refuses the shared-content-stream amplification without stalling', async () => {
+    // One stream, 30 pages pointing at it: 600 000 operator executions from a
+    // file smaller than an email signature.
+    const bomb = buildPdfSharedContentStream(30, 20_000)
+    expect(bomb.length).toBeLessThan(64 * 1024)
+
+    const meter = startLagMeter()
+    await expect(service.extract(bomb, RESUME_PDF_MIME)).rejects.toBeInstanceOf(
+      ResumeFileUnreadableError,
+    )
+    const { worstStall } = meter.stop()
+    // Measured after the fix: 5 ms wall, 0 ms stall.
+    expect(worstStall).toBeLessThan(250)
+  }, 120_000)
+
+  it('charges the page multiplier, not just the byte total', async () => {
+    // Same stream, one page: well inside the budget and accepted.
+    const single = buildPdfSharedContentStream(1, 20_000)
+    await expect(service.extract(single, RESUME_PDF_MIME)).resolves.toBeTypeOf('string')
+    // The identical content shared across 30 pages is 30x the work.
+    const shared = buildPdfSharedContentStream(30, 20_000)
+    await expect(service.extract(shared, RESUME_PDF_MIME)).rejects.toThrow(/текстовых операций/)
+  }, 120_000)
+
+  /**
+   * A byte budget was tried first and had to be abandoned: the most common
+   * image encoding in real PDFs is plain `/FlateDecode` over raw samples, so
+   * counting decoded bytes made 13 of 95 real files — two of them actual CVs —
+   * look like 25-130 MB of content. Image XObjects must not be charged.
+   *
+   * MUTATION: drop the `/Subtype /Image` check from `isPdfImageStream` and this
+   * goes red.
+   */
+  it('does not charge image XObjects', async () => {
+    const withImage = buildPdfWithFlateImage(12 * 1024 * 1024)
+
+    // Assert the ACCOUNTING, not just the outcome: a 12 MB image sits inside
+    // the file, and essentially none of it may reach the content budget. An
+    // end-to-end assertion passes either way while the caps are generous, which
+    // is precisely how a wrong classifier survives.
+    // The image decodes to 12 MB (it is compact on disk only because the test
+    // samples compress well). If it were charged, contentBytes would be ~12 MB.
+    const info = await inspectPdfContent(withImage, 1)
+    expect(info.contentBytes).toBeLessThan(64 * 1024)
+
+    const text = await service.extract(withImage, RESUME_PDF_MIME)
+    expect(text).toContain('resume')
+  }, 120_000)
+
+  it('still extracts an ordinary PDF', async () => {
+    // Latin only: the fixture embeds StandardFonts.Helvetica, which has no
+    // Cyrillic glyphs (the Cyrillic path is exercised by the DOCX tests).
+    const pdf = await buildPdfWithText(['Ivan Petrov', 'Senior Engineer'])
+    await expect(service.extract(pdf, RESUME_PDF_MIME)).resolves.toContain('Ivan Petrov')
+  })
+
+  /**
+   * Calibration guard, same discipline as the DOCX budget: the cap is set by a
+   * real corpus, so the corpus's high-water mark belongs in the test. 95 real
+   * PDFs (CVs, contracts, invoices, scans) topped out at 56 880 amplified
+   * operators; the next busiest was 7 965.
+   */
+  it('leaves the busiest real PDF inside the budget', () => {
+    const BUSIEST_REAL_PDF_OPERATORS = 56_880
+    expect(MAX_PDF_TEXT_OPERATORS).toBeGreaterThan(BUSIEST_REAL_PDF_OPERATORS)
+    // ...and stays well below the cheapest attack shape (600 000).
+    expect(MAX_PDF_TEXT_OPERATORS).toBeLessThan(600_000 / 4)
   })
 })
 

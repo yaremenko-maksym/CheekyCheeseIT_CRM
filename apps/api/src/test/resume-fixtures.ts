@@ -13,7 +13,7 @@
  * The zip writer emits STORED (uncompressed) entries only — enough for
  * `mammoth`, and it keeps the code short and readable.
  */
-import { deflateRawSync } from 'node:zlib'
+import { deflateRawSync, deflateSync } from 'node:zlib'
 import { PDFDocument, StandardFonts } from 'pdf-lib'
 
 // ---------------------------------------------------------------------------
@@ -303,4 +303,115 @@ export function buildDocxWithMedia(paragraphs: string[], imageBytes: number): Bu
     },
     { name: 'word/media/image1.png', data: media },
   ])
+}
+
+// ---------------------------------------------------------------------------
+// Hand-built PDFs (pdf-lib is far too slow to emit an operator-dense document)
+// ---------------------------------------------------------------------------
+
+function assemblePdf(objects: Record<number, Buffer>): Buffer {
+  const parts: Buffer[] = [Buffer.from('%PDF-1.4\n', 'latin1')]
+  const offsets: Record<number, number> = {}
+  let position = parts[0]!.length
+  const numbers = Object.keys(objects)
+    .map(Number)
+    .sort((a, b) => a - b)
+  for (const n of numbers) {
+    offsets[n] = position
+    const chunk = Buffer.concat([
+      Buffer.from(`${n} 0 obj\n`, 'latin1'),
+      objects[n]!,
+      Buffer.from('\nendobj\n', 'latin1'),
+    ])
+    parts.push(chunk)
+    position += chunk.length
+  }
+  const size = (numbers[numbers.length - 1] ?? 0) + 1
+  let xref = `xref\n0 ${size}\n0000000000 65535 f \n`
+  for (let n = 1; n < size; n += 1) {
+    xref += `${String(offsets[n] ?? 0).padStart(10, '0')} 00000 n \n`
+  }
+  parts.push(
+    Buffer.from(
+      `${xref}trailer\n<</Size ${size}/Root 1 0 R>>\nstartxref\n${position}\n%%EOF\n`,
+      'latin1',
+    ),
+  )
+  return Buffer.concat(parts)
+}
+
+/**
+ * The PDF amplification attack: ONE content stream, referenced by every page
+ * through `/Contents`, so N pages cost N executions of it for 1x the bytes.
+ *
+ * Tiny on disk (a few KB) and it passes the file-size and page-count gates,
+ * which is the entire point — those measure the wrong thing.
+ */
+export function buildPdfSharedContentStream(pages: number, operatorsPerStream: number): Buffer {
+  const ops: string[] = ['BT /F1 1 Tf\n']
+  for (let i = 0; i < operatorsPerStream; i += 1) {
+    ops.push(`1 0 0 1 ${10 + (i % 50)} ${700 - (i % 700)} Tm (lorem ipsum dolor) Tj\n`)
+  }
+  ops.push('ET\n')
+  const stream = deflateSync(Buffer.from(ops.join(''), 'latin1'))
+
+  const objects: Record<number, Buffer> = {}
+  objects[1] = Buffer.from('<</Type/Catalog/Pages 2 0 R>>', 'latin1')
+  const kids = Array.from({ length: pages }, (_, i) => `${5 + i} 0 R`).join(' ')
+  objects[2] = Buffer.from(`<</Type/Pages/Kids[${kids}]/Count ${pages}>>`, 'latin1')
+  objects[3] = Buffer.concat([
+    Buffer.from(`<</Length ${stream.length}/Filter/FlateDecode>>\nstream\n`, 'latin1'),
+    stream,
+    Buffer.from('\nendstream', 'latin1'),
+  ])
+  objects[4] = Buffer.from('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>', 'latin1')
+  for (let i = 0; i < pages; i += 1) {
+    objects[5 + i] = Buffer.from(
+      '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]' +
+        '/Resources<</Font<</F1 4 0 R>>>>/Contents 3 0 R>>',
+      'latin1',
+    )
+  }
+  return assemblePdf(objects)
+}
+
+/**
+ * A one-page PDF carrying a large Flate-compressed IMAGE XObject.
+ *
+ * This is the shape that made a byte-based PDF budget reject real CVs: the most
+ * common image encoding in the wild is plain `/FlateDecode` over raw samples,
+ * indistinguishable from a content stream by filter alone.
+ */
+export function buildPdfWithFlateImage(imageBytes: number): Buffer {
+  const samples = Buffer.alloc(imageBytes)
+  for (let i = 0; i < imageBytes; i += 1) samples[i] = (i * 2654435761) % 251
+  const image = deflateSync(samples)
+  const content = deflateSync(
+    Buffer.from('BT /F1 1 Tf 1 0 0 1 10 700 Tm (resume) Tj ET\n', 'latin1'),
+  )
+
+  const objects: Record<number, Buffer> = {}
+  objects[1] = Buffer.from('<</Type/Catalog/Pages 2 0 R>>', 'latin1')
+  objects[2] = Buffer.from('<</Type/Pages/Kids[5 0 R]/Count 1>>', 'latin1')
+  objects[3] = Buffer.concat([
+    Buffer.from(`<</Length ${content.length}/Filter/FlateDecode>>\nstream\n`, 'latin1'),
+    content,
+    Buffer.from('\nendstream', 'latin1'),
+  ])
+  objects[4] = Buffer.from('<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>', 'latin1')
+  objects[5] = Buffer.from(
+    '<</Type/Page/Parent 2 0 R/MediaBox[0 0 612 792]' +
+      '/Resources<</Font<</F1 4 0 R>>/XObject<</Im1 6 0 R>>>>/Contents 3 0 R>>',
+    'latin1',
+  )
+  objects[6] = Buffer.concat([
+    Buffer.from(
+      `<</Type/XObject/Subtype/Image/Width 100/Height 100/ColorSpace/DeviceRGB` +
+        `/BitsPerComponent 8/Length ${image.length}/Filter/FlateDecode>>\nstream\n`,
+      'latin1',
+    ),
+    image,
+    Buffer.from('\nendstream', 'latin1'),
+  ])
+  return assemblePdf(objects)
 }

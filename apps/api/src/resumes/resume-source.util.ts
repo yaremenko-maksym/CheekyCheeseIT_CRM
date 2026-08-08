@@ -14,12 +14,14 @@
  * knowledge lives resume-side.
  */
 import { promisify } from 'node:util'
-import { inflateRaw } from 'node:zlib'
+import { inflate, inflateRaw } from 'node:zlib'
 import { RESUME_DOCX_MIME, RESUME_PDF_MIME, RESUME_LIMITS } from '@crm/shared'
 import { detectMimeFromBuffer } from '../documents/compression.service'
 
 /** Async (thread-pool) inflate — never block the event loop on a bomb. */
 const inflateRawAsync = promisify(inflateRaw)
+/** PDF `FlateDecode` is zlib-wrapped, unlike zip's raw deflate. */
+const inflateAsync = promisify(inflate)
 
 /** Max entries we are willing to walk in a DOCX zip central directory. */
 const MAX_ZIP_ENTRIES = 2000
@@ -66,6 +68,78 @@ const ZIP_METHOD_DEFLATE = 8
 
 /** Max pages we will parse out of a PDF (a resume is not a 500-page book). */
 export const MAX_PDF_PAGES = 30
+
+/**
+ * Max decoded CONTENT-STREAM bytes a PDF may hold — a MEMORY bound.
+ *
+ * Measured across 95 real PDFs (CVs, contracts, invoices, scans) once image
+ * XObjects are excluded: the largest is 8.89 MB. 32 MB is ~3.6x that.
+ */
+export const MAX_PDF_CONTENT_BYTES = 32 * 1024 * 1024
+
+/**
+ * Max text-showing OPERATORS a PDF may ask `extractText` to execute — the CPU
+ * bound, and the only metric here that tracks the cost.
+ *
+ * The PDF branch had no size guard at all: `RESUME_SOURCE_MAX_BYTES` measures
+ * compressed bytes and `MAX_PDF_PAGES` measures pages, while `extractText` pays
+ * per operator. Measured on the real intake path:
+ *
+ *   pages  file    verdict    worst continuous stall
+ *     30    12 KB  accepted     6 109 ms
+ *     30    24 KB  accepted    23 267 ms   (884 MB resident)
+ *
+ * 24 KB is a four-hundredth of the permitted 10 MB.
+ *
+ * BYTES WOULD NOT HAVE WORKED, and trying them first is what produced this
+ * number honestly: decoded content bytes do not separate the two populations at
+ * all. The attack decodes to 0.8 MB while real image-heavy documents reach
+ * 8.9 MB, so any byte threshold either passes the attack or rejects real CVs.
+ * Operator counts separate them by an order of magnitude:
+ *
+ *   population                     amplified operators   worst stall
+ *   95 real PDFs (max)                        56 880        749 ms
+ *   attack, 20k ops x 30 pages                600 000      6 109 ms
+ *   attack, 60k ops x 30 pages              1 800 000     23 267 ms
+ *
+ * 80 000 is 1.4x the busiest real document (itself a lone outlier — the next
+ * highest is 7 965) and 7.5x below the cheapest attack. The tightness is
+ * deliberate and the ceiling is set by the real corpus, not by taste: an
+ * adversarial shape at the busiest real document's own operator count already
+ * costs 1 412 ms, so accepting all 95 real files means tolerating roughly that.
+ * Measured at the cap: 1 894 ms. Removing that residual needs extraction off
+ * the main thread, which is tracked separately.
+ *
+ * AMPLIFICATION: `/Contents` may point every page at the SAME stream, so N
+ * pages cost N executions of it. The bound charges `pages x busiest stream` as
+ * well as the plain total; for an ordinary document the two nearly agree, and
+ * for the shared-stream trick they diverge by exactly the amplification factor.
+ */
+export const MAX_PDF_TEXT_OPERATORS = 80_000
+
+/**
+ * Stream filters whose payload is image data: handed to an image codec, never
+ * walked as content operators.
+ *
+ * NOT sufficient on its own, and finding that out cost a second measurement
+ * pass: the single most common image encoding in a real PDF is plain
+ * `/FlateDecode` over raw samples, which is indistinguishable from a content
+ * stream by filter alone. Counting those made 13 of 95 real files — including
+ * two actual CVs — look like 25-130 MB of "content" and get rejected, while the
+ * genuine attack measured 0.8 MB. The authoritative marker is the XObject
+ * subtype, so `isPdfImageStream` checks that first.
+ */
+const PDF_IMAGE_FILTERS = ['DCTDecode', 'JPXDecode', 'JBIG2Decode', 'CCITTFaxDecode']
+
+/**
+ * True when the stream dictionary describes an image XObject rather than
+ * something `extractText` walks. `/Subtype /Image` is the definitive signal;
+ * the filter list catches image data that arrives without it.
+ */
+function isPdfImageStream(dict: string): boolean {
+  if (/\/Subtype\s*\/Image/.test(dict)) return true
+  return PDF_IMAGE_FILTERS.some((f) => dict.includes(f))
+}
 
 export type ResumeSourceMime = typeof RESUME_PDF_MIME | typeof RESUME_DOCX_MIME
 
@@ -389,6 +463,131 @@ function tooBig(cap: number): string {
   return isParsedCap
     ? `Содержимое DOCX больше ${mb} MB (реальный размер, а не заявленный) — это не похоже на резюме`
     : `Распакованный DOCX больше ${mb} MB (реальный размер, а не заявленный)`
+}
+
+// ---------------------------------------------------------------------------
+// PDF content-stream guard
+// ---------------------------------------------------------------------------
+
+export interface PdfInspection {
+  streams: number
+  /** Decoded bytes of everything that is not image data (memory). */
+  contentBytes: number
+  /** Text-showing operators across all content streams. */
+  textOperators: number
+  /** The busiest single stream — the unit the page count multiplies. */
+  largestStreamOperators: number
+  /** `pages x largestStreamOperators` — the upper bound on parser work. */
+  amplifiedOperators: number
+}
+
+/**
+ * Establish, before `extractText` runs, that a PDF cannot demand more content
+ * parsing than `maxContentBytes`.
+ *
+ * Deliberately a byte scan rather than a PDF parser: writing an object/xref
+ * parser to defend a parser is how you end up with two parsers to defend. Each
+ * `stream ... endstream` span is decoded under the remaining budget, so a
+ * document over the cap is refused while most of it is still compressed.
+ *
+ * Image streams are skipped (see `PDF_IMAGE_FILTERS`); a stream that does not
+ * inflate is charged its raw length, because an uncompressed content stream is
+ * content the parser will still walk.
+ *
+ * `pages` comes from pdf.js itself (`getDocumentProxy`, which reads the xref and
+ * catalogue but no content), so the amplification factor is a fact rather than
+ * a guess from a regex — object streams would hide page dictionaries from any
+ * byte scan.
+ */
+export async function inspectPdfContent(
+  buf: Buffer,
+  pages: number,
+  maxContentBytes: number = MAX_PDF_CONTENT_BYTES,
+  maxTextOperators: number = MAX_PDF_TEXT_OPERATORS,
+): Promise<PdfInspection> {
+  let contentBytes = 0
+  let textOperators = 0
+  let largestStreamOperators = 0
+  let streams = 0
+  let cursor = 0
+
+  for (;;) {
+    const start = buf.indexOf('stream', cursor, 'latin1')
+    if (start < 0) break
+    // Skip the `endstream` keyword, which also contains "stream".
+    if (start >= 3 && buf.subarray(start - 3, start).toString('latin1') === 'end') {
+      cursor = start + 6
+      continue
+    }
+    const end = buf.indexOf('endstream', start, 'latin1')
+    if (end < 0) break
+
+    // The stream dictionary sits immediately before the keyword.
+    const dict = buf.subarray(Math.max(0, start - 512), start).toString('latin1')
+    let dataStart = start + 'stream'.length
+    if (buf[dataStart] === 0x0d) dataStart += 1
+    if (buf[dataStart] === 0x0a) dataStart += 1
+
+    cursor = end + 'endstream'.length
+    streams += 1
+
+    if (isPdfImageStream(dict)) continue
+
+    const raw = buf.subarray(dataStart, end)
+    const remaining = maxContentBytes - contentBytes
+    if (remaining <= 0) throw new RangeError(pdfTooBig(maxContentBytes))
+
+    let decodedBuf: Buffer
+    if (dict.includes('FlateDecode')) {
+      try {
+        decodedBuf = await inflateAsync(raw, { maxOutputLength: remaining })
+      } catch (err: unknown) {
+        const code = (err as { code?: string } | null)?.code
+        if (code === 'ERR_BUFFER_TOO_LARGE') throw new RangeError(pdfTooBig(maxContentBytes))
+        // Not really Flate (or truncated): charge what is physically there.
+        decodedBuf = raw
+      }
+    } else {
+      decodedBuf = raw
+    }
+    const decoded = decodedBuf.length
+
+    contentBytes += decoded
+    if (contentBytes > maxContentBytes) throw new RangeError(pdfTooBig(maxContentBytes))
+
+    const ops = countTextOperators(decodedBuf)
+    textOperators += ops
+    if (ops > largestStreamOperators) largestStreamOperators = ops
+    if (textOperators > maxTextOperators) throw new RangeError(pdfTooBusy(maxTextOperators))
+  }
+
+  // N pages sharing one stream cost N executions of it.
+  const amplifiedOperators = Math.max(1, pages) * largestStreamOperators
+  if (amplifiedOperators > maxTextOperators) throw new RangeError(pdfTooBusy(maxTextOperators))
+
+  return { streams, contentBytes, textOperators, largestStreamOperators, amplifiedOperators }
+}
+
+/**
+ * Count text-showing operators (`Tj`, `TJ`, `'`, `"`) in a decoded stream.
+ *
+ * A byte scan, not a tokeniser: the point is to bound the parser, and building
+ * a PDF tokeniser to protect a PDF tokeniser only doubles the attack surface.
+ * It can over-count when those letter pairs appear inside a string literal,
+ * which is the safe direction for a guard — it can refuse a little early, never
+ * a little late.
+ */
+function countTextOperators(decoded: Buffer): number {
+  const text = decoded.toString('latin1')
+  return (text.match(/(?:^|[\s\]>)])(?:Tj|TJ|'|")(?=[\s/[<(]|$)/g) ?? []).length
+}
+
+function pdfTooBig(cap: number): string {
+  return `Содержимое PDF больше ${Math.floor(cap / 1024 / 1024)} MB после распаковки — это не похоже на резюме`
+}
+
+function pdfTooBusy(cap: number): string {
+  return `В PDF слишком много текстовых операций (предел ${cap}) — это не похоже на резюме`
 }
 
 // ---------------------------------------------------------------------------

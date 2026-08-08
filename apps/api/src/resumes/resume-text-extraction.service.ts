@@ -40,6 +40,7 @@ import {
   MAX_PDF_PAGES,
   capExtractedText,
   inspectDocxZip,
+  inspectPdfContent,
   normalizeExtractedText,
   type ResumeSourceMime,
 } from './resume-source.util'
@@ -137,10 +138,24 @@ export class ResumeTextExtractionService {
     // boot-critical dependency.
     const { extractText, getDocumentProxy } = await import('unpdf')
     try {
+      // `getDocumentProxy` reads the xref and catalogue only — no content
+      // streams — so the page count is available before anything expensive.
       const proxy = await getDocumentProxy(new Uint8Array(buffer))
       if (proxy.numPages > MAX_PDF_PAGES) {
         throw new ResumeFileUnreadableError(
           `В PDF больше ${MAX_PDF_PAGES} страниц — это не похоже на резюме`,
+        )
+      }
+      // The DOCX branch had a size guard and the PDF branch had none, which is
+      // how a 24 KB file bought 23 267 ms of stall: page count and compressed
+      // size both measure something other than the operators `extractText`
+      // walks. The real page count feeds the amplification factor, because
+      // every page may point at the same content stream.
+      try {
+        await inspectPdfContent(buffer, proxy.numPages)
+      } catch (err: unknown) {
+        throw new ResumeFileUnreadableError(
+          err instanceof RangeError ? err.message : 'Не удалось прочитать PDF-файл',
         )
       }
       // `mergePages: true` makes `text` a single string (per-page array otherwise).
