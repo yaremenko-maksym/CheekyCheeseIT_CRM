@@ -1,5 +1,13 @@
 import { test as base, expect, type Page, type Route } from '@playwright/test'
 
+// Re-exported so specs can take their Playwright types from the same barrel
+// they already import `test` / `expect` / fixtures from. persist-query.spec.ts
+// has imported `type Page` from here since it was written; the import was
+// simply never valid (`Module './fixtures' declares 'Page' locally, but it is
+// not exported`) and nothing ran `tsc` over this package to say so.
+// (task-lint-teeth)
+export type { Page, Route }
+
 // ---------------------------------------------------------------------------
 // Seed data — mirrors what the dev seed script creates
 // ---------------------------------------------------------------------------
