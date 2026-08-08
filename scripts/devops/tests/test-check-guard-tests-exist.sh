@@ -66,9 +66,15 @@ assert_green "guard does not explode on good input" -- true
 EOF
 }
 
-# A call that is real, but indented inside a conditional — must still count.
-# Guards against "fix" the anchor into something that only accepts calls in
-# column 0 and quietly stops seeing most of the suite.
+# A call that is indented inside a conditional — must still count. Guards
+# against "fixing" the anchor into something that only accepts calls in column 0
+# and quietly stops seeing most of the suite.
+#
+# Note this file is itself the clearest illustration of the anchor's documented
+# ceiling: the heredocs below contain lines BEGINNING with `assert_red`, which
+# the anchor cannot distinguish from a call. This test has real calls too, so
+# nothing is masked here — but it is why the guard's header claims "a line that
+# begins with the helper" rather than "a real call".
 write_test_with_indented_negative() {
   cat >"$1" <<'EOF'
 #!/usr/bin/env bash
@@ -137,7 +143,7 @@ assert_green "the real scripts/devops tree satisfies its own meta-guard" \
   --contains "every check-* script has a test" \
   -- run_guard_on_this_repo
 
-assert_green "an indented assert_red (inside an if) still counts as a real call" \
+assert_green "an indented assert_red (inside an if) still counts" \
   --contains "1 guarded, 0 unguarded" \
   -- run_guard "$INDENTED"
 

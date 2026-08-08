@@ -160,6 +160,17 @@ ANNOTATION_RE = re.compile(r"::(?:notice|warning|error|debug)\s*(?:::|\s|$)")
 
 # `psql` must be INVOKED, not merely named. `echo "then run: psql -f ..."`
 # documents an apply step; it does not perform one (review round 2, MED).
+#
+# KNOWN GAP, deliberately not closed (review round 3, LOW): a line that PIPES
+# into psql — `echo "..." | psql -U ...` — starts with `echo` and is therefore
+# treated as not-applying, i.e. a FALSE RED. No such line exists in deploy.yml
+# today (every apply step redirects a file with `< "$VAR"`), and the obvious fix
+# — accept an echo line when a `|` appears before the psql match — would let
+# `echo "run | psql later"` count as a real apply. That trades a hypothetical
+# false red for an actual false green, which is the wrong direction for this
+# guard: a false red gets noticed and fixed within minutes, a false green is
+# what put the #422 DDL on prod unapplied. If a piped form ever lands, widen
+# this deliberately and add a case for it.
 PSQL_INVOCATION_RE = re.compile(r"(?:^|[|&;()]|\s)psql\b")
 ECHO_LINE_RE = re.compile(r"^\s*(?:echo|printf)\b")
 
@@ -176,8 +187,25 @@ def strip_trailing_comment(line):
     mentions do NOT count" while accepting exactly that.
 
     A `#` only opens a comment when it is outside quotes AND preceded by
-    whitespace (or starts the line). That keeps `echo "# heading"` and
-    `https://host/path#frag` intact, which both occur in this workflow.
+    whitespace (or starts the line). The two conditions earn their keep in
+    different places, and the first version of this docstring credited the wrong
+    one for both (review round 3 — the same "claim that reads well and isn't
+    checked" this guard exists to refuse):
+
+      - the WHITESPACE condition covers a `#` glued to the character before it:
+        `echo "#0000ff"`, `https://host/path#frag`. Of those, only the quoted-
+        string form occurs in deploy.yml today (once); the URL-fragment form
+        does not occur at all and is listed as a shape, not as a sighting.
+      - the QUOTE condition covers a SPACE-preceded `#` inside a string, which
+        the whitespace rule alone would happily cut at: `PR #412` inside echoed
+        prose (5+ occurrences today, all on lines that are filtered as
+        annotations anyway) and — the one that would actually cost something —
+        `psql -c "SET application_name = 'deploy #1'" -f /opt/crm/...`, where
+        cutting at the `#` would discard the server-side path and report a
+        genuinely-wired file as never applied.
+
+    Pinned by test-check-prod-ddl-wiring.sh's hash-inside-quotes case; deleting
+    the quote tracking makes exactly that case fail.
     """
     in_single = False
     in_double = False

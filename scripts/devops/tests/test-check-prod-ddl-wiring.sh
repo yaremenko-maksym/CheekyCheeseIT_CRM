@@ -349,6 +349,39 @@ jobs:
               psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$FIXTURE_FILE"
 YML
 
+# Review round 3. The quote-tracking half of strip_trailing_comment was the last
+# surviving mutant: deleting it left all 13 cases green, because every fixture
+# happened to keep its `#` outside quotes, where the whitespace rule alone
+# already saves it. Here the `#` is INSIDE a quoted psql argument and the
+# server-side path comes AFTER it on the same line — so a comment-stripper that
+# ignores quotes truncates the path away and reports a genuinely-wired file as
+# never applied. A FALSE RED, which is the failure mode that gets a guard
+# switched off rather than fixed.
+read -r -d '' HASH_INSIDE_QUOTES_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -c "SET application_name = 'deploy #1'" -f /opt/crm/apps/api/drizzle/manual/$DDL
+YML
+
 read -r -d '' ABSENT_YML <<YML || true
 name: Deploy
 on:
@@ -433,6 +466,10 @@ assert_green "source: | block scalar counts as a real copy (no false red)" \
 assert_green "a comment banner at step indent does not truncate the step (no false red)" \
   --contains "Copied AND applied:      1" \
   -- run_guard "$(make_case comment-at-step-indent "$COMMENT_AT_STEP_INDENT_YML")"
+
+assert_green "a '#' inside a quoted psql argument is not a comment (no false red)" \
+  --contains "Copied AND applied:      1" \
+  -- run_guard "$(make_case hash-inside-quotes "$HASH_INSIDE_QUOTES_YML")"
 
 # ── negative — the case this whole task exists for ─────────────────────────────
 assert_red "THE CHEAT: filename only in comments/step names -> red" \

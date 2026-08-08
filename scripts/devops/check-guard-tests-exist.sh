@@ -33,12 +33,21 @@
 # that no call had to exist at all. Keeping the note is worth more than deleting
 # it: a stated boundary is only as good as the check under it.
 #
-# REMAINING LIMITATION, still true: this checks that a negative assertion is
-# PRESENT and is a real call, not that it is MEANINGFUL. `assert_red "x" -- false`
-# passes. That is a deliberate stopping point — a check strong enough to judge
-# meaningfulness is a code reviewer, not a grep. What this closes is the gap that
-# actually occurred (a guard with no test; a test with no red case; a test whose
-# only "red case" is prose), not every way to write a bad test on purpose.
+# WHAT THIS ACTUALLY CHECKS, stated at the strength it holds (review round 3,
+# LOW — the previous wording said "is a real call", which is more than a
+# line-oriented grep can promise): a LINE THAT BEGINS with the helper name
+# exists. That is strictly stronger than "the name appears somewhere", and
+# strictly weaker than "the helper is invoked" — the body of a heredoc, or a
+# multi-line string, whose line happens to start with `assert_red` would also
+# satisfy it. Making a grep tell those apart is not possible line-by-line, and
+# parsing bash to find out is far past what this check is worth.
+#
+# It does NOT check that the assertion is MEANINGFUL either: `assert_red "x" --
+# false` passes. That is a deliberate stopping point — a check strong enough to
+# judge meaningfulness is a code reviewer, not a grep. What this closes is the
+# gap that actually occurred (a guard with no test; a test with no red case; a
+# test whose only "red case" is prose), not every way to write a bad test on
+# purpose.
 #
 # Self-referential on purpose: this script is itself a check-*, so it must have
 # its own test with its own negative case, and it does
@@ -59,10 +68,11 @@ GUARDS_DIR="${1:-$SCRIPT_DIR}"
 TESTS_DIR="${2:-$SCRIPT_DIR/tests}"
 
 # The helper names from tests/lib/harness.sh that denote a negative case.
-# Anchored to line start (leading whitespace allowed) so that only an actual
-# CALL counts — a mention inside a comment or a string does not. `assert_red`
-# without a `$` suffix so `assert_red_signal` (the stdout-contract variant, for
-# check-backup-freshness.sh) counts too. See the H2 note in the header.
+# Anchored to line start (leading whitespace allowed) so a mention inside a
+# comment or mid-line prose does not count — see the header for exactly how far
+# that goes and where it stops. `assert_red` without a `$` suffix so
+# `assert_red_signal` (the stdout-contract variant, for check-backup-freshness.sh)
+# counts too.
 NEGATIVE_ASSERTION_RE='^[[:space:]]*assert_red'
 
 PASS=0
