@@ -132,6 +132,27 @@ jobs:
       - if: steps.scope.outputs.code == 'true'
         run: pnpm build
 
+      # Meta-gate from PR #500 (infra/lint-teeth): fails the build if any
+      # workspace package is missing a `lint` or `typecheck` script — exactly
+      # the gap that let `turbo lint`/`turbo typecheck` silently skip
+      # packages/shared and apps/e2e for months while reporting green (see
+      # scripts/check-package-gates.mjs header for the full incident).
+      #
+      # This PR wires the CALL in; the script itself ships in #500 and this
+      # PR is meant to merge strictly AFTER it (see this PR's description).
+      # Until then `scripts/check-package-gates.mjs` does not exist on this
+      # branch and the step below fails on purpose — with an explicit
+      # `::error::` message naming why, instead of a bare Node
+      # MODULE_NOT_FOUND stack trace.
+      - name: Package gates (every package must declare lint + typecheck)
+        if: steps.scope.outputs.code == 'true'
+        run: |
+          if [ ! -f scripts/check-package-gates.mjs ]; then
+            echo "::error::scripts/check-package-gates.mjs not found. This check ships in PR #500 (infra/lint-teeth), which this PR depends on and must merge first — see this PR's description." >&2
+            exit 1
+          fi
+          node scripts/check-package-gates.mjs
+
       - if: steps.scope.outputs.code == 'true'
         run: pnpm typecheck
 
