@@ -47,6 +47,36 @@ async function assertStayedInCrm(page: import('@playwright/test').Page, route: s
 }
 
 /**
+ * Split a route table by whether the route declares a testid anchor.
+ *
+ * The §1 detitle refactor removed the generic page `h1`s and only some pages
+ * gained a replacement anchor, so `testid` is optional — but it is a STATIC
+ * property of these tables, known at test-generation time, not a runtime
+ * outcome. Partitioning here lets each group run a body with no branch in it
+ * at all.
+ *
+ * An earlier revision instead moved `if (route.testid) await expect(...)` into
+ * a helper with an early return. That kept the behaviour but put the branch
+ * out of `no-conditional-expect`'s sight rather than removing it
+ * (code-review MED-4) — the one place in this PR where a rule was satisfied by
+ * relocation. In a change whose whole subject is assertions that quietly do
+ * not run, that is the wrong shape to leave behind.
+ */
+type NavRoute = { label: string; href: string; testid?: string }
+type AnchoredRoute = NavRoute & { testid: string }
+
+const anchored = (routes: NavRoute[]): AnchoredRoute[] =>
+  routes.filter((r): r is AnchoredRoute => typeof r.testid === 'string')
+
+const unanchored = (routes: NavRoute[]): NavRoute[] =>
+  routes.filter((r) => typeof r.testid !== 'string')
+
+/** Anchor assertion for a route that HAS one — no optionality, no branch. */
+async function assertAnchor(page: import('@playwright/test').Page, testid: string) {
+  await expect(page.getByTestId(testid).first()).toBeVisible({ timeout: 10_000 })
+}
+
+/**
  * Click a sidebar nav link by href, scoped to the desktop `<aside>` sidebar so it
  * never collides with the header logo link (which is also `<a href="/">` after
  * the dashboard→/crm consolidation). Strict-mode safe.
@@ -60,21 +90,30 @@ function clickSidebarLink(page: import('@playwright/test').Page, href: string) {
 // ---------------------------------------------------------------------------
 
 test.describe('ADMIN sidebar navigation', () => {
-  for (const route of COMMON_ROUTES) {
+  // Start from dashboard so we test SPA navigation, not direct URL load.
+  async function assertNavigatedTo(page: import('@playwright/test').Page, href: string) {
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+
+    await clickSidebarLink(page, href)
+    await page.waitForURL(`**${href}**`, { timeout: 8_000 })
+    await page.waitForLoadState('networkidle')
+
+    await assertStayedInCrm(page, href)
+  }
+
+  for (const route of anchored(COMMON_ROUTES)) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asAdmin: page }) => {
-      // Start from dashboard so we test SPA navigation, not direct URL load
-      await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await assertNavigatedTo(page, route.href)
+      await assertAnchor(page, route.testid)
+    })
+  }
 
-      await clickSidebarLink(page, route.href)
-      await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-      await page.waitForLoadState('networkidle')
-
-      await assertStayedInCrm(page, route.href)
-      // Generic h1 headings removed (§1 detitle); use testid where available, else URL is enough.
-      if (route.testid) {
-        await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
-      }
+  // No testid anchor exists for these pages (§1 detitle) — the URL assertion in
+  // `assertStayedInCrm` IS the check, and it runs unconditionally.
+  for (const route of unanchored(COMMON_ROUTES)) {
+    test(`sidebar → ${route.label} stays in CRM`, async ({ asAdmin: page }) => {
+      await assertNavigatedTo(page, route.href)
     })
   }
 
@@ -130,33 +169,48 @@ test.describe('SENIOR sidebar navigation', () => {
     { label: 'Собеседования', href: '/interviews', testid: 'interviews-page' },
   ])
 
-  for (const route of seniorRoutes) {
+  // Deterministic readiness instead of `networkidle`: the SENIOR `/` дашборд
+  // (#234) keeps a self-scoped finance query in flight (retry: 2), so the
+  // network never goes fully idle within the test budget — wait for the sidebar
+  // to render instead (playwright-patterns: avoid networkidle).
+  async function assertNavigatedTo(
+    page: import('@playwright/test').Page,
+    href: string,
+    urlPattern = `**${href}**`,
+  ) {
+    await page.goto('/')
+    await page.locator(`aside a[href="${href}"]`).first().waitFor({ timeout: 10_000 })
+
+    await clickSidebarLink(page, href)
+    await page.waitForURL(urlPattern, { timeout: 8_000 })
+    await assertStayedInCrm(page, href)
+  }
+
+  // `/team` is handled by its own test below: SENIOR with a single team is
+  // redirected to the team DETAIL page, so both the URL pattern and the anchor
+  // differ. Excluding it here keeps every loop body branch-free.
+  const seniorSidebarRoutes = seniorRoutes.filter((r) => r.href !== '/team')
+
+  for (const route of anchored(seniorSidebarRoutes)) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asSenior: page }) => {
-      await page.goto('/')
-      // Deterministic readiness instead of `networkidle`: the SENIOR `/`
-      // дашборд (#234) keeps a self-scoped finance query in flight (retry: 2),
-      // so the network never goes fully idle within the test budget — wait for
-      // the sidebar to render instead (playwright-patterns: avoid networkidle).
-      await page.locator(`aside a[href="${route.href}"]`).first().waitFor({ timeout: 10_000 })
-
-      await clickSidebarLink(page, route.href)
-
-      // Handle team redirect for SENIOR (single team → detail page).
-      // team h1 = {team.name} (identity, NOT nav-dup) — still a valid anchor.
-      if (route.href === '/team') {
-        await page.waitForURL('**/team/**', { timeout: 8_000 })
-        await assertStayedInCrm(page, route.href)
-        await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 })
-      } else {
-        await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-        await assertStayedInCrm(page, route.href)
-        // Generic h1 headings removed (§1 detitle); use testid where available.
-        if (route.testid) {
-          await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
-        }
-      }
+      await assertNavigatedTo(page, route.href)
+      await assertAnchor(page, route.testid)
     })
   }
+
+  for (const route of unanchored(seniorSidebarRoutes)) {
+    test(`sidebar → ${route.label} stays in CRM`, async ({ asSenior: page }) => {
+      await assertNavigatedTo(page, route.href)
+    })
+  }
+
+  test('sidebar → Команда stays in CRM', async ({ asSenior: page }) => {
+    // Single-team SENIOR lands on the team DETAIL page. Its `h1` is the team
+    // name — identity, NOT a nav duplicate — so it is a valid anchor even after
+    // the §1 detitle refactor.
+    await assertNavigatedTo(page, '/team', '**/team/**')
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible({ timeout: 10_000 })
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -168,20 +222,27 @@ test.describe('HR sidebar navigation', () => {
     { label: 'Собеседования', href: '/interviews', testid: 'interviews-page' },
   ])
 
-  for (const route of hrRoutes) {
+  async function assertNavigatedTo(page: import('@playwright/test').Page, href: string) {
+    await page.goto('/')
+    await page.waitForLoadState('networkidle')
+
+    await clickSidebarLink(page, href)
+    await page.waitForURL(`**${href}**`, { timeout: 8_000 })
+    await page.waitForLoadState('networkidle')
+
+    await assertStayedInCrm(page, href)
+  }
+
+  for (const route of anchored(hrRoutes)) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asHr: page }) => {
-      await page.goto('/')
-      await page.waitForLoadState('networkidle')
+      await assertNavigatedTo(page, route.href)
+      await assertAnchor(page, route.testid)
+    })
+  }
 
-      await clickSidebarLink(page, route.href)
-      await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-      await page.waitForLoadState('networkidle')
-
-      await assertStayedInCrm(page, route.href)
-      // Generic h1 headings removed (§1 detitle); use testid where available.
-      if (route.testid) {
-        await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
-      }
+  for (const route of unanchored(hrRoutes)) {
+    test(`sidebar → ${route.label} stays in CRM`, async ({ asHr: page }) => {
+      await assertNavigatedTo(page, route.href)
     })
   }
 })
@@ -202,19 +263,27 @@ const JUNIOR_ROUTES: { label: string; href: string; testid?: string }[] = [
 ]
 
 test.describe('JUNIOR sidebar navigation', () => {
-  for (const route of JUNIOR_ROUTES) {
+  async function assertNavigatedTo(page: import('@playwright/test').Page, href: string) {
+    await page.goto('/project')
+    await page.waitForLoadState('networkidle')
+
+    await clickSidebarLink(page, href)
+    await page.waitForURL(`**${href}**`, { timeout: 8_000 })
+    await page.waitForLoadState('networkidle')
+
+    await assertStayedInCrm(page, href)
+  }
+
+  for (const route of anchored(JUNIOR_ROUTES)) {
     test(`sidebar → ${route.label} stays in CRM`, async ({ asJunior: page }) => {
-      await page.goto('/project')
-      await page.waitForLoadState('networkidle')
+      await assertNavigatedTo(page, route.href)
+      await assertAnchor(page, route.testid)
+    })
+  }
 
-      await clickSidebarLink(page, route.href)
-      await page.waitForURL(`**${route.href}**`, { timeout: 8_000 })
-      await page.waitForLoadState('networkidle')
-
-      await assertStayedInCrm(page, route.href)
-      if (route.testid) {
-        await expect(page.getByTestId(route.testid).first()).toBeVisible({ timeout: 10_000 })
-      }
+  for (const route of unanchored(JUNIOR_ROUTES)) {
+    test(`sidebar → ${route.label} stays in CRM`, async ({ asJunior: page }) => {
+      await assertNavigatedTo(page, route.href)
     })
   }
 

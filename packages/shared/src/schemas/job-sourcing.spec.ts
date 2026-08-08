@@ -25,7 +25,10 @@ describe('externalHttpsUrlSchema — the value that reaches window.open', () => 
   })
 
   it('rejects javascript: (XSS via window.open)', () => {
-    // eslint-disable-next-line no-script-url -- the point of the test
+    // NOTE: the `javascript:` URL below is the point of the test. If
+    // `no-script-url` is ever enabled for this package, re-add an
+    // `eslint-disable-next-line` here (task-lint-teeth: the directive that used
+    // to be here was inert — no config enabled that rule).
     expect(() => externalHttpsUrlSchema.parse('javascript:alert(1)')).toThrow()
   })
 

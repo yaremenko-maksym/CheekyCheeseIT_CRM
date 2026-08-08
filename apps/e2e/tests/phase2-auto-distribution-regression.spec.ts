@@ -182,11 +182,17 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
 
       // ── Bonus: Project A's transactions are NOT visible on Project B ─
       // GET /api/transactions?projectId=B returns ONLY B's rows.
+      // The only project id allowed on these rows is B's.
+      //
+      // Flatly asserted, with no branch. My first rewrite read
+      // `toEqual(projectIdsB.size === 0 ? [] : [projectIdB])`, which derives
+      // the expectation from the actual value and so cannot fail on the empty
+      // path (code-review MED-3) — a subtler version of the `if (size === 1)`
+      // it replaced. The branch was dead anyway: `payoutB` (length 1) and
+      // `payoutConfirmedB` (length 1) above both come out of `txB`, so `txB` is
+      // provably non-empty by the time we get here.
       const projectIdsB = new Set(txB.map((t) => t.projectId))
-      expect(projectIdsB.size).toBeLessThanOrEqual(1)
-      if (projectIdsB.size === 1) {
-        expect(projectIdsB.has(projectIdB)).toBe(true)
-      }
+      expect([...projectIdsB]).toEqual([projectIdB])
     } finally {
       await cleanupDropViaAPI(page, dropIdA)
       if (dropIdB) {

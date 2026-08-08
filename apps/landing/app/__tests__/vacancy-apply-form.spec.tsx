@@ -84,7 +84,7 @@ describe('VacancyApplyForm', () => {
 
     await user.type(screen.getByLabelText(/Full name/), 'Ada Lovelace')
     await user.type(screen.getByLabelText(/Email/), 'ada@example.com')
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const fileInput = screen.getByLabelText(/CV/)
     await user.upload(fileInput, makePdfFile())
 
     await user.click(screen.getByRole('button', { name: 'Submit application' }))
@@ -105,7 +105,7 @@ describe('VacancyApplyForm', () => {
 
     await user.type(screen.getByLabelText(/Full name/), 'Ada Lovelace')
     await user.type(screen.getByLabelText(/Email/), 'ada@example.com')
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const fileInput = screen.getByLabelText(/CV/)
     await user.upload(fileInput, makePdfFile())
 
     await user.click(screen.getByRole('button', { name: 'Submit application' }))
@@ -131,7 +131,7 @@ describe('VacancyApplyForm', () => {
 
     await user.type(screen.getByLabelText(/Имя и фамилия/), 'Ada Lovelace')
     await user.type(screen.getByLabelText(/Email/), 'ada@example.com')
-    const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement
+    const fileInput = screen.getByLabelText(/CV/)
     await user.upload(fileInput, makePdfFile())
 
     await user.click(screen.getByRole('button', { name: 'Отправить отклик' }))

@@ -3,6 +3,7 @@ import type { ExecutionContext } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { OnboardingGuard } from './onboarding.guard'
+import { captureRejection } from '../common/testing/capture-rejection'
 import type { OnboardingService } from '../onboarding/onboarding.service'
 
 const adminUser: SessionUser = {
@@ -98,50 +99,49 @@ describe('OnboardingGuard', () => {
     const svc = makeOnboardingSvc({ requiresContract: true, requiresTos: false })
     const guard = new OnboardingGuard(svc)
 
-    try {
-      await guard.canActivate(makeContext({ url: '/api/teams', user: seniorUser }))
-      expect.fail('should have thrown')
-    } catch (e) {
-      expect(e).toBeInstanceOf(ForbiddenException)
-      const payload = (e as ForbiddenException).getResponse() as {
-        error: string
-        missing: string[]
-      }
-      expect(payload.error).toBe('ONBOARDING_REQUIRED')
-      expect(payload.missing).toEqual(['contract'])
+    const e = await captureRejection(() =>
+      guard.canActivate(makeContext({ url: '/api/teams', user: seniorUser })),
+    )
+
+    expect(e).toBeInstanceOf(ForbiddenException)
+    const payload = (e as ForbiddenException).getResponse() as {
+      error: string
+      missing: string[]
     }
+    expect(payload.error).toBe('ONBOARDING_REQUIRED')
+    expect(payload.missing).toEqual(['contract'])
   })
 
   it('non-admin with requiresTos only → missing:[tos]', async () => {
     const svc = makeOnboardingSvc({ requiresContract: false, requiresTos: true })
     const guard = new OnboardingGuard(svc)
 
-    try {
-      await guard.canActivate(makeContext({ url: '/api/teams', user: seniorUser }))
-      expect.fail('should have thrown')
-    } catch (e) {
-      const payload = (e as ForbiddenException).getResponse() as {
-        error: string
-        missing: string[]
-      }
-      expect(payload.missing).toEqual(['tos'])
+    const e = await captureRejection(() =>
+      guard.canActivate(makeContext({ url: '/api/teams', user: seniorUser })),
+    )
+
+    expect(e).toBeInstanceOf(ForbiddenException)
+    const payload = (e as ForbiddenException).getResponse() as {
+      error: string
+      missing: string[]
     }
+    expect(payload.missing).toEqual(['tos'])
   })
 
   it('non-admin with both → missing:[contract,tos]', async () => {
     const svc = makeOnboardingSvc({ requiresContract: true, requiresTos: true })
     const guard = new OnboardingGuard(svc)
 
-    try {
-      await guard.canActivate(makeContext({ url: '/api/teams', user: seniorUser }))
-      expect.fail('should have thrown')
-    } catch (e) {
-      const payload = (e as ForbiddenException).getResponse() as {
-        error: string
-        missing: string[]
-      }
-      expect(payload.missing).toEqual(['contract', 'tos'])
+    const e = await captureRejection(() =>
+      guard.canActivate(makeContext({ url: '/api/teams', user: seniorUser })),
+    )
+
+    expect(e).toBeInstanceOf(ForbiddenException)
+    const payload = (e as ForbiddenException).getResponse() as {
+      error: string
+      missing: string[]
     }
+    expect(payload.missing).toEqual(['contract', 'tos'])
   })
 
   it('non-admin with both fulfilled → returns true', async () => {

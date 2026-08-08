@@ -591,9 +591,25 @@ test.describe('Regression #4 — wallet addresses valid ETH format', () => {
     for (const placeholder of PLACEHOLDER_ADDRESSES) {
       expect(RENDERED_PREVIEW.bodyMarkdown).not.toContain(placeholder)
     }
-    const walletMatch = RENDERED_PREVIEW.bodyMarkdown.match(/0x[0-9a-fA-F]+/)
-    if (walletMatch) {
-      expect(walletMatch[0]).toMatch(ETH_ADDRESS_RE)
+    // Every `0x…` string must be a well-formed address. Replaces
+    // `if (walletMatch) expect(...)`, which checked nothing when there was no
+    // address at all; `matchAll` also covers more than one, which `match`
+    // silently ignored.
+    //
+    // The non-empty assertion is the load-bearing half (code-review MED-3): a
+    // `for` over an empty array asserts exactly as little as the `if` did, so
+    // without it this rewrite would have swapped one vacuum for another.
+    //
+    // Scope, stated honestly: `RENDERED_PREVIEW` is a static literal declared
+    // at the top of this file — nothing is rendered here. This is a fixture-
+    // integrity check (the same role as the "fixture integrity (data test)"
+    // case below), NOT proof that the contract renderer emits good addresses.
+    const walletMatches = [...RENDERED_PREVIEW.bodyMarkdown.matchAll(/0x[0-9a-fA-F]+/g)].map(
+      (m) => m[0],
+    )
+    expect(walletMatches.length, 'fixture must contain at least one 0x address').toBeGreaterThan(0)
+    for (const wallet of walletMatches) {
+      expect(wallet).toMatch(ETH_ADDRESS_RE)
     }
   })
 

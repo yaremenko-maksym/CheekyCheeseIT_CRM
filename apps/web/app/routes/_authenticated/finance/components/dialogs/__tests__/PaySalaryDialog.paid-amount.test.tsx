@@ -21,7 +21,7 @@
  * the transaction's own currency + the COMPANY_ACCOUNT default (USDT-forced)
  * rather than by clicking the picker.
  */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
@@ -97,9 +97,13 @@ function renderDialog(tx: unknown = TX_UAH) {
  */
 function amountInput(): HTMLInputElement {
   const field = screen.getByTestId('pay-salary-amount-field')
-  const input = field.querySelector('input')
+  // `within(...)` rather than `field.querySelector('input')` (task-lint-teeth).
+  // Both roles are tried so this keeps the role-agnosticism the comment above
+  // asks for: type=number exposes `spinbutton`, type=text exposes `textbox`,
+  // and this dialog must not care which PR #481 settles on.
+  const input = within(field).queryByRole('spinbutton') ?? within(field).queryByRole('textbox')
   if (!input) throw new Error('amount input not found inside pay-salary-amount-field')
-  return input
+  return input as HTMLInputElement
 }
 
 async function fillReceipt() {

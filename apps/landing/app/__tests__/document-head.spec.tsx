@@ -4,6 +4,27 @@
  * navigation to a page without it (so a stale Organization/WebSite payload
  * from `/` never lingers after a client-side nav to `/careers`).
  */
+
+/*
+ * task-lint-teeth — `testing-library/no-node-access` is off for this FILE, and
+ * only this file, for a structural reason rather than a stylistic one.
+ *
+ * The rule exists to stop tests inspecting a DOM subtree the component may not
+ * have rendered into — the portal blindness that let an entire XSS suite pass
+ * against an unprotected dialog on 2026-08-07. Its prescribed fix is to query
+ * through `screen`, which is bound to `document.body`.
+ *
+ * This suite tests a hook whose entire job is writing <title>, <meta>, <link>
+ * and JSON-LD into `document.head`. Nothing it produces is ever in
+ * `document.body`, so no `screen` query can reach any of it — there is no
+ * Testing Library API for the document head at all. `document.head.querySelector`
+ * is not a shortcut here, it is the only possible assertion, and the subtree is
+ * named explicitly, so the failure mode the rule guards against cannot occur.
+ *
+ * Scoped to this file deliberately: a repo-wide relaxation would re-open the
+ * body-side hole this rule was turned on to close.
+ */
+/* eslint-disable testing-library/no-node-access */
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { useDocumentHead } from '@/lib/use-document-head'

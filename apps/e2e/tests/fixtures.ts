@@ -1,5 +1,13 @@
 import { test as base, expect, type Page, type Route } from '@playwright/test'
 
+// Re-exported so specs can take their Playwright types from the same barrel
+// they already import `test` / `expect` / fixtures from. persist-query.spec.ts
+// has imported `type Page` from here since it was written; the import was
+// simply never valid (`Module './fixtures' declares 'Page' locally, but it is
+// not exported`) and nothing ran `tsc` over this package to say so.
+// (task-lint-teeth)
+export type { Page, Route }
+
 // ---------------------------------------------------------------------------
 // Seed data — mirrors what the dev seed script creates
 // ---------------------------------------------------------------------------
@@ -162,7 +170,26 @@ export const USERS = {
 
 export const ALL_USERS = Object.values(USERS)
 
-function toMember(user: (typeof USERS)[keyof typeof USERS], joinedAt = '2024-01-10T00:00:00.000Z') {
+/**
+ * Build a team-member fixture row from any user-shaped fixture.
+ *
+ * Generic over the input rather than typed as `(typeof USERS)[keyof typeof USERS]`
+ * (task-lint-teeth): that nominal union rejected `EXTRA_ACCOUNTANT` below, which
+ * is a perfectly well-formed user fixture that simply does not live inside the
+ * `USERS` object. The constraint states what this helper actually needs, and the
+ * generic keeps each call's literal field types in the returned row.
+ */
+function toMember<
+  T extends {
+    id: string
+    email: string
+    displayName: string
+    role: string
+    avatarUrl: string | null
+    avatarDocumentId: string | null
+    techStack: string[] | null
+  },
+>(user: T, joinedAt = '2024-01-10T00:00:00.000Z') {
   return {
     id: `member-${user.id}`,
     userId: user.id,
@@ -283,7 +310,16 @@ export const PROJECTS = [
     seniorName: USERS.senior.displayName,
     rate: 5000,
     currency: 'USDT',
-    seniorSharePercentOverride: null,
+    // Annotated, not bare `null` (task-lint-teeth): both seed projects happen to
+    // carry `null` here, so TS inferred the field's type as exactly `null` and
+    // `Partial<(typeof PROJECTS)[number]>` — the override bag every spec helper
+    // takes — became `null | undefined`. That made
+    // `mockProjectDetail({ seniorSharePercentOverride: 30 })` a type error in
+    // all 8 places projects-senior-share-override.spec.ts sets a real percent,
+    // i.e. the entire point of that spec. `number | null` is the DTO's actual
+    // type — this file already declares it that way at `seniorSharePercentOverride?:
+    // number | null` in the drop-project options below.
+    seniorSharePercentOverride: null as number | null,
     seniorSharePercentDefault: 26,
     startDate: '2024-01-15T00:00:00.000Z',
     archivedAt: null,
@@ -302,7 +338,8 @@ export const PROJECTS = [
     seniorName: USERS.senior.displayName,
     rate: 3000,
     currency: 'USD',
-    seniorSharePercentOverride: null,
+    // Same reason as project-1-id above.
+    seniorSharePercentOverride: null as number | null,
     seniorSharePercentDefault: 26,
     sharePercent: null,
     startDate: '2023-06-01T00:00:00.000Z',
@@ -2217,6 +2254,13 @@ export async function listTransactionsByProjectViaAPI(
     receiverId: string | null
     recipientId: string | null
     projectId: string | null
+    // `TransactionsService.mapTx` has always returned this (transactions.service.ts
+    // — `payoutRequestId: tx.payoutRequestId`); the shape above just never
+    // declared it. senior-payout-no-dup.spec.ts asserts on it to prove a
+    // SENIOR_INCOME is linked to the payout request that settled it — the
+    // regression this whole spec exists for. Undeclared, that assertion was a
+    // TS2339 nobody ran, so the link went unchecked. (task-lint-teeth)
+    payoutRequestId: string | null
   }>
 > {
   const res = await page.request.get(`${REAL_API_BASE}/api/transactions?projectId=${projectId}`)

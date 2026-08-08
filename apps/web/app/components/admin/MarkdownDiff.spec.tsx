@@ -20,10 +20,11 @@ describe('MarkdownDiff', () => {
   })
 
   it('renders added and removed parts for actual diff', () => {
-    const { container } = render(<MarkdownDiff oldText="line one" newText="line two" />)
-    expect(container.querySelector('[data-testid="markdown-diff"]')).toBeInTheDocument()
-    expect(container.textContent).toContain('- line one')
-    expect(container.textContent).toContain('+ line two')
+    render(<MarkdownDiff oldText="line one" newText="line two" />)
+    const diff = screen.getByTestId('markdown-diff')
+    expect(diff).toBeInTheDocument()
+    expect(diff).toHaveTextContent('- line one')
+    expect(diff).toHaveTextContent('+ line two')
   })
 
   it('handles trailing whitespace gracefully (trim both sides)', () => {

@@ -41,12 +41,13 @@ describe('PdfPreview', () => {
         testId="document-pdf-preview"
       />,
     )
-    const preview = document.querySelector('[data-testid="document-pdf-preview"]')
-    expect(preview).not.toBeNull()
-    // iframe должен присутствовать в DOM
-    const iframe = preview?.querySelector('iframe')
-    expect(iframe).not.toBeNull()
-    expect(iframe?.getAttribute('src')).toBe('blob:http://localhost/fake-blob-id')
+    expect(screen.getByTestId('document-pdf-preview')).toBeInTheDocument()
+    // iframe должен присутствовать в DOM. Найден по accessible-имени
+    // (pdf-preview.tsx ставит `title` + `aria-label`), а не через
+    // `preview.querySelector('iframe')` — task-lint-teeth: экранный запрос
+    // заодно проверяет, что предпросмотр вообще доступен скринридеру.
+    const iframe = screen.getByTitle('Предпросмотр: document.pdf')
+    expect(iframe).toHaveAttribute('src', 'blob:http://localhost/fake-blob-id')
   })
 
   it('AC3: показывает состояние ошибки когда hasError=true', () => {
@@ -55,18 +56,16 @@ describe('PdfPreview', () => {
   })
 
   it('AC4: пустое состояние когда нет blob и нет загрузки и нет ошибки', () => {
-    const { container } = render(
-      <PdfPreview blobUrl={null} isLoading={false} hasError={false} filename="test.pdf" />,
-    )
+    render(<PdfPreview blobUrl={null} isLoading={false} hasError={false} filename="test.pdf" />)
     // Нет лоадера, нет ошибки, нет iframe
     expect(screen.queryByText('Загрузка PDF…')).not.toBeInTheDocument()
     expect(screen.queryByText('Не удалось загрузить PDF.')).not.toBeInTheDocument()
-    expect(container.querySelector('iframe')).toBeNull()
+    expect(screen.queryByTitle('Предпросмотр: test.pdf')).not.toBeInTheDocument()
   })
 
   it('AC5: data-testid корректно проставляется', () => {
     render(<PdfPreview blobUrl={null} isLoading={false} hasError={false} testId="custom-testid" />)
-    expect(document.querySelector('[data-testid="custom-testid"]')).not.toBeNull()
+    expect(screen.getByTestId('custom-testid')).toBeInTheDocument()
   })
 })
 

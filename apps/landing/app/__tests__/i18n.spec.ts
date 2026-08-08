@@ -48,12 +48,23 @@ describe('i18n dictionaries — key-set parity (task-landing-i18n.md A2)', () =>
   })
 
   it('no leaf value is an empty/whitespace-only string in any locale (a "translated" key that is actually blank)', () => {
-    for (const locale of LOCALES) {
-      for (const [path, value] of flattened.get(locale)!) {
-        if (typeof value === 'string') {
-          expect(value.trim().length, `${locale}.${path} is empty`).toBeGreaterThan(0)
-        }
-      }
+    // Filter to the string leaves first, then assert over them — instead of
+    // `if (typeof value === 'string') expect(...)` inside the loop
+    // (task-lint-teeth). Same coverage, and the extra `expect` on the collected
+    // count means a dictionary that somehow yielded no string leaves at all
+    // fails loudly rather than passing with zero assertions.
+    const stringLeaves = LOCALES.flatMap((locale) =>
+      [...flattened.get(locale)!]
+        .filter(([, value]) => typeof value === 'string')
+        .map(([path, value]) => [`${locale}.${path}`, value as string] as const),
+    )
+
+    expect(
+      stringLeaves.length,
+      'expected the dictionaries to contain string leaves',
+    ).toBeGreaterThan(0)
+    for (const [path, value] of stringLeaves) {
+      expect(value.trim().length, `${path} is empty`).toBeGreaterThan(0)
     }
   })
 

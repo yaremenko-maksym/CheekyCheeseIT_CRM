@@ -341,7 +341,7 @@ describe('ApplicationsService.apply()', () => {
   // full target for all three — exactly the scenario the fix targets
   // (near-zero real work, needs the floor to avoid leaking that).
   describe('shared timing-deadline — all 3 branches converge (security-review round 3, MED-2)', () => {
-    async function resolvesWithinSharedDeadline(startApply: () => Promise<unknown>) {
+    async function assertResolvesWithinSharedDeadline(startApply: () => Promise<unknown>) {
       vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
       try {
         const promise = startApply()
@@ -371,7 +371,7 @@ describe('ApplicationsService.apply()', () => {
     }
 
     it('honeypot branch pads to the shared deadline', async () => {
-      await resolvesWithinSharedDeadline(() =>
+      await assertResolvesWithinSharedDeadline(() =>
         h.svc.apply(
           'senior-frontend-engineer',
           { ...VALID_FIELDS, website: 'http://spam.example' },
@@ -383,13 +383,13 @@ describe('ApplicationsService.apply()', () => {
 
     it('duplicate-update branch pads to the SAME shared deadline', async () => {
       h = makeHarness({ duplicateRow: existingApplicationRow() })
-      await resolvesWithinSharedDeadline(() =>
+      await assertResolvesWithinSharedDeadline(() =>
         h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4'),
       )
     })
 
     it('genuine-new-application branch pads to the SAME shared deadline', async () => {
-      await resolvesWithinSharedDeadline(() =>
+      await assertResolvesWithinSharedDeadline(() =>
         h.svc.apply('senior-frontend-engineer', VALID_FIELDS, pdfFile(), '1.2.3.4'),
       )
     })

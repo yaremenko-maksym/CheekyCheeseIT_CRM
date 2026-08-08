@@ -32,7 +32,7 @@ describe('ProfileNameLink — nonNavigable prop (task-admin-as-senior)', () => {
     const el = screen.getByText('Maksym Admin')
     expect(el.tagName.toLowerCase()).toBe('span')
     // Must not be an anchor
-    expect(el.closest('a')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('PNL-2. viewerRole="DROP" → renders <span> (existing DROP lockdown — regression guard)', () => {
@@ -43,7 +43,7 @@ describe('ProfileNameLink — nonNavigable prop (task-admin-as-senior)', () => {
     )
     const el = screen.getByText('Some Employee')
     expect(el.tagName.toLowerCase()).toBe('span')
-    expect(el.closest('a')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('PNL-3. nonNavigable=true + viewerRole="DROP" → renders <span> (both paths active)', () => {
@@ -54,7 +54,7 @@ describe('ProfileNameLink — nonNavigable prop (task-admin-as-senior)', () => {
     )
     const el = screen.getByText('Both Flags')
     expect(el.tagName.toLowerCase()).toBe('span')
-    expect(el.closest('a')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('PNL-5. nonNavigable=true — className, title, testId forwarded to span', () => {
@@ -85,8 +85,14 @@ describe('ProfileNameLink — nonNavigable prop (task-admin-as-senior)', () => {
     // The span must contain the child element
     const strong = screen.getByText('Bold Name')
     expect(strong.tagName.toLowerCase()).toBe('strong')
+    // Ancestry check: the child must be wrapped by the non-navigable <span>.
+    // There is no accessible query for "is inside a plain span" — a span with
+    // no role is invisible to every `screen` query by design — so this one
+    // traversal stays, narrowly. The link-absence assertion below (the property
+    // that actually matters for RBAC) is a screen query. (task-lint-teeth)
+    // eslint-disable-next-line testing-library/no-node-access
     expect(strong.closest('span')).not.toBeNull()
-    expect(strong.closest('a')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('PNL-7. viewerRole="SENIOR" → renders <span>, no <a> anchor (backend 403 for SENIOR→non-self)', () => {
@@ -97,7 +103,7 @@ describe('ProfileNameLink — nonNavigable prop (task-admin-as-senior)', () => {
     )
     const el = screen.getByText('Teammate Name')
     expect(el.tagName.toLowerCase()).toBe('span')
-    expect(el.closest('a')).toBeNull()
+    expect(screen.queryByRole('link')).toBeNull()
   })
 
   it('PNL-8. viewerRole="SENIOR" — className, title, testId forwarded to span', () => {
