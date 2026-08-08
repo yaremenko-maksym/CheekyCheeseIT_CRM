@@ -69,6 +69,24 @@ describe('isSafeResumeUrl (AC7 — injected content)', () => {
       expect(isSafeResumeUrl('MailTo:a@b.co')).toBe(true)
     })
 
+    /**
+     * `resume.ts` promises that `https:` without a real `//host` is rejected.
+     * Nothing checked it, so the promise was decoration: dropping the
+     * authority requirement failed none of the 29 tests. These are the inputs
+     * that make the requirement load-bearing.
+     *
+     * MUTATION: return `true` for the https branch without inspecting the
+     * authority and all of these go red.
+     */
+    it('requires a real //host after https:', () => {
+      expect(isSafeResumeUrl('https:foo')).toBe(false)
+      expect(isSafeResumeUrl('https:/example.com')).toBe(false)
+      expect(isSafeResumeUrl('https://')).toBe(false)
+      expect(isSafeResumeUrl('https:///path')).toBe(false)
+      // ...and the well-formed one still passes.
+      expect(isSafeResumeUrl('https://example.com')).toBe(true)
+    })
+
     it('requires an actual address after mailto:', () => {
       expect(isSafeResumeUrl('mailto:')).toBe(false)
       expect(isSafeResumeUrl('mailto:a')).toBe(true)

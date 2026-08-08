@@ -60,6 +60,26 @@ import { ResumeStatusPanel } from './ResumeStatusPanel'
 
 type SectionId = 'summary' | 'skills' | 'experience' | 'education' | 'languages' | 'links'
 
+/**
+ * May `requested` be opened for editing while `current` is open?
+ *
+ * Extracted as a pure, exported rule ON PURPOSE. The visible half of this
+ * behaviour is the disabled Изменить button, and a disabled button is
+ * untouchable from a test: React reads `disabled` from its own props, so
+ * stripping the DOM attribute never reaches the handler. That made the guard
+ * inside `startEdit` unfalsifiable — deleting it failed nothing, which is the
+ * same "protection nobody has ever seen work" this PR keeps removing.
+ *
+ * As a named function the rule can be asserted directly, so both halves are
+ * pinned: this decides, `disableEdit` displays.
+ */
+export function mayStartEditing(current: SectionId | null, requested: SectionId): boolean {
+  // Re-opening the section already open is a no-op, not a switch.
+  if (current === null || current === requested) return true
+  // Anything else would silently discard the draft being typed.
+  return false
+}
+
 export interface ResumeTabProps {
   userId: string
   /** Bubbles unsaved-edit state to UserProfileShell's tab-switch guard. */
@@ -140,7 +160,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
    */
   const startEdit = useCallback(
     (section: SectionId) => {
-      if (editing !== null && editing !== section) return
+      if (!mayStartEditing(editing, section)) return
       setDraft(serverContent)
       setEditing(section)
     },
@@ -192,9 +212,81 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   // cleared: the screen offered a file and a paste box and no way to simply
   // type the resume in, even though the section editors below work perfectly
   // well on empty content.
+  /**
+   * The stored original + its erase control.
+   *
+   * Rendered in BOTH the empty state and the filled one. An extraction that
+   * produces nothing usable leaves a READY row with empty content and a file
+   * still in storage — and that combination used to render the invitation
+   * screen ONLY, with no toolbar. So the user could see (via the intake copy)
+   * that a file had been uploaded, and had no way to download or erase it
+   * short of going through «Заполнить вручную» first. For a right-to-erasure
+   * control that is not an acceptable path.
+   */
+  const sourceAndDangerActions =
+    resume && (resume.hasSourceFile || canEdit) ? (
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+        {resume.hasSourceFile && sourceQuery.data?.url && (
+          <Button asChild variant="outline" className="min-h-11">
+            <a
+              href={sourceQuery.data.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              data-testid="resume-download-source"
+            >
+              <FileText className="mr-2 h-4 w-4" aria-hidden />
+              Исходный файл
+            </a>
+          </Button>
+        )}
+        {canEdit && (
+          <Button
+            variant="outline"
+            onClick={() => setConfirmDelete(true)}
+            data-testid="resume-delete"
+            className="min-h-11 text-destructive hover:text-destructive"
+          >
+            <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+            Удалить
+          </Button>
+        )}
+      </div>
+    ) : null
+
+  const deleteDialog = (
+    <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+      <AlertDialogContent data-testid="resume-delete-confirm-dialog">
+        <AlertDialogHeader>
+          <AlertDialogTitle>Удалить резюме?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Будут удалены и заполненные разделы, и загруженный исходный файл
+            {resume?.sourceFileName ? ` («${resume.sourceFileName}»)` : ''}. Восстановить их будет
+            нельзя — резюме придётся загрузить или заполнить заново.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel data-testid="resume-delete-cancel">Отмена</AlertDialogCancel>
+          <AlertDialogAction
+            data-testid="resume-delete-confirm"
+            disabled={deleteMutation.isPending}
+            onClick={() => {
+              setConfirmDelete(false)
+              setEditing(null)
+              setManualMode(false)
+              deleteMutation.mutate()
+            }}
+          >
+            {deleteMutation.isPending ? 'Удаляем…' : 'Удалить'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  )
+
   if (!hasContent && !isExtracting && resume?.status !== 'FAILED' && !manualMode) {
     return (
       <div className="space-y-4" data-testid="resume-tab">
+        {sourceAndDangerActions}
         {canEdit ? (
           <>
             <ResumeIntake
@@ -225,6 +317,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
             Резюме ещё не заполнено.
           </p>
         )}
+        {deleteDialog}
       </div>
     )
   }
@@ -272,21 +365,6 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
           )}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          {resume?.hasSourceFile && sourceQuery.data?.url && (
-            // Plain <a>: the presigned URL is already in hand, so no
-            // post-await window.open (which mobile browsers block).
-            <Button asChild variant="outline" className="min-h-11">
-              <a
-                href={sourceQuery.data.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                data-testid="resume-download-source"
-              >
-                <FileText className="mr-2 h-4 w-4" aria-hidden />
-                Исходный файл
-              </a>
-            </Button>
-          )}
           {/* Only offered once there is something to render. An empty resume
               produces a PDF with a name and nothing else — a download that
               wastes a click and looks broken. */}
@@ -298,49 +376,13 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
               </a>
             </Button>
           )}
-          {canEdit && resume && (
-            <Button
-              variant="outline"
-              onClick={() => setConfirmDelete(true)}
-              data-testid="resume-delete"
-              className="min-h-11 text-destructive hover:text-destructive"
-            >
-              <Trash2 className="mr-2 h-4 w-4" aria-hidden />
-              Удалить
-            </Button>
-          )}
+          {/* Source download + erase: the SAME fragment the empty state renders,
+              so neither control can go missing in one branch only. */}
+          {sourceAndDangerActions}
         </div>
       </div>
 
-      {/* Erasure is irreversible and takes the stored original with it, so it
-          asks first and names exactly what disappears. */}
-      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
-        <AlertDialogContent data-testid="resume-delete-confirm-dialog">
-          <AlertDialogHeader>
-            <AlertDialogTitle>Удалить резюме?</AlertDialogTitle>
-            <AlertDialogDescription>
-              Будут удалены и заполненные разделы, и загруженный исходный файл
-              {resume?.sourceFileName ? ` («${resume.sourceFileName}»)` : ''}. Восстановить их будет
-              нельзя — резюме придётся загрузить или заполнить заново.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel data-testid="resume-delete-cancel">Отмена</AlertDialogCancel>
-            <AlertDialogAction
-              data-testid="resume-delete-confirm"
-              disabled={deleteMutation.isPending}
-              onClick={() => {
-                setConfirmDelete(false)
-                setEditing(null)
-                setManualMode(false)
-                deleteMutation.mutate()
-              }}
-            >
-              {deleteMutation.isPending ? 'Удаляем…' : 'Удалить'}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {deleteDialog}
 
       {canEdit && (showIntake || resume?.status === 'FAILED') && (
         <ResumeIntake

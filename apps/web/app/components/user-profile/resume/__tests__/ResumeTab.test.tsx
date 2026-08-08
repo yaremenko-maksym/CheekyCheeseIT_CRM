@@ -29,7 +29,7 @@ vi.mock('@/hooks/use-senior-resume', () => ({
 
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), success: vi.fn() } }))
 
-import { ResumeTab } from '../ResumeTab'
+import { ResumeTab, mayStartEditing } from '../ResumeTab'
 
 function makeResponse(
   overrides: Partial<SeniorResumeDto> = {},
@@ -489,6 +489,73 @@ describe('ResumeTab — deleting the resume', () => {
 
   it('is not offered before a resume exists', () => {
     resumeData = { resume: null, canEdit: true }
+    render(<ResumeTab userId="senior-1" />)
+    expect(screen.queryByTestId('resume-delete')).not.toBeInTheDocument()
+  })
+})
+
+/**
+ * The RULE behind the section lock, asserted directly.
+ *
+ * The visible half is the disabled Изменить button, and a disabled button
+ * cannot be reached from a test: React reads `disabled` from its own props, so
+ * stripping the DOM attribute never gets to the handler. That left the guard
+ * inside `startEdit` unfalsifiable — deleting it failed nothing. Naming the
+ * rule makes it testable on its own terms.
+ *
+ * MUTATION: make `mayStartEditing` always return true and the first case here
+ * goes red (while the disabled-button tests above stay green — the two halves
+ * are now pinned independently).
+ */
+describe('mayStartEditing', () => {
+  it('refuses to switch away from a section that is open', () => {
+    expect(mayStartEditing('summary', 'skills')).toBe(false)
+    expect(mayStartEditing('experience', 'summary')).toBe(false)
+  })
+
+  it('allows opening when nothing is being edited', () => {
+    expect(mayStartEditing(null, 'summary')).toBe(true)
+    expect(mayStartEditing(null, 'links')).toBe(true)
+  })
+
+  it('treats re-opening the same section as a no-op, not a switch', () => {
+    expect(mayStartEditing('summary', 'summary')).toBe(true)
+  })
+})
+
+/**
+ * READY + empty content + a file still in storage is a REACHABLE state: an
+ * extraction that returns nothing usable leaves exactly that. It used to render
+ * the invitation screen only — no toolbar — so the uploaded file could be
+ * neither downloaded nor erased without first going through «Заполнить вручную».
+ * A right-to-erasure control has to be reachable from the state the user is in.
+ */
+describe('ResumeTab — erasure is reachable from the empty state', () => {
+  it('offers erase and the source download when a file exists but content is empty', () => {
+    resumeData = makeResponse({
+      content: EMPTY_RESUME_CONTENT,
+      status: 'READY',
+      hasSourceFile: true,
+      sourceFileName: 'резюме.pdf',
+    })
+    render(<ResumeTab userId="senior-1" />)
+
+    // Still the invitation screen...
+    expect(screen.getByTestId('resume-fill-manually')).toBeInTheDocument()
+    // ...but the file is reachable and removable from right here.
+    expect(screen.getByTestId('resume-delete')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    expect(screen.getByTestId('resume-delete-confirm-dialog')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('resume-delete-confirm'))
+    expect(deleteMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not offer erase in the empty state to a read-only viewer', () => {
+    resumeData = makeResponse(
+      { content: EMPTY_RESUME_CONTENT, status: 'READY', hasSourceFile: true },
+      false,
+    )
     render(<ResumeTab userId="senior-1" />)
     expect(screen.queryByTestId('resume-delete')).not.toBeInTheDocument()
   })
