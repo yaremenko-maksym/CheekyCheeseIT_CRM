@@ -21,7 +21,7 @@ folded into the same sections — see §12 for the full list.
 
 | Concern                                                                   | File                                                            |
 | ------------------------------------------------------------------------- | --------------------------------------------------------------- |
-| Cookie / CF-IPCountry priority, redirect-target composition, kill-switch  | `nginx/conf.d/locale-detect.conf` (plain nginx `map`)           |
+| Redirect-target composition, prefixed-URI detection, kill-switch          | `nginx/conf.d/locale-detect.conf` (plain nginx `map`)           |
 | Accept-Language best-match (q-value sort + base-language fallback)        | `nginx/njs/locale.js` (njs — see §2 below for why)              |
 | The actual `if`/`return 302` redirect + guard, on both `:80` and `:443`   | `nginx/conf.d/landing.conf` (`location /` in each server block) |
 | `load_module` wiring for njs                                              | `nginx/nginx.conf` (top, main context)                          |
@@ -47,9 +47,8 @@ njs (`ngx_http_js_module`) is a **dynamic module already bundled in the stock
 ships out of the box, njs 0.8.10, no extra install/compile/image-size cost.
 `nginx/njs/locale.js` exports one function, `targetLocale(r)`, that returns one
 of `"en" | "uk" | "ru" | "es" | "pt"` — the FULL priority chain (cookie >
-Accept-Language > CF-IPCountry > `en`) lives there for the Accept-Language tier
-specifically; cookie validation, CF-IPCountry lookup, and the redirect-target
-composition stay plain nginx `map`/`if` (see `nginx/conf.d/locale-detect.conf`
+Accept-Language > `en`) lives there; the redirect-target composition stays
+plain nginx `map`/`if` (see `nginx/conf.d/locale-detect.conf`
 and `landing.conf`) — njs is used ONLY where `map` genuinely cannot express the
 logic, not as a wholesale rewrite of the redirect pipeline.
 
@@ -75,10 +74,14 @@ that trade-off explicitly if you ever have to make that swap.
    resolve to any of the 5 supported locales is skipped, NOT treated as a
    hard "give up" — the next tag (by q-order) is tried. No tag resolves at
    all → falls through to step 3.
-3. **`CF-IPCountry`** (Cloudflare) — ONLY consulted when Accept-Language is
-   absent or fully unresolved. Table: `UA`→uk · `RU|BY|KZ|KG|AM`→ru ·
-   `BR|PT|AO|MZ`→pt · `ES|MX|AR|CO|CL|PE|VE|EC|GT|CU|BO|DO|HN|PY|SV|NI|CR|PA|UY`→es.
-4. **Default**: `en`.
+3. **Default**: `en` — served at the UNPREFIXED URLs, with no redirect.
+
+**There is deliberately no third tier.** A `CF-IPCountry` (Cloudflare
+geolocation) tier sat between steps 2 and 3 until 2026-08-08; §13 is the
+incident that removed it. In short: both remaining tiers are things the client
+actively said. Anything that turns "this client said nothing" into a redirect
+makes the canonical URL unreachable for every crawler, because crawlers are
+essentially the only clients that send no `Accept-Language`.
 
 The redirect itself (`nginx/conf.d/landing.conf` `location /`) only fires when
 ALL of these hold:
@@ -92,8 +95,9 @@ ALL of these hold:
   the locale root) actually has prerendered static content in this image.
 
 The redirect is always **302** (not 301 — user preference is not permanent),
-always carries `Vary: Accept-Language, Cookie, CF-IPCountry` (AC B4 + security-
-review MED-2 — see §12) and always carries `Cache-Control: private, no-store`
+always carries `Vary: Accept-Language, Cookie` (AC B4 + security-review MED-2
+— see §12; `CF-IPCountry` was dropped from `Vary` together with the tier that
+read it, §13) and always carries `Cache-Control: private, no-store`
 (MED-2) and a relative `Location:` header (MED-1, `absolute_redirect off;` —
 see §12) so caches never serve a cross-locale response to the wrong visitor
 and a forged `Host` header can never appear in the redirect target.
@@ -190,7 +194,7 @@ To disable ALL locale auto-redirects instantly (incident / rollback lever,
 e.g. a bad interaction discovered in production that the file-existence guard
 above doesn't cover): change `default 0;` to `default 1;` in this one line,
 commit, and redeploy. Every request will then resolve `$locale_prefix` to `""`
-regardless of cookie/Accept-Language/CF-IPCountry — full stop, no other file
+regardless of cookie/Accept-Language — full stop, no other file
 needs touching. This is a one-line-change-plus-redeploy lever (this stack has
 no separate runtime config server, so a redeploy via the existing CI pipeline
 — typically single-digit minutes — is the fastest lever this PR ships). A
@@ -215,9 +219,12 @@ To re-enable: flip back to `default 0;`, commit, redeploy.
 
 ## 6. How to verify bots see 200 (crawler-safety)
 
-Any request WITHOUT a resolvable `Accept-Language`/cookie/`CF-IPCountry`
+Any request WITHOUT a resolvable `Accept-Language`/cookie
 signal gets a plain `200` EN response — this is what Googlebot, and any other
-crawler that omits `Accept-Language` (most do), will see on `/`. Locale-
+crawler that omits `Accept-Language` (most do), will see on `/`. **This is the
+property §13 exists to protect: it was silently false in production for weeks,
+because Cloudflare supplies a `CF-IPCountry` on every request and a geo tier
+then treated "said nothing" as "said Ukrainian".** Locale-
 prefixed URLs (`/uk/`, `/ru/`, `/es/`, `/pt/`) are NEVER redirect targets or
 redirect sources — a crawler that discovers them via `hreflang`/sitemap (see
 `apps/landing`'s Block A work) always gets a direct `200`, never a 302 bounce.
@@ -228,13 +235,50 @@ To verify against a real (or locally running) origin:
 scripts/devops/check-locale-routing.sh https://cheekycheese.tech
 ```
 
-This runs the full B1–B9 curl matrix (28 cases as of security-review round 1
-— accept-language best-match, cookie priority, all 4 locale-prefixed URLs,
-CF-IPCountry, Vary/Cache-Control headers, deep-path/trailing-slash
-preservation, partial-prerender guard correctness, ReDoS-hardening timing)
-and prints `PASS`/`FAIL` per case, exiting non-zero on any failure. Safe to
-run repeatedly against production (read-only GET requests, no state
-mutated).
+This runs the full curl matrix (39 cases as of the §13 indexability fix —
+accept-language best-match, cookie priority, all 4 locale-prefixed URLs,
+geolocation NOT redirecting a preference-less client, `/en/` collapsing onto
+`/` with the query string intact, Vary/Cache-Control headers,
+deep-path/trailing-slash preservation, partial-prerender guard correctness,
+ReDoS-hardening timing, plus the four `INDEX-*` sweeps over the live sitemap)
+and prints `PASS`/`FAIL` per case, exiting non-zero on any failure. Safe to run
+repeatedly against production (read-only GET requests, no state mutated).
+
+**Every case is expected to pass against production.** That is a deliberate
+property, not an accident: the script is recommended as a post-deploy gate, so
+a case that can only pass against a fixture would turn every deploy red. The
+deep-path redirect cases therefore derive their path from the origin's OWN
+sitemap (deepest unprefixed URL whose `/uk/` twin is also advertised) rather
+than hardcoding a slug. Before that change the suite hardcoded
+`/careers/my-slug/`, which passes against a local fixture and fails against
+production, where no such vacancy exists. **If you add a case, check it against
+production before merging** — `bash scripts/devops/check-locale-routing.sh https://cheekycheese.tech`
+— and make it origin-shape-independent, or do not add it.
+
+The `INDEX-*` sweeps read `sitemap.xml` from the origin under test and fetch
+every URL in it, so they scale with the live vacancy count and need no
+maintenance when a posting is added or closed. An unreachable or near-empty
+sitemap reds the dedicated floor case AND all four sweeps: each sweep re-checks
+the URL count itself, because a loop body that never runs otherwise reports
+`0/0` as a success — a check that cannot fail, which is the exact defect class
+§13 was about.
+
+**What the sweeps can and cannot catch, stated plainly.** The `INDEX-*` sweeps
+send no `Accept-Language`. Against a **local** origin with nothing in front,
+that means no `CF-IPCountry` either — so a geo-tier regression is invisible to
+them locally: run against the pre-fix config on a local container, `INDEX-1..4`
+report 20/20 green while only the header-driven cases (B5) go red. Behind
+Cloudflare the header is injected on every request, and the same sweeps go red
+(verified against production: 4 of 20 URLs redirecting). So:
+
+- the **B5** cases are the deterministic, CDN-independent catcher for the geo
+  class — they send the header explicitly and work anywhere;
+- the **`INDEX-*`** sweeps are what catch it (and anything else that redirects
+  an advertised URL) **in the environment that actually matters**, and they
+  require a run against production to do so.
+
+A local dry-run is therefore not a substitute for the post-deploy run against
+`https://cheekycheese.tech`. Both are listed in §13.
 
 ### Local dry-run before any nginx/\*\* change
 
@@ -601,3 +645,103 @@ All of the above are verified the same way as everything else in this
 runbook — real `nginx -t`, real containers, real `curl`, not just read
 through — see this PR's description for the full command-by-command
 evidence log.
+
+---
+
+## 13. Indexability incident: geolocation made the canonical URL unreachable (2026-08-08)
+
+**Symptom.** Google Search Console: 4 pages "Alternate page with proper
+canonical tag", 15 "Discovered — currently not indexed". The English site had
+no presence in the index at all; searches surfaced only the Ukrainian pages.
+
+**What was actually happening.** English is published at the UNPREFIXED URLs
+(`/`, `/careers/`, `/careers/<slug>/` — `localePrefix('en') === ''`, see
+`apps/landing/app/i18n/locale.ts`). Those four URLs are what `sitemap.xml`
+lists, what every page's `rel=canonical` names, and what `hreflang="en"` and
+`hreflang="x-default"` point at from all five locales. And every one of them
+answered `302 → /uk/…` to a client that sent no `Accept-Language`:
+
+```
+Accept-Language: en-US        -> 200
+Accept-Language: uk-UA        -> 302 -> /uk/
+(no Accept-Language header)   -> 302 -> /uk/     <-- Googlebot arrives here
+User-Agent: Googlebot         -> 302 -> /uk/
+```
+
+The mechanism was the `CF-IPCountry` tier (§3, step 3 as it then was).
+Cloudflare injects that header on **every** request, so the tier fired for
+every client that did not express a preference — and browsers always send
+`Accept-Language`, which means in practice the tier fired on crawlers and
+almost nothing else. Confirmed from the outside:
+`curl https://cheekycheese.tech/cdn-cgi/trace` returned `loc=UA`, and the
+redirect target followed the operator's egress country rather than any header
+curl sent (a forged `CF-IPCountry: US` changed nothing — Cloudflare overwrites
+it). Google then did exactly what it is supposed to do with a canonical URL
+that redirects: it consolidated the English pages into the Ukrainian ones.
+
+**The rule that came out of it.** _A URL advertised as canonical or x-default
+must answer 200, with no redirect, to every client that did not ask for
+something else._ Redirecting on an EXPRESSED preference (cookie,
+`Accept-Language`) is fine and is retained — that is a real signal from a real
+visitor. Guessing from an IP address is not a preference.
+
+**Not fixed by User-Agent sniffing.** Serving crawlers something different
+from humans is cloaking, and it is penalised. The defect was in the fallback,
+so the fallback changed, for everyone identically. `check-locale-routing.sh`
+now runs the sitemap sweep twice — anonymous and under Googlebot's UA — which
+would fail if anyone ever "fixed" a future regression that way.
+
+**Changed:**
+
+- `nginx/njs/locale.js` — geo tier removed; chain is cookie > Accept-Language > `en`.
+- `nginx/conf.d/landing.conf` — `Vary` no longer claims `CF-IPCountry` (it no
+  longer varies by it); `/en/…` now `301`s onto the canonical unprefixed URL.
+- `scripts/devops/check-locale-routing.sh` — B5 inverted (geo must NOT
+  redirect), `/en/` cases, and the four `INDEX-*` sitemap sweeps.
+- `scripts/devops/tests/` — seven new negative cases, one per failure shape.
+
+Two of those came out of review round 1 and are worth naming, because both
+were "the guard looks fine" defects rather than product defects:
+
+- `location = /en` used `return 301 /`, and `return` — unlike `rewrite` —
+  does **not** re-append the query string. `/en?utm=1` landed on a bare `/`.
+  Fixed with `$is_args$args`; pinned by the `en-alias-drops-query` case.
+- the sweeps printed `0/0` as a PASS on an empty sitemap. Only the dedicated
+  floor case went red, so the claim "the sweeps fail loudly" was false as
+  written. Each sweep now re-checks the count; pinned by `empty-sitemap`.
+
+**Why `/en/` was in scope.** It was never a route — no route file, nothing
+links to it, not in the sitemap — but the SPA fallback (`try_files … /index.html`)
+answered it `200` with the prerendered HOME markup. That is a second live
+address serving the same page while pointing its canonical at `/`. A `301` is
+used rather than leaving it up with a canonical tag: `rel=canonical` is a hint
+a search engine may decline, and keeping the address alive preserves exactly
+the ambiguity being removed.
+
+**Post-deploy verification** (run after the deploy that carries this change):
+
+```bash
+scripts/devops/check-locale-routing.sh https://cheekycheese.tech
+```
+
+All cases must pass — see §6 on why that is achievable against production and
+must stay so. For reference, the same command against production BEFORE this
+change reports `21 passed, 18 failed`, and every one of those 18 is something
+this change fixes (5 × B5 geo, 5 × `/en/`, 2 × `Vary`, the `de-DE` no-match
+case and the `no Accept-Language` bot case that geo was overriding, and the 4
+`INDEX-*` sweeps). If a run after the deploy shows anything still red, it is
+not leftover noise from this incident.
+
+`INDEX-1`/`INDEX-2` are the ones that would have caught this incident on the
+day it shipped — **but only from outside Cloudflare** (§6: locally nothing
+injects `CF-IPCountry`, so they stay green on a broken config; the B5 cases are
+the local catcher). Then, in Search Console, re-request indexing for the four
+English URLs — the pages will not return on their own schedule quickly, and the
+redirect being gone is a precondition, not the whole recovery.
+
+**Why the existing case matrix did not catch it.** Every case above B4 sets a
+header and asserts the decision made from it. The decision was correct
+throughout — the specification was wrong. Nothing in the suite ever asked the
+only question that mattered to a crawler: _does the URL we advertise resolve,
+in one hop, to the page it claims to be?_ That is why the fix ships with a
+sweep over the real sitemap rather than four more per-header cases.
