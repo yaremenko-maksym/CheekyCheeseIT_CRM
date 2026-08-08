@@ -16,9 +16,19 @@ const API = 'http://localhost:3001/api'
 // Fixture: senior-team with junior member derived from project
 // ---------------------------------------------------------------------------
 
-/** Team fixture that includes JUNIOR in derived members list */
+/**
+ * Team fixture that includes JUNIOR in derived members list.
+ *
+ * `TEAMS[0]!` — `noUncheckedIndexedAccess` types every index read as
+ * `T | undefined`, and spreading a possibly-undefined value collapses the
+ * result into a union in which none of the team's own fields exist. `TEAMS` is
+ * a module-level literal in fixtures.ts with a fixed first entry, so index 0 is
+ * statically present; asserting it here, once at the derivation point, is what
+ * makes `.name` a `string` for every assertion below instead of leaving 13
+ * separate call sites unchecked. (task-lint-teeth)
+ */
 const TEAM_WITH_JUNIOR = {
-  ...TEAMS[0],
+  ...TEAMS[0]!,
   members: [
     {
       id: `member-${USERS.hr.id}`,
@@ -86,9 +96,9 @@ const TEAM_WITH_TELEGRAM = {
   telegram: 'https://t.me/alpha_team_chat',
 }
 
-/** Project with JUNIOR member */
+/** Project with JUNIOR member. `PROJECTS[0]!` — same reason as `TEAMS[0]!` above. */
 const PROJECT_WITH_JUNIOR = {
-  ...PROJECTS[0],
+  ...PROJECTS[0]!,
   id: 'project-with-junior',
   members: [
     {
