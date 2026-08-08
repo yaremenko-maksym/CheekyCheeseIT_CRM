@@ -165,7 +165,11 @@ export class SeniorResumesController {
  * Mirrors `safeContractFilename` in the contracts module.
  */
 export function resumeContentDisposition(displayName: string): string {
-  const safe = sanitizeFileName(displayName.replace(/["\\]/g, '')) || 'resume'
+  // Sanitise FIRST, then strip the quoting characters. The other order removed
+  // the backslash before `sanitizeFileName` could treat it as a separator, so
+  // `..\..\etc\passwd.pdf` collapsed to `......etcpasswd.pdf` instead of
+  // reducing to its bare filename the way the upload path does.
+  const safe = sanitizeFileName(displayName).replace(/["\\]/g, '').trim() || 'resume'
   const ascii = `${safe.replace(/[^\x20-\x7E]/g, '_')}.pdf`
   const utf8 = encodeURIComponent(`Резюме — ${safe}.pdf`)
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`

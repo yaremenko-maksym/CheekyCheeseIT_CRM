@@ -616,6 +616,56 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
     })
 
     /**
+     * MED / cost. Discarding the loser's RESULT was only half the problem: the
+     * loser had already been PAID for.
+     *
+     * The supersede has to happen while the run is still LOADING (reading the
+     * file, extracting its text) — that is the window the fix covers, and the
+     * one a real second upload lands in. Superseding after the model call has
+     * already gone out proves nothing: those tokens are spent either way.
+     *
+     * MUTATION: delete the `stillOwnsRun` check before `ai.extractStructure`
+     * and this goes red — the model is called twice for one usable answer.
+     */
+    it('R-INT-10d. a run superseded while loading never reaches the model', async () => {
+      if (!dbAvailable) return
+      ai.extractStructure.mockClear()
+      ai.extractStructure.mockResolvedValue(extracted('победитель'))
+
+      // Park a row in QUEUED and drive it by hand, so the slow step is LOADING.
+      const [row] = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+      const resumeId = row?.id as string
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ status: 'QUEUED', extractionRunId: null })
+        .where(eq(seniorResumes.id, resumeId))
+
+      const slowLoad = deferred<string>()
+      const stale = service.runExtraction(resumeId, () => slowLoad.promise)
+      await waitForStatus('RUNNING')
+      expect(ai.extractStructure).not.toHaveBeenCalled()
+
+      // A newer submission takes the row while the old run is still loading.
+      await service.ingestText(session(HR_USER), SENIOR_A.id, 'Новый вариант резюме. '.repeat(20))
+      await vi.waitFor(() => expect(ai.extractStructure).toHaveBeenCalledTimes(1))
+
+      // Now the stale run finishes loading — and must stop before spending.
+      slowLoad.resolve('Текст устаревшего прогона. '.repeat(20))
+      await stale
+      await new Promise((r) => setTimeout(r, 50))
+
+      expect(ai.extractStructure).toHaveBeenCalledTimes(1)
+      ai.extractStructure.mockResolvedValue({
+        ok: true,
+        content: { ...EMPTY_RESUME_CONTENT, summary: 'извлечено' },
+        tokensUsed: 42,
+      })
+    })
+
+    /**
      * `version` is the field task-resume-tailoring reads to notice that a
      * tailored variant was built on a base that has since changed. An
      * extraction REPLACES the content, so it has to move that field — writing
@@ -863,6 +913,74 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
       expect(s3.delete).not.toHaveBeenCalled()
       const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
       expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
+    })
+
+    /**
+     * MED-2. `source_s3_key` was read once and then used to delete, so an upload
+     * landing in that window meant we erased the OLD object and dropped the row
+     * pointing at the NEW one. The user is told "deleted"; the raw resume stays
+     * in the bucket forever, because nothing sweeps the `senior-resumes/` prefix.
+     *
+     * MUTATION: drop the `IS NOT DISTINCT FROM` predicate from the DELETE and
+     * this goes red — the second object survives with no row referencing it.
+     */
+    it('R-INT-12h. an upload racing the erase does not strand its file', async () => {
+      if (!dbAvailable) return
+      const firstKey = await giveSeniorBaStoredResume()
+      const secondKey = `senior-resumes/${SENIOR_B.id}/replacement.docx`
+      s3.delete.mockClear()
+
+      // Simulate the upload landing between the read and the row delete.
+      let swapped = false
+      s3.delete.mockImplementation(async () => {
+        if (!swapped) {
+          swapped = true
+          await dbSvc.db
+            .update(seniorResumes)
+            .set({ sourceS3Key: secondKey })
+            .where(eq(seniorResumes.userId, SENIOR_B.id))
+        }
+      })
+
+      const after = await service.deleteResume(session(ADMIN_USER), SENIOR_B.id)
+      expect(after.resume).toBeNull()
+
+      // BOTH objects were erased — no orphan left behind.
+      const deletedKeys = s3.delete.mock.calls.map((c) => c[0] as string)
+      expect(deletedKeys).toContain(firstKey)
+      expect(deletedKeys).toContain(secondKey)
+
+      const rows = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_B.id))
+      expect(rows).toHaveLength(0)
+      s3.delete.mockReset()
+      s3.delete.mockResolvedValue(undefined)
+    })
+
+    it('R-INT-12i. gives up honestly when the source keeps changing', async () => {
+      if (!dbAvailable) return
+      await giveSeniorBaStoredResume()
+      s3.delete.mockReset()
+      let n = 0
+      // Every attempt is outrun by a new upload.
+      s3.delete.mockImplementation(async () => {
+        n += 1
+        await dbSvc.db
+          .update(seniorResumes)
+          .set({ sourceS3Key: `senior-resumes/${SENIOR_B.id}/v${n}.docx` })
+          .where(eq(seniorResumes.userId, SENIOR_B.id))
+      })
+
+      await expect(service.deleteResume(session(ADMIN_USER), SENIOR_B.id)).rejects.toThrow(
+        /изменяется прямо сейчас/,
+      )
+      // The row is still there, so the user can retry — nothing silently lost.
+      const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
+      expect(survived.resume).not.toBeNull()
+      s3.delete.mockReset()
+      s3.delete.mockResolvedValue(undefined)
     })
 
     it('R-INT-12f. erasing a resume that does not exist is a 404, not a silent success', async () => {

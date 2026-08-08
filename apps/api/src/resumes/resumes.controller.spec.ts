@@ -62,6 +62,22 @@ describe('resumeContentDisposition', () => {
     expect(header).toContain('passwd.pdf')
   })
 
+  /**
+   * The order of the two steps matters. Stripping the backslash FIRST removed
+   * the very character `sanitizeFileName` uses to find the last path segment,
+   * so a Windows-shaped name collapsed into one run of text instead of
+   * reducing to its bare filename the way the upload path does.
+   *
+   * MUTATION: swap the order back (`sanitizeFileName(name.replace(/["\\]/g, ''))`)
+   * and this goes red.
+   */
+  it('reduces a WINDOWS path the same way the upload path does', () => {
+    const header = resumeContentDisposition('..\\..\\windows\\system32\\config.pdf')
+    expect(header).toContain('config.pdf')
+    expect(header).not.toContain('windows')
+    expect(header).not.toContain('system32')
+  })
+
   it('cannot break out of the quoted ASCII parameter', () => {
     const header = resumeContentDisposition('evil" ; attachment; filename="pwned')
     // Exactly one quoted filename parameter, and no stray quote inside it.

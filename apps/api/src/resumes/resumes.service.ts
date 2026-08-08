@@ -18,6 +18,7 @@
  * download and PDF alike.
  */
 import {
+  ConflictException,
   ForbiddenException,
   Injectable,
   Logger,
@@ -49,6 +50,14 @@ import {
   ResumeTextExtractionService,
 } from './resume-text-extraction.service'
 import { detectResumeSourceMime } from './resume-source.util'
+
+/**
+ * How many times `deleteResume` will re-read and re-erase when an upload keeps
+ * replacing the stored file underneath it. Three is plenty: each round erases
+ * whatever the row points at, so losing three in a row means a genuine storm,
+ * not a race.
+ */
+const DELETE_RACE_ATTEMPTS = 3
 
 /** A RUNNING row older than this was abandoned (process died) — AC3 sweep. */
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
@@ -325,19 +334,62 @@ export class SeniorResumesService {
    * Deleting the row first and then failing on storage would leave an orphaned
    * file no code path can ever reach again — undeletable personal data.
    *
+   * That order alone is not enough, though, because the key can CHANGE while we
+   * are using it. Read key, delete object, delete row — and an upload landing in
+   * that window replaces `source_s3_key`, so we erase the old object and then
+   * drop the row that pointed at the NEW one. The user is told "deleted" while
+   * their raw resume stays in the bucket, unreferenced and unreachable: nothing
+   * sweeps the `senior-resumes/` prefix, so it would sit there for good.
+   *
+   * So the row is only removed while its key still matches the object we just
+   * erased (`source_s3_key IS NOT DISTINCT FROM <what we deleted>` — NULL-safe,
+   * because "no file" is a legitimate value). If the row moved under us, the
+   * loop runs again and erases the newer object too, and only a genuinely
+   * pathological upload storm exhausts the attempts.
+   *
    * Returns the same envelope every other endpoint answers with, so the client
    * lands straight back on the empty state.
    */
   async deleteResume(viewer: SessionUser, targetUserId: string): Promise<SeniorResumeResponse> {
     await this.assertAccess(viewer, targetUserId, 'write')
-    const row = await this.findRow(targetUserId)
-    if (!row) throw new NotFoundException('Резюме ещё не создано')
 
-    if (row.sourceS3Key) await this.s3.delete(row.sourceS3Key)
-    await this.db.db.delete(seniorResumes).where(eq(seniorResumes.id, row.id))
+    for (let attempt = 0; attempt < DELETE_RACE_ATTEMPTS; attempt += 1) {
+      const row = await this.findRow(targetUserId)
+      if (!row) {
+        if (attempt === 0) throw new NotFoundException('Резюме ещё не создано')
+        break // a racing writer removed it first — the end state is the same
+      }
 
-    this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
-    return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+      const key = row.sourceS3Key
+      if (key) await this.s3.delete(key)
+
+      const removed = await this.db.db
+        .delete(seniorResumes)
+        .where(
+          and(
+            eq(seniorResumes.id, row.id),
+            // NULL-safe equality: `= NULL` is never true, so a resume without a
+            // stored file would never match and could never be deleted.
+            sql`${seniorResumes.sourceS3Key} IS NOT DISTINCT FROM ${key}`,
+          ),
+        )
+        .returning({ id: seniorResumes.id })
+
+      if (removed.length > 0) {
+        this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
+        return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+      }
+
+      // The row changed between the read and the delete — almost certainly a
+      // new upload. Go round again and erase whatever it points at now.
+      this.logger.warn(
+        `Resume of ${targetUserId}: source changed mid-delete, retrying (attempt ${attempt + 1})`,
+      )
+    }
+
+    throw new ConflictException(
+      'Резюме изменяется прямо сейчас — повторите удаление через несколько секунд.',
+    )
   }
 
   // ==========================================================================
@@ -368,6 +420,12 @@ export class SeniorResumesService {
    * token no longer matches, the UPDATE touches zero rows, and this run drops
    * its result instead of overwriting fresher data (or resurrecting the
    * contents of a file that has since been deleted from storage).
+   *
+   * The token is also checked BEFORE the model is called, which is the
+   * difference between discarding a result and never buying it. Two uploads in
+   * a row used to mean two paid Workers AI calls even though only one answer
+   * could ever be kept — the loser's tokens were spent purely to be thrown
+   * away. Now the superseded run notices at the last cheap moment and stops.
    */
   async runExtraction(resumeId: string, loadText: () => Promise<string>): Promise<void> {
     const runId = await this.claimForExtraction(resumeId)
@@ -391,6 +449,15 @@ export class SeniorResumesService {
         runId,
         'NO_TEXT',
         'Из файла не удалось извлечь текст (вероятно, это скан или картинка). Вставьте текст резюме вручную.',
+      )
+      return
+    }
+
+    // Last checkpoint before the only step that costs money. Reading the file
+    // and extracting its text are cheap and local; the model call is neither.
+    if (!(await this.stillOwnsRun(resumeId, runId))) {
+      this.logger.log(
+        `Resume ${resumeId}: superseded before the model call — skipping it (no tokens spent)`,
       )
       return
     }
@@ -467,6 +534,26 @@ export class SeniorResumesService {
     )
   }
 
+  /**
+   * Cheap read of the same condition, for bailing out BEFORE spending money.
+   *
+   * There is still a window between this check and the model call — a second
+   * upload landing in those microseconds is paid for. Closing it completely
+   * would need a lock held across a multi-second HTTP request to Cloudflare,
+   * which trades a rare wasted call for a common stuck row. This turns "always
+   * pays twice" into "pays twice only if the second upload lands inside the
+   * same tick", and the ownership predicate still guarantees the RESULT is
+   * correct either way.
+   */
+  private async stillOwnsRun(resumeId: string, runId: string): Promise<boolean> {
+    const [row] = await this.db.db
+      .select({ id: seniorResumes.id })
+      .from(seniorResumes)
+      .where(this.ownedByRun(resumeId, runId))
+      .limit(1)
+    return row !== undefined
+  }
+
   private async failExtraction(
     resumeId: string,
     runId: string,
@@ -490,9 +577,23 @@ export class SeniorResumesService {
       .where(this.ownedByRun(resumeId, runId))
   }
 
-  /** Mark a row FAILED regardless of ownership (used by the sweeps). */
+  /**
+   * Fail a row the sweep found abandoned in QUEUED.
+   *
+   * There is no run token to present — nothing ever claimed the row — so the
+   * guard has to be the STATE THE SWEEP SAW. `updatedAt` is that snapshot: the
+   * sweep selected rows whose `updatedAt` was older than the cutoff, and any
+   * write since (a new upload, a pasted text, a manual save, another worker
+   * claiming it) moves that column.
+   *
+   * Without it this UPDATE was unconditional, so between the sweep's SELECT and
+   * this write it could stamp FAILED over a row that had just been re-queued —
+   * showing the user a failure for work that is running, and orphaning the run
+   * that had already taken the row (its terminal write then finds no match).
+   */
   private async failUnclaimed(
     resumeId: string,
+    expectedUpdatedAt: Date,
     code: ResumeFailureCode,
     message: string,
   ): Promise<void> {
@@ -506,7 +607,13 @@ export class SeniorResumesService {
         extractionRunId: null,
         updatedAt: new Date(),
       })
-      .where(eq(seniorResumes.id, resumeId))
+      .where(
+        and(
+          eq(seniorResumes.id, resumeId),
+          eq(seniorResumes.status, 'QUEUED'),
+          eq(seniorResumes.updatedAt, expectedUpdatedAt),
+        ),
+      )
   }
 
   /**
@@ -555,6 +662,7 @@ export class SeniorResumesService {
         // run token to present; fail it directly.
         await this.failUnclaimed(
           row.id,
+          row.updatedAt,
           'STALLED',
           'Распознавание прервалось (перезапуск сервиса). Вставьте текст резюме ещё раз или заполните форму вручную.',
         )
