@@ -215,6 +215,126 @@ describe('ResumeTab — per-section editing', () => {
   })
 })
 
+/**
+ * The task's ONE hard condition on the editing model: "несохранённые правки не
+ * должны теряться при переходе". Moving between sections was the route that
+ * lost them — `startEdit` overwrote the draft with the server value, silently,
+ * with no prompt and no undo, while every other section's Изменить button
+ * stayed clickable throughout.
+ *
+ * These tests pin the path in BOTH directions, which is what was missing: the
+ * button is unreachable while an edit is open, AND the draft survives if the
+ * handler is reached anyway.
+ */
+describe('ResumeTab — unsaved edits survive a move between sections', () => {
+  it('locks the other sections while one is being edited', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+
+    expect(screen.getByTestId('resume-edit-skills')).toBeEnabled()
+
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    fireEvent.change(screen.getByTestId('resume-summary-input'), {
+      target: { value: 'важная правка' },
+    })
+
+    expect(screen.getByTestId('resume-edit-skills')).toBeDisabled()
+    expect(screen.getByTestId('resume-edit-experience')).toBeDisabled()
+    expect(screen.getByTestId('resume-edit-links')).toBeDisabled()
+  })
+
+  it('keeps the typed text when another section’s Изменить is clicked', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    fireEvent.change(screen.getByTestId('resume-summary-input'), {
+      target: { value: 'важная правка' },
+    })
+
+    // The reviewer's probe: reach for a different section mid-edit.
+    fireEvent.click(screen.getByTestId('resume-edit-skills'))
+
+    // Still editing the summary, and the text is still there.
+    expect(screen.getByTestId('resume-summary-input')).toHaveValue('важная правка')
+    expect(screen.queryByTestId('resume-skills-input')).not.toBeInTheDocument()
+  })
+
+  it('saving the open section unlocks the others', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    fireEvent.change(screen.getByTestId('resume-summary-input'), { target: { value: 'готово' } })
+    expect(screen.getByTestId('resume-edit-skills')).toBeDisabled()
+
+    fireEvent.click(screen.getByTestId('resume-cancel-summary'))
+    expect(screen.getByTestId('resume-edit-skills')).toBeEnabled()
+  })
+
+  it('explains why the other sections are locked instead of just greying them out', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    fireEvent.change(screen.getByTestId('resume-summary-input'), { target: { value: 'правка' } })
+
+    expect(screen.getByTestId('resume-editing-hint-summary')).toHaveTextContent(
+      /несохранённые правки/i,
+    )
+    expect(screen.getByTestId('resume-edit-skills')).toHaveAttribute(
+      'title',
+      expect.stringContaining('сохраните или отмените'),
+    )
+  })
+
+  it('registers exactly one beforeunload listener for the whole tab', () => {
+    resumeData = FILLED
+    const addSpy = vi.spyOn(window, 'addEventListener')
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    fireEvent.change(screen.getByTestId('resume-summary-input'), { target: { value: 'правка' } })
+
+    // Six section cards used to register six identical handlers.
+    const unloadRegistrations = addSpy.mock.calls.filter(([type]) => type === 'beforeunload')
+    expect(unloadRegistrations).toHaveLength(1)
+    addSpy.mockRestore()
+  })
+})
+
+/**
+ * "READY, but there is nothing in it" used to be a cul-de-sac: the invitation
+ * screen offered a file and a paste box, and nothing else, even though the
+ * section editors work perfectly well on empty content.
+ */
+describe('ResumeTab — filling the resume by hand', () => {
+  it('offers a way out of the empty state that is not a file', () => {
+    resumeData = makeResponse({ content: EMPTY_RESUME_CONTENT, status: 'READY' })
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-fill-manually'))
+
+    // The real form, on empty content.
+    expect(screen.getByTestId('resume-section-summary')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('resume-edit-summary'))
+    fireEvent.change(screen.getByTestId('resume-summary-input'), {
+      target: { value: 'Синьор, 8 лет опыта' },
+    })
+    fireEvent.click(screen.getByTestId('resume-save-summary'))
+
+    const [payload] = saveMock.mock.calls[0] as [typeof EMPTY_RESUME_CONTENT]
+    expect(payload.summary).toBe('Синьор, 8 лет опыта')
+  })
+
+  it('does not offer manual filling to a viewer without write access', () => {
+    resumeData = makeResponse({ content: EMPTY_RESUME_CONTENT }, false)
+    render(<ResumeTab userId="senior-1" />)
+    expect(screen.queryByTestId('resume-fill-manually')).not.toBeInTheDocument()
+    expect(screen.getByTestId('resume-empty-readonly')).toBeInTheDocument()
+  })
+})
+
 describe('ResumeTab — experience ordering (matters for task-resume-tailoring)', () => {
   it('moves an item up and persists the new order', () => {
     resumeData = FILLED
@@ -286,6 +406,15 @@ describe('ResumeTab — downloads', () => {
     const link = screen.getByTestId('resume-download-pdf')
     expect(link.tagName).toBe('A')
     expect(link).toHaveAttribute('href', '/api/users/senior-1/resume/pdf')
+  })
+
+  it('does not offer a PDF of an empty resume', () => {
+    // Reachable state: extraction finished but produced nothing usable, so the
+    // row is READY with empty content. The button rendered anyway and handed
+    // back a PDF containing only a name.
+    resumeData = makeResponse({ content: EMPTY_RESUME_CONTENT, status: 'FAILED' })
+    render(<ResumeTab userId="senior-1" />)
+    expect(screen.queryByTestId('resume-download-pdf')).not.toBeInTheDocument()
   })
 
   it('shows the version and the last editor', () => {

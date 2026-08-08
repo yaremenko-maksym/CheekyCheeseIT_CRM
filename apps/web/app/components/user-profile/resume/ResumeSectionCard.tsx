@@ -6,12 +6,15 @@
  * So each section owns its own view/edit toggle and its own Save/Cancel, and a
  * save only ever touches that section's slice of the content.
  *
- * Unsaved work is protected two ways (the task forbids losing edits on
+ * Unsaved work is protected three ways (the task forbids losing edits on
  * navigation): `onDirtyChange` bubbles up to the profile shell, which already
- * guards tab switches with a confirm dialog, and a `beforeunload` handler
- * covers a real browser navigation/close.
+ * guards tab switches with a confirm dialog; ResumeTab owns a single
+ * `beforeunload` handler for real browser navigation; and `disableEdit` below
+ * closes the third route out — starting a DIFFERENT section while this one has
+ * unsaved changes. Only ONE section is editable at a time, so no edit can be
+ * silently discarded by a click somewhere else on the page.
  */
-import { useEffect, type ReactNode } from 'react'
+import type { ReactNode } from 'react'
 import { Check, Pencil, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -24,6 +27,8 @@ interface ResumeSectionCardProps {
   isEditing: boolean
   isDirty: boolean
   isSaving: boolean
+  /** True while ANOTHER section is open for editing — see the module doc. */
+  disableEdit: boolean
   onStartEdit: () => void
   onCancel: () => void
   onSave: () => void
@@ -37,24 +42,12 @@ export function ResumeSectionCard({
   isEditing,
   isDirty,
   isSaving,
+  disableEdit,
   onStartEdit,
   onCancel,
   onSave,
   children,
 }: ResumeSectionCardProps) {
-  // Real browser navigation (reload / close / external link) — the in-app tab
-  // switch is handled by the profile shell's confirm dialog.
-  useEffect(() => {
-    if (!isDirty) return undefined
-    const handler = (e: BeforeUnloadEvent) => {
-      e.preventDefault()
-      // Chrome requires returnValue to be set for the native prompt to show.
-      e.returnValue = ''
-    }
-    window.addEventListener('beforeunload', handler)
-    return () => window.removeEventListener('beforeunload', handler)
-  }, [isDirty])
-
   return (
     <Card data-testid={`resume-section-${sectionId}`}>
       <CardHeader className="flex flex-row items-center justify-between gap-2 space-y-0 pb-3">
@@ -64,7 +57,11 @@ export function ResumeSectionCard({
             variant="ghost"
             size="sm"
             onClick={onStartEdit}
+            disabled={disableEdit}
             aria-label={`Редактировать раздел «${title}»`}
+            title={
+              disableEdit ? 'Сначала сохраните или отмените правки в открытом разделе' : undefined
+            }
             data-testid={`resume-edit-${sectionId}`}
             className="min-h-11 shrink-0 sm:min-h-9"
           >
@@ -76,26 +73,36 @@ export function ResumeSectionCard({
       <CardContent className="space-y-3">
         {children}
         {isEditing && (
-          <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:justify-end">
-            <Button
-              variant="ghost"
-              onClick={onCancel}
-              disabled={isSaving}
-              data-testid={`resume-cancel-${sectionId}`}
-              className="min-h-11"
+          <div className="flex flex-col gap-2 border-t pt-3 sm:flex-row sm:items-center sm:justify-between">
+            <p
+              className="text-xs text-muted-foreground"
+              data-testid={`resume-editing-hint-${sectionId}`}
             >
-              <X className="mr-2 h-4 w-4" aria-hidden />
-              Отмена
-            </Button>
-            <Button
-              onClick={onSave}
-              disabled={isSaving || !isDirty}
-              data-testid={`resume-save-${sectionId}`}
-              className="min-h-11"
-            >
-              <Check className="mr-2 h-4 w-4" aria-hidden />
-              {isSaving ? 'Сохраняем…' : 'Сохранить'}
-            </Button>
+              {isDirty
+                ? 'Есть несохранённые правки — остальные разделы недоступны, пока вы не сохраните или не отмените их.'
+                : 'Остальные разделы недоступны, пока открыт этот.'}
+            </p>
+            <div className="flex shrink-0 flex-col gap-2 sm:flex-row sm:justify-end">
+              <Button
+                variant="ghost"
+                onClick={onCancel}
+                disabled={isSaving}
+                data-testid={`resume-cancel-${sectionId}`}
+                className="min-h-11"
+              >
+                <X className="mr-2 h-4 w-4" aria-hidden />
+                Отмена
+              </Button>
+              <Button
+                onClick={onSave}
+                disabled={isSaving || !isDirty}
+                data-testid={`resume-save-${sectionId}`}
+                className="min-h-11"
+              >
+                <Check className="mr-2 h-4 w-4" aria-hidden />
+                {isSaving ? 'Сохраняем…' : 'Сохранить'}
+              </Button>
+            </div>
           </div>
         )}
       </CardContent>

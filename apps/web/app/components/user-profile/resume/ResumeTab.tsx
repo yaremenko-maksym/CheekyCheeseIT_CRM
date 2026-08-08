@@ -22,7 +22,7 @@
  * shell's dirty-guard dialog plus a `beforeunload` handler.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileText, History } from 'lucide-react'
+import { Download, FileText, History, PencilLine } from 'lucide-react'
 import {
   EMPTY_RESUME_CONTENT,
   isSafeResumeUrl,
@@ -73,6 +73,8 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   const [editing, setEditing] = useState<SectionId | null>(null)
   const [draft, setDraft] = useState<ResumeContent>(serverContent)
   const [showIntake, setShowIntake] = useState(false)
+  /** Set when the user chooses to type the resume instead of uploading one. */
+  const [manualMode, setManualMode] = useState(false)
 
   // Reset the draft whenever the server content changes and nothing is being
   // edited — so a finished extraction shows up immediately, but never wipes
@@ -96,12 +98,40 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
     return () => onDirtyChange?.(false)
   }, [isDirty, onDirtyChange])
 
+  /**
+   * ONE `beforeunload` handler for the whole tab.
+   *
+   * It used to live inside `ResumeSectionCard`, which meant six identical
+   * listeners registered and torn down on every dirty-state change — six
+   * subscriptions to say one thing.
+   */
+  useEffect(() => {
+    if (!isDirty) return undefined
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault()
+      // Chrome requires returnValue to be set for the native prompt to show.
+      e.returnValue = ''
+    }
+    window.addEventListener('beforeunload', handler)
+    return () => window.removeEventListener('beforeunload', handler)
+  }, [isDirty])
+
+  /**
+   * Open a section for editing.
+   *
+   * Refuses while ANOTHER section is open: `setDraft(serverContent)` would
+   * throw away whatever is being typed there, and it did so silently — no
+   * prompt, no undo. The section cards disable their own edit buttons for the
+   * same reason (that is the visible half of this rule); this guard is the half
+   * that holds even if a card is rendered without it.
+   */
   const startEdit = useCallback(
     (section: SectionId) => {
+      if (editing !== null && editing !== section) return
       setDraft(serverContent)
       setEditing(section)
     },
-    [serverContent],
+    [editing, serverContent],
   )
 
   const cancelEdit = useCallback(() => {
@@ -141,16 +171,39 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
 
   const isExtracting = resume?.status === 'QUEUED' || resume?.status === 'RUNNING'
 
-  // Empty + never uploaded + not extracting -> pure invitation screen.
-  if (!hasContent && !isExtracting && resume?.status !== 'FAILED') {
+  // Empty + never uploaded + not extracting -> invitation screen.
+  //
+  // `manualMode` is the way OUT of it. Without it this branch was a dead end
+  // whenever the resume was empty for a reason the banner does not cover — a
+  // READY row whose extraction produced nothing usable, or a resume someone
+  // cleared: the screen offered a file and a paste box and no way to simply
+  // type the resume in, even though the section editors below work perfectly
+  // well on empty content.
+  if (!hasContent && !isExtracting && resume?.status !== 'FAILED' && !manualMode) {
     return (
       <div className="space-y-4" data-testid="resume-tab">
         {canEdit ? (
-          <ResumeIntake
-            onUploadFile={(file) => uploadMutation.mutate(file)}
-            onSubmitText={(text) => textMutation.mutate(text)}
-            isBusy={isBusy}
-          />
+          <>
+            <ResumeIntake
+              onUploadFile={(file) => uploadMutation.mutate(file)}
+              onSubmitText={(text) => textMutation.mutate(text)}
+              isBusy={isBusy}
+            />
+            <div className="text-center">
+              <Button
+                variant="outline"
+                onClick={() => setManualMode(true)}
+                data-testid="resume-fill-manually"
+                className="min-h-11 w-full sm:w-auto"
+              >
+                <PencilLine className="mr-2 h-4 w-4" aria-hidden />
+                Заполнить вручную
+              </Button>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Те же разделы и тот же экспорт в PDF — распознавание просто экономит время.
+              </p>
+            </div>
+          </>
         ) : (
           <p
             className="rounded-lg border bg-muted/30 px-6 py-10 text-center text-sm text-muted-foreground"
@@ -169,6 +222,8 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
     isEditing: editing === id,
     isDirty,
     isSaving: saveMutation.isPending,
+    // One section at a time — see `startEdit`.
+    disableEdit: editing !== null && editing !== id,
     onStartEdit: () => startEdit(id),
     onCancel: cancelEdit,
     onSave: saveSection,
@@ -219,12 +274,17 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
               </a>
             </Button>
           )}
-          <Button asChild className="min-h-11">
-            <a href={resumePdfUrl(userId)} data-testid="resume-download-pdf">
-              <Download className="mr-2 h-4 w-4" aria-hidden />
-              Скачать PDF
-            </a>
-          </Button>
+          {/* Only offered once there is something to render. An empty resume
+              produces a PDF with a name and nothing else — a download that
+              wastes a click and looks broken. */}
+          {hasContent && (
+            <Button asChild className="min-h-11">
+              <a href={resumePdfUrl(userId)} data-testid="resume-download-pdf">
+                <Download className="mr-2 h-4 w-4" aria-hidden />
+                Скачать PDF
+              </a>
+            </Button>
+          )}
         </div>
       </div>
 
