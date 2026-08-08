@@ -182,13 +182,17 @@ test.describe('Phase 2 distribution still works post-Phase 3 (AC6)', () => {
 
       // ── Bonus: Project A's transactions are NOT visible on Project B ─
       // GET /api/transactions?projectId=B returns ONLY B's rows.
-      // Whatever project ids came back, the ONLY one allowed is B's. Asserting
-      // the set contents directly covers both the empty and the single-id case
-      // in one unconditional check; the previous `if (size === 1)` form skipped
-      // the identity check whenever the list came back empty — including if a
-      // regression made it empty. (task-lint-teeth)
+      // The only project id allowed on these rows is B's.
+      //
+      // Flatly asserted, with no branch. My first rewrite read
+      // `toEqual(projectIdsB.size === 0 ? [] : [projectIdB])`, which derives
+      // the expectation from the actual value and so cannot fail on the empty
+      // path (code-review MED-3) — a subtler version of the `if (size === 1)`
+      // it replaced. The branch was dead anyway: `payoutB` (length 1) and
+      // `payoutConfirmedB` (length 1) above both come out of `txB`, so `txB` is
+      // provably non-empty by the time we get here.
       const projectIdsB = new Set(txB.map((t) => t.projectId))
-      expect([...projectIdsB]).toEqual(projectIdsB.size === 0 ? [] : [projectIdB])
+      expect([...projectIdsB]).toEqual([projectIdB])
     } finally {
       await cleanupDropViaAPI(page, dropIdA)
       if (dropIdB) {
