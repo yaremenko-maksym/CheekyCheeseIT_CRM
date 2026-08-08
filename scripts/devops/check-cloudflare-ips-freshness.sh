@@ -23,12 +23,18 @@
 #     this", worth surfacing even though it is not independently dangerous.
 #
 # This script is the MANDATORY precondition check referenced by
-# scripts/devops/origin-gate-rollout-runbook.md's flip procedure — run it
-# and get a clean result BEFORE flipping ORIGIN_GATE_MODE to enforce, not
-# "at some point" as a follow-up. Deliberately NOT wired into a scheduled
-# GitHub Actions job (DevOps golden rule: no unnecessary recurring CI jobs —
-# see RULES.md §5); it is a mandatory, documented STEP in the one procedure
-# that actually needs it, run on demand.
+# scripts/devops/origin-gate-rollout-runbook.md's flip procedure (§3.2 /
+# §5 checklist / §7 inventory) — run it and get a clean result BEFORE
+# flipping ORIGIN_GATE_MODE to enforce, not "at some point" as a follow-up.
+# Deliberately NOT wired into a scheduled GitHub Actions job (the DevOps
+# "no unnecessary recurring CI jobs" rule — golden rule #4 in
+# .claude/agents/devops.md; the citation here used to point at RULES.md §5,
+# which is Zone-of-write and says nothing about CI jobs — corrected
+# 2026-08-07, task-guards-teeth); it is a mandatory, documented STEP in the
+# one procedure that actually needs it, run on demand.
+#
+# Its behaviour in both directions — fresh, drifted, and "could not check" —
+# is proven by scripts/devops/tests/test-check-cloudflare-ips-freshness.sh.
 #
 # Fails LOUD, not silent, on any of: network/fetch failure, mismatch in
 # either direction, or an unparseable Cloudflare response — this is a

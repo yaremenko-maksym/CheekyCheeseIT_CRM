@@ -7,6 +7,11 @@ Verifies that every apps/e2e/tests/**/*.spec.ts is either:
   (b) explicitly listed in KNOWN_UNSHARDED below (with a debt marker).
 
 Fails with a clear error listing uncovered files + instructions.
+
+Tests: scripts/devops/tests/test-check-e2e-shard-coverage.sh — positive AND
+negative cases, including the two ways a spec can LOOK covered without being run
+(named in a ci.yml comment; named under a key that is not a shard's `files:`).
+
 Run: python3 scripts/devops/check-e2e-shard-coverage.py
 """
 

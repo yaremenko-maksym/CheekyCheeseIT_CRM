@@ -37,6 +37,13 @@ for why): tracks step boundaries via indentation only, which is sufficient becau
 this repo's workflow YAML is consistently 2-space-indented with no tabs.
 
 Fails with a clear error listing violations + instructions.
+
+Tests: scripts/devops/tests/test-check-ssh-action-capture-stdout-version.sh —
+positive AND negative cases, including a comment claiming the pin was bumped
+above a `uses:` line that was not, and the precision cases proving an old pin
+that never asks for capture_stdout is NOT flagged (a false positive there would
+push someone to bump a version on a live deploy path for no benefit).
+
 Run: python3 scripts/devops/check-ssh-action-capture-stdout-version.py
 """
 
