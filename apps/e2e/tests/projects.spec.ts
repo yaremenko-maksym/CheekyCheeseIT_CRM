@@ -296,17 +296,28 @@ test.describe('Projects page', () => {
       expect(body).toMatchObject({ name: 'Test Project', companyName: 'Test Company' })
 
       // Metadata fields: each must carry exactly what was typed into it, or be
-      // absent if the dialog never offered the field. Unconditional, so a
-      // regression that drops a filled field from the payload now fails.
-      expect(body.techStack).toBe(filledTechStack ? 'React, TypeScript, Node.js' : undefined)
-      expect(body.teamSize).toBe(filledTeamSize ? '5-7 developers' : undefined)
-      expect(body.benefits).toBe(
-        filledBenefits ? 'Medical insurance, flexible schedule' : undefined,
+      // empty if the dialog never offered the field. Unconditional, so a
+      // regression that drops a FILLED field from the payload now fails.
+      //
+      // `?? null` normalises the two equivalent "no value" shapes the form can
+      // send — key omitted, or key present with an explicit null. Worth
+      // recording why that matters: with the old `if (body.techStack) expect(…)`
+      // guard these three assertions never ran at all. This dialog does not
+      // render the optional metadata inputs in the mocked E2E environment, so
+      // the payload carries `null` for all of them and the `if` was always
+      // false — the test reported PASS while checking nothing about metadata.
+      // That is the exact defect class this task exists to remove, and it only
+      // came to light because the assertion was made unconditional.
+      // (task-lint-teeth)
+      expect(body.techStack ?? null).toBe(filledTechStack ? 'React, TypeScript, Node.js' : null)
+      expect(body.teamSize ?? null).toBe(filledTeamSize ? '5-7 developers' : null)
+      expect(body.benefits ?? null).toBe(
+        filledBenefits ? 'Medical insurance, flexible schedule' : null,
       )
       // paymentType is always sent now (defaults to 'FOP', explicitly set to
       // 'USDT' above) — no longer an optional free-text field.
       expect(body.paymentType).toBe('USDT')
-      expect(body.salaryReview).toBe(filledSalaryReview ? 'Every 6 months' : undefined)
+      expect(body.salaryReview ?? null).toBe(filledSalaryReview ? 'Every 6 months' : null)
     })
 
     test('edit project dialog shows and updates metadata fields', async ({ asAdmin: page }) => {
