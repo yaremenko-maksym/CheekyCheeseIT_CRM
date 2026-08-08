@@ -8,16 +8,43 @@
  * Accept-Language tags, plus exact-then-base-language matching, needs real
  * arithmetic/loops that `map` (regex-only) cannot express).
  *
- * Full detection order (cookie > Accept-Language > CF-IPCountry > en),
- * the crawler-safety guarantees, and the emergency kill-switch are
- * documented in scripts/devops/locale-routing-runbook.md — read that before
- * changing anything here. Exported as a single `targetLocale(r)` used by
+ * Full detection order (cookie > Accept-Language > en), the crawler-safety
+ * guarantees, and the emergency kill-switch are documented in
+ * scripts/devops/locale-routing-runbook.md — read that before changing
+ * anything here. Exported as a single `targetLocale(r)` used by
  * `js_set $target_locale locale.targetLocale;` in
  * nginx/conf.d/locale-detect.conf. The REST of the redirect logic (URI-
  * prefix detection, the merge-order file-existence guard, the kill-switch)
  * stays plain nginx `map`/`if` in that file and in nginx/conf.d/landing.conf
  * — this module's only job is producing one of: "en" | "uk" | "ru" | "es" |
  * "pt".
+ *
+ * INDEXABILITY (2026-08-08 production incident — the reason the CF-IPCountry
+ * tier that used to sit between Accept-Language and "en" is GONE):
+ * `cheekycheese.tech` publishes the English pages at the UNPREFIXED URLs
+ * (`/`, `/careers/`, `/careers/<slug>/`), declares them `rel=canonical` for
+ * themselves, and points `hreflang="en"` AND `hreflang="x-default"` at them
+ * from every locale. A geo tier turns "this client expressed no language
+ * preference" into a 302 — and the clients that express none are almost
+ * exclusively non-browsers: crawlers, curl, link previewers, in-app
+ * webviews. Real browsers always send Accept-Language. So in practice the
+ * geo tier was a rule that fired on robots and bounced them off the exact
+ * four URLs the markup told them to index. Google Search Console
+ * consequently reported the English pages as "Alternate page with proper
+ * canonical tag" — consolidated into the Ukrainian versions — and the
+ * English site had no presence in the index at all.
+ *
+ * The rule this module now obeys: an address that is advertised as canonical
+ * / x-default MUST answer 200, with no redirect, to every client that did
+ * not ask for something else. Redirecting on an EXPRESSED preference
+ * (cookie, Accept-Language) is untouched — that is a real signal from a real
+ * visitor, it is what the 302 is for, and Google's own guidance permits it.
+ * Guessing from IP geolocation is not a language preference; it is a guess,
+ * and it was the one making the canonical URL unreachable.
+ *
+ * Deliberately NOT fixed by special-casing crawler User-Agents: serving
+ * robots something different from humans is cloaking. The defect was in the
+ * FALLBACK, so the fallback is what changed — for everyone, identically.
  *
  * SECURITY (security-review round 1, PR #423, HIGH-1 — fixed here):
  * `$target_locale` is computed for EVERY request that reaches `location /`
@@ -45,40 +72,6 @@ const SUPPORTED = ['en', 'uk', 'ru', 'es', 'pt']
 const MAX_HEADER_LEN = 512
 // A real Accept-Language header very rarely lists more than 5-6 tags.
 const MAX_TAGS = 20
-
-// CF-IPCountry -> locale fallback, ONLY consulted when Accept-Language is
-// absent or none of its tags matched a supported locale (plan §2 step 3).
-const CF_COUNTRY_LOCALE = {
-  UA: 'uk',
-  RU: 'ru',
-  BY: 'ru',
-  KZ: 'ru',
-  KG: 'ru',
-  AM: 'ru',
-  BR: 'pt',
-  PT: 'pt',
-  AO: 'pt',
-  MZ: 'pt',
-  ES: 'es',
-  MX: 'es',
-  AR: 'es',
-  CO: 'es',
-  CL: 'es',
-  PE: 'es',
-  VE: 'es',
-  EC: 'es',
-  GT: 'es',
-  CU: 'es',
-  BO: 'es',
-  DO: 'es',
-  HN: 'es',
-  PY: 'es',
-  SV: 'es',
-  NI: 'es',
-  CR: 'es',
-  PA: 'es',
-  UY: 'es',
-}
 
 // RFC 9110 §12.4.2 qvalue grammar: `0[.0-3 digits]` | `1[.0-3 zeros]`.
 // Deliberately NOT `[0-9]*\.?[0-9]+` (the original, vulnerable pattern) —
@@ -197,9 +190,19 @@ function bestAcceptLanguageLocale(header) {
 
 /**
  * Full priority chain: cookie `pref_locale` > Accept-Language best-match >
- * CF-IPCountry > "en". `r.variables.cookie_pref_locale` is nginx's built-in
- * embedded variable (auto-parses the named cookie out of the Cookie header
- * — no custom cookie-parsing needed here).
+ * "en". `r.variables.cookie_pref_locale` is nginx's built-in embedded
+ * variable (auto-parses the named cookie out of the Cookie header — no
+ * custom cookie-parsing needed here).
+ *
+ * BOTH tiers are things the client actively said. Tier 1 is a choice the
+ * visitor made in our own language switcher; tier 2 is the preference their
+ * browser advertises. Nothing else may produce a non-"en" answer here —
+ * "en" is not merely the last-resort default, it is the RIGHT answer for
+ * every client that expressed nothing (or expressed something we do not
+ * publish), because "en" is the locale served at the canonical/x-default
+ * URLs. See this file's header for the incident that established that rule;
+ * scripts/devops/check-locale-routing.sh proves it against a live origin,
+ * including a sitemap-wide "no advertised URL redirects" sweep.
  */
 function resolveTargetLocale(r) {
   const cookie = (r.variables.cookie_pref_locale || '').toLowerCase()
@@ -210,11 +213,6 @@ function resolveTargetLocale(r) {
   const acceptLanguageMatch = bestAcceptLanguageLocale(r.headersIn['Accept-Language'])
   if (acceptLanguageMatch) {
     return acceptLanguageMatch
-  }
-
-  const country = (r.headersIn['CF-IPCountry'] || '').toUpperCase()
-  if (Object.prototype.hasOwnProperty.call(CF_COUNTRY_LOCALE, country)) {
-    return CF_COUNTRY_LOCALE[country]
   }
 
   return 'en'
