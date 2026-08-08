@@ -93,6 +93,14 @@
 #      plain GET with an extra header, no different from any real request
 #      Cloudflare forwards.
 #
+# Tests: scripts/devops/tests/test-check-nginx-perimeter.sh — positive AND
+# negative cases against a controllable stub origin (tests/lib/fake-origin.py),
+# including the reverted PR #437 gate 403ing a real Cloudflare-forwarded visitor,
+# a missing default_server catch-all, missing body caps, and — for
+# check_gate_keyed_on_realip below — both a geo block keyed on the wrong variable
+# AND an unreadable `nginx -T` while docker access exists, so that a SKIP can
+# never be mistaken for a PASS.
+#
 # Usage:
 #   scripts/devops/check-nginx-perimeter.sh [origin]
 #   ORIGIN=https://cheekycheese.tech scripts/devops/check-nginx-perimeter.sh

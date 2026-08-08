@@ -175,6 +175,28 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-ssh-action-capture-stdout-version.py
 
+      # Guards for the guards (task-guards-teeth, 2026-08-07). The three steps
+      # above — plus six more check-* scripts that run on the VPS during deploy —
+      # stood between this repo and production with ZERO tests. That is not a
+      # theoretical worry: check-prod-ddl-wiring.py, created in response to a real
+      # prod outage (#422), turned out to be satisfiable by a COMMENT mentioning
+      # the migration filename, so it would have stayed green through the very
+      # incident it was written for. This step runs every guard against both a
+      # correct input AND a deliberately-broken one, and fails if any guard cannot
+      # be made to go red. It also runs the meta-guard, which fails when a NEW
+      # check-* script arrives without a test, or with a test that only ever
+      # asserts green.
+      #
+      # WHY A STEP HERE AND NOT ITS OWN JOB: this job's name is one of the two
+      # contexts branch protection actually requires ("Typecheck · Lint · Unit
+      # Tests" — verified against the API on 2026-08-07, see guard-test-gate.yml's
+      # corrected header). A standalone job would be visible but not required, i.e.
+      # ignorable — which is the same "looks like a check, isn't one" failure this
+      # task is about. Cost is ~10s wall-clock, no install/build dependency.
+      - name: Guard tests (every check-* script, both directions)
+        if: steps.scope.outputs.code == 'true'
+        run: bash scripts/devops/tests/run-guard-tests.sh
+
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping quality work, satisfying required status."

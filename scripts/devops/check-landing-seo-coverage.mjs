@@ -32,6 +32,11 @@
  *
  * Exits non-zero with an `::error::`-prefixed message (GitHub Actions
  * annotation) on any check failure.
+ *
+ * Tests: scripts/devops/tests/test-check-landing-seo-coverage.sh — positive AND
+ * negative cases, including an ItemList that is present, valid and EMPTY (the
+ * exact shape of the 2026-07-27 outage: technically-correct markup carrying zero
+ * jobs).
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'

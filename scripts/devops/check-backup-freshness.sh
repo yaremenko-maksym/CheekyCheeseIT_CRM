@@ -58,6 +58,13 @@
 # own header — same install step) and `python3` (Ubuntu Server ships it by
 # default; used only for portable ISO-8601 age arithmetic).
 #
+# Tests: scripts/devops/tests/test-check-backup-freshness.sh — positive AND
+# negative cases. Note this guard's red is the STATUS line above, not the exit
+# code, so the tests assert both: STATUS=stale/not_configured for an observed bad
+# state, and exit 1 with NO verdict at all when the aws call fails (a guard that
+# reported "no backups" on a network blip would cry wolf; one that reported
+# "fresh" would hide an outage — both directions are asserted).
+#
 # Optional env — TEST-ONLY, never set these in the real cron/SSH invocation:
 #   CRM_BACKUP_ENV_FILE   override the config file path (default:
 #                         /etc/crm-backup.env) — lets tests point at a temp
