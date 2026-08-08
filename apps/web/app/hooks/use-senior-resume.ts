@@ -97,6 +97,29 @@ export function useIngestResumeText(userId: string) {
 }
 
 /**
+ * Erase the resume — record and stored original alike.
+ *
+ * The server answers with the same envelope as every other endpoint, so the
+ * cache is written straight from the response and the tab falls back to its
+ * empty state without a refetch round-trip. The source-file query is dropped
+ * too: its presigned URL now points at an object that no longer exists.
+ */
+export function useDeleteResume(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationKey: ['delete-senior-resume', userId],
+    mutationFn: () =>
+      api.delete<SeniorResumeResponse>(`/users/${userId}/resume`).then((r) => r.data),
+    onSuccess: (data) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      qc.removeQueries({ queryKey: ['senior-resume-source', userId] })
+      toast.success('Резюме удалено')
+    },
+    onError: (e: Error) => toast.error(e.message),
+  })
+}
+
+/**
  * Presigned link to the ORIGINAL uploaded file.
  *
  * Fetched EAGERLY (as soon as the tab knows a file exists) rather than on

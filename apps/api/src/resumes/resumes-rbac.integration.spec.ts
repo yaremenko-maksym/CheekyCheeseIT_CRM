@@ -766,4 +766,127 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
       expect(dto.resume?.errorMessage).toMatch(/вставьте текст/i)
     })
   })
+
+  // ── R-INT-12: erasure (personal data) ─────────────────────────────────────
+
+  /**
+   * A resume is personal data held on behalf of a person who may ask for it to
+   * be erased, and there was no way to do that: fields could be blanked, but
+   * the row stayed and — the part that matters — so did the uploaded PDF/DOCX
+   * in object storage, which is where the raw document actually lives.
+   *
+   * Access is checked per ROW of the §4 table, exactly like every other
+   * mutation, and every negative case targets SENIOR_B — a senior who really
+   * exists and really has a resume. A test that deletes a fabricated uuid
+   * passes with the check removed and proves nothing.
+   */
+  describe('R-INT-12. deleting a resume', () => {
+    /** Give SENIOR_B a resume with a stored file, and report the key. */
+    async function giveSeniorBaStoredResume(): Promise<string> {
+      const key = `senior-resumes/${SENIOR_B.id}/original.docx`
+      await dbSvc.db
+        .insert(seniorResumes)
+        .values({ userId: SENIOR_B.id, content: SENIOR_B_CONTENT })
+        .onConflictDoNothing({ target: seniorResumes.userId })
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ content: SENIOR_B_CONTENT, sourceS3Key: key, sourceMimeType: RESUME_DOCX_MIME })
+        .where(eq(seniorResumes.userId, SENIOR_B.id))
+      return key
+    }
+
+    it('R-INT-12a. ADMIN erases the row AND the stored original', async () => {
+      if (!dbAvailable) return
+      const key = await giveSeniorBaStoredResume()
+      s3.delete.mockClear()
+
+      const after = await service.deleteResume(session(ADMIN_USER), SENIOR_B.id)
+
+      expect(after.resume).toBeNull()
+      expect(after.canEdit).toBe(true)
+      // The file is what actually holds the document — blanking fields is not erasure.
+      expect(s3.delete).toHaveBeenCalledWith(key)
+      const rows = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_B.id))
+      expect(rows).toHaveLength(0)
+    })
+
+    it('R-INT-12b. HR may erase a foreign senior resume', async () => {
+      if (!dbAvailable) return
+      await giveSeniorBaStoredResume()
+      const after = await service.deleteResume(session(HR_USER), SENIOR_B.id)
+      expect(after.resume).toBeNull()
+    })
+
+    it('R-INT-12c. SENIOR erases their OWN resume', async () => {
+      if (!dbAvailable) return
+      await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+        ...EMPTY_RESUME_CONTENT,
+        summary: 'моё резюме',
+      })
+      const after = await service.deleteResume(session(SENIOR_A), SENIOR_A.id)
+      expect(after.resume).toBeNull()
+
+      const reread = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
+      expect(reread.resume).toBeNull()
+      expect(reread.canEdit).toBe(true) // still may create a new one
+    })
+
+    it('R-INT-12d. SENIOR A must not erase SENIOR B’s resume', async () => {
+      if (!dbAvailable) return
+      await giveSeniorBaStoredResume()
+      s3.delete.mockClear()
+
+      await expect(service.deleteResume(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+      // Nothing was touched — not the row, not the file.
+      expect(s3.delete).not.toHaveBeenCalled()
+      const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
+      expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
+    })
+
+    it.each([
+      ['JUNIOR', () => JUNIOR_USER],
+      ['ACCOUNTANT', () => ACCOUNTANT_USER],
+      ['DROP', () => DROP_USER],
+    ])('R-INT-12e. %s may not erase a resume', async (_role, who) => {
+      if (!dbAvailable) return
+      await giveSeniorBaStoredResume()
+      s3.delete.mockClear()
+
+      await expect(service.deleteResume(session(who()), SENIOR_B.id)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+      expect(s3.delete).not.toHaveBeenCalled()
+      const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
+      expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
+    })
+
+    it('R-INT-12f. erasing a resume that does not exist is a 404, not a silent success', async () => {
+      if (!dbAvailable) return
+      await dbSvc.db.delete(seniorResumes).where(eq(seniorResumes.userId, SENIOR_A.id))
+      await expect(service.deleteResume(session(ADMIN_USER), SENIOR_A.id)).rejects.toBeInstanceOf(
+        NotFoundException,
+      )
+    })
+
+    /**
+     * If storage refuses, the row must SURVIVE. Deleting it first and then
+     * failing would strand the file: no row, no key, no code path that can ever
+     * reach it again — undeletable personal data.
+     */
+    it('R-INT-12g. a storage failure leaves the row intact so the erase can be retried', async () => {
+      if (!dbAvailable) return
+      await giveSeniorBaStoredResume()
+      s3.delete.mockRejectedValueOnce(new Error('R2 unavailable'))
+
+      await expect(service.deleteResume(session(ADMIN_USER), SENIOR_B.id)).rejects.toThrow()
+
+      const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
+      expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
+    })
+  })
 })

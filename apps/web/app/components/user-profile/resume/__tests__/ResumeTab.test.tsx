@@ -12,6 +12,7 @@ import { EMPTY_RESUME_CONTENT, type SeniorResumeDto, type SeniorResumeResponse }
 const saveMock = vi.fn()
 const uploadMock = vi.fn()
 const ingestTextMock = vi.fn()
+const deleteMock = vi.fn()
 
 let resumeData: SeniorResumeResponse = { resume: null, canEdit: true }
 let isLoading = false
@@ -21,6 +22,7 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useSaveResumeContent: () => ({ mutate: saveMock, isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
   useIngestResumeText: () => ({ mutate: ingestTextMock, isPending: false }),
+  useDeleteResume: () => ({ mutate: deleteMock, isPending: false }),
   useResumeSourceUrl: () => ({ data: undefined }),
   resumePdfUrl: (userId: string) => `/api/users/${userId}/resume/pdf`,
 }))
@@ -417,6 +419,12 @@ describe('ResumeTab — downloads', () => {
     expect(screen.queryByTestId('resume-download-pdf')).not.toBeInTheDocument()
   })
 
+  it('does not offer erasure to a viewer without write access', () => {
+    resumeData = makeResponse(FILLED.resume as SeniorResumeDto, false)
+    render(<ResumeTab userId="senior-1" />)
+    expect(screen.queryByTestId('resume-delete')).not.toBeInTheDocument()
+  })
+
   it('shows the version and the last editor', () => {
     resumeData = makeResponse({
       ...(FILLED.resume as SeniorResumeDto),
@@ -426,5 +434,62 @@ describe('ResumeTab — downloads', () => {
     render(<ResumeTab userId="senior-1" />)
     expect(screen.getByTestId('resume-tab')).toHaveTextContent('Версия 7')
     expect(screen.getByTestId('resume-tab')).toHaveTextContent('Эйчар Иванова')
+  })
+})
+
+/**
+ * Erasure of personal data. Irreversible, and it takes the stored original with
+ * it, so it must ask first and say exactly what disappears — a resume deleted
+ * by a mis-click cannot be recovered from anywhere in this system.
+ */
+describe('ResumeTab — deleting the resume', () => {
+  it('asks before erasing anything', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-delete'))
+
+    expect(screen.getByTestId('resume-delete-confirm-dialog')).toBeInTheDocument()
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('names the stored file that is about to go with it', () => {
+    resumeData = makeResponse({
+      ...(FILLED.resume as SeniorResumeDto),
+      hasSourceFile: true,
+      sourceFileName: 'резюме-иванова.pdf',
+    })
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    expect(screen.getByTestId('resume-delete-confirm-dialog')).toHaveTextContent(
+      'резюме-иванова.pdf',
+    )
+  })
+
+  it('erases once confirmed', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    fireEvent.click(screen.getByTestId('resume-delete-confirm'))
+
+    expect(deleteMock).toHaveBeenCalledTimes(1)
+  })
+
+  it('erases nothing when the dialog is dismissed', () => {
+    resumeData = FILLED
+    render(<ResumeTab userId="senior-1" />)
+
+    fireEvent.click(screen.getByTestId('resume-delete'))
+    fireEvent.click(screen.getByTestId('resume-delete-cancel'))
+
+    expect(deleteMock).not.toHaveBeenCalled()
+  })
+
+  it('is not offered before a resume exists', () => {
+    resumeData = { resume: null, canEdit: true }
+    render(<ResumeTab userId="senior-1" />)
+    expect(screen.queryByTestId('resume-delete')).not.toBeInTheDocument()
   })
 })

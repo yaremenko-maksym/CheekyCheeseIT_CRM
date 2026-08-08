@@ -8,6 +8,7 @@
  *   POST   /api/users/:userId/resume/text       paste plain text -> QUEUED
  *   GET    /api/users/:userId/resume/source     presigned download of the original
  *   GET    /api/users/:userId/resume/pdf        rendered PDF on our template
+ *   DELETE /api/users/:userId/resume            erase the row + the stored file
  *
  * Auth: the global JwtAuthGuard (AppModule APP_GUARD) authenticates. There is
  * deliberately NO `@Roles()` decorator here: the §4 table is per-TARGET
@@ -20,6 +21,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   Header,
   Param,
@@ -33,7 +35,7 @@ import { Throttle } from '@nestjs/throttler'
 import type { FastifyReply, FastifyRequest } from 'fastify'
 import { ingestResumeTextSchema, updateResumeContentSchema, type SessionUser } from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
-import { SeniorResumesService } from './resumes.service'
+import { SeniorResumesService, sanitizeFileName } from './resumes.service'
 
 /** Minimal shape of a multipart part as returned by @fastify/multipart. */
 interface MultipartField {
@@ -114,6 +116,19 @@ export class SeniorResumesController {
   }
 
   /**
+   * Erase the resume — the row and the stored original alike.
+   *
+   * Personal data has to be removable, and blanking the fields is not removal:
+   * the uploaded PDF/DOCX would stay in object storage. Guarded by the same
+   * per-target write rule as every other mutation here (a SENIOR may erase
+   * their own resume and nobody else's).
+   */
+  @Delete()
+  remove(@Param('userId', ParseUUIDPipe) userId: string, @CurrentUser() user: SessionUser) {
+    return this.service.deleteResume(user, userId)
+  }
+
+  /**
    * Rendered PDF. `no-store` because the body is personal data and the content
    * changes on every save — a cached copy would show a stale resume and would
    * sit in the browser's disk cache, which is exactly what the sensitive
@@ -136,13 +151,21 @@ export class SeniorResumesController {
 }
 
 /**
- * Build a `Content-Disposition` value for the rendered PDF. The display name
- * is user data, so the ASCII slot is stripped of anything that could break out
- * of the quoted parameter and the UTF-8 slot carries the real (Cyrillic) name.
+ * Build a `Content-Disposition` value for the rendered PDF.
+ *
+ * The display name is user data, so it goes through the SAME `sanitizeFileName`
+ * the upload path uses. There used to be two different reductions here — the
+ * service one dropped path separators and capped the length, this one only
+ * removed quotes and newlines — so a display name of `../../etc/passwd.pdf`
+ * arrived intact in the header while the identical string was defused on the
+ * way in. One definition, one behaviour, whichever direction the name travels.
+ *
+ * On top of that: the ASCII slot cannot contain anything that would break out
+ * of the quoted parameter, and the UTF-8 slot carries the real Cyrillic name.
  * Mirrors `safeContractFilename` in the contracts module.
  */
 export function resumeContentDisposition(displayName: string): string {
-  const safe = displayName.replace(/["\\\r\n]/g, '').trim() || 'resume'
+  const safe = sanitizeFileName(displayName.replace(/["\\]/g, '')) || 'resume'
   const ascii = `${safe.replace(/[^\x20-\x7E]/g, '_')}.pdf`
   const utf8 = encodeURIComponent(`Резюме — ${safe}.pdf`)
   return `attachment; filename="${ascii}"; filename*=UTF-8''${utf8}`

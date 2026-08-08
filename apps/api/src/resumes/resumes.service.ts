@@ -311,6 +311,35 @@ export class SeniorResumesService {
     return this.toResponse(queued, viewer)
   }
 
+  /**
+   * Erase the resume: the row AND the stored original file.
+   *
+   * A resume is personal data — employment history, education, contacts — held
+   * on behalf of a person who can ask for it to be removed. Until now there was
+   * no way to do that at all: content could be blanked field by field, but the
+   * row survived and, more to the point, so did the uploaded PDF/DOCX in
+   * object storage, which is the copy that actually holds the raw document.
+   *
+   * Order is deliberate. The storage object goes first: if that fails we abort
+   * with the row still present and the operation can be retried honestly.
+   * Deleting the row first and then failing on storage would leave an orphaned
+   * file no code path can ever reach again — undeletable personal data.
+   *
+   * Returns the same envelope every other endpoint answers with, so the client
+   * lands straight back on the empty state.
+   */
+  async deleteResume(viewer: SessionUser, targetUserId: string): Promise<SeniorResumeResponse> {
+    await this.assertAccess(viewer, targetUserId, 'write')
+    const row = await this.findRow(targetUserId)
+    if (!row) throw new NotFoundException('Резюме ещё не создано')
+
+    if (row.sourceS3Key) await this.s3.delete(row.sourceS3Key)
+    await this.db.db.delete(seniorResumes).where(eq(seniorResumes.id, row.id))
+
+    this.logger.log(`Resume of ${targetUserId} deleted by ${viewer.id}`)
+    return { resume: null, canEdit: canAccessResume(viewer, targetUserId, 'write') }
+  }
+
   // ==========================================================================
   // Extraction pipeline
   // ==========================================================================

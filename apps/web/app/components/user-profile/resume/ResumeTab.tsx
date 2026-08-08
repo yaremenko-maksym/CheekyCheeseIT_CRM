@@ -22,7 +22,7 @@
  * shell's dirty-guard dialog plus a `beforeunload` handler.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileText, History, PencilLine } from 'lucide-react'
+import { Download, FileText, History, PencilLine, Trash2 } from 'lucide-react'
 import {
   EMPTY_RESUME_CONTENT,
   isSafeResumeUrl,
@@ -30,12 +30,23 @@ import {
   type ResumeExperienceItem,
   type ResumeLink,
 } from '@crm/shared'
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Textarea } from '@/components/ui/textarea'
 import {
   resumePdfUrl,
+  useDeleteResume,
   useIngestResumeText,
   useResumeSourceUrl,
   useSaveResumeContent,
@@ -60,6 +71,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   const saveMutation = useSaveResumeContent(userId)
   const uploadMutation = useUploadResumeSource(userId)
   const textMutation = useIngestResumeText(userId)
+  const deleteMutation = useDeleteResume(userId)
   // `resume` is null until the senior has one; `canEdit` sits OUTSIDE it
   // precisely so the empty state still knows whether to offer the upload UI.
   const resume = data?.resume ?? null
@@ -75,6 +87,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   const [showIntake, setShowIntake] = useState(false)
   /** Set when the user chooses to type the resume instead of uploading one. */
   const [manualMode, setManualMode] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Reset the draft whenever the server content changes and nothing is being
   // edited — so a finished extraction shows up immediately, but never wipes
@@ -285,8 +298,49 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
               </a>
             </Button>
           )}
+          {canEdit && resume && (
+            <Button
+              variant="outline"
+              onClick={() => setConfirmDelete(true)}
+              data-testid="resume-delete"
+              className="min-h-11 text-destructive hover:text-destructive"
+            >
+              <Trash2 className="mr-2 h-4 w-4" aria-hidden />
+              Удалить
+            </Button>
+          )}
         </div>
       </div>
+
+      {/* Erasure is irreversible and takes the stored original with it, so it
+          asks first and names exactly what disappears. */}
+      <AlertDialog open={confirmDelete} onOpenChange={setConfirmDelete}>
+        <AlertDialogContent data-testid="resume-delete-confirm-dialog">
+          <AlertDialogHeader>
+            <AlertDialogTitle>Удалить резюме?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Будут удалены и заполненные разделы, и загруженный исходный файл
+              {resume?.sourceFileName ? ` («${resume.sourceFileName}»)` : ''}. Восстановить их будет
+              нельзя — резюме придётся загрузить или заполнить заново.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel data-testid="resume-delete-cancel">Отмена</AlertDialogCancel>
+            <AlertDialogAction
+              data-testid="resume-delete-confirm"
+              disabled={deleteMutation.isPending}
+              onClick={() => {
+                setConfirmDelete(false)
+                setEditing(null)
+                setManualMode(false)
+                deleteMutation.mutate()
+              }}
+            >
+              {deleteMutation.isPending ? 'Удаляем…' : 'Удалить'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {canEdit && (showIntake || resume?.status === 'FAILED') && (
         <ResumeIntake
