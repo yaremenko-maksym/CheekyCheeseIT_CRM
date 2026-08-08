@@ -242,24 +242,34 @@ test.describe('Projects page', () => {
       await dialog.getByPlaceholder('5000').fill('3000')
 
       // Fill new metadata fields
+      // Each optional field is filled only when the dialog actually renders it,
+      // and whether it WAS filled is remembered so the assertions further down
+      // can be unconditional. Previously both halves were hedged — fill-if-
+      // visible, then `if (body.techStack) expect(...)` — so a build that
+      // stopped sending these fields entirely satisfied the test by asserting
+      // nothing. Pinning the expected value to `filledX` also makes the absent
+      // case an assertion instead of a silent skip. (task-lint-teeth)
       const techStackField = dialog
         .getByPlaceholder(/стек технологий/i)
         .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
-      if (await techStackField.isVisible()) {
+      const filledTechStack = await techStackField.isVisible()
+      if (filledTechStack) {
         await techStackField.fill('React, TypeScript, Node.js')
       }
 
       const teamSizeField = dialog
         .getByPlaceholder(/размер команды/i)
         .or(dialog.locator('input[name*="team"]'))
-      if (await teamSizeField.isVisible()) {
+      const filledTeamSize = await teamSizeField.isVisible()
+      if (filledTeamSize) {
         await teamSizeField.fill('5-7 developers')
       }
 
       const benefitsField = dialog
         .getByPlaceholder(/benefi|льгот/i)
         .or(dialog.locator('textarea[name*="benefit"]'))
-      if (await benefitsField.isVisible()) {
+      const filledBenefits = await benefitsField.isVisible()
+      if (filledBenefits) {
         await benefitsField.fill('Medical insurance, flexible schedule')
       }
 
@@ -274,7 +284,8 @@ test.describe('Projects page', () => {
       const salaryReviewField = dialog
         .getByPlaceholder(/пересмотр зп/i)
         .or(dialog.locator('input[name*="salary"]'))
-      if (await salaryReviewField.isVisible()) {
+      const filledSalaryReview = await salaryReviewField.isVisible()
+      if (filledSalaryReview) {
         await salaryReviewField.fill('Every 6 months')
       }
 
@@ -284,14 +295,18 @@ test.describe('Projects page', () => {
       const body = JSON.parse(req.postData() ?? '{}') as Record<string, unknown>
       expect(body).toMatchObject({ name: 'Test Project', companyName: 'Test Company' })
 
-      // Verify metadata fields are included in request (if fields are present)
-      if (body.techStack) expect(body.techStack).toBe('React, TypeScript, Node.js')
-      if (body.teamSize) expect(body.teamSize).toBe('5-7 developers')
-      if (body.benefits) expect(body.benefits).toBe('Medical insurance, flexible schedule')
+      // Metadata fields: each must carry exactly what was typed into it, or be
+      // absent if the dialog never offered the field. Unconditional, so a
+      // regression that drops a filled field from the payload now fails.
+      expect(body.techStack).toBe(filledTechStack ? 'React, TypeScript, Node.js' : undefined)
+      expect(body.teamSize).toBe(filledTeamSize ? '5-7 developers' : undefined)
+      expect(body.benefits).toBe(
+        filledBenefits ? 'Medical insurance, flexible schedule' : undefined,
+      )
       // paymentType is always sent now (defaults to 'FOP', explicitly set to
       // 'USDT' above) — no longer an optional free-text field.
       expect(body.paymentType).toBe('USDT')
-      if (body.salaryReview) expect(body.salaryReview).toBe('Every 6 months')
+      expect(body.salaryReview).toBe(filledSalaryReview ? 'Every 6 months' : undefined)
     })
 
     test('edit project dialog shows and updates metadata fields', async ({ asAdmin: page }) => {
@@ -327,31 +342,38 @@ test.describe('Projects page', () => {
 
       await page.goto(`/projects/${PROJECTS[0]!.id}`)
 
-      // Look for edit button (could be "Редактировать" or an edit icon)
+      // Look for edit button (could be "Редактировать" or an edit icon).
+      //
+      // `test.skip(condition, reason)` instead of wrapping the whole body in
+      // `if (await editButton.isVisible())` (task-lint-teeth): with the body
+      // behind an `if`, a build that stopped rendering the edit button — or any
+      // of the fields below — ran zero assertions and still reported PASS. The
+      // runtime skip reports the same situation as SKIPPED, which is what it
+      // actually is, and lets every assertion below be unconditional.
       const editButton = page
         .getByRole('button', { name: /редактир/i })
         .or(page.getByTitle(/редактир/i))
-      if (await editButton.isVisible()) {
-        await editButton.click()
-        await expect(page.getByRole('dialog')).toBeVisible()
+      const hasEditButton = await editButton.isVisible()
+      test.skip(!hasEditButton, 'project detail did not render an edit button in this build')
 
-        const dialog = page.getByRole('dialog')
+      await editButton.click()
+      await expect(page.getByRole('dialog')).toBeVisible()
 
-        // Verify metadata fields are pre-filled
-        const techStackField = dialog
-          .getByPlaceholder(/стек технологий/i)
-          .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
-        if (await techStackField.isVisible()) {
-          await expect(techStackField).toHaveValue('Vue.js, Python')
-        }
+      const dialog = page.getByRole('dialog')
 
-        const teamSizeField = dialog
-          .getByPlaceholder(/размер команды/i)
-          .or(dialog.locator('input[name*="team"]'))
-        if (await teamSizeField.isVisible()) {
-          await expect(teamSizeField).toHaveValue('3-4 developers')
-        }
-      }
+      // Verify metadata fields are pre-filled
+      const techStackField = dialog
+        .getByPlaceholder(/стек технологий/i)
+        .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
+      const teamSizeField = dialog
+        .getByPlaceholder(/размер команды/i)
+        .or(dialog.locator('input[name*="team"]'))
+      const hasMetadataFields =
+        (await techStackField.isVisible()) && (await teamSizeField.isVisible())
+      test.skip(!hasMetadataFields, 'edit dialog did not render the metadata fields in this build')
+
+      await expect(techStackField).toHaveValue('Vue.js, Python')
+      await expect(teamSizeField).toHaveValue('3-4 developers')
     })
 
     test('metadata fields respect character limits (varchar constraints)', async ({
@@ -363,30 +385,34 @@ test.describe('Projects page', () => {
 
       const dialog = page.getByRole('dialog')
 
-      // Test character limits based on schema: tech_stack varchar(500), notes_general varchar(1000)
+      // Test character limits based on schema: tech_stack varchar(500), notes_general varchar(1000).
+      // Runtime skip rather than `if (isVisible)` around the assertions — see
+      // the note on the edit-dialog test above. A dialog missing both fields
+      // used to make this test pass while checking no limit at all.
+      // (task-lint-teeth)
       const techStackField = dialog
         .getByPlaceholder(/стек технологий/i)
         .or(dialog.locator('input[name*="tech"]').or(dialog.locator('textarea[name*="tech"]')))
-      if (await techStackField.isVisible()) {
-        const longText = 'A'.repeat(600) // Exceeds 500 char limit
-        await techStackField.fill(longText)
-        await techStackField.blur()
-        // Should show validation error or truncate
-        const fieldValue = await techStackField.inputValue()
-        expect(fieldValue.length).toBeLessThanOrEqual(500)
-      }
-
       const notesField = dialog
         .getByPlaceholder(/заметк|notes/i)
         .or(dialog.locator('textarea[name*="notes"]'))
-      if (await notesField.isVisible()) {
-        const veryLongText = 'A'.repeat(1100) // Exceeds 1000 char limit
-        await notesField.fill(veryLongText)
-        await notesField.blur()
-        // Should show validation error or truncate
-        const fieldValue = await notesField.inputValue()
-        expect(fieldValue.length).toBeLessThanOrEqual(1000)
-      }
+      const hasLimitFields = (await techStackField.isVisible()) && (await notesField.isVisible())
+      test.skip(
+        !hasLimitFields,
+        'create dialog did not render the tech-stack / notes fields in this build',
+      )
+
+      const longText = 'A'.repeat(600) // Exceeds 500 char limit
+      await techStackField.fill(longText)
+      await techStackField.blur()
+      // Should show validation error or truncate
+      expect((await techStackField.inputValue()).length).toBeLessThanOrEqual(500)
+
+      const veryLongText = 'A'.repeat(1100) // Exceeds 1000 char limit
+      await notesField.fill(veryLongText)
+      await notesField.blur()
+      // Should show validation error or truncate
+      expect((await notesField.inputValue()).length).toBeLessThanOrEqual(1000)
     })
 
     test('metadata fields are displayed in project detail view', async ({ asAdmin: page }) => {
