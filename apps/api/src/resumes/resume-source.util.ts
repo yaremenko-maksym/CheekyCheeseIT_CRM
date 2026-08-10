@@ -718,37 +718,73 @@ export async function inspectPdfContent(
  * untrusted unbounded work — with a piece that never entered a sandbox at all.
  *
  * We do not need the list of operators; we need "more than the limit, yes or
- * no". Counting with an early exit answers exactly that: measured on a 28.6 MB
- * stream carrying ten million operators, 8 ms against 573 ms for the collecting
- * version. Returning `limit + 1` rather than the true total is deliberate —
- * every caller only compares against the limit, and the true total is precisely
- * the number that is expensive to learn.
+ * no". Counting with an early exit answers exactly that. Returning `limit + 1`
+ * rather than the true total is deliberate — every caller only compares against
+ * the limit, and the true total is precisely the number that is expensive to
+ * learn.
  *
- * WHAT THIS DOES **NOT** MAKE BOUNDED — the honest half.
- * The early exit fires only when matches EXCEED the limit. An input with FEWER
- * matches never reaches it, and one is trivial to build: `" TjX"` repeated
- * contains no operators at all (the lookahead needs a delimiter after `Tj`) and
- * scans end to end. So the cost is
+ * A BYTE SCAN, not a regex over a decoded string, and that is the second fix.
+ * The early exit alone left the SPARSE case — an input with FEWER matches than
+ * the limit never reaches the exit and is walked end to end. Profiled by the
+ * reviewer on 32 MB of operator-free filler: `Buffer.toString('latin1')` costs
+ * 3-5 ms, while the `RegExp.exec` loop costs ~44 ms on an idle machine and
+ * ~499 ms on a CI runner. The regex engine was the expense, not the string, so
+ * scanning the buffer directly removes both — and skips the 32 MB string
+ * allocation as well, which is what made the fixtures push the whole suite into
+ * memory pressure.
  *
- *   O( min( offset of the (limit+1)-th match, decoded bytes ) )
+ * WHAT THIS STILL DOES **NOT** MAKE BOUNDED — the honest half, restated.
+ * The sparse case is now cheap, but it is still O(decoded bytes): the floor
+ * under it is `MAX_PDF_CONTENT_BYTES`, NOT this limit. Boundedness rests on the
+ * SIZE cap, which is why that constant carries a warning that it caps CPU as
+ * well as memory.
  *
- * and the floor under the second term is `MAX_PDF_CONTENT_BYTES`, NOT this
- * limit. Boundedness here rests on the SIZE cap — which is why that constant
- * now carries a warning that it caps CPU as well as memory. Both halves are
- * measured in the spec, dense and sparse.
+ * Timing figures live in the opt-in characterisation test rather than in this
+ * comment, because a number written here goes stale silently — the last set did
+ * (see the spec's `RESUME_PERF` block for why the always-on assertions are
+ * functional and the timings are not).
  */
 export function countTextOperators(decoded: Buffer, limit: number): number {
-  const text = decoded.toString('latin1')
-  const pattern = /(?:^|[\s\]>)])(?:Tj|TJ|'|")(?=[\s/[<(]|$)/g
   let count = 0
-  // `exec` in a loop walks the same automaton `match` does, but keeps only a
-  // counter, so the work is bounded by the answer we need rather than by the
-  // size of the input.
-  while (pattern.exec(text) !== null) {
+
+  for (let i = 0; i < decoded.length; i += 1) {
+    const byte = decoded[i] as number
+
+    // `Tj` / `TJ` (two bytes) or `'` / `"` (one).
+    let opLength = 0
+    if (byte === 0x54) {
+      const next = decoded[i + 1]
+      if (next === 0x6a || next === 0x4a) opLength = 2
+    } else if (byte === 0x27 || byte === 0x22) {
+      opLength = 1
+    }
+    if (opLength === 0) continue
+
+    if (i > 0 && !isOperatorPrefixByte(decoded[i - 1] as number)) continue
+    const after = i + opLength
+    if (after < decoded.length && !isOperatorSuffixByte(decoded[after] as number)) continue
+
     count += 1
     if (count > limit) return count
+    i = after - 1 // resume past the operator we just accepted
   }
+
   return count
+}
+
+/** `^` or whitespace or `]` `>` `)` — what may precede a text operator. */
+function isOperatorPrefixByte(byte: number): boolean {
+  return isPdfSpaceByte(byte) || byte === 0x5d || byte === 0x3e || byte === 0x29
+}
+
+/** `$` or whitespace or `/` `[` `<` `(` — what may follow one. */
+function isOperatorSuffixByte(byte: number): boolean {
+  return isPdfSpaceByte(byte) || byte === 0x2f || byte === 0x5b || byte === 0x3c || byte === 0x28
+}
+
+/** Matches JS `\s` over latin1: space, tab/LF/VT/FF/CR, and NBSP. */
+function isPdfSpaceByte(byte: number): boolean {
+  return byte === 0x20 || (byte >= 0x09 && byte <= 0x0d) || byte === 0xa0
 }
 
 function pdfTooBig(cap: number): string {

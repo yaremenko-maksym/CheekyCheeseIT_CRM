@@ -311,17 +311,38 @@ describe('nothing is silently lost off the edge of the page', () => {
       }),
     )
 
-    const { getDocumentProxy } = await import('unpdf')
-    const proxy = await getDocumentProxy(new Uint8Array(pdf))
-    const page = await proxy.getPage(1)
-    const annotations = (await page.getAnnotations()) as Array<{ url?: string }>
-    const hrefs = annotations.map((a) => a.url).filter((u): u is string => typeof u === 'string')
+    // Read `/URI` straight out of the document bytes — NO PDF PARSER.
+    //
+    // The previous version called `page.getAnnotations()`, which fails on
+    // Node 20.0-20.17: pdf.js's annotation layer uses the STATIC `URL.parse()`,
+    // added in Node 20.18, so on our pinned runtime it throws inside the
+    // parser, returns an empty array, and trips this test's own non-vacuity
+    // guard. `version-pins.md` says "Node: 20 LTS (strictly)" with no minor, so
+    // that is a supported runtime; CI happens to run 20.20.2 and was green.
+    // The message would have read "the product stopped creating the link" when
+    // the truth was "this runtime lacks a method" — a failure about the
+    // instrument wearing the costume of a failure about the product, for the
+    // third time on this branch.
+    //
+    // Typst writes the annotation dictionary uncompressed, so the URI is plain
+    // text in the file. No parser, no Node-version dependency, and strictly
+    // more direct: this is the byte a reader will follow.
+    const uris = [...pdf.toString('latin1').matchAll(/\/URI\s*\(([^()]*)\)/g)].map(
+      (m) => m[1] ?? '',
+    )
 
-    // Non-vacuity: a link annotation really was produced.
-    expect(hrefs.length).toBeGreaterThan(0)
-    // Byte-for-byte, and NOT whitespace-normalised — the space is the defect.
-    expect(hrefs.some((href) => href.replace(/\/$/, '') === url)).toBe(true)
-    for (const href of hrefs) expect(href).not.toContain(' ')
+    // Non-vacuity: a link really was written.
+    expect(uris.length).toBeGreaterThan(0)
+    // BYTE-FOR-BYTE, and this equality is the whole assertion.
+    //
+    // Do NOT "simplify" this to a `not.toContain(' ')` check — that can never
+    // fire. An inserted space reaches the PDF percent-encoded as `%20`, so only
+    // exact equality sees it. (My earlier claim that a corrupted URL produces
+    // no annotation at all was wrong, and wrong in a revealing way: I read it
+    // off the same Node 20 where `getAnnotations()` returns an empty array
+    // whatever the input — the same instrument, the same misreading, as the
+    // meter that reported a serene zero.)
+    expect(uris).toContain(url)
   }, 120_000)
 
   it('still breaks a long run in prose, where overflow is the real risk', async () => {

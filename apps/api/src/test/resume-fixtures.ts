@@ -494,9 +494,19 @@ export function buildPdfSharedContentStream(pages: number, operatorsPerStream: n
  *   ' TjX'.repeat(8_000_000)  -> 32.0 MB decoded, ~30 KB on the wire, ZERO matches
  *
  * The second is the one that shows what the early exit does NOT buy.
+ *
+ * Pass a Buffer, not a string, for the large cases: `' TjX'.repeat(8_000_000)`
+ * materialises a 32 MB JS string on top of the 32 MB Buffer and the deflate
+ * output, and two such fixtures in one worker added ~92 MB — enough memory
+ * pressure to push the extraction child processes past their ten-second
+ * deadline and take six unrelated tests down with them. `repeatedBuffer` builds
+ * the same bytes without the string.
  */
-export function buildPdfWithRawContentStream(body: string): Buffer {
-  const compressed = deflateSync(Buffer.from(body, 'latin1'))
+export function repeatedBuffer(pattern: string, totalBytes: number): Buffer {
+  return Buffer.alloc(totalBytes).fill(pattern)
+}
+export function buildPdfWithRawContentStream(body: string | Buffer): Buffer {
+  const compressed = deflateSync(typeof body === 'string' ? Buffer.from(body, 'latin1') : body)
   return assemblePdf({
     1: Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'latin1'),
     2: Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>', 'latin1'),

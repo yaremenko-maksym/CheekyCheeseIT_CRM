@@ -20,6 +20,7 @@ import {
 import {
   MAX_DOCX_UNCOMPRESSED_BYTES,
   MAX_DOCX_PARSED_BYTES,
+  MAX_PDF_CONTENT_BYTES,
   MAX_PDF_TEXT_OPERATORS,
   MAX_PDF_PAGES,
   capExtractedText,
@@ -41,6 +42,7 @@ import {
   buildPdfSharedContentStream,
   buildPdfWithFlateImage,
   buildPdfWithRawContentStream,
+  repeatedBuffer,
   buildPdfWithText,
   buildWordDensityDocx,
   buildZip,
@@ -417,35 +419,91 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * is documented as a memory ceiling, which is why its comment now also says
    * it caps CPU — raise it for memory reasons and this stall grows silently.
    */
-  it('screens a dense operator stream in milliseconds, not seconds', async () => {
-    // 10M matches in 28.6 MB — comfortably under the 32 MB content cap, so the
-    // counter is genuinely reached rather than short-circuited by size.
-    const dense = buildPdfWithRawContentStream(' Tj'.repeat(10_000_000))
-    expect(dense.length).toBeLessThan(200_000) // tiny on the wire
-
-    const meter = startLagMeter()
+  /**
+   * FUNCTIONAL, always on: a dense stream is refused, and a stream with no
+   * operators is accepted with a count of zero. No clock involved.
+   *
+   * The timing counterpart is opt-in below, and putting it there is not a
+   * retreat — it is this file's own policy, written three screens above
+   * (`RESUME_PERF`): event-loop lag inside a parallel runner is a property of
+   * the machine, so always-on timing assertions are kept only where the margin
+   * is four orders of magnitude. My earlier always-on ceilings had 7x locally
+   * and LESS THAN 1x on CI, which is exactly the flake that policy exists to
+   * prevent — and it went red on the required check, taking six unrelated tests
+   * with it through memory pressure.
+   */
+  it('refuses a dense operator stream and accepts an operator-free one', async () => {
+    // Sized to CROSS THE THRESHOLD, not to fill the cap. These are functional
+    // assertions — "is it refused / is the count zero" — and a cap-sized
+    // fixture buys them nothing while costing ~60 MB of buffers per worker.
+    // That mattered: the 32 MB versions pushed this suite into memory pressure
+    // and the extraction CHILD PROCESSES were killed ("worker exited null"),
+    // failing six unrelated tests that had nothing to do with the change. The
+    // size-bounded characterisation lives in the opt-in test below, where one
+    // run at a time can afford it.
+    const dense = buildPdfWithRawContentStream(
+      repeatedBuffer(' Tj', (MAX_PDF_TEXT_OPERATORS + 1000) * 3),
+    )
     await expect(inspectPdfContent(dense, 1)).rejects.toThrow(/слишком много текстовых операций/)
-    const { worstStall } = meter.stop()
 
-    // Measured on this machine: 8 ms with the early exit, 573 ms with the
-    // collecting version restored — 71x apart, so CPU contention cannot blur it.
-    expect(worstStall).toBeLessThan(300)
-  }, 120_000)
-
-  it('is bounded by the CONTENT-SIZE cap when the stream holds no operators at all', async () => {
-    // ' TjX' never matches (the lookahead requires a delimiter after `Tj`), so
-    // the early exit never fires and the whole 32 MB is scanned. This is the
-    // residual cost, and naming it is the point of the test.
-    const sparse = buildPdfWithRawContentStream(' TjX'.repeat(8_000_000))
-
-    const meter = startLagMeter()
+    // ' TjX' never matches (a delimiter must follow `Tj`), so the early exit
+    // never fires and every byte is walked — the residual cost that the
+    // CONTENT-SIZE cap, and only that cap, bounds.
+    const sparse = buildPdfWithRawContentStream(repeatedBuffer(' TjX', 400_000))
     const info = await inspectPdfContent(sparse, 1)
-    const { worstStall } = meter.stop()
-
     expect(info.textOperators).toBe(0)
-    // Bounded — but by MAX_PDF_CONTENT_BYTES, and only by it.
-    expect(worstStall).toBeLessThan(400)
   }, 120_000)
+
+  /**
+   * MED-1 — the enforcement the constant's comment CLAIMED and did not have.
+   *
+   * `MAX_PDF_CONTENT_BYTES` bounds CPU as well as memory (the sparse scan is
+   * O(decoded bytes) and nothing else caps it), and its comment says so — but
+   * raising it 32 MB -> 128 MB left the entire suite green, because the fixture
+   * was pinned to a literal 32 MB. A comment that names a test which does not
+   * actually hold the value is worse than silence: it invites exactly the
+   * "memory headroom" change it warns against.
+   *
+   * This is that test. It does not measure anything; it refuses a silent raise
+   * and points at the measurement to run first.
+   */
+  it('pins MAX_PDF_CONTENT_BYTES — raising it also raises a main-thread stall', () => {
+    expect(MAX_PDF_CONTENT_BYTES).toBeLessThanOrEqual(32 * 1024 * 1024)
+    // If you are here because you raised it: the scan cost grows linearly with
+    // this number, on the request-serving thread. Re-run the opt-in
+    // characterisation (`RESUME_PERF=1`) on a quiet machine, put the new figure
+    // in the constant's comment, and only then move this bound.
+  })
+
+  /**
+   * Opt-in characterisation: `RESUME_PERF=1 pnpm --filter @crm/api test
+   * resume-text-extraction`. Run it on a quiet machine when changing the
+   * counter or `MAX_PDF_CONTENT_BYTES`; it is not a gate.
+   *
+   * Recorded from an opt-in run after switching to the byte scan — the previous
+   * numbers in this file were taken before the parser moved to a child process
+   * and before the scan replaced the regex, and they were wrong by an order of
+   * magnitude on CI hardware. That is why the always-on assertions above carry
+   * no clock at all.
+   */
+  it.skipIf(process.env['RESUME_PERF'] !== '1')(
+    'screens a cap-sized operator-free stream without a visible stall',
+    async () => {
+      // Sized FROM the constant, so this stays a measurement OF the cap rather
+      // than of a number that once equalled it.
+      const sparse = buildPdfWithRawContentStream(
+        repeatedBuffer(' TjX', MAX_PDF_CONTENT_BYTES - 1_000_000),
+      )
+
+      const meter = startLagMeter()
+      await inspectPdfContent(sparse, 1)
+      const { worstStall } = meter.stop()
+
+      // Generous on purpose: this documents an order of magnitude, not a budget.
+      expect(worstStall).toBeLessThan(200)
+    },
+    120_000,
+  )
 
   it('refuses a document whose parsable parts exceed the budget', async () => {
     const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
