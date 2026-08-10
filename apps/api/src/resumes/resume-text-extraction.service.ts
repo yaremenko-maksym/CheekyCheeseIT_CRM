@@ -52,18 +52,63 @@ import {
 /**
  * Wall-clock deadline for one extraction, enforced with SIGKILL.
  *
- * The worst HONEST document measured takes about a second; the crafted one that
- * prompted this took 1 503 ms of stall in-process. Ten seconds leaves ample room
- * for a slow disk and a cold start while still bounding the damage — and the
- * damage is now one failed upload, not an unavailable API.
+ * ==========================================================================
+ * IT MUST EXCEED THE COST OF THE WORST DOCUMENT THE BUDGETS PERMIT
+ * ==========================================================================
+ * The previous 10 s was set against "the worst HONEST document takes about a
+ * second", which was measured BEFORE the parser moved into a child process and
+ * was simply wrong afterwards. Measured now, running the worker directly on the
+ * densest document `MAX_DOCX_PARSED_BYTES` allows (60 000 paragraphs):
+ *
+ *   densest PERMITTED document   8.3 - 14.7 s      peak heap 171 - 263 MB
+ *   40-page academic CV          2.9 -  3.4 s      peak heap        34 MB
+ *
+ * So the acceptance budget permitted documents the deadline then killed — and
+ * told the user their file was unreadable. That is a product defect, not a test
+ * one: two bounds that had never been compared to each other, one describing
+ * what we accept and the other how long we allow it to take, disagreeing for
+ * every document in between. It surfaced as four "unrelated" red tests on a
+ * loaded runner, where niceness 19 stretches those seconds further.
+ *
+ * 60 s is ~4x the worst permitted document measured on an idle machine, leaving
+ * room for a loaded runner scheduling this at the lowest priority. It costs
+ * nothing in responsiveness: extraction is a DETACHED JOB — no request waits on
+ * it, the API is not blocked, and the only thing a longer deadline lengthens is
+ * how long a genuinely stuck parse occupies one of two slots.
+ *
+ * Pinned by "accepts the densest permitted document and refuses the next step
+ * up" — the test that went red when these two numbers first disagreed.
  */
-export const EXTRACTION_TIMEOUT_MS = 10_000
+export const EXTRACTION_TIMEOUT_MS = 60_000
 
-/** Kernel-side CPU backstop (`ulimit -t`) for a starved JS timer. */
-export const EXTRACTION_CPU_SECONDS = 20
+/**
+ * Kernel-side CPU backstop (`ulimit -t`) for a starved JS timer.
+ *
+ * Deliberately above the wall clock: it is a backstop for a timer that never
+ * fires, not a second, tighter deadline. Below it, the kernel would become the
+ * usual killer and the readable timeout path would be dead code.
+ */
+export const EXTRACTION_CPU_SECONDS = 90
 
-/** Address-space ceiling per extraction (`ulimit -v`, KiB) — 1 GiB. */
-export const EXTRACTION_ADDRESS_SPACE_KB = 1_048_576
+/**
+ * V8 heap ceiling per extraction (`--max-old-space-size`, MiB).
+ *
+ * Replaces an `ulimit -v` of 1 GiB, which was not a memory bound at all: it
+ * capped ADDRESS SPACE, of which a do-nothing Node process reserves ~399 GB
+ * against ~31 MB of real use, so the worker died of `std::bad_alloc` before
+ * running a line — on 23 KB files, intermittently, for three rounds. Full
+ * reasoning in `sandboxed-process.ts`.
+ *
+ * MEASURED, by running the worker on the worst documents the budgets permit:
+ * peak heap is 171-263 MB for the densest permitted DOCX and 34 MB for a
+ * 40-page academic CV — an order of magnitude under the old nominal 1 GiB, and
+ * a reminder that the address-space number never described memory at all.
+ *
+ * 768 MiB is ~3x the worst measured. A real ceiling on real heap: exceed it and
+ * V8 raises a JavaScript OOM that the worker reports as a failed extraction,
+ * rather than a C++ abort that says nothing.
+ */
+export const EXTRACTION_HEAP_MB = 768
 
 /**
  * How many extractions may hold parser state at once, process-wide.
@@ -206,6 +251,9 @@ export class ResumeTextExtractionService {
         // cannot be redirected by a PATH entry.
         bin: process.execPath,
         args: [
+          // The heap cap goes to NODE, before the script — this is the bound
+          // that actually limits memory for a V8 process (see EXTRACTION_HEAP_MB).
+          `--max-old-space-size=${EXTRACTION_HEAP_MB}`,
           resolveAssetPath('workers/resume-extract.cjs'),
           filePath,
           mime,
@@ -217,7 +265,9 @@ export class ResumeTextExtractionService {
         // driven by an uploaded file.
         env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin' },
         timeoutMs: EXTRACTION_TIMEOUT_MS,
-        addressSpaceKb: EXTRACTION_ADDRESS_SPACE_KB,
+        // No `addressSpaceKb`: RLIMIT_AS is meaningless for a V8 process and
+        // was killing this worker. Memory is bounded by the heap cap above,
+        // CPU by the kernel backstop below.
         cpuSeconds: EXTRACTION_CPU_SECONDS,
         // Generous slack over the character cap: UTF-8 Cyrillic is two bytes a
         // character and the JSON envelope escapes some of them.

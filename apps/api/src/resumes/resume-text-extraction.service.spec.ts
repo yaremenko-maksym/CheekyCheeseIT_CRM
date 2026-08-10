@@ -14,6 +14,7 @@
 import { describe, expect, it } from 'vitest'
 import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
 import {
+  EXTRACTION_HEAP_MB,
   ResumeFileUnreadableError,
   ResumeTextExtractionService,
 } from './resume-text-extraction.service'
@@ -467,6 +468,36 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * This is that test. It does not measure anything; it refuses a silent raise
    * and points at the measurement to run first.
    */
+  /**
+   * THE WORKER'S MEMORY BOUND, exercised rather than merely configured.
+   *
+   * `EXTRACTION_ADDRESS_SPACE_KB` (`ulimit -v`, 1 GiB) had no test at all, and
+   * was visible only when it misfired — which it did, for three rounds, as
+   * `Extraction worker exited null: std::bad_alloc` on 23-161 KB fixtures. It
+   * was never a memory bound: it capped ADDRESS SPACE, and a do-nothing Node
+   * process reserves ~399 GB of that against ~31 MB of real use. On the runtime
+   * where an honest document needs 512-768 MB it meant a legitimate 40-page CV
+   * could fail with a message blaming the user's file for the machine's load.
+   *
+   * Two assertions, because the bound has two halves that fail differently:
+   * the honest document must GO THROUGH, and the cap must be the kind of cap
+   * that bounds real heap.
+   */
+  it('extracts an honest large document within the worker’s memory bound', async () => {
+    // The same 40-page-at-real-Word-density document AC5 uses — the case the
+    // 1 GiB address-space cap was killing.
+    const academicCv = buildWordDensityDocx(40)
+    const text = await service.extract(academicCv, RESUME_DOCX_MIME)
+    expect(text.length).toBeGreaterThan(1000)
+  }, 120_000)
+
+  it('bounds the worker with a V8 heap cap, not with RLIMIT_AS', () => {
+    // A heap cap is enforced against real usage and surfaces as a catchable JS
+    // OOM; `ulimit -v` is enforced against reservations and aborts in C++.
+    expect(EXTRACTION_HEAP_MB).toBeGreaterThanOrEqual(768)
+    expect(`--max-old-space-size=${EXTRACTION_HEAP_MB}`).toMatch(/^--max-old-space-size=\d+$/)
+  })
+
   it('pins MAX_PDF_CONTENT_BYTES — raising it also raises a main-thread stall', () => {
     expect(MAX_PDF_CONTENT_BYTES).toBeLessThanOrEqual(32 * 1024 * 1024)
     // If you are here because you raised it: the scan cost grows linearly with

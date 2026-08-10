@@ -61,6 +61,48 @@ export const SANDBOX_NICENESS = 19
  */
 const RLIMIT_WRAPPER = 'ulimit -v "$1" 2>/dev/null; ulimit -t "$2" 2>/dev/null; shift 2; exec "$@"'
 
+/**
+ * `$1 = unlimited` leaves the address space alone while keeping the wrapper's
+ * argument positions fixed, so there is one script rather than two.
+ */
+const NO_ADDRESS_SPACE_LIMIT = 'unlimited'
+
+/**
+ * ==========================================================================
+ * RLIMIT_AS IS THE WRONG INSTRUMENT FOR A NODE CHILD
+ * ==========================================================================
+ * `ulimit -v` caps ADDRESS SPACE RESERVED, not memory used, and V8 reserves
+ * enormously more than it touches. Measured on this machine, a Node process
+ * that does nothing at all:
+ *
+ *   VSZ (address space reserved)  399 221 MB
+ *   RSS (real memory used)             31 MB
+ *
+ * So `EXTRACTION_ADDRESS_SPACE_KB = 1 GiB` never meant "one gigabyte of
+ * memory". It meant "fail unless V8 can fit its reservations into 1 GiB of
+ * address space", which it cannot, and the failure surfaces as a C++
+ * allocation error before any JavaScript runs:
+ *
+ *   Extraction worker exited null: terminate called after throwing an
+ *   instance of 'std::bad_alloc'
+ *
+ * That is why it struck 23-161 KB fixtures — the document size was never
+ * involved — and why it was intermittent: V8 retries with smaller
+ * reservations, and on a loaded runner the retries fail too. It is also why
+ * three rounds of shrinking fixtures did not fix it: the fixtures were never
+ * the cause. Removing the 32 MB ones cured only the test that carried them.
+ *
+ * AND MY LOCAL RUNS COULD NEVER HAVE SHOWN IT: macOS does not honour
+ * `ulimit -v` at all (setting it leaves `ulimit -v` reporting `unlimited`), so
+ * the bound silently did nothing here and bit only on Linux. Same shape as the
+ * lag meter and the Node-20 annotation array — a local instrument that cannot
+ * express the failure.
+ *
+ * The bound that MEANS what it says for a Node process is V8's own heap cap,
+ * `--max-old-space-size`: enforced against real heap usage, and it fails as a
+ * catchable JavaScript OOM with a stack, not as a C++ terminate.
+ */
+
 export interface SandboxOptions {
   bin: string
   args: string[]
@@ -68,8 +110,14 @@ export interface SandboxOptions {
   env: NodeJS.ProcessEnv
   /** Wall-clock deadline; the process is SIGKILLed when it expires. */
   timeoutMs: number
-  /** `ulimit -v`, KiB. */
-  addressSpaceKb: number
+  /**
+   * `ulimit -v`, KiB — OMIT for a Node child. See `RLIMIT_AS is the wrong
+   * instrument for Node` below.
+   *
+   * Suitable for the Typst binary (Rust, reserves roughly what it uses) and
+   * actively harmful for anything V8-based.
+   */
+  addressSpaceKb?: number
   /** `ulimit -t`, seconds — a KERNEL-side backstop for a starved JS timer. */
   cpuSeconds: number
   /** Cap on captured stdout. `0` discards it entirely. */
@@ -98,7 +146,9 @@ export function runSandboxed(options: SandboxOptions): Promise<SandboxResult> {
         '-c',
         RLIMIT_WRAPPER,
         'crm-sandbox',
-        String(options.addressSpaceKb),
+        options.addressSpaceKb === undefined
+          ? NO_ADDRESS_SPACE_LIMIT
+          : String(options.addressSpaceKb),
         String(options.cpuSeconds),
         options.bin,
         ...options.args,
