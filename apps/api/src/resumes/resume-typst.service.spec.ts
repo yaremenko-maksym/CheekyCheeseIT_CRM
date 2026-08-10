@@ -263,6 +263,48 @@ describe('untrusted content stays content', () => {
   }, 120_000)
 })
 
+/**
+ * Content loss is worse than a crash, because nothing announces it.
+ *
+ * Typst does not break inside a word, so a long unbroken token used to run off
+ * the page and simply stop: 400 `Z` characters rendered 87, the line ending at
+ * 597.9 pt on a 595.3 pt sheet, 313 characters gone, exit code 0, no warning.
+ * Well inside the permitted field lengths — `shortText` allows 200 — so it was
+ * reachable by any pasted URL or identifier.
+ *
+ * The closed branch had a unit test for its own wrapping helper; it went with
+ * the pdf-lib renderer it belonged to. This asserts the PROPERTY instead, in
+ * the finished document: everything that went in comes out.
+ */
+describe('nothing is silently lost off the edge of the page', () => {
+  it('keeps every character of a token far wider than the line', async () => {
+    const token = 'Z'.repeat(400)
+    const { text } = await readBack(
+      await service.render(input({ content: { ...CONTENT, summary: token } })),
+    )
+
+    // Whitespace was inserted to create break opportunities, so compare the
+    // characters that matter, not the layout.
+    const zeds = (text.match(/Z/g) ?? []).length
+    expect(zeds).toBe(400)
+  }, 120_000)
+
+  it('keeps a long URL intact, character for character', async () => {
+    const url = `https://example.com/${'segment-'.repeat(30)}end`
+    const { text } = await readBack(
+      await service.render(input({ content: { ...CONTENT, summary: url } })),
+    )
+
+    expect(text.replace(/\s+/g, '')).toContain(url.replace(/\s+/g, ''))
+  }, 120_000)
+
+  it('leaves ordinary prose alone', async () => {
+    const { text } = await readBack(await service.render(input()))
+    // No stray breaks inserted into text that never needed them.
+    expect(text).toContain('Синьор-розробник з восьмирічним досвідом')
+  }, 120_000)
+})
+
 describe('the sandbox', () => {
   it('refuses a template that reads outside its scratch directory', async () => {
     const escaping = '#let render(data) = [#read("/etc/hosts")]'

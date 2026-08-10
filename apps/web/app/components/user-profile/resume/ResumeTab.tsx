@@ -22,7 +22,7 @@
  * shell's dirty-guard dialog plus a `beforeunload` handler.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Download, FileText, History, PencilLine, Trash2 } from 'lucide-react'
+import { FileText, History, PencilLine, Trash2 } from 'lucide-react'
 import {
   EMPTY_RESUME_CONTENT,
   isSafeResumeUrl,

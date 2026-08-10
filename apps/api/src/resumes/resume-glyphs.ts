@@ -151,7 +151,49 @@ export function toRenderableText(raw: string): { text: string; dropped: string[]
   // would typeset with a double gap. `normalizeExtractedText` already collapses
   // runs of spaces, trims lines and strips control characters — the same
   // reduction the extractor applies on the way in, reused rather than rewritten.
-  return { text: normalizeExtractedText(out), dropped }
+  return { text: breakOverlongRuns(normalizeExtractedText(out)), dropped }
+}
+
+/**
+ * Longest run of non-breaking characters allowed to reach the typesetter.
+ *
+ * Chosen from the failure it prevents, not from taste: at the template's normal
+ * size, ~87 characters already fill a line, and a `shortText` field permits 200.
+ * 60 leaves room at the largest font scale and the widest margins.
+ */
+const MAX_UNBROKEN_RUN = 60
+
+/**
+ * Give the typesetter somewhere to break a run that has no break opportunity.
+ *
+ * WHY: Typst does not break inside a word, so a single 400-character token —
+ * a pasted URL, an ID, a wall of one letter — runs straight off the page. It
+ * does not warn and it does not truncate visibly: the text simply ends at the
+ * paper's edge. Measured before this: 400 `Z` characters in `summary` rendered
+ * 87 of them, the line ending at 597.9 pt on a 595.3 pt page, 313 characters
+ * gone, exit code 0.
+ *
+ * SILENT LOSS IN A DOCUMENT SENT TO A CLIENT is the worst failure mode in this
+ * whole feature — worse than a crash, which at least announces itself. So a
+ * space is inserted every `MAX_UNBROKEN_RUN` characters of an otherwise
+ * unbreakable run. A space rather than U+200B or a soft hyphen on purpose:
+ * those are glyphs, subject to the same font-coverage question this module
+ * exists to answer, and a zero-width character absent from the subset would be
+ * dropped by the very pass above.
+ *
+ * Rendering-only, like every other transform here — the stored content keeps
+ * the token intact.
+ */
+export function breakOverlongRuns(text: string): string {
+  // Split on whitespace, keeping it, so only genuine runs are touched.
+  return text.replace(/\S+/g, (run) => {
+    if (run.length <= MAX_UNBROKEN_RUN) return run
+    const pieces: string[] = []
+    for (let i = 0; i < run.length; i += MAX_UNBROKEN_RUN) {
+      pieces.push(run.slice(i, i + MAX_UNBROKEN_RUN))
+    }
+    return pieces.join(' ')
+  })
 }
 
 /**
