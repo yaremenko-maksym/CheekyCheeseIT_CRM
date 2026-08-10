@@ -377,6 +377,13 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
             // Written out because the earlier comment here credited `min-w-0`,
             // and the next person to tidy a "redundant" `max-w-full` on that
             // authority would silently bring the overflow back.
+            //
+            // NOTE: `docs/design/senior-resume.md` recommends `min-w-0` for
+            // this line. That recommendation predates the measurement above and
+            // is superseded by it — four variants were compared in a browser,
+            // and `min-w-0` alone still overflowed to 510 px. Keep both classes;
+            // the doc is right that the line needed fixing and wrong about
+            // which property fixes it.
             <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
               <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="truncate">

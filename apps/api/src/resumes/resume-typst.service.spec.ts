@@ -361,6 +361,28 @@ describe('nothing is silently lost off the edge of the page', () => {
 })
 
 describe('the sandbox', () => {
+  /**
+   * A personal template — the whole point of the feature — passes through no
+   * static scan: the glyph spec reads the SHIPPED template, and Typst compiles
+   * an undrawable character with exit code 0 and no warning. Every render goes
+   * through here with the template in hand, so this is where it is caught.
+   */
+  it('refuses a template containing a character the fonts cannot draw', async () => {
+    const withAnArrow = '#let render(data) = [→ #data.displayName]'
+
+    await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(
+      /не отрисовываются/,
+    )
+    // The message names the offending character, so the fix is obvious.
+    await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(/→/)
+  }, 120_000)
+
+  it('still renders a personal template made only of drawable characters', async () => {
+    const clean = '#let render(data) = [Резюме — #data.displayName]'
+    const pdf = await service.render(input({ templateSource: clean }))
+    expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+  }, 120_000)
+
   it('refuses a template that reads outside its scratch directory', async () => {
     const escaping = '#let render(data) = [#read("/etc/hosts")]'
     await expect(service.render(input({ templateSource: escaping }))).rejects.toBeInstanceOf(

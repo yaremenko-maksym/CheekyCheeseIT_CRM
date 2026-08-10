@@ -211,13 +211,20 @@ describe('every character that can reach the PDF has a glyph', () => {
    * the moment a template is SAVED, which is the only place the source exists
    * and the only moment a human can still fix it.
    */
-  it('does not yet cover a senior’s own template — recorded, not silently missing', () => {
+  it('covers a senior’s own template too — enforced at render, not merely noted', () => {
     // The guarantee the shipped template gets...
     const shipped = readFileSync(resolveAssetPath('typst/default-resume.typ'), 'utf8')
     expect(findUnrenderable(shipped)).toEqual([])
 
-    // ...is exactly what a personal template would need and does not have. This
-    // is the check that belongs on the (not yet existing) save path.
+    // ...now also reaches a PERSONAL template. This scan is what
+    // `assertTemplateIsDrawable` runs on every render, so a designer's layout
+    // with an arrow in it fails loudly and names the character instead of
+    // shipping an empty box on every bullet.
+    //
+    // Render-time rather than save-time because no save path for
+    // `template_source` exists yet; this is the other end of the same pipe, and
+    // it is the end that exists. The refusal itself is asserted in
+    // resume-typst.service.spec.ts.
     const personalTemplateWithAnArrow = '#let render(data) = [→ #data.displayName]'
     expect(findUnrenderable(personalTemplateWithAnArrow)).toEqual(['→'])
   })

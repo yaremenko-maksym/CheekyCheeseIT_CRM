@@ -32,6 +32,28 @@ import { Button } from '@/components/ui/button'
 import { SegmentedToggle } from '@/components/ui/segmented-toggle'
 import { cn } from '@/lib/utils'
 
+/**
+ * HOVER LABELS ON THE ICON-ONLY BUTTONS — what works, and what does not.
+ *
+ * All six controls per row (hide / up / down) carry `aria-label` and `title`.
+ * `title` gives a hover label WHILE THE BUTTON IS ENABLED, which is the
+ * one-line fix `docs/design/senior-resume.md` asks for and the same approach
+ * `animated-tabs.tsx` uses.
+ *
+ * KNOWN GAP, measured: when a button is DISABLED the label is unreachable. Our
+ * shared `Button` sets `pointer-events: none` in its disabled styles, so the
+ * native tooltip never fires — and a Radix tooltip would not fire on a disabled
+ * trigger either. A read-only viewer therefore still infers these icons from
+ * their shapes and the section name beside them. An earlier version of this
+ * comment claimed the gap was closed; it was not, and the reviewer measured it.
+ *
+ * Closing it needs a wrapper that keeps pointer events while the button does
+ * not, or a change to the shared Button's disabled styling — a change outside
+ * this panel, affecting every icon button in the app, which is why it is
+ * recorded here rather than done locally. Stated once, above all six controls,
+ * instead of on whichever one happened to be first.
+ */
+
 /** Russian labels for the sections, matching the headings the template prints. */
 const SECTION_LABELS: Record<ResumeSectionKey, string> = {
   summary: 'О себе',
@@ -165,23 +187,6 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                           ? `Показать «${SECTION_LABELS[key]}»`
                           : `Скрыть «${SECTION_LABELS[key]}»`
                       }
-                      // `title` gives these icon-only buttons a hover label while
-                      // they are ENABLED. Same approach as animated-tabs.tsx.
-                      //
-                      // KNOWN GAP, stated rather than glossed: when the button is
-                      // disabled the label is unreachable — our Button sets
-                      // `pointer-events: none` in its disabled styles, so the
-                      // native tooltip never fires either, and a Radix tooltip
-                      // would not fire on a disabled trigger. A read-only viewer
-                      // therefore still has to infer these icons from the eye /
-                      // arrow shapes and the section name beside them.
-                      //
-                      // Closing it properly means a wrapper element that keeps
-                      // pointer events while the button does not — a change to
-                      // the shared Button's disabled styling or an extra span per
-                      // control. Left for the designer's pass rather than done
-                      // half-way here, because the earlier version of this
-                      // comment claimed the gap was closed when it was not.
                       title={
                         hidden
                           ? `Показать «${SECTION_LABELS[key]}»`

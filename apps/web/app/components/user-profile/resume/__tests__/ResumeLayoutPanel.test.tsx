@@ -38,6 +38,12 @@ beforeEach(() => {
 
 const { ResumePdfPreview } = await import('../ResumePdfPreview')
 
+/**
+ * Shared by the "no template editor" assertion and by its non-vacuity control,
+ * so a typo breaks the control instead of quietly disarming the assertion.
+ */
+const TEXT_INPUT_ROLE = 'textbox' as const
+
 function renderPanel(overrides: Partial<ResumeLayoutOptions> = {}, canEdit = true) {
   const onSave = vi.fn()
   render(
@@ -144,17 +150,21 @@ describe('the panel offers switches and nothing else', () => {
   it('exposes no way to edit the template itself', () => {
     renderPanel()
     const panel = screen.getByTestId('resume-layout-panel')
-    expect(within(panel).queryAllByRole('textbox')).toHaveLength(0)
+    expect(within(panel).queryAllByRole(TEXT_INPUT_ROLE)).toHaveLength(0)
   })
 
   /**
    * The control for the assertion above.
    *
-   * `queryAllByRole('textbox')` returning nothing proves the panel has no text
-   * input ONLY if that query would have found one. A renamed role, a changed
-   * Testing Library default, or a typo in the role string all produce the same
-   * comfortable zero — the identical shape as the `<object>` preview test that
-   * passed for days while the preview was blank.
+   * `queryAllByRole(...)` returning nothing proves the panel has no text input
+   * ONLY if that query would have found one — the same shape as the `<object>`
+   * preview test that passed for days while the preview was blank.
+   *
+   * BOTH USE THE SAME CONSTANT, and that is the point. The first version of
+   * this control repeated the literal `'textbox'` independently, so a typo in
+   * the assertion it guards left all 17 tests green — the control was proving
+   * that ITS OWN string worked, not that the other one did. A shared constant
+   * makes the claim true: mistype it now and the control fails first.
    */
   it('the "no textbox" check would notice a textbox', () => {
     render(
@@ -163,7 +173,7 @@ describe('the panel offers switches and nothing else', () => {
       </div>,
     )
     const control = screen.getByTestId('textbox-control')
-    expect(within(control).queryAllByRole('textbox')).toHaveLength(1)
+    expect(within(control).queryAllByRole(TEXT_INPUT_ROLE)).toHaveLength(1)
   })
 
   it('is read-only for a viewer without write access', () => {

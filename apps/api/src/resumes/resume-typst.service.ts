@@ -58,7 +58,7 @@ import { setPriority, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { normalizeResumeLayout, type ResumeContent, type ResumeLayoutOptions } from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
-import { logDroppedGlyphs, toRenderableDeep } from './resume-glyphs'
+import { findUnrenderable, logDroppedGlyphs, toRenderableDeep } from './resume-glyphs'
 import { ResumeSemaphore } from './resume-semaphore'
 
 /** Hard wall-clock deadline for one render, enforced with SIGKILL. */
@@ -224,6 +224,7 @@ export class ResumeTypstService {
     const dir = await mkdtemp(join(tmpdir(), 'crm-resume-'))
     try {
       const template = input.templateSource ?? loadDefaultTemplate()
+      assertTemplateIsDrawable(template)
       await writeFile(join(dir, 'data.json'), payload, 'utf8')
       await writeFile(join(dir, 'template.typ'), template, 'utf8')
       // The entry point is OURS, not the template's: it decides that the
@@ -441,6 +442,34 @@ const spawnTypst: TypstRunner = createSpawnRunner()
 // ---------------------------------------------------------------------------
 // The default template
 // ---------------------------------------------------------------------------
+
+/**
+ * Refuse to typeset a template containing a character the fonts cannot draw.
+ *
+ * ENFORCEMENT, not a note. The glyph spec scans the template shipped in this
+ * repo, which leaves the interesting case uncovered: a senior's PERSONAL
+ * template — the entire point of the feature — passes through no check at all,
+ * and Typst compiles an undrawable character with exit code 0 and no warning
+ * (verified on 0.15.1). The first signal would be a client opening a PDF with
+ * an empty box on every bullet.
+ *
+ * The save path for `template_source` does not exist yet, so a check there
+ * cannot be written. This is the other end of the same pipe and it exists
+ * today: EVERY render passes through here, with the template in hand. A
+ * personal template with an arrow in it now fails loudly, naming the character,
+ * instead of shipping boxes.
+ *
+ * Cheap by construction — a template is a few kilobytes, and the coverage set
+ * is cached for the process.
+ */
+function assertTemplateIsDrawable(template: string): void {
+  const missing = findUnrenderable(template)
+  if (missing.length === 0) return
+  throw new ResumeRenderError(
+    `В шаблоне резюме есть символы, которые не отрисовываются доступными шрифтами: ${missing.join(' ')}. Замените их или добавьте шрифт с этими глифами.`,
+    `undrawable template glyphs: ${missing.map((ch) => `U+${(ch.codePointAt(0) ?? 0).toString(16).toUpperCase()}`).join(', ')}`,
+  )
+}
 
 let defaultTemplateCache: string | null = null
 
