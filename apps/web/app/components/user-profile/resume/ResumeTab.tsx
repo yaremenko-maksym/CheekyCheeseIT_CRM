@@ -50,11 +50,14 @@ import {
   useIngestResumeText,
   useResumeSourceUrl,
   useSaveResumeContent,
+  useSaveResumeLayout,
   useSeniorResume,
   useUploadResumeSource,
 } from '@/hooks/use-senior-resume'
 import { ResumeExperienceEditor } from './ResumeExperienceEditor'
 import { ResumeIntake } from './ResumeIntake'
+import { ResumeLayoutPanel } from './ResumeLayoutPanel'
+import { ResumePdfPreview } from './ResumePdfPreview'
 import { ResumeSectionCard } from './ResumeSectionCard'
 import { ResumeStatusPanel } from './ResumeStatusPanel'
 
@@ -94,6 +97,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
   const uploadMutation = useUploadResumeSource(userId)
   const textMutation = useIngestResumeText(userId)
   const deleteMutation = useDeleteResume(userId)
+  const layoutMutation = useSaveResumeLayout(userId)
   // `resume` is null until the senior has one; `canEdit` sits OUTSIDE it
   // precisely so the empty state still knows whether to offer the upload UI.
   const resume = data?.resume ?? null
@@ -370,17 +374,6 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
           )}
         </div>
         <div className="flex flex-col gap-2 sm:flex-row">
-          {/* Only offered once there is something to render. An empty resume
-              produces a PDF with a name and nothing else — a download that
-              wastes a click and looks broken. */}
-          {hasContent && (
-            <Button asChild className="min-h-11">
-              <a href={resumePdfUrl(userId)} data-testid="resume-download-pdf">
-                <Download className="mr-2 h-4 w-4" aria-hidden />
-                Скачать PDF
-              </a>
-            </Button>
-          )}
           {/* Source download + erase: the SAME fragment the empty state renders,
               so neither control can go missing in one branch only. */}
           {sourceAndDangerActions}
@@ -560,6 +553,22 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
           <Placeholder />
         )}
       </ResumeSectionCard>
+
+      {/* ── Layout + the finished document ───────────────────────────────── */}
+
+      {resume && (
+        <ResumeLayoutPanel
+          layout={resume.layout}
+          canEdit={canEdit}
+          isSaving={layoutMutation.isPending}
+          onSave={(layout) => layoutMutation.mutate(layout)}
+        />
+      )}
+
+      {/* Only once there is something to typeset. An empty resume renders a
+          page with a name on it — a download that wastes a click and looks
+          broken. */}
+      {resume && hasContent && <ResumePdfPreview resume={resume} pdfUrl={resumePdfUrl(userId)} />}
     </div>
   )
 }

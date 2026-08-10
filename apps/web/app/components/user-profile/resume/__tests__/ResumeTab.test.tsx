@@ -15,6 +15,7 @@ import {
 } from '@crm/shared'
 
 const saveMock = vi.fn()
+const saveLayoutMock = vi.fn()
 const uploadMock = vi.fn()
 const ingestTextMock = vi.fn()
 const deleteMock = vi.fn()
@@ -25,6 +26,7 @@ let isLoading = false
 vi.mock('@/hooks/use-senior-resume', () => ({
   useSeniorResume: () => ({ data: resumeData, isLoading, isError: false }),
   useSaveResumeContent: () => ({ mutate: saveMock, isPending: false }),
+  useSaveResumeLayout: () => ({ mutate: saveLayoutMock, isPending: false }),
   useUploadResumeSource: () => ({ mutate: uploadMock, isPending: false }),
   useIngestResumeText: () => ({ mutate: ingestTextMock, isPending: false }),
   useDeleteResume: () => ({ mutate: deleteMock, isPending: false }),

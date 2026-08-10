@@ -8,7 +8,7 @@
  */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import type { ResumeContent, SeniorResumeResponse } from '@crm/shared'
+import type { ResumeContent, ResumeLayoutOptions, SeniorResumeResponse } from '@crm/shared'
 import { api } from '@/lib/axios'
 
 /** Same base the axios client uses — needed for plain <a href> downloads. */
@@ -30,9 +30,38 @@ export function useSeniorResume(userId: string | undefined, enabled = true) {
     // stale snapshot from cache when the tab is re-opened.
     staleTime: 0,
     refetchInterval: (query) => {
-      const status = query.state.data?.resume?.status
-      return status === 'QUEUED' || status === 'RUNNING' ? POLL_INTERVAL_MS : false
+      const resume = query.state.data?.resume
+      const extracting = resume?.status === 'QUEUED' || resume?.status === 'RUNNING'
+      // The PDF is built by a job too, so the same polling rule has to cover
+      // it — otherwise the preview sits on "готовим" until the user reloads by
+      // hand, which is the failure the extraction polling already exists to
+      // avoid.
+      const rendering = resume?.renderStatus === 'QUEUED' || resume?.renderStatus === 'RUNNING'
+      return extracting || rendering ? POLL_INTERVAL_MS : false
     },
+  })
+}
+
+/**
+ * Save the layout switches.
+ *
+ * A separate mutation from the content save on purpose: they are different
+ * kinds of change (what the resume SAYS vs how it is SET), they have different
+ * endpoints, and mixing them would mean flipping a density toggle re-submits
+ * every field the user happens to have open.
+ */
+export function useSaveResumeLayout(userId: string) {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationKey: ['save-senior-resume-layout', userId],
+    mutationFn: (layout: ResumeLayoutOptions) =>
+      api.put<SeniorResumeResponse>(`/users/${userId}/resume/layout`, { layout }).then((r) => r.data),
+    onSuccess: (data) => {
+      qc.setQueryData(resumeQueryKey(userId), data)
+      void qc.invalidateQueries({ queryKey: resumeQueryKey(userId) })
+      toast.success('Оформление обновлено')
+    },
+    onError: (e: Error) => toast.error(e.message),
   })
 }
 
