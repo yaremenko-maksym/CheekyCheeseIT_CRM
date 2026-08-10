@@ -187,8 +187,14 @@ describe('AuthController.googleCallback — real DB integration (audit MED)', ()
         { provide: ConfigService, useValue: makeConfig() },
         {
           provide: APP_GUARD,
-          useFactory: (jwt: JwtService, reflector: Reflector) => new JwtAuthGuard(jwt, reflector),
-          inject: [JwtService, Reflector],
+          // UsersService is REQUIRED here — it is what makes the guard re-read
+          // role + archivedAt from the DB instead of trusting the token
+          // (jwt.guard.ts AC2). The application refuses to start when a guard
+          // instance lacks it (auth/jwt-guard-wiring.ts), so a two-argument
+          // construction here would pin a shape that cannot exist in prod.
+          useFactory: (jwt: JwtService, reflector: Reflector, users: UsersService) =>
+            new JwtAuthGuard(jwt, reflector, users),
+          inject: [JwtService, Reflector, UsersService],
         },
       ],
     })

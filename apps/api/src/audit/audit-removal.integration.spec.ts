@@ -10,6 +10,8 @@ import type { SessionUser } from '@crm/shared'
 import { JwtAuthGuard } from '../auth/jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
 import { CurrentUser } from '../auth/current-user.decorator'
+import { UsersService } from '../users/users.service'
+import type { User } from '../database/schema'
 
 /**
  * Integration test — pins that the audit-journal endpoints are GONE (404)
@@ -65,6 +67,26 @@ class SentinelHealthController {
 }
 
 // ---------------------------------------------------------------------------
+// UsersService stand-in for the guard's DB re-hydration path (jwt.guard.ts AC2:
+// role + archivedAt are re-read per request instead of being trusted from the
+// token). This spec is deliberately DB-less, so `findById` is served from the
+// two sentinel personas above. Constructing the guard without a users service
+// would pin a shape the application cannot have — bootstrap refuses to start
+// when a DI-built guard lacks it (auth/jwt-guard-wiring.ts).
+// ---------------------------------------------------------------------------
+
+const USER_ROWS = new Map<string, Pick<User, 'role' | 'archivedAt'>>([
+  [adminUser.id, { role: 'ADMIN', archivedAt: null }],
+  [seniorUser.id, { role: 'SENIOR', archivedAt: null }],
+])
+
+function makeUsersServiceStub(): UsersService {
+  return Object.assign(Object.create(UsersService.prototype) as UsersService, {
+    findById: (id: string) => Promise.resolve(USER_ROWS.get(id)),
+  })
+}
+
+// ---------------------------------------------------------------------------
 // Minimal test module — real JWT, real guards, NO AuditModule.
 // After AuditModule removal this accurately mirrors the production module.
 // ---------------------------------------------------------------------------
@@ -81,7 +103,8 @@ class SentinelHealthController {
     Reflector,
     {
       provide: APP_GUARD,
-      useFactory: (jwt: JwtService, reflector: Reflector) => new JwtAuthGuard(jwt, reflector),
+      useFactory: (jwt: JwtService, reflector: Reflector) =>
+        new JwtAuthGuard(jwt, reflector, makeUsersServiceStub()),
       inject: [JwtService, Reflector],
     },
     {

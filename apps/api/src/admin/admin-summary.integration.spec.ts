@@ -16,6 +16,7 @@ import { RolesGuard } from '../common/guards/roles.guard'
 import { DatabaseService } from '../database/database.service'
 import { interviews, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { UsersService } from '../users/users.service'
 import { AdminController } from './admin.controller'
 import { AdminSummaryService } from './admin-summary.service'
 
@@ -182,8 +183,19 @@ class TestDatabaseModule {}
     AdminSummaryService,
     {
       provide: APP_GUARD,
-      useFactory: (jwtSvc: JwtService, reflector: Reflector) => new JwtAuthGuard(jwtSvc, reflector),
-      inject: [JwtService, Reflector],
+      // The guard MUST get a UsersService: that is what makes it re-read role +
+      // archivedAt from the DB instead of trusting the token (jwt.guard.ts AC2).
+      // Building it with only (jwt, reflector) would exercise a branch that
+      // cannot occur in the application — bootstrap refuses to start without
+      // the service (auth/jwt-guard-wiring.ts) — and would silently downgrade
+      // this RBAC spec to "whatever the signed token claims".
+      useFactory: (jwtSvc: JwtService, reflector: Reflector, db: DatabaseService) =>
+        new JwtAuthGuard(
+          jwtSvc,
+          reflector,
+          Object.assign(Object.create(UsersService.prototype) as UsersService, { db }),
+        ),
+      inject: [JwtService, Reflector, DatabaseService],
     },
   ],
 })
