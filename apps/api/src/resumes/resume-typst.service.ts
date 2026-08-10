@@ -49,7 +49,7 @@
  *   - a fixed `--jobs 1`: parallel typesetting is not required to be
  *     order-stable, and one job is also the friendlier CPU citizen.
  */
-import { Injectable, Logger } from '@nestjs/common'
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common'
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
@@ -141,12 +141,51 @@ export interface TypstRunner {
   }>
 }
 
+/**
+ * Injection token for the runner.
+ *
+ * ==========================================================================
+ * WHY A TOKEN AND NOT JUST THE TYPE
+ * ==========================================================================
+ * `TypstRunner` is an interface, and an interface does not survive to runtime.
+ * With `emitDecoratorMetadata`, `tsc` writes what is left of it —
+ * `design:paramtypes = [Function]` — and Nest dutifully goes looking for a
+ * provider registered under the token `Function`, finds none, and throws
+ * `UnknownDependenciesException` while BUILDING THE MODULE GRAPH. That takes
+ * the whole API down at startup: every endpoint, before the first request,
+ * before the database is even contacted.
+ *
+ * A parameter default does not rescue it. Defaults fill in `undefined`
+ * ARGUMENTS; the injector never gets far enough to pass one.
+ *
+ * AND THE TEST SUITE CANNOT SEE ANY OF THIS. Vitest transforms TypeScript with
+ * esbuild, which does not implement `emitDecoratorMetadata`, so under test Nest
+ * finds no `design:paramtypes`, constructs the class with no arguments, and the
+ * default quietly applies. The identical code passes every spec and fails every
+ * boot. That asymmetry is why the guard lives in
+ * `scripts/check-di-metadata.cjs`, which reads the COMPILED output, rather than
+ * in a spec that would be structurally blind to it.
+ *
+ * `@Optional()` + `@Inject(TYPST_RUNNER)` fixes both halves: the token is a
+ * symbol instead of an erased type, and nothing needs to register it — with no
+ * provider bound, the injector passes `undefined` and the constructor falls
+ * back to the real `spawnTypst`.
+ */
+export const TYPST_RUNNER = Symbol('TYPST_RUNNER')
+
 @Injectable()
 export class ResumeTypstService {
   private readonly logger = new Logger(ResumeTypstService.name)
   private readonly gate = new ResumeSemaphore(MAX_CONCURRENT_RENDERS)
 
-  constructor(private readonly runner: TypstRunner = spawnTypst) {}
+  private readonly runner: TypstRunner
+
+  constructor(@Optional() @Inject(TYPST_RUNNER) runner?: TypstRunner) {
+    // Assigned in the body rather than as a parameter default so the fallback
+    // is applied by THIS code on an `undefined` argument, whoever passed it —
+    // the injector with nothing bound, or a spec passing a stub positionally.
+    this.runner = runner ?? spawnTypst
+  }
 
   /** In-flight renders — the concurrency bound's only observable effect. */
   get activeRenders(): number {

@@ -3,7 +3,7 @@
   "version": "0.0.1",
   "private": true,
   "scripts": {
-    "build": "nest build",
+    "build": "nest build && node scripts/check-di-metadata.cjs",
     "dev": "nest start --watch",
     "start": "node dist/main",
     "typecheck": "tsc --noEmit",
