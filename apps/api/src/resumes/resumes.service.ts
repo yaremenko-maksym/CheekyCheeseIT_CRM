@@ -29,12 +29,15 @@ import {
 import { randomUUID } from 'node:crypto'
 import { and, asc, eq, lt, sql } from 'drizzle-orm'
 import {
+  DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
   RESUME_LIMITS,
   RESUME_SOURCE_MAX_BYTES,
+  normalizeResumeLayout,
   resumeContentSchema,
   type ResumeContent,
   type ResumeFailureCode,
+  type ResumeLayoutOptions,
   type SeniorResumeDto,
   type SeniorResumeResponse,
   type SessionUser,
@@ -44,7 +47,11 @@ import { seniorResumes, type SeniorResume, type User } from '../database/schema'
 import { S3Service, presignTtlForCategory } from '../documents/s3.service'
 import { ResumeAiService } from './resume-ai.service'
 import { canAccessResume, type ResumeAccessMode } from './resume-access'
-import { ResumePdfService } from './resume-pdf.service'
+import {
+  ResumeRenderError,
+  ResumeTypstService,
+  type ResumeRenderInput,
+} from './resume-typst.service'
 import {
   ResumeFileUnreadableError,
   ResumeTextExtractionService,
@@ -61,6 +68,15 @@ const DELETE_RACE_ATTEMPTS = 3
 
 /** A RUNNING row older than this was abandoned (process died) — AC3 sweep. */
 export const STUCK_EXTRACTION_TIMEOUT_MS = 10 * 60 * 1000
+
+/**
+ * A render left RUNNING longer than this was abandoned.
+ *
+ * Far shorter than the extraction timeout because the work is bounded by a
+ * 20-second SIGKILL: a render still marked RUNNING after two minutes means the
+ * PROCESS that owned it is gone, not that it is slow.
+ */
+export const STUCK_RENDER_TIMEOUT_MS = 2 * 60 * 1000
 
 export interface ResumeSourceFile {
   buffer: Buffer
@@ -84,7 +100,7 @@ export class SeniorResumesService {
     private readonly s3: S3Service,
     private readonly ai: ResumeAiService,
     private readonly extraction: ResumeTextExtractionService,
-    private readonly pdf: ResumePdfService,
+    private readonly typst: ResumeTypstService,
   ) {}
 
   // ==========================================================================
@@ -158,23 +174,47 @@ export class SeniorResumesService {
     return { url, expiresAt, fileName }
   }
 
-  /** Render the canonical content onto our PDF template (AC8). */
-  async generatePdf(
+  /**
+   * The rendered PDF — SERVED, not produced, here.
+   *
+   * This is the whole point of the render being a job. The handler does three
+   * cheap things: check access, compare the stored fingerprint with the current
+   * one, and stream bytes out of object storage. Typesetting is unbounded CPU
+   * on untrusted content and has no business inside a request; when the stored
+   * copy is stale the caller gets `pending` and a render is enqueued, exactly
+   * as the extraction pipeline behaves.
+   *
+   * Returning a discriminated result rather than throwing on "not ready": the
+   * controller answers 202 with a state the UI already knows how to poll, and a
+   * pending render is a normal moment in the life of a resume, not an error.
+   */
+  async getRenderedPdf(
     viewer: SessionUser,
     targetUserId: string,
-  ): Promise<{ pdfBuffer: Buffer; displayName: string }> {
+  ): Promise<
+    | { ready: true; pdfBuffer: Buffer; displayName: string }
+    | { ready: false; status: 'QUEUED' | 'RUNNING' | 'FAILED'; message: string | null }
+  > {
     const target = await this.assertAccess(viewer, targetUserId, 'read')
     const row = await this.findRow(targetUserId)
     if (!row) throw new NotFoundException('Резюме ещё не создано')
 
-    const pdfBuffer = await this.pdf.generateResumePdf({
-      displayName: target.displayName,
-      content: this.safeContent(row.content),
-      // Pinned to the row's own updatedAt so the same resume renders to the
-      // same bytes on every download (matches the invoice determinism rule).
-      generatedAt: row.updatedAt,
-    })
-    return { pdfBuffer, displayName: target.displayName }
+    const wanted = this.typst.fingerprint(this.renderInputFor(row, target.displayName))
+    if (row.pdfS3Key && row.pdfFingerprint === wanted) {
+      return {
+        ready: true,
+        pdfBuffer: await this.s3.getObject(row.pdfS3Key),
+        displayName: target.displayName,
+      }
+    }
+
+    if (row.pdfRenderStatus === 'FAILED' && row.pdfFingerprint === wanted) {
+      return { ready: false, status: 'FAILED', message: row.pdfRenderError }
+    }
+
+    // Stale or never built — make sure something is working on it.
+    await this.enqueueRender(row.id, target.displayName)
+    return { ready: false, status: 'QUEUED', message: null }
   }
 
   // ==========================================================================
@@ -191,7 +231,7 @@ export class SeniorResumesService {
     targetUserId: string,
     content: ResumeContent,
   ): Promise<SeniorResumeResponse> {
-    await this.assertAccess(viewer, targetUserId, 'write')
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
     // Re-validate server-side: never persist client-shaped JSON unchecked.
     const validated = resumeContentSchema.parse(content)
     const existing = await this.ensureRow(targetUserId)
@@ -217,6 +257,9 @@ export class SeniorResumesService {
       .returning()
 
     if (!updated) throw new NotFoundException('Резюме не найдено')
+    // The data changed, so the PDF is stale. Queued, never rendered here: the
+    // save must not wait on a typesetter (task §2, "рендер вне пути запроса").
+    await this.enqueueRender(updated.id, target.displayName)
     return this.toResponse(updated, viewer)
   }
 
@@ -361,7 +404,13 @@ export class SeniorResumesService {
       }
 
       const key = row.sourceS3Key
+      // BOTH stored objects go: the uploaded original AND the rendered PDF.
+      // The render was added by this task and is a second copy of the same
+      // personal data — a delete that erased only the source would leave a
+      // full CV in the bucket while telling the user it was gone.
+      const pdfKey = row.pdfS3Key
       if (key) await this.s3.delete(key)
+      if (pdfKey) await this.s3.delete(pdfKey)
 
       const removed = await this.db.db
         .delete(seniorResumes)
@@ -371,6 +420,10 @@ export class SeniorResumesService {
             // NULL-safe equality: `= NULL` is never true, so a resume without a
             // stored file would never match and could never be deleted.
             sql`${seniorResumes.sourceS3Key} IS NOT DISTINCT FROM ${key}`,
+            // The render key moves independently of the source key (a layout
+            // change rewrites one and not the other), so the guard has to cover
+            // it too — otherwise a render landing mid-delete orphans its PDF.
+            sql`${seniorResumes.pdfS3Key} IS NOT DISTINCT FROM ${pdfKey}`,
           ),
         )
         .returning({ id: seniorResumes.id })
@@ -501,7 +554,12 @@ export class SeniorResumesService {
       this.logger.log(
         `Resume ${resumeId}: extraction result discarded — the row was superseded while the model ran`,
       )
+      return
     }
+
+    // Extraction REPLACED the content, so the PDF that matched the old content
+    // is stale. Same detached queue as a manual save.
+    await this.enqueueRender(resumeId)
   }
 
   /**
@@ -685,6 +743,212 @@ export class SeniorResumesService {
   }
 
   // ==========================================================================
+  // Render pipeline (template + data -> PDF), out of the request path
+  // ==========================================================================
+
+  /**
+   * Everything the template is allowed to see, assembled in one place.
+   *
+   * ONE function builds this, and both the freshness check and the render call
+   * it. If the read path and the write path assembled the input separately they
+   * would eventually disagree about some field, and the fingerprint would stop
+   * meaning "these bytes are current" without anything failing loudly.
+   */
+  private renderInputFor(row: SeniorResume, displayName: string): ResumeRenderInput {
+    return {
+      displayName,
+      content: this.safeContent(row.content),
+      layout: this.safeLayout(row.layout),
+      templateSource: row.templateSource,
+    }
+  }
+
+  /**
+   * Mark the row QUEUED and kick a detached render.
+   *
+   * Deliberately not awaited by any caller: a save returns as soon as the data
+   * is saved, and the PDF catches up. Re-queuing from RUNNING is allowed and
+   * clears the run token, so a render already in flight is disowned rather than
+   * cancelled — it finishes, finds the token gone, and drops its bytes.
+   */
+  private async enqueueRender(resumeId: string, displayName?: string): Promise<void> {
+    await this.db.db
+      .update(seniorResumes)
+      .set({
+        pdfRenderStatus: 'QUEUED',
+        pdfRenderError: null,
+        pdfRenderStartedAt: null,
+        pdfRenderRunId: null,
+      })
+      .where(eq(seniorResumes.id, resumeId))
+
+    void this.runRender(resumeId, displayName).catch((err: unknown) => {
+      this.logger.error(
+        `Detached resume render crashed for ${resumeId}: ${err instanceof Error ? err.message : 'unknown'}`,
+      )
+    })
+  }
+
+  /**
+   * QUEUED -> RUNNING -> READY | FAILED.
+   *
+   * Public so the sweep can re-drive an abandoned row through the identical
+   * path. Every terminal write carries the run token, for the same reason
+   * extraction does: by the time a render finishes, the content it rendered may
+   * already be two saves old, and writing its key would advertise a stale PDF
+   * as the current one.
+   */
+  async runRender(resumeId: string, displayName?: string): Promise<void> {
+    const runId = randomUUID()
+    const claimed = await this.db.db
+      .update(seniorResumes)
+      .set({ pdfRenderStatus: 'RUNNING', pdfRenderStartedAt: new Date(), pdfRenderRunId: runId })
+      .where(and(eq(seniorResumes.id, resumeId), eq(seniorResumes.pdfRenderStatus, 'QUEUED')))
+      .returning()
+    const row = claimed[0]
+    if (!row) return // someone else owns this render
+
+    const name = displayName ?? (await this.displayNameFor(row.userId))
+    const input = this.renderInputFor(row, name)
+    const fingerprint = this.typst.fingerprint(input)
+
+    let pdf: Buffer
+    try {
+      pdf = await this.typst.render(input)
+    } catch (err: unknown) {
+      const message =
+        err instanceof ResumeRenderError
+          ? err.message
+          : 'Не удалось собрать PDF резюме. Попробуйте позже.'
+      this.logger.warn(`Resume ${resumeId}: render failed — ${message}`)
+      await this.db.db
+        .update(seniorResumes)
+        .set({
+          pdfRenderStatus: 'FAILED',
+          pdfRenderError: message,
+          pdfRenderStartedAt: null,
+          pdfRenderRunId: null,
+          // Recorded so a repeated request for the SAME input reports the
+          // failure instead of queuing a render that will fail identically.
+          pdfFingerprint: fingerprint,
+        })
+        .where(this.ownedByRenderRun(resumeId, runId))
+      return
+    }
+
+    const key = `senior-resumes/${row.userId}/pdf/${row.id}-${fingerprint.slice(0, 16)}.pdf`
+    await this.s3.upload(key, pdf, 'application/pdf', 'RESUME')
+
+    const written = await this.db.db
+      .update(seniorResumes)
+      .set({
+        pdfS3Key: key,
+        pdfFingerprint: fingerprint,
+        pdfRenderStatus: 'READY',
+        pdfRenderError: null,
+        pdfRenderStartedAt: null,
+        pdfRenderRunId: null,
+      })
+      .where(this.ownedByRenderRun(resumeId, runId))
+      .returning({ id: seniorResumes.id })
+
+    if (written.length === 0) {
+      // Superseded mid-render. The row now points elsewhere, so this object is
+      // unreferenced the moment it is written — erase it rather than leave a
+      // PDF of someone's CV in the bucket that no code path can reach.
+      this.logger.log(`Resume ${resumeId}: render superseded — discarding ${key}`)
+      await this.s3.delete(key)
+      return
+    }
+
+    // Only now is the previous PDF genuinely unreferenced.
+    if (row.pdfS3Key && row.pdfS3Key !== key) await this.s3.delete(row.pdfS3Key)
+  }
+
+  private ownedByRenderRun(resumeId: string, runId: string) {
+    return and(
+      eq(seniorResumes.id, resumeId),
+      eq(seniorResumes.pdfRenderStatus, 'RUNNING'),
+      eq(seniorResumes.pdfRenderRunId, runId),
+    )
+  }
+
+  /**
+   * Renders abandoned mid-flight (the container died) — swept back to QUEUED.
+   *
+   * QUEUED rather than FAILED, unlike the extraction sweep: a render needs no
+   * uploaded file and no paid model call to retry, so the honest recovery is to
+   * simply do it again. Also re-drives rows left QUEUED with nobody working on
+   * them.
+   */
+  async sweepStuckRenders(now: Date = new Date()): Promise<number> {
+    const cutoff = new Date(now.getTime() - STUCK_RENDER_TIMEOUT_MS)
+    const stuck = await this.db.db
+      .update(seniorResumes)
+      .set({ pdfRenderStatus: 'QUEUED', pdfRenderStartedAt: null, pdfRenderRunId: null })
+      .where(
+        and(
+          eq(seniorResumes.pdfRenderStatus, 'RUNNING'),
+          lt(seniorResumes.pdfRenderStartedAt, cutoff),
+        ),
+      )
+      .returning({ id: seniorResumes.id })
+
+    const abandoned = await this.db.db
+      .select({ id: seniorResumes.id, userId: seniorResumes.userId })
+      .from(seniorResumes)
+      .where(and(eq(seniorResumes.pdfRenderStatus, 'QUEUED'), lt(seniorResumes.updatedAt, cutoff)))
+      .orderBy(asc(seniorResumes.updatedAt))
+      .limit(20)
+
+    for (const candidate of abandoned) {
+      await this.runRender(candidate.id)
+    }
+    return stuck.length + abandoned.length
+  }
+
+  /**
+   * Save the layout switches (§3) and rebuild the PDF.
+   *
+   * The switches are the ONLY typesetting a human may change. There is no
+   * endpoint that writes `template_source`, and this method does not become
+   * one: it takes a validated `ResumeLayoutOptions` and nothing else. Bumping
+   * `version` is deliberate — the rendered artefact changed, and `version` is
+   * what the tailoring task reads to notice a stale derivative.
+   */
+  async updateLayout(
+    viewer: SessionUser,
+    targetUserId: string,
+    layout: ResumeLayoutOptions,
+  ): Promise<SeniorResumeResponse> {
+    const target = await this.assertAccess(viewer, targetUserId, 'write')
+    const existing = await this.ensureRow(targetUserId)
+
+    const [updated] = await this.db.db
+      .update(seniorResumes)
+      .set({
+        layout: normalizeResumeLayout(layout),
+        version: existing.version + 1,
+        updatedByUserId: viewer.id,
+        updatedAt: new Date(),
+      })
+      .where(eq(seniorResumes.id, existing.id))
+      .returning()
+    if (!updated) throw new NotFoundException('Резюме не найдено')
+
+    await this.enqueueRender(updated.id, target.displayName)
+    return this.toResponse(updated, viewer)
+  }
+
+  private async displayNameFor(userId: string): Promise<string> {
+    const user = await this.db.db.query.users.findFirst({
+      where: (tbl, { eq: equals }) => equals(tbl.id, userId),
+      columns: { displayName: true },
+    })
+    return user?.displayName ?? 'Резюме'
+  }
+
+  // ==========================================================================
   // Row helpers
   // ==========================================================================
 
@@ -721,6 +985,8 @@ export class SeniorResumesService {
         })
       : undefined
 
+    const layout = this.safeLayout(row.layout)
+
     return {
       resume: {
         id: row.id,
@@ -738,10 +1004,39 @@ export class SeniorResumesService {
         updatedByName: editor?.displayName ?? null,
         createdAt: row.createdAt.toISOString(),
         updatedAt: row.updatedAt.toISOString(),
+
+        layout,
+        // A LABEL. `template_source` is never serialised: the template is code,
+        // it stays server-side, and keeping it out of the DTO is what makes
+        // "the template is not part of the data" true rather than intended.
+        templateName: row.templateName ?? 'Стандартный шаблон',
+        hasCustomTemplate: row.templateSource !== null,
+
+        renderStatus: row.pdfRenderStatus,
+        renderError: row.pdfRenderError,
+        // Freshness is a COMPARISON of fingerprints, not a status check: a
+        // READY render of yesterday's content is not an up-to-date PDF.
+        // The name is the resume OWNER's — it is printed at the top of the
+        // document, so it is part of the render input like any other field.
+        pdfUpToDate:
+          Boolean(row.pdfS3Key) &&
+          row.pdfFingerprint ===
+            this.typst.fingerprint(this.renderInputFor(row, await this.displayNameFor(row.userId))),
       },
       // Server-computed, never echoed from the client.
       canEdit: canAccessResume(viewer, row.userId, 'write'),
     }
+  }
+
+  /**
+   * Validate the layout on the way out, exactly as `safeContent` does.
+   *
+   * A stored layout can be stale (a section added to the enum after it was
+   * written) or hand-edited, and the renderer must never receive a list it has
+   * to defend itself against. `normalizeResumeLayout` makes it total.
+   */
+  private safeLayout(raw: unknown): ResumeLayoutOptions {
+    return normalizeResumeLayout(raw ?? DEFAULT_RESUME_LAYOUT)
   }
 
   /**

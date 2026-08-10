@@ -7,7 +7,12 @@
  */
 import { fireEvent, render, screen, within } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { EMPTY_RESUME_CONTENT, type SeniorResumeDto, type SeniorResumeResponse } from '@crm/shared'
+import {
+  DEFAULT_RESUME_LAYOUT,
+  EMPTY_RESUME_CONTENT,
+  type SeniorResumeDto,
+  type SeniorResumeResponse,
+} from '@crm/shared'
 
 const saveMock = vi.fn()
 const uploadMock = vi.fn()
@@ -51,6 +56,12 @@ function makeResponse(
     updatedByName: null,
     createdAt: '2026-08-07T10:00:00.000Z',
     updatedAt: '2026-08-07T10:00:00.000Z',
+    layout: DEFAULT_RESUME_LAYOUT,
+    templateName: 'Стандартный шаблон',
+    hasCustomTemplate: false,
+    renderStatus: 'READY',
+    renderError: null,
+    pdfUpToDate: true,
     ...overrides,
   }
   return { resume, canEdit }

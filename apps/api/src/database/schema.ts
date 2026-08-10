@@ -18,7 +18,13 @@ import {
   uuid,
   varchar,
 } from 'drizzle-orm/pg-core'
-import { EMPTY_RESUME_CONTENT, type ResumeContent, type VacancyTranslations } from '@crm/shared'
+import {
+  DEFAULT_RESUME_LAYOUT,
+  EMPTY_RESUME_CONTENT,
+  type ResumeContent,
+  type ResumeLayoutOptions,
+  type VacancyTranslations,
+} from '@crm/shared'
 
 // PostgreSQL `inet` column type — stores IPv4 / IPv6 addresses with native
 // validation + index support. Drizzle has no first-class `inet` builder, so
@@ -270,6 +276,19 @@ export const cspDispositionEnum = pgEnum('csp_disposition', ['report', 'enforce'
 // QUEUED → RUNNING → READY | FAILED. Mirrors packages/shared
 // `resumeExtractionStatusSchema` (SSOT).
 export const resumeExtractionStatusEnum = pgEnum('resume_extraction_status', [
+  'QUEUED',
+  'RUNNING',
+  'READY',
+  'FAILED',
+])
+
+// task-resume-template — state of the PDF render job that joins the stored
+// Typst template with the stored fields. Separate from the extraction status
+// because the two run at different times for different reasons: extraction
+// happens once per uploaded file, a render happens on every content or layout
+// change. `IDLE` = nothing has ever been rendered for this resume.
+export const resumeRenderStatusEnum = pgEnum('resume_render_status', [
+  'IDLE',
   'QUEUED',
   'RUNNING',
   'READY',
@@ -2050,6 +2069,50 @@ export const seniorResumes = pgTable(
     sourceFileSizeBytes: integer('source_file_size_bytes'),
     sourceMimeType: text('source_mime_type'),
     version: integer('version').notNull().default(0),
+
+    // --- layout half of the "template + data" split (task-resume-template) ---
+    /**
+     * The senior's own Typst template. NULL = the one shipped in the repo.
+     *
+     * A template is executable typesetting code, and NO ENDPOINT WRITES THIS
+     * COLUMN — personal templates are authored by the designer as a separate
+     * task, through a path that does not exist yet. That is deliberate: the
+     * editable surface for a human is `layout` below, an enumerated set of
+     * switches, so the render can never be steered by text a user (or a model)
+     * supplies. The renderer sandboxes the template anyway (`--root` on a
+     * scratch directory), but the first line of defence is that nothing can
+     * put anything here.
+     */
+    templateSource: text('template_source'),
+    /** Display label for the template. Never its source. */
+    templateName: text('template_name'),
+    /** ResumeLayoutOptions — section order, hidden sections, density, font scale. */
+    layout: jsonb('layout').$type<ResumeLayoutOptions>().notNull().default(DEFAULT_RESUME_LAYOUT),
+
+    // --- rendered PDF (built by a job, never inside a request) ---------------
+    /** Private S3 key of the rendered PDF, or NULL when none exists yet. */
+    pdfS3Key: text('pdf_s3_key'),
+    /**
+     * SHA-256 of the exact render input the stored PDF was built from.
+     *
+     * Freshness is decided by COMPARING this with the fingerprint of the
+     * current content+layout+template rather than by trusting a version
+     * counter: the render is deterministic, so equal fingerprints really do
+     * mean equal bytes, and a stale PDF can never be served as the current one.
+     */
+    pdfFingerprint: text('pdf_fingerprint'),
+    pdfRenderStatus: resumeRenderStatusEnum('pdf_render_status').notNull().default('IDLE'),
+    /** Russian, user-safe — set together with `pdf_render_status = 'FAILED'`. */
+    pdfRenderError: text('pdf_render_error'),
+    /** Set while a render is RUNNING; drives the stuck-render sweep. */
+    pdfRenderStartedAt: timestamp('pdf_render_started_at', { withTimezone: true }),
+    /**
+     * Which render attempt owns the row, exactly as `extraction_run_id` does
+     * for extraction: a slow render that has been superseded by a newer save
+     * must discard its result instead of overwriting fresher bytes.
+     */
+    pdfRenderRunId: uuid('pdf_render_run_id'),
+
     updatedByUserId: uuid('updated_by_user_id').references(() => users.id, {
       onDelete: 'set null',
     }),
@@ -2063,6 +2126,9 @@ export const seniorResumes = pgTable(
     // no `extraction_started_at` (nothing ever claimed it), so it can only be
     // aged by `updated_at`. The index above does not serve that query at all.
     index('idx_senior_resumes_status_updated_at').on(t.status, t.updatedAt),
+    // The stuck-RENDER sweep asks a third question again: which renders have
+    // been RUNNING too long. Same shape as the extraction sweep, own columns.
+    index('idx_senior_resumes_render_status').on(t.pdfRenderStatus, t.pdfRenderStartedAt),
   ],
 )
 

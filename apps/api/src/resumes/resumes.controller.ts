@@ -33,7 +33,12 @@ import {
 } from '@nestjs/common'
 import { Throttle } from '@nestjs/throttler'
 import type { FastifyReply, FastifyRequest } from 'fastify'
-import { ingestResumeTextSchema, updateResumeContentSchema, type SessionUser } from '@crm/shared'
+import {
+  ingestResumeTextSchema,
+  updateResumeContentSchema,
+  updateResumeLayoutSchema,
+  type SessionUser,
+} from '@crm/shared'
 import { CurrentUser } from '../auth/current-user.decorator'
 import { SeniorResumesService, sanitizeFileName } from './resumes.service'
 
@@ -129,10 +134,38 @@ export class SeniorResumesController {
   }
 
   /**
-   * Rendered PDF. `no-store` because the body is personal data and the content
-   * changes on every save — a cached copy would show a stale resume and would
-   * sit in the browser's disk cache, which is exactly what the sensitive
-   * documents policy avoids elsewhere.
+   * The layout switches (§3): section order, hidden sections, density, font
+   * scale. The ONLY typesetting a human may change.
+   *
+   * Note what this endpoint deliberately is NOT: there is no route anywhere in
+   * this controller that accepts template source. A template is executable
+   * typesetting code, and the guarantee that a resume's layout cannot be
+   * steered by user- or model-supplied text is worth more than the flexibility
+   * of letting HR paste one. Personal templates arrive through the designer's
+   * task, not through the API.
+   */
+  @Put('layout')
+  updateLayout(
+    @Param('userId', ParseUUIDPipe) userId: string,
+    @Body() body: unknown,
+    @CurrentUser() user: SessionUser,
+  ) {
+    const { layout } = updateResumeLayoutSchema.parse(body)
+    return this.service.updateLayout(user, userId, layout)
+  }
+
+  /**
+   * The rendered PDF, SERVED from storage — never typeset inside this request.
+   *
+   * Answers 200 with the bytes when the stored render matches the current
+   * content+layout+template, and 202 with a state to poll when it does not
+   * (the request enqueues the render on its way out). That split is the whole
+   * reason the render is a job: typesetting untrusted content is unbounded CPU,
+   * and a request handler is the one place it must never happen.
+   *
+   * `no-store` because the body is personal data and changes on every save — a
+   * cached copy would show a stale resume from the browser's disk cache, which
+   * is what the sensitive-documents policy avoids elsewhere.
    */
   @Get('pdf')
   @Header('Cache-Control', 'private, no-store')
@@ -142,11 +175,22 @@ export class SeniorResumesController {
     @CurrentUser() user: SessionUser,
     @Res() reply: FastifyReply,
   ): Promise<void> {
-    const { pdfBuffer, displayName } = await this.service.generatePdf(user, userId)
+    const result = await this.service.getRenderedPdf(user, userId)
+
+    if (!result.ready) {
+      await reply.code(202).send({
+        status: result.status,
+        message:
+          result.message ??
+          'Готовим PDF по шаблону резюме. Обновите страницу через несколько секунд.',
+      })
+      return
+    }
+
     await reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', resumeContentDisposition(displayName))
-      .send(pdfBuffer)
+      .header('Content-Disposition', resumeContentDisposition(result.displayName))
+      .send(result.pdfBuffer)
   }
 }
 

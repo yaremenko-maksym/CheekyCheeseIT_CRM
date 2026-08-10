@@ -4,8 +4,10 @@
  * Reuses (does not duplicate):
  *   - `S3Service` from DocumentsModule — private storage of the original file,
  *     with the RESUME category's existing short-TTL / no-store policy.
- *   - `PdfGenerationService` from PdfModule — embedded Roboto fonts, i.e. the
- *     only reason Cyrillic renders at all (see ResumePdfService).
+ *   - `PdfModule` — the Roboto assets and the font loader. The Typst renderer
+ *     points the child process at the SAME `assets/fonts` directory, so the
+ *     resume and every invoice/contract share one set of embedded faces (and
+ *     one answer to "which glyphs exist" — see resume-glyphs.ts).
  *   - `ScheduleModule.forRoot()` for the stuck-extraction sweep, exactly like
  *     FinanceModule (SalaryCron) and VacanciesModule (retention cron).
  *
@@ -19,7 +21,7 @@ import { DocumentsModule } from '../documents/documents.module'
 import { PdfModule } from '../common/pdf/pdf.module'
 import { ResumeAiService } from './resume-ai.service'
 import { ResumeExtractionCronService } from './resume-extraction.cron'
-import { ResumePdfService } from './resume-pdf.service'
+import { ResumeTypstService } from './resume-typst.service'
 import { ResumeTextExtractionService } from './resume-text-extraction.service'
 import { SeniorResumesController } from './resumes.controller'
 import { SeniorResumesService } from './resumes.service'
@@ -31,7 +33,7 @@ import { SeniorResumesService } from './resumes.service'
     SeniorResumesService,
     ResumeAiService,
     ResumeTextExtractionService,
-    ResumePdfService,
+    ResumeTypstService,
     ResumeExtractionCronService,
   ],
   exports: [SeniorResumesService],

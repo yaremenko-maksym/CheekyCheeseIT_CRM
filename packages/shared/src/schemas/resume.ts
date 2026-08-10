@@ -220,6 +220,121 @@ export const EMPTY_RESUME_CONTENT: ResumeContent = {
 }
 
 // ---------------------------------------------------------------------------
+// Layout — the ONLY thing a human may change about the typesetting
+// ---------------------------------------------------------------------------
+
+/**
+ * The resume is stored as LAYOUT (a Typst template) + DATA (the fields above),
+ * and a PDF is the two joined. `ResumeLayoutOptions` is the third, deliberately
+ * tiny, thing: the switches HR is allowed to flip.
+ *
+ * WHY SWITCHES AND NOT A TEMPLATE EDITOR. The point of the split is that a
+ * model tailoring a resume to a vacancy receives FIELDS and returns FIELDS —
+ * the template never enters the request, so the typesetting cannot be altered
+ * by anything the model says. Letting a human paste template source would put
+ * an executable document back into the editable surface and re-open exactly
+ * that hole from the other side. So the knobs are an enumerated, validated set,
+ * and there is no endpoint anywhere that writes template source.
+ */
+export const resumeSectionKeySchema = z.enum([
+  'summary',
+  'skills',
+  'experience',
+  'education',
+  'languages',
+  'links',
+])
+export type ResumeSectionKey = z.infer<typeof resumeSectionKeySchema>
+
+/** Canonical order — also the fallback for any section a stored order omits. */
+export const RESUME_SECTION_ORDER: readonly ResumeSectionKey[] = [
+  'summary',
+  'skills',
+  'experience',
+  'education',
+  'languages',
+  'links',
+] as const
+
+/** Vertical rhythm. Maps to concrete leading/spacing inside the template. */
+export const resumeDensitySchema = z.enum(['compact', 'normal', 'relaxed'])
+export type ResumeDensity = z.infer<typeof resumeDensitySchema>
+
+/** Font size step. Named, not numeric, so the set of reachable renders is finite. */
+export const resumeFontScaleSchema = z.enum(['small', 'normal', 'large'])
+export type ResumeFontScale = z.infer<typeof resumeFontScaleSchema>
+
+/**
+ * `sectionOrder` is normalised by `normalizeResumeLayout` rather than trusted:
+ * a stored order may be stale (a section added later), duplicated, or missing
+ * entries, and the template must never be handed a list it has to defend
+ * itself against.
+ */
+export const resumeLayoutOptionsSchema = z.object({
+  sectionOrder: z.array(resumeSectionKeySchema).max(RESUME_SECTION_ORDER.length),
+  hiddenSections: z.array(resumeSectionKeySchema).max(RESUME_SECTION_ORDER.length),
+  density: resumeDensitySchema,
+  fontScale: resumeFontScaleSchema,
+})
+export type ResumeLayoutOptions = z.infer<typeof resumeLayoutOptionsSchema>
+
+export const DEFAULT_RESUME_LAYOUT: ResumeLayoutOptions = {
+  sectionOrder: [...RESUME_SECTION_ORDER],
+  hiddenSections: [],
+  density: 'normal',
+  fontScale: 'normal',
+}
+
+/**
+ * Turn any stored/received layout into a total, duplicate-free one.
+ *
+ * Every section appears exactly once, in the requested order first and the
+ * canonical order after — so adding a section to the enum tomorrow makes it
+ * appear at the end of every existing resume instead of vanishing from all of
+ * them. Hidden sections are deduplicated the same way.
+ *
+ * Shared (not API-only) because the editor previews the order client-side and
+ * must agree with the renderer about what "this order" means, byte for byte.
+ */
+export function normalizeResumeLayout(raw: unknown): ResumeLayoutOptions {
+  const parsed = resumeLayoutOptionsSchema.safeParse(raw)
+  const layout = parsed.success ? parsed.data : DEFAULT_RESUME_LAYOUT
+
+  const seen = new Set<ResumeSectionKey>()
+  const sectionOrder: ResumeSectionKey[] = []
+  for (const key of [...layout.sectionOrder, ...RESUME_SECTION_ORDER]) {
+    if (seen.has(key)) continue
+    seen.add(key)
+    sectionOrder.push(key)
+  }
+
+  return {
+    sectionOrder,
+    hiddenSections: RESUME_SECTION_ORDER.filter((key) => layout.hiddenSections.includes(key)),
+    density: layout.density,
+    fontScale: layout.fontScale,
+  }
+}
+
+/** PUT /users/:userId/resume/layout — the switch panel's whole payload. */
+export const updateResumeLayoutSchema = z.object({
+  layout: resumeLayoutOptionsSchema,
+})
+export type UpdateResumeLayoutInput = z.infer<typeof updateResumeLayoutSchema>
+
+// ---------------------------------------------------------------------------
+// Rendered-PDF state machine
+// ---------------------------------------------------------------------------
+
+/**
+ * The PDF is BUILT BY A JOB, never inside the request that asks for it (the
+ * render is a child process that can take seconds; see ResumeTypstService).
+ * `IDLE` is "nothing has ever been rendered for this resume".
+ */
+export const resumeRenderStatusSchema = z.enum(['IDLE', 'QUEUED', 'RUNNING', 'READY', 'FAILED'])
+export type ResumeRenderStatus = z.infer<typeof resumeRenderStatusSchema>
+
+// ---------------------------------------------------------------------------
 // DTO
 // ---------------------------------------------------------------------------
 
@@ -246,6 +361,29 @@ export const seniorResumeDtoSchema = z.object({
   updatedByName: z.string().nullable(),
   createdAt: z.string(),
   updatedAt: z.string(),
+
+  // --- layout half of the "template + data" split ---------------------------
+  /** The switches HR flipped. Always normalised (total order, no duplicates). */
+  layout: resumeLayoutOptionsSchema,
+  /**
+   * Which template typesets this resume. A LABEL, never the source: the
+   * template is code and stays server-side, which is the property the whole
+   * split exists to guarantee.
+   */
+  templateName: z.string(),
+  /** False while the senior is still on the repo's default template. */
+  hasCustomTemplate: z.boolean(),
+
+  // --- rendered PDF ---------------------------------------------------------
+  renderStatus: resumeRenderStatusSchema,
+  /** Russian, safe to display — set together with `renderStatus: 'FAILED'`. */
+  renderError: z.string().nullable(),
+  /**
+   * True when a rendered PDF exists AND was built from exactly the current
+   * content + layout + template. The UI uses it to decide between "скачать" and
+   * "готовим предпросмотр" — a stale PDF is never offered as the current one.
+   */
+  pdfUpToDate: z.boolean(),
 })
 export type SeniorResumeDto = z.infer<typeof seniorResumeDtoSchema>
 
