@@ -17,6 +17,7 @@ import {
   type ResumeLayoutOptions,
   type ResumeSectionKey,
 } from '@crm/shared'
+import { slowTemplate } from '../test/resume-render-fixtures'
 import { assertTypstAvailable } from '../test/typst-availability'
 import { findUnrenderable } from './resume-glyphs'
 import {
@@ -90,26 +91,6 @@ async function readBack(
   const first = await proxy.getPage(1)
   const content = (await first.getTextContent()) as { items: unknown[] }
   return { text, pages: proxy.numPages, itemsOnFirstPage: content.items.length }
-}
-
-/**
- * A legitimate but expensive template.
- *
- * Calibrated on this machine: 1 500 items ≈ 0.26 s, 4 000 ≈ 1.4 s, 30 000 ≈ 72 s
- * — the cost is markedly superlinear, which is the whole reason a render cannot
- * be allowed anywhere near the event loop. Used for the deadline test here and
- * for the responsiveness measurement in the sibling spec.
- */
-export function slowTemplate(items: number): string {
-  return [
-    '#let render(data) = {',
-    '  set page(paper: "a4")',
-    '  set text(font: "Roboto", size: 10pt)',
-    `  for i in range(${items}) [`,
-    '    Рядок #i — текст резюме, який займає місце і потребує верстки. #h(0.3em)',
-    '  ]',
-    '}',
-  ].join('\n')
 }
 
 beforeAll(() => {
