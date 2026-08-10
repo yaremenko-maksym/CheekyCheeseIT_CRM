@@ -40,6 +40,7 @@ import {
   buildPdfSharedContentStream,
   buildPdfWithFlateImage,
   buildPdfWithText,
+  buildWordDensityDocx,
   buildZip,
 } from '../test/resume-fixtures'
 
@@ -326,6 +327,40 @@ describe('ResumeTextExtractionService.extract', () => {
 
     const overTheCap = buildDocxDeflated(Array.from({ length: 80_000 }, (_, i) => `p${i}`))
     await expect(service.extract(overTheCap, RESUME_DOCX_MIME)).rejects.toBeInstanceOf(
+      ResumeFileUnreadableError,
+    )
+  }, 300_000)
+
+  /**
+   * AC5 — the cap judged against REAL Word documents, in both directions and
+   * with both numbers on the page.
+   *
+   * The point of this pair is that the two populations are separated by the
+   * measurement, not by taste. A synthetic fixture spends ~60 bytes on a
+   * paragraph where Word spends about a kilobyte on a bullet, so a budget
+   * "calibrated" on one carries fictional headroom and starts rejecting the
+   * long academic CVs it was supposed to admit. `REAL_WORD_BYTES_PER_PAGE`
+   * comes from inspecting genuine .docx files (see the fixture's comment for
+   * the corpus and the per-page figures).
+   */
+  it('AC5: a 40-page CV at real Word density passes, and the bypass bomb does not', async () => {
+    // --- measurement 1: the honest document -------------------------------
+    const academicCv = buildWordDensityDocx(40)
+    const cv = await inspectDocxZip(academicCv)
+
+    // It really is a 40-page document's worth of work, not a token fixture...
+    expect(cv.actualParsedBytes).toBeGreaterThan(3_000_000)
+    // ...and it fits, with the cap left meaningfully above it.
+    expect(cv.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES)
+    await expect(service.extract(academicCv, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
+
+    // --- measurement 2: the attack ----------------------------------------
+    // The body at a non-.xml path, with a 900-byte decoy at `word/document.xml`.
+    // A by-extension budget saw the decoy and let 17 MB of parsing through.
+    const bypass = buildDocxWithRenamedBody(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
+    expect(bypass.length).toBeLessThan(1_000_000) // small on disk, as bombs are
+    await expect(inspectDocxZip(bypass)).rejects.toBeInstanceOf(RangeError)
+    await expect(service.extract(bypass, RESUME_DOCX_MIME)).rejects.toBeInstanceOf(
       ResumeFileUnreadableError,
     )
   }, 300_000)

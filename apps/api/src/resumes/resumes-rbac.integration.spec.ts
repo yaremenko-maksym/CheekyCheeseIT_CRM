@@ -35,8 +35,10 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { createHash } from 'node:crypto'
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
   RESUME_DOCX_MIME,
   type ResumeContent,
@@ -155,6 +157,7 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
     getPresignedDownloadUrl: ReturnType<typeof vi.fn>
   }
   let ai: { extractStructure: ReturnType<typeof vi.fn> }
+  let typst: { fingerprint: ReturnType<typeof vi.fn>; render: ReturnType<typeof vi.fn> }
 
   beforeAll(async () => {
     try {
@@ -189,13 +192,30 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
       }),
     }
 
+    // The Typst renderer is stubbed, deliberately. This suite is about ACCESS
+    // and STATE; spawning a typesetter per case would add seconds and a system
+    // dependency to a DB test that asserts neither. The real binary is exercised
+    // in resume-typst.service.spec.ts and the responsiveness spec.
+    //
+    // `fingerprint` is a real (if trivial) function of the input rather than a
+    // constant: the service decides PDF freshness by comparing fingerprints, so
+    // a stub returning the same string for everything would make every stored
+    // PDF look permanently current and hide exactly the bug this stub could
+    // otherwise cause.
+    typst = {
+      fingerprint: vi.fn((input: unknown) =>
+        createHash('sha256').update(JSON.stringify(input)).digest('hex'),
+      ),
+      render: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7 fake')),
+    }
+
     service = new SeniorResumesService(
       dbSvc,
       s3 as never,
       ai as never,
       // Real extraction service — the file fixtures are real PDFs/DOCX.
       new (await import('./resume-text-extraction.service')).ResumeTextExtractionService(),
-      { generateResumePdf: vi.fn().mockResolvedValue(Buffer.from('%PDF-1.7 fake')) } as never,
+      typst as never,
     )
 
     await db
@@ -214,6 +234,30 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
       .values({ userId: SENIOR_B.id, content: SENIOR_B_CONTENT })
       .onConflictDoNothing({ target: seniorResumes.userId })
   }, 30_000)
+
+  /**
+   * Let detached work land, THEN forget it happened.
+   *
+   * Saving content now queues a render, and that render uploads a PDF — so a
+   * write in one test adds `s3.upload` calls that arrive after it has finished.
+   * Several assertions here are of the form "a denied request did no work", and
+   * they must mean "this request", not "nothing since the suite began".
+   *
+   * The sleep is the load-bearing half: clearing without waiting only moves the
+   * stray call into the NEXT test, which is how a suite acquires a flake that
+   * reproduces once a fortnight.
+   */
+  beforeEach(async () => {
+    if (!dbAvailable) return
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    s3.upload.mockClear()
+    s3.delete.mockClear()
+    s3.getObject.mockClear()
+    s3.getPresignedDownloadUrl.mockClear()
+    ai.extractStructure.mockClear()
+    typst.render.mockClear()
+    typst.fingerprint.mockClear()
+  })
 
   afterAll(async () => {
     if (!dbAvailable) return
@@ -324,9 +368,18 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
 
     it('PDF export is denied', async () => {
       if (!dbAvailable) return
-      await expect(service.generatePdf(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
+      await expect(service.getRenderedPdf(session(SENIOR_A), SENIOR_B.id)).rejects.toBeInstanceOf(
         ForbiddenException,
       )
+      // Denied BEFORE any render is queued — a 403 must not cost CPU.
+      expect(typst.render).not.toHaveBeenCalled()
+    })
+
+    it('changing the layout of a foreign resume is denied', async () => {
+      if (!dbAvailable) return
+      await expect(
+        service.updateLayout(session(SENIOR_A), SENIOR_B.id, DEFAULT_RESUME_LAYOUT),
+      ).rejects.toBeInstanceOf(ForbiddenException)
     })
   })
 
@@ -936,6 +989,32 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
       expect(rows).toHaveLength(0)
     })
 
+    /**
+     * AC7 for the artefact this task ADDED.
+     *
+     * The rendered PDF is a second, complete copy of the same personal data
+     * sitting in object storage under a different key. An erase that took only
+     * the uploaded original would report success while leaving the whole CV
+     * behind — and nothing sweeps the `senior-resumes/` prefix, so it would
+     * stay for good.
+     */
+    it('R-INT-12a2. erasing takes the RENDERED PDF with it, not just the original', async () => {
+      if (!dbAvailable) return
+      const sourceKey = await giveSeniorBaStoredResume()
+      const pdfKey = `senior-resumes/${SENIOR_B.id}/pdf/rendered.pdf`
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ pdfS3Key: pdfKey, pdfFingerprint: 'abc', pdfRenderStatus: 'READY' })
+        .where(eq(seniorResumes.userId, SENIOR_B.id))
+      s3.delete.mockClear()
+
+      await service.deleteResume(session(ADMIN_USER), SENIOR_B.id)
+
+      const erased = s3.delete.mock.calls.map(([key]: [string]) => key)
+      expect(erased).toContain(sourceKey)
+      expect(erased).toContain(pdfKey)
+    })
+
     it('R-INT-12b. HR may erase a foreign senior resume', async () => {
       if (!dbAvailable) return
       await giveSeniorBaStoredResume()
@@ -1078,6 +1157,127 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
 
       const survived = await service.getForUser(session(ADMIN_USER), SENIOR_B.id)
       expect(survived.resume?.content.summary).toBe(SENIOR_B_SECRET)
+    })
+  })
+
+  // ── The render job: state, freshness and supersession, against a real DB ──
+
+  describe('rendered PDF', () => {
+    /** Drain the detached render kicked off by a save. */
+    const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50))
+
+    it('a save queues a render and the finished PDF is served from storage', async () => {
+      if (!dbAvailable) return
+      typst.render.mockClear()
+
+      await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+        ...EMPTY_RESUME_CONTENT,
+        summary: 'резюме для рендера',
+      })
+      await settle()
+
+      // The save did NOT render inline — it queued, and the job did the work.
+      expect(typst.render).toHaveBeenCalledTimes(1)
+
+      s3.getObject.mockResolvedValueOnce(Buffer.from('%PDF-1.7 stored'))
+      const served = await service.getRenderedPdf(session(SENIOR_A), SENIOR_A.id)
+      expect(served.ready).toBe(true)
+      // Served from the bucket, not typeset again for this request.
+      expect(typst.render).toHaveBeenCalledTimes(1)
+    })
+
+    it('a stale PDF is never served as the current one — it is re-queued', async () => {
+      if (!dbAvailable) return
+      await service.updateContent(session(SENIOR_A), SENIOR_A.id, {
+        ...EMPTY_RESUME_CONTENT,
+        summary: 'первая версия',
+      })
+      await settle()
+
+      // Content moves underneath the stored render, without going through the
+      // service — the shape a restored backup or a manual fix would leave.
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ content: { ...EMPTY_RESUME_CONTENT, summary: 'вторая версия' } })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+
+      const served = await service.getRenderedPdf(session(SENIOR_A), SENIOR_A.id)
+      expect(served.ready).toBe(false)
+      // ...and the fingerprint mismatch is what noticed, so nothing stale went out.
+      expect(s3.getObject).not.toHaveBeenCalled()
+    })
+
+    it('a render superseded while it ran erases its own output instead of stranding it', async () => {
+      if (!dbAvailable) return
+      const row = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+      const resumeId = row[0]?.id
+      if (!resumeId) throw new Error('fixture missing')
+
+      // Claimable, then superseded the moment the renderer hands its bytes back.
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ pdfRenderStatus: 'QUEUED', pdfRenderRunId: null })
+        .where(eq(seniorResumes.id, resumeId))
+
+      s3.delete.mockClear()
+      typst.render.mockImplementationOnce(async () => {
+        await dbSvc.db
+          .update(seniorResumes)
+          .set({ pdfRenderRunId: null })
+          .where(eq(seniorResumes.id, resumeId))
+        return Buffer.from('%PDF-1.7 superseded')
+      })
+
+      await service.runRender(resumeId, 'Синьор А')
+
+      // The bytes were written, then found to belong to nobody — so they are
+      // erased. Left alone they would be an unreferenced CV in the bucket.
+      const erased = s3.delete.mock.calls.map(([key]: [string]) => key)
+      expect(erased.some((key) => key.includes('/pdf/'))).toBe(true)
+      const after = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.id, resumeId))
+      expect(after[0]?.pdfRenderStatus).not.toBe('READY')
+    })
+
+    it('changing a layout switch persists it and rebuilds the PDF', async () => {
+      if (!dbAvailable) return
+      typst.render.mockClear()
+
+      const updated = await service.updateLayout(session(HR_USER), SENIOR_A.id, {
+        ...DEFAULT_RESUME_LAYOUT,
+        hiddenSections: ['links'],
+        density: 'compact',
+      })
+      await settle()
+
+      expect(updated.resume?.layout.hiddenSections).toEqual(['links'])
+      expect(updated.resume?.layout.density).toBe('compact')
+      expect(typst.render).toHaveBeenCalledTimes(1)
+    })
+
+    /**
+     * The template is code and stays server-side. Nothing in the DTO may carry
+     * it — that is what makes "the model never sees the template" a property of
+     * the wire format rather than a promise about future callers.
+     */
+    it('never serialises the template source, only a label', async () => {
+      if (!dbAvailable) return
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({ templateSource: '#let render(data) = [СЕКРЕТНЫЙ ШАБЛОН]', templateName: 'Личный' })
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+
+      const response = await service.getForUser(session(SENIOR_A), SENIOR_A.id)
+
+      expect(response.resume?.templateName).toBe('Личный')
+      expect(response.resume?.hasCustomTemplate).toBe(true)
+      expect(JSON.stringify(response)).not.toContain('СЕКРЕТНЫЙ ШАБЛОН')
+      expect(JSON.stringify(response)).not.toContain('#let render')
     })
   })
 })

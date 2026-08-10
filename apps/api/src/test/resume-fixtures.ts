@@ -285,6 +285,56 @@ export function buildDocxWithRenamedBody(
 }
 
 /**
+ * Counted (parse-budget) bytes ONE page of a real Word document occupies, at
+ * the densest rate measured.
+ *
+ * MEASURED, NOT CHOSEN. Five genuine Word documents were inspected through
+ * `inspectDocxZip` on 2026-08-10 (aggregates only — the files are the owner's
+ * private correspondence and none of them, nor any part of them, is in this
+ * repo):
+ *
+ *   parsed bytes   81 KB · 97 KB · 241 KB · 331 KB · 353 KB
+ *   pages known    1p · 5p · 24p
+ *   bytes/page     p50 66 KB · max 81 KB
+ *
+ * This matters because a generated fixture is a terrible proxy: the
+ * `documentXml` helper above spends ~60-90 bytes on a paragraph where Word
+ * spends about a kilobyte on a bullet, so a budget "calibrated" on it would
+ * carry an imaginary 40x of headroom and reject real CVs. The earlier round of
+ * this work recorded a wider corpus (14 documents, 78-539 KB) from a machine
+ * that no longer holds them; the numbers above are an independent
+ * re-measurement of what is still there, and they agree.
+ */
+export const REAL_WORD_BYTES_PER_PAGE = 81 * 1024
+
+/**
+ * A DOCX that weighs, against the parse budget, what `pages` pages of a real
+ * Word document weigh.
+ *
+ * The budget counts BYTES of parsable parts, so what has to match a real
+ * document is the byte count — not the ratio of markup to prose. This builds
+ * to the measured figure exactly rather than estimating it: the per-paragraph
+ * cost is computed from the actual serialised form, because an estimate that
+ * drifted low would quietly turn "a 40-page CV fits" into a claim about a
+ * 29-page one.
+ */
+export function buildWordDensityDocx(pages: number): Buffer {
+  const target = pages * REAL_WORD_BYTES_PER_PAGE
+  const filler = 'Дослідження та розробка розподілених систем на TypeScript. '.repeat(8)
+  // The exact overhead `documentXml` wraps around each paragraph.
+  const wrapper = Buffer.byteLength('<w:p><w:r><w:t xml:space="preserve"></w:t></w:r></w:p>')
+
+  const paragraphs: string[] = []
+  let bytes = 0
+  while (bytes < target) {
+    const text = `${paragraphs.length}. ${filler}`
+    paragraphs.push(text)
+    bytes += wrapper + Buffer.byteLength(text)
+  }
+  return buildDocxDeflated(paragraphs)
+}
+
+/**
  * A resume with a real embedded image, so budget-split assertions have
  * something to split. `imageBytes` of incompressible-ish PNG-named payload
  * lands in `word/media/`, which the parse budget must ignore.
