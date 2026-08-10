@@ -337,56 +337,67 @@ export function describeLimits(): { addressSpaceKb: number; cpuSeconds: number }
  *
  * Never resolves before the process is gone, and never rejects — a non-zero
  * exit is data for the caller, not an exception.
+ *
+ * `timeoutMs` is a parameter rather than a constant read inside so the timeout
+ * path can be tested against the REAL runner in about a second instead of
+ * twenty. The alternative — an environment variable — would put a knob into
+ * production that only tests ever want, and a mis-set one would silently
+ * shorten every render.
  */
-const spawnTypst: TypstRunner = (bin, args, options) =>
-  new Promise((resolve) => {
-    const child = spawn(
-      '/bin/sh',
-      [
-        '-c',
-        RLIMIT_WRAPPER,
-        'crm-resume-render',
-        String(RENDER_ADDRESS_SPACE_KB),
-        String(RENDER_CPU_SECONDS),
-        bin,
-        ...args,
-      ],
-      { cwd: options.cwd, env: options.env, stdio: ['ignore', 'ignore', 'pipe'] },
-    )
+export function createSpawnRunner(timeoutMs: number = RENDER_TIMEOUT_MS): TypstRunner {
+  return (bin, args, options) =>
+    new Promise((resolve) => {
+      const child = spawn(
+        '/bin/sh',
+        [
+          '-c',
+          RLIMIT_WRAPPER,
+          'crm-resume-render',
+          String(RENDER_ADDRESS_SPACE_KB),
+          String(RENDER_CPU_SECONDS),
+          bin,
+          ...args,
+        ],
+        { cwd: options.cwd, env: options.env, stdio: ['ignore', 'ignore', 'pipe'] },
+      )
 
-    if (child.pid !== undefined) {
-      try {
-        setPriority(child.pid, RENDER_NICENESS)
-      } catch {
-        // Not permitted on this platform/user — the other five bounds stand.
+      if (child.pid !== undefined) {
+        try {
+          setPriority(child.pid, RENDER_NICENESS)
+        } catch {
+          // Not permitted on this platform/user — the other five bounds stand.
+        }
       }
-    }
 
-    let stderr = ''
-    child.stderr?.on('data', (chunk: Buffer) => {
-      if (stderr.length < MAX_STDERR_BYTES) stderr += chunk.toString('utf8')
+      let stderr = ''
+      child.stderr?.on('data', (chunk: Buffer) => {
+        if (stderr.length < MAX_STDERR_BYTES) stderr += chunk.toString('utf8')
+      })
+
+      let timedOut = false
+      const timer = setTimeout(() => {
+        timedOut = true
+        // SIGKILL, not SIGTERM: a typesetter stuck in a loop owes us no handler.
+        child.kill('SIGKILL')
+      }, timeoutMs)
+      // Do not hold the process open for a render that outlives everything else.
+      timer.unref?.()
+
+      const finish = (code: number | null): void => {
+        clearTimeout(timer)
+        resolve({ code, stderr: stderr.slice(0, MAX_STDERR_BYTES), timedOut })
+      }
+
+      child.on('error', (err) => {
+        stderr += `\n${err.message}`
+        finish(null)
+      })
+      child.on('close', (code) => finish(code))
     })
+}
 
-    let timedOut = false
-    const timer = setTimeout(() => {
-      timedOut = true
-      // SIGKILL, not SIGTERM: a typesetter stuck in a loop owes us no handler.
-      child.kill('SIGKILL')
-    }, RENDER_TIMEOUT_MS)
-    // Do not hold the process open for a render that outlives everything else.
-    timer.unref?.()
-
-    const finish = (code: number | null): void => {
-      clearTimeout(timer)
-      resolve({ code, stderr: stderr.slice(0, MAX_STDERR_BYTES), timedOut })
-    }
-
-    child.on('error', (err) => {
-      stderr += `\n${err.message}`
-      finish(null)
-    })
-    child.on('close', (code) => finish(code))
-  })
+/** The runner production uses. */
+const spawnTypst: TypstRunner = createSpawnRunner()
 
 // ---------------------------------------------------------------------------
 // The default template
