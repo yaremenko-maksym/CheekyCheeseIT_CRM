@@ -6,6 +6,7 @@
  * (READY / FAILED) arrives. That is what turns "a spinner forever" into real
  * progress the user can walk away from and come back to.
  */
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { ResumeContent, ResumeLayoutOptions, SeniorResumeResponse } from '@crm/shared'
@@ -50,6 +51,89 @@ export function useSeniorResume(userId: string | undefined, enabled = true) {
  * endpoints, and mixing them would mean flipping a density toggle re-submits
  * every field the user happens to have open.
  */
+/**
+ * The rendered PDF as a blob URL, for inline preview.
+ *
+ * WHY A BLOB AND NOT THE URL DIRECTLY. `GET /users/:id/resume/pdf` answers with
+ * `Content-Disposition: attachment` — correct for the download button, and fatal
+ * for an embedded viewer: pointing an `<object>`/`<iframe>` at that URL renders
+ * a blank frame in every browser, at every width, in both themes. The element is
+ * present the whole time and simply shows nothing, which is exactly why "the
+ * preview works" cannot be asserted by finding the element in the markup.
+ *
+ * `fetch`/XHR ignores `Content-Disposition` entirely, so reading the response
+ * into a Blob and handing the viewer an object URL sidesteps the header without
+ * the API needing a second, inline-serving route. Same shape as
+ * `fetchContractPdfBlob` and `useDocumentBlob` — a pattern that exists in this
+ * repository precisely because of this header.
+ *
+ * Refetches when `fingerprint` changes: that is how a fresh render reaches the
+ * screen, since the server moves it whenever content, layout or template do.
+ */
+export function useResumePdfBlob(
+  userId: string,
+  enabled: boolean,
+  fingerprint: string | null,
+): { blobUrl: string | null; isLoading: boolean; hasError: boolean } {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null)
+  const [isLoading, setIsLoading] = useState(false)
+  const [hasError, setHasError] = useState(false)
+  const revokeRef = useRef<(() => void) | null>(null)
+  const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!enabled) {
+      abortRef.current?.abort()
+      revokeRef.current?.()
+      revokeRef.current = null
+      setBlobUrl(null)
+      setIsLoading(false)
+      setHasError(false)
+      return
+    }
+
+    const controller = new AbortController()
+    abortRef.current?.abort()
+    abortRef.current = controller
+    setIsLoading(true)
+    setHasError(false)
+
+    void api
+      .get<Blob>(`/users/${userId}/resume/pdf`, { responseType: 'blob', signal: controller.signal })
+      .then((res) => {
+        if (controller.signal.aborted) return
+        // Release the previous document before replacing it, or every layout
+        // change leaks a PDF's worth of memory for the tab's lifetime.
+        revokeRef.current?.()
+        const url = URL.createObjectURL(res.data)
+        revokeRef.current = () => URL.revokeObjectURL(url)
+        setBlobUrl(url)
+      })
+      .catch((err: unknown) => {
+        if (controller.signal.aborted) return
+        if (err instanceof Error && err.name === 'CanceledError') return
+        setHasError(true)
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setIsLoading(false)
+      })
+
+    return () => controller.abort()
+  }, [userId, enabled, fingerprint])
+
+  useEffect(() => {
+    const revoke = revokeRef
+    const abort = abortRef
+    return () => {
+      abort.current?.abort()
+      revoke.current?.()
+      revoke.current = null
+    }
+  }, [])
+
+  return { blobUrl, isLoading, hasError }
+}
+
 export function useSaveResumeLayout(userId: string) {
   const qc = useQueryClient()
   return useMutation({

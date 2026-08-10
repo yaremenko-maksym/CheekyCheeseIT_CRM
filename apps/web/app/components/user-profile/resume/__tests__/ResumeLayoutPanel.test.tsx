@@ -15,7 +15,28 @@ import {
   type SeniorResumeDto,
 } from '@crm/shared'
 import { ResumeLayoutPanel, moveSection } from '../ResumeLayoutPanel'
-import { ResumePdfPreview } from '../ResumePdfPreview'
+
+/**
+ * The blob hook is stubbed rather than the network: it owns `createObjectURL`,
+ * which jsdom does not implement, and what these tests are about is what the
+ * VIEWER receives, not how the bytes were obtained.
+ */
+let blobState: { blobUrl: string | null; isLoading: boolean; hasError: boolean } = {
+  blobUrl: 'blob:http://localhost/resume-pdf',
+  isLoading: false,
+  hasError: false,
+}
+
+vi.mock('@/hooks/use-senior-resume', async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  useResumePdfBlob: () => blobState,
+}))
+
+beforeEach(() => {
+  blobState = { blobUrl: 'blob:http://localhost/resume-pdf', isLoading: false, hasError: false }
+})
+
+const { ResumePdfPreview } = await import('../ResumePdfPreview')
 
 function renderPanel(overrides: Partial<ResumeLayoutOptions> = {}, canEdit = true) {
   const onSave = vi.fn()
@@ -164,16 +185,46 @@ function dto(overrides: Partial<SeniorResumeDto> = {}): SeniorResumeDto {
 }
 
 describe('ResumePdfPreview', () => {
-  it('shows the document and a download link when the PDF matches the current resume', () => {
+  /**
+   * THE ASSERTION IS ABOUT WHAT THE VIEWER IS POINTED AT, not that a viewer
+   * exists.
+   *
+   * The first version of this test asserted `data="/api/users/u1/resume/pdf"`
+   * on an `<object>` and passed for days while the preview showed a blank frame
+   * at every width, in both themes: that route answers `Content-Disposition:
+   * attachment`, which no embedded viewer will render. The element was there
+   * the whole time. Presence was never the question.
+   *
+   * So the check is that the viewer receives a BLOB url — the one thing that
+   * makes bytes actually appear — and, below, that no blob means no document is
+   * claimed to be ready.
+   */
+  it('points the viewer at a blob, not at the attachment endpoint', async () => {
     render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
-    expect(screen.getByTestId('resume-pdf-object')).toHaveAttribute(
-      'data',
-      '/api/users/u1/resume/pdf',
-    )
+
+    const frame = await screen.findByTitle(/Предпросмотр:/)
+    const src = frame.getAttribute('src') ?? ''
+    expect(src.startsWith('blob:')).toBe(true)
+    // The attachment URL must NOT be what the viewer loads.
+    expect(src).not.toContain('/resume/pdf')
+
+    // The download button is the one place the attachment URL belongs.
     expect(screen.getByTestId('resume-download-pdf')).toHaveAttribute(
       'href',
       '/api/users/u1/resume/pdf',
     )
+  })
+
+  it('shows no document while the bytes are still loading', () => {
+    blobState = { blobUrl: null, isLoading: true, hasError: false }
+    render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
+    expect(screen.queryByTitle(/Предпросмотр:/)).not.toBeInTheDocument()
+  })
+
+  it('says so when the bytes cannot be fetched, instead of showing an empty frame', () => {
+    blobState = { blobUrl: null, isLoading: false, hasError: true }
+    render(<ResumePdfPreview resume={dto()} pdfUrl="/api/users/u1/resume/pdf" />)
+    expect(screen.getByTestId('resume-pdf-object-error')).toBeInTheDocument()
   })
 
   /**

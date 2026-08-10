@@ -23,6 +23,7 @@ import {
   MAX_PDF_TEXT_OPERATORS,
   MAX_PDF_PAGES,
   capExtractedText,
+  countTextOperators,
   detectResumeSourceMime,
   inspectDocxZip,
   inspectPdfContent,
@@ -290,6 +291,36 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
       const disguisedInfo = await inspectDocxZip(disguisedPhoto)
       expect(disguisedInfo.actualParsedBytes).toBe(info.actualParsedBytes)
     })
+  })
+
+  /**
+   * The PDF screen runs on the main thread BY DESIGN — it decides whether
+   * paying for a child process is worth it, so it can never be inside one. That
+   * makes its own cost a hard requirement, and it failed that requirement
+   * invisibly: `text.match(/…/g).length` MATERIALISES EVERY MATCH before
+   * anything is compared, so a 32 KB PDF carrying ~10.8 million operators built
+   * a ten-million-element array — 731 ms of matching, 743 ms of event-loop lag,
+   * 1 450 ms over live HTTP at four uploads against a limit of two — and only
+   * then refused the file. Rejected, yes; frozen first.
+   *
+   * The property that fixes it is BOUNDED WORK, and that is what is asserted
+   * here rather than a duration. A timing test was tried first and could not be
+   * made to bite: the byte cap (32 MB decoded) trips before a fixture can carry
+   * ten million operators, so the expensive path was never reached and the
+   * `.match()` mutation passed. A test that cannot fail is worse than none.
+   *
+   * MUTATION: restore `.match(...).length` and this goes red immediately — it
+   * returns the true total, not the cap.
+   */
+  it('stops counting operators at the limit instead of collecting them all', () => {
+    // Far more operators than the limit, in one stream.
+    const stream = Buffer.from(' Tj'.repeat(500_000), 'latin1')
+
+    expect(countTextOperators(stream, 80_000)).toBe(80_001)
+    // The bound follows the limit rather than the input.
+    expect(countTextOperators(stream, 10)).toBe(11)
+    // An honest document is counted exactly.
+    expect(countTextOperators(Buffer.from(' Tj Tj TJ', 'latin1'), 80_000)).toBe(3)
   })
 
   it('refuses a document whose parsable parts exceed the budget', async () => {

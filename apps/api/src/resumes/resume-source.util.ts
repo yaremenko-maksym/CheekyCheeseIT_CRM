@@ -660,7 +660,7 @@ export async function inspectPdfContent(
     contentBytes += decoded
     if (contentBytes > maxContentBytes) throw new RangeError(pdfTooBig(maxContentBytes))
 
-    const ops = countTextOperators(decodedBuf)
+    const ops = countTextOperators(decodedBuf, maxTextOperators)
     textOperators += ops
     if (ops > largestStreamOperators) largestStreamOperators = ops
     if (textOperators > maxTextOperators) throw new RangeError(pdfTooBusy(maxTextOperators))
@@ -674,17 +674,49 @@ export async function inspectPdfContent(
 }
 
 /**
- * Count text-showing operators (`Tj`, `TJ`, `'`, `"`) in a decoded stream.
+ * Count text-showing operators (`Tj`, `TJ`, `'`, `"`), stopping at `limit + 1`.
  *
  * A byte scan, not a tokeniser: the point is to bound the parser, and building
  * a PDF tokeniser to protect a PDF tokeniser only doubles the attack surface.
  * It can over-count when those letter pairs appear inside a string literal,
  * which is the safe direction for a guard — it can refuse a little early, never
  * a little late.
+ *
+ * ==========================================================================
+ * WHY IT COUNTS INSTEAD OF COLLECTING
+ * ==========================================================================
+ * This used to be `text.match(/…/g).length`, which MATERIALISES EVERY MATCH
+ * before anything is compared to anything. A 32 KB PDF whose stream carries
+ * ~10.8 million operators therefore built a ten-million-element array on the
+ * main thread — 731 ms of matching, 743 ms of event-loop lag in isolation,
+ * 1 450 ms over live HTTP with four uploads against a limit of two — and only
+ * then answered the question "is this over 80 000?".
+ *
+ * The file was rejected. The freeze happened BEFORE the rejection, which is the
+ * whole lesson: the sandbox was built around the work assumed to be expensive,
+ * while the CHECK IN FRONT OF IT was unbounded. That contradicts the invariant
+ * written at the top of `sandboxed-process.ts` — one sandbox for every piece of
+ * untrusted unbounded work — with a piece that never entered a sandbox at all.
+ *
+ * We do not need the list of operators; we need "more than the limit, yes or
+ * no". Counting with an early exit answers exactly that and costs 80 001
+ * matches instead of ten million, whatever the input. Returning `limit + 1`
+ * rather than the true total is deliberate: every caller only compares against
+ * the limit, and the true total is precisely the number that is expensive to
+ * learn.
  */
-function countTextOperators(decoded: Buffer): number {
+export function countTextOperators(decoded: Buffer, limit: number): number {
   const text = decoded.toString('latin1')
-  return (text.match(/(?:^|[\s\]>)])(?:Tj|TJ|'|")(?=[\s/[<(]|$)/g) ?? []).length
+  const pattern = /(?:^|[\s\]>)])(?:Tj|TJ|'|")(?=[\s/[<(]|$)/g
+  let count = 0
+  // `exec` in a loop walks the same automaton `match` does, but keeps only a
+  // counter, so the work is bounded by the answer we need rather than by the
+  // size of the input.
+  while (pattern.exec(text) !== null) {
+    count += 1
+    if (count > limit) return count
+  }
+  return count
 }
 
 function pdfTooBig(cap: number): string {

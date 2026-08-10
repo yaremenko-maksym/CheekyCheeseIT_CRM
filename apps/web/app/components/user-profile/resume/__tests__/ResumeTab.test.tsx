@@ -31,6 +31,10 @@ vi.mock('@/hooks/use-senior-resume', () => ({
   useIngestResumeText: () => ({ mutate: ingestTextMock, isPending: false }),
   useDeleteResume: () => ({ mutate: deleteMock, isPending: false }),
   useResumeSourceUrl: () => ({ data: undefined }),
+  // No blob here: these tests are about the tab, and jsdom cannot load a blob
+  // iframe anyway. The preview's own behaviour is asserted in
+  // ResumeLayoutPanel.test.tsx, where the hook is stubbed with a blob URL.
+  useResumePdfBlob: () => ({ blobUrl: null, isLoading: false, hasError: false }),
   resumePdfUrl: (userId: string) => `/api/users/${userId}/resume/pdf`,
 }))
 

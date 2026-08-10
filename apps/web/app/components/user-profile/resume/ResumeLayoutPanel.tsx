@@ -165,6 +165,16 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                           ? `Показать «${SECTION_LABELS[key]}»`
                           : `Скрыть «${SECTION_LABELS[key]}»`
                       }
+                      // `title`, not a Radix tooltip: these buttons are icon-only
+                      // AND disabled for a read-only viewer, and a Radix tooltip
+                      // never fires on a disabled trigger — the state where "what
+                      // does this do?" is hardest to answer. Same reason
+                      // animated-tabs.tsx uses `title`.
+                      title={
+                        hidden
+                          ? `Показать «${SECTION_LABELS[key]}»`
+                          : `Скрыть «${SECTION_LABELS[key]}»`
+                      }
                       data-testid={`resume-layout-toggle-${key}`}
                       disabled={!canEdit || isSaving}
                       onClick={() => toggleHidden(key)}
@@ -177,6 +187,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       size="icon"
                       className="size-11 sm:size-8"
                       aria-label={`Поднять «${SECTION_LABELS[key]}»`}
+                      title={`Поднять «${SECTION_LABELS[key]}»`}
                       data-testid={`resume-layout-up-${key}`}
                       disabled={!canEdit || isSaving || index === 0}
                       onClick={() =>
@@ -191,6 +202,7 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                       size="icon"
                       className="size-11 sm:size-8"
                       aria-label={`Опустить «${SECTION_LABELS[key]}»`}
+                      title={`Опустить «${SECTION_LABELS[key]}»`}
                       data-testid={`resume-layout-down-${key}`}
                       disabled={!canEdit || isSaving || index === draft.sectionOrder.length - 1}
                       onClick={() =>

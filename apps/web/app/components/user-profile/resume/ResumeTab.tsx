@@ -364,7 +364,12 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 text-xs text-muted-foreground">
           {resume && (
-            <span className="inline-flex items-center gap-1.5">
+            // `min-w-0` on the flex CHILD as well as the parent: a flex item's
+            // default `min-width: auto` refuses to shrink below its content, so
+            // `truncate` on the inner span never engages and a long editor name
+            // pushes the row ~12 px past 320. The outer div having it is not
+            // enough — the inline-flex span is the item that has to yield.
+            <span className="inline-flex min-w-0 max-w-full items-center gap-1.5">
               <History className="h-3.5 w-3.5 shrink-0" aria-hidden />
               <span className="truncate">
                 Версия {resume.version}
@@ -373,7 +378,7 @@ export function ResumeTab({ userId, onDirtyChange }: ResumeTabProps) {
             </span>
           )}
         </div>
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="flex min-w-0 flex-col gap-2 sm:flex-row">
           {/* Source download + erase: the SAME fragment the empty state renders,
               so neither control can go missing in one branch only. */}
           {sourceAndDangerActions}
