@@ -178,8 +178,13 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * Measured before the fix: the guard saw 863 B, the parser read 17.3 MB,
    * 5 819 ms of continuous stall, and the upload was ACCEPTED.
    *
-   * MUTATION: make `isInertMedia` return `true` for everything (i.e. count
-   * nothing) or restore the by-extension rule, and this goes red.
+   * This case is kept as the historical regression; the general rule it turned
+   * out to need is asserted in "the parse budget is decided by content, never by
+   * name" below — because fixing this ONE name is what led straight to the next
+   * bypass (`word/document.png`).
+   *
+   * MUTATION: make `isInertMediaContent` return `true` unconditionally (count
+   * nothing), or reintroduce any filename check, and this goes red.
    */
   it('counts a renamed document body — the extension is the attacker’s choice', async () => {
     const disguised = buildDocxWithRenamedBody(Array.from({ length: 300_000 }, (_, i) => `p${i}`))
