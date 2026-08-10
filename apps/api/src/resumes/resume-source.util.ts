@@ -14,12 +14,10 @@
  * knowledge lives resume-side.
  */
 import { promisify } from 'node:util'
-import { inflate, inflateRaw } from 'node:zlib'
+import { createInflateRaw, inflate } from 'node:zlib'
 import { RESUME_DOCX_MIME, RESUME_PDF_MIME, RESUME_LIMITS } from '@crm/shared'
 import { detectMimeFromBuffer } from '../documents/compression.service'
 
-/** Async (thread-pool) inflate — never block the event loop on a bomb. */
-const inflateRawAsync = promisify(inflateRaw)
 /** PDF `FlateDecode` is zlib-wrapped, unlike zip's raw deflate. */
 const inflateAsync = promisify(inflate)
 
@@ -40,15 +38,12 @@ export const MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
  * Max total uncompressed size of the parts `mammoth` may actually parse — the
  * bound that governs CPU.
  *
- * ACCOUNTED BY EXCLUSION, NOT BY EXTENSION. The previous version counted only
- * `.xml` / `.rels`, which is trivially bypassed: `mammoth` locates the main
- * document part through `_rels/.rels` and accepts ANY target that exists
- * (`docx-reader.js` `findPartPath` -> `validTargets[0]`), so the extension is
- * decoration. Putting the body in `word/document.dat` and leaving a 900-byte
- * decoy at `word/document.xml` made this budget see 863 B while the parser
- * chewed through 17.3 MB — measured at 5 819 ms of continuous main-thread
- * stall. An allow-list keyed on a name the attacker chooses is not a bound, so
- * everything counts unless it is provably inert (`isInertMedia`).
+ * ACCOUNTED FROM CONTENT, NOT FROM THE FILENAME — see `MEDIA_SIGNATURES` for
+ * why, and for the two bypasses that were needed to learn it. Short version:
+ * `mammoth` never looks at a part's name (it follows `_rels/.rels` and reads
+ * whatever that points at), so any budget keyed on names disagrees with the
+ * parser by construction and can be walked around by renaming one entry. A
+ * part is excluded here only when its BYTES are a recognised media format.
  *
  * SIZE CALIBRATED ON 14 REAL WORD DOCUMENTS, not on a generated fixture. The
  * fixture used previously spends ~60 bytes per paragraph where real Word spends
@@ -207,51 +202,107 @@ interface ZipEntryHeader {
 }
 
 /**
- * Extensions that `extractRawText` provably never parses: raster images,
- * audio/video, and embedded fonts. Verified against 14 real Word documents —
- * one carries 8 MB of images and still counts only 331 KB.
- *
- * This list is the ONLY thing excluded from the parse budget, and it is
- * deliberately narrow: anything not named here counts, so an unknown or
- * invented extension (`.dat`, `.bin`, `.txt`) is charged in full. Note what is
- * NOT here — `.svg` is XML and is counted, because "it is referenced as an
- * image" is an assumption about the parser rather than a fact about the bytes,
- * and that class of assumption is what this whole finding was.
+ * How many leading bytes of a decompressed part are inspected to decide what it
+ * is. Every magic number below fits in far less; 32 is slack.
  */
-const INERT_MEDIA_EXTENSIONS = new Set([
-  '.png',
-  '.jpg',
-  '.jpeg',
-  '.gif',
-  '.bmp',
-  '.tif',
-  '.tiff',
-  '.emf',
-  '.wmf',
-  '.ico',
-  '.webp',
-  '.heic',
-  '.mp3',
-  '.mp4',
-  '.wav',
-  '.avi',
-  '.m4a',
-  '.mov',
-  '.wmv',
-  '.ttf',
-  '.otf',
-  '.odttf',
-  '.eot',
-  '.woff',
-  '.woff2',
-])
+const MAGIC_PREFIX_BYTES = 32
 
-/** True only for parts that cost memory but no parse time. */
-function isInertMedia(name: string): boolean {
-  const lower = name.toLowerCase()
-  const dot = lower.lastIndexOf('.')
-  if (dot < 0) return false // no extension at all -> count it
-  return INERT_MEDIA_EXTENSIONS.has(lower.slice(dot))
+/**
+ * Byte signatures of formats `extractRawText` hands to a codec, never to a
+ * parser: raster images, audio/video, embedded fonts.
+ *
+ * ============================================================================
+ * WHY SIGNATURES AND NOT FILENAMES — the third time this bug was found
+ * ============================================================================
+ * The parse budget has now been bypassed three times, and re-reading the three
+ * is the only way to see that the list was never the problem:
+ *
+ *   1. the budget counted `.xml`/`.rels` BY EXTENSION -> body moved to
+ *      `word/document.dat`, budget saw 863 B, parser chewed 17.3 MB;
+ *   2. inverted to "count everything except media, BY EXTENSION" -> body moved
+ *      to `word/document.png`, budget saw 533 B, parser chewed 16-18 MB
+ *      (2.6-3.0 s of continuous main-thread stall from a 49-55 KB upload);
+ *   3. — there is no third, because the two above are the SAME BUG. Both
+ *      allow-list and deny-list were keyed on the filename, and `mammoth`
+ *      does not look at filenames at all: it resolves the document part
+ *      through the `_rels/.rels` relationship graph and reads whatever that
+ *      points at (`docx-reader.js` `findPartPath` -> `validTargets[0]`).
+ *
+ * THE DEFECT WAS NEVER THE CONTENTS OF THE LIST. It was that the guard decided
+ * on one signal (the name, which the attacker writes) while the parser decided
+ * on another (the reference graph, plus the bytes). While those two disagree,
+ * a bypass exists to be found, whatever names the list holds — and the next
+ * name is free to invent.
+ *
+ * So the signal is changed rather than the list. A part is excluded from the
+ * parse budget only when ITS BYTES are a recognised media format, which closes
+ * the class by an argument that does not mention names at all:
+ *
+ *   - to be EXCLUDED, a part must open with media magic;
+ *   - to COST PARSE TIME, a part must be well-formed XML `mammoth` can read;
+ *   - no byte sequence is both. `\x89PNG` is not a document, and a document is
+ *     not a PNG.
+ *
+ * Anything unrecognised COUNTS — the polarity that matters, since an invented
+ * format is exactly what an attacker reaches for. This is also the rule the top
+ * of this file already stated for the upload itself ("decided from the BYTES,
+ * never from the filename extension"); `isInertMedia` was the one place that
+ * quietly did the opposite.
+ *
+ * Real documents are unaffected: their images really are images, so they are
+ * still excluded (the 8 MB-of-images document still counts ~331 KB), and every
+ * XML part was already being counted before.
+ */
+const MEDIA_SIGNATURES: ReadonlyArray<{ format: string; magic: readonly number[] }> = [
+  { format: 'png', magic: [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a] },
+  { format: 'jpeg', magic: [0xff, 0xd8, 0xff] },
+  { format: 'gif', magic: [0x47, 0x49, 0x46, 0x38] },
+  { format: 'bmp', magic: [0x42, 0x4d] },
+  { format: 'tiff-le', magic: [0x49, 0x49, 0x2a, 0x00] },
+  { format: 'tiff-be', magic: [0x4d, 0x4d, 0x00, 0x2a] },
+  // EMF: an ENHMETAHEADER whose iType is 1. WMF: the placeable-metafile key.
+  { format: 'emf', magic: [0x01, 0x00, 0x00, 0x00] },
+  { format: 'wmf', magic: [0xd7, 0xcd, 0xc6, 0x9a] },
+  { format: 'wmf-plain', magic: [0x01, 0x00, 0x09, 0x00] },
+  { format: 'ico', magic: [0x00, 0x00, 0x01, 0x00] },
+  { format: 'mp3-id3', magic: [0x49, 0x44, 0x33] },
+  { format: 'ttf', magic: [0x00, 0x01, 0x00, 0x00] },
+  { format: 'otf', magic: [0x4f, 0x54, 0x54, 0x4f] },
+  { format: 'ttc', magic: [0x74, 0x74, 0x63, 0x66] },
+  { format: 'woff', magic: [0x77, 0x4f, 0x46, 0x46] },
+  { format: 'woff2', magic: [0x77, 0x4f, 0x46, 0x32] },
+]
+
+/** Container formats that carry their marker a few bytes in, not at offset 0. */
+const CONTAINER_SIGNATURES: ReadonlyArray<{
+  format: string
+  offset: number
+  ascii: string
+}> = [
+  { format: 'riff', offset: 0, ascii: 'RIFF' }, // WAV / AVI / WEBP
+  { format: 'mp4', offset: 4, ascii: 'ftyp' }, // MP4 / M4A / MOV / HEIC
+]
+
+/**
+ * True only when these bytes are a media payload — i.e. a part that costs
+ * memory but no parse time.
+ *
+ * Takes BYTES, not a name, and that signature change is the whole fix. An empty
+ * or unreadably short part returns false (counts), because "too small to
+ * identify" must never mean "assumed harmless".
+ */
+export function isInertMediaContent(head: Buffer): boolean {
+  if (head.length < 2) return false
+
+  for (const { magic } of MEDIA_SIGNATURES) {
+    if (head.length < magic.length) continue
+    if (magic.every((byte, i) => head[i] === byte)) return true
+  }
+  for (const { offset, ascii } of CONTAINER_SIGNATURES) {
+    if (head.length < offset + ascii.length) continue
+    if (head.subarray(offset, offset + ascii.length).toString('latin1') === ascii) return true
+  }
+  return false
 }
 
 /**
@@ -271,8 +322,8 @@ function isInertMedia(name: string): boolean {
  * thing that caught it before was `mammoth`'s own internal check, AFTER it had
  * already inflated the whole thing into memory. Here nothing is handed to
  * `mammoth` until the real size is known, and the inflate is bounded and runs
- * on the thread pool (`inflateRawAsync`), so neither memory nor the event loop
- * is at the archive's mercy.
+ * on the thread pool (`inflateAndClassify`), so neither memory nor the event
+ * loop is at the archive's mercy.
  *
  * The entry COUNT is likewise not taken on faith: the directory is walked by
  * signature and the walked count must match the declared one — declaring zero
@@ -291,20 +342,19 @@ export async function inspectDocxZip(
   let actualUncompressedBytes = 0
   let actualParsedBytes = 0
   for (const header of headers) {
-    const inert = isInertMedia(header.name)
-    // A parsable part gets the SMALLER of the two remaining budgets, so zlib
-    // stops the moment either is spent and the rest is never inflated.
-    const budget = inert
-      ? maxUncompressedBytes - actualUncompressedBytes
-      : Math.min(maxUncompressedBytes - actualUncompressedBytes, maxParsedBytes - actualParsedBytes)
-    const size = await measureEntry(
-      buf,
-      header,
-      budget,
-      inert ? maxUncompressedBytes : maxParsedBytes,
-    )
+    // Both budgets go in and the entry is classified FROM ITS OWN BYTES as it
+    // decompresses, so neither the decision nor the ceiling can be moved by
+    // renaming the entry (see MEDIA_SIGNATURES). Decompression still stops the
+    // moment whichever budget applies is spent — the classification happens on
+    // the first chunk, long before the last one.
+    const { size, counted } = await measureEntry(buf, header, {
+      totalRemaining: maxUncompressedBytes - actualUncompressedBytes,
+      parsedRemaining: maxParsedBytes - actualParsedBytes,
+      maxUncompressedBytes,
+      maxParsedBytes,
+    })
     actualUncompressedBytes += size
-    if (!inert) actualParsedBytes += size
+    if (counted) actualParsedBytes += size
   }
 
   return {
@@ -402,12 +452,18 @@ function readCentralDirectory(
  * controlled too, and zlib stops cleanly at the end of the deflate stream and
  * ignores whatever follows it (verified against Node 20's `inflateRaw`).
  */
+interface EntryBudgets {
+  totalRemaining: number
+  parsedRemaining: number
+  maxUncompressedBytes: number
+  maxParsedBytes: number
+}
+
 async function measureEntry(
   buf: Buffer,
   header: ZipEntryHeader,
-  budget: number,
-  reportedCap: number,
-): Promise<number> {
+  budgets: EntryBudgets,
+): Promise<{ size: number; counted: boolean }> {
   const nameLen = readU16LE(buf, header.localHeaderOffset + 26)
   const extraLen = readU16LE(buf, header.localHeaderOffset + 28)
   if (
@@ -426,30 +482,79 @@ async function measureEntry(
     // physically present.
     const available = buf.length - dataStart
     const size = Math.min(header.declaredUncompressedSize, available)
-    if (size > budget) throw new RangeError(tooBig(reportedCap))
-    return size
+    const counted = !isInertMediaContent(buf.subarray(dataStart, dataStart + MAGIC_PREFIX_BYTES))
+    if (size > budgets.totalRemaining) throw new RangeError(tooBig(budgets.maxUncompressedBytes))
+    if (counted && size > budgets.parsedRemaining)
+      throw new RangeError(tooBig(budgets.maxParsedBytes))
+    return { size, counted }
   }
 
   if (header.method !== ZIP_METHOD_DEFLATE) {
     throw new RangeError(`Неподдерживаемый метод сжатия внутри DOCX (${header.method})`)
   }
+  if (budgets.totalRemaining <= 0) throw new RangeError(tooBig(budgets.maxUncompressedBytes))
 
-  // `maxOutputLength: 0` is treated as "no limit" by zlib, so a spent budget
-  // has to be refused before the call rather than passed into it.
-  if (budget <= 0) throw new RangeError(tooBig(reportedCap))
+  return inflateAndClassify(buf.subarray(dataStart), budgets)
+}
 
-  try {
-    const inflated = await inflateRawAsync(buf.subarray(dataStart), { maxOutputLength: budget })
-    return inflated.length
-  } catch (err: unknown) {
-    // zlib signals "output exceeded maxOutputLength" with an ERR_BUFFER_TOO_LARGE
-    // error that IS itself a RangeError — so the CODE has to be inspected before
-    // any `instanceof RangeError` branch, or the bomb reports itself as a
-    // generic Node buffer message instead of our bounded-size failure.
-    const code = (err as { code?: string } | null)?.code
-    if (code === 'ERR_BUFFER_TOO_LARGE') throw new RangeError(tooBig(reportedCap))
-    throw new RangeError('Не удалось распаковать содержимое DOCX')
-  }
+/**
+ * Decompress one entry on the thread pool, deciding WHAT IT IS from its first
+ * bytes and stopping as soon as the budget that applies to it is spent.
+ *
+ * Streamed rather than `inflateRaw(..., { maxOutputLength })` because the
+ * one-shot form forces a choice before anything is known: pass the parse budget
+ * and a legitimate 8 MB image is refused; pass the total budget and a hidden
+ * 17 MB body is fully decompressed before anyone looks at it. Reading chunk by
+ * chunk means the classification lands on the FIRST chunk and the correct
+ * ceiling applies to every chunk after it — the early abort survives the move
+ * from names to content.
+ *
+ * The compressed data is sliced to the END of the buffer rather than to the
+ * declared compressed size: that field is attacker controlled too, and zlib
+ * stops cleanly at the end of the deflate stream and ignores what follows.
+ */
+function inflateAndClassify(
+  compressed: Buffer,
+  budgets: EntryBudgets,
+): Promise<{ size: number; counted: boolean }> {
+  return new Promise((resolve, reject) => {
+    const stream = createInflateRaw()
+    let size = 0
+    let head = Buffer.alloc(0)
+    // `null` = not decided yet. Anything unrecognised ends up `true` (counted).
+    let counted: boolean | null = null
+    let settled = false
+
+    const finish = (err: RangeError | null, value?: { size: number; counted: boolean }): void => {
+      if (settled) return
+      settled = true
+      stream.destroy()
+      if (err) reject(err)
+      else resolve(value as { size: number; counted: boolean })
+    }
+
+    stream.on('data', (chunk: Buffer) => {
+      if (head.length < MAGIC_PREFIX_BYTES) {
+        head = Buffer.concat([head, chunk]).subarray(0, MAGIC_PREFIX_BYTES)
+        counted = !isInertMediaContent(head)
+      }
+      size += chunk.length
+      if (size > budgets.totalRemaining) {
+        finish(new RangeError(tooBig(budgets.maxUncompressedBytes)))
+        return
+      }
+      if (counted !== false && size > budgets.parsedRemaining) {
+        finish(new RangeError(tooBig(budgets.maxParsedBytes)))
+      }
+    })
+
+    stream.on('error', () => finish(new RangeError('Не удалось распаковать содержимое DOCX')))
+    // A zero-length part never emits `data`, so it is classified here: counted,
+    // because "nothing to identify" must not read as "known to be harmless".
+    stream.on('end', () => finish(null, { size, counted: counted ?? true }))
+
+    stream.end(compressed)
+  })
 }
 
 /**

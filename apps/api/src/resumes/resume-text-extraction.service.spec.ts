@@ -195,6 +195,98 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     expect(info.actualParsedBytes).toBe(info.actualUncompressedBytes)
   })
 
+  /**
+   * ==========================================================================
+   * THE CLASS, not the three names that have been found so far.
+   * ==========================================================================
+   * This budget has now been bypassed twice, and both times the fix was a
+   * better list of filenames:
+   *
+   *   `word/document.xml` counted by extension -> body moved to `.dat`
+   *   `.dat` counted after inverting the rule  -> body moved to `.png`
+   *
+   * Both are the same defect. The guard decided from the NAME (which the
+   * attacker writes) while `mammoth` decides from the `_rels/.rels` graph and
+   * the bytes. A test that lists the three known names would have passed
+   * before the `.png` bypass existed and will pass before the next one does.
+   *
+   * So the property asserted is the DECISION SIGNAL itself: identical bytes
+   * must be accounted identically under every name. Any name-based exclusion —
+   * old, new, or invented next month — breaks this, because it makes the count
+   * a function of something other than the content.
+   */
+  describe('the parse budget is decided by content, never by name', () => {
+    // Deliberately spanning every name-shaped trick tried so far AND the ones
+    // not tried: a media extension, a font extension, upper case, no extension
+    // at all, a media DIRECTORY, and a double extension.
+    const DISGUISES = [
+      'word/document.xml',
+      'word/document.dat',
+      'word/document.png',
+      'word/document.JPEG',
+      'word/document.woff2',
+      'word/media/image1.png',
+      'word/document.xml.png',
+      'word/document',
+    ]
+
+    it('gives one body the same parsed-byte count under every name', async () => {
+      const body = Array.from({ length: 400 }, (_, i) => `пункт резюме номер ${i}`)
+
+      const counts: number[] = []
+      for (const name of DISGUISES) {
+        const doc = buildDocxWithRenamedBody(body, name)
+        const info = await inspectDocxZip(doc)
+        // `_rels/.rels` is itself a counted part and literally contains the
+        // body's name once (`Target="..."`), so a longer name legitimately adds
+        // its own length to the total. Subtracting it isolates the only thing
+        // under test — what the BODY was charged — instead of blurring the
+        // assertion into a tolerance that would also hide a real drift.
+        counts.push(info.actualParsedBytes - name.length)
+      }
+
+      // Non-vacuity: the body is genuinely being counted, not uniformly zero.
+      expect(Math.min(...counts)).toBeGreaterThan(5_000)
+      // The property: nothing else about the name reaches the accounting.
+      expect(new Set(counts).size).toBe(1)
+    })
+
+    it('refuses an over-budget body under every name', async () => {
+      const body = Array.from({ length: 200_000 }, (_, i) => `p${i}`)
+      for (const name of DISGUISES) {
+        const doc = buildDocxWithRenamedBody(body, name)
+        await expect(inspectDocxZip(doc), `body hidden at ${name} was accepted`).rejects.toThrow(
+          /Содержимое DOCX больше/,
+        )
+      }
+    })
+
+    /**
+     * The converse, which is what keeps the rule honest rather than merely
+     * strict: a part is excluded because its BYTES are media, so a real image
+     * stays excluded even when it is called `document.xml` — and, crucially, a
+     * document stays counted even when it is called `image1.png`.
+     *
+     * Without this half, "count everything" would pass the tests above and
+     * reject every real CV that carries a photo.
+     */
+    it('excludes a real image under any name, and only a real image', async () => {
+      const withPhoto = buildDocxWithMedia(['короткое резюме'], 2 * 1024 * 1024)
+      const info = await inspectDocxZip(withPhoto)
+
+      // The photo is not charged to the parse budget...
+      expect(info.actualUncompressedBytes - info.actualParsedBytes).toBeGreaterThan(1024 * 1024)
+      // ...and it is the BYTES that earned that, not the `.png` in its path.
+      const disguisedPhoto = buildDocxWithMedia(
+        ['короткое резюме'],
+        2 * 1024 * 1024,
+        'word/photo.xml',
+      )
+      const disguisedInfo = await inspectDocxZip(disguisedPhoto)
+      expect(disguisedInfo.actualParsedBytes).toBe(info.actualParsedBytes)
+    })
+  })
+
   it('refuses a document whose parsable parts exceed the budget', async () => {
     const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
     await expect(inspectDocxZip(dense)).rejects.toThrow(/Содержимое DOCX больше/)

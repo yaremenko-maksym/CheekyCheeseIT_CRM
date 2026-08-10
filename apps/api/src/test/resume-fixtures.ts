@@ -339,10 +339,22 @@ export function buildWordDensityDocx(pages: number): Buffer {
  * something to split. `imageBytes` of incompressible-ish PNG-named payload
  * lands in `word/media/`, which the parse budget must ignore.
  */
-export function buildDocxWithMedia(paragraphs: string[], imageBytes: number): Buffer {
-  // Pseudo-random so it does not compress to nothing — we want real weight.
+export function buildDocxWithMedia(
+  paragraphs: string[],
+  imageBytes: number,
+  mediaName = 'word/media/image1.png',
+): Buffer {
+  // REAL PNG magic, then pseudo-random filler so it does not compress away.
+  //
+  // The bytes matter now, and this fixture used to prove less than it looked
+  // like it did: it was random data at a `.png` PATH, so it only counted as an
+  // image while the guard trusted filenames. Since the guard reads the
+  // signature, a fixture without one would (correctly) be charged to the parse
+  // budget — and the test asserting images are excluded would have been
+  // testing the old, broken rule.
   const media = Buffer.alloc(imageBytes)
-  for (let i = 0; i < imageBytes; i += 1) media[i] = (i * 2654435761) % 251
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(media)
+  for (let i = 8; i < imageBytes; i += 1) media[i] = (i * 2654435761) % 251
   return buildZip([
     { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
     { name: '_rels/.rels', data: Buffer.from(RELS, 'utf8'), deflate: true },
@@ -351,7 +363,7 @@ export function buildDocxWithMedia(paragraphs: string[], imageBytes: number): Bu
       data: Buffer.from(documentXml(paragraphs), 'utf8'),
       deflate: true,
     },
-    { name: 'word/media/image1.png', data: media },
+    { name: mediaName, data: media },
   ])
 }
 
