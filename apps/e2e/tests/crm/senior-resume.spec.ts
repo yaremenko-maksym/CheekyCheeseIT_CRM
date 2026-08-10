@@ -67,6 +67,18 @@ interface ResumeStub {
   quotaResetsAt?: string | null
   hasSourceFile?: boolean
   version?: number
+  layout?: unknown
+  renderStatus?: string
+  renderError?: string | null
+  pdfUpToDate?: boolean
+}
+
+/** Mirrors DEFAULT_RESUME_LAYOUT — the E2E package does not import @crm/shared. */
+const DEFAULT_LAYOUT = {
+  sectionOrder: ['summary', 'skills', 'experience', 'education', 'languages', 'links'],
+  hiddenSections: [],
+  density: 'normal',
+  fontScale: 'normal',
 }
 
 function resumeResponse(stub: ResumeStub | null, canEdit = true) {
@@ -88,6 +100,15 @@ function resumeResponse(stub: ResumeStub | null, canEdit = true) {
       updatedByName: null,
       createdAt: '2026-08-07T10:00:00.000Z',
       updatedAt: '2026-08-07T10:00:00.000Z',
+      // task-resume-template: the layout half of the split. The template itself
+      // is never in the DTO — only its label — which is what keeps it out of
+      // reach of anything running in a browser.
+      layout: stub.layout ?? DEFAULT_LAYOUT,
+      templateName: 'Стандартный шаблон',
+      hasCustomTemplate: false,
+      renderStatus: stub.renderStatus ?? 'READY',
+      renderError: stub.renderError ?? null,
+      pdfUpToDate: stub.pdfUpToDate ?? true,
     },
     canEdit,
   }
@@ -489,5 +510,85 @@ test.describe('Резюме — адаптив (AC9)', () => {
     const upBox = await page.getByTestId('resume-experience-up-1').boundingBox()
     expect(upBox?.height ?? 0).toBeGreaterThanOrEqual(44)
     expect(upBox?.width ?? 0).toBeGreaterThanOrEqual(44)
+  })
+
+  test('на мобильном переключатели оформления тоже не меньше 44px', async ({ page }) => {
+    await page.setViewportSize({ width: 320, height: 900 })
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    const hide = page.getByTestId('resume-layout-toggle-links')
+    await hide.scrollIntoViewIfNeeded()
+    const box = await hide.boundingBox()
+    expect(box?.height ?? 0).toBeGreaterThanOrEqual(44)
+    expect(box?.width ?? 0).toBeGreaterThanOrEqual(44)
+  })
+})
+
+/**
+ * task-resume-template: the layout switches and the rendered document.
+ *
+ * The PDF is built by a background job, so what the interface must never do is
+ * present a stale or missing render as the current resume. These pin the three
+ * states end to end.
+ */
+test.describe('Резюме синьора — оформление и PDF', () => {
+  test('переключатель оформления уходит на сервер как отдельное сохранение', async ({ page }) => {
+    const layoutCalls: unknown[] = []
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/layout$`), async (route) => {
+      layoutCalls.push(route.request().postDataJSON())
+      await route.fulfill(json(resumeResponse({ content: FILLED_CONTENT })))
+    })
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    await page.getByTestId('resume-layout-toggle-links').click()
+    await page.getByTestId('resume-layout-save').click()
+
+    await expect.poll(() => layoutCalls.length).toBe(1)
+    expect(layoutCalls[0]).toMatchObject({ layout: { hiddenSections: ['links'] } })
+  })
+
+  test('готовый PDF показывается и скачивается', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    await expect(page.getByTestId('resume-pdf-preview')).toBeVisible()
+    await expect(page.getByTestId('resume-download-pdf')).toHaveAttribute(
+      'href',
+      /\/users\/[^/]+\/resume\/pdf$/,
+    )
+  })
+
+  test('устаревший PDF не выдаётся за текущий', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [
+      resumeResponse({ content: FILLED_CONTENT, renderStatus: 'RUNNING', pdfUpToDate: false }),
+    ])
+
+    await expect(page.getByTestId('resume-pdf-pending')).toBeVisible()
+    // The download must be gone, not merely stale — a resume that no longer
+    // matches its PDF has no current PDF to offer.
+    await expect(page.getByTestId('resume-download-pdf')).toHaveCount(0)
+  })
+
+  test('провал сборки объясняется словами сервера', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [
+      resumeResponse({
+        content: FILLED_CONTENT,
+        renderStatus: 'FAILED',
+        pdfUpToDate: false,
+        renderError: 'Вёрстка не уложилась в 20 с.',
+      }),
+    ])
+
+    await expect(page.getByTestId('resume-pdf-failed')).toContainText('не уложилась')
+  })
+
+  test('шаблон недоступен для правки из интерфейса', async ({ page }) => {
+    await openSeniorResumeAsAdmin(page, [resumeResponse({ content: FILLED_CONTENT })])
+
+    // The panel offers switches only. A textarea here would mean template
+    // source had become editable from a browser, which is the one thing the
+    // layout/data split exists to prevent.
+    const panel = page.getByTestId('resume-layout-panel')
+    await expect(panel).toBeVisible()
+    await expect(panel.getByRole('textbox')).toHaveCount(0)
   })
 })

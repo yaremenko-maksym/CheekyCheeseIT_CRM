@@ -304,6 +304,22 @@ describe('the sandbox', () => {
     expect(args[args.indexOf('--jobs') + 1]).toBe('1')
   })
 
+  /**
+   * The template is an ASSET, and assets only reach production if `nest-cli.json`
+   * is told to copy them. Nothing else in this suite would notice: tests run
+   * from `src`, so a missing entry here is invisible until the container starts
+   * and every render fails on a file that is not there.
+   */
+  it('ships the template to dist — the build copies it, not just the fonts', async () => {
+    const { readFile } = await import('node:fs/promises')
+    const config = JSON.parse(
+      await readFile(new URL('../../nest-cli.json', import.meta.url), 'utf8'),
+    ) as { compilerOptions: { assets: Array<{ include: string }> } }
+
+    const globs = config.compilerOptions.assets.map((asset) => asset.include)
+    expect(globs).toContain('assets/typst/*.typ')
+  })
+
   it('leaves no scratch directory behind, on success or on failure', async () => {
     const { readdir } = await import('node:fs/promises')
     const { tmpdir } = await import('node:os')
