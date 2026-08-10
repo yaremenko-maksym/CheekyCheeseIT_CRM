@@ -165,11 +165,23 @@ export function ResumeLayoutPanel({ layout, canEdit, isSaving, onSave }: ResumeL
                           ? `Показать «${SECTION_LABELS[key]}»`
                           : `Скрыть «${SECTION_LABELS[key]}»`
                       }
-                      // `title`, not a Radix tooltip: these buttons are icon-only
-                      // AND disabled for a read-only viewer, and a Radix tooltip
-                      // never fires on a disabled trigger — the state where "what
-                      // does this do?" is hardest to answer. Same reason
-                      // animated-tabs.tsx uses `title`.
+                      // `title` gives these icon-only buttons a hover label while
+                      // they are ENABLED. Same approach as animated-tabs.tsx.
+                      //
+                      // KNOWN GAP, stated rather than glossed: when the button is
+                      // disabled the label is unreachable — our Button sets
+                      // `pointer-events: none` in its disabled styles, so the
+                      // native tooltip never fires either, and a Radix tooltip
+                      // would not fire on a disabled trigger. A read-only viewer
+                      // therefore still has to infer these icons from the eye /
+                      // arrow shapes and the section name beside them.
+                      //
+                      // Closing it properly means a wrapper element that keeps
+                      // pointer events while the button does not — a change to
+                      // the shared Button's disabled styling or an extra span per
+                      // control. Left for the designer's pass rather than done
+                      // half-way here, because the earlier version of this
+                      // comment claimed the gap was closed when it was not.
                       title={
                         hidden
                           ? `Показать «${SECTION_LABELS[key]}»`

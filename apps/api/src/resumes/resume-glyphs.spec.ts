@@ -194,4 +194,31 @@ describe('every character that can reach the PDF has a glyph', () => {
   it('holds for the markers the typesetter adds by itself', () => {
     expect(findUnrenderable('•')).toEqual([])
   })
+
+  /**
+   * KNOWN LIMIT — personal templates are NOT covered by any of the above.
+   *
+   * The scan reads the template shipped in this repo. A senior's own template
+   * lives in `senior_resumes.template_source`, is authored by the designer, and
+   * never passes through here — so an arrow or an em dash in a personal layout
+   * boxes out with no test, no Typst warning (it compiles happily, exit 0) and
+   * no signal until someone opens the PDF.
+   *
+   * Not closable yet in any honest way: no code path writes that column, so
+   * there is nothing to scan and nothing to regress against. It is recorded as
+   * a test rather than a comment so that whoever adds the write path meets this
+   * paragraph — the check they need is `findUnrenderable(templateSource)` at
+   * the moment a template is SAVED, which is the only place the source exists
+   * and the only moment a human can still fix it.
+   */
+  it('does not yet cover a senior’s own template — recorded, not silently missing', () => {
+    // The guarantee the shipped template gets...
+    const shipped = readFileSync(resolveAssetPath('typst/default-resume.typ'), 'utf8')
+    expect(findUnrenderable(shipped)).toEqual([])
+
+    // ...is exactly what a personal template would need and does not have. This
+    // is the check that belongs on the (not yet existing) save path.
+    const personalTemplateWithAnArrow = '#let render(data) = [→ #data.displayName]'
+    expect(findUnrenderable(personalTemplateWithAnArrow)).toEqual(['→'])
+  })
 })

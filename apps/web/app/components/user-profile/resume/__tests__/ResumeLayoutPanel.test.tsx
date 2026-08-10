@@ -147,6 +147,25 @@ describe('the panel offers switches and nothing else', () => {
     expect(within(panel).queryAllByRole('textbox')).toHaveLength(0)
   })
 
+  /**
+   * The control for the assertion above.
+   *
+   * `queryAllByRole('textbox')` returning nothing proves the panel has no text
+   * input ONLY if that query would have found one. A renamed role, a changed
+   * Testing Library default, or a typo in the role string all produce the same
+   * comfortable zero — the identical shape as the `<object>` preview test that
+   * passed for days while the preview was blank.
+   */
+  it('the "no textbox" check would notice a textbox', () => {
+    render(
+      <div data-testid="textbox-control">
+        <textarea aria-label="template source" />
+      </div>,
+    )
+    const control = screen.getByTestId('textbox-control')
+    expect(within(control).queryAllByRole('textbox')).toHaveLength(1)
+  })
+
   it('is read-only for a viewer without write access', () => {
     renderPanel({}, false)
     expect(screen.queryByTestId('resume-layout-save')).not.toBeInTheDocument()

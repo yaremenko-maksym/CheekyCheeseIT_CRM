@@ -92,6 +92,18 @@ function startLagMeter() {
   }
 }
 
+const CONTENT_TYPES_FIXTURE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+<Default Extension="xml" ContentType="application/xml"/>
+<Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+</Types>`
+
+const RELS_FIXTURE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+</Relationships>`
+
+const SMALL_DOC_XML = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>резюме</w:t></w:r></w:p></w:body></w:document>`
 const service = new ResumeTextExtractionService()
 
 describe('detectResumeSourceMime (AC2 — bytes decide, not the filename)', () => {
@@ -296,6 +308,42 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
      * Without this half, "count everything" would pass the tests above and
      * reject every real CV that carries a photo.
      */
+    /**
+     * The DEFLATED path, which the sibling test does not reach.
+     *
+     * `buildDocxWithMedia` stores its image uncompressed, so classification
+     * there happens in `measureEntry`'s STORED branch — reading the magic
+     * straight out of the archive. A real Word document deflates its parts, and
+     * that goes through `inflateAndClassify`, which decides from the first
+     * decompressed CHUNK instead. Two different code paths, one of them
+     * previously untested: a classifier that worked only on stored entries
+     * would have passed every test here while charging every real image in
+     * every real CV to the parse budget.
+     */
+    it('classifies a DEFLATED image by content too, not only a stored one', async () => {
+      const png = Buffer.alloc(2 * 1024 * 1024)
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(png)
+      for (let i = 8; i < png.length; i += 1) png[i] = (i * 2654435761) % 251
+
+      const deflatedMedia = buildZip([
+        { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES_FIXTURE, 'utf8') },
+        { name: '_rels/.rels', data: Buffer.from(RELS_FIXTURE, 'utf8') },
+        {
+          name: 'word/document.xml',
+          data: Buffer.from(SMALL_DOC_XML, 'utf8'),
+          deflate: true,
+        },
+        // The same bytes as the stored case, but compressed — the path a real
+        // .docx actually takes.
+        { name: 'word/media/image1.png', data: png, deflate: true },
+      ])
+
+      const info = await inspectDocxZip(deflatedMedia)
+      expect(info.actualUncompressedBytes).toBeGreaterThan(2 * 1024 * 1024)
+      // Still not charged to the parser, decided from the decompressed prefix.
+      expect(info.actualParsedBytes).toBeLessThan(64 * 1024)
+    })
+
     it('excludes a real image under any name, and only a real image', async () => {
       const withPhoto = buildDocxWithMedia(['короткое резюме'], 2 * 1024 * 1024)
       const info = await inspectDocxZip(withPhoto)
