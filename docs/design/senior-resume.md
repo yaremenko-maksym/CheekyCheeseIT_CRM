@@ -308,16 +308,29 @@ that is the coder/security-reviewer's call, not a design one.
 
 `apps/web/app/components/user-profile/resume/ResumeTab.tsx:367-374`: the toolbar's
 `<span className="inline-flex items-center gap-1.5"><History .../><span className="truncate">Версия N · последним менял {name}</span></span>`
-overflows the scrollable content container by ~12px at exactly 320px width when the editor's name
-is long enough (verified: `Maksym Yaremenko` triggers it, container `scrollWidth: 332` vs
-`clientWidth: 320`; the run also confirmed 375px and up have no overflow, since more room lets the
-full string fit). The intended behaviour is truncation with an ellipsis (`truncate` class is
-present), but it doesn't fire: the inner `truncate` span is a flex item of the `inline-flex`
-wrapper without `min-w-0`, so per the CSS flexbox default (`min-width: auto`) it refuses to shrink
-below its content's natural width, and the ellipsis never has room to apply. This is the same class
-of bug `min-w-0` fixes everywhere else on this same line's parent (`text-xs text-muted-foreground`
-div already has it) — just missing one level deeper, on the inner span. One-line fix:
-`className="inline-flex min-w-0 items-center gap-1.5"`.
+overflows the scrollable content container at exactly 320px width when the editor's name is long
+enough (verified: `Maksym Yaremenko` triggers it; 375px and up have no overflow, since more room
+lets the full string fit). The intended behaviour is truncation with an ellipsis (`truncate` class
+is present), but it doesn't fire.
+
+**Correction, measured — this replaces an earlier wrong diagnosis in this section.** The cause is
+_not_ a missing `min-w-0` on the wrapper. `truncate` already sets `overflow: hidden` on the inner
+span, so that flex item's automatic minimum size was already effectively unconstrained-downward;
+`min-w-0` had nothing to relax. What the `inline-flex` wrapper actually lacked is an _upper_ bound:
+with no `max-width`, it's free to size to its content's full natural (nowrap) width and push the
+row wider than its container — no amount of `min-w-0` on a descendant changes that, because the
+wrapper itself was never being asked to shrink. `max-w-full` supplies that bound, and only once the
+wrapper is capped does the flexbox algorithm inside it actually shrink the `truncate` span down to
+where the ellipsis has room to fire.
+
+Verified by rendering all four combinations at 320px and comparing outer overflow +
+truncation-fired: **neither class** → overflow, no truncation. **`min-w-0` alone** → identical
+numbers to "neither" (byte-for-byte the same overflow, same no-truncation) — i.e. `min-w-0` is
+measurably inert here. **`max-w-full` alone** → zero overflow, truncation fires. **Both** → same
+result as `max-w-full` alone. Fix: `className="inline-flex max-w-full items-center gap-1.5"`.
+`min-w-0` may stay alongside it for symmetry with the parent div on the line above, but it is not
+what makes truncation work — do not remove `max-w-full` as "redundant" on the strength of this
+document; it is the one load-bearing class of the two.
 
 ### 3. LOW — brief stale-content flash right after "Применить"
 
