@@ -9,7 +9,8 @@
       { "include": "assets/fonts/*.ttf", "outDir": "dist" },
       { "include": "assets/fonts/LICENSE.txt", "outDir": "dist" },
       { "include": "assets/brand/*.svg", "outDir": "dist" },
-      { "include": "assets/typst/*.typ", "outDir": "dist" }
+      { "include": "assets/typst/*.typ", "outDir": "dist" },
+      { "include": "assets/workers/*.cjs", "outDir": "dist" }
     ],
     "watchAssets": true
   }

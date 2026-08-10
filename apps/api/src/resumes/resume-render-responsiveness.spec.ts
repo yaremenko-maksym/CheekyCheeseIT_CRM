@@ -224,6 +224,46 @@ describe('AC3 — API responsiveness during a resume render', () => {
    * Asserted as a strict inequality against the SAME budget the test above
    * must stay under, so the two results cannot both be true.
    */
+  /**
+   * The same guarantee, for the OTHER untrusted parser.
+   *
+   * The DOCX parse budget was bypassed three times, most recently by gluing
+   * eight bytes of PNG header in front of a real document body: `mammoth`
+   * parses through an error-tolerant XML reader that skips the junk and reads
+   * 19.5 MB anyway, from an 868 KB upload. Every version of that guard was
+   * predicting what a foreign library would accept.
+   *
+   * So the parser moved under the same discipline as the renderer, and the
+   * question stops being "what does mammoth accept?" — it can accept whatever
+   * it likes, somewhere the event loop is not.
+   */
+  it('answers HTTP requests while extracting the crafted document that defeated the guard', async () => {
+    const { ResumeTextExtractionService } = await import('./resume-text-extraction.service')
+    const { buildDocxWithMediaPrefixedBody } = await import('../test/resume-fixtures')
+    const { RESUME_DOCX_MIME } = await import('@crm/shared')
+
+    const service = new ResumeTextExtractionService()
+    const attack = buildDocxWithMediaPrefixedBody(
+      Array.from({ length: 220_000 }, (_, i) => `п${i}`),
+    )
+    // Measured: the guard ACCEPTS this (it counts 635 bytes against 13.5 MB of
+    // real content), and the parse then costs ~0.9 s. Four of them, against a
+    // concurrency limit of two, guarantee a window long enough to sample —
+    // rather than relaxing the floor until one short run squeezes under it.
+    const measurement = await measureWhile(() =>
+      Promise.all(
+        Array.from({ length: 4 }, () =>
+          service.extract(attack, RESUME_DOCX_MIME).catch(() => undefined),
+        ),
+      ),
+    )
+
+    // The parse really did take a while — otherwise there was nothing to survive.
+    expect(measurement.renderMs).toBeGreaterThan(MIN_RENDER_MS)
+    expect(measurement.samples.length).toBeGreaterThan(MIN_SAMPLES)
+    expect(measurement.worst).toBeLessThan(LATENCY_BUDGET_MS)
+  }, 120_000)
+
   it('the measurement has teeth: rendering on the main thread breaks it', async () => {
     const blockingRunner: TypstRunner = (bin, args, options) => {
       try {

@@ -35,15 +35,35 @@
  *   - `MAX_CONCURRENT_EXTRACTIONS` bounds simultaneous peak memory (only).
  */
 import { Injectable, Logger } from '@nestjs/common'
-import { RESUME_DOCX_MIME, RESUME_PDF_MIME } from '@crm/shared'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
+import { resolveAssetPath } from '../common/assets.util'
+import { runSandboxed } from './sandboxed-process'
 import {
   MAX_PDF_PAGES,
-  capExtractedText,
   inspectDocxZip,
   inspectPdfContent,
   normalizeExtractedText,
   type ResumeSourceMime,
 } from './resume-source.util'
+
+/**
+ * Wall-clock deadline for one extraction, enforced with SIGKILL.
+ *
+ * The worst HONEST document measured takes about a second; the crafted one that
+ * prompted this took 1 503 ms of stall in-process. Ten seconds leaves ample room
+ * for a slow disk and a cold start while still bounding the damage — and the
+ * damage is now one failed upload, not an unavailable API.
+ */
+export const EXTRACTION_TIMEOUT_MS = 10_000
+
+/** Kernel-side CPU backstop (`ulimit -t`) for a starved JS timer. */
+export const EXTRACTION_CPU_SECONDS = 20
+
+/** Address-space ceiling per extraction (`ulimit -v`, KiB) — 1 GiB. */
+export const EXTRACTION_ADDRESS_SPACE_KB = 1_048_576
 
 /**
  * How many extractions may hold parser state at once, process-wide.
@@ -136,7 +156,7 @@ export class ResumeTextExtractionService {
     // Imported lazily so a broken/absent optional parser can never take the
     // whole Nest bootstrap down — extraction is a background job, not a
     // boot-critical dependency.
-    const { extractText, getDocumentProxy } = await import('unpdf')
+    const { getDocumentProxy } = await import('unpdf')
     try {
       // `getDocumentProxy` reads the xref and catalogue only — no content
       // streams — so the page count is available before anything expensive.
@@ -146,11 +166,10 @@ export class ResumeTextExtractionService {
           `В PDF больше ${MAX_PDF_PAGES} страниц — это не похоже на резюме`,
         )
       }
-      // The DOCX branch had a size guard and the PDF branch had none, which is
-      // how a 24 KB file bought 23 267 ms of stall: page count and compressed
-      // size both measure something other than the operators `extractText`
-      // walks. The real page count feeds the amplification factor, because
-      // every page may point at the same content stream.
+      // Still worth refusing an obviously abusive document before paying to
+      // start a process for it — but this is now an efficiency check, not the
+      // thing standing between a crafted file and an unavailable API. The
+      // actual parse happens in the worker.
       try {
         await inspectPdfContent(buffer, proxy.numPages)
       } catch (err: unknown) {
@@ -158,11 +177,7 @@ export class ResumeTextExtractionService {
           err instanceof RangeError ? err.message : 'Не удалось прочитать PDF-файл',
         )
       }
-      // `mergePages: true` makes `text` a single string (per-page array otherwise).
-      const { text } = await extractText(proxy, { mergePages: true })
-      // Cap FIRST, normalise second — a page-capped PDF can still carry tens of
-      // millions of characters, and normalisation is the per-character pass.
-      return normalizeExtractedText(capExtractedText(text))
+      return normalizeExtractedText(await this.runWorker(buffer, RESUME_PDF_MIME))
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`PDF extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
@@ -170,10 +185,86 @@ export class ResumeTextExtractionService {
     }
   }
 
+  /**
+   * Run the parser in a child process under the sandbox.
+   *
+   * The buffer goes through a temp FILE rather than stdin or argv: it is up to
+   * 10 MB of someone's personal data, argv has a hard OS limit, and a file is
+   * the one channel whose size neither side has to negotiate. It is removed on
+   * every path, including the timeout.
+   *
+   * The worker caps the text before it crosses the pipe, so the API process
+   * never holds the 50 MiB an honest 52 KB DOCX can expand into.
+   */
+  private async runWorker(buffer: Buffer, mime: ResumeSourceMime): Promise<string> {
+    const dir = await mkdtemp(join(tmpdir(), 'crm-extract-'))
+    const filePath = join(dir, 'source')
+    try {
+      await writeFile(filePath, buffer)
+      const result = await runSandboxed({
+        // `process.execPath` — the SAME node that runs the API, so the worker
+        // cannot be redirected by a PATH entry.
+        bin: process.execPath,
+        args: [
+          resolveAssetPath('workers/resume-extract.cjs'),
+          filePath,
+          mime,
+          String(RESUME_LIMITS.extractionRawChars),
+        ],
+        cwd: dir,
+        // Only what node needs to start. The database URL, the S3 credentials
+        // and the Workers AI token have no business inside a document parser
+        // driven by an uploaded file.
+        env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin' },
+        timeoutMs: EXTRACTION_TIMEOUT_MS,
+        addressSpaceKb: EXTRACTION_ADDRESS_SPACE_KB,
+        cpuSeconds: EXTRACTION_CPU_SECONDS,
+        // Generous slack over the character cap: UTF-8 Cyrillic is two bytes a
+        // character and the JSON envelope escapes some of them.
+        maxStdoutBytes: RESUME_LIMITS.extractionRawChars * 8,
+        maxStderrBytes: 4096,
+      })
+
+      if (result.timedOut) {
+        throw new ResumeFileUnreadableError(
+          `Разбор файла не уложился в ${EXTRACTION_TIMEOUT_MS / 1000} с — вероятно, документ слишком сложный. Вставьте текст резюме вручную.`,
+        )
+      }
+      if (result.code !== 0 || result.stdout === '') {
+        this.logger.warn(
+          `Extraction worker exited ${String(result.code)}: ${result.stderr.slice(0, 500)}`,
+        )
+        throw new ResumeFileUnreadableError('Не удалось прочитать файл резюме')
+      }
+
+      const parsed = JSON.parse(result.stdout) as { ok: boolean; text?: string; error?: string }
+      if (!parsed.ok || typeof parsed.text !== 'string') {
+        this.logger.warn(`Extraction worker reported: ${parsed.error ?? 'unknown'}`)
+        throw new ResumeFileUnreadableError('Не удалось прочитать файл резюме')
+      }
+      return parsed.text
+    } finally {
+      await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+    }
+  }
+
+  /**
+   * DOCX -> text.
+   *
+   * The zip inspection still runs first, and it is still worth running: it
+   * refuses obvious rubbish in about a millisecond and its inflate happens on
+   * the thread pool. What it is NO LONGER doing is standing between a crafted
+   * file and an unavailable API — three bypasses established that it cannot,
+   * because every version of it had to predict what `mammoth` would accept, and
+   * `mammoth` parses through an error-tolerant XML reader that will happily
+   * skip eight bytes of PNG header and read the document behind it.
+   *
+   * `mammoth` therefore runs in the worker. If it decides to parse 19.5 MB
+   * hidden behind a media signature, it does that in a process with a deadline,
+   * a memory ceiling and niceness 19 — where it costs a failed upload rather
+   * than an unavailable API.
+   */
   private async extractFromDocx(buffer: Buffer): Promise<string> {
-    // Zip-bomb guard runs FIRST and establishes the REAL expanded size (bounded
-    // inflate on the thread pool) — `mammoth` is never handed a buffer whose
-    // true size is still unknown.
     try {
       await inspectDocxZip(buffer)
     } catch (err: unknown) {
@@ -182,13 +273,10 @@ export class ResumeTextExtractionService {
       )
     }
 
-    const mammoth = await import('mammoth')
     try {
-      const result = await mammoth.extractRawText({ buffer })
-      // Cap FIRST, normalise second — see `capExtractedText`. A 52 KB DOCX
-      // within every size bound still yields 50 MiB of text.
-      return normalizeExtractedText(capExtractedText(result.value ?? ''))
+      return normalizeExtractedText(await this.runWorker(buffer, RESUME_DOCX_MIME))
     } catch (err: unknown) {
+      if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`DOCX extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
       throw new ResumeFileUnreadableError('Не удалось прочитать DOCX-файл')
     }

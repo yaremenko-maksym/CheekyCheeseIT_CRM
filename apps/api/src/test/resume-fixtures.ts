@@ -339,6 +339,37 @@ export function buildWordDensityDocx(pages: number): Buffer {
  * something to split. `imageBytes` of incompressible-ish PNG-named payload
  * lands in `word/media/`, which the parse budget must ignore.
  */
+/**
+ * The bypass that ended the guessing: a real document body with media magic
+ * glued in front of it.
+ *
+ * `mammoth` parses through `@xmldom/xmldom`, which is error-tolerant by design
+ * — it skips junk before `<?xml` and reads the document anyway. So these bytes
+ * are an image to any signature check and a complete document to the parser.
+ * Measured before isolation: 868 KB on disk, 19.5 MB parsed, 1 503 ms of
+ * continuous event-loop stall.
+ *
+ * `prefix` is a parameter because PNG is only the most convenient of several
+ * (EMF, ICO, TTF and RIFF all work) — which is the point: an allow-list of
+ * signatures fails for the same reason an allow-list of extensions did.
+ */
+export function buildDocxWithMediaPrefixedBody(
+  paragraphs: string[],
+  prefix: readonly number[] = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
+  bodyName = 'word/document.xml',
+): Buffer {
+  const rels = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+<Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="${bodyName}"/>
+</Relationships>`
+  const body = Buffer.concat([Buffer.from(prefix), Buffer.from(documentXml(paragraphs), 'utf8')])
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
+    { name: '_rels/.rels', data: Buffer.from(rels, 'utf8'), deflate: true },
+    { name: bodyName, data: body, deflate: true },
+  ])
+}
+
 export function buildDocxWithMedia(
   paragraphs: string[],
   imageBytes: number,
