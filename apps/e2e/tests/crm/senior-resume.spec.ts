@@ -164,6 +164,31 @@ async function mockResumeEndpoints(
       }),
     ),
   )
+  /**
+   * The rendered PDF — mocked for the SAME reason as the source URL above, and
+   * it is the paragraph above that this omission proved out.
+   *
+   * The preview fetches these bytes into a Blob as soon as a resume has content
+   * (`pdfUpToDate`), so from the moment that preview shipped, every test in this
+   * file made an unmocked API call. Locally that merely errors and the preview
+   * shows its error card — green. In CI the API answers 401, the axios
+   * interceptor navigates to /login, the tab unmounts, and an assertion about
+   * `resume-summary-view` fails with a message about a missing element rather
+   * than about the logout that removed it.
+   *
+   * That is exactly the failure the comment above describes, one route later,
+   * which is why it is being added to the SHARED helper rather than to the one
+   * test that happened to notice.
+   */
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/resume/pdf$`), (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/pdf',
+      // Enough of a PDF for the viewer to be handed a blob; the rendering
+      // itself is Typst's job and is asserted in the API specs.
+      body: '%PDF-1.7\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF',
+    }),
+  )
 }
 
 /** Register a DELETE handler and report what it received. */
