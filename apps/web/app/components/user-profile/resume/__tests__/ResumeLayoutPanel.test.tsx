@@ -7,7 +7,7 @@
  * offers a way to edit the template itself.
  */
 import { fireEvent, render, screen, within } from '@testing-library/react'
-import { describe, expect, it, vi } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   EMPTY_RESUME_CONTENT,
