@@ -475,6 +475,43 @@ export function buildPdfSharedContentStream(pages: number, operatorsPerStream: n
  * common image encoding in the wild is plain `/FlateDecode` over raw samples,
  * indistinguishable from a content stream by filter alone.
  */
+/**
+ * A PDF whose single content stream is EXACTLY `body`, flate-compressed.
+ *
+ * Exists because `buildPdfSharedContentStream` spends ~40 bytes per operator,
+ * so the 32 MB decoded-content cap is reached at ~800 000 operators and a
+ * genuinely dense stream is unreachable through it. That encoding — not any
+ * limit in the guard — is why an earlier attempt to test the operator counter's
+ * COST kept measuring a fast rejection instead of the expensive path, and why I
+ * wrongly concluded the input was impossible to build.
+ *
+ * The guard documents that it re-scans whatever it is handed, so its cost is
+ * set by its own regex over the decoded bytes — not by whether an operator
+ * would satisfy a real PDF parser. Handing it raw bytes is therefore both
+ * legitimate and the only way to reach the shapes that matter:
+ *
+ *   ' Tj'.repeat(10_000_000)  -> 28.6 MB decoded, ~28 KB on the wire, 10M matches
+ *   ' TjX'.repeat(8_000_000)  -> 32.0 MB decoded, ~30 KB on the wire, ZERO matches
+ *
+ * The second is the one that shows what the early exit does NOT buy.
+ */
+export function buildPdfWithRawContentStream(body: string): Buffer {
+  const compressed = deflateSync(Buffer.from(body, 'latin1'))
+  return assemblePdf({
+    1: Buffer.from('<< /Type /Catalog /Pages 2 0 R >>', 'latin1'),
+    2: Buffer.from('<< /Type /Pages /Kids [3 0 R] /Count 1 >>', 'latin1'),
+    3: Buffer.from(
+      '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R >>',
+      'latin1',
+    ),
+    4: Buffer.concat([
+      Buffer.from(`<< /Length ${compressed.length} /Filter /FlateDecode >>\nstream\n`, 'latin1'),
+      compressed,
+      Buffer.from('\nendstream', 'latin1'),
+    ]),
+  })
+}
+
 export function buildPdfWithFlateImage(imageBytes: number): Buffer {
   const samples = Buffer.alloc(imageBytes)
   for (let i = 0; i < imageBytes; i += 1) samples[i] = (i * 2654435761) % 251

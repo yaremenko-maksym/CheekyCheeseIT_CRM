@@ -40,6 +40,7 @@ import {
   buildEmptyPdf,
   buildPdfSharedContentStream,
   buildPdfWithFlateImage,
+  buildPdfWithRawContentStream,
   buildPdfWithText,
   buildWordDensityDocx,
   buildZip,
@@ -66,6 +67,25 @@ function startLagMeter() {
   timer.unref?.()
   return {
     stop: () => {
+      // MEASURE THE FINAL GAP HERE, not only inside the interval.
+      //
+      // The interval callback is a MACROTASK; the `await` that follows the
+      // blocking work resumes in a MICROTASK. So when the pattern is
+      //
+      //     const meter = startLagMeter(); await blockingWork(); meter.stop()
+      //
+      // the loop unblocks, the continuation runs first, `stop()` clears the
+      // interval — and the callback that would have observed the gap never
+      // fires. The meter then reports a serene `worstStall = 0` for work that
+      // froze the process for the better part of a second (measured: 0 ms
+      // reported for an 796 ms test).
+      //
+      // Every `worstStall` assertion in this file was therefore comparing 0
+      // against a ceiling and could not fail. `last` still holds the time of
+      // the last callback BEFORE the block, so the gap is simply computed once
+      // more here, where it is finally visible.
+      const finalLag = performance.now() - last - SAMPLE_MS
+      if (finalLag > worstStall) worstStall = finalLag
       clearInterval(timer)
       return { worstStall }
     },
@@ -322,6 +342,62 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // An honest document is counted exactly.
     expect(countTextOperators(Buffer.from(' Tj Tj TJ', 'latin1'), 80_000)).toBe(3)
   })
+
+  /**
+   * ==========================================================================
+   * THE COST of the PDF screen, measured — not the value it returns.
+   * ==========================================================================
+   * `inspectPdfContent` runs on the main thread BY DESIGN (it decides whether
+   * paying for a child process is worth it), so its own cost is a hard
+   * requirement. The bounded-count test above asserts the RETURN VALUE; these
+   * two assert the thing that actually mattered.
+   *
+   * Measured here (dev machine):
+   *
+   *   input                                    decoded   with early exit   with `.match()`
+   *   ' Tj'    x 10 000 000  (dense)            28.6 MB          ~10 ms          ~884 ms
+   *   ' TjX'   x  8 000 000  (zero operators)   32.0 MB          ~70 ms           ~64 ms
+   *
+   * The second line is the honest part, and it corrects a claim I made earlier.
+   * The early exit only fires once matches EXCEED the limit; an input with
+   * FEWER matches never reaches it. So the work is
+   *
+   *   O( min( offset of the 80 001st match, decoded bytes ) )
+   *
+   * and the floor under the second term is `MAX_PDF_CONTENT_BYTES`, NOT
+   * `MAX_PDF_TEXT_OPERATORS`. Boundedness rests on the SIZE cap. That constant
+   * is documented as a memory ceiling, which is why its comment now also says
+   * it caps CPU — raise it for memory reasons and this stall grows silently.
+   */
+  it('screens a dense operator stream in milliseconds, not seconds', async () => {
+    // 10M matches in 28.6 MB — comfortably under the 32 MB content cap, so the
+    // counter is genuinely reached rather than short-circuited by size.
+    const dense = buildPdfWithRawContentStream(' Tj'.repeat(10_000_000))
+    expect(dense.length).toBeLessThan(200_000) // tiny on the wire
+
+    const meter = startLagMeter()
+    await expect(inspectPdfContent(dense, 1)).rejects.toThrow(/слишком много текстовых операций/)
+    const { worstStall } = meter.stop()
+
+    // Measured on this machine: 8 ms with the early exit, 573 ms with the
+    // collecting version restored — 71x apart, so CPU contention cannot blur it.
+    expect(worstStall).toBeLessThan(300)
+  }, 120_000)
+
+  it('is bounded by the CONTENT-SIZE cap when the stream holds no operators at all', async () => {
+    // ' TjX' never matches (the lookahead requires a delimiter after `Tj`), so
+    // the early exit never fires and the whole 32 MB is scanned. This is the
+    // residual cost, and naming it is the point of the test.
+    const sparse = buildPdfWithRawContentStream(' TjX'.repeat(8_000_000))
+
+    const meter = startLagMeter()
+    const info = await inspectPdfContent(sparse, 1)
+    const { worstStall } = meter.stop()
+
+    expect(info.textOperators).toBe(0)
+    // Bounded — but by MAX_PDF_CONTENT_BYTES, and only by it.
+    expect(worstStall).toBeLessThan(400)
+  }, 120_000)
 
   it('refuses a document whose parsable parts exceed the budget', async () => {
     const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))

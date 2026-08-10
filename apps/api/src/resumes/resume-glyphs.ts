@@ -127,7 +127,10 @@ export function findUnrenderable(text: string): string[] {
  * `dropped` is returned rather than logged here so the caller can report ONE
  * line per render instead of one per field.
  */
-export function toRenderableText(raw: string): { text: string; dropped: string[] } {
+export function toRenderableText(
+  raw: string,
+  options: { insertBreaks?: boolean } = {},
+): { text: string; dropped: string[] } {
   const coverage = resumeFontCoverage()
   const dropped: string[] = []
   let out = ''
@@ -151,7 +154,11 @@ export function toRenderableText(raw: string): { text: string; dropped: string[]
   // would typeset with a double gap. `normalizeExtractedText` already collapses
   // runs of spaces, trims lines and strips control characters — the same
   // reduction the extractor applies on the way in, reused rather than rewritten.
-  return { text: breakOverlongRuns(normalizeExtractedText(out)), dropped }
+  const normalized = normalizeExtractedText(out)
+  return {
+    text: options.insertBreaks === false ? normalized : breakOverlongRuns(normalized),
+    dropped,
+  }
 }
 
 /**
@@ -197,23 +204,52 @@ export function breakOverlongRuns(text: string): string {
 }
 
 /**
+ * Fields that are MACHINE TARGETS, not typeset text.
+ *
+ * `links[].url` becomes a PDF link annotation's URI: the template renders the
+ * LABEL and hands the url to `link()`, so the url is never laid out and can
+ * never overflow — there is nothing for a line break to fix, and everything for
+ * it to break. Inserting a space produced
+ *
+ *   RAW /URI -> https://www.linkedin.com/in/ivan-petrenko-senior-engineer-12 34567890/...
+ *
+ * i.e. a clickable link in a document sent to a client that silently goes
+ * somewhere else. The address passed validation on the way in and was corrupted
+ * on the way out, so nothing upstream could have caught it.
+ *
+ * Keyed on OUR OWN schema field, which is not the "guess what the parser will
+ * accept" pattern this module warns about elsewhere: `resumeContentSchema`
+ * defines this shape, we own it, and a new URL-bearing field is a deliberate
+ * edit to that schema — which is the moment to add it here.
+ */
+const MACHINE_TARGET_KEYS = new Set(['url'])
+
+/**
  * Apply `toRenderableText` to every string of a JSON-shaped value.
  *
  * Structure-preserving: the template is written against a fixed shape, so keys
  * and array positions must survive untouched — only leaf strings change.
+ *
+ * Glyph substitution still applies to every string including URLs (an
+ * undrawable character in a link label must not box out either); only the
+ * line-break insertion is withheld from machine targets.
  */
 export function toRenderableDeep<T>(value: T): { value: T; dropped: string[] } {
   const dropped: string[] = []
 
-  const walk = (node: unknown): unknown => {
+  const walk = (node: unknown, key?: string): unknown => {
     if (typeof node === 'string') {
-      const result = toRenderableText(node)
+      const result = toRenderableText(node, {
+        insertBreaks: key === undefined || !MACHINE_TARGET_KEYS.has(key),
+      })
       for (const ch of result.dropped) if (!dropped.includes(ch)) dropped.push(ch)
       return result.text
     }
-    if (Array.isArray(node)) return node.map(walk)
+    // Array elements inherit their ARRAY's key, so `skills: [...]` stays
+    // breakable while a future `urls: [...]` would not silently become so.
+    if (Array.isArray(node)) return node.map((item) => walk(item, key))
     if (node !== null && typeof node === 'object') {
-      return Object.fromEntries(Object.entries(node).map(([key, val]) => [key, walk(val)]))
+      return Object.fromEntries(Object.entries(node).map(([k, val]) => [k, walk(val, k)]))
     }
     return node
   }

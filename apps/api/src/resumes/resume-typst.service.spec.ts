@@ -289,13 +289,47 @@ describe('nothing is silently lost off the edge of the page', () => {
     expect(zeds).toBe(400)
   }, 120_000)
 
-  it('keeps a long URL intact, character for character', async () => {
-    const url = `https://example.com/${'segment-'.repeat(30)}end`
-    const { text } = await readBack(
-      await service.render(input({ content: { ...CONTENT, summary: url } })),
+  /**
+   * A long URL in the field URLs actually live in, checked where it actually
+   * ends up: the PDF's link annotation.
+   *
+   * The previous version of this test was wrong in BOTH halves and passed while
+   * links were being corrupted. It put the URL in `summary` — not a link at all,
+   * just prose — and then compared with `text.replace(/\s+/g,'')`, stripping the
+   * very character that breaks a URL. It could not have failed.
+   *
+   * A link annotation is a machine target: one inserted space sends a client
+   * somewhere else, and nothing looks wrong on the page.
+   */
+  it('keeps a long link address intact — no break is inserted into a URL', async () => {
+    const url = `https://www.linkedin.com/in/${'ivan-petrenko-senior-engineer-'.repeat(4)}12345/details`
+    expect(url.length).toBeGreaterThan(140) // well past the break threshold
+
+    const pdf = await service.render(
+      input({
+        content: { ...CONTENT, links: [{ label: 'LinkedIn', url }] },
+      }),
     )
 
-    expect(text.replace(/\s+/g, '')).toContain(url.replace(/\s+/g, ''))
+    const { getDocumentProxy } = await import('unpdf')
+    const proxy = await getDocumentProxy(new Uint8Array(pdf))
+    const page = await proxy.getPage(1)
+    const annotations = (await page.getAnnotations()) as Array<{ url?: string }>
+    const hrefs = annotations.map((a) => a.url).filter((u): u is string => typeof u === 'string')
+
+    // Non-vacuity: a link annotation really was produced.
+    expect(hrefs.length).toBeGreaterThan(0)
+    // Byte-for-byte, and NOT whitespace-normalised — the space is the defect.
+    expect(hrefs.some((href) => href.replace(/\/$/, '') === url)).toBe(true)
+    for (const href of hrefs) expect(href).not.toContain(' ')
+  }, 120_000)
+
+  it('still breaks a long run in prose, where overflow is the real risk', async () => {
+    const token = 'A'.repeat(300)
+    const { text } = await readBack(
+      await service.render(input({ content: { ...CONTENT, summary: token } })),
+    )
+    expect((text.match(/A/g) ?? []).length).toBe(300)
   }, 120_000)
 
   it('leaves ordinary prose alone', async () => {

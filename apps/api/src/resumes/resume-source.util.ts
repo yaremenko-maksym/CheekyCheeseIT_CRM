@@ -69,6 +69,25 @@ export const MAX_PDF_PAGES = 30
  *
  * Measured across 95 real PDFs (CVs, contracts, invoices, scans) once image
  * XObjects are excluded: the largest is 8.89 MB. 32 MB is ~3.6x that.
+ *
+ * ==========================================================================
+ * THIS CONSTANT ALSO CAPS CPU. DO NOT RAISE IT FOR MEMORY REASONS ALONE.
+ * ==========================================================================
+ * `countTextOperators` exits early only once matches EXCEED
+ * `MAX_PDF_TEXT_OPERATORS`. An input with FEWER matches never reaches that
+ * exit, so the scan runs over everything it was handed — and a stream of
+ * `" TjX"` repeated holds ZERO operators while filling this budget exactly.
+ * The work is therefore
+ *
+ *   O( min( offset of the (limit+1)-th match, decoded bytes ) )
+ *
+ * and the second term is bounded by NOTHING BUT THIS NUMBER. Measured: 32 MB
+ * of operator-free filler stalls the loop ~70 ms, and that figure scales
+ * linearly with this cap. Raise it to 128 MB for memory headroom and the stall
+ * quadruples, with nothing in the memory-shaped reasoning to hint at it.
+ *
+ * Pinned by "is bounded by the CONTENT-SIZE cap when the stream holds no
+ * operators at all" in resume-text-extraction.service.spec.ts.
  */
 export const MAX_PDF_CONTENT_BYTES = 32 * 1024 * 1024
 
@@ -699,11 +718,24 @@ export async function inspectPdfContent(
  * untrusted unbounded work — with a piece that never entered a sandbox at all.
  *
  * We do not need the list of operators; we need "more than the limit, yes or
- * no". Counting with an early exit answers exactly that and costs 80 001
- * matches instead of ten million, whatever the input. Returning `limit + 1`
- * rather than the true total is deliberate: every caller only compares against
- * the limit, and the true total is precisely the number that is expensive to
- * learn.
+ * no". Counting with an early exit answers exactly that: measured on a 28.6 MB
+ * stream carrying ten million operators, 8 ms against 573 ms for the collecting
+ * version. Returning `limit + 1` rather than the true total is deliberate —
+ * every caller only compares against the limit, and the true total is precisely
+ * the number that is expensive to learn.
+ *
+ * WHAT THIS DOES **NOT** MAKE BOUNDED — the honest half.
+ * The early exit fires only when matches EXCEED the limit. An input with FEWER
+ * matches never reaches it, and one is trivial to build: `" TjX"` repeated
+ * contains no operators at all (the lookahead needs a delimiter after `Tj`) and
+ * scans end to end. So the cost is
+ *
+ *   O( min( offset of the (limit+1)-th match, decoded bytes ) )
+ *
+ * and the floor under the second term is `MAX_PDF_CONTENT_BYTES`, NOT this
+ * limit. Boundedness here rests on the SIZE cap — which is why that constant
+ * now carries a warning that it caps CPU as well as memory. Both halves are
+ * measured in the spec, dense and sparse.
  */
 export function countTextOperators(decoded: Buffer, limit: number): number {
   const text = decoded.toString('latin1')
