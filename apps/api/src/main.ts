@@ -1,5 +1,5 @@
 import 'reflect-metadata'
-import { NestFactory } from '@nestjs/core'
+import { ModulesContainer, NestFactory } from '@nestjs/core'
 import { FastifyAdapter, NestFastifyApplication } from '@nestjs/platform-fastify'
 import cookie from '@fastify/cookie'
 import helmet from '@fastify/helmet'
@@ -8,6 +8,7 @@ import { AppModule } from './app.module'
 import { ZodExceptionFilter } from './zod-exception.filter'
 import { parseCorsOrigins } from './config/cors'
 import { registerCspReportContentTypeParser } from './csp-reports/csp-report-content-type-parser'
+import { assertJwtAuthGuardsWired } from './auth/jwt-guard-wiring'
 import { TelemetryExceptionFilter } from './telemetry/telemetry-exception.filter'
 
 async function bootstrap() {
@@ -24,6 +25,13 @@ async function bootstrap() {
       trustProxy,
     }),
   )
+
+  // Authorization wiring gate — runs before ANY middleware/route is set up, so
+  // a container that cannot enforce role/archive revocation never reaches
+  // `listen()`. Throws (→ non-zero exit, no traffic served) rather than warns:
+  // the failure it guards against is silent by nature and can only be observed
+  // in the compiled artifact. See auth/jwt-guard-wiring.ts.
+  assertJwtAuthGuardsWired(app.get(ModulesContainer))
 
   await app.register(helmet, {
     // In development CSP is disabled for easier debugging (hot-reload, devtools).
