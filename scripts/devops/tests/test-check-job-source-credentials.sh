@@ -131,6 +131,43 @@ cat >"$WS/rapidapi-wrong-path.json" <<'EOF'
 {"message":"Endpoint '/search' does not exist"}
 EOF
 
+# ── shape-mismatch fixtures (task-fix-credential-check-self-diagnosing,
+# 2026-08-11) ────────────────────────────────────────────────────────────────
+# Each of these is a plausible "the service renamed/restructured its response"
+# body: valid JSON, HTTP 200, but not shaped the way this guard's parser
+# expects (no 'jobs'/'results'/'data' array under the name it looks for, or —
+# for careerjet — no recognizable 'type' field at all). The guard must still
+# go red on every one of these AND now must also name the fields it actually
+# found, so a human does not have to reproduce the request by hand to learn
+# them. The distinctive values below (company names, job titles) exist ONLY
+# to prove the guard prints field NAMES and never VALUES — see the
+# --not-contains assertions on these fixtures further down.
+cat >"$WS/jooble-shape-mismatch.json" <<'EOF'
+{"totalCount":3,"vacancies":[{"job_title":"Senior Kotlin Engineer","employer":"NordicPay Ltd"}]}
+EOF
+
+cat >"$WS/adzuna-shape-mismatch.json" <<'EOF'
+{"listings":[{"role":"Java Developer","org":"Acme Global Systems"}],"total":42}
+EOF
+
+cat >"$WS/careerjet-shape-mismatch.json" <<'EOF'
+{"status":"success","postings":[{"position":"PHP Developer","employer_name":"Riverside Tech"}]}
+EOF
+
+# The realistic case this whole change exists for: status=OK (so the guard's
+# first check passes) but the array moved from 'data' to 'results' — exactly
+# the class of surprise RapidAPI's real /search-v2 handed this guard once
+# already (see check-job-source-credentials.sh's rapidapi branch comment).
+cat >"$WS/rapidapi-shape-mismatch.json" <<'EOF'
+{"status":"OK","request_id":"9f31-fixture","results":[{"job_title":"Data Engineer","company_name":"BrightWave Analytics"}]}
+EOF
+
+# Top level is not even a JSON object — a bare array. Proves shape_hint()'s
+# non-dict branch, not just its "wrong key inside a dict" branch.
+cat >"$WS/jooble-bare-array.json" <<'EOF'
+[{"title":"Backend Developer","company":"Quantum Analytics"}]
+EOF
+
 : >"$WS/empty.txt"
 
 # ── curl shim ────────────────────────────────────────────────────────────────
@@ -309,6 +346,61 @@ assert_red "HTTP 200 but body is not JSON at all -> red, never a silent pass" \
 assert_red "HTTP 200 JSON but missing the documented envelope key -> red" \
   --contains "result:                 FAIL" \
   -- run_rapidapi "dummy-key" "$WS/empty.txt" 200
+
+# ── shape diagnostics: on a mismatch, the report names the fields it ACTUALLY
+# got — for every service, not just RapidAPI — and never their values ────────
+# This is the behaviour task-fix-credential-check-self-diagnosing added: the
+# old report said only "response has no 'jobs' array" and left "so what IS it
+# called now" to a human re-running the request by hand. Every case below
+# proves both halves: the guard still goes red (nothing here should ever
+# start passing), AND the field names it found are now in the report, AND the
+# values from those fields are not.
+assert_red "Jooble: array renamed to 'vacancies' -> red, reports the real field names" \
+  --contains "result:                 FAIL" \
+  --contains "top-level fields: totalCount, vacancies" \
+  --contains "first array field is 'vacancies'" \
+  --contains "job_title, employer" \
+  --not-contains "Senior Kotlin Engineer" \
+  --not-contains "NordicPay Ltd" \
+  -- run_jooble "dummy-key" "$WS/jooble-shape-mismatch.json" 200
+
+assert_red "Adzuna: array renamed to 'listings' -> red, reports the real field names" \
+  --contains "result:                 FAIL" \
+  --contains "top-level fields: listings, total" \
+  --contains "first array field is 'listings'" \
+  --contains "role, org" \
+  --not-contains "Java Developer" \
+  --not-contains "Acme Global Systems" \
+  -- run_adzuna "dummy-id" "dummy-key" "$WS/adzuna-shape-mismatch.json" 200
+
+assert_red "Careerjet: no 'type' field at all -> red, reports the real field names" \
+  --contains "result:                 FAIL" \
+  --contains "top-level fields: status, postings" \
+  --contains "first array field is 'postings'" \
+  --contains "position, employer_name" \
+  --not-contains "PHP Developer" \
+  --not-contains "Riverside Tech" \
+  -- run_careerjet "dummy-affid" "$WS/careerjet-shape-mismatch.json" 200
+
+# The motivating case: status=OK, but the array is called 'results', not
+# 'data'. This is precisely the kind of surprise that used to require a
+# person to re-run the request by hand to learn.
+assert_red "RapidAPI: status=OK but array renamed to 'results' -> red, reports the real field names" \
+  --contains "result:                 FAIL" \
+  --contains "top-level fields: status, request_id, results" \
+  --contains "first array field is 'results'" \
+  --contains "job_title, company_name" \
+  --not-contains "Data Engineer" \
+  --not-contains "BrightWave Analytics" \
+  -- run_rapidapi "dummy-key" "$WS/rapidapi-shape-mismatch.json" 200
+
+assert_red "top level is not even a JSON object (bare array) -> red, still reports field names, not values" \
+  --contains "result:                 FAIL" \
+  --contains "JSON array" \
+  --contains "title, company" \
+  --not-contains "Backend Developer" \
+  --not-contains "Quantum Analytics" \
+  -- run_jooble "dummy-key" "$WS/jooble-bare-array.json" 200
 
 # ── curl itself cannot complete the request (network down, DNS, timeout) ──────
 assert_red "curl transport failure -> red, not silently skipped" \
