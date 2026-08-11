@@ -299,7 +299,22 @@ function resolveBase() {
  * lines has nothing left to mutate.
  */
 function changedRanges(baseSha) {
-  const diff = git(['diff', '--unified=0', '--no-color', '--no-ext-diff', baseSha]).output
+  const res = git(['diff', '--unified=0', '--no-color', '--no-ext-diff', baseSha], {
+    allowFail: true,
+  })
+  if (res.code !== 0) {
+    // Almost always one thing in CI: a shallow checkout that has the base
+    // COMMIT but not its tree. Worth naming, because the raw git message
+    // ("bad object" / "could not read") sends people looking at the gate
+    // instead of at `fetch-depth`.
+    fail(
+      `git diff against ${baseSha.slice(0, 12)} failed. If this is CI, the checkout is ` +
+        `probably too shallow to hold that commit's tree — raise \`fetch-depth\` on the ` +
+        `actions/checkout step (2 is enough for a pull_request merge ref, since the base ` +
+        `is HEAD^1). Refusing to continue: an unreadable base is not an empty diff.\n${res.output}`,
+    )
+  }
+  const diff = res.output
   const byFile = new Map()
   let current = null
   let sawOldFileHeader = false
