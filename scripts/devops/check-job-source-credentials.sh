@@ -388,13 +388,38 @@ elif svc == "careerjet":
     emit("OK", count, company, f"hits={data.get('hits', '?')}")
 
 elif svc == "rapidapi":
+    # CONFIRMED against a live /search-v2 response (task-fix-jsearch-response-
+    # shape, 2026-08-12, via this guard's own shape_hint(), which is exactly
+    # the case it exists for): the top-level 'data' field is not the jobs
+    # array itself — it is an OBJECT, and the array is one level further in,
+    # at data.jobs. The company field really is 'employer_name' — the guess
+    # this branch already made before ever seeing a live response — but the
+    # PATH guessed alongside it (top-level 'data' being the array) was wrong,
+    # and shape_hint() is what told us so instead of a screenshot.
+    #
+    # Two more fields confirmed present on each record, worth recording here
+    # so nobody has to re-derive them from a live call:
+    #   job_publisher       — the source board the listing came from (e.g.
+    #                         "LinkedIn", "Indeed"). Answers whether direct
+    #                         per-board access is worth pursuing: sample this
+    #                         across enough real responses and see who's
+    #                         actually represented before building anything
+    #                         that assumes a specific publisher mix.
+    #   job_apply_is_direct — whether job_apply_link goes straight to the
+    #                         source posting or through an intermediary
+    #                         (aggregator) page. Neither field is consumed by
+    #                         this guard (it only reports OK/FAIL + a record
+    #                         count + "does a company name show up"), but the
+    #                         next thing built on top of this integration
+    #                         will want both without re-discovering them.
     if data.get("status") != "OK":
         base = first_reason(data) or f"status={data.get('status')!r} (expected OK)"
         emit("FAIL", "-", "-", f"{base} — {shape_hint(data)}")
         sys.exit(0)
-    items = data.get("data")
+    envelope = data.get("data")
+    items = envelope.get("jobs") if isinstance(envelope, dict) else None
     if not isinstance(items, list):
-        emit("FAIL", "-", "-", f"status=OK but no 'data' array — {shape_hint(data)}")
+        emit("FAIL", "-", "-", f"status=OK but no 'data.jobs' array — {shape_hint(data)}")
         sys.exit(0)
     count = len(items)
     company = "yes" if items and isinstance(items[0], dict) and items[0].get("employer_name") else "no"

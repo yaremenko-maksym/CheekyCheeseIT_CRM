@@ -108,8 +108,14 @@ cat >"$WS/careerjet-echoes-key.json" <<'EOF'
 {"error":"Unknown affid: SECRET-AFFID-LEAK-CANARY","type":"ERROR"}
 EOF
 
+# CONFIRMED shape (task-fix-jsearch-response-shape, 2026-08-12): 'data' is an
+# OBJECT, not the jobs array itself — the array is one level in, at
+# data.jobs. This fixture also carries the two fields recorded in the guard
+# script's own rapidapi-branch comment for later use (job_publisher,
+# job_apply_is_direct), so a future reader of THIS fixture sees the same
+# shape the guard's comment describes, not a stripped-down stand-in for it.
 cat >"$WS/rapidapi-ok.json" <<'EOF'
-{"status":"OK","request_id":"abc-123","data":[{"job_title":"Data Engineer","employer_name":"Acme Corp","job_country":"DE"}]}
+{"status":"OK","request_id":"abc-123","parameters":{"query":"developer"},"data":{"jobs":[{"job_id":"jsearch-1","job_title":"Data Engineer","employer_name":"Acme Corp","employer_logo":null,"employer_website":"https://acme.example","job_publisher":"LinkedIn","job_employment_type":"FULLTIME","job_apply_link":"https://acme.example/apply","job_apply_is_direct":false,"job_country":"DE"}]}}
 EOF
 
 # Verbatim: what jsearch.p.rapidapi.com actually returned to a garbage
@@ -154,10 +160,12 @@ cat >"$WS/careerjet-shape-mismatch.json" <<'EOF'
 {"status":"success","postings":[{"position":"PHP Developer","employer_name":"Riverside Tech"}]}
 EOF
 
-# The realistic case this whole change exists for: status=OK (so the guard's
-# first check passes) but the array moved from 'data' to 'results' — exactly
-# the class of surprise RapidAPI's real /search-v2 handed this guard once
-# already (see check-job-source-credentials.sh's rapidapi branch comment).
+# A hypothetical FUTURE surprise, kept as a guard even after the real shape
+# was confirmed (task-fix-jsearch-response-shape, 2026-08-12): status=OK (so
+# the guard's first check passes) but the array is at the TOP level under
+# 'results' instead of nested at data.jobs — a different reshuffle than the
+# one that actually happened, and the guard must catch this class too, not
+# just the one already fixed.
 cat >"$WS/rapidapi-shape-mismatch.json" <<'EOF'
 {"status":"OK","request_id":"9f31-fixture","results":[{"job_title":"Data Engineer","company_name":"BrightWave Analytics"}]}
 EOF
@@ -168,20 +176,25 @@ cat >"$WS/jooble-bare-array.json" <<'EOF'
 [{"title":"Backend Developer","company":"Quantum Analytics"}]
 EOF
 
-# ── depth-walk fixtures (task-fix-credential-check-shape-depth, 2026-08-11)
-# ────────────────────────────────────────────────────────────────────────────
+# ── depth-walk fixtures (task-fix-credential-check-shape-depth, 2026-08-11;
+# rapidapi-nested-level2 adjusted by task-fix-jsearch-response-shape,
+# 2026-08-12) ─────────────────────────────────────────────────────────────────
 # PR #512's shape_hint() only looked ONE level deep, and that shipped, ran for
 # real, and reported exactly this against RapidAPI's actual /search-v2 body:
 # `top-level fields: status, request_id, parameters, data; no top-level array
 # field` — true (there is no field that IS an array at the top level) and
 # still not the answer, because 'data' EXISTS as a top-level field and is an
-# OBJECT with the real jobs array one level further inside it. This fixture is
-# a synthetic reconstruction of exactly that shape (the real field name inside
-# 'data' is unknown until this fix's own report says so — this fixture
-# deliberately calls it 'jobs' as a plausible, unverified guess, which is the
-# whole point: the guard must not need that guess to be right).
+# OBJECT with the real jobs array one level further inside it. That live
+# report (via THIS guard's own shape_hint()) is what confirmed the real path
+# is data.jobs — which check-job-source-credentials.sh's rapidapi branch now
+# parses directly. That turns "an object with an array one level inside
+# 'data' called jobs" from a hypothetical INTO the happy path (see
+# rapidapi-ok.json above), so this fixture's array is now named 'listings'
+# instead — still a genuine one-level-deep mismatch relative to the now-fixed
+# expectation, exercising the same depth the original RapidAPI surprise did,
+# under a name that is not the one the parser looks for.
 cat >"$WS/rapidapi-nested-level2.json" <<'EOF'
-{"status":"OK","request_id":"nested-l2","parameters":{"query":"developer"},"data":{"jobs":[{"job_title":"Cloud Engineer","company_name":"Helios Systems"}]}}
+{"status":"OK","request_id":"nested-l2","parameters":{"query":"developer"},"data":{"listings":[{"job_title":"Cloud Engineer","employer_name":"Helios Systems"}]}}
 EOF
 
 # Same idea, one level deeper still — proves the walk reaches MAX_SHAPE_DEPTH
@@ -450,11 +463,16 @@ assert_red "top level is not even a JSON object (bare array) -> red, still repor
 # OBJECT, with the real jobs array nested inside IT. Every case below proves
 # the walk finds an array that is NOT at the top level, names the DOTTED PATH
 # to it (not just a bare field name), and still never prints a value.
-assert_red "RapidAPI: jobs array one level inside 'data' -> red, path is 'data.jobs'" \
+#
+# The first case's array is now called 'listings', not 'jobs' — after
+# task-fix-jsearch-response-shape confirmed the real path is data.jobs and
+# the parser was pointed at it, an array actually AT data.jobs is the happy
+# path (see rapidapi-ok.json), not a mismatch to catch here.
+assert_red "RapidAPI: array one level inside 'data', under an unexpected name -> red, path is 'data.listings'" \
   --contains "result:                 FAIL" \
   --contains "top-level fields: status, request_id, parameters, data" \
-  --contains "first array found at 'data.jobs'" \
-  --contains "job_title, company_name" \
+  --contains "first array found at 'data.listings'" \
+  --contains "job_title, employer_name" \
   --not-contains "Cloud Engineer" \
   --not-contains "Helios Systems" \
   -- run_rapidapi "dummy-key" "$WS/rapidapi-nested-level2.json" 200
