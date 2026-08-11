@@ -358,7 +358,10 @@ function parseOnlyFiles() {
   const raw = (process.env.MUTATION_ONLY_FILES || '').trim()
   if (!raw) return null
   const map = new Map()
-  for (const item of raw.split(',').map((s) => s.trim()).filter(Boolean)) {
+  for (const item of raw
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean)) {
     const m = /^(.*?):(\d+)-(\d+)$/.exec(item)
     if (m) {
       const list = map.get(m[1]) ?? []
@@ -583,9 +586,13 @@ async function main() {
     process.env.MUTATION_BUDGET_SECONDS || (mode === 'full' ? 14400 : 900),
   )
   if (!Number.isFinite(budgetSeconds) || budgetSeconds <= 0) {
-    fail(`MUTATION_BUDGET_SECONDS must be a positive number, got '${process.env.MUTATION_BUDGET_SECONDS}'`)
+    fail(
+      `MUTATION_BUDGET_SECONDS must be a positive number, got '${process.env.MUTATION_BUDGET_SECONDS}'`,
+    )
   }
-  const concurrency = Number(process.env.MUTATION_CONCURRENCY || Math.max(1, Math.min(4, cpus().length - 1)))
+  const concurrency = Number(
+    process.env.MUTATION_CONCURRENCY || Math.max(1, Math.min(4, cpus().length - 1)),
+  )
   const survivorBudget = Number(process.env.MUTATION_SURVIVOR_BUDGET || 0)
   const noCoverageIsRed = process.env.MUTATION_NO_COVERAGE_IS_RED === '1'
   const only = (process.env.MUTATION_PACKAGES || '')
@@ -623,7 +630,15 @@ async function main() {
   }
 
   const startedAt = Date.now()
-  const totals = { Killed: 0, Timeout: 0, Survived: 0, NoCoverage: 0, Ignored: 0, CompileError: 0, RuntimeError: 0 }
+  const totals = {
+    Killed: 0,
+    Timeout: 0,
+    Survived: 0,
+    NoCoverage: 0,
+    Ignored: 0,
+    CompileError: 0,
+    RuntimeError: 0,
+  }
   const allSurvivors = []
   const allUncovered = []
   const allBadSuppressions = []
@@ -729,7 +744,9 @@ async function main() {
     // a nightly full run from writing thousands of ::error:: lines into the log.
     const shown = allSurvivors.slice(0, 100)
     if (shown.length < allSurvivors.length) {
-      console.log(`::notice::showing the first ${shown.length} of ${allSurvivors.length} survivors; the full list is in reports/mutation/*.report.json`)
+      console.log(
+        `::notice::showing the first ${shown.length} of ${allSurvivors.length} survivors; the full list is in reports/mutation/*.report.json`,
+      )
     }
     for (const s of shown) {
       const [file, line] = [s.where.slice(0, s.where.lastIndexOf(':')), s.where.split(':').pop()]
