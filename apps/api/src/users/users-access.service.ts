@@ -3,6 +3,18 @@ import { and, eq, inArray, isNull } from 'drizzle-orm'
 import type { ActionKey, TabKey, ViewPermissions } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 import { projectMembers, projects, teamMembers, users, type User } from '../database/schema'
+import { canAccessResume } from '../resumes/resume-access'
+
+/**
+ * task-resume-base §4 — who gets the resume TAB on a senior's card. Delegates
+ * to the same `canAccessResume` predicate the endpoints enforce, so the tab can
+ * never be shown to someone the API would 403 (or hidden from someone it
+ * allows). `canAccessResume` takes a `SessionUser`-shaped viewer; a `User` row
+ * carries the same `id`/`role`, which is all the predicate reads.
+ */
+function canSeeResumeTab(viewer: User, target: User): boolean {
+  return canAccessResume({ id: viewer.id, role: viewer.role }, target.id, 'read')
+}
 
 @Injectable()
 export class UsersAccessService {
@@ -232,6 +244,25 @@ export class UsersAccessService {
     //
     // Other JUNIOR viewing non-SENIOR/non-DROP, ACCOUNTANT, DROP viewing ANY other
     // user: no tabs → 403.
+
+    // task-resume-base §4: surface the 'resume' tab only on a SENIOR card (the
+    // resume is a senior artefact — SeniorResumesService 404s for every other
+    // target role, so the tab would be a dead end elsewhere) and only for
+    // viewers the resume access table actually grants it to.
+    //
+    // Appended AFTER the role branches rather than inside each of them on
+    // purpose: the rule is one row of one table, and restating it in the
+    // ADMIN / isSelf / HR branches is exactly how such rules drift apart.
+    //
+    // `tabs.length > 0` is a deliberate NARROWING, not a second rule: this
+    // task must not widen the PROFILE surface. HR access to the profile card
+    // is team-scoped (isHrInTargetTeam) and an HR viewing a senior outside
+    // their team currently gets zero tabs -> 403 on the whole profile. Adding
+    // 'resume' unconditionally would have made that card reachable for the
+    // first time — an RBAC regression smuggled in by a resume feature. The
+    // resume ENDPOINTS still follow the §4 table as written (HR may read any
+    // senior's resume); this line only governs which cards show the tab.
+    if (targetIsSenior && tabs.length > 0 && canSeeResumeTab(viewer, target)) tabs.push('resume')
 
     return { tabs, actions, fields }
   }

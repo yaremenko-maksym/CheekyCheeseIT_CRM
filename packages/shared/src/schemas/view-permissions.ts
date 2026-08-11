@@ -10,6 +10,9 @@ export const tabKeySchema = z.enum([
   'documents',
   'audit',
   'contract',
+  // task-resume-base: canonical structured CV. Surfaced ONLY on a SENIOR
+  // card (the resume is a senior artefact) — see UsersAccessService.
+  'resume',
 ])
 
 export const actionKeySchema = z.enum([

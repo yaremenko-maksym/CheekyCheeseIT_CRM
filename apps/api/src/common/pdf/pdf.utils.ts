@@ -11,8 +11,8 @@
  * InvoicePdfService and future ContractPdfService share the implementations.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, readFileSync } from 'node:fs'
-import { resolve } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { resolveAssetPath } from '../assets.util'
 
 // ---------------------------------------------------------------------------
 // Hash helpers
@@ -76,11 +76,9 @@ export function loadFontBuffer(fontFileName: string): Buffer {
   const cached = fontCache.get(fontFileName)
   if (cached) return cached
 
-  // __dirname is `dist/common/pdf` in production, `src/common/pdf` in test
-  const distPath = resolve(__dirname, '..', '..', '..', 'assets', 'fonts', fontFileName)
-  const srcPath = resolve(__dirname, '..', '..', 'assets', 'fonts', fontFileName)
-
-  const fontPath = existsSync(distPath) ? distPath : srcPath
+  // dist-first / src-fallback resolution now lives in ONE place, because the
+  // Typst renderer needs the identical rule for its template and font path.
+  const fontPath = resolveAssetPath(`fonts/${fontFileName}`)
   const buffer = readFileSync(fontPath)
   fontCache.set(fontFileName, buffer)
   return buffer
