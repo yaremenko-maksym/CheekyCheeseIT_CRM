@@ -85,9 +85,23 @@ being treated. Either split the PR, or raise `MUTATION_BUDGET_SECONDS` in
 | 223 changed lines, 3 files                                     |      55 |            10.2s |
 | 4565 changed lines, 16 files (PR #504 — the largest recent PR) |    2220 | budget territory |
 | whole `packages/shared` (nightly leg, 36 files)                |    2291 |           139.6s |
+| whole `apps/web` (nightly leg, 263 files)                      |   27947 |     not measured |
 
 Startup dominates a small diff (~3s of the 3.5s); after that the cost tracks the
 mutant count, which tracks changed lines.
+
+**The `apps/web` nightly leg is the long pole and its wall clock is NOT known.**
+What was measured: 263 files instrument to 27947 mutants, and its unmutated dry
+run (1346 tests) takes 63s. Extrapolating from the per-mutant rate seen on
+smaller runs puts it in the low hours locally, and a GitHub runner has fewer
+cores than the machine those numbers came from — so it may well hit the 5h
+budget on the first night. That is a deliberate choice over guessing: exceeding
+the budget produces a loud, specific red naming the package and the elapsed
+time, which is a real measurement, whereas a number invented here would be a
+comfortable fiction. **Read the first nightly run and set
+`MUTATION_BUDGET_SECONDS` per leg from what it actually reports.** If `apps/web`
+cannot finish in one night, split that leg by directory in the matrix rather
+than raising the budget past the 6h job ceiling.
 
 ## Running it yourself
 
