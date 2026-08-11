@@ -59,7 +59,11 @@ import { join } from 'node:path'
 import { normalizeResumeLayout, type ResumeContent, type ResumeLayoutOptions } from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
 import { findUnrenderable, logDroppedGlyphs, toRenderableDeep } from './resume-glyphs'
-import { MAX_PDF_CONTENT_BYTES, inspectPdfContent } from './resume-source.util'
+import {
+  MAX_PDF_CONTENT_BYTES,
+  MAX_PDF_TEXT_OPERATORS,
+  inspectPdfContent,
+} from './resume-source.util'
 import { ResumeSemaphore } from './resume-semaphore'
 
 /** Hard wall-clock deadline for one render, enforced with SIGKILL. */
@@ -493,10 +497,18 @@ const spawnTypst: TypstRunner = createSpawnRunner()
  * entirely blank resume) for every notation including the computed one.
  *
  * Between them the residue is: a template that prints SOME text while dropping
- * one glyph written non-literally. Measured to render (text present, page not
- * blank), so it survives both checks and would reach a reader as a gap or a
- * box. That is the honest limit of what is guaranteed here, and it is the limit
- * a designer authoring a personal template needs to know — stated again at the
+ * one glyph written non-literally. It renders (text present, page not blank),
+ * so it survives both checks.
+ *
+ * AND THE DAMAGE IS WORSE THAN "a gap or a box", which is how an earlier
+ * version of this paragraph put it. What disappears is not the character —
+ * the WHOLE RUN OF TEXT AROUND IT goes, so a heading or a whole line vanishes
+ * while the rest of the page looks perfectly normal. Understating that is the
+ * dangerous direction: a template author who expects a visible box will not
+ * look for missing sentences.
+ *
+ * That is the honest limit of what is guaranteed here, and it is the limit a
+ * designer authoring a personal template needs to know — stated again at the
  * top of `assets/typst/default-resume.typ`, which is the file they will copy.
  *
  * Cheap by construction — a template is a few kilobytes, and the coverage set
@@ -535,10 +547,28 @@ const spawnTypst: TypstRunner = createSpawnRunner()
  * DELIBERATELY NOT SOLD AS COMPLETE — see `assertTemplateIsDrawable`.
  */
 async function assertDocumentIsNotBlank(pdf: Buffer): Promise<void> {
-  // Generous operator ceiling: this is our own document, and the question is
-  // "is there any text at all", never "is there too much".
-  const inspection = await inspectPdfContent(pdf, 1, MAX_PDF_CONTENT_BYTES, Number.MAX_SAFE_INTEGER)
-  if (inspection.textOperators > 0) return
+  // KEEP THE NORMAL OPERATOR CEILING so the early exit still fires.
+  //
+  // This passed `Number.MAX_SAFE_INTEGER` at first, which disabled the very
+  // early exit an earlier round added, and turned a claimed "fraction of a
+  // millisecond" into 6.52 ms on a maximal resume — seventy times the comment,
+  // and the same class of defect this PR spent two rounds removing. With the
+  // real cap the scan stops at limit+1: 0.09 ms.
+  //
+  // Exceeding the cap is not a failure here. It can only mean the document is
+  // FULL of text, which is the opposite of the thing being checked, so it
+  // answers the question early and cheaply.
+  try {
+    const inspection = await inspectPdfContent(
+      pdf,
+      1,
+      MAX_PDF_CONTENT_BYTES,
+      MAX_PDF_TEXT_OPERATORS,
+    )
+    if (inspection.textOperators > 0) return
+  } catch {
+    return
+  }
   throw new ResumeRenderError(
     'Шаблон резюме собрался в пустую страницу — вероятно, в нём есть символ, который не отрисовывается доступными шрифтами. Проверьте оформление или обратитесь к администратору.',
     'render produced a PDF with zero text-showing operators',

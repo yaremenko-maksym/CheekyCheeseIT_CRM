@@ -321,6 +321,53 @@ describe('AC3 — API responsiveness during a resume render', () => {
    * so sharing them needs one dual-consumable module rather than a second copy.
    * Flagged for the next round rather than half-done here.
    */
+  /**
+   * THE EXTRACTION GATE, restored — and this time as a ratio.
+   *
+   * The commit that closed the unbounded-work class also switched this
+   * assertion to opt-in, which removed the only always-on check that would
+   * notice the class coming back. That is the worst possible thing to do in the
+   * same change: the guarantee shipped and its guard left with it.
+   *
+   * Both implementations run here, on the same hardware, moments apart — the
+   * real child-process extractor, and the forbidden in-process parse the worker
+   * replaced. Comparing them is machine-independent, which is what lets this be
+   * always-on where an absolute ceiling could not be (load average reached 183
+   * on this machine today).
+   */
+  it('keeps the API answering during extraction — and would not if the parse moved back in-process', async () => {
+    const { ResumeTextExtractionService } = await import('./resume-text-extraction.service')
+    const { buildDocxDeflated } = await import('../test/resume-fixtures')
+    const { RESUME_DOCX_MIME } = await import('@crm/shared')
+
+    // The densest document the budgets PERMIT — a real parse mammoth actually
+    // performs, rather than one it rejects early (a media-prefixed body fails
+    // fast, so it measured the rejection, not the work).
+    const attack = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+
+    const service = new ResumeTextExtractionService()
+    const sandboxed = await measureWhile(() =>
+      service.extract(attack, RESUME_DOCX_MIME).catch(() => undefined),
+    )
+
+    // The forbidden implementation: mammoth on this thread, as it was before
+    // the worker existed.
+    const inProcess = await measureWhile(async () => {
+      const mammoth = await import('mammoth')
+      await mammoth.extractRawText({ buffer: attack }).catch(() => undefined)
+    })
+
+    // Non-vacuity: both really parsed, and the sandboxed run really was sampled.
+    // Local floor: this only has to be a real window, not the render-sized one.
+    expect(sandboxed.renderMs).toBeGreaterThan(300)
+    expect(inProcess.renderMs).toBeGreaterThan(300)
+    expect(sandboxed.samples.length).toBeGreaterThan(MIN_SAMPLES)
+
+    // The guarantee: parsing off-thread is dramatically kinder to the API than
+    // parsing on it, on whatever hardware this happens to be.
+    expect(inProcess.worst).toBeGreaterThan(sandboxed.worst * 5)
+  }, 180_000)
+
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
     'characterises the residual main-thread cost of extraction screening',
     async () => {

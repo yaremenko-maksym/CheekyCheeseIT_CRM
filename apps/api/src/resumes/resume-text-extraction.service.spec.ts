@@ -15,6 +15,8 @@ import { describe, expect, it } from 'vitest'
 import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
 import {
   EXTRACTION_HEAP_MB,
+  EXTRACTION_TIMEOUT_MS,
+  MAX_CONCURRENT_EXTRACTIONS,
   ResumeFileUnreadableError,
   ResumeTextExtractionService,
 } from './resume-text-extraction.service'
@@ -483,6 +485,47 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * the honest document must GO THROUGH, and the cap must be the kind of cap
    * that bounds real heap.
    */
+  /**
+   * THE TWO BOUNDS, COMPARED — which is the thing that had never been done.
+   *
+   * `MAX_DOCX_PARSED_BYTES` says what we accept; `EXTRACTION_TIMEOUT_MS` says
+   * how long we allow it to take. Each was reasonable alone; nobody had checked
+   * them against each other, so the acceptance budget was free to admit
+   * documents the deadline would kill — telling the user their legitimate file
+   * was unreadable.
+   *
+   * This measures the worst document the budgets permit and asserts the
+   * deadline is comfortably above it. It is a RATIO against a measured cost,
+   * not a wall-clock ceiling, so it does not flake with machine speed: a
+   * runner three times slower still passes, and only a genuine divergence
+   * between the two constants fails it.
+   */
+  it('the deadline exceeds the worst document the budgets permit', async () => {
+    const densest = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+
+    const started = Date.now()
+    await expect(service.extract(densest, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
+    const cost = Date.now() - started
+
+    // Non-vacuity: this really is the expensive end of what we accept.
+    expect(cost).toBeGreaterThan(50)
+    // Measured 576-654 ms here; the deadline is ~15x that. Four times the
+    // measured cost is the floor — below that, a loaded runner at niceness 19
+    // would start killing legitimate uploads.
+    expect(EXTRACTION_TIMEOUT_MS).toBeGreaterThan(cost * 4)
+  }, 120_000)
+
+  /**
+   * Parsing capacity must stay AHEAD of intake, or a queue grows without bound
+   * and every waiter holds its upload buffer while it waits.
+   */
+  it('clears uploads faster than the endpoint admits them', () => {
+    const perMinutePerSlot = 60_000 / EXTRACTION_TIMEOUT_MS
+    const worstCaseThroughput = perMinutePerSlot * MAX_CONCURRENT_EXTRACTIONS
+    // The upload endpoint is throttled at 10/min (resumes.controller.ts).
+    expect(worstCaseThroughput).toBeGreaterThanOrEqual(10)
+  })
+
   it('extracts an honest large document within the worker’s memory bound', async () => {
     // The same 40-page-at-real-Word-density document AC5 uses — the case the
     // 1 GiB address-space cap was killing.

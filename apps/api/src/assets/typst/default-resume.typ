@@ -43,9 +43,14 @@
 //
 // NEITHER catches a non-literal spelling that still leaves other text on the
 // page. So do not reach for a unicode escape, a `#sym.*` name or
-// `#str.from-unicode(...)` to sneak a character in: the guard cannot see those,
-// and the reader gets a gap where you meant a symbol. Type characters
-// literally and let the check tell you when one is unavailable.
+// `#str.from-unicode(...)` to sneak a character in.
+//
+// WHAT YOU LOSE IS NOT THE SYMBOL. The whole run of text around it disappears
+// — a heading, a whole line — while the rest of the page looks entirely
+// normal, so there is nothing to notice unless you know to look. Do not expect
+// a visible box marking the spot; expect a sentence to be missing.
+//
+// Type characters literally and let the check tell you when one is unavailable.
 //
 // Broadly: Cyrillic (ru/uk), Latin, digits, common punctuation and currency
 // signs are present; arrows, ticks, crosses, CJK and emoji are not, and neither

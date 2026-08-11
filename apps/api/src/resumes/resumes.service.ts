@@ -240,7 +240,12 @@ export class SeniorResumesService {
       .update(seniorResumes)
       .set({
         content: validated,
-        version: existing.version + 1,
+        // Incremented IN SQL, not read-modify-write. `existing.version` was
+        // read in a separate statement, so two concurrent saves both computed
+        // the same next value and one increment vanished — and `version` is
+        // exactly the signal task-resume-tailoring reads to notice a stale
+        // base, so a lost increment silently marks a stale variant as current.
+        version: sql`${seniorResumes.version} + 1`,
         status: 'READY',
         errorCode: null,
         errorMessage: null,
@@ -960,7 +965,9 @@ export class SeniorResumesService {
       .update(seniorResumes)
       .set({
         layout: normalizeResumeLayout(layout),
-        version: existing.version + 1,
+        // In SQL, for the same reason as `updateContent` — a layout change and
+        // a content save racing each other must produce two increments, not one.
+        version: sql`${seniorResumes.version} + 1`,
         updatedByUserId: viewer.id,
         updatedAt: new Date(),
       })

@@ -55,31 +55,31 @@ import {
  * ==========================================================================
  * IT MUST EXCEED THE COST OF THE WORST DOCUMENT THE BUDGETS PERMIT
  * ==========================================================================
- * The previous 10 s was set against "the worst HONEST document takes about a
- * second", which was measured BEFORE the parser moved into a child process and
- * was simply wrong afterwards. Measured now, running the worker directly on the
- * densest document `MAX_DOCX_PARSED_BYTES` allows (60 000 paragraphs):
+ * That relationship is the point, and it is the thing nobody had checked: one
+ * bound says what we ACCEPT, the other how long we allow it to TAKE, and they
+ * had never been compared. Measured end to end through `extract()` on this
+ * machine, three runs each:
  *
- *   densest PERMITTED document   8.3 - 14.7 s      peak heap 171 - 263 MB
- *   40-page academic CV          2.9 -  3.4 s      peak heap        34 MB
+ *   densest PERMITTED document (60 000 paragraphs)   576 / 616 / 654 ms
+ *   40-page academic CV                              150 / 150 / 149 ms
  *
- * So the acceptance budget permitted documents the deadline then killed — and
- * told the user their file was unreadable. That is a product defect, not a test
- * one: two bounds that had never been compared to each other, one describing
- * what we accept and the other how long we allow it to take, disagreeing for
- * every document in between. It surfaced as four "unrelated" red tests on a
- * loaded runner, where niceness 19 stretches those seconds further.
+ * 10 s is ~15x the worst permitted document — ample for a loaded runner
+ * scheduling this at niceness 19, and it keeps parsing capacity AHEAD of
+ * intake: two slots at ~0.65 s clear far more than the 10 uploads/minute the
+ * endpoint admits, so a queue cannot grow without bound.
  *
- * 60 s is ~4x the worst permitted document measured on an idle machine, leaving
- * room for a loaded runner scheduling this at the lowest priority. It costs
- * nothing in responsiveness: extraction is a DETACHED JOB — no request waits on
- * it, the API is not blocked, and the only thing a longer deadline lengthens is
- * how long a genuinely stuck parse occupies one of two slots.
+ * I RAISED THIS TO 60 s IN A PREVIOUS ROUND ON A NUMBER THAT WAS WRONG. The
+ * "8.3-14.7 s" I recorded came from a probe that spawned a throwaway `node`
+ * process INSIDE the timed region and ran three heap-cap variants in one pass;
+ * it measured its own scaffolding. The four timeouts I blamed on the deadline
+ * were really the RLIMIT_AS worker deaths and the memory pressure from 32 MB
+ * fixtures, both since fixed. Reverted to the justified value, with the
+ * justification now attached to a measurement of the thing itself.
  *
- * Pinned by "accepts the densest permitted document and refuses the next step
- * up" — the test that went red when these two numbers first disagreed.
+ * Pinned by "the deadline exceeds the worst document the budgets permit" below,
+ * so the two bounds cannot drift apart again in silence.
  */
-export const EXTRACTION_TIMEOUT_MS = 60_000
+export const EXTRACTION_TIMEOUT_MS = 10_000
 
 /**
  * Kernel-side CPU backstop (`ulimit -t`) for a starved JS timer.
@@ -88,7 +88,7 @@ export const EXTRACTION_TIMEOUT_MS = 60_000
  * fires, not a second, tighter deadline. Below it, the kernel would become the
  * usual killer and the readable timeout path would be dead code.
  */
-export const EXTRACTION_CPU_SECONDS = 90
+export const EXTRACTION_CPU_SECONDS = 20
 
 /**
  * V8 heap ceiling per extraction (`--max-old-space-size`, MiB).
