@@ -57,6 +57,74 @@ export const MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
  */
 export const MAX_DOCX_PARSED_BYTES = 4 * 1024 * 1024
 
+/**
+ * Max XML tags across the parts `mammoth` may parse — the bound that governs
+ * CPU, in the unit CPU is actually spent in.
+ *
+ * ==========================================================================
+ * A BYTE BUDGET CANNOT SEE PARSE COST. THIS IS THE ONE THAT CAN.
+ * ==========================================================================
+ * `MAX_DOCX_PARSED_BYTES` counts bytes; `mammoth` spends its time per NODE.
+ * Two documents of the same size differ enormously depending on how finely
+ * those bytes are cut up, so a byte cap admits documents whose cost it cannot
+ * see — which is how the acceptance budget came to admit documents the
+ * extraction deadline would kill, and tell the user their file was unreadable.
+ *
+ * MEASURED, not assumed. Holding size constant at 3.67 MB and varying only the
+ * node count (parse only, this machine, median of three):
+ *
+ *     500 nodes    21 ms          30 000 nodes   222 ms
+ *   2 000 nodes    23 ms          60 000 nodes   455 ms
+ *   8 000 nodes    64 ms
+ *
+ * 120x the nodes, the same bytes, 21x the cost. The converse holds too: at a
+ * fixed 3 700 nodes, going 0.57 MB -> 3.53 MB (6.2x the bytes) moved the cost
+ * 27 ms -> 37 ms. Cost tracks tags; bytes are a rounding term.
+ *
+ * IT IS LINEAR, which is what makes a cap on it meaningful. Checked over a 4x
+ * range on every shape that looked like it might not be — paragraphs
+ * (1.38/1.92/1.54 us per tag), table cells (1.31/1.24/1.22), many runs in one
+ * paragraph (1.14/1.12/1.10). Deep nesting is the exception and fails safely:
+ * `@xmldom/xmldom` blows the stack and reports a failed extraction rather than
+ * running long. The most expensive shape found was a run of `<w:p/>` at
+ * 1.85 us per tag, and that is the shape this number is priced at.
+ *
+ * ==========================================================================
+ * THE NUMBER
+ * ==========================================================================
+ * FLOOR — real documents must fit. Six genuine Word files on this machine
+ * (aggregates only; none of them, nor any part of them, is in this repo):
+ *
+ *   total tags     2 015 · 2 315 · 4 224 · 11 740 · 12 778 · 15 890 · 32 946
+ *   tags per page  575 (a 24-page document) · 601 · 1 123 · 2 173 (a 5-page
+ *                  form, 122 words — all table markup, the densest real shape)
+ *
+ * A 40-page CV at the DENSEST of those rates is ~88 900 tags. That is the
+ * document that must never be refused, so the floor is ~89 000, not the 23 174
+ * tags of the byte-calibrated fixture — which understates tags sevenfold
+ * because it was calibrated for a budget that counted bytes.
+ *
+ * CEILING — the deadline must cover it. End to end on this machine the worst
+ * permitted document costs 77 ms of fixed overhead plus ~2.25 us per tag, and
+ * the worst recorded laptop-to-runner factor on this branch is 60x:
+ *
+ *   120 000 tags   347 ms here   ~20.8 s at 60x   vs EXTRACTION_TIMEOUT_MS 60 s
+ *
+ * 120 000 sits above the floor with 1.35x and inside the deadline with 2.9x on
+ * hardware 60x slower than this. For comparison, the byte cap ALONE permits
+ * ~600 000 tags (4 MB at ~6 bytes per `<w:p/>`) = 1 428 ms here = 85.7 s at
+ * 60x: over the deadline, i.e. a document we accepted and could not finish.
+ *
+ * THE MARGIN IS NOT LUXURIOUS AND SAYING SO IS THE POINT: 1.35x over the
+ * densest real 40-page document. It is thin because both ends are measured
+ * rather than chosen, and the honest response to wanting more room is to raise
+ * the deadline or lower the byte cap, not to quietly widen this.
+ *
+ * Enforced DURING the same bounded inflate as the bytes, so a tag bomb is
+ * refused while most of it is still compressed.
+ */
+export const MAX_DOCX_XML_TAGS = 120_000
+
 /** DEFLATE and STORED are the only methods a real DOCX ever uses. */
 const ZIP_METHOD_STORED = 0
 const ZIP_METHOD_DEFLATE = 8
@@ -216,6 +284,11 @@ export interface ZipInspection {
   actualUncompressedBytes: number
   /** Of that, how much the parser may actually read (everything but media). */
   actualParsedBytes: number
+  /**
+   * XML tags (`<` occurrences) across those same parsable parts — the unit the
+   * parser's cost is actually proportional to. See `MAX_DOCX_XML_TAGS`.
+   */
+  actualXmlTags: number
 }
 
 interface ZipEntryHeader {
@@ -360,25 +433,35 @@ export async function inspectDocxZip(
   buf: Buffer,
   maxUncompressedBytes: number = MAX_DOCX_UNCOMPRESSED_BYTES,
   maxParsedBytes: number = MAX_DOCX_PARSED_BYTES,
+  maxXmlTags: number = MAX_DOCX_XML_TAGS,
 ): Promise<ZipInspection> {
   const { headers, declaredUncompressedBytes } = readCentralDirectory(buf, maxUncompressedBytes)
 
   let actualUncompressedBytes = 0
   let actualParsedBytes = 0
+  let actualXmlTags = 0
   for (const header of headers) {
     // Both budgets go in and the entry is classified FROM ITS OWN BYTES as it
     // decompresses, so neither the decision nor the ceiling can be moved by
     // renaming the entry (see MEDIA_SIGNATURES). Decompression still stops the
     // moment whichever budget applies is spent — the classification happens on
     // the first chunk, long before the last one.
-    const { size, counted } = await measureEntry(buf, header, {
+    const { size, counted, tags } = await measureEntry(buf, header, {
       totalRemaining: maxUncompressedBytes - actualUncompressedBytes,
       parsedRemaining: maxParsedBytes - actualParsedBytes,
+      tagsRemaining: maxXmlTags - actualXmlTags,
       maxUncompressedBytes,
       maxParsedBytes,
     })
     actualUncompressedBytes += size
-    if (counted) actualParsedBytes += size
+    if (counted) {
+      actualParsedBytes += size
+      // The tag budget is shared across parts for the same reason the byte one
+      // is: `mammoth` parses document.xml, styles.xml, numbering.xml and the
+      // footnotes, so per-part budgets would let a document pay the cost N
+      // times over while every individual part looked modest.
+      actualXmlTags += tags
+    }
   }
 
   return {
@@ -386,6 +469,7 @@ export async function inspectDocxZip(
     declaredUncompressedBytes,
     actualUncompressedBytes,
     actualParsedBytes,
+    actualXmlTags,
   }
 }
 
@@ -479,15 +563,57 @@ function readCentralDirectory(
 interface EntryBudgets {
   totalRemaining: number
   parsedRemaining: number
+  tagsRemaining: number
   maxUncompressedBytes: number
   maxParsedBytes: number
+}
+
+/** `<` — the byte that opens every XML tag. */
+const XML_TAG_OPEN = 0x3c
+
+/**
+ * Count XML tags in a decompressed chunk.
+ *
+ * A single-byte scan (`Buffer.indexOf` with a number lowers to `memchr`), NOT a
+ * parse. It counts opening AND closing tags, ~2x the element count, which is
+ * what we want: `@xmldom/xmldom` does work on both. What matters is that it is
+ * PROPORTIONAL to parser cost, not that it equals any internal counter.
+ *
+ * ITS OWN COST TRACKS MATCHES, NOT BYTES — measured, because the first version
+ * of this comment guessed and guessed wrong. Over 4 MB on this machine:
+ *
+ *   tag-dense  (699 051 tags)   26.50 ms scan   vs 1.81 ms to inflate it
+ *   text-dense  (39 757 tags)    1.84 ms scan   vs 1.80 ms
+ *
+ * So on the shape that matters it is ~14x the inflate, not a rounding error —
+ * and it runs on the MAIN THREAD, where the inflate itself does not. What keeps
+ * that honest is that the count aborts at `MAX_DOCX_XML_TAGS`, so the scan is
+ * bounded by the cap and not by the document: ~4.6 ms at 120 000 tags, against
+ * the 33 336 ms stall this module exists to prevent.
+ *
+ * Chunk boundaries are safe because the token is one byte — nothing can be
+ * split across a boundary and be missed.
+ */
+function countXmlTags(chunk: Buffer): number {
+  let tags = 0
+  let at = chunk.indexOf(XML_TAG_OPEN)
+  while (at !== -1) {
+    tags += 1
+    at = chunk.indexOf(XML_TAG_OPEN, at + 1)
+  }
+  return tags
+}
+
+/** Names the tag cap in the same voice as `tooBig` names the byte caps. */
+function tooManyTags(): string {
+  return `Внутри DOCX больше ${MAX_DOCX_XML_TAGS} XML-элементов — такой документ разбирается слишком долго`
 }
 
 async function measureEntry(
   buf: Buffer,
   header: ZipEntryHeader,
   budgets: EntryBudgets,
-): Promise<{ size: number; counted: boolean }> {
+): Promise<{ size: number; counted: boolean; tags: number }> {
   const nameLen = readU16LE(buf, header.localHeaderOffset + 26)
   const extraLen = readU16LE(buf, header.localHeaderOffset + 28)
   if (
@@ -510,7 +636,12 @@ async function measureEntry(
     if (size > budgets.totalRemaining) throw new RangeError(tooBig(budgets.maxUncompressedBytes))
     if (counted && size > budgets.parsedRemaining)
       throw new RangeError(tooBig(budgets.maxParsedBytes))
-    return { size, counted }
+    // A stored entry is already in memory, so the tag scan is the same single
+    // pass it is for an inflated one — and it has to happen here too, or
+    // storing the body uncompressed would walk straight past the tag budget.
+    const tags = counted ? countXmlTags(buf.subarray(dataStart, dataStart + size)) : 0
+    if (tags > budgets.tagsRemaining) throw new RangeError(tooManyTags())
+    return { size, counted, tags }
   }
 
   if (header.method !== ZIP_METHOD_DEFLATE) {
@@ -540,21 +671,25 @@ async function measureEntry(
 function inflateAndClassify(
   compressed: Buffer,
   budgets: EntryBudgets,
-): Promise<{ size: number; counted: boolean }> {
+): Promise<{ size: number; counted: boolean; tags: number }> {
   return new Promise((resolve, reject) => {
     const stream = createInflateRaw()
     let size = 0
+    let tags = 0
     let head = Buffer.alloc(0)
     // `null` = not decided yet. Anything unrecognised ends up `true` (counted).
     let counted: boolean | null = null
     let settled = false
 
-    const finish = (err: RangeError | null, value?: { size: number; counted: boolean }): void => {
+    const finish = (
+      err: RangeError | null,
+      value?: { size: number; counted: boolean; tags: number },
+    ): void => {
       if (settled) return
       settled = true
       stream.destroy()
       if (err) reject(err)
-      else resolve(value as { size: number; counted: boolean })
+      else resolve(value as { size: number; counted: boolean; tags: number })
     }
 
     stream.on('data', (chunk: Buffer) => {
@@ -569,13 +704,21 @@ function inflateAndClassify(
       }
       if (counted !== false && size > budgets.parsedRemaining) {
         finish(new RangeError(tooBig(budgets.maxParsedBytes)))
+        return
+      }
+      // Counted in the SAME streamed pass as the bytes, so an over-budget
+      // document is refused while the rest of it is still compressed — the tag
+      // bomb never gets fully inflated, let alone parsed.
+      if (counted !== false) {
+        tags += countXmlTags(chunk)
+        if (tags > budgets.tagsRemaining) finish(new RangeError(tooManyTags()))
       }
     })
 
     stream.on('error', () => finish(new RangeError('Не удалось распаковать содержимое DOCX')))
     // A zero-length part never emits `data`, so it is classified here: counted,
     // because "nothing to identify" must not read as "known to be harmless".
-    stream.on('end', () => finish(null, { size, counted: counted ?? true }))
+    stream.on('end', () => finish(null, { size, counted: counted ?? true, tags }))
 
     stream.end(compressed)
   })
