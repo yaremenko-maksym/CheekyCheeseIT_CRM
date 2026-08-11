@@ -154,23 +154,43 @@ do_curl() {
 # never the raw body itself, and REASON is truncated + single-line so it is
 # safe to fold into the one-line REPORT record above.
 #
-# SHAPE DIAGNOSTICS (task-fix-credential-check-self-diagnosing, 2026-08-11):
-# when an HTTP-200 body parses as JSON but does not have the field/array this
-# script was told to expect, every branch below used to say only "response
-# has no 'X' array" — true, but it left the actual next step (what IS this
-# service calling its array now?) to a human reading a screenshot. That is
-# exactly what happened with RapidAPI twice in a row (see the git history of
-# this file / PR #509 and #510): wrong path, then wrong parse assumption,
-# each one costing a full round trip through a person. shape_hint() below
-# closes that loop generically for all four services, not just RapidAPI —
-# any one of them can rename or restructure its response on its own
-# schedule. On a shape mismatch it reports the top-level field NAMES that
-# actually came back, and — if a top-level array is found — the field NAMES
-# of that array's first record. Names only, never values: the field names
-# are what the next fix needs, and the request-hygiene rule this script
-# already follows (see redact()'s header) is "print the least that gets the
-# point across", not "the response body is secret" — it usually isn't, but
-# there is no reason to print more of it than a field list.
+# SHAPE DIAGNOSTICS (task-fix-credential-check-self-diagnosing, 2026-08-11;
+# deepened by task-fix-credential-check-shape-depth, 2026-08-11): when an
+# HTTP-200 body parses as JSON but does not have the field/array this script
+# was told to expect, every branch below used to say only "response has no
+# 'X' array" — true, but it left the actual next step (what IS this service
+# calling its array now?) to a human reading a screenshot. That is exactly
+# what happened with RapidAPI twice in a row (see the git history of this
+# file / PR #509 and #510): wrong path, then wrong parse assumption, each
+# one costing a full round trip through a person. shape_hint() below closes
+# that loop generically for all four services, not just RapidAPI — any one
+# of them can rename or restructure its response on its own schedule.
+#
+# THE FIRST VERSION OF THIS ONLY LOOKED ONE LEVEL DEEP, AND THAT WAS NOT
+# ENOUGH: it shipped (PR #512), ran for real, and RapidAPI's actual
+# /search-v2 shape turned out to be `{"status":"OK","request_id":...,
+# "parameters":{...},"data":{...}}` — a top-level 'data' field that EXISTS
+# (so the flat scan's "is there a field literally called an array" check
+# never even considered it missing) but is an OBJECT, with the real jobs
+# array nested one level further inside it. The flat report read "no
+# top-level array field" — true, and still useless, for the same reason the
+# original "response has no 'jobs' array" was: it named what was missing
+# without naming what was there instead, one level down. So shape_hint() now
+# walks the body DEPTH-FIRST looking for the first array it can find, and
+# reports the DOTTED PATH to it (e.g. `data.jobs`), not just a same-level
+# field name — equally useful whether the array turns out to be top-level,
+# one level down (today's RapidAPI case), or two. Two bounds keep this from
+# becoming a body dump folded into a CI log on some future service's
+# hundred-field envelope: MAX_SHAPE_DEPTH caps how many '.'-segments a
+# reported path may have (three is enough to reach any nesting seen in these
+# four APIs so far, and this script does not need to promise more), and
+# MAX_SHAPE_KEYS caps how many field names any one field list shows before
+# it collapses to "… (+N more)". Names only, never values, at every level:
+# the field names are what the next fix needs, and the request-hygiene rule
+# this script already follows (see redact()'s header) is "print the least
+# that gets the point across", not "the response body is secret" — it
+# usually isn't, but there is no reason to print more of it than a field
+# list, however deep that list had to be found.
 parse_response() {
   local svc="$1" http="$2" body="$3"
   python3 - "$svc" "$http" "$body" <<'PY'
@@ -208,38 +228,75 @@ def first_reason(d):
     return None
 
 
+# How many '.'-segments a path shape_hint() reports may have — i.e. how many
+# dict levels below the top it will descend into looking for an array. See
+# the parse_response() comment above for why 3.
+MAX_SHAPE_DEPTH = 3
+
+# How many field names any one list in shape_hint()'s output may show before
+# it collapses to "… (+N more)".
+MAX_SHAPE_KEYS = 12
+
+
+def _truncated_keys(keys):
+    keys = list(keys)
+    if not keys:
+        return "(none)"
+    if len(keys) <= MAX_SHAPE_KEYS:
+        return ", ".join(keys)
+    shown = ", ".join(keys[:MAX_SHAPE_KEYS])
+    return f"{shown}, … (+{len(keys) - MAX_SHAPE_KEYS} more)"
+
+
+# _find_array(node, path_parts, remaining_depth) — depth-first search for the
+# first array reachable from `node` by descending through nested OBJECTS
+# only (never through array elements — the first list found IS the answer,
+# not a place to keep digging). `remaining_depth` is a budget, not a running
+# total: it starts at MAX_SHAPE_DEPTH and is spent one unit per dict level
+# descended into, so the longest path this can ever return has exactly
+# MAX_SHAPE_DEPTH segments. Returns (dotted_path, the_list) or (None, None).
+def _find_array(node, path_parts, remaining_depth):
+    if not isinstance(node, dict) or remaining_depth <= 0:
+        return None, None
+    for k, v in node.items():
+        parts = path_parts + [str(k)]
+        if isinstance(v, list):
+            return ".".join(parts), v
+        if isinstance(v, dict):
+            found_path, found_arr = _find_array(v, parts, remaining_depth - 1)
+            if found_path is not None:
+                return found_path, found_arr
+    return None, None
+
+
 # shape_hint(data) — see the parse_response() comment above for why this
-# exists. Names only: field NAMES of the top level, and of the first record
-# of the first top-level array it finds (if any) — never any value. Handles
-# a non-dict/non-list top level too (a bare string/number/null body), since
-# "the shape changed" can mean the envelope itself stopped being an object.
+# exists. Names only, never values, at any depth: the top-level field NAMES,
+# and — for the first array _find_array() can reach within MAX_SHAPE_DEPTH
+# levels — the DOTTED PATH to it plus the field NAMES of its first record.
+# Handles a non-dict/non-list top level too (a bare string/number/null
+# body), since "the shape changed" can mean the envelope itself stopped
+# being an object.
 def shape_hint(data):
     if isinstance(data, dict):
-        top_keys = list(data.keys())
-        parts = ["top-level fields: " + (", ".join(top_keys) if top_keys else "(none)")]
-        array_key, array_val = None, None
-        for k, v in data.items():
-            if isinstance(v, list):
-                array_key, array_val = k, v
-                break
-        if array_key is None:
-            parts.append("no top-level array field")
+        parts = ["top-level fields: " + _truncated_keys(data.keys())]
+        array_path, array_val = _find_array(data, [], MAX_SHAPE_DEPTH)
+        if array_path is None:
+            parts.append(f"no array found within {MAX_SHAPE_DEPTH} levels")
         elif not array_val:
-            parts.append(f"'{array_key}' is an array but it is empty")
+            parts.append(f"array at '{array_path}' is empty")
         elif isinstance(array_val[0], dict):
-            item_keys = list(array_val[0].keys())
             parts.append(
-                f"first array field is '{array_key}', its first record's fields: "
-                + (", ".join(item_keys) if item_keys else "(none)")
+                f"first array found at '{array_path}', its first record's fields: "
+                + _truncated_keys(array_val[0].keys())
             )
         else:
-            parts.append(f"first array field is '{array_key}', but its first record is not an object")
+            parts.append(f"first array found at '{array_path}', but its first record is not an object")
         return "; ".join(parts)
     if isinstance(data, list):
         if not data:
             return "top level is a JSON array (empty)"
         if isinstance(data[0], dict):
-            return "top level is a JSON array; first record's fields: " + ", ".join(data[0].keys())
+            return "top level is a JSON array; first record's fields: " + _truncated_keys(data[0].keys())
         return "top level is a JSON array of non-object records"
     return f"top level is not a JSON object or array (type={type(data).__name__})"
 
