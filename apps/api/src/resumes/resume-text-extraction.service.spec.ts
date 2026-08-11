@@ -15,7 +15,6 @@ import { describe, expect, it } from 'vitest'
 import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
 import {
   EXTRACTION_HEAP_MB,
-  EXTRACTION_TIMEOUT_MS,
   MAX_CONCURRENT_EXTRACTIONS,
   ResumeFileUnreadableError,
   ResumeTextExtractionService,
@@ -47,6 +46,8 @@ import {
   buildPdfWithRawContentStream,
   repeatedBuffer,
   buildPdfWithText,
+  buildAttributeBombDocx,
+  buildPerCharacterFormattedDocx,
   buildWordDensityDocx,
   buildZip,
 } from '../test/resume-fixtures'
@@ -486,33 +487,129 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * that bounds real heap.
    */
   /**
-   * THE TWO BOUNDS, COMPARED — which is the thing that had never been done.
+   * ==========================================================================
+   * WHAT ACTUALLY CONTAINS AN EXPENSIVE DOCUMENT — AND IT IS NOT A BUDGET
+   * ==========================================================================
+   * The test that stood here compared `MAX_DOCX_PARSED_BYTES` against
+   * `EXTRACTION_TIMEOUT_MS` by measuring "the worst document the budgets
+   * permit" and asserting the deadline sat above it. It failed on CI, and the
+   * three previous fixes each moved one of the two constants.
    *
-   * `MAX_DOCX_PARSED_BYTES` says what we accept; `EXTRACTION_TIMEOUT_MS` says
-   * how long we allow it to take. Each was reasonable alone; nobody had checked
-   * them against each other, so the acceptance budget was free to admit
-   * documents the deadline would kill — telling the user their legitimate file
-   * was unreadable.
+   * THE PREMISE WAS WRONG. There is no bounded worst case for the budgets to
+   * permit. Measured through this pipeline, everything inside every budget:
    *
-   * This measures the worst document the budgets permit and asserts the
-   * deadline is comfortably above it. It is a RATIO against a measured cost,
-   * not a wall-clock ceiling, so it does not flake with machine speed: a
-   * runner three times slower still passes, and only a genuine divergence
-   * between the two constants fails it.
+   *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
+   *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
+   *
+   * The expensive one is 3x SMALLER and carries 15 tags, because attribute
+   * handling in `@xmldom/xmldom` is quadratic per element and attributes hold
+   * no `<`. A byte budget missed node count; a node budget misses attributes;
+   * a parser with several superlinear paths will always have one dimension
+   * more than the scalar chosen to bound it. Chasing a fourth unit would be
+   * the same move that failed three times.
+   *
+   * So this test asserts what is actually true and actually load-bearing: the
+   * SANDBOX contains work of any shape. The document below defeats every
+   * acceptance budget by construction, and the two properties asserted are the
+   * ones a person and an API respectively care about — the event loop stays
+   * free, and the work ends with something actionable to read.
+   *
+   * No wall-clock ceiling anywhere in here: that instrument moved 180 ms ->
+   * 1 287 ms on this machine inside one minute, which is what made the
+   * previous version of this test a coin flip on a busy runner.
    */
-  it('the deadline exceeds the worst REAL document the budgets permit', async () => {
-    // The densest document of a REAL SHAPE: 40 pages at the per-page byte cost
-    // measured from genuine Word files. This is the AC5 document — the thing a
-    // user actually uploads and must never have refused.
-    const worstReal = buildWordDensityDocx(40)
+  it('contains an expensive document no budget can see', async () => {
+    // 120 000 attributes on ONE element: ~15 tags, 1.3 MB, ~18 s of parse.
+    const unbudgetable = buildAttributeBombDocx(120_000)
 
-    const started = Date.now()
-    await expect(service.extract(worstReal, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
-    const cost = Date.now() - started
+    // Non-vacuity FIRST: prove every acceptance budget really does wave this
+    // through, so the containment below is doing the work rather than a budget
+    // quietly catching it (which is what made the old fixture prove nothing).
+    const info = await inspectDocxZip(unbudgetable)
+    expect(info.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES)
+    expect(info.actualUncompressedBytes).toBeLessThan(MAX_DOCX_UNCOMPRESSED_BYTES)
 
-    // Non-vacuity: this really is the expensive end of what we accept.
-    expect(cost).toBeGreaterThan(20)
-    expect(EXTRACTION_TIMEOUT_MS).toBeGreaterThan(cost * 4)
+    // THE GUARANTEE: the API thread stays free while it parses. Sampling the
+    // loop is the only assertion that speaks to "does the API keep answering",
+    // and it is a property of isolation, not of any budget.
+    const meter = startLagMeter()
+    const outcome = await service
+      .extract(unbudgetable, RESUME_DOCX_MIME, { timeoutMs: 2_000 })
+      .then(() => 'resolved')
+      .catch((e: unknown) => (e as Error).message)
+    const { worstStall } = meter.stop()
+
+    // Generous by two orders of magnitude against the 33 336 ms stall that the
+    // in-process version of this parser produced — this documents a class, not
+    // a budget, so it does not need to be tight to be meaningful.
+    expect(worstStall).toBeLessThan(500)
+
+    // UNCONDITIONALLY, because the outcome is not in doubt: this document needs
+    // ~18 s and the deadline above is 2 s. Wrapping these in `if (outcome !==
+    // 'resolved')` would have been a test that quietly asserts nothing on the
+    // day the containment breaks — which is the one day it matters.
+    expect(outcome).toMatch(/слишком сложный/)
+    expect(outcome).not.toMatch(/Не удалось прочитать/)
+  }, 180_000)
+
+  /**
+   * EVERY WAY THE SANDBOX ENDS WORK SAYS THE SAME HUMAN THING.
+   *
+   * The deadline is only one of its mechanisms; the CPU rlimit and the heap
+   * ceiling arrive as a SIGNAL exit with empty stdout instead. That path used
+   * to answer "Не удалось прочитать файл резюме" — blaming the document for
+   * hitting our limit, after ~28 s of waiting. Both paths are exercised here
+   * because they are different branches, and the bug was that only one of them
+   * had been thought about.
+   */
+  it('says the same actionable thing however the sandbox ended the work', async () => {
+    const bomb = buildAttributeBombDocx(60_000)
+
+    // Path 1 — the wall-clock deadline (`timedOut`).
+    await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
+      /слишком сложный/,
+    )
+
+    // Path 2 — the worker KILLED rather than timed out, which is what the heap
+    // ceiling and the CPU rlimit look like from here: a signal exit with empty
+    // stdout, never `timedOut`. Triggered for REAL (three attribute bombs
+    // exhaust EXTRACTION_HEAP_MB) rather than simulated with a seam, because
+    // the branch only matters if the real mechanism reaches it — measured, it
+    // takes ~28 s and used to answer "Не удалось прочитать файл резюме".
+    const killed = await service
+      .extract(buildAttributeBombDocx(120_000, 3), RESUME_DOCX_MIME)
+      .then(() => 'resolved')
+      .catch((e: unknown) => (e as Error).message)
+    expect(killed).toMatch(/слишком сложный/)
+
+    // The message must not depend on the test seam: a 50 ms budget once
+    // produced "не уложился в 0.05 с", which is true and useless to a user.
+    await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.not.toThrow(
+      /0\.05|50 с/,
+    )
+  }, 180_000)
+
+  /**
+   * THE PRODUCT DEFECT A TAG BUDGET WOULD HAVE SHIPPED.
+   *
+   * Per-character formatting — every character in its own run with its own
+   * run-properties — is what a PDF-to-Word conversion routinely produces. It
+   * costs 9 600 tags a page, so the 120 000-tag budget of the previous round
+   * refused a THIRTEEN-page CV: measured against that exact code, twelve pages
+   * (115 216 tags) was the largest it accepted. The fixture below uses twenty
+   * so the guard keeps biting rather than sitting on the boundary.
+   *
+   * This is the regression guard: real documents of awkward shape are
+   * accepted, and the only thing that may refuse a document is its SIZE.
+   */
+  it('accepts a per-character-formatted CV, whatever its tag count', async () => {
+    const converted = buildPerCharacterFormattedDocx(20)
+    const info = await inspectDocxZip(converted)
+
+    // It really is the awkward shape, not a token fixture.
+    expect(info.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES)
+    const text = await service.extract(converted, RESUME_DOCX_MIME)
+    expect(text.length).toBeGreaterThan(1_000)
   }, 180_000)
 
   /**
@@ -554,7 +651,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     const started = Date.now()
     await expect(
       impatient.extract(pathological, RESUME_DOCX_MIME, { timeoutMs: 50 }),
-    ).rejects.toThrow(/не уложился/)
+    ).rejects.toThrow(/слишком сложный/)
     expect(Date.now() - started).toBeLessThan(20_000)
   }, 60_000)
 
