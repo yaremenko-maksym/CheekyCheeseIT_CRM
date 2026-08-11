@@ -318,6 +318,75 @@ export const REAL_WORD_BYTES_PER_PAGE = 81 * 1024
  * drifted low would quietly turn "a 40-page CV fits" into a claim about a
  * 29-page one.
  */
+/**
+ * A DOCX whose body is exactly the XML given — for shapes the paragraph
+ * template above cannot express.
+ */
+export function buildDocxRawBody(body: string): Buffer {
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
+    { name: '_rels/.rels', data: Buffer.from(RELS, 'utf8'), deflate: true },
+    { name: 'word/document.xml', data: Buffer.from(xml, 'utf8'), deflate: true },
+  ])
+}
+
+/**
+ * THE DOCUMENT NO ACCEPTANCE BUDGET CAN SEE: `attributes` attributes on ONE
+ * element.
+ *
+ * `@xmldom/xmldom` linearly rescans an element's existing attributes as each
+ * new one is added (`lib/dom.js` `setAttributeNode`), so cost is quadratic in
+ * attributes per element. Attributes contain no `<`, so a tag counter reads
+ * this as a handful of tags, and it is small in bytes. Measured through the
+ * real pipeline on this machine:
+ *
+ *    15 000 attributes   155 KB   15 tags      301 ms
+ *    30 000 attributes   320 KB   15 tags      943 ms
+ *    60 000 attributes   650 KB   15 tags    3 378 ms
+ *   120 000 attributes  1.33 MB   15 tags   18 310 ms
+ *
+ * Doubling the attributes multiplies the cost by 3-5x. This fixture exists so
+ * that the containment tests use a shape which genuinely defeats every budget,
+ * rather than one the budgets would have caught anyway.
+ */
+export function buildAttributeBombDocx(attributes: number, elements = 1): Buffer {
+  const parts: string[] = ['<w:p']
+  for (let i = 0; i < attributes; i += 1) parts.push(` a${i}="v"`)
+  parts.push('/>')
+  return buildDocxRawBody(parts.join('').repeat(elements))
+}
+
+/**
+ * Tags one page of PER-CHARACTER-FORMATTED text costs, measured: every
+ * character in its own run with its own run-properties.
+ *
+ * This is not a synthetic worst case — it is what a PDF-to-Word conversion
+ * routinely produces, and it is the shape that made a tag budget untenable. At
+ * 1 200 characters a page it measured 9 616 tags and 100 KB; at 1 800, 14 416
+ * tags and 150 KB. A twenty-page CV of this kind carries ~192 000 tags, which
+ * is why a 120 000-tag cap was refusing legitimate documents.
+ */
+export const PER_CHARACTER_TAGS_PER_PAGE = 9_616
+
+/**
+ * A CV whose text is formatted per character — the real shape above, at
+ * `pages` pages. Accepted by the size budgets; this fixture guards the
+ * regression where a tag budget rejected it.
+ */
+export function buildPerCharacterFormattedDocx(pages: number, charsPerPage = 1_200): Buffer {
+  const runs: string[] = []
+  for (let page = 0; page < pages; page += 1) {
+    for (let i = 0; i < charsPerPage; i += 1) {
+      runs.push(
+        `<w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:sz w:val="22"/></w:rPr><w:t>${String.fromCharCode(97 + ((page + i) % 26))}</w:t></w:r>`,
+      )
+    }
+  }
+  return buildDocxRawBody(`<w:p>${runs.join('')}</w:p>`)
+}
+
 export function buildWordDensityDocx(pages: number): Buffer {
   const target = pages * REAL_WORD_BYTES_PER_PAGE
   const filler = 'Дослідження та розробка розподілених систем на TypeScript. '.repeat(8)
@@ -332,116 +401,6 @@ export function buildWordDensityDocx(pages: number): Buffer {
     bytes += wrapper + Buffer.byteLength(text)
   }
   return buildDocxDeflated(paragraphs)
-}
-
-/**
- * XML tags ONE page of a real Word document occupies, at the densest rate
- * measured — the companion to `REAL_WORD_BYTES_PER_PAGE`, in the unit that
- * actually governs parse cost.
- *
- * IT EXISTS BECAUSE THE BYTE-CALIBRATED FIXTURE IS NOT A TAG PROXY.
- * `buildWordDensityDocx(40)` is a faithful 3.3 MB but carries only 23 174 tags
- * — about 7 tags per KB, where real Word runs 25-49. Calibrating a tag budget
- * against it would have set the cap sevenfold too low and refused exactly the
- * long academic CVs the budget exists to admit.
- *
- * MEASURED on the same six genuine Word documents (aggregates only; none of
- * them, nor any part of them, is in this repo), counting `<` across the parts
- * the parser reads and dividing by the page count Word itself records in
- * `docProps/app.xml`:
- *
- *   24-page document   13 792 body tags    575 per page
- *    5-page document   10 867 body tags  2 173 per page   <- densest
- *    1-page documents   1 123 / 601 body tags
- *   fixed parts (styles, numbering, theme): ~1 900-2 100 tags regardless
- *
- * The 5-page document is a form — 122 words and the rest table markup — which
- * is why it is the densest and why it, not the prose ones, sets this number.
- */
-export const REAL_WORD_TAGS_PER_PAGE = 2_173
-
-/** Tags `documentXml` spends per paragraph: `<w:p><w:r><w:t>` and their closes. */
-export const DOCX_FIXTURE_TAGS_PER_PARAGRAPH = 6
-
-/** Tags the wrapper parts (`[Content_Types].xml`, `_rels/.rels`) always cost. */
-export const DOCX_FIXTURE_FIXED_TAGS = 14
-
-/**
- * A DOCX whose body is exactly the XML given — for shapes `documentXml`'s
- * paragraph template cannot express.
- */
-export function buildDocxRawBody(body: string): Buffer {
-  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`
-  return buildZip([
-    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
-    { name: '_rels/.rels', data: Buffer.from(RELS, 'utf8'), deflate: true },
-    { name: 'word/document.xml', data: Buffer.from(xml, 'utf8'), deflate: true },
-  ])
-}
-
-/**
- * The MOST EXPENSIVE document a given tag budget permits: a run of `<w:p/>`.
- *
- * One tag per element and six bytes each, so it reaches any tag count at the
- * lowest possible byte cost — and it measured the worst cost per tag of every
- * shape tried (1.85 us against 1.43 for ordinary paragraphs, 1.14 for table
- * cells, 1.10 for many runs in one paragraph). A "worst permitted document"
- * fixture that used the paragraph shape would understate the cap by ~25%.
- */
-export function buildWorstShapeTagDocx(tags: number): Buffer {
-  return buildDocxRawBody('<w:p/>'.repeat(Math.max(1, tags - DOCX_FIXTURE_FIXED_TAGS)))
-}
-
-/**
- * A DOCX carrying approximately `tags` XML tags, as cheaply in bytes as the
- * paragraph shape allows — for exercising the TAG budget without the byte
- * budget interfering.
- */
-export function buildTagCountDocx(tags: number): Buffer {
-  const paragraphs = Math.max(
-    1,
-    Math.round((tags - DOCX_FIXTURE_FIXED_TAGS) / DOCX_FIXTURE_TAGS_PER_PARAGRAPH),
-  )
-  return buildDocxDeflated(Array.from({ length: paragraphs }, (_, i) => `p${i}`))
-}
-
-/**
- * A DOCX that weighs what `pages` pages of a real Word document weigh in BOTH
- * units at once — `REAL_WORD_BYTES_PER_PAGE` of parsable bytes AND
- * `REAL_WORD_TAGS_PER_PAGE` of tags.
- *
- * This is the document the caps must never refuse. Matching only one unit is
- * how a fixture ends up proving the wrong thing: byte-matched alone it looks
- * like a 40-page CV to the byte budget and like a 4-page one to the tag budget.
- */
-export function buildWordTagDensityDocx(pages: number): Buffer {
-  const targetTags = pages * REAL_WORD_TAGS_PER_PAGE
-  const targetBytes = pages * REAL_WORD_BYTES_PER_PAGE
-  const paragraphs = Math.max(
-    1,
-    Math.round((targetTags - DOCX_FIXTURE_FIXED_TAGS) / DOCX_FIXTURE_TAGS_PER_PARAGRAPH),
-  )
-  const wrapper = Buffer.byteLength('<w:p><w:r><w:t xml:space="preserve"></w:t></w:r></w:p>')
-  // Spread the byte target across those paragraphs so both units land at once.
-  const perParagraph = Math.max(1, Math.round(targetBytes / paragraphs) - wrapper)
-  return buildDocxDeflated(
-    Array.from({ length: paragraphs }, (_, i) => `${i}. ${'a'.repeat(perParagraph)}`),
-  )
-}
-
-/**
- * Paragraphs that fill `bytes` using as FEW tags as possible — the shape for
- * testing the BYTE budget now that a tag budget exists beside it.
- *
- * The old fixtures reached the byte cap by sheer paragraph count (200 000
- * paragraphs of `p123`), which is the tag-dense shape and now trips the tag cap
- * first. Those tests are about bytes, so their fixtures have to be about bytes.
- */
-export function buildByteDenseParagraphs(bytes: number, paragraphs = 4_000): string[] {
-  const wrapper = Buffer.byteLength('<w:p><w:r><w:t xml:space="preserve"></w:t></w:r></w:p>')
-  const perParagraph = Math.max(1, Math.ceil(bytes / paragraphs) - wrapper)
-  return Array.from({ length: paragraphs }, (_, i) => `${i}. ${'a'.repeat(perParagraph)}`)
 }
 
 /**

@@ -15,18 +15,13 @@ import { describe, expect, it } from 'vitest'
 import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
 import {
   EXTRACTION_HEAP_MB,
-  EXTRACTION_TIMEOUT_MS,
   MAX_CONCURRENT_EXTRACTIONS,
   ResumeFileUnreadableError,
   ResumeTextExtractionService,
-  ORDINARY_EXTRACTION_MS,
-  SLOW_MACHINE_FACTOR,
-  WORST_PERMITTED_EXTRACTION_MS,
 } from './resume-text-extraction.service'
 import {
   MAX_DOCX_UNCOMPRESSED_BYTES,
   MAX_DOCX_PARSED_BYTES,
-  MAX_DOCX_XML_TAGS,
   MAX_PDF_CONTENT_BYTES,
   MAX_PDF_TEXT_OPERATORS,
   MAX_PDF_PAGES,
@@ -51,46 +46,11 @@ import {
   buildPdfWithRawContentStream,
   repeatedBuffer,
   buildPdfWithText,
-  buildByteDenseParagraphs,
-  buildTagCountDocx,
+  buildAttributeBombDocx,
+  buildPerCharacterFormattedDocx,
   buildWordDensityDocx,
-  buildWordTagDensityDocx,
-  buildWorstShapeTagDocx,
   buildZip,
 } from '../test/resume-fixtures'
-
-/**
- * How much slack the ratio assertion allows over the ratio the two recorded
- * reference costs already imply.
- *
- * DERIVED, NOT PICKED — that distinction is the point. A hand-chosen ceiling
- * drifts away from what the constants claim and stops testing them; deriving
- * the bound from `WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS`
- * (420/96 = 4.4x) means raising the tag cap without re-measuring those figures
- * pushes the live ratio through it.
- *
- * AND THE CLAIM THAT IT CANCELS THE MACHINE WAS TESTED, not assumed — by
- * running the same pair against escalating contention on 8 cores (min of three):
- *
- *   competing processes    0      8      32     64
- *   worst permitted      364 ms 577 ms 1842 ms 3596 ms     (9.9x spread)
- *   ordinary              87 ms 124 ms  414 ms  933 ms
- *   RATIO               4.18x  4.65x   4.45x   3.85x       (1.2x spread)
- *
- * A 10x swing in wall clock moves the ratio by 20%, and under heavy contention
- * it FALLS — the fixed spawn cost inflates too, so both sides lose together.
- * That is the whole argument for measuring a ratio here, now with numbers.
- *
- * 1.6 puts the bound at ~7.0x: 1.5x above the worst ever measured, and low
- * enough that doubling the tag cap (~6.6x) lands on it.
- *
- * RESIDUAL GAP, STATED: a cap raised by less than ~1.6x with the reference
- * figures left stale would slip through this assertion. The arithmetic
- * assertion beside it then only bites once someone updates them honestly.
- * Closing that properly needs the reference costs re-measured in CI, which is
- * the RESUME_PERF job and not an always-on gate.
- */
-const RATIO_SLACK = 1.6
 
 /**
  * Sample the event loop every 10 ms and report the worst gap.
@@ -266,11 +226,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * nothing), or reintroduce any filename check, and this goes red.
    */
   it('counts a renamed document body — the extension is the attacker’s choice', async () => {
-    // Byte-dense, tag-sparse ON PURPOSE: this test is about the BYTE budget
-    // seeing a renamed body, so the fixture must reach the byte cap without
-    // tripping MAX_DOCX_XML_TAGS on the way (the old 300 000-paragraph body
-    // now does, which is correct behaviour but a different assertion).
-    const disguised = buildDocxWithRenamedBody(buildByteDenseParagraphs(6 * 1024 * 1024))
+    const disguised = buildDocxWithRenamedBody(Array.from({ length: 300_000 }, (_, i) => `p${i}`))
     // Still a DOCX as far as type detection is concerned.
     expect(detectResumeSourceMime(disguised)).toBe(RESUME_DOCX_MIME)
     await expect(inspectDocxZip(disguised)).rejects.toThrow(/Содержимое DOCX больше/)
@@ -340,9 +296,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     })
 
     it('refuses an over-budget body under every name', async () => {
-      // Over the BYTE budget specifically — see the note on the renamed-body
-      // test above for why the shape matters now.
-      const body = buildByteDenseParagraphs(6 * 1024 * 1024)
+      const body = Array.from({ length: 200_000 }, (_, i) => `p${i}`)
       for (const name of DISGUISES) {
         const doc = buildDocxWithRenamedBody(body, name)
         await expect(inspectDocxZip(doc), `body hidden at ${name} was accepted`).rejects.toThrow(
@@ -533,94 +487,126 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * that bounds real heap.
    */
   /**
-   * THE TWO BOUNDS, COMPARED — and this time in a unit that can hold.
+   * ==========================================================================
+   * WHAT ACTUALLY CONTAINS AN EXPENSIVE DOCUMENT — AND IT IS NOT A BUDGET
+   * ==========================================================================
+   * The test that stood here compared `MAX_DOCX_PARSED_BYTES` against
+   * `EXTRACTION_TIMEOUT_MS` by measuring "the worst document the budgets
+   * permit" and asserting the deadline sat above it. It failed on CI, and the
+   * three previous fixes each moved one of the two constants.
    *
-   * What we ACCEPT and how long we allow it to TAKE had never been checked
-   * against each other, so the acceptance budget was free to admit documents
-   * the deadline would kill and tell the user their legitimate file was
-   * unreadable. That is still the property under test. What changed is that the
-   * first attempt compared them through an ABSOLUTE wall clock, and that
-   * instrument does not work here — three rounds of re-tuning proved it:
+   * THE PREMISE WAS WRONG. There is no bounded worst case for the budgets to
+   * permit. Measured through this pipeline, everything inside every budget:
    *
-   *   same document, same machine, same minute, 16 competing processes:
-   *     quiet 180/182/214 ms   loaded 735/1004/1287 ms   quiet again 286 ms
-   *   same document on the CI runner: 16 804 ms — 92x the quiet local cost
+   *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
+   *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
    *
-   * A number that moves 7x on ONE machine inside a minute cannot gate a 4x
-   * margin. Every previous fix nudged the deadline; the deadline was never the
-   * variable. So the always-on assertions here are the two that a busy machine
-   * cannot blur:
+   * The expensive one is 3x SMALLER and carries 15 tags, because attribute
+   * handling in `@xmldom/xmldom` is quadratic per element and attributes hold
+   * no `<`. A byte budget missed node count; a node budget misses attributes;
+   * a parser with several superlinear paths will always have one dimension
+   * more than the scalar chosen to bound it. Chasing a fourth unit would be
+   * the same move that failed three times.
    *
-   *   1. A RATIO between two documents measured back to back on whatever
-   *      machine this is. Machine speed and contention hit both and cancel.
-   *      This is the assertion that actually catches the defect class: a budget
-   *      that admits something wildly more expensive than an ordinary resume.
-   *   2. ARITHMETIC ON THE CONSTANTS, with the measured cost of the worst
-   *      permitted document and the worst machine factor ever recorded on this
-   *      branch both written down. No clock, so nothing to flake.
+   * So this test asserts what is actually true and actually load-bearing: the
+   * SANDBOX contains work of any shape. The document below defeats every
+   * acceptance budget by construction, and the two properties asserted are the
+   * ones a person and an API respectively care about — the event loop stays
+   * free, and the work ends with something actionable to read.
    *
-   * Between them: raising MAX_DOCX_XML_TAGS breaks (1) live; raising it and
-   * updating the recorded figure breaks (2). The absolute characterisation
-   * lives in the opt-in RESUME_PERF test, which is this file's own policy for
-   * numbers that depend on the machine.
-   *
-   * IS A CAP-SIZED FIXTURE SAFE IN AN ALWAYS-ON TEST? Asked, because putting a
-   * document that the deadline could kill into a required check is how this
-   * suite got flaky before. Measured against escalating contention on 8 cores,
-   * the margin before the extraction itself would hit the 60 s deadline:
-   *
-   *   competing processes    0      8     32     64
-   *   deadline / cost      165x   104x   33x    17x
-   *
-   * At eightfold CPU oversubscription there is still 17x of room, so the
-   * machine would have to be ~165x slower than this one — against a worst
-   * observation of 92x — before this test failed for the wrong reason.
+   * No wall-clock ceiling anywhere in here: that instrument moved 180 ms ->
+   * 1 287 ms on this machine inside one minute, which is what made the
+   * previous version of this test a coin flip on a busy runner.
    */
-  it('the deadline exceeds the worst document the budgets permit', async () => {
-    // The worst document the budgets PERMIT — derived from the cap, and in the
-    // worst SHAPE for it (`<w:p/>`, ~1.85 us per tag). The previous version
-    // measured a 40-page CV, which is neither the worst permitted document nor
-    // in any fixed relationship to it; a paragraph-shaped fixture at the same
-    // cap would still understate the cost by ~25%.
-    const worstPermitted = buildWorstShapeTagDocx(MAX_DOCX_XML_TAGS - 200)
-    const ordinary = buildWordDensityDocx(2)
+  it('contains an expensive document no budget can see', async () => {
+    // 120 000 attributes on ONE element: ~15 tags, 1.3 MB, ~18 s of parse.
+    const unbudgetable = buildAttributeBombDocx(120_000)
 
-    // Interleaved and taken as the MINIMUM of three: contention only ever adds
-    // time, so the minimum is the least contaminated estimate of what the
-    // document itself costs, and interleaving keeps a load spike from landing
-    // on one side of the ratio only.
-    const worstRuns: number[] = []
-    const ordinaryRuns: number[] = []
-    for (let i = 0; i < 3; i += 1) {
-      let started = Date.now()
-      await expect(service.extract(worstPermitted, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
-      worstRuns.push(Date.now() - started)
+    // Non-vacuity FIRST: prove every acceptance budget really does wave this
+    // through, so the containment below is doing the work rather than a budget
+    // quietly catching it (which is what made the old fixture prove nothing).
+    const info = await inspectDocxZip(unbudgetable)
+    expect(info.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES)
+    expect(info.actualUncompressedBytes).toBeLessThan(MAX_DOCX_UNCOMPRESSED_BYTES)
 
-      started = Date.now()
-      await expect(service.extract(ordinary, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
-      ordinaryRuns.push(Date.now() - started)
-    }
-    const worstCost = Math.min(...worstRuns)
-    const ordinaryCost = Math.max(1, Math.min(...ordinaryRuns))
+    // THE GUARANTEE: the API thread stays free while it parses. Sampling the
+    // loop is the only assertion that speaks to "does the API keep answering",
+    // and it is a property of isolation, not of any budget.
+    const meter = startLagMeter()
+    const outcome = await service
+      .extract(unbudgetable, RESUME_DOCX_MIME, { timeoutMs: 2_000 })
+      .then(() => 'resolved')
+      .catch((e: unknown) => (e as Error).message)
+    const { worstStall } = meter.stop()
 
-    // Non-vacuity, both directions: the "worst" document really is the
-    // expensive end of what we accept, and the measurement really ran.
-    expect(worstCost).toBeGreaterThan(ordinaryCost)
+    // Generous by two orders of magnitude against the 33 336 ms stall that the
+    // in-process version of this parser produced — this documents a class, not
+    // a budget, so it does not need to be tight to be meaningful.
+    expect(worstStall).toBeLessThan(500)
 
-    // (1) Machine-independent, and its bound comes from the two recorded
-    // reference costs rather than from taste — see RATIO_SLACK.
-    const allowedRatio = (WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS) * RATIO_SLACK
-    expect(worstCost / ordinaryCost).toBeLessThan(allowedRatio)
+    // UNCONDITIONALLY, because the outcome is not in doubt: this document needs
+    // ~18 s and the deadline above is 2 s. Wrapping these in `if (outcome !==
+    // 'resolved')` would have been a test that quietly asserts nothing on the
+    // day the containment breaks — which is the one day it matters.
+    expect(outcome).toMatch(/слишком сложный/)
+    expect(outcome).not.toMatch(/Не удалось прочитать/)
+  }, 180_000)
 
-    // (2) The two constants, compared — the assertion the whole exercise is
-    // for, with no clock in it. If the worst permitted document costs
-    // WORST_PERMITTED_EXTRACTION_MS on the reference machine, then even on
-    // hardware SLOW_MACHINE_FACTOR times slower it must finish in half the
-    // deadline. Raise the tag cap without re-measuring and this goes red.
-    expect(WORST_PERMITTED_EXTRACTION_MS * SLOW_MACHINE_FACTOR * 2).toBeLessThanOrEqual(
-      EXTRACTION_TIMEOUT_MS,
+  /**
+   * EVERY WAY THE SANDBOX ENDS WORK SAYS THE SAME HUMAN THING.
+   *
+   * The deadline is only one of its mechanisms; the CPU rlimit and the heap
+   * ceiling arrive as a SIGNAL exit with empty stdout instead. That path used
+   * to answer "Не удалось прочитать файл резюме" — blaming the document for
+   * hitting our limit, after ~28 s of waiting. Both paths are exercised here
+   * because they are different branches, and the bug was that only one of them
+   * had been thought about.
+   */
+  it('says the same actionable thing however the sandbox ended the work', async () => {
+    const bomb = buildAttributeBombDocx(60_000)
+
+    // Path 1 — the wall-clock deadline (`timedOut`).
+    await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
+      /слишком сложный/,
     )
-  }, 300_000)
+
+    // Path 2 — the worker KILLED rather than timed out, which is what the heap
+    // ceiling and the CPU rlimit look like from here: a signal exit with empty
+    // stdout, never `timedOut`. Triggered for REAL (three attribute bombs
+    // exhaust EXTRACTION_HEAP_MB) rather than simulated with a seam, because
+    // the branch only matters if the real mechanism reaches it — measured, it
+    // takes ~28 s and used to answer "Не удалось прочитать файл резюме".
+    const killed = await service
+      .extract(buildAttributeBombDocx(120_000, 3), RESUME_DOCX_MIME)
+      .then(() => 'resolved')
+      .catch((e: unknown) => (e as Error).message)
+    expect(killed).toMatch(/слишком сложный/)
+
+    // The message must not depend on the test seam: a 50 ms budget once
+    // produced "не уложился в 0.05 с", which is true and useless to a user.
+    await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.not.toThrow(
+      /0\.05|50 с/,
+    )
+  }, 180_000)
+
+  /**
+   * THE PRODUCT DEFECT A TAG BUDGET WOULD HAVE SHIPPED.
+   *
+   * Per-character formatting — every character in its own run with its own
+   * run-properties — is what a PDF-to-Word conversion routinely produces. It
+   * measures 9 616 tags per page, so a 120 000-tag budget refused a twelve-page
+   * CV. This is the regression guard: real documents of awkward shape are
+   * accepted, and the only thing that may refuse a document is its SIZE.
+   */
+  it('accepts a per-character-formatted CV, whatever its tag count', async () => {
+    const converted = buildPerCharacterFormattedDocx(20)
+    const info = await inspectDocxZip(converted)
+
+    // It really is the awkward shape, not a token fixture.
+    expect(info.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES)
+    const text = await service.extract(converted, RESUME_DOCX_MIME)
+    expect(text.length).toBeGreaterThan(1_000)
+  }, 180_000)
 
   /**
    * WHAT THIS TEST DELIBERATELY NO LONGER CLAIMS, and the finding behind it.
@@ -649,13 +635,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * the event loop.
    */
   it('kills a paragraph-dense document rather than letting it run for ever', async () => {
-    // The document is now the densest one the budgets PERMIT, not one they
-    // refuse. The old fixture (60 000 paragraphs) is rejected by
-    // MAX_DOCX_XML_TAGS from metadata in about a millisecond, which is a better
-    // outcome — but it meant this test stopped exercising the deadline at all
-    // and passed for the wrong reason. The deadline is the backstop for what
-    // gets THROUGH the budgets, so that is what has to be thrown at it.
-    const pathological = buildTagCountDocx(MAX_DOCX_XML_TAGS - 6_000)
+    const pathological = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
     const impatient = new ResumeTextExtractionService()
 
     // 50 ms stands in for "whatever the deadline is, it ends". Shorter than
@@ -667,7 +647,7 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     const started = Date.now()
     await expect(
       impatient.extract(pathological, RESUME_DOCX_MIME, { timeoutMs: 50 }),
-    ).rejects.toThrow(/не уложился/)
+    ).rejects.toThrow(/слишком сложный/)
     expect(Date.now() - started).toBeLessThan(20_000)
   }, 60_000)
 
@@ -716,53 +696,6 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     expect(`--max-old-space-size=${EXTRACTION_HEAP_MB}`).toMatch(/^--max-old-space-size=\d+$/)
   })
 
-  /**
-   * THE TWO WAYS EVERY PREVIOUS BUDGET IN THIS FILE WAS WALKED AROUND, asked of
-   * the new one before someone else asks.
-   *
-   * The parse-byte budget was bypassed three times, and each bypass was the
-   * same move: find the code path the accounting does not run on. So the tag
-   * budget is asked the same two questions up front — does it hold when the
-   * part is STORED rather than deflated (a different branch of `measureEntry`,
-   * and historically the untested one), and does it hold when the work is SPLIT
-   * across parts (`mammoth` parses document.xml, styles.xml and numbering.xml,
-   * so a per-part budget would charge a fraction of what the parser pays).
-   *
-   * Both carry their own non-vacuity: the half that should pass is asserted to
-   * pass, so neither test can go green by refusing everything.
-   */
-  it('counts tags in a STORED part too — not deflating is not a bypass', async () => {
-    // `buildDocx` stores its entries uncompressed, so this goes through
-    // `measureEntry`'s STORED branch and never touches `inflateAndClassify`.
-    const stored = buildDocx(Array.from({ length: 25_000 }, (_, i) => `p${i}`))
-    const info = await inspectDocxZip(buildDocx(['короткое резюме']))
-    // Non-vacuity: a small stored document is still accepted and still counted.
-    expect(info.actualXmlTags).toBeGreaterThan(0)
-
-    expect(stored.length).toBeLessThan(MAX_DOCX_PARSED_BYTES) // under the byte cap
-    await expect(inspectDocxZip(stored)).rejects.toThrow(/XML-элементов/)
-  })
-
-  it('shares the tag budget across parts, so splitting a bomb in two buys nothing', async () => {
-    const body = (tags: number) => '<w:p/>'.repeat(tags)
-    const wrap = (inner: string) =>
-      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${inner}</w:body></w:document>`
-    const parts = (tagsEach: number) => [
-      { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES_FIXTURE, 'utf8') },
-      { name: '_rels/.rels', data: Buffer.from(RELS_FIXTURE, 'utf8') },
-      { name: 'word/document.xml', data: Buffer.from(wrap(body(tagsEach)), 'utf8'), deflate: true },
-      { name: 'word/styles.xml', data: Buffer.from(wrap(body(tagsEach)), 'utf8'), deflate: true },
-    ]
-
-    // Non-vacuity: each half on its own is comfortably inside the budget, so
-    // the refusal below can only come from the two being added together.
-    const half = Math.floor(MAX_DOCX_XML_TAGS * 0.7)
-    const onlyOne = buildZip(parts(half).filter((p) => p.name !== 'word/styles.xml'))
-    await expect(inspectDocxZip(onlyOne)).resolves.toBeTruthy()
-
-    await expect(inspectDocxZip(buildZip(parts(half)))).rejects.toThrow(/XML-элементов/)
-  })
-
   it('pins MAX_PDF_CONTENT_BYTES — raising it also raises a main-thread stall', () => {
     expect(MAX_PDF_CONTENT_BYTES).toBeLessThanOrEqual(32 * 1024 * 1024)
     // If you are here because you raised it: the scan cost grows linearly with
@@ -802,21 +735,13 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
   )
 
   it('refuses a document whose parsable parts exceed the budget', async () => {
-    const dense = buildDocxDeflated(buildByteDenseParagraphs(6 * 1024 * 1024))
+    const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
     await expect(inspectDocxZip(dense)).rejects.toThrow(/Содержимое DOCX больше/)
   })
 
   it('names the cap that was hit, so the advice is actionable', async () => {
-    // Each cap names ITSELF, which is the whole point of having two of them:
-    // "shrink the images" and "this document is too intricate to parse" are
-    // different pieces of advice and the wrong one wastes the user's time.
-    const overBytes = buildDocxDeflated(buildByteDenseParagraphs(6 * 1024 * 1024))
-    await expect(inspectDocxZip(overBytes)).rejects.toThrow(/Содержимое DOCX больше 4 MB/)
-
-    const overTags = buildTagCountDocx(MAX_DOCX_XML_TAGS * 2)
-    await expect(inspectDocxZip(overTags)).rejects.toThrow(
-      new RegExp(`Внутри DOCX больше ${MAX_DOCX_XML_TAGS} XML-элементов`),
-    )
+    const dense = buildDocxDeflated(Array.from({ length: 200_000 }, (_, i) => `p${i}`))
+    await expect(inspectDocxZip(dense)).rejects.toThrow(/Содержимое DOCX больше 4 MB/)
   })
 
   /**
@@ -936,14 +861,10 @@ describe('ResumeTextExtractionService.extract', () => {
    * Recorded from the opt-in run: reference ~306 ms, worst permitted ~1 076 ms.
    */
   it('accepts the densest permitted document and refuses the next step up', async () => {
-    // DERIVED FROM THE CONSTANT, not from a paragraph count that once equalled
-    // it. "Densest permitted" is now a tag count, and a fixture pinned to 60 000
-    // paragraphs would silently stop testing the boundary the moment the cap
-    // moved — which is exactly what happened when the boundary was bytes.
-    const atTheCap = buildTagCountDocx(MAX_DOCX_XML_TAGS - 6_000)
+    const atTheCap = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
     await expect(service.extract(atTheCap, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
 
-    const overTheCap = buildTagCountDocx(MAX_DOCX_XML_TAGS + 6_000)
+    const overTheCap = buildDocxDeflated(Array.from({ length: 80_000 }, (_, i) => `p${i}`))
     await expect(service.extract(overTheCap, RESUME_DOCX_MIME)).rejects.toBeInstanceOf(
       ResumeFileUnreadableError,
     )
@@ -962,7 +883,7 @@ describe('ResumeTextExtractionService.extract', () => {
    * the corpus and the per-page figures).
    */
   it('AC5: a 40-page CV at real Word density passes, and the bypass bomb does not', async () => {
-    // --- measurement 1: the honest document, in BYTES ----------------------
+    // --- measurement 1: the honest document -------------------------------
     const academicCv = buildWordDensityDocx(40)
     const cv = await inspectDocxZip(academicCv)
 
@@ -971,21 +892,6 @@ describe('ResumeTextExtractionService.extract', () => {
     // ...and it fits, with the cap left meaningfully above it.
     expect(cv.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES)
     await expect(service.extract(academicCv, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
-
-    // --- measurement 1b: the honest document, in TAGS ----------------------
-    // THE BYTE-CALIBRATED FIXTURE IS NOT A TAG PROXY, and checking only it
-    // would have let a far-too-low tag cap ship: it carries ~23 000 tags where
-    // 40 pages of real Word carry ~87 000. A budget is only tested by a fixture
-    // calibrated in the budget's own unit, which is the entire lesson of the
-    // byte cap that preceded this one.
-    const denseCv = buildWordTagDensityDocx(40)
-    const dense = await inspectDocxZip(denseCv)
-
-    expect(dense.actualXmlTags).toBeGreaterThan(80_000)
-    expect(dense.actualXmlTags).toBeLessThan(MAX_DOCX_XML_TAGS)
-    // Both budgets, on the same document — neither may refuse it.
-    expect(dense.actualParsedBytes).toBeLessThan(MAX_DOCX_PARSED_BYTES)
-    await expect(service.extract(denseCv, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
 
     // --- measurement 2: the attack ----------------------------------------
     // The body at a non-.xml path, with a 900-byte decoy at `word/document.xml`.
@@ -999,80 +905,30 @@ describe('ResumeTextExtractionService.extract', () => {
   }, 300_000)
 
   /**
-   * Opt-in RE-DERIVATION of the two reference costs: `RESUME_PERF=1 pnpm
-   * --filter @crm/api test resume-text-extraction`, on a quiet machine.
-   *
-   * THIS IS THE TEST THE CONSTANTS' COMMENTS POINT AT, and it has to exist for
-   * them to be honest — `WORST_PERMITTED_EXTRACTION_MS` says "re-derive it with
-   * RESUME_PERF=1", and a comment naming a procedure that does not exist is the
-   * same defect as a comment naming a deleted test. It prints both measured
-   * figures and fails with them in the message, so the number to record is
-   * handed to whoever moved the cap rather than left to be worked out.
-   *
-   * It replaces an event-loop-stall proportionality check that measured
-   * something no longer worth measuring: the parse moved into a child process,
-   * so the stall it sampled is now ~0 by construction. It was also still built
-   * on the 60 000-paragraph fixture, which the tag cap refuses — so it had
-   * become an opt-in test that could only fail. Opt-in is not a place things
-   * are allowed to rot.
+   * Opt-in performance characterisation: `RESUME_PERF=1 pnpm --filter @crm/api
+   * test resume-text-extraction`. Run it on a quiet machine when changing a
+   * budget; it is not a gate, and it is not allowed to flake one.
    */
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
-    're-derives the reference costs the deadline is judged against',
+    'keeps the worst PERMITTED document proportionate to an ordinary one',
     async () => {
-      const worstPermitted = buildWorstShapeTagDocx(MAX_DOCX_XML_TAGS - 200)
-      const ordinary = buildWordDensityDocx(2)
+      const ordinary = buildDocxDeflated(Array.from({ length: 10_000 }, (_, i) => `p${i}`))
+      const atTheCap = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
 
-      // INTERLEAVED, for the same reason the always-on test is. The first
-      // version of this ran five of one document and then five of the other,
-      // and running the whole directory rather than this file measured
-      // worst=630 ms against ordinary=99 ms — a 6.36x ratio for a pair that
-      // sits at 4.2x. Nothing had regressed: the long document simply spends
-      // more wall clock exposed to the other spec files, so a load spike lands
-      // on one side of the pair. Sampling A-then-B reintroduces exactly the
-      // confound this whole change is about.
-      const worstRuns: number[] = []
-      const ordinaryRuns: number[] = []
-      for (let i = 0; i < 5; i += 1) {
-        let started = Date.now()
-        await service.extract(worstPermitted, RESUME_DOCX_MIME)
-        worstRuns.push(Date.now() - started)
-
-        started = Date.now()
-        await service.extract(ordinary, RESUME_DOCX_MIME)
-        ordinaryRuns.push(Date.now() - started)
+      const sample = async (doc: Buffer): Promise<number> => {
+        const meter = startLagMeter()
+        await service.extract(doc, RESUME_DOCX_MIME)
+        return meter.stop().worstStall
       }
-      // MINIMUM, not median: contention only ever adds time, so the smallest
-      // sample is the closest this machine got to the document's own cost.
-      const worst = Math.min(...worstRuns)
-      const ord = Math.max(1, Math.min(...ordinaryRuns))
-      const recordedHeadroom =
-        EXTRACTION_TIMEOUT_MS / (WORST_PERMITTED_EXTRACTION_MS * SLOW_MACHINE_FACTOR)
+      const referenceRuns: number[] = []
+      const worstRuns: number[] = []
+      for (let run = 0; run < 3; run += 1) {
+        referenceRuns.push(await sample(ordinary))
+        worstRuns.push(await sample(atTheCap))
+      }
+      const median = (runs: number[]): number => runs.sort((a, b) => a - b)[1] as number
 
-      process.stdout.write(
-        `\n[RESUME_PERF] RECORD THESE if the tag cap moved:\n` +
-          `[RESUME_PERF]   WORST_PERMITTED_EXTRACTION_MS: measured ${worst}, recorded ${WORST_PERMITTED_EXTRACTION_MS}\n` +
-          `[RESUME_PERF]   ORDINARY_EXTRACTION_MS:        measured ${ord}, recorded ${ORDINARY_EXTRACTION_MS}\n` +
-          `[RESUME_PERF] worst/ordinary ${(worst / ord).toFixed(2)}x` +
-          ` (bound ${((WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS) * RATIO_SLACK).toFixed(2)}x)\n` +
-          `[RESUME_PERF] deadline headroom at ${SLOW_MACHINE_FACTOR}x, from the RECORDED cost:` +
-          ` ${recordedHeadroom.toFixed(2)}x (must exceed 2)\n` +
-          `[RESUME_PERF] the two absolutes above are only meaningful on a quiet machine;` +
-          ` the ratio and the headroom are not.\n`,
-      )
-
-      // WHAT IS ASSERTED HERE IS ONLY WHAT A BUSY MACHINE CANNOT MOVE.
-      //
-      // The measured absolutes are printed, not asserted: they are the output
-      // of this job, and a machine that is merely busy would otherwise fail it
-      // with a message blaming the constants — which is the same "the
-      // instrument measured the machine" mistake, one level up. Whoever moves
-      // the cap reads the numbers above and records them.
-      expect(worst / ord).toBeLessThan(
-        (WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS) * RATIO_SLACK,
-      )
-      expect(recordedHeadroom).toBeGreaterThan(2)
-      // Non-vacuity: five runs of each really happened and really differed.
-      expect(worst).toBeGreaterThan(ord)
+      expect(median(worstRuns) / median(referenceRuns)).toBeLessThan(6)
     },
     300_000,
   )

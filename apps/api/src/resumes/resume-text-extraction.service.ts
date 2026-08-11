@@ -15,27 +15,45 @@
  * Both were verified to load and extract under `require()` in this repo's
  * Node 20 CJS setup before being committed.
  *
- * Bounds (a resume upload must not be a DoS vector). Each measures a DIFFERENT
- * thing, and the file that hurt us measured small on all the others — which is
- * the whole lesson here, so they are listed by what they actually bound:
+ * ==========================================================================
+ * WHAT BOUNDS WHAT — THE SANDBOX BOUNDS COST, THE BUDGETS BOUND SIZE
+ * ==========================================================================
+ * This list used to promise that some budget bounded parser work. None does,
+ * and each attempt to name one cost a round of tuning the deadline:
  *
- *   - `MAX_DOCX_XML_TAGS` bounds PARSER WORK, and is the one that matters.
- *     Parse cost tracks the number of XML nodes, so this is the only budget
- *     that can see it: at a fixed 3.67 MB, going from 500 nodes to 60 000 moved
- *     the parse from 21 ms to 455 ms, while 6.2x the BYTES at a fixed node
- *     count moved it 27 ms to 37 ms. A 165 KB file of a million tiny paragraphs
- *     passed the byte, type and page gates and stalled the event loop for
- *     33 336 ms continuously.
- *   - `MAX_DOCX_PARSED_BYTES` bounds the bytes those parts may occupy. Still
- *     necessary — it is what keeps memory and the tag scan itself bounded — but
- *     NOT sufficient for cost, which is the correction this round makes: a byte
- *     budget admits documents whose parse cost it cannot see.
- *   - `MAX_DOCX_UNCOMPRESSED_BYTES` bounds MEMORY (real size, not declared).
- *   - `MAX_PDF_PAGES` bounds pages for the PDF branch.
- *   - `capExtractedText` bounds CHARACTERS carried downstream, applied before
- *     normalisation. Necessary but NOT sufficient on its own: it runs after the
- *     parser, so it cannot help with parser cost — the mistake this file made
- *     in the previous round.
+ *   budget keyed on BYTES        missed node count  (same bytes, 21x cost)
+ *   budget keyed on NODE COUNT   missed attributes  (15 tags, 18 310 ms)
+ *
+ * Measured, both inside every byte budget here: 4.18 MB of `<w:p/>` is
+ * 695 731 tags and 1 609 ms, while 1.33 MB carrying 120 000 attributes on ONE
+ * element is 15 tags and 18 310 ms — because `@xmldom/xmldom` rescans an
+ * element's attributes as each is added, so cost is quadratic in attributes,
+ * and attributes contain no `<` for any tag counter to see.
+ *
+ * A parser with several superlinear paths always has one more dimension than
+ * whatever scalar is chosen to bound it. That is the same lesson the part
+ * classifier learned (extension -> any-extension -> magic bytes, see
+ * `MEDIA_SIGNATURES`) and it has the same answer: isolation closes the class.
+ *
+ *   - THE SANDBOX IS THE GUARANTEE. `runSandboxed` gives the parse a wall-clock
+ *     deadline, a CPU rlimit, a heap ceiling, niceness 19 and a concurrency
+ *     limit of two. It does not care WHICH dimension made a document
+ *     expensive, which is exactly why it holds where a predicate cannot.
+ *     Measured: the 18 310 ms attribute bomb costs the API event loop 12 ms.
+ *   - THE BUDGETS ARE A CHEAP, HONEST "NO". They bound SIZE and MEMORY, and
+ *     they let an obviously hopeless upload be refused from metadata in about
+ *     a millisecond with a message a person can act on — instead of occupying
+ *     an extraction slot for a minute to arrive at "timed out". That is worth
+ *     having. It is not a cost guarantee and must not be described as one.
+ *
+ * By that division:
+ *   - `MAX_DOCX_PARSED_BYTES` / `MAX_DOCX_UNCOMPRESSED_BYTES` — size and real
+ *     (not declared) expansion of the archive.
+ *   - `MAX_PDF_PAGES` / `MAX_PDF_CONTENT_BYTES` — the PDF branch's size bounds.
+ *     `MAX_PDF_TEXT_OPERATORS` is the one guard here that does track its
+ *     parser's cost, because pdf.js executes operators and they are countable;
+ *     it is not a counter-example, it is a different parser.
+ *   - `capExtractedText` bounds CHARACTERS carried downstream, after the parse.
  *   - `MAX_CONCURRENT_EXTRACTIONS` bounds simultaneous peak memory (only).
  */
 import { Injectable, Logger } from '@nestjs/common'
@@ -57,105 +75,51 @@ import {
  * Wall-clock deadline for one extraction, enforced with SIGKILL.
  *
  * ==========================================================================
- * IT MUST EXCEED THE COST OF THE WORST DOCUMENT THE BUDGETS PERMIT
+ * THIS IS THE COST BOUND. THE ACCEPTANCE BUDGETS ARE NOT.
  * ==========================================================================
- * That relationship is the point, and it is the thing nobody had checked: one
- * bound says what we ACCEPT, the other how long we allow it to TAKE, and they
- * had never been compared.
+ * Three rounds were spent tuning this number against "the worst document the
+ * budgets permit", on the assumption that such a worst case was bounded. It
+ * is not. Measured on the real pipeline, both well inside every byte budget:
  *
- * ==========================================================================
- * AND THE FIRST THREE ATTEMPTS COMPARED THEM IN THE WRONG UNIT
- * ==========================================================================
- * Each earlier round moved THIS number, because the acceptance budget counted
- * BYTES while the cost is paid per XML NODE — so "the worst document the
- * budgets permit" had no bounded cost at all, and no deadline could be right.
- * The byte cap alone admits ~699 000 tags (4 MB of `<w:p/>`), which measures
- * ~1 428 ms on the reference machine and ~86 s on the slowest machine
- * observed: over this deadline. We were accepting documents we could not
- * finish and telling the user their file was unreadable.
+ *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
+ *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
+ *   the same attribute shape x3                         killed at ~28 s
  *
- * `MAX_DOCX_XML_TAGS` is that missing bound. With it, the worst PERMITTED
- * document costs `WORST_PERMITTED_EXTRACTION_MS` (420 ms recorded, 371 ms
- * measured on re-derivation) — so at `SLOW_MACHINE_FACTOR` the deadline has
- * 2.4x headroom against the recorded figure, 2.7x against the measured one.
+ * Attribute handling in `@xmldom/xmldom` is quadratic per element and carries
+ * no `<`, so neither a byte cap nor a tag cap can see it — and there is no
+ * reason to believe attributes are the last such dimension. So the deadline
+ * does not derive from an acceptance budget; it IS the bound, and its job is
+ * to end work of ANY shape.
  *
- * 60 s is therefore no longer a number tuned until CI went green; it is a
- * number the acceptance budget was fitted to. It costs nothing in API
- * responsiveness — extraction is a detached job behind a child process,
- * nothing waits on it — and the failure it prevents is the expensive one:
- * refusing a real CV because the machine was busy.
+ * WHY 60 s, then. It is sized against what a legitimate document needs, with
+ * room for a slow, busy machine — not against a worst case that does not
+ * exist. Real documents measure 3-45 ms of parse here; the largest synthetic
+ * document any budget admits is 1.6 s; and the same document has measured
+ * 182 ms here and 16 804 ms on a loaded CI runner, ~92x, because the worker
+ * runs at niceness 19 and is the first thing starved. 60 s covers a real CV
+ * on a machine two orders of magnitude slower than this one.
+ *
+ * It costs nothing in API responsiveness — extraction is a detached job behind
+ * a child process, nothing waits on it, and the event-loop cost of the
+ * 18 310 ms attribute bomb measured 12 ms. The failure it prevents is the
+ * expensive one: refusing a real CV because the machine was busy.
  *
  * THE TRADE, stated because it is real: at 60 s two slots clear ~2 pathological
  * documents a minute against an intake of 10/minute, so a sustained stream of
  * worst-case uploads can queue, and a queued extraction still holds its buffer.
- * The mitigations are that this is an internal tool behind auth, the byte
- * budgets refuse genuinely abusive documents before the worker is started at
+ * The mitigations are that this is an internal tool behind auth, the size
+ * budgets refuse the cheapest abusive shapes before a worker is started at
  * all, and typical documents finish in well under a second. Making the queue
  * itself bounded is tracked in task-resume-followups.
  *
- * Pinned by "the deadline exceeds the worst document the budgets permit" in the
- * spec, which asserts a RATIO between two documents measured back to back plus
- * arithmetic on the recorded constants — deliberately no absolute wall clock,
- * because that instrument is what failed three times. The same document has
- * measured 180 ms and 1 287 ms on THIS machine inside one minute depending on
- * what else was running, and 16 804 ms on a CI runner.
+ * Pinned by "an expensive document no budget can see is contained by the
+ * sandbox" in the spec, which uses the attribute bomb — the shape that defeats
+ * every acceptance budget — and asserts the two things that actually matter:
+ * the event loop stays free, and the work is ended with a message a person can
+ * act on. Deliberately no absolute wall-clock ceiling: that instrument moved
+ * 180 ms -> 1 287 ms on THIS machine inside one minute.
  */
 export const EXTRACTION_TIMEOUT_MS = 60_000
-
-/**
- * End-to-end cost of the WORST DOCUMENT THE BUDGETS PERMIT, on the reference
- * machine (this development laptop, quiet, median of three).
- *
- * Written down as a constant because the deadline can only be judged against
- * it, and because a number that lives only in a comment cannot be asserted on.
- * "Worst permitted" means a document at `MAX_DOCX_XML_TAGS`, which is the cap
- * that actually bounds parse cost — see that constant for why bytes could not.
- *
- * TO RE-DERIVE IT: `RESUME_PERF=1 pnpm --filter @crm/api test resume-text-extraction`
- * on a quiet machine and read the characterisation output. Re-derive it
- * whenever `MAX_DOCX_XML_TAGS` moves; the always-on test compares this figure
- * against the deadline, so a stale value is a wrong gate, not a stale comment.
- *
- * MEASURED AT THE WORST SHAPE, not the convenient one: a run of `<w:p/>` costs
- * ~1.85 us per tag against ~1.43 for ordinary paragraphs, so the same cap buys
- * a more expensive document in that form. At 119 814 tags, min of three:
- *
- *   self-closed tags  409 ms      ordinary paragraphs  331 ms
- *
- * 420 rounds the worse of the two up. Measured breakdown: 77 ms of fixed
- * overhead (spawn, node boot, mammoth import) and the rest per tag.
- */
-export const WORST_PERMITTED_EXTRACTION_MS = 420
-
-/**
- * End-to-end cost of an ORDINARY resume (a two-page CV at real Word density)
- * on the same reference machine, min of three: 95, 96, 97 ms.
- *
- * Its only job is to be the DENOMINATOR. A test can measure this document on
- * whatever machine it is running on, divide, and recover how much slower that
- * machine is — which turns the absolute figure above into something a test can
- * check without owning a clock it can trust. Re-derive both together or not at
- * all; a stale pair is worse than none because the ratio between them is what
- * is actually asserted.
- */
-export const ORDINARY_EXTRACTION_MS = 96
-
-/**
- * How much slower than the reference machine the slowest machine we have
- * actually observed is.
- *
- * NOT A GUESS AND NOT A SAFETY FACTOR — a recorded observation. The same
- * document has measured 0.65 s here and 38.5 s on a loaded CI runner; a
- * 23 000-tag document measured 182 ms here and 16 804 ms there. Most of that
- * is contention rather than clock speed (the worker runs at niceness 19, so it
- * is the first thing starved), and production is a modest VPS that also serves
- * the API — closer to the runner than to this laptop.
- *
- * Every previous round of this bug came from calibrating on the laptop figure
- * alone and discovering the other machine afterwards, so the factor is now
- * explicit and asserted on rather than remembered.
- */
-export const SLOW_MACHINE_FACTOR = 60
 
 /**
  * Kernel-side CPU backstop (`ulimit -t`) for a starved JS timer.
@@ -192,9 +156,11 @@ export const EXTRACTION_HEAP_MB = 768
  * BE PRECISE ABOUT WHAT THIS DOES AND DOES NOT BUY, because the first version
  * of this constant was untestable and therefore worthless:
  *
- *   - it does NOT reduce main-thread work. Serialising CPU-bound parses moves
- *     the same milliseconds around; the bound that actually cut them is
- *     `MAX_DOCX_XML_BYTES` (33 336 ms -> 363 ms worst continuous stall).
+ *   - it does NOT reduce main-thread work, and it never did. This used to
+ *     credit `MAX_DOCX_XML_BYTES`, a constant that does not exist under that
+ *     name or any other — the thing that actually took the parse off this
+ *     thread is the child process, which cut the worst continuous stall from
+ *     33 336 ms to 12 ms even for a document no budget can measure.
  *   - it DOES bound peak MEMORY. Each in-flight extraction can hold up to
  *     `MAX_DOCX_UNCOMPRESSED_BYTES` of inflated parts plus the parser's own
  *     structures, and the upload endpoint admits ten requests a minute. Two at
@@ -206,6 +172,24 @@ export const EXTRACTION_HEAP_MB = 768
  * concurrency test fails.
  */
 export const MAX_CONCURRENT_EXTRACTIONS = 2
+
+/**
+ * What the user is told when the SANDBOX ended the work, by whichever of its
+ * mechanisms got there first.
+ *
+ * One string for all of them on purpose. From the person's side the deadline,
+ * the CPU rlimit and the heap ceiling are the same event — "we gave up on this
+ * document" — and it is not their business which of our limits fired. What
+ * they need is that it is about complexity rather than corruption, and that
+ * there is a way forward, which is why the paste-the-text route is in the
+ * sentence. The specific limit goes to the log, where it can be acted on.
+ *
+ * Deliberately does NOT name a number of seconds: that made the message a
+ * function of a test seam (`timeoutMs`), so a spec exercising the path with a
+ * 300 ms budget produced "не уложился в 0.3 с" — true, and nonsense to a user.
+ */
+const TOO_COMPLEX_MESSAGE =
+  'Документ слишком сложный для автоматической обработки. Вставьте текст резюме вручную.'
 
 /** Thrown for every "we cannot read this file" case — mapped to UNREADABLE_FILE. */
 export class ResumeFileUnreadableError extends Error {
@@ -362,11 +346,27 @@ export class ResumeTextExtractionService {
       })
 
       if (result.timedOut) {
-        throw new ResumeFileUnreadableError(
-          `Разбор файла не уложился в ${timeoutMs / 1000} с — вероятно, документ слишком сложный. Вставьте текст резюме вручную.`,
-        )
+        throw new ResumeFileUnreadableError(TOO_COMPLEX_MESSAGE)
       }
-      if (result.code !== 0 || result.stdout === '') {
+      // EVERY WAY THE SANDBOX ENDS WORK MUST SAY THE SAME HUMAN THING.
+      //
+      // The deadline is only one of them: the CPU rlimit (`ulimit -t`) and the
+      // V8 heap ceiling also kill the worker, and they arrive here as a signal
+      // exit with empty stdout, not as `timedOut`. That path used to answer
+      // "Не удалось прочитать файл резюме" — blaming the user's document for
+      // hitting OUR limit, after making them wait ~28 s for it. Measured: the
+      // three-element attribute bomb takes exactly this path.
+      //
+      // A SIGNAL exit (`code === null`) means something killed it, which is the
+      // sandbox doing its job. A non-zero EXIT CODE means the worker itself
+      // refused the file, which really is about the file.
+      if (result.code === null || result.stdout === '') {
+        this.logger.warn(
+          `Extraction worker killed (code ${String(result.code)}): ${result.stderr.slice(0, 500)}`,
+        )
+        throw new ResumeFileUnreadableError(TOO_COMPLEX_MESSAGE)
+      }
+      if (result.code !== 0) {
         this.logger.warn(
           `Extraction worker exited ${String(result.code)}: ${result.stderr.slice(0, 500)}`,
         )
@@ -399,6 +399,13 @@ export class ResumeTextExtractionService {
    * hidden behind a media signature, it does that in a process with a deadline,
    * a memory ceiling and niceness 19 — where it costs a failed upload rather
    * than an unavailable API.
+   *
+   * SAID PLAINLY, SO NO BUDGET COMMENT CAN BE READ AS DENYING IT: a part whose
+   * first bytes look like media is charged to NO budget here. Eight bytes of
+   * PNG header in front of a document body makes 14 MB of attribute bomb count
+   * as 635 bytes and 9 tags. That is not a hole to be patched with a better
+   * signature list — the previous three attempts were exactly that — it is the
+   * reason the guarantee lives in the sandbox and not in the accounting.
    */
   private async extractFromDocx(buffer: Buffer, timeoutMs?: number): Promise<string> {
     try {

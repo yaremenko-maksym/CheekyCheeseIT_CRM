@@ -337,19 +337,19 @@ describe('AC3 — API responsiveness during a resume render', () => {
    */
   it('keeps the API answering during extraction — and would not if the parse moved back in-process', async () => {
     const { ResumeTextExtractionService } = await import('./resume-text-extraction.service')
-    const { buildTagCountDocx } = await import('../test/resume-fixtures')
-    const { MAX_DOCX_XML_TAGS } = await import('./resume-source.util')
+    const { buildAttributeBombDocx } = await import('../test/resume-fixtures')
     const { RESUME_DOCX_MIME } = await import('@crm/shared')
 
-    // The densest document the budgets PERMIT — a real parse mammoth actually
-    // performs, rather than one it rejects early (a media-prefixed body fails
-    // fast, so it measured the rejection, not the work).
+    // THE SHAPE NO ACCEPTANCE BUDGET CAN SEE: 60 000 attributes on one element
+    // — 15 tags, 650 KB, ~3.4 s of parse, because xmldom's attribute handling
+    // is quadratic per element.
     //
-    // Derived from MAX_DOCX_XML_TAGS since that is now the binding budget. The
-    // old fixture (60 000 paragraphs) is refused from metadata today, so it
-    // would have measured the rejection rather than the parse — the exact
-    // mistake this comment already warns about, one budget later.
-    const attack = buildTagCountDocx(MAX_DOCX_XML_TAGS - 6_000)
+    // It replaces a 60 000-paragraph document, and the swap is the point. That
+    // one was expensive in a dimension a budget CAN measure, so this test could
+    // be read as "isolation is a second line behind the budgets". It is not:
+    // this fixture is small, sparse in tags, and passes every budget we have,
+    // so isolation is the ONLY thing standing between it and the event loop.
+    const attack = buildAttributeBombDocx(60_000)
 
     const service = new ResumeTextExtractionService()
     const sandboxed = await measureWhile(() =>
@@ -364,17 +364,9 @@ describe('AC3 — API responsiveness during a resume render', () => {
     })
 
     // Non-vacuity: both really parsed, and the sandboxed run really was sampled.
-    // This only has to be a REAL WINDOW, not the render-sized one.
-    //
-    // The floor moved 300 -> 100 with MAX_DOCX_XML_TAGS, and it had to: it was
-    // derived from the old permitted maximum (360 000 tags), the tag cap makes
-    // the worst permitted document three times smaller, and it now parses in
-    // ~237 ms in-process here. A floor left at 300 would not be strict, it
-    // would be WRONG — asserting a document bigger than the budgets allow.
-    // 100 ms still separates a real parse (~237 ms) from the thing this floor
-    // exists to catch, an early rejection that never parses at all (~1-5 ms).
-    expect(sandboxed.renderMs).toBeGreaterThan(100)
-    expect(inProcess.renderMs).toBeGreaterThan(100)
+    // Local floor: this only has to be a real window, not the render-sized one.
+    expect(sandboxed.renderMs).toBeGreaterThan(300)
+    expect(inProcess.renderMs).toBeGreaterThan(300)
     expect(sandboxed.samples.length).toBeGreaterThan(MIN_SAMPLES)
 
     // The guarantee: parsing off-thread is dramatically kinder to the API than
