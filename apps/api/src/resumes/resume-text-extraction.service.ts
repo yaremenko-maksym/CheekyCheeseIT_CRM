@@ -95,6 +95,42 @@ import {
 export const EXTRACTION_TIMEOUT_MS = 60_000
 
 /**
+ * End-to-end cost of the WORST DOCUMENT THE BUDGETS PERMIT, on the reference
+ * machine (this development laptop, quiet, median of three).
+ *
+ * Written down as a constant because the deadline can only be judged against
+ * it, and because a number that lives only in a comment cannot be asserted on.
+ * "Worst permitted" means a document at `MAX_DOCX_XML_TAGS`, which is the cap
+ * that actually bounds parse cost — see that constant for why bytes could not.
+ *
+ * TO RE-DERIVE IT: `RESUME_PERF=1 pnpm --filter @crm/api test resume-text-extraction`
+ * on a quiet machine and read the characterisation output. Re-derive it
+ * whenever `MAX_DOCX_XML_TAGS` moves; the always-on test compares this figure
+ * against the deadline, so a stale value is a wrong gate, not a stale comment.
+ *
+ * Measured breakdown: 77 ms of fixed overhead (spawn, node boot, mammoth
+ * import) plus ~3.4 us per XML tag.
+ */
+export const WORST_PERMITTED_EXTRACTION_MS = 490
+
+/**
+ * How much slower than the reference machine the slowest machine we have
+ * actually observed is.
+ *
+ * NOT A GUESS AND NOT A SAFETY FACTOR — a recorded observation. The same
+ * document has measured 0.65 s here and 38.5 s on a loaded CI runner; a
+ * 23 000-tag document measured 182 ms here and 16 804 ms there. Most of that
+ * is contention rather than clock speed (the worker runs at niceness 19, so it
+ * is the first thing starved), and production is a modest VPS that also serves
+ * the API — closer to the runner than to this laptop.
+ *
+ * Every previous round of this bug came from calibrating on the laptop figure
+ * alone and discovering the other machine afterwards, so the factor is now
+ * explicit and asserted on rather than remembered.
+ */
+export const SLOW_MACHINE_FACTOR = 60
+
+/**
  * Kernel-side CPU backstop (`ulimit -t`) for a starved JS timer.
  *
  * Deliberately above the wall clock: it is a backstop for a timer that never

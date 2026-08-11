@@ -337,13 +337,19 @@ describe('AC3 — API responsiveness during a resume render', () => {
    */
   it('keeps the API answering during extraction — and would not if the parse moved back in-process', async () => {
     const { ResumeTextExtractionService } = await import('./resume-text-extraction.service')
-    const { buildDocxDeflated } = await import('../test/resume-fixtures')
+    const { buildTagCountDocx } = await import('../test/resume-fixtures')
+    const { MAX_DOCX_XML_TAGS } = await import('./resume-source.util')
     const { RESUME_DOCX_MIME } = await import('@crm/shared')
 
     // The densest document the budgets PERMIT — a real parse mammoth actually
     // performs, rather than one it rejects early (a media-prefixed body fails
     // fast, so it measured the rejection, not the work).
-    const attack = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+    //
+    // Derived from MAX_DOCX_XML_TAGS since that is now the binding budget. The
+    // old fixture (60 000 paragraphs) is refused from metadata today, so it
+    // would have measured the rejection rather than the parse — the exact
+    // mistake this comment already warns about, one budget later.
+    const attack = buildTagCountDocx(MAX_DOCX_XML_TAGS - 6_000)
 
     const service = new ResumeTextExtractionService()
     const sandboxed = await measureWhile(() =>
