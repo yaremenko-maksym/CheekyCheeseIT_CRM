@@ -3,11 +3,13 @@ import { toast } from 'sonner'
 import {
   jobExclusionListSchema,
   jobExclusionSchema,
+  jobSourceListSchema,
   jobSuggestionListSchema,
   jobSuggestionSchema,
   type CreateJobExclusionDto,
   type JobExclusionDto,
   type JobExclusionListDto,
+  type JobSourceListDto,
   type JobSuggestionDto,
   type JobSuggestionListDto,
   type JobSuggestionStatus,
@@ -46,6 +48,29 @@ export function useJobSuggestions(seniorId: string | undefined, enabled = true) 
     },
     enabled,
     staleTime: 30_000,
+  })
+}
+
+export const jobSourcesQueryKey = ['job-sourcing', 'sources'] as const
+
+/**
+ * Configured sources + their remaining request budget (task-vacancy-matching
+ * AC7). ADMIN-only server-side; `enabled` lets the caller avoid a guaranteed
+ * 403 for everyone else.
+ *
+ * `staleTime: 0` on purpose: the whole point of this query is to show how much
+ * allowance is LEFT, and a cached remainder shown after a collection run is a
+ * wrong number presented as a fact.
+ */
+export function useJobSources(enabled = true) {
+  return useQuery<JobSourceListDto>({
+    queryKey: jobSourcesQueryKey,
+    queryFn: async () => {
+      const res = await api.get<unknown>('/job-sourcing/sources')
+      return jobSourceListSchema.parse(res.data)
+    },
+    enabled,
+    staleTime: 0,
   })
 }
 

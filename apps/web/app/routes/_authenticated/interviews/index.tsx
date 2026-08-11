@@ -514,6 +514,7 @@ function InterviewsPage() {
           onClose={() => setJobSourcingOpen(false)}
           seniorId={isSenior ? undefined : effectiveSeniorId}
           canManageGlobal={isAdmin || isHR}
+          canViewBudgets={isAdmin}
         />
       )}
 
