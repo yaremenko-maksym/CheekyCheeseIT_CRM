@@ -168,6 +168,45 @@ cat >"$WS/jooble-bare-array.json" <<'EOF'
 [{"title":"Backend Developer","company":"Quantum Analytics"}]
 EOF
 
+# ── depth-walk fixtures (task-fix-credential-check-shape-depth, 2026-08-11)
+# ────────────────────────────────────────────────────────────────────────────
+# PR #512's shape_hint() only looked ONE level deep, and that shipped, ran for
+# real, and reported exactly this against RapidAPI's actual /search-v2 body:
+# `top-level fields: status, request_id, parameters, data; no top-level array
+# field` — true (there is no field that IS an array at the top level) and
+# still not the answer, because 'data' EXISTS as a top-level field and is an
+# OBJECT with the real jobs array one level further inside it. This fixture is
+# a synthetic reconstruction of exactly that shape (the real field name inside
+# 'data' is unknown until this fix's own report says so — this fixture
+# deliberately calls it 'jobs' as a plausible, unverified guess, which is the
+# whole point: the guard must not need that guess to be right).
+cat >"$WS/rapidapi-nested-level2.json" <<'EOF'
+{"status":"OK","request_id":"nested-l2","parameters":{"query":"developer"},"data":{"jobs":[{"job_title":"Cloud Engineer","company_name":"Helios Systems"}]}}
+EOF
+
+# Same idea, one level deeper still — proves the walk reaches MAX_SHAPE_DEPTH
+# (3 dotted segments: data.meta.listings), not just one level past the top.
+cat >"$WS/rapidapi-nested-level3.json" <<'EOF'
+{"status":"OK","request_id":"nested-l3","parameters":{"query":"developer"},"data":{"meta":{"listings":[{"role":"Data Analyst","org_name":"Vertex Labs"}]}}}
+EOF
+
+# No array anywhere, at any depth the walk is willing to reach — the report
+# must say so plainly rather than silently stopping at the top level again.
+cat >"$WS/rapidapi-nested-none.json" <<'EOF'
+{"status":"OK","request_id":"nested-none","parameters":{"query":"developer","country":"us"},"data":{"meta":{"total":0}}}
+EOF
+
+# The limiter test: a hundred top-level fields, none of them arrays. Proves
+# the field-name list collapses to "… (+N more)" instead of dumping every
+# name (and, transitively, every response this guard ever prints stays one
+# line worth reading in a CI log, not a body dump). Generated, not hand-typed
+# — python3 is already a hard dependency of this guard's own parser.
+python3 -c "
+import json
+data = {f'field_{i:03d}': f'value_{i:03d}' for i in range(1, 101)}
+print(json.dumps(data))
+" >"$WS/rapidapi-hundred-keys.json"
+
 : >"$WS/empty.txt"
 
 # ── curl shim ────────────────────────────────────────────────────────────────
@@ -358,7 +397,7 @@ assert_red "HTTP 200 JSON but missing the documented envelope key -> red" \
 assert_red "Jooble: array renamed to 'vacancies' -> red, reports the real field names" \
   --contains "result:                 FAIL" \
   --contains "top-level fields: totalCount, vacancies" \
-  --contains "first array field is 'vacancies'" \
+  --contains "first array found at 'vacancies'" \
   --contains "job_title, employer" \
   --not-contains "Senior Kotlin Engineer" \
   --not-contains "NordicPay Ltd" \
@@ -367,7 +406,7 @@ assert_red "Jooble: array renamed to 'vacancies' -> red, reports the real field 
 assert_red "Adzuna: array renamed to 'listings' -> red, reports the real field names" \
   --contains "result:                 FAIL" \
   --contains "top-level fields: listings, total" \
-  --contains "first array field is 'listings'" \
+  --contains "first array found at 'listings'" \
   --contains "role, org" \
   --not-contains "Java Developer" \
   --not-contains "Acme Global Systems" \
@@ -376,7 +415,7 @@ assert_red "Adzuna: array renamed to 'listings' -> red, reports the real field n
 assert_red "Careerjet: no 'type' field at all -> red, reports the real field names" \
   --contains "result:                 FAIL" \
   --contains "top-level fields: status, postings" \
-  --contains "first array field is 'postings'" \
+  --contains "first array found at 'postings'" \
   --contains "position, employer_name" \
   --not-contains "PHP Developer" \
   --not-contains "Riverside Tech" \
@@ -388,7 +427,7 @@ assert_red "Careerjet: no 'type' field at all -> red, reports the real field nam
 assert_red "RapidAPI: status=OK but array renamed to 'results' -> red, reports the real field names" \
   --contains "result:                 FAIL" \
   --contains "top-level fields: status, request_id, results" \
-  --contains "first array field is 'results'" \
+  --contains "first array found at 'results'" \
   --contains "job_title, company_name" \
   --not-contains "Data Engineer" \
   --not-contains "BrightWave Analytics" \
@@ -401,6 +440,50 @@ assert_red "top level is not even a JSON object (bare array) -> red, still repor
   --not-contains "Backend Developer" \
   --not-contains "Quantum Analytics" \
   -- run_jooble "dummy-key" "$WS/jooble-bare-array.json" 200
+
+# ── depth walk: the array is not at the top level, and the report must say
+# WHERE it actually is, not just that it isn't where expected
+# (task-fix-credential-check-shape-depth, 2026-08-11) ─────────────────────────
+# PR #512's flat, one-level shape_hint() shipped and immediately hit exactly
+# this against the real RapidAPI response: a top-level 'data' field that
+# EXISTS (so "no top-level array field" was the literal truth) but is an
+# OBJECT, with the real jobs array nested inside IT. Every case below proves
+# the walk finds an array that is NOT at the top level, names the DOTTED PATH
+# to it (not just a bare field name), and still never prints a value.
+assert_red "RapidAPI: jobs array one level inside 'data' -> red, path is 'data.jobs'" \
+  --contains "result:                 FAIL" \
+  --contains "top-level fields: status, request_id, parameters, data" \
+  --contains "first array found at 'data.jobs'" \
+  --contains "job_title, company_name" \
+  --not-contains "Cloud Engineer" \
+  --not-contains "Helios Systems" \
+  -- run_rapidapi "dummy-key" "$WS/rapidapi-nested-level2.json" 200
+
+assert_red "RapidAPI: jobs array two levels inside 'data.meta' -> red, path is 'data.meta.listings'" \
+  --contains "result:                 FAIL" \
+  --contains "first array found at 'data.meta.listings'" \
+  --contains "role, org_name" \
+  --not-contains "Data Analyst" \
+  --not-contains "Vertex Labs" \
+  -- run_rapidapi "dummy-key" "$WS/rapidapi-nested-level3.json" 200
+
+assert_red "RapidAPI: no array anywhere the walk reaches -> red, says so plainly (not silently top-level-only)" \
+  --contains "result:                 FAIL" \
+  --contains "top-level fields: status, request_id, parameters, data" \
+  --contains "no array found within 3 levels" \
+  -- run_rapidapi "dummy-key" "$WS/rapidapi-nested-none.json" 200
+
+# The limiter: a hundred top-level fields, none of them arrays. The report
+# must still be one line worth reading, not a 100-name dump — proves
+# MAX_SHAPE_KEYS actually bites, independent of the char-count REASON
+# truncation the earlier PR already had.
+assert_red "RapidAPI: a hundred-field body -> red, field list collapses to '… (+N more)'" \
+  --contains "result:                 FAIL" \
+  --contains "field_001, field_002" \
+  --contains "… (+88 more)" \
+  --not-contains "field_100" \
+  --not-contains "value_001" \
+  -- run_rapidapi "dummy-key" "$WS/rapidapi-hundred-keys.json" 200
 
 # ── curl itself cannot complete the request (network down, DNS, timeout) ──────
 assert_red "curl transport failure -> red, not silently skipped" \
