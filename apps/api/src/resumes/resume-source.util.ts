@@ -35,8 +35,46 @@ const MAX_ZIP_ENTRIES = 2000
 export const MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
 
 /**
- * Max total uncompressed size of the parts `mammoth` may actually parse — the
- * bound that governs CPU.
+ * Max total uncompressed size of the parts `mammoth` may actually parse.
+ *
+ * ==========================================================================
+ * IT BOUNDS SIZE. IT DOES NOT BOUND PARSE COST — NOTHING HERE DOES.
+ * ==========================================================================
+ * This said "the bound that governs CPU". That was false, and believing it
+ * produced three rounds of tuning the extraction deadline. Measured on the
+ * real pipeline, both comfortably inside this budget:
+ *
+ *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
+ *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
+ *
+ * The expensive one is 3x SMALLER, because `@xmldom/xmldom` rescans an
+ * element's attributes as each new one is added — cost is quadratic in
+ * attributes per element, and attributes contain no `<`, so neither a byte
+ * count nor a tag count can see them. Doubling the attributes multiplied the
+ * measured cost by 3-5x.
+ *
+ * A tag budget was tried here and removed: to admit real documents it had to
+ * sit above ~400 000 tags (per-character formatting, what a PDF-to-Word
+ * conversion produces, runs 9 600 tags a page), and everything between there
+ * and the 695 731 this byte cap already allows costs under two seconds. It
+ * could only ever have produced false rejections — measured against the exact
+ * code it shipped in, a twelve-page converted CV (115 216 tags) was accepted
+ * and a THIRTEEN-page one refused — while the 15-tag document above walked
+ * past it untouched.
+ *
+ * PARSE COST IS BOUNDED BY THE SANDBOX (deadline, CPU rlimit, heap ceiling,
+ * niceness 19, two at a time), which does not care which dimension made a
+ * document expensive. That is the same answer `MEDIA_SIGNATURES` reaches for
+ * the classification problem one paragraph down, and for the same reason:
+ * isolation closes a class, a predicate closes one member of it.
+ *
+ * SO WHAT IS THIS FOR? Two things it genuinely does:
+ *   - MEMORY: the inflated parts are held before the worker starts, and the
+ *     upload endpoint admits ten a minute.
+ *   - A CHEAP, HONEST "NO": an oversized archive is refused from metadata in
+ *     about a millisecond, with a message a person can act on, instead of
+ *     occupying an extraction slot for a minute to arrive at "timed out".
+ * Neither is a cost guarantee and it must not be described as one.
  *
  * ACCOUNTED FROM CONTENT, NOT FROM THE FILENAME — see `MEDIA_SIGNATURES` for
  * why, and for the two bypasses that were needed to learn it. Short version:
@@ -259,13 +297,29 @@ const MAGIC_PREFIX_BYTES = 32
  * name is free to invent.
  *
  * So the signal is changed rather than the list. A part is excluded from the
- * parse budget only when ITS BYTES are a recognised media format, which closes
- * the class by an argument that does not mention names at all:
+ * parse budget only when ITS BYTES are a recognised media format. That is a
+ * better signal than the name — but it is NOT the closed argument this comment
+ * used to claim, and the claim is corrected here rather than left standing:
  *
  *   - to be EXCLUDED, a part must open with media magic;
- *   - to COST PARSE TIME, a part must be well-formed XML `mammoth` can read;
- *   - no byte sequence is both. `\x89PNG` is not a document, and a document is
- *     not a PNG.
+ *   - to COST PARSE TIME, a part must be XML `mammoth` can read;
+ *   - "no byte sequence is both" — WRONG, AND DISPROVED IN THIS REPO.
+ *     `@xmldom/xmldom` is error-tolerant by design: it skips junk before
+ *     `<?xml` and reads the document behind it. So eight bytes of PNG header
+ *     glued in front of a `<w:document>` is media to this classifier AND a
+ *     complete document to the parser. That is the third bypass the paragraphs
+ *     above describe, it has a fixture (`buildDocxWithMediaPrefixedBody`), and
+ *     it means a part hidden this way is charged to NO budget at all: 14 MB of
+ *     attribute bomb behind a PNG header counts as 635 bytes and 9 tags.
+ *
+ * THE GAP IS REAL AND IT IS NOT PATCHED HERE, because patching it is what
+ * failed three times — each fix predicted what a foreign, deliberately lenient
+ * parser would accept. What contains such a part is the SANDBOX the parse runs
+ * in (deadline, CPU rlimit, heap ceiling, niceness 19, two at a time), which
+ * does not need to predict anything. See `extractFromDocx` in
+ * resume-text-extraction.service.ts, which says the same thing from the call
+ * site; this note exists so the argument is corrected where the classification
+ * is implemented, which is where the next person will read it.
  *
  * Anything unrecognised COUNTS — the polarity that matters, since an invented
  * format is exactly what an attacker reaches for. This is also the rule the top
@@ -507,16 +561,18 @@ async function measureEntry(
     const available = buf.length - dataStart
     const size = Math.min(header.declaredUncompressedSize, available)
     const counted = !isInertMediaContent(buf.subarray(dataStart, dataStart + MAGIC_PREFIX_BYTES))
-    if (size > budgets.totalRemaining) throw new RangeError(tooBig(budgets.maxUncompressedBytes))
+    if (size > budgets.totalRemaining)
+      throw new RangeError(tooBig(budgets.maxUncompressedBytes, 'uncompressed'))
     if (counted && size > budgets.parsedRemaining)
-      throw new RangeError(tooBig(budgets.maxParsedBytes))
+      throw new RangeError(tooBig(budgets.maxParsedBytes, 'parsed'))
     return { size, counted }
   }
 
   if (header.method !== ZIP_METHOD_DEFLATE) {
     throw new RangeError(`Неподдерживаемый метод сжатия внутри DOCX (${header.method})`)
   }
-  if (budgets.totalRemaining <= 0) throw new RangeError(tooBig(budgets.maxUncompressedBytes))
+  if (budgets.totalRemaining <= 0)
+    throw new RangeError(tooBig(budgets.maxUncompressedBytes, 'uncompressed'))
 
   return inflateAndClassify(buf.subarray(dataStart), budgets)
 }
@@ -564,11 +620,11 @@ function inflateAndClassify(
       }
       size += chunk.length
       if (size > budgets.totalRemaining) {
-        finish(new RangeError(tooBig(budgets.maxUncompressedBytes)))
+        finish(new RangeError(tooBig(budgets.maxUncompressedBytes, 'uncompressed')))
         return
       }
       if (counted !== false && size > budgets.parsedRemaining) {
-        finish(new RangeError(tooBig(budgets.maxParsedBytes)))
+        finish(new RangeError(tooBig(budgets.maxParsedBytes, 'parsed')))
       }
     })
 
@@ -586,10 +642,15 @@ function inflateAndClassify(
  * different numbers, and "DOCX is too big" pointing at the wrong one would
  * send someone shrinking images when the problem is the document body.
  */
-function tooBig(cap: number): string {
-  const isParsedCap = cap === MAX_DOCX_PARSED_BYTES
+function tooBig(cap: number, which: 'parsed' | 'uncompressed'): string {
+  // WHICH CAP IT IS, PASSED IN — not inferred by comparing the value against
+  // `MAX_DOCX_PARSED_BYTES`. That inference is wrong for every caller that
+  // supplies its own budgets: a custom uncompressed cap that happens to equal
+  // the parsed default would be reported as a content cap, sending someone to
+  // shrink their document body when the archive was the problem. The caller
+  // always knows which budget it just spent; it should say so.
   const mb = Math.max(1, Math.floor(cap / 1024 / 1024))
-  return isParsedCap
+  return which === 'parsed'
     ? `Содержимое DOCX больше ${mb} MB (реальный размер, а не заявленный) — это не похоже на резюме`
     : `Распакованный DOCX больше ${mb} MB (реальный размер, а не заявленный)`
 }
