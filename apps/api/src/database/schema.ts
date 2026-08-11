@@ -242,6 +242,14 @@ export const jobSuggestionStatusEnum = pgEnum('job_suggestion_status', [
   'REJECTED',
 ])
 export const jobExclusionKindEnum = pgEnum('job_exclusion_kind', ['COMPANY', 'KEYWORD'])
+// task-vacancy-matching §4/§5 — per-source request budgets and how a source may
+// be triggered. Mirrors jobSourceBudgetWindowSchema / jobSourceTriggerModeSchema.
+export const jobSourceBudgetWindowEnum = pgEnum('job_source_budget_window', ['DAY', 'MONTH'])
+export const jobSourceTriggerModeEnum = pgEnum('job_source_trigger_mode', [
+  'SCHEDULED',
+  'MANUAL',
+  'BOTH',
+])
 // task-vacancy-salary-range — matches Google's JobPosting baseSalary.value.unitText
 // enum exactly (case-sensitive) + packages/shared's VACANCY_SALARY_PERIODS.
 export const vacancySalaryPeriodEnum = pgEnum('vacancy_salary_period', [
@@ -1802,6 +1810,31 @@ export const jobSources = pgTable(
     config: jsonb('config').notNull().default({}),
     enabled: boolean('enabled').notNull().default(true),
     lastCollectedAt: timestamp('last_collected_at', { withTimezone: true }),
+
+    // --- request budget (task-vacancy-matching §4) ---------------------------
+    //
+    // A PROPERTY OF THE SOURCE, not of the caller: whoever asks for a
+    // collection — the cron or an admin pressing the button — spends from the
+    // same counter, so twenty clicks in a row cannot burn a month of JSearch's
+    // 200 requests. Arithmetic (rollover, remaining, reset instant) lives in
+    // `@crm/shared`'s source-budget.ts so the API and the UI cannot disagree.
+    //
+    // NULL `budget_limit` means "no published limit" (DOU's feed) — and it is
+    // the ONLY value that means that. A nonsense number does NOT: see the
+    // hostile-input rule in source-budget.ts.
+    budgetLimit: integer('budget_limit'),
+    budgetWindow: jobSourceBudgetWindowEnum('budget_window'),
+    budgetUsed: integer('budget_used').notNull().default(0),
+    /** Start of the window `budget_used` is counted in (UTC, calendar-anchored). */
+    budgetWindowStartedAt: timestamp('budget_window_started_at', { withTimezone: true }),
+
+    // --- how this source may be collected (task-vacancy-matching §5) ---------
+    //
+    // Cheap sources run on the schedule; expensive ones wait for a human. The
+    // driver is arithmetic: JSearch's 200/month is ~6/day, useless on a cron but
+    // ample when aimed at one senior by hand.
+    triggerMode: jobSourceTriggerModeEnum('trigger_mode').notNull().default('SCHEDULED'),
+
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
     updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
   },

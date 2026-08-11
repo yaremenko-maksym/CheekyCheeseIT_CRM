@@ -45,6 +45,23 @@ export const jobSuggestionStatusSchema = z.enum(['NEW', 'APPLIED', 'REJECTED'])
 export const jobExclusionKindSchema = z.enum(['COMPANY', 'KEYWORD'])
 
 /**
+ * The period a source's request budget is measured over — task-vacancy-matching
+ * §4. Deliberately an enum of the windows real providers actually publish
+ * rather than a free interval: Adzuna caps 250 A DAY, JSearch 200 A MONTH.
+ */
+export const jobSourceBudgetWindowSchema = z.enum(['DAY', 'MONTH'])
+
+/**
+ * How a source is allowed to be collected — task-vacancy-matching §5.
+ *
+ * The distinction is forced by arithmetic, not taste: JSearch allows 200
+ * requests A MONTH, i.e. about six a day. On a schedule it is useless; aimed by
+ * hand at one senior it is plenty. So each source declares whether the cron may
+ * touch it, whether a human may, or both.
+ */
+export const jobSourceTriggerModeSchema = z.enum(['SCHEDULED', 'MANUAL', 'BOTH'])
+
+/**
  * Who the exclusion applies to:
  *   GLOBAL — the whole studio (set by ADMIN/HR);
  *   SENIOR — one senior's personal list.
@@ -113,12 +130,48 @@ export const jobSuggestionSchema = z.object({
   statusChangedByName: z.string().nullable(),
   createdAt: z.string().datetime(),
   posting: jobPostingSchema,
+
+  // --- stack match (task-vacancy-matching §2/§3) ----------------------------
+  /**
+   * Share of the senior's stack this posting mentions, `0..1`.
+   *
+   * `null` means NOT RANKED — the senior has no stack on file, so the queue
+   * falls back to pure freshness. Deliberately distinct from `0` ("we compared
+   * and it matches nothing"): the UI must be able to say "ранжирование
+   * выключено, заполните резюме" instead of implying every vacancy is a bad fit.
+   */
+  matchScore: z.number().min(0).max(1).nullable(),
+  /**
+   * Canonical stack keywords the posting actually mentions — the WHY behind the
+   * score. Shown as chips so a hidden vacancy is auditable rather than a mystery.
+   */
+  matchedKeywords: z.array(z.string().max(100)).max(60),
 })
 
 export const jobSuggestionListSchema = z.object({
+  /** Above-threshold suggestions, best match first, then newest first. */
   items: z.array(jobSuggestionSchema),
+  /**
+   * Below-threshold suggestions. Carried in the SAME payload on purpose:
+   * "скрытая вакансия — это нерассмотренная вакансия", so the UI collapses them
+   * behind a counter it can expand instantly, and nothing is quietly dropped.
+   */
+  lowMatch: z.array(jobSuggestionSchema),
+  /**
+   * How many suggestions fell below the threshold. Its own field rather than
+   * `lowMatch.length` because the array is page-capped and the COUNT is the
+   * honest number the counter has to show.
+   */
+  lowMatchCount: z.number().int().nonnegative(),
   /** How many NEW suggestions are left for this senior after filtering. */
   total: z.number().int().nonnegative(),
+  /** The threshold actually applied, echoed so the UI can explain the split. */
+  threshold: z.number().min(0).max(1),
+  /**
+   * The senior's effective stack (canonical form). EMPTY means unranked — see
+   * `matchScore`. Echoed so the UI can name what it matched on.
+   */
+  stackKeywords: z.array(z.string().max(100)).max(60),
 })
 
 /**
@@ -189,6 +242,52 @@ export const jobCollectionResultSchema = z.object({
 export const jobCollectionFailureSchema = z.object({
   sourceType: jobSourceTypeSchema,
   message: z.string().max(1000),
+  /**
+   * True when the source refused because its request budget is spent, rather
+   * than because the feed broke. A budget stop is a NORMAL, expected state that
+   * resolves itself when the window rolls over; a broken feed is not. The UI
+   * must not dress the first up as an incident, nor the second down as routine.
+   */
+  budgetExhausted: z.boolean(),
+})
+
+// ---------------------------------------------------------------------------
+// Source budgets (task-vacancy-matching §4/§5)
+// ---------------------------------------------------------------------------
+
+/**
+ * A source's request budget, as the UI sees it.
+ *
+ * The remaining allowance is shown the same way the model's daily quota is
+ * (ResumeStatusPanel): a number plus WHEN it comes back. A collector that has
+ * stopped must never look like a collector that found nothing.
+ */
+export const jobSourceBudgetSchema = z.object({
+  /** Requests permitted per window. `null` = no published limit (DOU's feed). */
+  limit: z.number().int().positive().nullable(),
+  window: jobSourceBudgetWindowSchema.nullable(),
+  /** Requests already spent in the CURRENT window. */
+  used: z.number().int().nonnegative(),
+  /**
+   * Requests left in the current window. `null` when unlimited — deliberately
+   * not `Infinity`, which does not survive JSON.
+   */
+  remaining: z.number().int().nonnegative().nullable(),
+  /** ISO instant at which `used` resets to 0. `null` when unlimited. */
+  resetsAt: z.string().datetime().nullable(),
+})
+
+export const jobSourceSchema = z.object({
+  id: z.string().uuid(),
+  type: jobSourceTypeSchema,
+  enabled: z.boolean(),
+  triggerMode: jobSourceTriggerModeSchema,
+  lastCollectedAt: z.string().datetime().nullable(),
+  budget: jobSourceBudgetSchema,
+})
+
+export const jobSourceListSchema = z.object({
+  items: z.array(jobSourceSchema),
 })
 
 export const jobCollectionRunSchema = z.object({
@@ -215,3 +314,8 @@ export type CreateJobExclusionDto = z.infer<typeof createJobExclusionSchema>
 export type JobCollectionResultDto = z.infer<typeof jobCollectionResultSchema>
 export type JobCollectionFailureDto = z.infer<typeof jobCollectionFailureSchema>
 export type JobCollectionRunDto = z.infer<typeof jobCollectionRunSchema>
+export type JobSourceBudgetWindow = z.infer<typeof jobSourceBudgetWindowSchema>
+export type JobSourceTriggerMode = z.infer<typeof jobSourceTriggerModeSchema>
+export type JobSourceBudgetDto = z.infer<typeof jobSourceBudgetSchema>
+export type JobSourceDto = z.infer<typeof jobSourceSchema>
+export type JobSourceListDto = z.infer<typeof jobSourceListSchema>
