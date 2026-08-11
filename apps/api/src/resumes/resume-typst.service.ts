@@ -59,6 +59,7 @@ import { join } from 'node:path'
 import { normalizeResumeLayout, type ResumeContent, type ResumeLayoutOptions } from '@crm/shared'
 import { resolveAssetPath } from '../common/assets.util'
 import { findUnrenderable, logDroppedGlyphs, toRenderableDeep } from './resume-glyphs'
+import { MAX_PDF_CONTENT_BYTES, inspectPdfContent } from './resume-source.util'
 import { ResumeSemaphore } from './resume-semaphore'
 
 /** Hard wall-clock deadline for one render, enforced with SIGKILL. */
@@ -260,6 +261,7 @@ export class ResumeTypstService {
       if (pdf.subarray(0, 5).toString('latin1') !== '%PDF-') {
         throw new ResumeRenderError('Сборка PDF завершилась, но файл не является PDF.')
       }
+      await assertDocumentIsNotBlank(pdf)
       return pdf
     } catch (err: unknown) {
       if (err instanceof ResumeRenderError) throw err
@@ -456,12 +458,84 @@ const spawnTypst: TypstRunner = createSpawnRunner()
  * The save path for `template_source` does not exist yet, so a check there
  * cannot be written. This is the other end of the same pipe and it exists
  * today: EVERY render passes through here, with the template in hand. A
- * personal template with an arrow in it now fails loudly, naming the character,
- * instead of shipping boxes.
+ * personal template with a literal arrow in it fails loudly, naming the
+ * character, instead of shipping boxes.
+ *
+ * ==========================================================================
+ * WHAT THIS DOES NOT COVER — measured, named, not implied away
+ * ==========================================================================
+ * It reads SOURCE TEXT, so it sees a character only when it is written
+ * literally. These spellings of the same arrow are invisible to it:
+ *
+ *   \u{2192}                 Typst's unicode escape
+ *   #sym.arrow.r             Typst's symbol library
+ *   #str.from-unicode(8594)  computed at run time
+ *
+ * The last one is why "cover every notation by scanning the source" is not
+ * merely unimplemented but IMPOSSIBLE: a Typst template is a program, and the
+ * characters it prints need not appear in it at all. Enumerating the first two
+ * would only move the boundary — the same mistake as the three rounds of
+ * extension allow-lists on the DOCX budget.
+ *
+ * So the source scan is the CHEAP, EARLY, PRECISE half: it names the offending
+ * character when it can see one. The complete half is
+ * `assertDocumentIsNotBlank`, which inspects the RESULT and therefore does not
+ * care how anything was spelled — it catches the catastrophic outcome (an
+ * entirely blank resume) for every notation including the computed one.
+ *
+ * Between them the residue is: a template that prints SOME text while dropping
+ * one glyph written non-literally. Measured to render (text present, page not
+ * blank), so it survives both checks and would reach a reader as a gap or a
+ * box. That is the honest limit of what is guaranteed here, and it is the limit
+ * a designer authoring a personal template needs to know — stated again at the
+ * top of `assets/typst/default-resume.typ`, which is the file they will copy.
  *
  * Cheap by construction — a template is a few kilobytes, and the coverage set
  * is cached for the process.
  */
+/**
+ * Refuse a render that produced a page with no text on it.
+ *
+ * ==========================================================================
+ * THE NOTATION-INDEPENDENT HALF OF THE GLYPH GUARANTEE
+ * ==========================================================================
+ * `assertTemplateIsDrawable` reads the template SOURCE, so it only ever sees a
+ * character written literally. Measured, all three spellings of one arrow:
+ *
+ *   template                                 scan sees   result   text ops
+ *   [→ #data.displayName]                    ["→"]       REFUSED  -
+ *   [\u{2192} #data.displayName]             []          rendered 0   <- blank
+ *   [#sym.arrow.r #data.displayName]         []          rendered 0   <- blank
+ *   [-> #data.displayName]                   []          rendered 1
+ *
+ * The two that slip past produce BYTE-IDENTICAL output (same sha256) and that
+ * output is a completely EMPTY PAGE — the senior's name disappears too, and the
+ * file is still a structurally valid PDF, so every signature check says fine.
+ * A silently blank resume sent to a client is the worst outcome this feature
+ * has.
+ *
+ * This check looks at the RESULT instead of the source, so the spelling stops
+ * mattering: escape, symbol name, or a character computed at run time
+ * (`#str.from-unicode(8594)` — which no source scan can ever catch, because the
+ * template is a program) all end in the same place, and the same place is what
+ * is inspected.
+ *
+ * It costs a fraction of a millisecond: our own output is a few kilobytes, and
+ * the operator counter is the bounded one from the intake guard, reused.
+ *
+ * DELIBERATELY NOT SOLD AS COMPLETE — see `assertTemplateIsDrawable`.
+ */
+async function assertDocumentIsNotBlank(pdf: Buffer): Promise<void> {
+  // Generous operator ceiling: this is our own document, and the question is
+  // "is there any text at all", never "is there too much".
+  const inspection = await inspectPdfContent(pdf, 1, MAX_PDF_CONTENT_BYTES, Number.MAX_SAFE_INTEGER)
+  if (inspection.textOperators > 0) return
+  throw new ResumeRenderError(
+    'Шаблон резюме собрался в пустую страницу — вероятно, в нём есть символ, который не отрисовывается доступными шрифтами. Проверьте оформление или обратитесь к администратору.',
+    'render produced a PDF with zero text-showing operators',
+  )
+}
+
 function assertTemplateIsDrawable(template: string): void {
   const missing = findUnrenderable(template)
   if (missing.length === 0) return

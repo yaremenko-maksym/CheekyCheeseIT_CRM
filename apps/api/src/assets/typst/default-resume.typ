@@ -22,6 +22,38 @@
 // Deterministic by construction: no date, no counter, no randomness. The same
 // dictionary always produces the same bytes (see ResumeTypstService, which also
 // pins the creation timestamp and forbids system fonts).
+//
+// =============================================================================
+// IF YOU ARE COPYING THIS TO AUTHOR A PERSONAL TEMPLATE — READ THIS
+// =============================================================================
+// Only the glyphs in the committed Roboto pair can be drawn. There is NO
+// fallback font: `--ignore-system-fonts` is what makes a render reproducible on
+// any machine, and the price is that an unavailable character has nowhere to
+// come from.
+//
+// Typst gives NO warning for one. It exits 0 and, in the case measured, emits a
+// COMPLETELY BLANK PAGE — the name disappears too, and the file is still a
+// valid PDF.
+//
+// Two checks stand behind you, and they cover different things:
+//   - the renderer scans this source and refuses a character written
+//     LITERALLY (an arrow, U+2192, say), naming the character it found;
+//   - it also refuses any render that comes out with no text on it at all,
+//     whatever the cause.
+//
+// NEITHER catches a non-literal spelling that still leaves other text on the
+// page. So do not reach for a unicode escape, a `#sym.*` name or
+// `#str.from-unicode(...)` to sneak a character in: the guard cannot see those,
+// and the reader gets a gap where you meant a symbol. Type characters
+// literally and let the check tell you when one is unavailable.
+//
+// Broadly: Cyrillic (ru/uk), Latin, digits, common punctuation and currency
+// signs are present; arrows, ticks, crosses, CJK and emoji are not, and neither
+// is the hryvnia (U+20B4) — which is why resume DATA has those substituted
+// (see resume-glyphs.ts). Deliberately no exhaustive list of missing
+// characters here: writing one would mean putting the very characters this
+// file may not contain INTO this file, and the whole-file scan would reject it.
+// Ask the check, not a list.
 
 #let muted = rgb("#5b616b")
 #let rule-colour = rgb("#c9ccd1")

@@ -387,6 +387,45 @@ describe('the sandbox', () => {
     await expect(service.render(input({ templateSource: withAnArrow }))).rejects.toThrow(/→/)
   }, 120_000)
 
+  /**
+   * The source scan sees a character only when it is written LITERALLY, and a
+   * Typst template has at least three ways to write the same one. Measured, all
+   * producing byte-identical output:
+   *
+   *   [→ ...]                  scan sees ["→"]  -> refused by the scan
+   *   [\u{2192} ...]           scan sees []     -> rendered, 0 text operators
+   *   [#sym.arrow.r ...]       scan sees []     -> rendered, 0 text operators
+   *
+   * The two that slipped through produced a COMPLETELY BLANK page — the
+   * senior's name gone too — in a structurally valid PDF that every signature
+   * check accepts. A silently empty resume reaching a client is the worst
+   * outcome this feature has, and it was shipping.
+   *
+   * These assert the RESULT, so the spelling is irrelevant: whatever notation
+   * (including `#str.from-unicode`, which no source scan can ever see, because
+   * the template is a program), a blank page is refused.
+   */
+  describe('a template that renders to nothing is refused, however it was written', () => {
+    const BLANK_PRODUCING = [
+      ['unicode escape', '#let render(data) = [\\u{2192} #data.displayName]'],
+      ['symbol name', '#let render(data) = [#sym.arrow.r #data.displayName]'],
+      ['computed at run time', '#let render(data) = [#str.from-unicode(8594) #data.displayName]'],
+    ] as const
+
+    for (const [label, template] of BLANK_PRODUCING) {
+      it(`refuses a blank page produced by ${label}`, async () => {
+        await expect(service.render(input({ templateSource: template }))).rejects.toThrow(
+          /пустую страницу/,
+        )
+      }, 120_000)
+    }
+
+    it('lets an ordinary template through — the check is not "refuse everything"', async () => {
+      const pdf = await service.render(input())
+      expect(pdf.subarray(0, 5).toString('latin1')).toBe('%PDF-')
+    }, 120_000)
+  })
+
   it('still renders a personal template made only of drawable characters', async () => {
     const clean = '#let render(data) = [Резюме — #data.displayName]'
     const pdf = await service.render(input({ templateSource: clean }))
