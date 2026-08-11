@@ -63,23 +63,36 @@ import {
  *   densest PERMITTED document (60 000 paragraphs)   576 / 616 / 654 ms
  *   40-page academic CV                              150 / 150 / 149 ms
  *
- * 10 s is ~15x the worst permitted document — ample for a loaded runner
- * scheduling this at niceness 19, and it keeps parsing capacity AHEAD of
- * intake: two slots at ~0.65 s clear far more than the 10 uploads/minute the
- * endpoint admits, so a queue cannot grow without bound.
+ * AND THE MACHINE IS PART OF THE MEASUREMENT. The same document costs:
  *
- * I RAISED THIS TO 60 s IN A PREVIOUS ROUND ON A NUMBER THAT WAS WRONG. The
- * "8.3-14.7 s" I recorded came from a probe that spawned a throwaway `node`
- * process INSIDE the timed region and ran three heap-cap variants in one pass;
- * it measured its own scaffolding. The four timeouts I blamed on the deadline
- * were really the RLIMIT_AS worker deaths and the memory pressure from 32 MB
- * fixtures, both since fixed. Reverted to the justified value, with the
- * justification now attached to a measurement of the thing itself.
+ *   development laptop (Apple silicon)   ~0.65 s
+ *   GitHub Actions runner                >10.3 s      — ~15x slower
+ *
+ * I set this to 10 s on the laptop figure alone and CI went red on five tests,
+ * killing a legitimate document and telling the user it was unreadable. That is
+ * the third time on this branch that a constant validated on one machine has
+ * been wrong on another; production runs on a modest VPS, much closer to the
+ * runner than to the laptop.
+ *
+ * 60 s is ~6x the SLOWEST measured cost of the worst document the budgets
+ * permit. It costs nothing in API responsiveness — extraction is a detached job
+ * behind a child process, nothing waits on it — and the failure it prevents is
+ * the expensive one: refusing a real CV because the machine was busy.
+ *
+ * THE TRADE, stated because it is real: at 60 s two slots clear ~2 pathological
+ * documents a minute against an intake of 10/minute, so a sustained stream of
+ * worst-case uploads can queue, and a queued extraction still holds its buffer.
+ * The mitigations are that this is an internal tool behind auth, the byte
+ * budgets refuse genuinely abusive documents before the worker is started at
+ * all, and typical documents finish in well under a second. Making the queue
+ * itself bounded is tracked in task-resume-followups.
  *
  * Pinned by "the deadline exceeds the worst document the budgets permit" below,
- * so the two bounds cannot drift apart again in silence.
+ * which MEASURES the cost on whatever machine it runs and compares — so it
+ * holds on the laptop and on the runner, and no absolute number has to be
+ * guessed for a third one.
  */
-export const EXTRACTION_TIMEOUT_MS = 10_000
+export const EXTRACTION_TIMEOUT_MS = 60_000
 
 /**
  * Kernel-side CPU backstop (`ulimit -t`) for a starved JS timer.
@@ -88,7 +101,7 @@ export const EXTRACTION_TIMEOUT_MS = 10_000
  * fires, not a second, tighter deadline. Below it, the kernel would become the
  * usual killer and the readable timeout path would be dead code.
  */
-export const EXTRACTION_CPU_SECONDS = 20
+export const EXTRACTION_CPU_SECONDS = 90
 
 /**
  * V8 heap ceiling per extraction (`--max-old-space-size`, MiB).

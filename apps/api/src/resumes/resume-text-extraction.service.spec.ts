@@ -516,15 +516,34 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
   }, 120_000)
 
   /**
-   * Parsing capacity must stay AHEAD of intake, or a queue grows without bound
-   * and every waiter holds its upload buffer while it waits.
+   * TYPICAL documents must clear faster than intake. Pathological ones need not,
+   * and pretending otherwise is what made this assertion wrong the first time.
+   *
+   * It previously compared the DEADLINE against the intake rate and concluded
+   * capacity was sufficient — true only while the deadline was 10 s, and the
+   * deadline had to be 60 s because the worst permitted document takes over
+   * 10 s on a CI-class machine. Written that way, the assertion would have
+   * pushed the deadline back down to a value that kills legitimate uploads: a
+   * test enforcing the wrong side of a real trade.
+   *
+   * What is actually required is that ORDINARY resumes do not queue. That is a
+   * property of their measured cost, not of the timeout, so it is measured.
+   * The worst-case queue behaviour is a known, stated trade — see the comment
+   * on EXTRACTION_TIMEOUT_MS and task-resume-followups.
    */
-  it('clears uploads faster than the endpoint admits them', () => {
-    const perMinutePerSlot = 60_000 / EXTRACTION_TIMEOUT_MS
-    const worstCaseThroughput = perMinutePerSlot * MAX_CONCURRENT_EXTRACTIONS
-    // The upload endpoint is throttled at 10/min (resumes.controller.ts).
-    expect(worstCaseThroughput).toBeGreaterThanOrEqual(10)
-  })
+  it('clears an ordinary resume far faster than uploads arrive', async () => {
+    const ordinary = buildWordDensityDocx(2) // a normal two-page CV
+
+    const started = Date.now()
+    await expect(service.extract(ordinary, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
+    const cost = Date.now() - started
+
+    // Intake is throttled at 10/min (resumes.controller.ts), i.e. one every 6 s
+    // per uploader. Two slots at this cost clear far more than that, so an
+    // ordinary queue drains rather than grows — on whatever machine this runs.
+    const perMinute = (60_000 / cost) * MAX_CONCURRENT_EXTRACTIONS
+    expect(perMinute).toBeGreaterThan(10)
+  }, 120_000)
 
   it('extracts an honest large document within the worker’s memory bound', async () => {
     // The same 40-page-at-real-Word-density document AC5 uses — the case the
