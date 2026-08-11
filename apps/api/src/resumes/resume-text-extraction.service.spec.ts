@@ -12,7 +12,8 @@
  * exactly how a test file stops being a review artefact.
  */
 import { tmpdir } from 'node:os'
-import { describe, expect, it } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
 import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
 import { runSandboxed } from './sandboxed-process'
 import {
@@ -142,16 +143,41 @@ const service = new ResumeTextExtractionService()
  * the platform this ships on — and on macOS, which honours `ulimit -t` even
  * though it ignores `ulimit -v`.
  *
- * It costs one CPU-second, once per file.
+ * THE BURNER COUNTS ITS OWN CPU, NOT THE WALL CLOCK, and the first version of
+ * this probe got that wrong: it spun `while (Date.now() < start + 5_000)`, on
+ * the assumption that five seconds of spinning is five seconds of CPU. It is
+ * not. Sandboxed work runs at niceness 19, so on a CI runner busy with the rest
+ * of this suite the burner was starved, finished its five wall-seconds having
+ * spent well under the one-second budget, exited 0 — and the gate concluded the
+ * kernel does not enforce `ulimit -t` and skipped the test. Which is precisely
+ * the failure this gate exists to prevent, arrived at from the other side: a
+ * quiet skip on the platform that HAS the mechanism (observed on CI, run
+ * 31529730272). `process.cpuUsage()` is the same clock `RLIMIT_CPU` is
+ * accounted against, so the burner now keeps working until it has really spent
+ * the CPU — however long the machine takes to give it.
+ *
+ * It costs one CPU-second where the limit holds, five where it does not.
  */
 const cpuRlimitProbe = await runSandboxed({
   bin: process.execPath,
-  // Burns CPU, and gives up BY ITSELF after five seconds so that a kernel
-  // which does not enforce the limit ends this probe rather than hanging it.
-  args: ['-e', 'const until = Date.now() + 5_000; while (Date.now() < until);'],
+  args: [
+    '-e',
+    // Burns until it has SPENT five CPU-seconds — five times the budget below,
+    // so a kernel that enforces the limit always kills it first — then gives up
+    // by itself, so a kernel that ignores the limit ends this probe rather than
+    // hanging it.
+    'const spent = () => { const u = process.cpuUsage(); return u.user + u.system };' +
+      'const budget = spent() + 5_000_000;' +
+      'let sink = 0;' +
+      'while (spent() < budget) { for (let i = 0; i < 200_000; i += 1) sink += i }' +
+      'if (sink < 0) process.exitCode = 1',
+  ],
   cwd: tmpdir(),
   env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin' },
-  timeoutMs: 30_000,
+  // Wall-clock backstop only. Starvation stretches WALL time without limit, so
+  // this is deliberately far from the CPU budget above: it exists so a
+  // pathological environment cannot hang collection, not as a second bound.
+  timeoutMs: 300_000,
   cpuSeconds: 1,
   maxStdoutBytes: 0,
   maxStderrBytes: 256,
@@ -678,13 +704,32 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
       // empty stdout, never `timedOut`. Triggered for REAL — the kernel sends
       // the signal, against the actual extraction worker — rather than
       // simulated by stubbing the sandbox, because the branch only matters if
-      // a real mechanism reaches it. The deadline is left at its production
-      // 60 s so that nothing but the CPU limit can be what ends this.
-      const killed = await service
-        .extract(bomb, RESUME_DOCX_MIME, { cpuSeconds: 1 })
-        .then(() => 'resolved')
-        .catch((e: unknown) => (e as Error).message)
+      // a real mechanism reaches it.
+      //
+      // WHICH BRANCH RAN IS OBSERVED, NOT ASSUMED. Both paths end in the same
+      // sentence — that is the point of this test — so the message alone cannot
+      // tell them apart, and the previous version of Path 2 spent months being
+      // the deadline in disguise for exactly that reason. Only the kill branch
+      // logs, so the log is the discriminator, and it is one no amount of
+      // machine slowness can move. The deadline is pushed far out of the way on
+      // top of that, so the CPU limit is overwhelmingly the thing that fires.
+      const warned = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      let killed: string
+      // Read INSIDE the try: `mockRestore` also resets the recorded calls, so a
+      // snapshot taken after it is always empty — and an empty snapshot would
+      // read as "the kill branch never ran".
+      let logged = ''
+      try {
+        killed = await service
+          .extract(bomb, RESUME_DOCX_MIME, { cpuSeconds: 1, timeoutMs: 150_000 })
+          .then(() => 'resolved')
+          .catch((e: unknown) => (e as Error).message)
+        logged = warned.mock.calls.flat().join(' ')
+      } finally {
+        warned.mockRestore()
+      }
       expect(killed).toMatch(/слишком сложный/)
+      expect(logged).toMatch(/Extraction worker killed \(code null\)/)
 
       // The message must not depend on the test seam: a 50 ms budget once
       // produced "не уложился в 0.05 с", which is true and useless to a user.
