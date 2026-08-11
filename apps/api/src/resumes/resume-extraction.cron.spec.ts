@@ -21,12 +21,13 @@ import type { SeniorResumesService } from './resumes.service'
 function buildCron(overrides: Partial<Record<'sweep' | 'requeue', unknown>> = {}) {
   const sweepStuckExtractions = vi.fn().mockResolvedValue(0)
   const requeueAbandoned = vi.fn().mockResolvedValue(0)
+  const sweepStuckRenders = vi.fn().mockResolvedValue(0)
   if (overrides.sweep) sweepStuckExtractions.mockImplementation(overrides.sweep as () => never)
   if (overrides.requeue) requeueAbandoned.mockImplementation(overrides.requeue as () => never)
 
-  const resumes = { sweepStuckExtractions, requeueAbandoned }
+  const resumes = { sweepStuckExtractions, requeueAbandoned, sweepStuckRenders }
   const cron = new ResumeExtractionCronService(resumes as unknown as SeniorResumesService)
-  return { cron, sweepStuckExtractions, requeueAbandoned }
+  return { cron, sweepStuckExtractions, requeueAbandoned, sweepStuckRenders }
 }
 
 describe('ResumeExtractionCronService', () => {
@@ -34,13 +35,33 @@ describe('ResumeExtractionCronService', () => {
    * MUTATION: delete the `requeueAbandoned()` call from the handler — this goes
    * red. Before this file, that deletion changed nothing anywhere in the suite.
    */
-  it('runs BOTH sweeps on every tick', async () => {
-    const { cron, sweepStuckExtractions, requeueAbandoned } = buildCron()
+  it('runs ALL THREE sweeps on every tick', async () => {
+    const { cron, sweepStuckExtractions, requeueAbandoned, sweepStuckRenders } = buildCron()
 
     await cron.handleStuckExtractions()
 
     expect(sweepStuckExtractions).toHaveBeenCalledTimes(1)
     expect(requeueAbandoned).toHaveBeenCalledTimes(1)
+    // The render sweep. `sweepStuckRenders` existed, was invoked from NOWHERE,
+    // and had no test — so a render abandoned by a container restart (i.e. by
+    // every deploy) stayed RUNNING for ever while the tab polled it every
+    // 2.5 s. Nothing in the suite noticed, because nothing asked.
+    expect(sweepStuckRenders).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * The handler wraps everything in try/catch so a failing sweep cannot kill
+   * the scheduler. That is right, and it also means a MISSING method would be
+   * swallowed as "sweep failed" and every assertion above would still pass on a
+   * fake service that never had it. This pins the real shape.
+   */
+  it('calls a method the real service actually exposes', async () => {
+    const { SeniorResumesService: RealService } = await import('./resumes.service')
+    for (const name of ['sweepStuckExtractions', 'requeueAbandoned', 'sweepStuckRenders']) {
+      expect(typeof RealService.prototype[name as keyof typeof RealService.prototype]).toBe(
+        'function',
+      )
+    }
   })
 
   it('still re-drives abandoned rows when the stuck sweep swept nothing', async () => {

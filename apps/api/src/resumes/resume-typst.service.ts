@@ -214,8 +214,17 @@ export class ResumeTypstService {
    * missing binary — with a Russian message safe to store and display, and the
    * compiler's own output kept in `detail` for the log.
    */
-  async render(input: ResumeRenderInput): Promise<Buffer> {
-    return this.gate.run(() => this.renderOnce(input))
+  async render(input: ResumeRenderInput, onStart?: () => void): Promise<Buffer> {
+    return this.gate.run(() => {
+      // Fires once a SLOT IS HELD, i.e. when work actually begins — not when
+      // the render was requested. The caller uses it to timestamp the start,
+      // and that distinction is load-bearing: with two slots and a queue, a
+      // perfectly healthy render can wait minutes for its turn, and anything
+      // aging renders by "when were you asked for" would declare it stuck and
+      // restart it on top of itself.
+      onStart?.()
+      return this.renderOnce(input)
+    })
   }
 
   private async renderOnce(input: ResumeRenderInput): Promise<Buffer> {

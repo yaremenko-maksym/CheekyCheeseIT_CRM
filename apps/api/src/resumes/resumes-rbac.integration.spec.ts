@@ -35,7 +35,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq, inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -47,7 +47,11 @@ import {
 import * as schema from '../database/schema'
 import { seniorResumes, users, type User } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
-import { SeniorResumesService, STUCK_EXTRACTION_TIMEOUT_MS } from './resumes.service'
+import {
+  SeniorResumesService,
+  STUCK_EXTRACTION_TIMEOUT_MS,
+  STUCK_RENDER_TIMEOUT_MS,
+} from './resumes.service'
 import { buildDocx, buildPdfWithText } from '../test/resume-fixtures'
 
 // ── Personas ────────────────────────────────────────────────────────────────
@@ -1242,6 +1246,85 @@ describe('Senior resume RBAC — real DB integration (task-resume-base AC6)', ()
         .from(seniorResumes)
         .where(eq(seniorResumes.id, resumeId))
       expect(after[0]?.pdfRenderStatus).not.toBe('READY')
+    })
+
+    /**
+     * The stuck-render sweep, and the trap in enabling it.
+     *
+     * `sweepStuckRenders` existed but was called from nowhere, so a render
+     * abandoned by a container restart — every deploy — stayed RUNNING for
+     * ever while the tab polled it forever showing "готовим PDF".
+     *
+     * Wiring it up is only safe because the RUNNING stamp and the start
+     * timestamp were separated first. There are two slots and a queue: a
+     * perfectly healthy render can sit claimed-but-waiting for a long time, and
+     * a sweep that aged renders from the claim would restart live work on top
+     * of itself — multiplying the very queue it exists to clear. Both halves
+     * are asserted here, against real SQL, because the distinction lives in a
+     * WHERE clause.
+     */
+    it('sweeps a render abandoned mid-flight back into the queue', async () => {
+      if (!dbAvailable) return
+      const [row] = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+      if (!row) throw new Error('fixture missing')
+
+      // Claimed, started, and then the process died.
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          pdfRenderStatus: 'RUNNING',
+          pdfRenderStartedAt: new Date(Date.now() - STUCK_RENDER_TIMEOUT_MS - 60_000),
+          pdfRenderRunId: randomUUID(),
+        })
+        .where(eq(seniorResumes.id, row.id))
+
+      const swept = await service.sweepStuckRenders()
+      expect(swept).toBeGreaterThan(0)
+
+      const [after] = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.id, row.id))
+      // QUEUED, not FAILED: a render needs no uploaded file and no paid model
+      // call to retry, so the honest recovery is to do it again.
+      expect(after?.pdfRenderStatus).toBe('QUEUED')
+      expect(after?.pdfRenderRunId).toBeNull()
+    })
+
+    it('leaves a render that is only WAITING FOR A SLOT alone', async () => {
+      if (!dbAvailable) return
+      const [row] = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.userId, SENIOR_A.id))
+      if (!row) throw new Error('fixture missing')
+
+      const runId = randomUUID()
+      // Claimed long ago, never started — exactly what a queued render behind
+      // a busy semaphore looks like.
+      await dbSvc.db
+        .update(seniorResumes)
+        .set({
+          pdfRenderStatus: 'RUNNING',
+          pdfRenderStartedAt: null,
+          pdfRenderRunId: runId,
+          updatedAt: new Date(Date.now() - STUCK_RENDER_TIMEOUT_MS - 60_000),
+        })
+        .where(eq(seniorResumes.id, row.id))
+
+      await service.sweepStuckRenders()
+
+      const [after] = await dbSvc.db
+        .select()
+        .from(seniorResumes)
+        .where(eq(seniorResumes.id, row.id))
+      // Untouched: still RUNNING, still owned by the same attempt. Restarting
+      // it would race a render that is about to begin.
+      expect(after?.pdfRenderStatus).toBe('RUNNING')
+      expect(after?.pdfRenderRunId).toBe(runId)
     })
 
     it('changing a layout switch persists it and rebuilds the PDF', async () => {

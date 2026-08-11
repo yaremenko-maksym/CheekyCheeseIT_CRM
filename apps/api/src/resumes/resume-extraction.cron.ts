@@ -33,6 +33,15 @@ export class ResumeExtractionCronService {
 
       const requeued = await this.resumes.requeueAbandoned()
       if (requeued > 0) this.logger.warn(`Re-drove ${requeued} abandoned QUEUED resume(s)`)
+
+      // RENDERS TOO. This call was missing entirely: `sweepStuckRenders` was
+      // written, tested by nothing, and invoked from nowhere, so a render
+      // abandoned by a container restart — which is EVERY DEPLOY — stayed
+      // RUNNING for ever while the tab polled it every 2.5 s and showed
+      // "готовим PDF" indefinitely. It recovered only by accident, when some
+      // later save or PDF request happened to re-queue the row.
+      const renders = await this.resumes.sweepStuckRenders()
+      if (renders > 0) this.logger.warn(`Re-queued ${renders} stuck resume render(s)`)
     } catch (err: unknown) {
       this.logger.error(
         `Resume extraction sweep failed: ${err instanceof Error ? err.message : 'unknown error'}`,

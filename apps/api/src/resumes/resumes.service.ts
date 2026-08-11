@@ -802,7 +802,15 @@ export class SeniorResumesService {
     const runId = randomUUID()
     const claimed = await this.db.db
       .update(seniorResumes)
-      .set({ pdfRenderStatus: 'RUNNING', pdfRenderStartedAt: new Date(), pdfRenderRunId: runId })
+      .set({
+        pdfRenderStatus: 'RUNNING',
+        // NULL until a SLOT IS HELD — see `markRenderStarted`. The claim is
+        // still taken here, atomically, because that is what stops two workers
+        // rendering the same row; but the clock the stuck-sweep reads must not
+        // start while this render is merely waiting its turn.
+        pdfRenderStartedAt: null,
+        pdfRenderRunId: runId,
+      })
       .where(and(eq(seniorResumes.id, resumeId), eq(seniorResumes.pdfRenderStatus, 'QUEUED')))
       .returning()
     const row = claimed[0]
@@ -814,7 +822,12 @@ export class SeniorResumesService {
 
     let pdf: Buffer
     try {
-      pdf = await this.typst.render(input)
+      pdf = await this.typst.render(input, () => {
+        // Fire-and-forget: advisory timestamp, and the render is already
+        // underway by the time it lands. A failure here can only make the
+        // sweep more conservative, never less.
+        void this.markRenderStarted(resumeId, runId)
+      })
     } catch (err: unknown) {
       const message =
         err instanceof ResumeRenderError
@@ -863,6 +876,25 @@ export class SeniorResumesService {
 
     // Only now is the previous PDF genuinely unreferenced.
     if (row.pdfS3Key && row.pdfS3Key !== key) await this.s3.delete(row.pdfS3Key)
+  }
+
+  /**
+   * Start the stuck-clock, at the moment work actually begins.
+   *
+   * Separate from the claim because the two answer different questions. The
+   * claim asks "is this row mine to render" and must happen before anything
+   * else. This asks "since when has the renderer been busy with it", and the
+   * gap between them is queue time — up to `MAX_CONCURRENT_RENDERS` slots'
+   * worth, unbounded in principle. Aging a render from the claim would let the
+   * sweep restart healthy work that was simply waiting its turn, which is
+   * strictly worse than not sweeping at all: it multiplies the queue it was
+   * meant to clear.
+   */
+  private async markRenderStarted(resumeId: string, runId: string): Promise<void> {
+    await this.db.db
+      .update(seniorResumes)
+      .set({ pdfRenderStartedAt: new Date() })
+      .where(this.ownedByRenderRun(resumeId, runId))
   }
 
   private ownedByRenderRun(resumeId: string, runId: string) {
