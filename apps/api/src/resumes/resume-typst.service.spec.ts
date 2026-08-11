@@ -335,13 +335,23 @@ describe('nothing is silently lost off the edge of the page', () => {
     expect(uris.length).toBeGreaterThan(0)
     // BYTE-FOR-BYTE, and this equality is the whole assertion.
     //
-    // Do NOT "simplify" this to a `not.toContain(' ')` check — that can never
-    // fire. An inserted space reaches the PDF percent-encoded as `%20`, so only
-    // exact equality sees it. (My earlier claim that a corrupted URL produces
-    // no annotation at all was wrong, and wrong in a revealing way: I read it
-    // off the same Node 20 where `getAnnotations()` returns an empty array
-    // whatever the input — the same instrument, the same misreading, as the
-    // meter that reported a serene zero.)
+    // MEASURED, because the two previous comments here were both guesses and
+    // both wrong. Rendering a link whose URL contains a space and reading the
+    // bytes back gives:
+    //
+    //   /URI (https://example.com/aaa bbb/ccc)      <- a LITERAL space
+    //
+    // Typst does not percent-encode it. So my "it arrives as %20, only exact
+    // equality can see it" was wrong; a `not.toContain(' ')` check would in
+    // fact fire. Exact equality is still what belongs here — it is strictly
+    // stronger, catching truncation, re-encoding and a stray trailing slash as
+    // well as a space — but it should be kept for that reason, not for a
+    // property of Typst that was never verified.
+    //
+    // (The claim before that — "a corrupted URL produces no annotation at all"
+    // — was also wrong, read off the same Node 20 where `getAnnotations()`
+    // returns an empty array whatever the input. Three readings of this one
+    // behaviour, two of them from instruments that could not see it.)
     expect(uris).toContain(url)
   }, 120_000)
 

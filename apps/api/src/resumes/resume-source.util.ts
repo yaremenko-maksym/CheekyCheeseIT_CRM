@@ -81,13 +81,18 @@ export const MAX_PDF_PAGES = 30
  *
  *   O( min( offset of the (limit+1)-th match, decoded bytes ) )
  *
- * and the second term is bounded by NOTHING BUT THIS NUMBER. Measured: 32 MB
- * of operator-free filler stalls the loop ~70 ms, and that figure scales
- * linearly with this cap. Raise it to 128 MB for memory headroom and the stall
- * quadruples, with nothing in the memory-shaped reasoning to hint at it.
+ * and the second term is bounded by NOTHING BUT THIS NUMBER. Measured on 32 MB
+ * of operator-free filler: 56-132 ms depending on how warm the code is, and
+ * that figure scales LINEARLY with this cap. Raise it to 128 MB for memory
+ * headroom and the stall quadruples, with nothing in the memory-shaped
+ * reasoning to hint at it.
  *
- * Pinned by "is bounded by the CONTENT-SIZE cap when the stream holds no
- * operators at all" in resume-text-extraction.service.spec.ts.
+ * Pinned by "pins MAX_PDF_CONTENT_BYTES — raising it also raises a main-thread
+ * stall" in resume-text-extraction.service.spec.ts, which fails on a raise; the
+ * cost itself is characterised by the opt-in `RESUME_PERF` test beside it.
+ * (This used to name a test that no longer exists — the earlier timing gate,
+ * removed when the always-on assertions became functional. A comment citing a
+ * deleted test is the same defect as a comment citing an unmeasured number.)
  */
 export const MAX_PDF_CONTENT_BYTES = 32 * 1024 * 1024
 
@@ -723,15 +728,26 @@ export async function inspectPdfContent(
  * the limit, and the true total is precisely the number that is expensive to
  * learn.
  *
- * A BYTE SCAN, not a regex over a decoded string, and that is the second fix.
- * The early exit alone left the SPARSE case — an input with FEWER matches than
- * the limit never reaches the exit and is walked end to end. Profiled by the
- * reviewer on 32 MB of operator-free filler: `Buffer.toString('latin1')` costs
- * 3-5 ms, while the `RegExp.exec` loop costs ~44 ms on an idle machine and
- * ~499 ms on a CI runner. The regex engine was the expense, not the string, so
- * scanning the buffer directly removes both — and skips the 32 MB string
- * allocation as well, which is what made the fixtures push the whole suite into
- * memory pressure.
+ * A BYTE SCAN, not a regex over a decoded string — and the honest accounting of
+ * what that bought is NOT what an earlier version of this comment claimed.
+ *
+ * It does NOT remove the sparse cost. Re-measured on 32 MB of operator-free
+ * filler: regex 56-83 ms, byte scan 65-78 ms — the same order. On warm code the
+ * scan is markedly WORSE: 132.0 ms against 26.4 ms, about five times slower,
+ * because V8's regex engine compiles to native code while this loop stays
+ * interpreted JavaScript per byte. So the worst case on the main thread went
+ * UP, and saying otherwise papered over a regression.
+ *
+ * What it genuinely bought, also measured:
+ *
+ *   peak memory   96 MB -> 67 MB   (the 32 MB decoded string is never built —
+ *                                   this is what un-wedged the test suite)
+ *   dense path   4.4 ms -> 0.4 ms  (the early exit stops after limit+1 matches
+ *                                   instead of walking to the first mismatch)
+ *
+ * Both are worth keeping, and neither is "the regex was the expense". The
+ * sparse walk is still O(decoded bytes) and is still the residual cost; the
+ * only thing bounding it is `MAX_PDF_CONTENT_BYTES`.
  *
  * WHAT THIS STILL DOES **NOT** MAKE BOUNDED — the honest half, restated.
  * The sparse case is now cheap, but it is still O(decoded bytes): the floor
