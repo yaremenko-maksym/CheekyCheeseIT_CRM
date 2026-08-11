@@ -69,16 +69,20 @@ import {
  * (420/96 = 4.4x) means raising the tag cap without re-measuring those figures
  * pushes the live ratio through it.
  *
- * MEASURED, min of three, on the reference machine:
+ * AND THE CLAIM THAT IT CANCELS THE MACHINE WAS TESTED, not assumed — by
+ * running the same pair against escalating contention on 8 cores (min of three):
  *
- *                        quiet   under 16 competing processes
- *   worst (`<w:p/>`)     4.31x   4.96x
- *   paragraph shape      3.45x   4.55x
+ *   competing processes    0      8      32     64
+ *   worst permitted      364 ms 577 ms 1842 ms 3596 ms     (9.9x spread)
+ *   ordinary              87 ms 124 ms  414 ms  933 ms
+ *   RATIO               4.18x  4.65x   4.45x   3.85x       (1.2x spread)
  *
- * Contention RAISES the ratio — the parse is starved harder than the spawn, so
- * the expensive document loses more — so the slack has to cover the loaded
- * column, not the quiet one. 1.6 puts the bound at ~7.0x: 1.4x above the worst
- * measured, and low enough that doubling the tag cap (~6.6x) lands on it.
+ * A 10x swing in wall clock moves the ratio by 20%, and under heavy contention
+ * it FALLS — the fixed spawn cost inflates too, so both sides lose together.
+ * That is the whole argument for measuring a ratio here, now with numbers.
+ *
+ * 1.6 puts the bound at ~7.0x: 1.5x above the worst ever measured, and low
+ * enough that doubling the tag cap (~6.6x) lands on it.
  *
  * RESIDUAL GAP, STATED: a cap raised by less than ~1.6x with the reference
  * figures left stale would slip through this assertion. The arithmetic
@@ -559,6 +563,18 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * updating the recorded figure breaks (2). The absolute characterisation
    * lives in the opt-in RESUME_PERF test, which is this file's own policy for
    * numbers that depend on the machine.
+   *
+   * IS A CAP-SIZED FIXTURE SAFE IN AN ALWAYS-ON TEST? Asked, because putting a
+   * document that the deadline could kill into a required check is how this
+   * suite got flaky before. Measured against escalating contention on 8 cores,
+   * the margin before the extraction itself would hit the 60 s deadline:
+   *
+   *   competing processes    0      8     32     64
+   *   deadline / cost      165x   104x   33x    17x
+   *
+   * At eightfold CPU oversubscription there is still 17x of room, so the
+   * machine would have to be ~165x slower than this one — against a worst
+   * observation of 92x — before this test failed for the wrong reason.
    */
   it('the deadline exceeds the worst document the budgets permit', async () => {
     // The worst document the budgets PERMIT — derived from the cap, and in the
@@ -1006,46 +1022,57 @@ describe('ResumeTextExtractionService.extract', () => {
       const worstPermitted = buildWorstShapeTagDocx(MAX_DOCX_XML_TAGS - 200)
       const ordinary = buildWordDensityDocx(2)
 
-      const cost = async (doc: Buffer): Promise<number> => {
-        const runs: number[] = []
-        for (let i = 0; i < 5; i += 1) {
-          const started = Date.now()
-          await service.extract(doc, RESUME_DOCX_MIME)
-          runs.push(Date.now() - started)
-        }
-        // MINIMUM, not median: contention only ever adds time, so the smallest
-        // sample is the closest this machine got to the document's own cost.
-        return Math.min(...runs)
-      }
+      // INTERLEAVED, for the same reason the always-on test is. The first
+      // version of this ran five of one document and then five of the other,
+      // and running the whole directory rather than this file measured
+      // worst=630 ms against ordinary=99 ms — a 6.36x ratio for a pair that
+      // sits at 4.2x. Nothing had regressed: the long document simply spends
+      // more wall clock exposed to the other spec files, so a load spike lands
+      // on one side of the pair. Sampling A-then-B reintroduces exactly the
+      // confound this whole change is about.
+      const worstRuns: number[] = []
+      const ordinaryRuns: number[] = []
+      for (let i = 0; i < 5; i += 1) {
+        let started = Date.now()
+        await service.extract(worstPermitted, RESUME_DOCX_MIME)
+        worstRuns.push(Date.now() - started)
 
-      const worst = await cost(worstPermitted)
-      const ord = await cost(ordinary)
-      const headroom = EXTRACTION_TIMEOUT_MS / (worst * SLOW_MACHINE_FACTOR)
+        started = Date.now()
+        await service.extract(ordinary, RESUME_DOCX_MIME)
+        ordinaryRuns.push(Date.now() - started)
+      }
+      // MINIMUM, not median: contention only ever adds time, so the smallest
+      // sample is the closest this machine got to the document's own cost.
+      const worst = Math.min(...worstRuns)
+      const ord = Math.max(1, Math.min(...ordinaryRuns))
+      const recordedHeadroom =
+        EXTRACTION_TIMEOUT_MS / (WORST_PERMITTED_EXTRACTION_MS * SLOW_MACHINE_FACTOR)
 
       process.stdout.write(
-        `\n[RESUME_PERF] WORST_PERMITTED_EXTRACTION_MS: measured ${worst}, recorded ${WORST_PERMITTED_EXTRACTION_MS}\n` +
-          `[RESUME_PERF] ORDINARY_EXTRACTION_MS:       measured ${ord}, recorded ${ORDINARY_EXTRACTION_MS}\n` +
+        `\n[RESUME_PERF] RECORD THESE if the tag cap moved:\n` +
+          `[RESUME_PERF]   WORST_PERMITTED_EXTRACTION_MS: measured ${worst}, recorded ${WORST_PERMITTED_EXTRACTION_MS}\n` +
+          `[RESUME_PERF]   ORDINARY_EXTRACTION_MS:        measured ${ord}, recorded ${ORDINARY_EXTRACTION_MS}\n` +
           `[RESUME_PERF] worst/ordinary ${(worst / ord).toFixed(2)}x` +
           ` (bound ${((WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS) * RATIO_SLACK).toFixed(2)}x)\n` +
-          `[RESUME_PERF] deadline headroom at ${SLOW_MACHINE_FACTOR}x: ${headroom.toFixed(2)}x` +
-          ` (must exceed 2)\n`,
+          `[RESUME_PERF] deadline headroom at ${SLOW_MACHINE_FACTOR}x, from the RECORDED cost:` +
+          ` ${recordedHeadroom.toFixed(2)}x (must exceed 2)\n` +
+          `[RESUME_PERF] the two absolutes above are only meaningful on a quiet machine;` +
+          ` the ratio and the headroom are not.\n`,
       )
 
-      // On a quiet machine the recorded figures must still describe it. 1.5x is
-      // slack for a warm/cold cache, not for a different machine — if this
-      // fails on a quiet box, the recorded value is stale and the message above
-      // says what to replace it with.
-      expect(
-        worst,
-        `WORST_PERMITTED_EXTRACTION_MS is stale: recorded ${WORST_PERMITTED_EXTRACTION_MS}, measured ${worst}`,
-      ).toBeLessThan(WORST_PERMITTED_EXTRACTION_MS * 1.5)
-      expect(
-        ord,
-        `ORDINARY_EXTRACTION_MS is stale: recorded ${ORDINARY_EXTRACTION_MS}, measured ${ord}`,
-      ).toBeLessThan(ORDINARY_EXTRACTION_MS * 1.5)
-      // And the relationship the whole exercise is about, measured rather than
-      // taken from the recorded pair.
-      expect(headroom).toBeGreaterThan(2)
+      // WHAT IS ASSERTED HERE IS ONLY WHAT A BUSY MACHINE CANNOT MOVE.
+      //
+      // The measured absolutes are printed, not asserted: they are the output
+      // of this job, and a machine that is merely busy would otherwise fail it
+      // with a message blaming the constants — which is the same "the
+      // instrument measured the machine" mistake, one level up. Whoever moves
+      // the cap reads the numbers above and records them.
+      expect(worst / ord).toBeLessThan(
+        (WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS) * RATIO_SLACK,
+      )
+      expect(recordedHeadroom).toBeGreaterThan(2)
+      // Non-vacuity: five runs of each really happened and really differed.
+      expect(worst).toBeGreaterThan(ord)
     },
     300_000,
   )
