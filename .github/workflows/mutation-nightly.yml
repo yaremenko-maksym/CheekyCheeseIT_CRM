@@ -1,0 +1,247 @@
+# Nightly full mutation sweep (task-mutation-gate, 2026-08-11).
+#
+# The PR gate in ci.yml mutates ONLY the lines a branch changed. That is what
+# makes "one surviving mutant = red" affordable, and it is also its blind spot:
+# everything written before the gate existed is invisible to it forever. This
+# workflow is the other half — the whole repository, every night, on `main`.
+#
+# It is deliberately NOT a merge gate. Nothing here blocks a PR; the output is an
+# inventory of tests that cannot fail, delivered to the channel the owner already
+# watches (scripts/devops/post-merge-alert.sh, the same script ci.yml and
+# deploy-alert.yml use, with KIND=mutation selecting the text and the dedup
+# label). One open issue at a time, a comment per night while it is still red,
+# auto-closed the night nothing survives.
+#
+# EXPECT IT TO BE RED THE FIRST NIGHT. On the day this shipped, a single
+# 386-line component's own (good, real) test file left 57 mutants alive, and the
+# most recent merged PR at the time left 4. That backlog is the point: the task
+# that introduced this workflow explicitly does not fix those, it surfaces them.
+# A nightly rigged to be green on day one would be one more check that cannot
+# fail.
+name: Mutation (nightly full sweep)
+
+on:
+  schedule:
+    # 02:17 UTC — off the hour, so it does not queue behind everyone else's
+    # midnight crons on the shared runner pool.
+    - cron: '17 2 * * *'
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'Comma-separated package filter, e.g. "@crm/shared" (default: all three)'
+        required: false
+        default: ''
+
+# Never two sweeps at once; a running one is not cancelled, because a sweep that
+# is 80% done is worth more than a fresh one that starts over.
+concurrency:
+  group: mutation-nightly
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sweep:
+    name: Sweep (${{ matrix.package.name }})
+    runs-on: ubuntu-latest
+    # Below GitHub's 6h hard kill AND above MUTATION_BUDGET_SECONDS, so the
+    # script's own explicit "budget exhausted" message wins the race against a
+    # silent runner shutdown. Order matters: a job killed by GitHub leaves no
+    # explanation at all.
+    timeout-minutes: 330
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - { name: '@crm/shared', slug: 'shared' }
+          - { name: '@crm/api', slug: 'api' }
+          - { name: '@crm/web', slug: 'web' }
+    env:
+      # The unit suites are DB-free (integration specs exclude themselves without
+      # DATABASE_URL — see apps/api/vitest.config.mts); these only exist so the
+      # env schema validates at import time, exactly as in ci.yml's quality job.
+      S3_ENDPOINT: http://localhost:9000
+      S3_FORCE_PATH_STYLE: 'true'
+      S3_REGION: us-east-1
+      S3_BUCKET: crm-documents
+      S3_USE_SSE: 'false'
+      AWS_ACCESS_KEY_ID: minioadmin
+      AWS_SECRET_ACCESS_KEY: minioadmin
+    steps:
+      # Full history: mutation-gate-vacuum-proof.sh (run in the web leg below)
+      # derives its diff base from the commit that ADDED the component under
+      # test, which a shallow clone cannot see.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 7.32.4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'pnpm'
+
+      - uses: actions/cache@v4
+        id: typst-cache
+        with:
+          path: ~/.cache/crm-typst-bin
+          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
+
+      # apps/api's résumé specs assert loudly rather than skip when Typst is
+      # missing (apps/api/src/test/typst-availability.ts), so without the binary
+      # the api leg's very first unmutated test run is red and Stryker refuses to
+      # start. Same install path as ci.yml — version and checksum parsed out of
+      # apps/api/Dockerfile, never duplicated here.
+      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
+        if: steps.typst-cache.outputs.cache-hit != 'true'
+        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
+
+      - name: Add Typst to PATH
+        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+
+      - run: pnpm install --frozen-lockfile
+
+      # apps/web's vitest resolves @crm/shared through its built entry point when
+      # it does not detect a worktree (which is the case in a plain CI checkout,
+      # and also inside Stryker's sandbox — the sandbox has no .git, so the
+      # worktree-alias branch in apps/web/vitest.config.ts is off there too).
+      - run: pnpm build
+
+      # The gate's own teeth, checked against a defect that really happened:
+      # the 2026-08-07 vacuum test, which passes 11/11 against the hardened
+      # component and kills none of its five XSS-defence mutants. Runs in the web
+      # leg because that is where its subject lives and everything it needs is
+      # already installed. If this ever fails, the gate stopped discriminating
+      # between a real test and one that cannot fail — which matters more than
+      # any number the sweep below produces.
+      - name: Gate self-check (catches the 2026-08-07 vacuum test)
+        if: matrix.package.slug == 'web'
+        run: bash scripts/devops/mutation-gate-vacuum-proof.sh
+
+      # 5h, under the 330-minute job timeout above. Survivors do NOT fail this
+      # step (MUTATION_SURVIVOR_BUDGET is effectively unlimited): the count is
+      # the payload of the alert, and a red step here would be indistinguishable
+      # from "the sweep could not run". Budget exhaustion and Stryker crashes
+      # still exit non-zero, which is exactly the distinction wanted.
+      #
+      # 18000s is a CEILING, not a measurement. Measured before this shipped:
+      # `packages/shared` sweeps 2291 mutants in 140s; `apps/web` instruments to
+      # 27947 mutants and was NOT run to completion, so its wall clock on a
+      # 2-core runner is unknown and may exceed this. Deliberately left as-is
+      # rather than padded to a number nobody has seen: exhausting the budget
+      # produces a specific red naming the package and the elapsed time — a real
+      # measurement — while a guess here would just look authoritative. Set these
+      # per leg from what the first nightly run reports; if apps/web cannot
+      # finish in one night, split that leg by directory rather than pushing the
+      # budget towards GitHub's 6h job ceiling.
+      - name: Full mutation sweep
+        id: sweep
+        env:
+          MUTATION_BUDGET_SECONDS: '18000'
+          MUTATION_SURVIVOR_BUDGET: '999999'
+          MUTATION_PACKAGES: ${{ inputs.packages || matrix.package.name }}
+        run: node scripts/devops/mutation-gate.mjs --full
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-${{ matrix.package.slug }}
+          path: reports/mutation/
+          retention-days: 30
+          if-no-files-found: ignore
+
+  alert:
+    name: Nightly Mutation Alert
+    runs-on: ubuntu-latest
+    needs: sweep
+    if: always()
+    permissions:
+      issues: write
+    env:
+      # Private repo — the same channel telemetry-digest.yml and ci.yml's
+      # post-merge alert use, i.e. the one that is actually read. The body
+      # carries run metadata and counts only; the survivor list stays in the
+      # artifacts, per the channel boundary documented in post-merge-alert.sh
+      # (on a missing/expired PAT this falls back to a PUBLIC repo).
+      PRIVATE_REPO: yaremenko-maksym/cheekycheese-telemetry
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 1
+
+      # Missing artifacts are NOT fatal here — a sweep that died before uploading
+      # is exactly the case the tally below has to be able to describe, and a
+      # download step that hard-fails would take the alert down with it.
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with:
+          pattern: mutation-report-*
+          path: downloaded-reports
+
+      # One verdict out of the three legs.
+      #   cancelled / skipped   → `cancelled`, which post-merge-alert.sh treats as
+      #                           a no-op. A sweep the next one superseded is not
+      #                           a finding.
+      #   any leg failed        → failure ("the sweep could not run"): nothing was
+      #                           verified, which is the loudest state.
+      #   survivors > 0         → failure ("tests that cannot fail exist")
+      #   green with 0 reports  → failure too. "Everything passed and produced no
+      #                           evidence" is the shape of every bug this repo
+      #                           has been chasing all week; it must never read as
+      #                           a clean night.
+      #   all green, 0 survivors→ success, and any open issue is closed
+      - name: Tally survivors
+        id: tally
+        env:
+          SWEEP_RESULT: ${{ needs.sweep.result }}
+        run: |
+          node scripts/devops/check-mutation-tally.mjs downloaded-reports >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
+
+      - name: Read swept commit
+        id: commit
+        run: |
+          DELIM="COMMIT_SUBJECT_EOF_$(openssl rand -hex 8)"
+          {
+            echo "sha=$(git rev-parse HEAD)"
+            echo "subject<<$DELIM"
+            git log -1 --pretty=%s
+            echo "$DELIM"
+          } >> "$GITHUB_OUTPUT"
+
+      # Same probe ci.yml and deploy-alert.yml use — the channel is chosen by
+      # whether the PAT actually WORKS, not by whether it is a non-empty string.
+      - name: Resolve alert channel
+        id: channel
+        env:
+          PAT: ${{ secrets.TELEMETRY_ISSUES_PAT }}
+          PUBLIC_REPO: ${{ github.repository }}
+        run: ./scripts/devops/resolve-alert-channel.sh
+
+      - name: Open / update / close the alert issue
+        env:
+          GH_TOKEN: ${{ steps.channel.outputs.use_pat == 'true' && secrets.TELEMETRY_ISSUES_PAT || github.token }}
+          ALERT_REPO: ${{ steps.channel.outputs.repo }}
+          RESULT: ${{ steps.tally.outputs.result }}
+          FAILED_LEGS: ${{ steps.tally.outputs.detail }}
+          COMMIT_SHA: ${{ steps.commit.outputs.sha }}
+          COMMIT_SUBJECT: ${{ steps.commit.outputs.subject }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          KIND: mutation
+        run: ./scripts/devops/post-merge-alert.sh
+
+      # Visible in the Actions UI too, not only as an issue.
+      - name: Fail the job when mutants survive
+        if: steps.tally.outputs.result == 'failure'
+        env:
+          DETAIL: ${{ steps.tally.outputs.detail }}
+        run: |
+          echo "::error::Nightly mutation sweep: $DETAIL"
+          exit 1

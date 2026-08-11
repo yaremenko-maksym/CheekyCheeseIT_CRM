@@ -264,6 +264,54 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: bash scripts/devops/tests/run-guard-tests.sh
 
+      # ── Mutation gate (task-mutation-gate, 2026-08-11) ────────────────────
+      #
+      # Whole-repo, sub-second, no diff dependency: every `// Stryker disable`
+      # comment must say WHY it is there. Kept separate from — and ahead of —
+      # the gate below, because the gate only ever sees mutants generated inside
+      # the CHANGED lines of this PR, so a suppression that drifts into untouched
+      # code would otherwise never be looked at again.
+      - name: Mutation suppressions must state a reason
+        if: steps.scope.outputs.code == 'true'
+        run: node scripts/devops/check-mutation-suppressions.mjs
+
+      # The gate itself. PR-only on purpose: it mutates the lines this branch
+      # CHANGED, which is a question only a PR has an answer to. On a push to
+      # main the equivalent question is "what survives across the whole
+      # repository", and that is the nightly's job
+      # (.github/workflows/mutation-nightly.yml) — running `--changed` here would
+      # diff main against itself and report a confident, meaningless green.
+      #
+      # No MUTATION_BASE_SHA is passed. The script resolves the base from the
+      # checkout itself: on a `pull_request` event GitHub checks out the MERGE
+      # commit, so HEAD^1 is the exact base tree this PR was merged against —
+      # more trustworthy than `pull_request.base.sha`, which is a snapshot of the
+      # branch tip at event time and can name a different commit than the merge
+      # actually used. `fetch-depth: 2` above is what makes HEAD^1 available (the
+      # same thing dorny/paths-filter relies on). If the base cannot be resolved
+      # the script exits 2 rather than reporting "nothing changed".
+      #
+      # Budget: 15 minutes. On the diffs measured for this PR the gate costs
+      # 3.5s (2 changed lines) to ~10s (223 changed lines, 55 mutants); the
+      # largest recent PR in this repo (#504, 4565 changed lines in apps/api)
+      # generates 2220 mutants and is the case this budget exists for. Exceeding
+      # it is RED with an explicit message, never a silent skip — see the script's
+      # TIME BUDGET section.
+      - name: Mutation gate (changed code only)
+        if: steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
+        env:
+          MUTATION_BUDGET_SECONDS: '900'
+        run: node scripts/devops/mutation-gate.mjs --changed
+
+      - name: Upload mutation report
+        if: always() && steps.scope.outputs.code == 'true' && github.event_name == 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-report-pr-${{ github.event.pull_request.number }}
+          path: reports/mutation/
+          retention-days: 7
+          if-no-files-found: ignore
+
       - name: Docs-only short-circuit
         if: steps.scope.outputs.code != 'true'
         run: echo "Docs-only PR — skipping quality work, satisfying required status."
