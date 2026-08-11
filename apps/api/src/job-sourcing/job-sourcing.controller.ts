@@ -13,11 +13,13 @@ import {
   ServiceUnavailableException,
   UseGuards,
 } from '@nestjs/common'
+import { Throttle } from '@nestjs/throttler'
 import {
   createJobExclusionSchema,
   jobCollectionRunSchema,
   jobExclusionListSchema,
   jobExclusionSchema,
+  jobSourceListSchema,
   jobSuggestionListSchema,
   jobSuggestionSchema,
   type SessionUser,
@@ -107,14 +109,36 @@ export class JobSourcingController {
   }
 
   /**
+   * Configured sources with their remaining request budget — ADMIN only.
+   *
+   * Exists so the remainder is VISIBLE (task-vacancy-matching AC7): a collector
+   * that has stopped because its allowance is spent must be distinguishable, on
+   * screen, from one that simply found nothing today.
+   */
+  @Get('sources')
+  @Roles('ADMIN')
+  async listSources() {
+    return jobSourceListSchema.parse({ items: await this.service.listSources() })
+  }
+
+  /**
    * Manual collection trigger — ADMIN only. The scheduled run
    * (JobSourcingCronService) is the normal path; this exists so an admin can
    * pull the feed right after adding a source instead of waiting a day.
+   *
+   * Throttled deliberately (task-vacancy-matching §5): the budget is the real
+   * defence, and it counts manual runs the same as scheduled ones, but a button
+   * that can be held down is still a way to spend a month's paid quota in a
+   * minute of misclicks. The rate limit makes that take as long as it should.
+   *
+   * Passes `MANUAL`, so this endpoint collects the sources a human is allowed to
+   * trigger — including the expensive ones the cron is not allowed to touch.
    */
   @Post('collect')
   @Roles('ADMIN')
+  @Throttle({ default: { limit: 10, ttl: 60_000 } })
   async collect() {
-    const run = await this.service.collectAll()
+    const run = await this.service.collectAll('MANUAL')
 
     // Code review round 4: this used to answer `200 []` when the only source
     // was broken — indistinguishable from "no new vacancies today" for the

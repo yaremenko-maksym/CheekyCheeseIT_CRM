@@ -396,4 +396,48 @@ describe('validateEnv — Google Indexing API env (Section G)', () => {
   it('PUBLIC_LANDING_ORIGIN — an invalid URL throws', () => {
     expect(() => validateEnv({ ...BASE_DEV, PUBLIC_LANDING_ORIGIN: 'not-a-url' })).toThrow()
   })
+
+  /**
+   * task-vacancy-matching AC4 — the threshold is a SETTING, and a setting that
+   * accepts junk is worse than a constant: the failure is silent and points the
+   * wrong way (the filter switches itself off rather than refusing to boot).
+   *
+   * Every rejection below was verified against the real schema, not assumed —
+   * `""` in particular ACCEPTED as 0 before the preprocess was added, which is
+   * "collapse nothing" installed by a blank line in a .env file.
+   */
+  describe('JOB_MATCH_THRESHOLD (task-vacancy-matching AC4)', () => {
+    it('defaults to 0.2 when omitted', () => {
+      expect(validateEnv({ ...BASE_DEV }).JOB_MATCH_THRESHOLD).toBe(0.2)
+    })
+
+    it('accepts a value inside 0..1', () => {
+      expect(validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '0.5' }).JOB_MATCH_THRESHOLD).toBe(0.5)
+      expect(validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '0' }).JOB_MATCH_THRESHOLD).toBe(0)
+      expect(validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '1' }).JOB_MATCH_THRESHOLD).toBe(1)
+    })
+
+    it('an EMPTY value falls back to the default instead of meaning 0', () => {
+      // `JOB_MATCH_THRESHOLD=` (setting cleared, line left behind) coerces to
+      // the number 0 — which passes a bare `.min(0)` and quietly means "collapse
+      // nothing". The stricter reading is "no value given", i.e. the default.
+      expect(validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '' }).JOB_MATCH_THRESHOLD).toBe(0.2)
+      expect(validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '   ' }).JOB_MATCH_THRESHOLD).toBe(0.2)
+    })
+
+    it('refuses to boot on a non-numeric value rather than reading it as NaN', () => {
+      // NaN would make every `score < threshold` comparison false — nothing ever
+      // collapses, and nothing anywhere says so.
+      expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: 'abc' })).toThrow()
+      expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: 'NaN' })).toThrow()
+    })
+
+    it('refuses a value outside 0..1 in EITHER direction', () => {
+      // 1e21 is the mirror defect: everything is below it, so the queue empties.
+      expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '1e21' })).toThrow()
+      expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '2' })).toThrow()
+      expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: '-1' })).toThrow()
+      expect(() => validateEnv({ ...BASE_DEV, JOB_MATCH_THRESHOLD: 'Infinity' })).toThrow()
+    })
+  })
 })

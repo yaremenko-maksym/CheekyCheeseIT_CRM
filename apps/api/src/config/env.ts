@@ -1,5 +1,12 @@
 import { z } from 'zod'
 
+/**
+ * Default stack-match threshold (task-vacancy-matching AC4). Deliberately
+ * forgiving: collapsing a vacancy the senior would have wanted costs more than
+ * showing one they skip past.
+ */
+export const DEFAULT_JOB_MATCH_THRESHOLD = 0.2
+
 const envSchema = z
   .object({
     NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
@@ -177,6 +184,40 @@ const envSchema = z
     // .github/workflows/deploy.yml (PR #494).
     CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
     CLOUDFLARE_AI_TOKEN: z.string().min(1).optional(),
+
+    // task-vacancy-matching §3 — the stack-match score below which a suggestion
+    // is COLLAPSED (still counted, still one click away; never discarded).
+    //
+    // A SETTING, not a constant, because the right value depends on data we do
+    // not control: the score's denominator is how many skills the senior listed,
+    // so a studio whose seniors write 40 skills needs a lower threshold than one
+    // whose seniors write 8. 0.2 is a deliberately forgiving default — the cost
+    // of collapsing a good vacancy is higher than of showing a mediocre one.
+    //
+    // `.min(0).max(1)` is the guardrail that matters: `z.coerce.number()` turns
+    // "abc" into NaN and "1e21" into a finite monster, and BOTH would sail
+    // through a bare `.number()` — NaN because every comparison against it is
+    // false (so nothing is ever below the threshold: the filter silently turns
+    // itself off), 1e21 because everything is below it (so the queue silently
+    // empties). Zod rejects both here, at boot, loudly. This is the same defect
+    // class the budget code guards against; see source-budget.ts.
+    //
+    // The `preprocess` closes the one hole the range check does NOT: an EMPTY
+    // value. `JOB_MATCH_THRESHOLD=` in a .env file (a blank line left behind
+    // when someone clears a setting) coerces to the number 0, which passes
+    // `.min(0)` and means "collapse nothing" — the filter switched off by an
+    // accident that looks like a no-op. Measured, not assumed: `z.coerce.number()
+    // .min(0).max(1)` accepts `""` as 0. Blank now falls through to the default
+    // instead, so a cleared setting restores the standard behaviour rather than
+    // silently removing it.
+    // `.default()` sits INSIDE the preprocess on purpose: it only fires for an
+    // `undefined` INPUT to the schema it is attached to, so an outer default
+    // would never see the `undefined` this preprocess produces for a blank
+    // string — the coercion would turn it into NaN first.
+    JOB_MATCH_THRESHOLD: z.preprocess(
+      (v) => (typeof v === 'string' && v.trim() === '' ? undefined : v),
+      z.coerce.number().min(0).max(1).default(DEFAULT_JOB_MATCH_THRESHOLD),
+    ),
   })
   .refine((env) => env.NODE_ENV !== 'production' || env.AWS_ACCESS_KEY_ID !== 'minioadmin', {
     message:
