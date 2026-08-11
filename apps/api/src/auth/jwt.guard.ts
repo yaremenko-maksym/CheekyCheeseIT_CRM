@@ -1,15 +1,17 @@
 import {
   CanActivate,
   ExecutionContext,
+  Inject,
   Injectable,
   Optional,
   UnauthorizedException,
+  forwardRef,
 } from '@nestjs/common'
 import { Reflector } from '@nestjs/core'
 import { JwtService } from '@nestjs/jwt'
 import type { FastifyRequest } from 'fastify'
 import { jwtPayloadSchema, type JwtPayload } from '@crm/shared'
-import type { UsersService } from '../users/users.service'
+import { UsersService } from '../users/users.service'
 import { IS_PUBLIC_KEY } from './public.decorator'
 import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './cookie-names'
 
@@ -55,9 +57,38 @@ import { JWT_COOKIE_HARDENED, JWT_COOKIE_LEGACY } from './cookie-names'
  *   • External cache eviction (instant role propagation without TTL wait) is
  *     not implemented. For a single-container deployment TTL ≤ 60 s is
  *     acceptable; add Redis-backed eviction if horizontal scaling is required.
- *   • UsersService is injected as @Optional() to maintain backward-compat with
- *     unit tests that construct the guard directly without DI. When absent, the
- *     guard falls back to the raw JWT payload role (legacy behaviour).
+ *
+ * ── How UsersService is injected (do NOT "simplify" this) ───────────────────
+ *
+ * The `usersService` parameter carries an EXPLICIT DI token
+ * (`@Inject(forwardRef(() => UsersService))`) instead of relying on the token
+ * TypeScript emits into `design:paramtypes`. That is deliberate: this guard
+ * previously declared the dependency in a shape whose emitted token was a bare
+ * `Object`, so the container could not resolve it and every DI-built instance
+ * silently received `undefined` — i.e. the DB re-hydration below (AC2) never
+ * ran in the compiled application, and roles came straight from the token.
+ *
+ * Two independent declaration details break that emission, and BOTH were
+ * present here:
+ *   1. `import type { UsersService }` — a type-only import erases the runtime
+ *      class, so the emitted token degrades (to `Function`/`Object`).
+ *   2. `usersService: UsersService | undefined` — an explicit union with
+ *      `undefined` emits `Object`, even with a value import. The optional-
+ *      parameter form (`usersService?: UsersService`) does NOT have this
+ *      problem, which is why it is used below.
+ * The value import + optional-parameter form + explicit `@Inject` token are
+ * three overlapping defences; keep all three.
+ *
+ * `forwardRef` is required because the module graph is circular
+ * (jwt.guard → users.service → users.module → auth.module → jwt.guard); the
+ * arrow is evaluated at resolution time, not at decoration time. Same pattern
+ * as `OnboardingGuard` (see onboarding.guard.ts).
+ *
+ * `@Optional()` only keeps DIRECT construction (`new JwtAuthGuard(jwt, refl)`)
+ * working for unit tests. It is NOT a licence for the application to run
+ * without the service: `assertJwtAuthGuardsWired()` (jwt-guard-wiring.ts) is
+ * called during bootstrap and refuses to start the process if any DI-built
+ * instance lacks it — see that file for why a test cannot cover this.
  */
 
 /** Cache TTL for DB-hydrated user records. 60 s balances freshness vs DB load. */
@@ -127,8 +158,25 @@ export class JwtAuthGuard implements CanActivate {
   constructor(
     private jwt: JwtService,
     private reflector: Reflector,
-    @Optional() private usersService: UsersService | undefined,
+    // Explicit token — never rely on `design:paramtypes` here. See the class
+    // doc block ("How UsersService is injected") before changing this line.
+    @Optional()
+    @Inject(forwardRef(() => UsersService))
+    private usersService?: UsersService,
   ) {}
+
+  /**
+   * Bootstrap-time wiring probe used by `assertJwtAuthGuardsWired()`.
+   *
+   * Exposed as a method (rather than making `usersService` public) so the
+   * assertion can inspect a DI-built instance without widening the guard's
+   * public surface. Checks for the actual method the request path calls, not
+   * merely truthiness, so a mis-wired token that resolves to some unrelated
+   * provider is caught too.
+   */
+  isRoleRevocationWired(): boolean {
+    return typeof this.usersService?.findById === 'function'
+  }
 
   async canActivate(ctx: ExecutionContext): Promise<boolean> {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
@@ -185,12 +233,17 @@ export class JwtAuthGuard implements CanActivate {
    * and cache-MISS — the archivedAt flag is stored in the cache entry so
    * revocation-by-archive takes effect within TTL, not only on cache expiry.
    *
-   * Falls back to the JWT payload role when UsersService is not injected
-   * (e.g. unit tests that construct the guard without full DI).
+   * The `!this.usersService` branch below is reachable ONLY from direct
+   * construction (`new JwtAuthGuard(jwt, reflector)` in unit/integration
+   * specs). In the running application it is unreachable by construction:
+   * `assertJwtAuthGuardsWired()` runs during bootstrap and aborts the process
+   * if any DI-built guard lacks the service, so the app cannot serve a single
+   * request while that branch is live.
    */
   private async resolveCurrentUser(jwtUser: JwtPayload): Promise<JwtPayload> {
     if (!this.usersService) {
-      // No DI service available (legacy unit-test path) — return payload as-is.
+      // Direct-construction path only — see the doc block above. Not a
+      // production code path; the bootstrap assertion guarantees that.
       return jwtUser
     }
 

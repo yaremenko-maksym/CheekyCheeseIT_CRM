@@ -124,6 +124,45 @@ jobs:
           key: turbo-${{ runner.os }}-${{ github.sha }}
           restore-keys: turbo-${{ runner.os }}-
 
+      # Typst binary (task-resume-template, PR #504): apps/api/src/test/typst-availability.ts
+      # asserts loudly — rather than skipping — when Typst isn't on PATH, because "a suite
+      # that quietly does nothing when a tool is missing is the exact failure this project
+      # keeps paying for" (that file's own header). The résumé render specs need the REAL
+      # binary, and it must be the EXACT version apps/api/Dockerfile's `typst` build stage
+      # ships: résumé PDF byte-determinism (PR #504's AC1) depends on every environment —
+      # CI, prod, a developer's machine — rendering with the same Typst build, since Typst
+      # gives no cross-version guarantee on glyph shaping/layout.
+      #
+      # Version + checksum are NOT duplicated here. A second hardcoded copy in this file is
+      # exactly the shape of drift this repo's other guards exist to catch after the fact
+      # (check-prod-ddl-wiring.py, check-ssh-action-capture-stdout-version.py) — this instead
+      # removes the second place to drift: install-typst-from-dockerfile.sh parses BOTH the
+      # version and the SHA-256 straight out of apps/api/Dockerfile's typst stage at every
+      # run and checksum-verifies the download against that parsed pin (same fail-closed
+      # `sha256sum -c` the Dockerfile itself uses). Bump TYPST_VERSION in the Dockerfile and
+      # the very next CI run installs the new pin with no second edit anywhere; if the
+      # Dockerfile's own pin is ever wrong, the checksum step rejects the download outright
+      # instead of silently installing an unverified binary. See that script's own header for
+      # the full rationale and scripts/devops/tests/test-install-typst-from-dockerfile.sh for
+      # the proof (positive case + checksum-mismatch + Dockerfile-parse-broke, all asserted).
+      #
+      # Cached on the Dockerfile's own hash, so a version bump there also busts this cache —
+      # no separate cache-key bump to remember.
+      - uses: actions/cache@v4
+        id: typst-cache
+        if: steps.scope.outputs.code == 'true'
+        with:
+          path: ~/.cache/crm-typst-bin
+          key: typst-${{ runner.os }}-${{ hashFiles('apps/api/Dockerfile') }}
+
+      - name: Install Typst (version + checksum parsed from apps/api/Dockerfile)
+        if: steps.scope.outputs.code == 'true' && steps.typst-cache.outputs.cache-hit != 'true'
+        run: scripts/devops/install-typst-from-dockerfile.sh "$HOME/.cache/crm-typst-bin"
+
+      - name: Add Typst to PATH
+        if: steps.scope.outputs.code == 'true'
+        run: echo "$HOME/.cache/crm-typst-bin" >> "$GITHUB_PATH"
+
       - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
