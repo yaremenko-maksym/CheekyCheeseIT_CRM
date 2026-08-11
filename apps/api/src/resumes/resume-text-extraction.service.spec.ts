@@ -19,6 +19,7 @@ import {
   MAX_CONCURRENT_EXTRACTIONS,
   ResumeFileUnreadableError,
   ResumeTextExtractionService,
+  ORDINARY_EXTRACTION_MS,
   SLOW_MACHINE_FACTOR,
   WORST_PERMITTED_EXTRACTION_MS,
 } from './resume-text-extraction.service'
@@ -54,28 +55,38 @@ import {
   buildTagCountDocx,
   buildWordDensityDocx,
   buildWordTagDensityDocx,
+  buildWorstShapeTagDocx,
   buildZip,
 } from '../test/resume-fixtures'
 
 /**
- * How much more the worst PERMITTED document may cost than an ordinary resume,
- * measured back to back on the same machine.
+ * How much slack the ratio assertion allows over the ratio the two recorded
+ * reference costs already imply.
  *
- * A ratio rather than a ceiling, because an absolute ceiling is a statement
- * about the machine (see the comment on the comparison test). MEASURED, min of
- * three, on this machine:
+ * DERIVED, NOT PICKED — that distinction is the point. A hand-chosen ceiling
+ * drifts away from what the constants claim and stops testing them; deriving
+ * the bound from `WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS`
+ * (420/96 = 4.4x) means raising the tag cap without re-measuring those figures
+ * pushes the live ratio through it.
+ *
+ * MEASURED, min of three, on the reference machine:
  *
  *                        quiet   under 16 competing processes
- *   paragraph shape      3.45x   4.55x
  *   worst (`<w:p/>`)     4.31x   4.96x
+ *   paragraph shape      3.45x   4.55x
  *
- * Contention RAISES it slightly — the parse is starved harder than the spawn,
- * so the expensive document loses more — which is why the bound sits well above
- * the loaded figures. 10x leaves ~2x over the worst of them while still
- * catching the defect: with the byte budget alone the worst permitted document
- * was ~699 000 tags, which measures ~15x an ordinary resume.
+ * Contention RAISES the ratio — the parse is starved harder than the spawn, so
+ * the expensive document loses more — so the slack has to cover the loaded
+ * column, not the quiet one. 1.6 puts the bound at ~7.0x: 1.4x above the worst
+ * measured, and low enough that doubling the tag cap (~6.6x) lands on it.
+ *
+ * RESIDUAL GAP, STATED: a cap raised by less than ~1.6x with the reference
+ * figures left stale would slip through this assertion. The arithmetic
+ * assertion beside it then only bites once someone updates them honestly.
+ * Closing that properly needs the reference costs re-measured in CI, which is
+ * the RESUME_PERF job and not an always-on gate.
  */
-const MAX_WORST_TO_ORDINARY_RATIO = 10
+const RATIO_SLACK = 1.6
 
 /**
  * Sample the event loop every 10 ms and report the worst gap.
@@ -550,11 +561,12 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * numbers that depend on the machine.
    */
   it('the deadline exceeds the worst document the budgets permit', async () => {
-    // The worst document the budgets PERMIT — derived from the cap, not from a
-    // fixture that once happened to sit near it. The previous version measured
-    // a 40-page CV instead, which is neither the worst permitted document nor
-    // in any fixed relationship to it.
-    const worstPermitted = buildTagCountDocx(MAX_DOCX_XML_TAGS - 6_000)
+    // The worst document the budgets PERMIT — derived from the cap, and in the
+    // worst SHAPE for it (`<w:p/>`, ~1.85 us per tag). The previous version
+    // measured a 40-page CV, which is neither the worst permitted document nor
+    // in any fixed relationship to it; a paragraph-shaped fixture at the same
+    // cap would still understate the cost by ~25%.
+    const worstPermitted = buildWorstShapeTagDocx(MAX_DOCX_XML_TAGS - 200)
     const ordinary = buildWordDensityDocx(2)
 
     // Interleaved and taken as the MINIMUM of three: contention only ever adds
@@ -579,9 +591,10 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // expensive end of what we accept, and the measurement really ran.
     expect(worstCost).toBeGreaterThan(ordinaryCost)
 
-    // (1) Machine-independent — see MAX_WORST_TO_ORDINARY_RATIO for the
-    // measurements behind the number.
-    expect(worstCost).toBeLessThan(ordinaryCost * MAX_WORST_TO_ORDINARY_RATIO)
+    // (1) Machine-independent, and its bound comes from the two recorded
+    // reference costs rather than from taste — see RATIO_SLACK.
+    const allowedRatio = (WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS) * RATIO_SLACK
+    expect(worstCost / ordinaryCost).toBeLessThan(allowedRatio)
 
     // (2) The two constants, compared — the assertion the whole exercise is
     // for, with no clock in it. If the worst permitted document costs
@@ -685,6 +698,53 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // OOM; `ulimit -v` is enforced against reservations and aborts in C++.
     expect(EXTRACTION_HEAP_MB).toBeGreaterThanOrEqual(768)
     expect(`--max-old-space-size=${EXTRACTION_HEAP_MB}`).toMatch(/^--max-old-space-size=\d+$/)
+  })
+
+  /**
+   * THE TWO WAYS EVERY PREVIOUS BUDGET IN THIS FILE WAS WALKED AROUND, asked of
+   * the new one before someone else asks.
+   *
+   * The parse-byte budget was bypassed three times, and each bypass was the
+   * same move: find the code path the accounting does not run on. So the tag
+   * budget is asked the same two questions up front — does it hold when the
+   * part is STORED rather than deflated (a different branch of `measureEntry`,
+   * and historically the untested one), and does it hold when the work is SPLIT
+   * across parts (`mammoth` parses document.xml, styles.xml and numbering.xml,
+   * so a per-part budget would charge a fraction of what the parser pays).
+   *
+   * Both carry their own non-vacuity: the half that should pass is asserted to
+   * pass, so neither test can go green by refusing everything.
+   */
+  it('counts tags in a STORED part too — not deflating is not a bypass', async () => {
+    // `buildDocx` stores its entries uncompressed, so this goes through
+    // `measureEntry`'s STORED branch and never touches `inflateAndClassify`.
+    const stored = buildDocx(Array.from({ length: 25_000 }, (_, i) => `p${i}`))
+    const info = await inspectDocxZip(buildDocx(['короткое резюме']))
+    // Non-vacuity: a small stored document is still accepted and still counted.
+    expect(info.actualXmlTags).toBeGreaterThan(0)
+
+    expect(stored.length).toBeLessThan(MAX_DOCX_PARSED_BYTES) // under the byte cap
+    await expect(inspectDocxZip(stored)).rejects.toThrow(/XML-элементов/)
+  })
+
+  it('shares the tag budget across parts, so splitting a bomb in two buys nothing', async () => {
+    const body = (tags: number) => '<w:p/>'.repeat(tags)
+    const wrap = (inner: string) =>
+      `<?xml version="1.0" encoding="UTF-8" standalone="yes"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${inner}</w:body></w:document>`
+    const parts = (tagsEach: number) => [
+      { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES_FIXTURE, 'utf8') },
+      { name: '_rels/.rels', data: Buffer.from(RELS_FIXTURE, 'utf8') },
+      { name: 'word/document.xml', data: Buffer.from(wrap(body(tagsEach)), 'utf8'), deflate: true },
+      { name: 'word/styles.xml', data: Buffer.from(wrap(body(tagsEach)), 'utf8'), deflate: true },
+    ]
+
+    // Non-vacuity: each half on its own is comfortably inside the budget, so
+    // the refusal below can only come from the two being added together.
+    const half = Math.floor(MAX_DOCX_XML_TAGS * 0.7)
+    const onlyOne = buildZip(parts(half).filter((p) => p.name !== 'word/styles.xml'))
+    await expect(inspectDocxZip(onlyOne)).resolves.toBeTruthy()
+
+    await expect(inspectDocxZip(buildZip(parts(half)))).rejects.toThrow(/XML-элементов/)
   })
 
   it('pins MAX_PDF_CONTENT_BYTES — raising it also raises a main-thread stall', () => {

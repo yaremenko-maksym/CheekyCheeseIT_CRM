@@ -367,6 +367,33 @@ export const DOCX_FIXTURE_TAGS_PER_PARAGRAPH = 6
 export const DOCX_FIXTURE_FIXED_TAGS = 14
 
 /**
+ * A DOCX whose body is exactly the XML given — for shapes `documentXml`'s
+ * paragraph template cannot express.
+ */
+export function buildDocxRawBody(body: string): Buffer {
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
+    { name: '_rels/.rels', data: Buffer.from(RELS, 'utf8'), deflate: true },
+    { name: 'word/document.xml', data: Buffer.from(xml, 'utf8'), deflate: true },
+  ])
+}
+
+/**
+ * The MOST EXPENSIVE document a given tag budget permits: a run of `<w:p/>`.
+ *
+ * One tag per element and six bytes each, so it reaches any tag count at the
+ * lowest possible byte cost — and it measured the worst cost per tag of every
+ * shape tried (1.85 us against 1.43 for ordinary paragraphs, 1.14 for table
+ * cells, 1.10 for many runs in one paragraph). A "worst permitted document"
+ * fixture that used the paragraph shape would understate the cap by ~25%.
+ */
+export function buildWorstShapeTagDocx(tags: number): Buffer {
+  return buildDocxRawBody('<w:p/>'.repeat(Math.max(1, tags - DOCX_FIXTURE_FIXED_TAGS)))
+}
+
+/**
  * A DOCX carrying approximately `tags` XML tags, as cheaply in bytes as the
  * paragraph shape allows — for exercising the TAG budget without the byte
  * budget interfering.

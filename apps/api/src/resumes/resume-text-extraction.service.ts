@@ -120,6 +120,19 @@ export const EXTRACTION_TIMEOUT_MS = 60_000
 export const WORST_PERMITTED_EXTRACTION_MS = 420
 
 /**
+ * End-to-end cost of an ORDINARY resume (a two-page CV at real Word density)
+ * on the same reference machine, min of three: 95, 96, 97 ms.
+ *
+ * Its only job is to be the DENOMINATOR. A test can measure this document on
+ * whatever machine it is running on, divide, and recover how much slower that
+ * machine is — which turns the absolute figure above into something a test can
+ * check without owning a clock it can trust. Re-derive both together or not at
+ * all; a stale pair is worse than none because the ratio between them is what
+ * is actually asserted.
+ */
+export const ORDINARY_EXTRACTION_MS = 96
+
+/**
  * How much slower than the reference machine the slowest machine we have
  * actually observed is.
  *
