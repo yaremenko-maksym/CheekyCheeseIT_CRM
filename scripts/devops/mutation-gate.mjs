@@ -470,6 +470,9 @@ function writeConfig(pkg, patterns, reportPath, concurrency) {
     timeoutMS: 20000,
     timeoutFactor: 2,
     mutate: patterns,
+    // No ANSI in either the reporter or Stryker's own logger: this output is
+    // pasted into PR bodies and read out of CI logs as evidence.
+    allowConsoleColors: false,
     clearTextReporter: { allowColor: false, maxTestsToLog: 2 },
   }
   const file = path.join(REPORT_DIR, `stryker-${pkg.name.replace(/[^a-z0-9]+/gi, '-')}.json`)
