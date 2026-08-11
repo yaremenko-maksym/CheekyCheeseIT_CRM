@@ -153,6 +153,24 @@ do_curl() {
 # lines (RESULT=/COUNT=/COMPANY=/REASON=) on stdout for the caller to read —
 # never the raw body itself, and REASON is truncated + single-line so it is
 # safe to fold into the one-line REPORT record above.
+#
+# SHAPE DIAGNOSTICS (task-fix-credential-check-self-diagnosing, 2026-08-11):
+# when an HTTP-200 body parses as JSON but does not have the field/array this
+# script was told to expect, every branch below used to say only "response
+# has no 'X' array" — true, but it left the actual next step (what IS this
+# service calling its array now?) to a human reading a screenshot. That is
+# exactly what happened with RapidAPI twice in a row (see the git history of
+# this file / PR #509 and #510): wrong path, then wrong parse assumption,
+# each one costing a full round trip through a person. shape_hint() below
+# closes that loop generically for all four services, not just RapidAPI —
+# any one of them can rename or restructure its response on its own
+# schedule. On a shape mismatch it reports the top-level field NAMES that
+# actually came back, and — if a top-level array is found — the field NAMES
+# of that array's first record. Names only, never values: the field names
+# are what the next fix needs, and the request-hygiene rule this script
+# already follows (see redact()'s header) is "print the least that gets the
+# point across", not "the response body is secret" — it usually isn't, but
+# there is no reason to print more of it than a field list.
 parse_response() {
   local svc="$1" http="$2" body="$3"
   python3 - "$svc" "$http" "$body" <<'PY'
@@ -169,7 +187,12 @@ except OSError:
 
 
 def emit(result, count, company, reason):
-    reason = " ".join(str(reason or "").split())[:200]
+    # 320, not the original 200: shape_hint() below can legitimately add a
+    # field list (top-level names + one array's first-record names) to this
+    # same string, and truncating THAT away would recreate the exact problem
+    # this change exists to fix — a report that says "didn't match" without
+    # saying what it got instead.
+    reason = " ".join(str(reason or "").split())[:320]
     print(f"RESULT={result}")
     print(f"COUNT={count}")
     print(f"COMPANY={company}")
@@ -183,6 +206,42 @@ def first_reason(d):
         if v:
             return v
     return None
+
+
+# shape_hint(data) — see the parse_response() comment above for why this
+# exists. Names only: field NAMES of the top level, and of the first record
+# of the first top-level array it finds (if any) — never any value. Handles
+# a non-dict/non-list top level too (a bare string/number/null body), since
+# "the shape changed" can mean the envelope itself stopped being an object.
+def shape_hint(data):
+    if isinstance(data, dict):
+        top_keys = list(data.keys())
+        parts = ["top-level fields: " + (", ".join(top_keys) if top_keys else "(none)")]
+        array_key, array_val = None, None
+        for k, v in data.items():
+            if isinstance(v, list):
+                array_key, array_val = k, v
+                break
+        if array_key is None:
+            parts.append("no top-level array field")
+        elif not array_val:
+            parts.append(f"'{array_key}' is an array but it is empty")
+        elif isinstance(array_val[0], dict):
+            item_keys = list(array_val[0].keys())
+            parts.append(
+                f"first array field is '{array_key}', its first record's fields: "
+                + (", ".join(item_keys) if item_keys else "(none)")
+            )
+        else:
+            parts.append(f"first array field is '{array_key}', but its first record is not an object")
+        return "; ".join(parts)
+    if isinstance(data, list):
+        if not data:
+            return "top level is a JSON array (empty)"
+        if isinstance(data[0], dict):
+            return "top level is a JSON array; first record's fields: " + ", ".join(data[0].keys())
+        return "top level is a JSON array of non-object records"
+    return f"top level is not a JSON object or array (type={type(data).__name__})"
 
 
 # failure_label(http) — task-fix-jsearch-search-v2 (2026-08-11): a 404 and a
@@ -231,13 +290,14 @@ except json.JSONDecodeError:
     sys.exit(0)
 
 if not isinstance(data, dict):
-    emit("FAIL", "-", "-", "HTTP 200 but the body is not a JSON object")
+    emit("FAIL", "-", "-", f"HTTP 200 but the body is not a JSON object — {shape_hint(data)}")
     sys.exit(0)
 
 if svc == "jooble":
     jobs = data.get("jobs")
     if not isinstance(jobs, list):
-        emit("FAIL", "-", "-", first_reason(data) or "response has no 'jobs' array")
+        base = first_reason(data) or "response has no 'jobs' array"
+        emit("FAIL", "-", "-", f"{base} — {shape_hint(data)}")
         sys.exit(0)
     count = len(jobs)
     company = "yes" if jobs and isinstance(jobs[0], dict) and jobs[0].get("company") else "no"
@@ -246,7 +306,8 @@ if svc == "jooble":
 elif svc == "adzuna":
     results = data.get("results")
     if not isinstance(results, list):
-        emit("FAIL", "-", "-", first_reason(data) or "response has no 'results' array")
+        base = first_reason(data) or "response has no 'results' array"
+        emit("FAIL", "-", "-", f"{base} — {shape_hint(data)}")
         sys.exit(0)
     count = len(results)
     company = "no"
@@ -258,11 +319,12 @@ elif svc == "adzuna":
 
 elif svc == "careerjet":
     if data.get("type") != "JOBS":
-        emit("FAIL", "-", "-", first_reason(data) or f"type={data.get('type')!r} (expected JOBS)")
+        base = first_reason(data) or f"type={data.get('type')!r} (expected JOBS)"
+        emit("FAIL", "-", "-", f"{base} — {shape_hint(data)}")
         sys.exit(0)
     jobs = data.get("jobs")
     if not isinstance(jobs, list):
-        emit("FAIL", "-", "-", "type=JOBS but no 'jobs' array")
+        emit("FAIL", "-", "-", f"type=JOBS but no 'jobs' array — {shape_hint(data)}")
         sys.exit(0)
     count = len(jobs)
     company = "yes" if jobs and isinstance(jobs[0], dict) and jobs[0].get("company") else "no"
@@ -270,11 +332,12 @@ elif svc == "careerjet":
 
 elif svc == "rapidapi":
     if data.get("status") != "OK":
-        emit("FAIL", "-", "-", first_reason(data) or f"status={data.get('status')!r} (expected OK)")
+        base = first_reason(data) or f"status={data.get('status')!r} (expected OK)"
+        emit("FAIL", "-", "-", f"{base} — {shape_hint(data)}")
         sys.exit(0)
     items = data.get("data")
     if not isinstance(items, list):
-        emit("FAIL", "-", "-", "status=OK but no 'data' array")
+        emit("FAIL", "-", "-", f"status=OK but no 'data' array — {shape_hint(data)}")
         sys.exit(0)
     count = len(items)
     company = "yes" if items and isinstance(items[0], dict) and items[0].get("employer_name") else "no"
