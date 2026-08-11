@@ -318,6 +318,79 @@ export const REAL_WORD_BYTES_PER_PAGE = 81 * 1024
  * drifted low would quietly turn "a 40-page CV fits" into a claim about a
  * 29-page one.
  */
+/**
+ * A DOCX whose body is exactly the XML given — for shapes the paragraph
+ * template above cannot express.
+ */
+export function buildDocxRawBody(body: string): Buffer {
+  const xml = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body>${body}</w:body></w:document>`
+  return buildZip([
+    { name: '[Content_Types].xml', data: Buffer.from(CONTENT_TYPES, 'utf8'), deflate: true },
+    { name: '_rels/.rels', data: Buffer.from(RELS, 'utf8'), deflate: true },
+    { name: 'word/document.xml', data: Buffer.from(xml, 'utf8'), deflate: true },
+  ])
+}
+
+/**
+ * THE DOCUMENT NO ACCEPTANCE BUDGET CAN SEE: `attributes` attributes on ONE
+ * element.
+ *
+ * `@xmldom/xmldom` linearly rescans an element's existing attributes as each
+ * new one is added (`lib/dom.js` `setAttributeNode`), so cost is quadratic in
+ * attributes per element. Attributes contain no `<`, so a tag counter reads
+ * this as a handful of tags, and it is small in bytes. Measured through the
+ * real pipeline on this machine:
+ *
+ *    15 000 attributes   155 KB   15 tags      301 ms
+ *    30 000 attributes   320 KB   15 tags      943 ms
+ *    60 000 attributes   650 KB   15 tags    3 378 ms
+ *   120 000 attributes  1.33 MB   15 tags   18 310 ms
+ *
+ * Doubling the attributes multiplies the cost by 3-5x. This fixture exists so
+ * that the containment tests use a shape which genuinely defeats every budget,
+ * rather than one the budgets would have caught anyway.
+ */
+export function buildAttributeBombDocx(attributes: number, elements = 1): Buffer {
+  const parts: string[] = ['<w:p']
+  for (let i = 0; i < attributes; i += 1) parts.push(` a${i}="v"`)
+  parts.push('/>')
+  return buildDocxRawBody(parts.join('').repeat(elements))
+}
+
+/**
+ * Tags one page of PER-CHARACTER-FORMATTED text costs, measured: every
+ * character in its own run with its own run-properties.
+ *
+ * This is not a synthetic worst case — it is what a PDF-to-Word conversion
+ * routinely produces, and it is the shape that made a tag budget untenable.
+ *
+ * MEASURED, and the marginal figure is the one that matters: a one-page
+ * document is 9 616 tags and 100 KB, and each further page adds 9 600 tags —
+ * the extra 16 are the wrapper parts, paid once. (At 1 800 characters a page it
+ * is 14 416 and 150 KB.) So a twenty-page CV carries ~192 000 tags, and against
+ * the 120 000-tag budget of the previous round twelve pages (115 216) was the
+ * largest accepted while thirteen was refused.
+ */
+export const PER_CHARACTER_TAGS_PER_PAGE = 9_600
+
+/**
+ * A CV whose text is formatted per character — the real shape above, at
+ * `pages` pages. Accepted by the size budgets; this fixture guards the
+ * regression where a tag budget rejected it.
+ */
+export function buildPerCharacterFormattedDocx(pages: number, charsPerPage = 1_200): Buffer {
+  const runs: string[] = []
+  for (let page = 0; page < pages; page += 1) {
+    for (let i = 0; i < charsPerPage; i += 1) {
+      runs.push(
+        `<w:r><w:rPr><w:rFonts w:ascii="Arial"/><w:sz w:val="22"/></w:rPr><w:t>${String.fromCharCode(97 + ((page + i) % 26))}</w:t></w:r>`,
+      )
+    }
+  }
+  return buildDocxRawBody(`<w:p>${runs.join('')}</w:p>`)
+}
+
 export function buildWordDensityDocx(pages: number): Buffer {
   const target = pages * REAL_WORD_BYTES_PER_PAGE
   const filler = 'Дослідження та розробка розподілених систем на TypeScript. '.repeat(8)
