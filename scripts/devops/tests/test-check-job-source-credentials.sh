@@ -32,6 +32,19 @@
 # does NOT contain that value anywhere. Proving "the guard fails on a bad
 # key" is not enough on its own — this repo's hard requirement is "and never
 # print it while doing so".
+#
+# UPDATED (task-fix-jsearch-search-v2, 2026-08-11): the first real
+# post-merge run of the workflow this guard backs found the guard itself
+# calling the wrong RapidAPI path (/search instead of /search-v2) — a VALID
+# key got HTTP 404 "Endpoint '/search' does not exist", which the guard's
+# report worded almost the same as a rejected key. Fixed in the guard
+# script's rapidapi branch AND in parse_response()'s failure_label(), which
+# now prefixes a 404 as "ENDPOINT NOT FOUND (not a credential problem)" and
+# a 401/403 as "CREDENTIAL REJECTED" so the two stop being indistinguishable
+# in the report. Both directions of THAT distinction are asserted below too
+# (the "RapidAPI wrong path" and "RapidAPI bad key" cases), not just "it
+# goes red" — a report that goes red for the right reason vs. the wrong
+# reason is the entire lesson this fix exists to encode.
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
@@ -105,6 +118,17 @@ EOF
 # does not consume any of the 200-requests-a-month quota (confirmed live).
 cat >"$WS/rapidapi-bad-key.json" <<'EOF'
 {"message":"You are not subscribed to this API."}
+EOF
+
+# Verbatim: what jsearch.p.rapidapi.com returned when this guard called the
+# WRONG path (/search instead of /search-v2) with a perfectly VALID,
+# subscribed key — task-fix-jsearch-search-v2's whole reason for existing.
+# The gateway 404s a route it doesn't recognize independent of credential
+# validity; a report that reads this the same as a rejected key sends
+# whoever's on call to reissue a working key instead of fixing the URL,
+# which is exactly what nearly happened here.
+cat >"$WS/rapidapi-wrong-path.json" <<'EOF'
+{"message":"Endpoint '/search' does not exist"}
 EOF
 
 : >"$WS/empty.txt"
@@ -256,10 +280,24 @@ assert_red "Careerjet bad affid (HTTP 401) -> red" \
   --contains "legacy users" \
   -- run_careerjet "bad-affid" "$WS/careerjet-bad-key.json" 401
 
-assert_red "RapidAPI bad key (HTTP 403, gateway rejects before proxying — no quota spent) -> red" \
+assert_red "RapidAPI bad key (HTTP 403, gateway rejects before proxying — no quota spent) -> red, labeled CREDENTIAL REJECTED" \
   --contains "result:                 FAIL" \
   --contains "not subscribed" \
+  --contains "CREDENTIAL REJECTED" \
+  --not-contains "ENDPOINT NOT FOUND" \
   -- run_rapidapi "bad-key" "$WS/rapidapi-bad-key.json" 403
+
+# task-fix-jsearch-search-v2 regression case: a 404 (wrong path — this guard
+# itself briefly shipped with /search instead of /search-v2, against a VALID
+# key) must NOT be reported the same way as a rejected credential. This is
+# the distinction that would have saved the "is the key even right?" detour.
+assert_red "RapidAPI wrong path (HTTP 404, even with a valid key) -> red, labeled ENDPOINT NOT FOUND not a credential problem" \
+  --contains "result:                 FAIL" \
+  --contains "http status:            404" \
+  --contains "ENDPOINT NOT FOUND" \
+  --contains "does not exist" \
+  --not-contains "CREDENTIAL REJECTED" \
+  -- run_rapidapi "a-perfectly-valid-key" "$WS/rapidapi-wrong-path.json" 404
 
 # ── HTTP 200 but not the documented shape (e.g. a challenge/HTML page slipping
 # through with a 200) must never be treated as success ─────────────────────────

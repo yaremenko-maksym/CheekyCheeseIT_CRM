@@ -185,6 +185,26 @@ def first_reason(d):
     return None
 
 
+# failure_label(http) — task-fix-jsearch-search-v2 (2026-08-11): a 404 and a
+# 401/403 both used to land in the same generic "HTTP <code>: <reason>"
+# bucket, and that cost real time once — this script's own RapidAPI request
+# had the wrong PATH (/search instead of /search-v2), the gateway 404'd it
+# with "Endpoint '/search' does not exist", and the report read close enough
+# to a credential rejection that reissuing the key was the first instinct,
+# not fixing the URL. A 404 from any of these four gateways means "this
+# request does not map to a real route" — true independent of whether the
+# credential is valid, wrong, or missing; a 401/403 means the gateway (or the
+# service behind it) evaluated the credential and rejected it. Different
+# causes, different fixes — so the REASON text now says which, up front, not
+# just the bare HTTP code.
+def failure_label(http_code):
+    if http_code == "404":
+        return "ENDPOINT NOT FOUND (not a credential problem — check the request path/config)"
+    if http_code in ("401", "403"):
+        return "CREDENTIAL REJECTED"
+    return None
+
+
 if http != "200":
     body_hint = raw.strip()
     reason = body_hint if body_hint else "empty response body"
@@ -194,7 +214,11 @@ if http != "200":
             reason = first_reason(data) or reason
     except (json.JSONDecodeError, TypeError):
         pass
-    emit("FAIL", "-", "-", f"HTTP {http}: {reason}")
+    label = failure_label(http)
+    if label:
+        emit("FAIL", "-", "-", f"HTTP {http} — {label}: {reason}")
+    else:
+        emit("FAIL", "-", "-", f"HTTP {http}: {reason}")
     sys.exit(0)
 
 try:
@@ -301,6 +325,17 @@ run_service() {
 case "$SERVICE" in
   jooble)
     [ -n "${JOOBLE_API_KEY:-}" ] || missing_secret jooble "JOOBLE_API_KEY is not set — this credential was never exercised this run."
+    # CORRECTED 2026-08-11 (task-fix-jsearch-search-v2, an unrelated fix that
+    # surfaced this): the very first version of this script called a bad key
+    # "possibly a Cloudflare bot-challenge against the CI runner, not
+    # necessarily the key" (see this script's own git history / PR #509),
+    # because a garbage key returned an HTML "Just a moment..." challenge
+    # page over HTTP 403. That reading turned out to be wrong: the FIRST real
+    # run against a real GH Actions runner, with a VALID key, got a clean
+    # HTTP 200 with real job data — no challenge at all. So the 403+challenge
+    # page IS jooble.org's rejection for a bad key specifically (Cloudflare
+    # fronting an auth failure, not fingerprinting the runner as a bot).
+    # Recorded here so nobody re-inherits the original, disproven suspicion.
     run_service jooble "$JOOBLE_API_KEY" -- \
       -X POST "https://jooble.org/api/${JOOBLE_API_KEY}" \
       -H "Content-Type: application/json" \
@@ -350,9 +385,26 @@ case "$SERVICE" in
     # ONE call. RapidAPI's free JSearch tier is capped at 200 requests per
     # MONTH, hard — see the workflow's own comment on this step for why that
     # number means this whole workflow stays workflow_dispatch-only forever.
+    #
+    # /search-v2, not /search (task-fix-jsearch-search-v2, 2026-08-11): the
+    # endpoint is versioned IN THE PATH, and the plain /search path this
+    # script used to call does not exist. The gateway checks the credential
+    # BEFORE it checks the route: an invalid key 403s on /search AND on
+    # /search-v2 alike (verified live — both say "You are not subscribed to
+    # this API", no route ever gets evaluated), so that half of this bug was
+    # never visible against a bad key. It only showed up against the real,
+    # VALID key — which passed the auth check, reached route-matching, and
+    # got "Endpoint '/search' does not exist" as a 404. That is exactly why
+    # this read as "the key is broken" at first, when the key was the one
+    # thing that was fine: a 404 route error and a 403 credential rejection
+    # both used to land in this script's generic "non-200 -> FAIL" bucket —
+    # see parse_response()'s http-code framing below, added for precisely
+    # this reason. Params (query/num_pages/country/date_posted) match the
+    # vendor's own dashboard example for this endpoint verbatim — search-v2
+    # uses cursor pagination, not the old page= param.
     run_service rapidapi "$RAPIDAPI_KEY" -- \
       -H "x-rapidapi-key: ${RAPIDAPI_KEY}" \
       -H "x-rapidapi-host: jsearch.p.rapidapi.com" \
-      "https://jsearch.p.rapidapi.com/search?query=developer&page=1&num_pages=1"
+      "https://jsearch.p.rapidapi.com/search-v2?query=developer&num_pages=1&country=us&date_posted=all"
     ;;
 esac
