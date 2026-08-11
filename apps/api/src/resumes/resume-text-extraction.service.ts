@@ -19,13 +19,17 @@
  * thing, and the file that hurt us measured small on all the others — which is
  * the whole lesson here, so they are listed by what they actually bound:
  *
- *   - `MAX_DOCX_XML_BYTES` bounds PARSER WORK, and is the one that matters.
- *     `mammoth.extractRawText` runs on the main thread, before any downstream
- *     cap can apply, and its cost tracks the size of the XML parts. A 165 KB
- *     file of a million tiny paragraphs passed the byte, type and page gates
- *     and stalled the event loop for 33 336 ms continuously. Capping the XML
- *     refuses it from metadata in ~1 ms and holds the worst PERMITTED document
- *     to 363 ms. Both numbers are asserted in the spec by measuring loop lag.
+ *   - `MAX_DOCX_XML_TAGS` bounds PARSER WORK, and is the one that matters.
+ *     Parse cost tracks the number of XML nodes, so this is the only budget
+ *     that can see it: at a fixed 3.67 MB, going from 500 nodes to 60 000 moved
+ *     the parse from 21 ms to 455 ms, while 6.2x the BYTES at a fixed node
+ *     count moved it 27 ms to 37 ms. A 165 KB file of a million tiny paragraphs
+ *     passed the byte, type and page gates and stalled the event loop for
+ *     33 336 ms continuously.
+ *   - `MAX_DOCX_PARSED_BYTES` bounds the bytes those parts may occupy. Still
+ *     necessary — it is what keeps memory and the tag scan itself bounded — but
+ *     NOT sufficient for cost, which is the correction this round makes: a byte
+ *     budget admits documents whose parse cost it cannot see.
  *   - `MAX_DOCX_UNCOMPRESSED_BYTES` bounds MEMORY (real size, not declared).
  *   - `MAX_PDF_PAGES` bounds pages for the PDF branch.
  *   - `capExtractedText` bounds CHARACTERS carried downstream, applied before
@@ -57,27 +61,29 @@ import {
  * ==========================================================================
  * That relationship is the point, and it is the thing nobody had checked: one
  * bound says what we ACCEPT, the other how long we allow it to TAKE, and they
- * had never been compared. Measured end to end through `extract()` on this
- * machine, three runs each:
+ * had never been compared.
  *
- *   densest PERMITTED document (60 000 paragraphs)   576 / 616 / 654 ms
- *   40-page academic CV                              150 / 150 / 149 ms
+ * ==========================================================================
+ * AND THE FIRST THREE ATTEMPTS COMPARED THEM IN THE WRONG UNIT
+ * ==========================================================================
+ * Each earlier round moved THIS number, because the acceptance budget counted
+ * BYTES while the cost is paid per XML NODE — so "the worst document the
+ * budgets permit" had no bounded cost at all, and no deadline could be right.
+ * The byte cap alone admits ~699 000 tags (4 MB of `<w:p/>`), which measures
+ * ~1 428 ms on the reference machine and ~86 s on the slowest machine
+ * observed: over this deadline. We were accepting documents we could not
+ * finish and telling the user their file was unreadable.
  *
- * AND THE MACHINE IS PART OF THE MEASUREMENT. The same document costs:
+ * `MAX_DOCX_XML_TAGS` is that missing bound. With it, the worst PERMITTED
+ * document costs `WORST_PERMITTED_EXTRACTION_MS` (420 ms recorded, 371 ms
+ * measured on re-derivation) — so at `SLOW_MACHINE_FACTOR` the deadline has
+ * 2.4x headroom against the recorded figure, 2.7x against the measured one.
  *
- *   development laptop (Apple silicon)   ~0.65 s
- *   GitHub Actions runner                >10.3 s      — ~15x slower
- *
- * I set this to 10 s on the laptop figure alone and CI went red on five tests,
- * killing a legitimate document and telling the user it was unreadable. That is
- * the third time on this branch that a constant validated on one machine has
- * been wrong on another; production runs on a modest VPS, much closer to the
- * runner than to the laptop.
- *
- * 60 s is ~6x the SLOWEST measured cost of the worst document the budgets
- * permit. It costs nothing in API responsiveness — extraction is a detached job
- * behind a child process, nothing waits on it — and the failure it prevents is
- * the expensive one: refusing a real CV because the machine was busy.
+ * 60 s is therefore no longer a number tuned until CI went green; it is a
+ * number the acceptance budget was fitted to. It costs nothing in API
+ * responsiveness — extraction is a detached job behind a child process,
+ * nothing waits on it — and the failure it prevents is the expensive one:
+ * refusing a real CV because the machine was busy.
  *
  * THE TRADE, stated because it is real: at 60 s two slots clear ~2 pathological
  * documents a minute against an intake of 10/minute, so a sustained stream of
@@ -87,10 +93,12 @@ import {
  * all, and typical documents finish in well under a second. Making the queue
  * itself bounded is tracked in task-resume-followups.
  *
- * Pinned by "the deadline exceeds the worst document the budgets permit" below,
- * which MEASURES the cost on whatever machine it runs and compares — so it
- * holds on the laptop and on the runner, and no absolute number has to be
- * guessed for a third one.
+ * Pinned by "the deadline exceeds the worst document the budgets permit" in the
+ * spec, which asserts a RATIO between two documents measured back to back plus
+ * arithmetic on the recorded constants — deliberately no absolute wall clock,
+ * because that instrument is what failed three times. The same document has
+ * measured 180 ms and 1 287 ms on THIS machine inside one minute depending on
+ * what else was running, and 16 804 ms on a CI runner.
  */
 export const EXTRACTION_TIMEOUT_MS = 60_000
 

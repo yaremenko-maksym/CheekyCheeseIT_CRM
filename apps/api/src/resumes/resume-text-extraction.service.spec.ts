@@ -983,30 +983,69 @@ describe('ResumeTextExtractionService.extract', () => {
   }, 300_000)
 
   /**
-   * Opt-in performance characterisation: `RESUME_PERF=1 pnpm --filter @crm/api
-   * test resume-text-extraction`. Run it on a quiet machine when changing a
-   * budget; it is not a gate, and it is not allowed to flake one.
+   * Opt-in RE-DERIVATION of the two reference costs: `RESUME_PERF=1 pnpm
+   * --filter @crm/api test resume-text-extraction`, on a quiet machine.
+   *
+   * THIS IS THE TEST THE CONSTANTS' COMMENTS POINT AT, and it has to exist for
+   * them to be honest — `WORST_PERMITTED_EXTRACTION_MS` says "re-derive it with
+   * RESUME_PERF=1", and a comment naming a procedure that does not exist is the
+   * same defect as a comment naming a deleted test. It prints both measured
+   * figures and fails with them in the message, so the number to record is
+   * handed to whoever moved the cap rather than left to be worked out.
+   *
+   * It replaces an event-loop-stall proportionality check that measured
+   * something no longer worth measuring: the parse moved into a child process,
+   * so the stall it sampled is now ~0 by construction. It was also still built
+   * on the 60 000-paragraph fixture, which the tag cap refuses — so it had
+   * become an opt-in test that could only fail. Opt-in is not a place things
+   * are allowed to rot.
    */
   it.skipIf(process.env['RESUME_PERF'] !== '1')(
-    'keeps the worst PERMITTED document proportionate to an ordinary one',
+    're-derives the reference costs the deadline is judged against',
     async () => {
-      const ordinary = buildDocxDeflated(Array.from({ length: 10_000 }, (_, i) => `p${i}`))
-      const atTheCap = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+      const worstPermitted = buildWorstShapeTagDocx(MAX_DOCX_XML_TAGS - 200)
+      const ordinary = buildWordDensityDocx(2)
 
-      const sample = async (doc: Buffer): Promise<number> => {
-        const meter = startLagMeter()
-        await service.extract(doc, RESUME_DOCX_MIME)
-        return meter.stop().worstStall
+      const cost = async (doc: Buffer): Promise<number> => {
+        const runs: number[] = []
+        for (let i = 0; i < 5; i += 1) {
+          const started = Date.now()
+          await service.extract(doc, RESUME_DOCX_MIME)
+          runs.push(Date.now() - started)
+        }
+        // MINIMUM, not median: contention only ever adds time, so the smallest
+        // sample is the closest this machine got to the document's own cost.
+        return Math.min(...runs)
       }
-      const referenceRuns: number[] = []
-      const worstRuns: number[] = []
-      for (let run = 0; run < 3; run += 1) {
-        referenceRuns.push(await sample(ordinary))
-        worstRuns.push(await sample(atTheCap))
-      }
-      const median = (runs: number[]): number => runs.sort((a, b) => a - b)[1] as number
 
-      expect(median(worstRuns) / median(referenceRuns)).toBeLessThan(6)
+      const worst = await cost(worstPermitted)
+      const ord = await cost(ordinary)
+      const headroom = EXTRACTION_TIMEOUT_MS / (worst * SLOW_MACHINE_FACTOR)
+
+      process.stdout.write(
+        `\n[RESUME_PERF] WORST_PERMITTED_EXTRACTION_MS: measured ${worst}, recorded ${WORST_PERMITTED_EXTRACTION_MS}\n` +
+          `[RESUME_PERF] ORDINARY_EXTRACTION_MS:       measured ${ord}, recorded ${ORDINARY_EXTRACTION_MS}\n` +
+          `[RESUME_PERF] worst/ordinary ${(worst / ord).toFixed(2)}x` +
+          ` (bound ${((WORST_PERMITTED_EXTRACTION_MS / ORDINARY_EXTRACTION_MS) * RATIO_SLACK).toFixed(2)}x)\n` +
+          `[RESUME_PERF] deadline headroom at ${SLOW_MACHINE_FACTOR}x: ${headroom.toFixed(2)}x` +
+          ` (must exceed 2)\n`,
+      )
+
+      // On a quiet machine the recorded figures must still describe it. 1.5x is
+      // slack for a warm/cold cache, not for a different machine — if this
+      // fails on a quiet box, the recorded value is stale and the message above
+      // says what to replace it with.
+      expect(
+        worst,
+        `WORST_PERMITTED_EXTRACTION_MS is stale: recorded ${WORST_PERMITTED_EXTRACTION_MS}, measured ${worst}`,
+      ).toBeLessThan(WORST_PERMITTED_EXTRACTION_MS * 1.5)
+      expect(
+        ord,
+        `ORDINARY_EXTRACTION_MS is stale: recorded ${ORDINARY_EXTRACTION_MS}, measured ${ord}`,
+      ).toBeLessThan(ORDINARY_EXTRACTION_MS * 1.5)
+      // And the relationship the whole exercise is about, measured rather than
+      // taken from the recorded pair.
+      expect(headroom).toBeGreaterThan(2)
     },
     300_000,
   )
