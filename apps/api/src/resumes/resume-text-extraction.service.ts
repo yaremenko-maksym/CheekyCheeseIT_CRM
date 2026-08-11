@@ -250,6 +250,11 @@ export class ResumeTextExtractionService {
     // returning `{ code: null }` would exercise this file's `if` and prove
     // nothing about whether any limit can end real work.
     //
+    // "SHORTENS" IS HELD BY CODE, NOT BY CONVENTION — see the clamp in
+    // `runWorker`. Said here as a promise it was for one review round, and a
+    // caller could have raised the CPU ceiling or, with a value no shell reads
+    // as a number, removed it altogether.
+    //
     // `cpuSeconds` exists because it is the only one of the sandbox's three
     // mechanisms that can be driven to a KILL cheaply and on any machine: the
     // deadline is wall-clock (`timeoutMs` covers it), and the heap ceiling
@@ -346,6 +351,29 @@ export class ResumeTextExtractionService {
     timeoutMs: number = EXTRACTION_TIMEOUT_MS,
     cpuSeconds: number = EXTRACTION_CPU_SECONDS,
   ): Promise<string> {
+    // ── THE SEAM MAY ONLY TIGHTEN THE LIMIT, NEVER LOOSEN IT ──────────────
+    //
+    // `cpuSeconds` reaches `ulimit -t` as a STRING in a shell, and a shell
+    // rejects most of what a `number` can hold. `sandboxed-process.ts` sends
+    // rlimit failures to /dev/null on purpose (a dev machine refusing a limit
+    // must not fail the work), so a value the shell will not take does not
+    // raise here — it silently starts the child with NO CPU LIMIT AT ALL:
+    //
+    //   NaN, Infinity, -1        `ulimit` refuses them        -> no limit
+    //   1e21                     `String(1e21)` is "1e+21"    -> no limit
+    //   100000, MAX_SAFE_INTEGER accepted verbatim            -> limit raised
+    //
+    // Every one of those is a valid `number`, so the signature stops none of
+    // them. `timeoutMs` survives the same rubbish because a bad delay collapses
+    // to 1 ms — it fails CLOSED. This one failed OPEN, which is the direction
+    // that matters, so the production ceiling is applied here rather than
+    // trusted to the caller: a test may ask for LESS CPU, never for more, and
+    // anything that is not a positive integer is not an answer.
+    const budget =
+      Number.isInteger(cpuSeconds) && cpuSeconds > 0
+        ? Math.min(cpuSeconds, EXTRACTION_CPU_SECONDS)
+        : EXTRACTION_CPU_SECONDS
+
     const dir = await mkdtemp(join(tmpdir(), 'crm-extract-'))
     const filePath = join(dir, 'source')
     try {
@@ -372,7 +400,7 @@ export class ResumeTextExtractionService {
         // No `addressSpaceKb`: RLIMIT_AS is meaningless for a V8 process and
         // was killing this worker. Memory is bounded by the heap cap above,
         // CPU by the kernel backstop below.
-        cpuSeconds,
+        cpuSeconds: budget,
         // Generous slack over the character cap: UTF-8 Cyrillic is two bytes a
         // character and the JSON envelope escapes some of them.
         maxStdoutBytes: RESUME_LIMITS.extractionRawChars * 8,

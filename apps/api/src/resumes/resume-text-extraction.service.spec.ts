@@ -15,8 +15,9 @@ import { tmpdir } from 'node:os'
 import { Logger } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
-import { runSandboxed } from './sandboxed-process'
+import * as sandboxedProcess from './sandboxed-process'
 import {
+  EXTRACTION_CPU_SECONDS,
   EXTRACTION_HEAP_MB,
   MAX_CONCURRENT_EXTRACTIONS,
   ResumeFileUnreadableError,
@@ -158,7 +159,7 @@ const service = new ResumeTextExtractionService()
  *
  * It costs one CPU-second where the limit holds, five where it does not.
  */
-const cpuRlimitProbe = await runSandboxed({
+const cpuRlimitProbe = await sandboxedProcess.runSandboxed({
   bin: process.execPath,
   args: [
     '-e',
@@ -1124,6 +1125,75 @@ describe('ResumeTextExtractionService.extract', () => {
     await expect(service.extract(Buffer.from('not a docx'), RESUME_DOCX_MIME)).rejects.toThrow()
     expect(service.activeExtractions).toBe(0)
     expect(service.queuedExtractions).toBe(0)
+  })
+
+  /**
+   * ==========================================================================
+   * THE SEAM MAY ONLY TIGHTEN THE CPU LIMIT — PINNED, NOT ASSUMED
+   * ==========================================================================
+   * `cpuSeconds` was added so a spec could reach the kill branch, and its note
+   * said both seam values "shorten a limit the sandbox already enforces". That
+   * was a true statement about the one call site, not a property of the code:
+   * nothing stopped the seam from raising the ceiling or removing it.
+   *
+   * It reaches `ulimit -t` as a STRING in a shell, and rlimit failures are
+   * swallowed by design (`sandboxed-process.ts`), so a value the shell will not
+   * accept does not raise — it starts the child with NO CPU LIMIT AT ALL. The
+   * one to remember is `1e21`: `String(1e21)` is `"1e+21"`, and exponent
+   * notation is not a number to a shell. `NaN`, `Infinity` and `-1` land the
+   * same way; `100000` is simply obeyed. Every one of them is a valid `number`,
+   * so the signature refuses none of them.
+   *
+   * `timeoutMs` survives the same rubbish because a bad delay collapses to
+   * 1 ms — it fails CLOSED. This one failed OPEN, which is the direction that
+   * matters, so what the sandbox is ASKED for is asserted here for each shape
+   * of rubbish. Remove the clamp in `runWorker` and every case below goes red.
+   */
+  describe('the CPU-budget seam may only tighten the limit, never loosen it', () => {
+    /**
+     * What `runWorker` actually asked the sandbox for. The spy CALLS THROUGH —
+     * the extraction really runs, under the real sandbox; the argument is only
+     * observed on its way past — and the outcome is deliberately ignored,
+     * because the assertion is about the budget requested, not the result.
+     */
+    async function requestedBudget(options: { cpuSeconds?: number }): Promise<number | undefined> {
+      const spy = vi.spyOn(sandboxedProcess, 'runSandboxed')
+      try {
+        await service.extract(buildDocx(['резюме']), RESUME_DOCX_MIME, options).catch(() => '')
+        // Read BEFORE `mockRestore`, which also resets the recorded calls.
+        return spy.mock.calls[0]?.[0]?.cpuSeconds
+      } finally {
+        spy.mockRestore()
+      }
+    }
+
+    it.each([
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['a negative budget', -1],
+      ['zero', 0],
+      ['a fraction', 1.5],
+      ['1e21, which stringifies to "1e+21"', 1e21],
+      ['a raised ceiling', 100_000],
+      ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+    ])('%s cannot loosen the limit', async (_case, cpuSeconds) => {
+      expect(await requestedBudget({ cpuSeconds })).toBe(EXTRACTION_CPU_SECONDS)
+    })
+
+    it('leaves the production ceiling in place when nothing is asked for', async () => {
+      expect(await requestedBudget({})).toBe(EXTRACTION_CPU_SECONDS)
+    })
+
+    it('still lets a spec ask for LESS, which is what the seam is for', async () => {
+      expect(await requestedBudget({ cpuSeconds: 1 })).toBe(1)
+    })
+
+    it('hands the shell a plain integer, never exponent notation', async () => {
+      // The mechanism behind the 1e21 case, asserted as itself: whatever the
+      // caller passes, what reaches `ulimit -t` must be something a shell reads
+      // as a number.
+      expect(String(await requestedBudget({ cpuSeconds: 1e21 }))).toMatch(/^\d+$/)
+    })
   })
 })
 
