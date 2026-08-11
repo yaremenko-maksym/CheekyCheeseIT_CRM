@@ -364,9 +364,17 @@ describe('AC3 — API responsiveness during a resume render', () => {
     })
 
     // Non-vacuity: both really parsed, and the sandboxed run really was sampled.
-    // Local floor: this only has to be a real window, not the render-sized one.
-    expect(sandboxed.renderMs).toBeGreaterThan(300)
-    expect(inProcess.renderMs).toBeGreaterThan(300)
+    // This only has to be a REAL WINDOW, not the render-sized one.
+    //
+    // The floor moved 300 -> 100 with MAX_DOCX_XML_TAGS, and it had to: it was
+    // derived from the old permitted maximum (360 000 tags), the tag cap makes
+    // the worst permitted document three times smaller, and it now parses in
+    // ~237 ms in-process here. A floor left at 300 would not be strict, it
+    // would be WRONG — asserting a document bigger than the budgets allow.
+    // 100 ms still separates a real parse (~237 ms) from the thing this floor
+    // exists to catch, an early rejection that never parses at all (~1-5 ms).
+    expect(sandboxed.renderMs).toBeGreaterThan(100)
+    expect(inProcess.renderMs).toBeGreaterThan(100)
     expect(sandboxed.samples.length).toBeGreaterThan(MIN_SAMPLES)
 
     // The guarantee: parsing off-thread is dramatically kinder to the API than

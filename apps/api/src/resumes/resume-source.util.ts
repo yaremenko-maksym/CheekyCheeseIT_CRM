@@ -104,16 +104,18 @@ export const MAX_DOCX_PARSED_BYTES = 4 * 1024 * 1024
  * tags of the byte-calibrated fixture — which understates tags sevenfold
  * because it was calibrated for a budget that counted bytes.
  *
- * CEILING — the deadline must cover it. End to end on this machine the worst
- * permitted document costs 77 ms of fixed overhead plus ~2.25 us per tag, and
- * the worst recorded laptop-to-runner factor on this branch is 60x:
+ * CEILING — the deadline must cover it. End to end on this machine, at the most
+ * expensive shape (`<w:p/>`, ~1.85 us per tag against ~1.43 for paragraphs),
+ * min of three runs, against the worst laptop-to-runner factor recorded on this
+ * branch (60x):
  *
- *   120 000 tags   347 ms here   ~20.8 s at 60x   vs EXTRACTION_TIMEOUT_MS 60 s
+ *   120 000 tags   409 ms here   ~24.5 s at 60x   vs EXTRACTION_TIMEOUT_MS 60 s
  *
- * 120 000 sits above the floor with 1.35x and inside the deadline with 2.9x on
+ * 120 000 sits above the floor with 1.35x and inside the deadline with 2.4x on
  * hardware 60x slower than this. For comparison, the byte cap ALONE permits
- * ~600 000 tags (4 MB at ~6 bytes per `<w:p/>`) = 1 428 ms here = 85.7 s at
- * 60x: over the deadline, i.e. a document we accepted and could not finish.
+ * ~699 000 tags (4 MB at 6 bytes per `<w:p/>`); 600 000 of them measured
+ * 1 428 ms here, i.e. ~86 s at 60x — over the deadline, a document we accepted
+ * and could not finish. That is the defect, in numbers.
  *
  * THE MARGIN IS NOT LUXURIOUS AND SAYING SO IS THE POINT: 1.35x over the
  * densest real 40-page document. It is thin because both ends are measured

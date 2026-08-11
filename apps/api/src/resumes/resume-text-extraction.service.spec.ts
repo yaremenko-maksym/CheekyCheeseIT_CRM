@@ -62,11 +62,20 @@ import {
  * measured back to back on the same machine.
  *
  * A ratio rather than a ceiling, because an absolute ceiling is a statement
- * about the machine (see the comment on the comparison test). Measured ~5.2x
- * quiet and ~4.1x under contention; 12x leaves room for both without leaving
- * room for the defect — the byte budget alone allowed ~26x.
+ * about the machine (see the comment on the comparison test). MEASURED, min of
+ * three, on this machine:
+ *
+ *                        quiet   under 16 competing processes
+ *   paragraph shape      3.45x   4.55x
+ *   worst (`<w:p/>`)     4.31x   4.96x
+ *
+ * Contention RAISES it slightly — the parse is starved harder than the spawn,
+ * so the expensive document loses more — which is why the bound sits well above
+ * the loaded figures. 10x leaves ~2x over the worst of them while still
+ * catching the defect: with the byte budget alone the worst permitted document
+ * was ~699 000 tags, which measures ~15x an ordinary resume.
  */
-const MAX_WORST_TO_ORDINARY_RATIO = 12
+const MAX_WORST_TO_ORDINARY_RATIO = 10
 
 /**
  * Sample the event loop every 10 ms and report the worst gap.
@@ -570,11 +579,8 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
     // expensive end of what we accept, and the measurement really ran.
     expect(worstCost).toBeGreaterThan(ordinaryCost)
 
-    // (1) Machine-independent. Measured at ~5.2x quiet and ~4.1x under 16
-    // competing processes — contention compresses it, because the fixed
-    // spawn cost grows faster than the parse. 12x is generous room above the
-    // worst of those and still less than half the ~26x the byte budget alone
-    // allowed before the tag cap existed.
+    // (1) Machine-independent — see MAX_WORST_TO_ORDINARY_RATIO for the
+    // measurements behind the number.
     expect(worstCost).toBeLessThan(ordinaryCost * MAX_WORST_TO_ORDINARY_RATIO)
 
     // (2) The two constants, compared — the assertion the whole exercise is

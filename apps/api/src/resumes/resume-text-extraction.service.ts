@@ -108,10 +108,16 @@ export const EXTRACTION_TIMEOUT_MS = 60_000
  * whenever `MAX_DOCX_XML_TAGS` moves; the always-on test compares this figure
  * against the deadline, so a stale value is a wrong gate, not a stale comment.
  *
- * Measured breakdown: 77 ms of fixed overhead (spawn, node boot, mammoth
- * import) plus ~3.4 us per XML tag.
+ * MEASURED AT THE WORST SHAPE, not the convenient one: a run of `<w:p/>` costs
+ * ~1.85 us per tag against ~1.43 for ordinary paragraphs, so the same cap buys
+ * a more expensive document in that form. At 119 814 tags, min of three:
+ *
+ *   self-closed tags  409 ms      ordinary paragraphs  331 ms
+ *
+ * 420 rounds the worse of the two up. Measured breakdown: 77 ms of fixed
+ * overhead (spawn, node boot, mammoth import) and the rest per tag.
  */
-export const WORST_PERMITTED_EXTRACTION_MS = 490
+export const WORST_PERMITTED_EXTRACTION_MS = 420
 
 /**
  * How much slower than the reference machine the slowest machine we have
