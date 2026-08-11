@@ -500,20 +500,63 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * runner three times slower still passes, and only a genuine divergence
    * between the two constants fails it.
    */
-  it('the deadline exceeds the worst document the budgets permit', async () => {
-    const densest = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+  it('the deadline exceeds the worst REAL document the budgets permit', async () => {
+    // The densest document of a REAL SHAPE: 40 pages at the per-page byte cost
+    // measured from genuine Word files. This is the AC5 document — the thing a
+    // user actually uploads and must never have refused.
+    const worstReal = buildWordDensityDocx(40)
 
     const started = Date.now()
-    await expect(service.extract(densest, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
+    await expect(service.extract(worstReal, RESUME_DOCX_MIME)).resolves.toBeTypeOf('string')
     const cost = Date.now() - started
 
     // Non-vacuity: this really is the expensive end of what we accept.
-    expect(cost).toBeGreaterThan(50)
-    // Measured 576-654 ms here; the deadline is ~15x that. Four times the
-    // measured cost is the floor — below that, a loaded runner at niceness 19
-    // would start killing legitimate uploads.
+    expect(cost).toBeGreaterThan(20)
     expect(EXTRACTION_TIMEOUT_MS).toBeGreaterThan(cost * 4)
-  }, 120_000)
+  }, 180_000)
+
+  /**
+   * WHAT THIS TEST DELIBERATELY NO LONGER CLAIMS, and the finding behind it.
+   *
+   * It used to measure a 60 000-paragraph synthetic document, because that is
+   * the densest thing `MAX_DOCX_PARSED_BYTES` admits. Measured cost of that
+   * shape:
+   *
+   *   development laptop      ~0.65 s
+   *   CI runner, under load   38.5 s      — about sixty times slower
+   *
+   * No deadline that also protects the API can cover it, and it should not:
+   * that shape is pathological, and being killed is the correct outcome for it.
+   *
+   * THE REAL LESSON IS THAT THE BYTE BUDGET DOES NOT BOUND PARSE COST. Cost
+   * tracks the number of XML NODES; `MAX_DOCX_PARSED_BYTES` counts BYTES. Two
+   * documents of identical size differ by ~60x in parse time depending on how
+   * many paragraphs those bytes are cut into — so the guard admits documents
+   * whose cost it cannot see. That is the same "two bounds never compared"
+   * shape as the deadline itself, one level down, and a byte cap cannot be
+   * tuned into fixing it; it needs a node-count bound. Recorded for
+   * task-resume-followups rather than attempted here.
+   *
+   * Meanwhile the damage is contained by design: such a document is killed at
+   * the deadline in a child process, costs one failed upload, and never touches
+   * the event loop.
+   */
+  it('kills a paragraph-dense document rather than letting it run for ever', async () => {
+    const pathological = buildDocxDeflated(Array.from({ length: 60_000 }, (_, i) => `p${i}`))
+    const impatient = new ResumeTextExtractionService()
+
+    // 50 ms stands in for "whatever the deadline is, it ends". Shorter than
+    // any machine can parse this document, so the assertion is about the
+    // deadline PATH, not about a duration — the real one is 60 s and this test
+    // is not going to wait for it. (1 s was tried first and the laptop finished
+    // the parse inside it, which would have made this pass for the wrong
+    // reason on fast hardware and fail on slow.)
+    const started = Date.now()
+    await expect(
+      impatient.extract(pathological, RESUME_DOCX_MIME, { timeoutMs: 50 }),
+    ).rejects.toThrow(/не уложился/)
+    expect(Date.now() - started).toBeLessThan(20_000)
+  }, 60_000)
 
   /**
    * TYPICAL documents must clear faster than intake. Pathological ones need not,

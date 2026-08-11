@@ -177,15 +177,21 @@ export class ResumeTextExtractionService {
    * it into the actionable `NO_TEXT` state that offers pasting text instead.
    * Only genuinely broken/oversized input throws.
    */
-  async extract(buffer: Buffer, mime: ResumeSourceMime): Promise<string> {
+  async extract(
+    buffer: Buffer,
+    mime: ResumeSourceMime,
+    // Test seam ONLY: lets a spec exercise the deadline path in a second
+    // instead of waiting the real 60 s. Production never passes it.
+    options: { timeoutMs?: number } = {},
+  ): Promise<string> {
     if (mime !== RESUME_PDF_MIME && mime !== RESUME_DOCX_MIME) {
       throw new ResumeFileUnreadableError('Неподдерживаемый формат файла')
     }
     await this.acquireSlot()
     try {
       return mime === RESUME_PDF_MIME
-        ? await this.extractFromPdf(buffer)
-        : await this.extractFromDocx(buffer)
+        ? await this.extractFromPdf(buffer, options.timeoutMs)
+        : await this.extractFromDocx(buffer, options.timeoutMs)
     } finally {
       this.releaseSlot()
     }
@@ -210,7 +216,7 @@ export class ResumeTextExtractionService {
     this.waiting.shift()?.()
   }
 
-  private async extractFromPdf(buffer: Buffer): Promise<string> {
+  private async extractFromPdf(buffer: Buffer, timeoutMs?: number): Promise<string> {
     // Imported lazily so a broken/absent optional parser can never take the
     // whole Nest bootstrap down — extraction is a background job, not a
     // boot-critical dependency.
@@ -235,7 +241,7 @@ export class ResumeTextExtractionService {
           err instanceof RangeError ? err.message : 'Не удалось прочитать PDF-файл',
         )
       }
-      return normalizeExtractedText(await this.runWorker(buffer, RESUME_PDF_MIME))
+      return normalizeExtractedText(await this.runWorker(buffer, RESUME_PDF_MIME, timeoutMs))
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`PDF extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
@@ -254,7 +260,11 @@ export class ResumeTextExtractionService {
    * The worker caps the text before it crosses the pipe, so the API process
    * never holds the 50 MiB an honest 52 KB DOCX can expand into.
    */
-  private async runWorker(buffer: Buffer, mime: ResumeSourceMime): Promise<string> {
+  private async runWorker(
+    buffer: Buffer,
+    mime: ResumeSourceMime,
+    timeoutMs: number = EXTRACTION_TIMEOUT_MS,
+  ): Promise<string> {
     const dir = await mkdtemp(join(tmpdir(), 'crm-extract-'))
     const filePath = join(dir, 'source')
     try {
@@ -277,7 +287,7 @@ export class ResumeTextExtractionService {
         // and the Workers AI token have no business inside a document parser
         // driven by an uploaded file.
         env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin' },
-        timeoutMs: EXTRACTION_TIMEOUT_MS,
+        timeoutMs,
         // No `addressSpaceKb`: RLIMIT_AS is meaningless for a V8 process and
         // was killing this worker. Memory is bounded by the heap cap above,
         // CPU by the kernel backstop below.
@@ -290,7 +300,7 @@ export class ResumeTextExtractionService {
 
       if (result.timedOut) {
         throw new ResumeFileUnreadableError(
-          `Разбор файла не уложился в ${EXTRACTION_TIMEOUT_MS / 1000} с — вероятно, документ слишком сложный. Вставьте текст резюме вручную.`,
+          `Разбор файла не уложился в ${timeoutMs / 1000} с — вероятно, документ слишком сложный. Вставьте текст резюме вручную.`,
         )
       }
       if (result.code !== 0 || result.stdout === '') {
@@ -327,7 +337,7 @@ export class ResumeTextExtractionService {
    * a memory ceiling and niceness 19 — where it costs a failed upload rather
    * than an unavailable API.
    */
-  private async extractFromDocx(buffer: Buffer): Promise<string> {
+  private async extractFromDocx(buffer: Buffer, timeoutMs?: number): Promise<string> {
     try {
       await inspectDocxZip(buffer)
     } catch (err: unknown) {
@@ -337,7 +347,7 @@ export class ResumeTextExtractionService {
     }
 
     try {
-      return normalizeExtractedText(await this.runWorker(buffer, RESUME_DOCX_MIME))
+      return normalizeExtractedText(await this.runWorker(buffer, RESUME_DOCX_MIME, timeoutMs))
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`DOCX extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
