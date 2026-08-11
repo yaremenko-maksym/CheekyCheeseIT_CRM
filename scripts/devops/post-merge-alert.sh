@@ -10,11 +10,15 @@
 # with nobody alerted), AND by the `deploy` job's backup-freshness steps in
 # .github/workflows/deploy.yml (KIND=backup, task-infra-prod-backup-safety-net
 # 2026-08-03 — the owner found prod had been running with ZERO DB backups
-# since the first deploy, and nothing ever noticed either). Same channel, same
-# open/comment/close mechanic, same script — only the issue title/body text
-# and the dedup LABEL differ per KIND, kept as an explicit switch below rather
-# than as separate copy-pasted scripts, so the alert paths cannot silently
-# drift apart.
+# since the first deploy, and nothing ever noticed either), AND by the nightly
+# .github/workflows/mutation-nightly.yml (KIND=mutation, task-mutation-gate
+# 2026-08-11 — the PR gate only ever sees CHANGED lines, so everything that
+# accumulated before it existed is invisible to it; the nightly full sweep is
+# what surfaces that, and it needs a channel someone actually reads). Same
+# channel, same open/comment/close mechanic, same script — only the issue
+# title/body text and the dedup LABEL differ per KIND, kept as an explicit
+# switch below rather than as separate copy-pasted scripts, so the alert paths
+# cannot silently drift apart.
 #
 # Extracted from the workflow so the alert logic can be dry-run locally
 # (DRY_RUN=1) instead of being debugged by pushing commits — see
@@ -43,21 +47,24 @@
 #   COMMIT_SHA   the main commit that was validated / deployed
 #   RUN_URL      link to the Actions run
 # Optional env:
-#   KIND           ci (default) | deploy | backup — selects title/body text below
+#   KIND           ci (default) | deploy | backup | mutation — selects title/body
+#                   text below
 #   FAILED_LEGS    human list of failed jobs, e.g. "quality, e2e" or "deploy";
 #                   for KIND=backup, the one-line freshness-check detail
-#                   (scripts/devops/check-backup-freshness.sh's `detail` output)
+#                   (scripts/devops/check-backup-freshness.sh's `detail` output);
+#                   for KIND=mutation, the one-line survivor tally
 #   COMMIT_SUBJECT commit subject line (untrusted input — never eval'd)
 #   LABEL          issue label (default: ci-main-broken for KIND=ci,
-#                   deploy-broken for KIND=deploy, backup-stale for KIND=backup)
+#                   deploy-broken for KIND=deploy, backup-stale for KIND=backup,
+#                   mutants-surviving for KIND=mutation)
 #   DRY_RUN        1 → print the gh commands instead of running them
 set -euo pipefail
 
 KIND="${KIND:-ci}"
 case "$KIND" in
-  ci | deploy | backup) ;;
+  ci | deploy | backup | mutation) ;;
   *)
-    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup) — refusing to guess which alert text to use" >&2
+    echo "::error::post-merge-alert.sh: unknown KIND='$KIND' (expected ci|deploy|backup|mutation) — refusing to guess which alert text to use" >&2
     exit 2
     ;;
 esac
@@ -65,6 +72,7 @@ esac
 case "$KIND" in
   deploy) LABEL="${LABEL:-deploy-broken}" ;;
   backup) LABEL="${LABEL:-backup-stale}" ;;
+  mutation) LABEL="${LABEL:-mutants-surviving}" ;;
   *) LABEL="${LABEL:-ci-main-broken}" ;;
 esac
 DRY_RUN="${DRY_RUN:-0}"
@@ -105,6 +113,7 @@ esac
 case "$KIND" in
   deploy) LABEL_DESC="Deploy workflow red after a merge to main" ;;
   backup) LABEL_DESC="Prod DB backup missing or stale (> threshold) after a Deploy run" ;;
+  mutation) LABEL_DESC="Nightly mutation sweep found tests that cannot fail" ;;
   *) LABEL_DESC="CI red on main after merge" ;;
 esac
 run_gh label create "$LABEL" --repo "$ALERT_REPO" \
@@ -220,6 +229,28 @@ if [ "$RESULT" = "failure" ]; then
       printf '3. Issue закроется автоматически, когда следующая проверка после `Deploy` найдёт\n'
       printf '   свежую резервную копию.\n'
     )
+  elif [ "$KIND" = "mutation" ]; then
+    BODY=$(
+      printf '## Ночной мутационный прогон нашёл тесты, которые не умеют падать\n\n'
+      printf '**Commit:** `%s`\n' "$COMMIT_SHA"
+      [ -n "$SUBJECT_LINE" ] && printf '%s\n' "$SUBJECT_LINE"
+      printf '**Что обнаружено:** %s\n' "$FAILED_LEGS"
+      printf '**Run:** %s\n\n' "$RUN_URL"
+      printf 'Выживший мутант — это изменение в рабочем коде, которое проходит весь набор\n'
+      printf 'тестов. Значит, поведение в этом месте не закреплено ничем: его можно удалить,\n'
+      printf 'и ни одна проверка не покраснеет.\n\n'
+      printf '> Гейт на PR смотрит ТОЛЬКО изменённые строки, поэтому он это не ловит —\n'
+      printf '> здесь накопленное до его появления. Список выживших мутантов и путь к нему\n'
+      printf '> — в артефактах прогона (`mutation-report-*`).\n\n'
+      printf '## Что делать\n\n'
+      printf '1. Открыть артефакт прогона, взять список выживших мутантов.\n'
+      printf '2. Закрывать по одному: добавить утверждение, которое краснеет на мутанте.\n'
+      printf '3. Эквивалентный мутант (никакой тест не может его отличить) — заглушить\n'
+      printf '   строкой `// Stryker disable next-line <мутатор>: <почему>`; без причины\n'
+      printf '   заглушка не принимается (`scripts/devops/check-mutation-suppressions.mjs`).\n'
+      printf '4. Issue закроется автоматически, когда ночной прогон не найдёт выживших.\n\n'
+      printf 'Подробности — `scripts/devops/mutation-gate-runbook.md`.\n'
+    )
   else
     BODY=$(
       printf '## CI упал на `main` после мержа\n\n'
@@ -247,6 +278,7 @@ if [ "$RESULT" = "failure" ]; then
   case "$KIND" in
     deploy) TITLE="🚨 Деплой упал на прод ($SHORT_SHA)" ;;
     backup) TITLE="🚨 Нет свежего бэкапа БД ($SHORT_SHA)" ;;
+    mutation) TITLE="🧬 Выжившие мутанты на main ($SHORT_SHA)" ;;
     *) TITLE="🚨 CI красный на main ($SHORT_SHA)" ;;
   esac
 
@@ -268,6 +300,7 @@ if [ -n "$OPEN" ]; then
   case "$KIND" in
     deploy) RECOVERY_COMMENT="✅ Деплой на прод снова прошёл успешно (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     backup) RECOVERY_COMMENT="✅ В бакете \`crm-backups\` снова есть свежая резервная копия (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
+    mutation) RECOVERY_COMMENT="✅ Ночной мутационный прогон не нашёл выживших мутантов (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
     *) RECOVERY_COMMENT="✅ post-merge CI на \`main\` снова зелёный (commit \`$COMMIT_SHA\`). Run: $RUN_URL" ;;
   esac
   run_gh issue close "$OPEN" --repo "$ALERT_REPO" --comment "$RECOVERY_COMMENT"

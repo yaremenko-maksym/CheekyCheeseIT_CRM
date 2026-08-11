@@ -510,6 +510,13 @@ function runStryker(pkg, configFile, remainingMs) {
 
     child.on('close', (code) => {
       clearTimeout(timer)
+      if (timedOut) {
+        // Stryker cleans its own sandbox on a normal exit but never gets the
+        // chance when we SIGKILL it. Left behind, `.stryker-tmp` is a full copy
+        // of the package (gitignored, but it confuses the next `pnpm test` run
+        // and can be gigabytes on a repeated timeout).
+        rmSync(path.join(REPO_ROOT, pkg.dir, '.stryker-tmp'), { recursive: true, force: true })
+      }
       resolve({ code: code ?? 1, out, timedOut })
     })
     child.on('error', (err) => {
@@ -672,6 +679,21 @@ async function main() {
     const parsed = readReport(reportPath, pkg)
     if (!parsed) {
       console.error(res.out.split('\n').slice(-40).join('\n'))
+      // Stryker refuses to mutate anything when the UNMUTATED suite is already
+      // red, and says so in one specific sentence. Worth naming explicitly:
+      // otherwise this reads as "the mutation gate is broken" when what actually
+      // happened is that a test failed — most likely a flaky one, since the same
+      // suite ran green in the `pnpm test` step a few minutes earlier. Sending
+      // someone to debug the gate instead of their test costs an afternoon.
+      if (res.out.includes('failed tests in the initial test run')) {
+        fail(
+          `${pkg.name}: the test suite itself is red BEFORE any mutation is applied, so ` +
+            `Stryker refused to start (see the failing test named above). This is not a ` +
+            `surviving mutant — fix or de-flake that test. Mutation testing re-runs the ` +
+            `suite many times, so a timing-sensitive test that passes once and fails once ` +
+            `will stop the gate here.`,
+        )
+      }
       fail(
         `Stryker produced no report for ${pkg.name} (exit ${res.code}). The run did not ` +
           `complete, so nothing was verified. Full output above.`,
