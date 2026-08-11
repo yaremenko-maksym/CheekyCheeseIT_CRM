@@ -83,7 +83,15 @@ import {
  *
  *   4.18 MB, 695 731 tags (`<w:p/>`)                     1 609 ms
  *   1.33 MB,      15 tags (120 000 attributes on one)   18 310 ms
- *   the same attribute shape x3                         killed at ~28 s
+ *   the same attribute shape x3                          51 s, exit 0
+ *
+ * The third line used to read "killed at ~28 s" and was used as evidence that
+ * the heap ceiling ends such work. RE-MEASURED, it does not: that document
+ * finishes, peaking at 171 MB against a 768 MB ceiling (macOS 51.0 s; Linux
+ * container, 2 CPUs, 57 s). Attributes are quadratic in TIME and nearly free in
+ * MEMORY, so nothing but this deadline was ever in a position to end it — which
+ * is the whole point of the entry, and it is stronger, not weaker, for being
+ * the only bound that applies.
  *
  * Attribute handling in `@xmldom/xmldom` is quadratic per element and carries
  * no `<`, so neither a byte cap nor a tag cap can see it — and there is no
@@ -127,6 +135,11 @@ export const EXTRACTION_TIMEOUT_MS = 60_000
  * Deliberately above the wall clock: it is a backstop for a timer that never
  * fires, not a second, tighter deadline. Below it, the kernel would become the
  * usual killer and the readable timeout path would be dead code.
+ *
+ * Which is exactly why the spec INVERTS the two through `extract`'s seam: a
+ * one-second CPU budget makes the kernel the killer on purpose, and that is the
+ * only cheap way to reach the "killed, not timed out" branch with the mechanism
+ * that really does the killing in production.
  */
 export const EXTRACTION_CPU_SECONDS = 90
 
@@ -227,9 +240,28 @@ export class ResumeTextExtractionService {
   async extract(
     buffer: Buffer,
     mime: ResumeSourceMime,
-    // Test seam ONLY: lets a spec exercise the deadline path in a second
-    // instead of waiting the real 60 s. Production never passes it.
-    options: { timeoutMs?: number } = {},
+    // Test seam ONLY — production never passes either of these.
+    //
+    // BOTH ARE BUDGETS, NOT BEHAVIOUR. Each one shortens a limit the sandbox
+    // already enforces so a spec can reach its consequence in a second instead
+    // of waiting the real 60 s / 90 s; the deadline still fires from the same
+    // timer and the CPU limit is still applied and enforced by the kernel. What
+    // a spec must never do is FAKE the outcome — a stubbed `runSandboxed`
+    // returning `{ code: null }` would exercise this file's `if` and prove
+    // nothing about whether any limit can end real work.
+    //
+    // "SHORTENS" IS HELD BY CODE, NOT BY CONVENTION — see the clamp in
+    // `runWorker`. Said here as a promise it was for one review round, and a
+    // caller could have raised the CPU ceiling or, with a value no shell reads
+    // as a number, removed it altogether.
+    //
+    // `cpuSeconds` exists because it is the only one of the sandbox's three
+    // mechanisms that can be driven to a KILL cheaply and on any machine: the
+    // deadline is wall-clock (`timeoutMs` covers it), and the heap ceiling
+    // needs a document shaped to exhaust 768 MB, which this suite has been
+    // burned by before (see the fixture-size note in the spec). A CPU-second
+    // is a CPU-second on fast and slow hardware alike.
+    options: { timeoutMs?: number; cpuSeconds?: number } = {},
   ): Promise<string> {
     if (mime !== RESUME_PDF_MIME && mime !== RESUME_DOCX_MIME) {
       throw new ResumeFileUnreadableError('Неподдерживаемый формат файла')
@@ -237,8 +269,8 @@ export class ResumeTextExtractionService {
     await this.acquireSlot()
     try {
       return mime === RESUME_PDF_MIME
-        ? await this.extractFromPdf(buffer, options.timeoutMs)
-        : await this.extractFromDocx(buffer, options.timeoutMs)
+        ? await this.extractFromPdf(buffer, options.timeoutMs, options.cpuSeconds)
+        : await this.extractFromDocx(buffer, options.timeoutMs, options.cpuSeconds)
     } finally {
       this.releaseSlot()
     }
@@ -263,7 +295,11 @@ export class ResumeTextExtractionService {
     this.waiting.shift()?.()
   }
 
-  private async extractFromPdf(buffer: Buffer, timeoutMs?: number): Promise<string> {
+  private async extractFromPdf(
+    buffer: Buffer,
+    timeoutMs?: number,
+    cpuSeconds?: number,
+  ): Promise<string> {
     // Imported lazily so a broken/absent optional parser can never take the
     // whole Nest bootstrap down — extraction is a background job, not a
     // boot-critical dependency.
@@ -288,7 +324,9 @@ export class ResumeTextExtractionService {
           err instanceof RangeError ? err.message : 'Не удалось прочитать PDF-файл',
         )
       }
-      return normalizeExtractedText(await this.runWorker(buffer, RESUME_PDF_MIME, timeoutMs))
+      return normalizeExtractedText(
+        await this.runWorker(buffer, RESUME_PDF_MIME, timeoutMs, cpuSeconds),
+      )
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`PDF extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)
@@ -311,7 +349,31 @@ export class ResumeTextExtractionService {
     buffer: Buffer,
     mime: ResumeSourceMime,
     timeoutMs: number = EXTRACTION_TIMEOUT_MS,
+    cpuSeconds: number = EXTRACTION_CPU_SECONDS,
   ): Promise<string> {
+    // ── THE SEAM MAY ONLY TIGHTEN THE LIMIT, NEVER LOOSEN IT ──────────────
+    //
+    // `cpuSeconds` reaches `ulimit -t` as a STRING in a shell, and a shell
+    // rejects most of what a `number` can hold. `sandboxed-process.ts` sends
+    // rlimit failures to /dev/null on purpose (a dev machine refusing a limit
+    // must not fail the work), so a value the shell will not take does not
+    // raise here — it silently starts the child with NO CPU LIMIT AT ALL:
+    //
+    //   NaN, Infinity, -1        `ulimit` refuses them        -> no limit
+    //   1e21                     `String(1e21)` is "1e+21"    -> no limit
+    //   100000, MAX_SAFE_INTEGER accepted verbatim            -> limit raised
+    //
+    // Every one of those is a valid `number`, so the signature stops none of
+    // them. `timeoutMs` survives the same rubbish because a bad delay collapses
+    // to 1 ms — it fails CLOSED. This one failed OPEN, which is the direction
+    // that matters, so the production ceiling is applied here rather than
+    // trusted to the caller: a test may ask for LESS CPU, never for more, and
+    // anything that is not a positive integer is not an answer.
+    const budget =
+      Number.isInteger(cpuSeconds) && cpuSeconds > 0
+        ? Math.min(cpuSeconds, EXTRACTION_CPU_SECONDS)
+        : EXTRACTION_CPU_SECONDS
+
     const dir = await mkdtemp(join(tmpdir(), 'crm-extract-'))
     const filePath = join(dir, 'source')
     try {
@@ -338,7 +400,7 @@ export class ResumeTextExtractionService {
         // No `addressSpaceKb`: RLIMIT_AS is meaningless for a V8 process and
         // was killing this worker. Memory is bounded by the heap cap above,
         // CPU by the kernel backstop below.
-        cpuSeconds: EXTRACTION_CPU_SECONDS,
+        cpuSeconds: budget,
         // Generous slack over the character cap: UTF-8 Cyrillic is two bytes a
         // character and the JSON envelope escapes some of them.
         maxStdoutBytes: RESUME_LIMITS.extractionRawChars * 8,
@@ -407,7 +469,11 @@ export class ResumeTextExtractionService {
    * signature list — the previous three attempts were exactly that — it is the
    * reason the guarantee lives in the sandbox and not in the accounting.
    */
-  private async extractFromDocx(buffer: Buffer, timeoutMs?: number): Promise<string> {
+  private async extractFromDocx(
+    buffer: Buffer,
+    timeoutMs?: number,
+    cpuSeconds?: number,
+  ): Promise<string> {
     try {
       await inspectDocxZip(buffer)
     } catch (err: unknown) {
@@ -417,7 +483,9 @@ export class ResumeTextExtractionService {
     }
 
     try {
-      return normalizeExtractedText(await this.runWorker(buffer, RESUME_DOCX_MIME, timeoutMs))
+      return normalizeExtractedText(
+        await this.runWorker(buffer, RESUME_DOCX_MIME, timeoutMs, cpuSeconds),
+      )
     } catch (err: unknown) {
       if (err instanceof ResumeFileUnreadableError) throw err
       this.logger.warn(`DOCX extraction failed: ${err instanceof Error ? err.message : 'unknown'}`)

@@ -11,9 +11,13 @@
  * the whole file as binary, and a binary spec has no reviewable diff — which is
  * exactly how a test file stops being a review artefact.
  */
-import { describe, expect, it } from 'vitest'
+import { tmpdir } from 'node:os'
+import { Logger } from '@nestjs/common'
+import { describe, expect, it, vi } from 'vitest'
 import { RESUME_DOCX_MIME, RESUME_LIMITS, RESUME_PDF_MIME } from '@crm/shared'
+import * as sandboxedProcess from './sandboxed-process'
 import {
+  EXTRACTION_CPU_SECONDS,
   EXTRACTION_HEAP_MB,
   MAX_CONCURRENT_EXTRACTIONS,
   ResumeFileUnreadableError,
@@ -111,6 +115,95 @@ const RELS_FIXTURE = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
 
 const SMALL_DOC_XML = `<?xml version="1.0"?><w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>резюме</w:t></w:r></w:p></w:body></w:document>`
 const service = new ResumeTextExtractionService()
+
+/**
+ * ==========================================================================
+ * CAN THIS KERNEL END A CHILD BY ITS CPU RLIMIT? — ANSWERED BY RUNNING IT
+ * ==========================================================================
+ * One test below needs the sandbox to KILL a worker rather than let it finish,
+ * and a kill needs a limit the kernel actually applies. Not every kernel
+ * applies every limit: this machine (macOS) accepts `ulimit -v` and then
+ * reports `unlimited`, which is why `sandboxed-process.ts` swallows rlimit
+ * failures in the first place.
+ *
+ * So the capability is MEASURED, not inferred:
+ *
+ *   - NOT from `process.platform` / `os.type()` — a name is a claim about a
+ *     kernel, it is settable from the environment, and it would still be a
+ *     guess on the platform we have never run on. The question here is
+ *     "does a limit end a child", and the cheapest honest answer is to give a
+ *     child a one-second CPU budget and look at how it came back.
+ *   - FAIL-CLOSED: the probe must SEE a signal exit that is not the deadline
+ *     before the test is allowed to run. Anything else — completed, non-zero
+ *     exit, deadline, spawn failure — reads as "no mechanism" and skips
+ *     LOUDLY, with the reason on stderr.
+ *
+ * This cannot silently disable the test where the mechanism exists, because
+ * the probe IS the mechanism: on any kernel that enforces `ulimit -t` the
+ * probe is killed and the test runs. Verified to run (not skip) on Linux —
+ * the platform this ships on — and on macOS, which honours `ulimit -t` even
+ * though it ignores `ulimit -v`.
+ *
+ * THE BURNER COUNTS ITS OWN CPU, NOT THE WALL CLOCK, and the first version of
+ * this probe got that wrong: it spun `while (Date.now() < start + 5_000)`, on
+ * the assumption that five seconds of spinning is five seconds of CPU. It is
+ * not. Sandboxed work runs at niceness 19, so on a CI runner busy with the rest
+ * of this suite the burner was starved, finished its five wall-seconds having
+ * spent well under the one-second budget, exited 0 — and the gate concluded the
+ * kernel does not enforce `ulimit -t` and skipped the test. Which is precisely
+ * the failure this gate exists to prevent, arrived at from the other side: a
+ * quiet skip on the platform that HAS the mechanism (observed on CI, run
+ * 31529730272). `process.cpuUsage()` is the same clock `RLIMIT_CPU` is
+ * accounted against, so the burner now keeps working until it has really spent
+ * the CPU — however long the machine takes to give it.
+ *
+ * It costs one CPU-second where the limit holds, five where it does not.
+ */
+const cpuRlimitProbe = await sandboxedProcess.runSandboxed({
+  bin: process.execPath,
+  args: [
+    '-e',
+    // Burns until it has SPENT five CPU-seconds — five times the budget below,
+    // so a kernel that enforces the limit always kills it first — then gives up
+    // by itself, so a kernel that ignores the limit ends this probe rather than
+    // hanging it.
+    'const spent = () => { const u = process.cpuUsage(); return u.user + u.system };' +
+      'const budget = spent() + 5_000_000;' +
+      'let sink = 0;' +
+      'while (spent() < budget) { for (let i = 0; i < 200_000; i += 1) sink += i }' +
+      'if (sink < 0) process.exitCode = 1',
+  ],
+  cwd: tmpdir(),
+  env: { PATH: process.env['PATH'] ?? '/usr/bin:/bin' },
+  // Wall-clock backstop only. Starvation stretches WALL time without limit, so
+  // this is deliberately far from the CPU budget above: it exists so a
+  // pathological environment cannot hang collection, not as a second bound.
+  timeoutMs: 300_000,
+  cpuSeconds: 1,
+  maxStdoutBytes: 0,
+  maxStderrBytes: 256,
+})
+
+/**
+ * A SIGNAL exit (`code === null`) that is NOT the deadline (`timedOut`) is the
+ * kernel ending the process — the same shape `runWorker` reads in production.
+ * A process that ran its five seconds out and exited 0 means the limit was
+ * accepted and ignored.
+ */
+const CPU_RLIMIT_ENFORCED = cpuRlimitProbe.code === null && !cpuRlimitProbe.timedOut
+
+if (!CPU_RLIMIT_ENFORCED) {
+  // Loud on purpose, and specific about WHICH mechanism is missing and what
+  // that costs in coverage — a quiet skip is how a suite starts reporting
+  // green for work it never did.
+  console.warn(
+    '[resume-text-extraction.spec] пропущено: эта платформа не применяет ' +
+      'ограничение CPU (`ulimit -t`) — процесс с бюджетом в одну секунду ' +
+      `вернулся как code=${String(cpuRlimitProbe.code)}, timedOut=${String(cpuRlimitProbe.timedOut)} ` +
+      'вместо смерти от сигнала. Ветка «воркер убит, а не истёк по времени» ' +
+      'здесь непроверяема; на Linux она выполняется.',
+  )
+}
 
 describe('detectResumeSourceMime (AC2 — bytes decide, not the filename)', () => {
   it('detects a real PDF', async () => {
@@ -558,36 +651,100 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    * The deadline is only one of its mechanisms; the CPU rlimit and the heap
    * ceiling arrive as a SIGNAL exit with empty stdout instead. That path used
    * to answer "Не удалось прочитать файл резюме" — blaming the document for
-   * hitting our limit, after ~28 s of waiting. Both paths are exercised here
-   * because they are different branches, and the bug was that only one of them
-   * had been thought about.
+   * hitting our limit. Both paths are exercised here because they are different
+   * branches, and the bug was that only one of them had been thought about.
+   *
+   * ==========================================================================
+   * HOW PATH 2 IS REACHED, AND WHY IT IS NO LONGER A RACE AGAINST THE MACHINE
+   * ==========================================================================
+   * It used to feed the parser three attribute bombs and wait for the sandbox
+   * to end them, on the stated ground that "three attribute bombs exhaust
+   * EXTRACTION_HEAP_MB". MEASURED, THEY DO NOT — and nothing else killed them
+   * either:
+   *
+   *   macOS, this laptop        exit 0 after 51.0 s, peak RSS 171 MB
+   *   Linux container, 2 CPUs   exit 0 after 57 s
+   *
+   * 171 MB against a 768 MB ceiling: that document is expensive in TIME, and
+   * attributes cost almost nothing in memory, so the heap cap was never within
+   * reach. The CPU rlimit (90 s) sits above the deadline (60 s) by design, so
+   * it could not fire first either. The only mechanism left was the 60 s
+   * deadline — which meant the test asserted "this machine needs more than a
+   * minute for this document". CI is slower than a minute, so it passed there;
+   * this laptop needs 51 s, so it failed here, four runs out of four. The same
+   * test would have started failing on CI the day the runners got faster, and
+   * a green CI was reporting Path 2 as covered when what actually ran was
+   * Path 1 a second time.
+   *
+   * So Path 2 now drives the CPU rlimit — the mechanism whose whole job is
+   * killing work the timer did not — through the same kind of shortened budget
+   * Path 1 already uses for the deadline. The kernel still does the killing,
+   * on the real worker, with the real `runSandboxed`; only the number is
+   * smaller. And a CPU-second means the same thing on every machine, which is
+   * exactly what the wall clock did not.
    */
-  it('says the same actionable thing however the sandbox ended the work', async () => {
-    const bomb = buildAttributeBombDocx(60_000)
+  it.skipIf(!CPU_RLIMIT_ENFORCED)(
+    'says the same actionable thing however the sandbox ended the work',
+    async () => {
+      const bomb = buildAttributeBombDocx(60_000)
 
-    // Path 1 — the wall-clock deadline (`timedOut`).
-    await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
-      /слишком сложный/,
-    )
+      // Path 1 — the wall-clock deadline (`timedOut`).
+      await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.toThrow(
+        /слишком сложный/,
+      )
 
-    // Path 2 — the worker KILLED rather than timed out, which is what the heap
-    // ceiling and the CPU rlimit look like from here: a signal exit with empty
-    // stdout, never `timedOut`. Triggered for REAL (three attribute bombs
-    // exhaust EXTRACTION_HEAP_MB) rather than simulated with a seam, because
-    // the branch only matters if the real mechanism reaches it — measured, it
-    // takes ~28 s and used to answer "Не удалось прочитать файл резюме".
-    const killed = await service
-      .extract(buildAttributeBombDocx(120_000, 3), RESUME_DOCX_MIME)
-      .then(() => 'resolved')
-      .catch((e: unknown) => (e as Error).message)
-    expect(killed).toMatch(/слишком сложный/)
+      // NON-VACUITY, from the probe that gated this test: the mechanism about
+      // to be used really does end a child, and it ends it as a SIGNAL exit
+      // that is not the deadline — the one shape `runWorker` must map. Without
+      // this, "killed" below could quietly become a second timeout again.
+      expect(cpuRlimitProbe.code).toBeNull()
+      expect(cpuRlimitProbe.timedOut).toBe(false)
 
-    // The message must not depend on the test seam: a 50 ms budget once
-    // produced "не уложился в 0.05 с", which is true and useless to a user.
-    await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.not.toThrow(
-      /0\.05|50 с/,
-    )
-  }, 180_000)
+      // Path 2 — the worker KILLED rather than timed out, which is what the
+      // heap ceiling and the CPU rlimit look like from here: a signal exit with
+      // empty stdout, never `timedOut`. Triggered for REAL — the kernel sends
+      // the signal, against the actual extraction worker — rather than
+      // simulated by stubbing the sandbox, because the branch only matters if
+      // a real mechanism reaches it.
+      //
+      // WHICH BRANCH RAN IS OBSERVED, NOT ASSUMED. Both paths end in the same
+      // sentence — that is the point of this test — so the message alone cannot
+      // tell them apart, and the previous version of Path 2 spent months being
+      // the deadline in disguise for exactly that reason. Only the kill branch
+      // logs, so the log is the discriminator, and it is one no amount of
+      // machine slowness can move. The deadline is pushed far out of the way on
+      // top of that, so the CPU limit is overwhelmingly the thing that fires.
+      const warned = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+      let killed: string
+      // Read INSIDE the try: `mockRestore` also resets the recorded calls, so a
+      // snapshot taken after it is always empty — and an empty snapshot would
+      // read as "the kill branch never ran".
+      let logged = ''
+      try {
+        killed = await service
+          .extract(bomb, RESUME_DOCX_MIME, { cpuSeconds: 1, timeoutMs: 150_000 })
+          .then(() => 'resolved')
+          .catch((e: unknown) => (e as Error).message)
+        logged = warned.mock.calls.flat().join(' ')
+      } finally {
+        warned.mockRestore()
+      }
+      expect(killed).toMatch(/слишком сложный/)
+      expect(logged).toMatch(/Extraction worker killed \(code null\)/)
+
+      // The message must not depend on the test seam: a 50 ms budget once
+      // produced "не уложился в 0.05 с", which is true and useless to a user.
+      await expect(service.extract(bomb, RESUME_DOCX_MIME, { timeoutMs: 50 })).rejects.not.toThrow(
+        /0\.05|50 с/,
+      )
+
+      // ...and it must not start naming the CPU budget either, for the same
+      // reason: "1 с" would be the seam talking, not the limit that ended a
+      // real upload.
+      expect(killed).not.toMatch(/1 с|Не удалось прочитать/)
+    },
+    180_000,
+  )
 
   /**
    * THE PRODUCT DEFECT A TAG BUDGET WOULD HAVE SHIPPED.
@@ -968,6 +1125,75 @@ describe('ResumeTextExtractionService.extract', () => {
     await expect(service.extract(Buffer.from('not a docx'), RESUME_DOCX_MIME)).rejects.toThrow()
     expect(service.activeExtractions).toBe(0)
     expect(service.queuedExtractions).toBe(0)
+  })
+
+  /**
+   * ==========================================================================
+   * THE SEAM MAY ONLY TIGHTEN THE CPU LIMIT — PINNED, NOT ASSUMED
+   * ==========================================================================
+   * `cpuSeconds` was added so a spec could reach the kill branch, and its note
+   * said both seam values "shorten a limit the sandbox already enforces". That
+   * was a true statement about the one call site, not a property of the code:
+   * nothing stopped the seam from raising the ceiling or removing it.
+   *
+   * It reaches `ulimit -t` as a STRING in a shell, and rlimit failures are
+   * swallowed by design (`sandboxed-process.ts`), so a value the shell will not
+   * accept does not raise — it starts the child with NO CPU LIMIT AT ALL. The
+   * one to remember is `1e21`: `String(1e21)` is `"1e+21"`, and exponent
+   * notation is not a number to a shell. `NaN`, `Infinity` and `-1` land the
+   * same way; `100000` is simply obeyed. Every one of them is a valid `number`,
+   * so the signature refuses none of them.
+   *
+   * `timeoutMs` survives the same rubbish because a bad delay collapses to
+   * 1 ms — it fails CLOSED. This one failed OPEN, which is the direction that
+   * matters, so what the sandbox is ASKED for is asserted here for each shape
+   * of rubbish. Remove the clamp in `runWorker` and every case below goes red.
+   */
+  describe('the CPU-budget seam may only tighten the limit, never loosen it', () => {
+    /**
+     * What `runWorker` actually asked the sandbox for. The spy CALLS THROUGH —
+     * the extraction really runs, under the real sandbox; the argument is only
+     * observed on its way past — and the outcome is deliberately ignored,
+     * because the assertion is about the budget requested, not the result.
+     */
+    async function requestedBudget(options: { cpuSeconds?: number }): Promise<number | undefined> {
+      const spy = vi.spyOn(sandboxedProcess, 'runSandboxed')
+      try {
+        await service.extract(buildDocx(['резюме']), RESUME_DOCX_MIME, options).catch(() => '')
+        // Read BEFORE `mockRestore`, which also resets the recorded calls.
+        return spy.mock.calls[0]?.[0]?.cpuSeconds
+      } finally {
+        spy.mockRestore()
+      }
+    }
+
+    it.each([
+      ['NaN', Number.NaN],
+      ['Infinity', Number.POSITIVE_INFINITY],
+      ['a negative budget', -1],
+      ['zero', 0],
+      ['a fraction', 1.5],
+      ['1e21, which stringifies to "1e+21"', 1e21],
+      ['a raised ceiling', 100_000],
+      ['MAX_SAFE_INTEGER', Number.MAX_SAFE_INTEGER],
+    ])('%s cannot loosen the limit', async (_case, cpuSeconds) => {
+      expect(await requestedBudget({ cpuSeconds })).toBe(EXTRACTION_CPU_SECONDS)
+    })
+
+    it('leaves the production ceiling in place when nothing is asked for', async () => {
+      expect(await requestedBudget({})).toBe(EXTRACTION_CPU_SECONDS)
+    })
+
+    it('still lets a spec ask for LESS, which is what the seam is for', async () => {
+      expect(await requestedBudget({ cpuSeconds: 1 })).toBe(1)
+    })
+
+    it('hands the shell a plain integer, never exponent notation', async () => {
+      // The mechanism behind the 1e21 case, asserted as itself: whatever the
+      // caller passes, what reaches `ulimit -t` must be something a shell reads
+      // as a number.
+      expect(String(await requestedBudget({ cpuSeconds: 1e21 }))).toMatch(/^\d+$/)
+    })
   })
 })
 
