@@ -55,10 +55,12 @@ export const MAX_DOCX_UNCOMPRESSED_BYTES = 20 * 1024 * 1024
  *
  * A tag budget was tried here and removed: to admit real documents it had to
  * sit above ~400 000 tags (per-character formatting, what a PDF-to-Word
- * conversion produces, runs 9 616 tags per page), and everything between there
+ * conversion produces, runs 9 600 tags a page), and everything between there
  * and the 695 731 this byte cap already allows costs under two seconds. It
- * could only ever have produced false rejections — it refused a twelve-page
- * converted CV — while the 15-tag document above walked past it.
+ * could only ever have produced false rejections — measured against the exact
+ * code it shipped in, a twelve-page converted CV (115 216 tags) was accepted
+ * and a THIRTEEN-page one refused — while the 15-tag document above walked
+ * past it untouched.
  *
  * PARSE COST IS BOUNDED BY THE SANDBOX (deadline, CPU rlimit, heap ceiling,
  * niceness 19, two at a time), which does not care which dimension made a
@@ -295,13 +297,29 @@ const MAGIC_PREFIX_BYTES = 32
  * name is free to invent.
  *
  * So the signal is changed rather than the list. A part is excluded from the
- * parse budget only when ITS BYTES are a recognised media format, which closes
- * the class by an argument that does not mention names at all:
+ * parse budget only when ITS BYTES are a recognised media format. That is a
+ * better signal than the name — but it is NOT the closed argument this comment
+ * used to claim, and the claim is corrected here rather than left standing:
  *
  *   - to be EXCLUDED, a part must open with media magic;
- *   - to COST PARSE TIME, a part must be well-formed XML `mammoth` can read;
- *   - no byte sequence is both. `\x89PNG` is not a document, and a document is
- *     not a PNG.
+ *   - to COST PARSE TIME, a part must be XML `mammoth` can read;
+ *   - "no byte sequence is both" — WRONG, AND DISPROVED IN THIS REPO.
+ *     `@xmldom/xmldom` is error-tolerant by design: it skips junk before
+ *     `<?xml` and reads the document behind it. So eight bytes of PNG header
+ *     glued in front of a `<w:document>` is media to this classifier AND a
+ *     complete document to the parser. That is the third bypass the paragraphs
+ *     above describe, it has a fixture (`buildDocxWithMediaPrefixedBody`), and
+ *     it means a part hidden this way is charged to NO budget at all: 14 MB of
+ *     attribute bomb behind a PNG header counts as 635 bytes and 9 tags.
+ *
+ * THE GAP IS REAL AND IT IS NOT PATCHED HERE, because patching it is what
+ * failed three times — each fix predicted what a foreign, deliberately lenient
+ * parser would accept. What contains such a part is the SANDBOX the parse runs
+ * in (deadline, CPU rlimit, heap ceiling, niceness 19, two at a time), which
+ * does not need to predict anything. See `extractFromDocx` in
+ * resume-text-extraction.service.ts, which says the same thing from the call
+ * site; this note exists so the argument is corrected where the classification
+ * is implemented, which is where the next person will read it.
  *
  * Anything unrecognised COUNTS — the polarity that matters, since an invented
  * format is exactly what an attacker reaches for. This is also the rule the top

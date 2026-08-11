@@ -363,12 +363,16 @@ export function buildAttributeBombDocx(attributes: number, elements = 1): Buffer
  * character in its own run with its own run-properties.
  *
  * This is not a synthetic worst case — it is what a PDF-to-Word conversion
- * routinely produces, and it is the shape that made a tag budget untenable. At
- * 1 200 characters a page it measured 9 616 tags and 100 KB; at 1 800, 14 416
- * tags and 150 KB. A twenty-page CV of this kind carries ~192 000 tags, which
- * is why a 120 000-tag cap was refusing legitimate documents.
+ * routinely produces, and it is the shape that made a tag budget untenable.
+ *
+ * MEASURED, and the marginal figure is the one that matters: a one-page
+ * document is 9 616 tags and 100 KB, and each further page adds 9 600 tags —
+ * the extra 16 are the wrapper parts, paid once. (At 1 800 characters a page it
+ * is 14 416 and 150 KB.) So a twenty-page CV carries ~192 000 tags, and against
+ * the 120 000-tag budget of the previous round twelve pages (115 216) was the
+ * largest accepted while thirteen was refused.
  */
-export const PER_CHARACTER_TAGS_PER_PAGE = 9_616
+export const PER_CHARACTER_TAGS_PER_PAGE = 9_600
 
 /**
  * A CV whose text is formatted per character — the real shape above, at

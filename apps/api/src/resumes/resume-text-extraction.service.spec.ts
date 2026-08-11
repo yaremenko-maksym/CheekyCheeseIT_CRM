@@ -594,8 +594,12 @@ describe('inspectDocxZip (zip-bomb guard)', () => {
    *
    * Per-character formatting — every character in its own run with its own
    * run-properties — is what a PDF-to-Word conversion routinely produces. It
-   * measures 9 616 tags per page, so a 120 000-tag budget refused a twelve-page
-   * CV. This is the regression guard: real documents of awkward shape are
+   * costs 9 600 tags a page, so the 120 000-tag budget of the previous round
+   * refused a THIRTEEN-page CV: measured against that exact code, twelve pages
+   * (115 216 tags) was the largest it accepted. The fixture below uses twenty
+   * so the guard keeps biting rather than sitting on the boundary.
+   *
+   * This is the regression guard: real documents of awkward shape are
    * accepted, and the only thing that may refuse a document is its SIZE.
    */
   it('accepts a per-character-formatted CV, whatever its tag count', async () => {
