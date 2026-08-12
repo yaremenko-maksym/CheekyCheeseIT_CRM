@@ -3,7 +3,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
 import type { TransactionType } from '@crm/shared'
-import { SALARY_ELIGIBLE_ROLES, receiptMandatoryError, roundShareAmount } from '@crm/shared'
+import {
+  SALARY_ELIGIBLE_ROLES,
+  COMPANY_ACCOUNT_RECEIVER,
+  receiptMandatoryError,
+  roundShareAmount,
+} from '@crm/shared'
 import { useAuth } from '@/context/auth'
 import { api } from '@/lib/axios'
 import { getApiErrorMessage } from '@/lib/axios-utils'
@@ -161,13 +166,25 @@ const SHARE_SOURCE_LABEL: Record<string, string> = {
   USER_DEFAULT: 'по умолчанию',
 }
 
+// task-admin-income-unified §3 (AC7): "считается на лету... показывается в
+// долларах — с учётом выбранной валюты и того же курса, который форма уже
+// показывает строкой под полем" — `usdRate` is that SAME `getRate`/`rate`
+// this component already computes for the amount field (not a second
+// conversion). In PRACTICE `usdRate` is always 1 here: the only route that
+// ever reaches this function (`isSelectedProjectUsdt`) hard-locks currency to
+// USDT (`createUsdtIncomeSchema`: `currency: z.literal('USDT')`, an unchanged
+// sibling per task scope), and USDT is pegged 1:1 to USD. The parameter keeps
+// the banner correct rather than silently wrong if that invariant is ever
+// relaxed, without inventing a currency table of its own.
 function computeObligationPreviews(
   project: ProjectOption | undefined,
   amount: number,
   seniorIsAdmin: boolean,
+  usdRate: number,
 ): ObligationPreview[] {
   if (!project || project.paymentType !== 'USDT') return []
-  const safeAmount = isNaN(amount) || amount <= 0 ? 0 : amount
+  const rawAmount = isNaN(amount) || amount <= 0 ? 0 : amount
+  const safeAmount = rawAmount * (isNaN(usdRate) || usdRate <= 0 ? 1 : usdRate)
   const previews: ObligationPreview[] = []
   // Mirrors `senior && senior.role !== 'ADMIN'` in bookCompanyObligations —
   // an admin-owned USDT project (the ADMIN is their own senior) never books a
@@ -343,7 +360,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       : []
   const adminUsdtProjects = isAdmin ? projects.filter((p) => p.paymentType === 'USDT') : []
   const adminProjects = isAdmin
-    ? Array.from(new Map([...adminOwnProjects, ...adminUsdtProjects].map((p) => [p.id, p])).values())
+    ? Array.from(
+        new Map([...adminOwnProjects, ...adminUsdtProjects].map((p) => [p.id, p])).values(),
+      )
     : adminOwnProjects.filter((p) => p.paymentType !== 'USDT')
   // Drop role - phase 2. DROP user can only declare income on drop-projects
   // routed through them. Backend enforces this too — UI mirrors the rule.
@@ -369,16 +388,26 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     ? adminUserIds.has(selectedAdminProject.seniorId)
     : false
 
-  // Derived: is the currency selector locked to USDT?
-  // True when a COMPANY_ACCOUNT funding source is selected for EXPENSE/ADMIN_INCOME.
-  // (SALARY no longer carries a funding source here — chosen at pay time.)
-  // task-admin-income-unified: the selected project being USDT-payment locks
-  // currency unconditionally (the project itself is USDT-payment) — same rule
-  // the removed `USDT_INCOME` type applied, now keyed off the project instead
-  // of a separate type.
+  // task-admin-income-unified (§2). ADMIN_INCOME's "is this routed to the
+  // shared pool" signal now lives in TWO different places depending on the
+  // caller — ADMIN picks a receiver (`receiverId === COMPANY_ACCOUNT_RECEIVER`,
+  // the flat Select below, same field the USDT route uses); ACCOUNTANT keeps
+  // the old binary `fundingSource` toggle (never a specific OTHER admin — the
+  // server rejects that for this role). One derived flag folds both shapes so
+  // every downstream USDT-lock / receipt / invalidation check reads ONE thing.
+  const isAdminIncomeCompanyFunded =
+    type === 'ADMIN_INCOME' &&
+    (isAdmin ? receiverId === COMPANY_ACCOUNT_RECEIVER : fundingSource === 'COMPANY_ACCOUNT')
+
+  // Derived: is the currency selector locked to USDT? True when the selected
+  // project is itself USDT-payment (routes through declareUsdtProjectIncome,
+  // §1), OR the income/expense is routed into the shared company pool
+  // (EXPENSE's `fundingSource` toggle, or ADMIN_INCOME's `isAdminIncomeCompanyFunded`
+  // above). SALARY no longer carries a funding source here — chosen at pay time.
   const isUsdtLocked =
     isSelectedProjectUsdt ||
-    ((type === 'EXPENSE' || type === 'ADMIN_INCOME') && fundingSource === 'COMPANY_ACCOUNT')
+    isAdminIncomeCompanyFunded ||
+    (type === 'EXPENSE' && fundingSource === 'COMPANY_ACCOUNT')
 
   // task-receipts-frontend. Single discriminant for the receipt explorer-only
   // mode across all receipt-carrying types in this dialog (design-spec §3.1 /
@@ -471,11 +500,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       )
       if (receiptError) errors.receipt = receiptError
     }
-    // task-admin-income-unified (was task-drop-share-override-and-receiver
-    // Surface B). Receiver is REQUIRED once the selected project routes
-    // through the admin-USDT flow — reuses the same `receiver` field-error
-    // slot as SALARY/ADMIN_TRANSFER/DIVIDEND below.
-    if (isSelectedProjectUsdt) {
+    // task-admin-income-unified (§2, was task-drop-share-override-and-receiver
+    // Surface B). ADMIN now ALWAYS picks an explicit receiver for ADMIN_INCOME
+    // — both routes (createAdminIncome and declareUsdtProjectIncome) — no
+    // default pre-selection (same "deliberate choice each time" convention the
+    // USDT flow already had). ACCOUNTANT never sees this Select (their binary
+    // toggle always has a value), so no check needed for that role.
+    if (type === 'ADMIN_INCOME' && isAdmin) {
       if (!receiverId) errors.receiver = 'Выберите получателя'
     }
     if (type === 'SALARY') {
@@ -537,8 +568,18 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           receiptExternalUrl,
           notes: notes || null,
           txDate: txDate || null,
-          // Send COMPANY_ACCOUNT explicitly when chosen; omit for legacy path.
-          ...(fundingSource === 'COMPANY_ACCOUNT' && { fundingSource: 'COMPANY_ACCOUNT' }),
+          // task-admin-income-unified (§2): `receiverId` REPLACES the old
+          // `fundingSource` toggle. ADMIN always sends an explicit value
+          // (validate() enforces it — an admin uuid or the COMPANY_ACCOUNT
+          // sentinel). ACCOUNTANT never gets a choice: 'legacy' sends nothing
+          // (server credits the project owner, unchanged default), 'COMPANY_ACCOUNT'
+          // sends the SAME sentinel (still allowed for this role — only picking a
+          // SPECIFIC other admin is not, and the UI never offers that).
+          ...(isAdmin
+            ? { receiverId }
+            : fundingSource === 'COMPANY_ACCOUNT'
+              ? { receiverId: COMPANY_ACCOUNT_RECEIVER }
+              : {}),
         })
       }
       if (type === 'SENIOR_INCOME') {
@@ -638,8 +679,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         void qc.invalidateQueries({ queryKey: ['company-account'] })
         toast.success('Дивиденды выведены')
       }
-      // Invalidate company-account balance when any company-account debit/credit succeeds.
-      if (fundingSource === 'COMPANY_ACCOUNT') {
+      // Invalidate company-account balance when any company-account debit/credit
+      // succeeds. `isAdminIncomeCompanyFunded` covers ADMIN_INCOME's two shapes
+      // (ADMIN's receiverId sentinel, ACCOUNTANT's fundingSource toggle);
+      // `fundingSource === 'COMPANY_ACCOUNT'` covers EXPENSE (unaffected by
+      // task-admin-income-unified — still its own toggle).
+      if (fundingSource === 'COMPANY_ACCOUNT' || isAdminIncomeCompanyFunded) {
         void qc.invalidateQueries({ queryKey: ['company-account'] })
       }
       onClose()
@@ -686,9 +731,14 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const amtNum = parseStrictAmount(amount)
   const _convertedUsd = rate && !isNaN(amtNum) && amtNum > 0 ? (amtNum * rate).toFixed(2) : null
 
-  // task-admin-income-unified (AC5/AC6) — see `computeObligationPreviews`.
+  // task-admin-income-unified (AC5/AC6/AC7) — see `computeObligationPreviews`.
+  // `usdRate`: the SAME `getRate`/`rate` pair above, not a second conversion.
+  // USDT/USD need no conversion (1:1 — the peg AmountCurrencyInput shows);
+  // `rate` only resolves for EUR/UAH/USD (see `getRate`), so it is `null`
+  // exactly when no conversion is needed here too.
+  const usdRate = effectiveCurrency === 'USDT' || effectiveCurrency === 'USD' ? 1 : (rate ?? 1)
   const obligationPreviews = isSelectedProjectUsdt
-    ? computeObligationPreviews(selectedAdminProject, amtNum, selectedProjectSeniorIsAdmin)
+    ? computeObligationPreviews(selectedAdminProject, amtNum, selectedProjectSeniorIsAdmin, usdRate)
     : []
 
   return (
@@ -862,15 +912,20 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               </p>
             )}
 
-          {/* task-admin-income-unified (was task-drop-share-override-and-
-              receiver, Surface B). Receiver of the admin-USDT income — flat
-              Select (admins + company account), same convention as the
-              DIVIDEND receiver select below. No default pre-selection (ADR —
-              deliberate choice each time). Shown once the SELECTED PROJECT
-              (not a separate type) routes through the USDT flow. */}
-          {isSelectedProjectUsdt && (
+          {/* task-admin-income-unified (§2, owner decision 2026-08-12). ADMIN
+              gets a flat "Счёт получателя" Select — same shape/convention the
+              USDT route already used (any ACTIVE admin — `/users` excludes
+              archived by default, AC9 — + «Счёт компании», no group headers,
+              no default pre-selection), now covering BOTH routes
+              (createAdminIncome AND declareUsdtProjectIncome) since "who gets
+              credited" is the same choice either way. `adminUsers` is
+              role-filtered (=== 'ADMIN') — a drop structurally cannot appear
+              here (owner's explicit call: a drop declares their own income,
+              never in USDT). ACCOUNTANT does NOT get this Select — see the
+              constrained toggle below instead. */}
+          {type === 'ADMIN_INCOME' && isAdmin && (
             <div className="space-y-1.5">
-              <Label className="text-xs text-muted-foreground">Получатель прихода</Label>
+              <Label className="text-xs text-muted-foreground">Счёт получателя</Label>
               <Select
                 value={receiverId}
                 onValueChange={(v) => {
@@ -880,7 +935,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               >
                 <SelectTrigger
                   className={cn('h-9 text-sm', fieldErrors.receiver && 'border-destructive')}
-                  data-testid="usdt-income-receiver-trigger"
+                  data-testid="admin-income-receiver-trigger"
                 >
                   <SelectValue placeholder="Выберите получателя" />
                 </SelectTrigger>
@@ -891,19 +946,24 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                     </SelectItem>
                   ))}
                   <SelectSeparator />
-                  <SelectItem value="COMPANY_ACCOUNT" className="text-sm">
+                  <SelectItem value={COMPANY_ACCOUNT_RECEIVER} className="text-sm">
                     Счёт компании
                   </SelectItem>
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Весь приход (gross) уйдёт выбранному получателю. Компания автоматически создаст
-                обязательства выплатить синьору и дропу их доли.
-              </p>
+              {/* USDT-route-specific: createAdminIncome never books an
+                  obligation (AC3) — showing this on a FOP/GIG project would be
+                  a false promise. */}
+              {isSelectedProjectUsdt && (
+                <p className="text-xs text-muted-foreground">
+                  Весь приход (gross) уйдёт выбранному получателю. Компания автоматически создаст
+                  обязательства выплатить синьору и дропу их доли.
+                </p>
+              )}
               {fieldErrors.receiver && (
                 <p
                   className="text-[11px] text-destructive"
-                  data-testid="usdt-income-error-receiver"
+                  data-testid="admin-income-error-receiver"
                 >
                   {fieldErrors.receiver}
                 </p>
@@ -975,75 +1035,137 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             </div>
           )}
 
-          {/* Funding source selector — EXPENSE / ADMIN_INCOME only.
-              task-salary-pay-flow: SALARY no longer has a funding selector here —
-              the funding source is chosen at pay time (PaySalaryDialog).
-              task-admin-income-unified: hidden once the selected project routes
-              through the USDT flow — that route's "who gets the gross" choice
-              is the receiver Select above, not this legacy/company-account
-              funding toggle (the two are mutually exclusive, not stacked). */}
-          {(type === 'EXPENSE' || (type === 'ADMIN_INCOME' && !isSelectedProjectUsdt)) && (
+          {/* Funding source selector — EXPENSE only (task-admin-income-unified
+              §2: ADMIN_INCOME's ADMIN branch moved to the flat receiver Select
+              above; its ACCOUNTANT branch is the constrained toggle right
+              below). task-salary-pay-flow: SALARY no longer has a funding
+              selector here — chosen at pay time (PaySalaryDialog). */}
+          {type === 'EXPENSE' && (
             <div className="space-y-2" data-testid="create-transaction-funding-source-section">
               <Label className="text-xs text-muted-foreground">Источник средств</Label>
               <div className="grid grid-cols-1 gap-1.5">
-                {(type === 'EXPENSE' || type === 'ADMIN_INCOME') && (
-                  <>
-                    <button
-                      type="button"
-                      onClick={() => setFundingSource('legacy')}
-                      className={cn(
-                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                        fundingSource === 'legacy'
-                          ? 'border-primary bg-primary/8 text-foreground'
-                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                      )}
-                      data-testid="create-transaction-funding-legacy"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium leading-tight">
-                          {type === 'EXPENSE' ? 'Обычный расход' : 'Личный приход'}
-                        </div>
-                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                          {type === 'EXPENSE'
-                            ? 'Стандартный расход, не затрагивает счёт компании'
-                            : 'Личный доход партнёра, не на счёт компании'}
-                        </div>
-                      </div>
-                      {fundingSource === 'legacy' && (
-                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                      )}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setFundingSource('COMPANY_ACCOUNT')
-                        setCurrency('USDT')
-                      }}
-                      className={cn(
-                        'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                        fundingSource === 'COMPANY_ACCOUNT'
-                          ? 'border-primary bg-primary/8 text-foreground'
-                          : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                      )}
-                      data-testid="create-transaction-funding-company"
-                    >
-                      <div className="flex-1 min-w-0">
-                        <div className="text-sm font-medium leading-tight">Счёт компании</div>
-                        <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                          {type === 'EXPENSE'
-                            ? 'Спишется со счёта компании (USDT)'
-                            : 'Зачислится на счёт компании (USDT)'}
-                        </div>
-                      </div>
-                      {fundingSource === 'COMPANY_ACCOUNT' && (
-                        <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                      )}
-                    </button>
-                  </>
-                )}
+                <button
+                  type="button"
+                  onClick={() => setFundingSource('legacy')}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                    fundingSource === 'legacy'
+                      ? 'border-primary bg-primary/8 text-foreground'
+                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                  )}
+                  data-testid="create-transaction-funding-legacy"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium leading-tight">Обычный расход</div>
+                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                      Стандартный расход, не затрагивает счёт компании
+                    </div>
+                  </div>
+                  {fundingSource === 'legacy' && (
+                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFundingSource('COMPANY_ACCOUNT')
+                    setCurrency('USDT')
+                  }}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                    fundingSource === 'COMPANY_ACCOUNT'
+                      ? 'border-primary bg-primary/8 text-foreground'
+                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                  )}
+                  data-testid="create-transaction-funding-company"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium leading-tight">Счёт компании</div>
+                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                      Спишется со счёта компании (USDT)
+                    </div>
+                  </div>
+                  {fundingSource === 'COMPANY_ACCOUNT' && (
+                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                  )}
+                </button>
               </div>
 
               {/* Company account balance hint when COMPANY_ACCOUNT selected */}
+              {fundingSource === 'COMPANY_ACCOUNT' && (
+                <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
+                  <span>Баланс счёта компании</span>
+                  <span
+                    className="font-bold tabular-nums"
+                    data-testid="create-transaction-company-balance-hint"
+                  >
+                    {fmtUsdt(companyBalance)} USDT
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* task-admin-income-unified (§2, owner decision 2026-08-12).
+              ACCOUNTANT's CONSTRAINED "Счёт получателя" — reuses the EXACT
+              same `fundingSource` state/toggle shape EXPENSE uses above (no
+              new state), but "personal" always means the PROJECT OWNER
+              (never a picked admin, never the accountant — the server
+              rejects anything else for this role, see createAdminIncome).
+              The interface never offers what the server would reject. */}
+          {type === 'ADMIN_INCOME' && isAccountant && (
+            <div className="space-y-2" data-testid="create-transaction-funding-source-section">
+              <Label className="text-xs text-muted-foreground">Счёт получателя</Label>
+              <div className="grid grid-cols-1 gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => setFundingSource('legacy')}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                    fundingSource === 'legacy'
+                      ? 'border-primary bg-primary/8 text-foreground'
+                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                  )}
+                  data-testid="create-transaction-funding-legacy"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium leading-tight">Владелец проекта</div>
+                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                      {selectedAdminProject?.seniorName
+                        ? `Приход зачислится администратору ${selectedAdminProject.seniorName}`
+                        : 'Приход зачислится администратору-владельцу проекта'}
+                    </div>
+                  </div>
+                  {fundingSource === 'legacy' && (
+                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFundingSource('COMPANY_ACCOUNT')
+                    setCurrency('USDT')
+                  }}
+                  className={cn(
+                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+                    fundingSource === 'COMPANY_ACCOUNT'
+                      ? 'border-primary bg-primary/8 text-foreground'
+                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                  )}
+                  data-testid="create-transaction-funding-company"
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="text-sm font-medium leading-tight">Счёт компании</div>
+                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                      Зачислится на счёт компании (USDT)
+                    </div>
+                  </div>
+                  {fundingSource === 'COMPANY_ACCOUNT' && (
+                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+                  )}
+                </button>
+              </div>
+
               {fundingSource === 'COMPANY_ACCOUNT' && (
                 <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
                   <span>Баланс счёта компании</span>
