@@ -47,10 +47,19 @@ describe('toSafeFailureMessage — length (the 400 this caused)', () => {
     const run = {
       results: [],
       failures: [
-        { sourceType: 'DOU_RSS' as const, message: toSafeFailureMessage(DRIZZLE_INSERT_ERROR) },
+        {
+          sourceType: 'DOU_RSS' as const,
+          message: toSafeFailureMessage(DRIZZLE_INSERT_ERROR),
+          // task-vacancy-matching §4: a failure now also states whether the
+          // source stopped because its request budget is spent (a normal,
+          // self-resolving condition) or because it broke. These two are
+          // breakages, so `false`.
+          budgetExhausted: false,
+        },
         {
           sourceType: 'DOU_RSS' as const,
           message: toSafeFailureMessage(new Error('y'.repeat(9000))),
+          budgetExhausted: false,
         },
       ],
     }
