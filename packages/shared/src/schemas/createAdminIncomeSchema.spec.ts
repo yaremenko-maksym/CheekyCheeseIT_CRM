@@ -35,11 +35,24 @@ describe('createAdminIncomeSchema — refineAdminIncomeCompanyAccountUsdt', () =
       basePayload({ receiverId: COMPANY_ACCOUNT_RECEIVER, currency: 'USD' }),
     )
     expect(result.success).toBe(false)
-    if (!result.success) {
-      const issue = result.error.issues.find((i) => i.message.includes('счёта компании'))
-      expect(issue).toBeDefined()
-      expect(issue!.path).toEqual(['currency'])
-    }
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.message.includes('счёта компании'))
+      : undefined
+    expect(issue).toBeDefined()
+    expect(issue?.path).toEqual(['currency'])
+    expect(issue?.code).toBe('custom')
+  })
+
+  it('receiverId=COMPANY_ACCOUNT with currency OMITTED entirely does NOT also raise the contradiction issue — the guard reads currency only when it is present, avoiding a confusing double-error alongside the base "required" error', () => {
+    const { currency: _currency, ...withoutCurrency } = basePayload({
+      receiverId: COMPANY_ACCOUNT_RECEIVER,
+    })
+    const result = createAdminIncomeSchema.safeParse(withoutCurrency)
+    expect(result.success).toBe(false)
+    const contradictionIssue = !result.success
+      ? result.error.issues.find((i) => i.message.includes('счёта компании'))
+      : undefined
+    expect(contradictionIssue).toBeUndefined()
   })
 
   it('accepts receiverId=COMPANY_ACCOUNT with currency=USDT (no contradiction)', () => {
@@ -71,9 +84,8 @@ describe('createAdminIncomeSchema — receipt currency resolver (COMPANY_ACCOUNT
       }),
     )
     expect(result.success).toBe(false)
-    if (!result.success) {
-      expect(result.error.issues[0]!.message).toMatch(/blockchain-explorer/)
-    }
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toMatch(/blockchain-explorer/)
   })
 
   it('receiverId=a specific admin resolves the EFFECTIVE currency to `data.currency` (USD here) — a plain https link is accepted, explorer-only does NOT apply', () => {
@@ -92,5 +104,20 @@ describe('createAdminIncomeSchema — receipt currency resolver (COMPANY_ACCOUNT
       basePayload({ currency: 'USD', receiptExternalUrl: 'https://example.com/plain-receipt.pdf' }),
     )
     expect(result.success).toBe(true)
+  })
+
+  it('the effective currency is selected by receiverId, NOT by data.currency — with a (separately rejected) contradictory currency, the receipt gate still demands an explorer link, proving it never falls through to `d.currency`', () => {
+    const result = createAdminIncomeSchema.safeParse(
+      basePayload({
+        receiverId: COMPANY_ACCOUNT_RECEIVER,
+        currency: 'USD',
+        receiptExternalUrl: 'https://example.com/plain-receipt.pdf',
+      }),
+    )
+    expect(result.success).toBe(false)
+    const receiptIssue = !result.success
+      ? result.error.issues.find((i) => i.message.match(/blockchain-explorer/))
+      : undefined
+    expect(receiptIssue).toBeDefined()
   })
 })

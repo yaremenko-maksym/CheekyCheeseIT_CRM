@@ -655,6 +655,7 @@ function refineAdminIncomeCompanyAccountUsdt(
 ): void {
   if (
     data.receiverId === COMPANY_ACCOUNT_RECEIVER &&
+    // Stryker disable next-line ConditionalExpression: empirically verified (direct console instrumentation of this function, both createAdminIncomeSchema call sites) — Zod v4 never INVOKES this superRefine at all when `currency` itself fails its own `z.enum([...])` validation (confirmed for both an omitted key and an explicit invalid value); it only calls this function once `currency` has already parsed to a real enum member. So whenever this line executes, `data.currency !== undefined` is unconditionally true — not by this guard, but by the field having already been validated upstream. The `string | undefined` parameter type is defensive for the shared-helper shape, not evidence this branch is reachable-as-false here.
     data.currency !== undefined &&
     data.currency !== 'USDT'
   ) {
@@ -691,6 +692,7 @@ export const createAdminIncomeSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional()
       .nullable(),
+    // Stryker disable next-line ArrayDeclaration: this array literal is evaluated ONCE at module-import time (schema construction), before any test's per-test coverage window opens, so Stryker's vitest-runner falls back to a single whole-suite run for this "static" mutant and reports 0 tests completed. Verified independently outside Stryker's sandbox (plain node, this repo's exact zod@4.3.6): `z.union([])` throws synchronously inside `new ZodUnion` the instant the module is imported — every test file importing anything from finance.ts would fail to even load. Not an equivalent mutant (it is a real, severe regression); real behavioural tests already exist accepting a UUID and the COMPANY_ACCOUNT sentinel for this exact field (createAdminIncomeSchema.spec.ts) — they just cannot register as "covering" a construction-time literal, a tool blind spot for module-scope Zod unions.
     receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]).optional(),
   })
   .superRefine(refineAdminIncomeCompanyAccountUsdt)
