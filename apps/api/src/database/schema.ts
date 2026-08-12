@@ -806,6 +806,30 @@ export const transactions = pgTable(
      * apps/api/drizzle/manual/2026-08-12_admin_income_drop_backfill_column.sql):
      *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source_income_transaction_id uuid
      *     REFERENCES transactions(id) ON DELETE SET NULL;
+     *
+     * security-review round 2 (PR #517, MED-F): the backfill script's own
+     * SELECT predicate ("not already linked") is a read-then-write guard —
+     * correct for a single sequential run, but NOT a structural defence
+     * against two overlapping `apply.sql` executions (a manual re-run
+     * triggered while a prior one is still in flight). The partial unique
+     * index below converts that guarantee from "predicate, hopefully
+     * evaluated once" into "the database physically refuses a second
+     * DROP_PENDING_PAYOUT/PAYOUT_DROP row for the same source income" — a
+     * genuine concurrent race hits 23505 instead of silently double-booking.
+     * Scoped to the drop-share row types (not senior) because those are the
+     * ONLY types this backfill ever creates; a co-existing
+     * SENIOR_PENDING_PAYOUT row for the SAME income (created by the SAME
+     * `bookCompanyObligations` call, same `sourceIncomeTransactionId`) is a
+     * different `type` value and therefore outside this partial index's row
+     * set — no conflict with the normal declare flow, which always books
+     * both in one call. See `uq_transactions_admin_income_idempotency_key`
+     * above for the sibling pattern this mirrors.
+     *
+     * ADD INDEX DDL — same file as the column above:
+     *   CREATE UNIQUE INDEX IF NOT EXISTS uq_transactions_source_income_drop_link
+     *     ON transactions (source_income_transaction_id)
+     *     WHERE type IN ('DROP_PENDING_PAYOUT', 'PAYOUT_DROP')
+     *       AND source_income_transaction_id IS NOT NULL;
      */
     sourceIncomeTransactionId: uuid('source_income_transaction_id').references(
       (): AnyPgColumn => transactions.id,
@@ -963,6 +987,17 @@ export const transactions = pgTable(
     uniqueIndex('uq_transactions_admin_income_idempotency_key')
       .on(t.idempotencyKey)
       .where(sql`${t.type} = 'ADMIN_INCOME' AND ${t.idempotencyKey} IS NOT NULL`),
+    // security-review round 2 (PR #517, MED-F) — structural race guard for the
+    // admin-income-drop-backfill apply script. See the doc comment on
+    // `sourceIncomeTransactionId` above for the full reasoning: at most one
+    // DROP_PENDING_PAYOUT/PAYOUT_DROP row may ever carry a given
+    // `source_income_transaction_id` — a concurrent second `apply.sql` run
+    // hits 23505 instead of double-booking a drop's share.
+    uniqueIndex('uq_transactions_source_income_drop_link')
+      .on(t.sourceIncomeTransactionId)
+      .where(
+        sql`${t.type} IN ('DROP_PENDING_PAYOUT', 'PAYOUT_DROP') AND ${t.sourceIncomeTransactionId} IS NOT NULL`,
+      ),
   ],
 )
 
