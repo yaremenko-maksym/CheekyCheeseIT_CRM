@@ -1959,6 +1959,12 @@ export class TransactionsService {
           incomeAmount: data.amount,
           projectId: data.projectId,
           createdBy: currentUser.id,
+          // task-admin-income-drop-backfill: this row's own id — the ONE call
+          // site that always knows its source income (it just inserted it, in
+          // this same db transaction). Lets a future query answer "does this
+          // income already have a booked share?" without guessing by
+          // project+amount+time.
+          incomeTransactionId: tx!.id,
           senior:
             senior && seniorSnapshot
               ? { id: senior.id, role: senior.role, shareSnapshot: seniorSnapshot }
@@ -4127,6 +4133,12 @@ export class TransactionsService {
       projectId: string
       createdBy: string
       payoutRequestId?: string | null
+      // task-admin-income-drop-backfill: the income transaction this booking
+      // was caused by, when the caller knows it — see the column comment on
+      // `transactions.sourceIncomeTransactionId` in schema.ts for the full
+      // reasoning (declareUsdtProjectIncome always passes it; the payout
+      // cascade deliberately does not — no single source income to name).
+      incomeTransactionId?: string | null
       senior?: {
         id: string
         role: string
@@ -4140,6 +4152,7 @@ export class TransactionsService {
     },
   ): Promise<{ seniorAmount: number | null; dropAmount: number | null }> {
     const { incomeAmount, projectId, createdBy, payoutRequestId, senior, drop } = params
+    const incomeTransactionId = params.incomeTransactionId ?? null
     const notePrefix = params.notePrefix ?? 'Company owes'
     let seniorAmount: number | null = null
     let dropAmount: number | null = null
@@ -4163,6 +4176,7 @@ export class TransactionsService {
           seniorSharePercentSource: senior.shareSnapshot.source,
           notes: `${notePrefix} — senior IOU (debtor=COMPANY)`,
           createdBy,
+          sourceIncomeTransactionId: incomeTransactionId,
         })
         .returning()
       if (pendingRow) {
@@ -4205,6 +4219,7 @@ export class TransactionsService {
           dropSharePercentSource: drop.shareSnapshot.source,
           notes: `${notePrefix} — drop IOU (debtor=COMPANY)`,
           createdBy,
+          sourceIncomeTransactionId: incomeTransactionId,
         })
         .returning()
       if (pendingRow) {
