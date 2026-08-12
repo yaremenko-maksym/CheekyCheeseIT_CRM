@@ -100,6 +100,23 @@ function IncomeStatusBadge({ status, id }: { status: DropIncomeStatus; id: strin
   )
 }
 
+// task-drop-sees-own-obligations (§AC3): the feed now covers TWO income
+// models — this badge is the "понятное различение" the task asks for.
+// 'declared'   — the old self-declared DROP_INCOME row (drop registers it).
+// 'obligation' — a company-booked IOU (DROP_PENDING_PAYOUT/PAYOUT_DROP, from
+//                the admin-USDT declare path or the drop-payout cascade).
+function IncomeModelBadge({ model }: { model: DropIncomeDto['model'] }) {
+  return model === 'obligation' ? (
+    <Badge variant="secondary" className="text-xs">
+      Начисление
+    </Badge>
+  ) : (
+    <Badge variant="outline" className="text-xs">
+      Приход
+    </Badge>
+  )
+}
+
 function PaymentStatusBadge({ status }: { status: DropPaymentStatus }) {
   const config: Record<
     DropPaymentStatus,
@@ -278,9 +295,7 @@ function DropIncomesTable() {
                       {fmtUsd(income.amount)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        Приход
-                      </Badge>
+                      <IncomeModelBadge model={income.model} />
                     </TableCell>
                     <TableCell>
                       <IncomeStatusBadge status={income.status} id={income.id} />
