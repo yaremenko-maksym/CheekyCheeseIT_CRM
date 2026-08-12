@@ -2,14 +2,21 @@
  * finance-funding-source.spec.ts — E2E coverage for the funding-source selector
  * in CreateTransactionDialog. Reworked for task-salary-pay-flow: SALARY no longer
  * has a funding selector at creation (the source + currency are chosen at pay
- * time, in PaySalaryDialog). EXPENSE / ADMIN_INCOME keep the selector.
+ * time, in PaySalaryDialog). EXPENSE keeps the original binary toggle.
+ *
+ * task-admin-income-unified (2026-08-12, §2): ADMIN_INCOME's toggle is GONE for
+ * ADMIN — replaced by the flat "Счёт получателя" receiver Select
+ * (`admin-income-receiver-trigger`, any active admin + «Счёт компании»).
+ * ACCOUNTANT keeps a toggle-shaped selector (same `fundingSource` state/markup
+ * EXPENSE uses) since the server denies them a specific-admin choice (AC10).
  *
  * AC coverage:
  *  AC5 — SALARY: NO funding-source section (neutral PENDING reminder); the salary
  *         POST payload carries NO fundingSource / payerAdminId.
  *  AC2 — EXPENSE: default legacy; switch to COMPANY_ACCOUNT → USDT-lock +
  *         company-balance-hint visible.
- *  AC3 — ADMIN_INCOME: same pattern as EXPENSE (default legacy → company → USDT-lock + hint).
+ *  AC3 — ADMIN_INCOME: ADMIN gets the flat receiver Select (not the toggle);
+ *         ACCOUNTANT gets the toggle (default legacy → company → USDT-lock + hint).
  *
  * Strategy:
  *  - All tests are mocked (route.fulfill only, NO route.continue).
@@ -238,54 +245,75 @@ test.describe('AC2 — EXPENSE funding-source selector', () => {
 })
 
 // ═══════════════════════════════════════════════════════════════════════════
-// AC3 — ADMIN_INCOME type: funding-source selector
+// AC3 (task-admin-income-unified successor) — ADMIN_INCOME "Счёт получателя"
 // ═══════════════════════════════════════════════════════════════════════════
 
-test.describe('AC3 — ADMIN_INCOME funding-source selector', () => {
-  test('ADMIN: funding-source section visible for ADMIN_INCOME (default type on open)', async ({
+test.describe('AC3 — ADMIN_INCOME "Счёт получателя" (task-admin-income-unified §2)', () => {
+  test('ADMIN: flat receiver Select visible (default type on open), NOT the toggle section', async ({
     asAdmin,
   }) => {
     await mockAdminDialogRoutes(asAdmin)
     const dialog = await openDialog(asAdmin)
 
-    // ADMIN_INCOME is selected by default — section must already be visible.
-    await expect(dialog.getByTestId('create-transaction-funding-source-section')).toBeVisible()
+    // ADMIN_INCOME is selected by default — the flat Select must already be visible.
+    await expect(dialog.getByTestId('admin-income-receiver-trigger')).toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-source-section')).not.toBeVisible()
   })
 
-  test('ADMIN: ADMIN_INCOME defaults to legacy (no balance hint)', async ({ asAdmin }) => {
+  test('ADMIN: no balance hint before a receiver is chosen', async ({ asAdmin }) => {
     await mockAdminDialogRoutes(asAdmin)
     const dialog = await openDialog(asAdmin)
 
-    await expect(dialog.getByTestId('create-transaction-funding-legacy')).toBeVisible()
     await expect(dialog.getByTestId('create-transaction-company-balance-hint')).not.toBeVisible()
   })
 
-  test('ADMIN: selecting COMPANY_ACCOUNT for ADMIN_INCOME shows balance hint', async ({
+  test('ADMIN: selecting «Счёт компании» in the receiver Select shows the balance hint', async ({
     asAdmin,
   }) => {
     await mockAdminDialogRoutes(asAdmin)
     const dialog = await openDialog(asAdmin)
 
-    await dialog.getByTestId('create-transaction-funding-company').click()
+    await dialog.getByTestId('admin-income-receiver-trigger').click()
+    const listbox = asAdmin.locator('[role="listbox"]')
+    await expect(listbox).toBeVisible()
+    await listbox.getByRole('option', { name: 'Счёт компании' }).click()
 
     const hint = dialog.getByTestId('create-transaction-company-balance-hint')
     await expect(hint).toBeVisible()
     await expect(hint).toContainText(/9[\s,.]?876/)
   })
 
-  test('ADMIN: ADMIN_INCOME + COMPANY_ACCOUNT — currency select is disabled (USDT locked)', async ({
+  test('ADMIN: ADMIN_INCOME + «Счёт компании» — currency select is disabled (USDT locked)', async ({
     asAdmin,
   }) => {
     await mockAdminDialogRoutes(asAdmin)
     const dialog = await openDialog(asAdmin)
 
-    await dialog.getByTestId('create-transaction-funding-company').click()
+    await dialog.getByTestId('admin-income-receiver-trigger').click()
+    const listbox = asAdmin.locator('[role="listbox"]')
+    await expect(listbox).toBeVisible()
+    await listbox.getByRole('option', { name: 'Счёт компании' }).click()
 
     const currencyTrigger = dialog
       .getByRole('combobox')
       .filter({ hasText: /USDT|USD|EUR|UAH/ })
       .last()
     await expect(currencyTrigger).toBeDisabled()
+  })
+
+  // AC10: the accountant has never been a router of funds — the server
+  // hard-credits the project's admin owner for this role. The interface
+  // reflects that by keeping the OLD toggle-shaped selector (project owner /
+  // «Счёт компании» only), never the flat any-admin Select.
+  test('ACCOUNTANT: constrained "Счёт получателя" toggle visible, NOT the flat admin Select (AC10)', async ({
+    asAccountant,
+  }) => {
+    await mockAdminDialogRoutes(asAccountant)
+    const dialog = await openDialog(asAccountant)
+
+    await expect(dialog.getByTestId('create-transaction-type-admin_income')).toBeVisible()
+    await expect(dialog.getByTestId('admin-income-receiver-trigger')).not.toBeVisible()
+    await expect(dialog.getByTestId('create-transaction-funding-source-section')).toBeVisible()
   })
 })
 

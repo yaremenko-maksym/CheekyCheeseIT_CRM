@@ -91,7 +91,7 @@ type FundingSourceUI = 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | 'legacy'
 // always are); this just declares the fields the pre-submit obligation-
 // preview banner reads. Optional + nullable throughout — absence degrades to
 // "no preview", never a crash.
-type ProjectOption = {
+export type ProjectOption = {
   id: string
   name: string
   seniorId: string
@@ -151,7 +151,7 @@ function getRate(currency: Currency, rates: ExchangeRate | undefined): number | 
 // applies (`senior && senior.role !== 'ADMIN'` in `bookCompanyObligations`),
 // so the banner can never promise a number — or a beneficiary — the backend
 // does not produce.
-type ObligationPreview = {
+export type ObligationPreview = {
   role: 'SENIOR' | 'DROP'
   roleLabel: string
   name: string
@@ -176,7 +176,14 @@ const SHARE_SOURCE_LABEL: Record<string, string> = {
 // sibling per task scope), and USDT is pegged 1:1 to USD. The parameter keeps
 // the banner correct rather than silently wrong if that invariant is ever
 // relaxed, without inventing a currency table of its own.
-function computeObligationPreviews(
+// Exported (not just module-scope) so a dedicated unit-test file can pin
+// every branch directly — this is the single function AC5/AC6/AC7 hold to
+// "predicts the server's actual booking to the cent"; testing it only
+// through the full dialog's rendered DOM would leave several of its
+// branches (senior-is-admin exclusion, missing-share no-op, source-label
+// fallback, non-positive/NaN amount and usdRate guards) exercised by at
+// most one scenario each.
+export function computeObligationPreviews(
   project: ProjectOption | undefined,
   amount: number,
   seniorIsAdmin: boolean,
@@ -723,6 +730,88 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     setUsdtIncomeIdempotencyKey(crypto.randomUUID())
   }
 
+  // EXPENSE and ADMIN_INCOME's ACCOUNTANT branch render the SAME two-button
+  // legacy/company toggle — only the copy differs (see the two call sites
+  // below). Sharing the implementation means there is exactly ONE place that
+  // decides which button is active, not two near-identical copies that could
+  // drift apart silently.
+  function renderFundingSourceToggle({
+    sectionLabel,
+    personalLabel,
+    personalDescription,
+    companyDescription,
+  }: {
+    sectionLabel: string
+    personalLabel: string
+    personalDescription: string
+    companyDescription: string
+  }) {
+    return (
+      <div className="space-y-2" data-testid="create-transaction-funding-source-section">
+        <Label className="text-xs text-muted-foreground">{sectionLabel}</Label>
+        <div className="grid grid-cols-1 gap-1.5">
+          <button
+            type="button"
+            onClick={() => setFundingSource('legacy')}
+            className={cn(
+              'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+              fundingSource === 'legacy'
+                ? 'border-primary bg-primary/8 text-foreground'
+                : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+            )}
+            data-testid="create-transaction-funding-legacy"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium leading-tight">{personalLabel}</div>
+              <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                {personalDescription}
+              </div>
+            </div>
+            {fundingSource === 'legacy' && (
+              <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setFundingSource('COMPANY_ACCOUNT')
+              setCurrency('USDT')
+            }}
+            className={cn(
+              'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+              fundingSource === 'COMPANY_ACCOUNT'
+                ? 'border-primary bg-primary/8 text-foreground'
+                : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+            )}
+            data-testid="create-transaction-funding-company"
+          >
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium leading-tight">Счёт компании</div>
+              <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
+                {companyDescription}
+              </div>
+            </div>
+            {fundingSource === 'COMPANY_ACCOUNT' && (
+              <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
+            )}
+          </button>
+        </div>
+
+        {fundingSource === 'COMPANY_ACCOUNT' && (
+          <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
+            <span>Баланс счёта компании</span>
+            <span
+              className="font-bold tabular-nums"
+              data-testid="create-transaction-company-balance-hint"
+            >
+              {fmtUsdt(companyBalance)} USDT
+            </span>
+          </div>
+        )}
+      </div>
+    )
+  }
+
   const error = mutation.error != null ? getApiErrorMessage(mutation.error) : null
   const hasFieldErrors = Object.keys(fieldErrors).length > 0
 
@@ -1053,71 +1142,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               above; its ACCOUNTANT branch is the constrained toggle right
               below). task-salary-pay-flow: SALARY no longer has a funding
               selector here — chosen at pay time (PaySalaryDialog). */}
-          {type === 'EXPENSE' && (
-            <div className="space-y-2" data-testid="create-transaction-funding-source-section">
-              <Label className="text-xs text-muted-foreground">Источник средств</Label>
-              <div className="grid grid-cols-1 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setFundingSource('legacy')}
-                  className={cn(
-                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                    fundingSource === 'legacy'
-                      ? 'border-primary bg-primary/8 text-foreground'
-                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                  )}
-                  data-testid="create-transaction-funding-legacy"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium leading-tight">Обычный расход</div>
-                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                      Стандартный расход, не затрагивает счёт компании
-                    </div>
-                  </div>
-                  {fundingSource === 'legacy' && (
-                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFundingSource('COMPANY_ACCOUNT')
-                    setCurrency('USDT')
-                  }}
-                  className={cn(
-                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                    fundingSource === 'COMPANY_ACCOUNT'
-                      ? 'border-primary bg-primary/8 text-foreground'
-                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                  )}
-                  data-testid="create-transaction-funding-company"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium leading-tight">Счёт компании</div>
-                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                      Спишется со счёта компании (USDT)
-                    </div>
-                  </div>
-                  {fundingSource === 'COMPANY_ACCOUNT' && (
-                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                  )}
-                </button>
-              </div>
-
-              {/* Company account balance hint when COMPANY_ACCOUNT selected */}
-              {fundingSource === 'COMPANY_ACCOUNT' && (
-                <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
-                  <span>Баланс счёта компании</span>
-                  <span
-                    className="font-bold tabular-nums"
-                    data-testid="create-transaction-company-balance-hint"
-                  >
-                    {fmtUsdt(companyBalance)} USDT
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
+          {type === 'EXPENSE' &&
+            renderFundingSourceToggle({
+              sectionLabel: 'Источник средств',
+              personalLabel: 'Обычный расход',
+              personalDescription: 'Стандартный расход, не затрагивает счёт компании',
+              companyDescription: 'Спишется со счёта компании (USDT)',
+            })}
 
           {/* task-admin-income-unified (§2, owner decision 2026-08-12).
               ACCOUNTANT's CONSTRAINED "Счёт получателя" — reuses the EXACT
@@ -1126,72 +1157,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               (never a picked admin, never the accountant — the server
               rejects anything else for this role, see createAdminIncome).
               The interface never offers what the server would reject. */}
-          {type === 'ADMIN_INCOME' && isAccountant && (
-            <div className="space-y-2" data-testid="create-transaction-funding-source-section">
-              <Label className="text-xs text-muted-foreground">Счёт получателя</Label>
-              <div className="grid grid-cols-1 gap-1.5">
-                <button
-                  type="button"
-                  onClick={() => setFundingSource('legacy')}
-                  className={cn(
-                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                    fundingSource === 'legacy'
-                      ? 'border-primary bg-primary/8 text-foreground'
-                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                  )}
-                  data-testid="create-transaction-funding-legacy"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium leading-tight">Владелец проекта</div>
-                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                      {selectedAdminProject?.seniorName
-                        ? `Приход зачислится администратору ${selectedAdminProject.seniorName}`
-                        : 'Приход зачислится администратору-владельцу проекта'}
-                    </div>
-                  </div>
-                  {fundingSource === 'legacy' && (
-                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFundingSource('COMPANY_ACCOUNT')
-                    setCurrency('USDT')
-                  }}
-                  className={cn(
-                    'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-                    fundingSource === 'COMPANY_ACCOUNT'
-                      ? 'border-primary bg-primary/8 text-foreground'
-                      : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
-                  )}
-                  data-testid="create-transaction-funding-company"
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm font-medium leading-tight">Счёт компании</div>
-                    <div className="text-[11px] text-muted-foreground leading-tight mt-0.5">
-                      Зачислится на счёт компании (USDT)
-                    </div>
-                  </div>
-                  {fundingSource === 'COMPANY_ACCOUNT' && (
-                    <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-                  )}
-                </button>
-              </div>
-
-              {fundingSource === 'COMPANY_ACCOUNT' && (
-                <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
-                  <span>Баланс счёта компании</span>
-                  <span
-                    className="font-bold tabular-nums"
-                    data-testid="create-transaction-company-balance-hint"
-                  >
-                    {fmtUsdt(companyBalance)} USDT
-                  </span>
-                </div>
-              )}
-            </div>
-          )}
+          {type === 'ADMIN_INCOME' &&
+            isAccountant &&
+            renderFundingSourceToggle({
+              sectionLabel: 'Счёт получателя',
+              personalLabel: 'Владелец проекта',
+              personalDescription: selectedAdminProject?.seniorName
+                ? `Приход зачислится администратору ${selectedAdminProject.seniorName}`
+                : 'Приход зачислится администратору-владельцу проекта',
+              companyDescription: 'Зачислится на счёт компании (USDT)',
+            })}
 
           {/* Admin transfer — swap UI */}
           {type === 'ADMIN_TRANSFER' && adminUsers.length >= 2 && (

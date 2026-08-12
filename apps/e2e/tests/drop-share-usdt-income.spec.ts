@@ -2,11 +2,19 @@
  * drop-share-usdt-income.spec.ts — task-drop-share-e2e (Flow 1, AC1).
  *
  * ADR `docs/architecture/2026-07-13-payment-type-income-routing.md` (D0/D3/D4/D5).
+ * task-admin-income-unified (2026-08-12): the separate «USDT-приход» type is
+ * GONE — there is now ONE «Приход Admin» type, and the SELECTED PROJECT's
+ * `paymentType` decides whether submit calls `declareUsdtProjectIncome`
+ * (USDT project — this flow) or `createAdminIncome` (everything else). The
+ * receiver Select ("Счёт получателя", `admin-income-receiver-trigger`) is
+ * unconditional for ADMIN — no extra type-card click needed to reach it.
+ *
  * Real-API + real-UI coverage of the admin-USDT income declaration flow:
  *
- *   1. ADMIN opens the finance «Новая транзакция» dialog, picks the new
- *      «USDT-приход» type, selects a USDT-payment drop-project, picks a
- *      receiver (another ADMIN partner, or «Счёт компании»), submits.
+ *   1. ADMIN opens the finance «Новая транзакция» dialog (ADMIN_INCOME is
+ *      the default/only admin-income type), selects a USDT-payment
+ *      drop-project, picks a receiver (another ADMIN partner, or «Счёт
+ *      компании»), submits.
  *   2. The backend atomically books the gross ADMIN_INCOME row + TWO
  *      obligations: SENIOR_PENDING_PAYOUT (company owes the project's
  *      senior) and DROP_PENDING_PAYOUT (company owes the bound drop) —
@@ -128,21 +136,22 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       const dialog = page.getByTestId('create-transaction-dialog')
       await expect(dialog).toBeVisible()
 
-      await dialog.getByTestId('create-transaction-type-usdt_income').click()
-
+      // ADMIN_INCOME is the default/only admin-income type — no type-card
+      // click needed. Selecting a USDT-payment project is what routes submit
+      // to declareUsdtProjectIncome (see the waitForResponse below).
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
 
-      await dialog.getByTestId('usdt-income-receiver-trigger').click()
-      // Kostya — the OTHER seed ADMIN (grouped under «Админы»), distinct from
-      // the declaring ADMIN (Maksym) so the personal-credit branch is exercised.
+      await dialog.getByTestId('admin-income-receiver-trigger').click()
+      // Kostya — the OTHER seed ADMIN (flat list, no group headers), distinct
+      // from the declaring ADMIN (Maksym) so the personal-credit branch is exercised.
       await page.getByRole('option', { name: 'Kostya', exact: true }).click()
 
       await dialog.getByPlaceholder('0.00').fill('1000')
 
-      // task-receipts-e2e: USDT_INCOME is a mandatory, explorer-only receipt
-      // type (design-spec §3.1/§4.3) — the dialog blocks submit without a
-      // blockchain-explorer link (no file mode for USDT).
+      // task-receipts-e2e: a USDT-project declaration is a mandatory,
+      // explorer-only receipt (design-spec §3.1/§4.3) — the dialog blocks
+      // submit without a blockchain-explorer link (no file mode for USDT).
       await dialog.getByTestId('receipt-input-url-field').fill('https://etherscan.io/tx/0xabc123')
 
       const declareRes = page.waitForResponse(
@@ -319,17 +328,18 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
       const dialog = page.getByTestId('create-transaction-dialog')
       await expect(dialog).toBeVisible()
 
-      await dialog.getByTestId('create-transaction-type-usdt_income').click()
+      // ADMIN_INCOME is the default/only admin-income type — selecting the
+      // USDT-payment project is what routes submit to declareUsdtProjectIncome.
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
 
-      await dialog.getByTestId('usdt-income-receiver-trigger').click()
+      await dialog.getByTestId('admin-income-receiver-trigger').click()
       await page.getByRole('option', { name: 'Счёт компании', exact: true }).click()
 
       await dialog.getByPlaceholder('0.00').fill('1000')
 
       // task-receipts-e2e: mandatory explorer-only receipt (same as the other
-      // USDT_INCOME test above).
+      // USDT-project declaration test above).
       await dialog.getByTestId('receipt-input-url-field').fill('https://etherscan.io/tx/0xdef456')
 
       const declareRes = page.waitForResponse(
@@ -422,19 +432,25 @@ test.describe('Admin-USDT income declaration — happy path (Flow 1, AC1)', () =
     }
   })
 
-  test('ACCOUNTANT does not see «USDT-приход» as a creatable transaction type (UI gate)', async ({
+  test('ACCOUNTANT gets the constrained "Счёт получателя" toggle, not the flat admin receiver Select (AC10)', async ({
     page,
   }) => {
-    // ADR Q4: only ADMIN may declare admin-USDT income — ACCOUNTANT keeps the
-    // plain set (ADMIN_INCOME/EXPENSE/SALARY/ADMIN_TRANSFER), no USDT_INCOME
-    // option. This is a UI-rendering check (availableTypes), NOT a duplicate
-    // of the backend 403 guard (already covered by backend integration AC9).
+    // task-admin-income-unified (§2, ADR Q4 successor): the separate
+    // «USDT-приход» type is gone for EVERY role — ADMIN_INCOME is the only
+    // admin-income type now. ACCOUNTANT's constraint moved from "doesn't see
+    // this type" to "doesn't see the flat admin receiver Select" — the
+    // server rejects a specific-admin receiverId for this role (AC10), so
+    // the UI never offers that choice; the accountant keeps the toggle-shaped
+    // "project owner / Счёт компании" selector instead. This is a
+    // UI-rendering check, NOT a duplicate of the backend 403 guard (covered
+    // by transactions.create-accountant.rbac.integration.spec.ts AC10).
     await loginViaApi(page, SEED_EMAILS.accountant)
     await page.goto('/finance')
     await page.getByTestId('finance-create-transaction-button').click()
     const dialog = page.getByTestId('create-transaction-dialog')
     await expect(dialog).toBeVisible()
-    await expect(dialog.getByTestId('create-transaction-type-usdt_income')).not.toBeAttached()
     await expect(dialog.getByTestId('create-transaction-type-admin_income')).toBeVisible()
+    await expect(dialog.getByTestId('admin-income-receiver-trigger')).not.toBeAttached()
+    await expect(dialog.getByTestId('create-transaction-funding-source-section')).toBeVisible()
   })
 })
