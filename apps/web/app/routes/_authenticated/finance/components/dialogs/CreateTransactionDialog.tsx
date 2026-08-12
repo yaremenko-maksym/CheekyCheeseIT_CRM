@@ -307,11 +307,16 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // admin owner — backend credits `receiverId = project.seniorId`, so the pool
   // is every project whose senior is an ADMIN (keeps the «доход админ-проекта»
   // semantics; never the accountant's own income).
-  const adminProjects = isAdmin
+  // task-admin-income-payment-type-guard: symmetric with myProjects/dropProjects
+  // above — a USDT-payment project books its senior/drop obligations only
+  // through USDT_INCOME (declareUsdtProjectIncome), so it is excluded here too;
+  // the backend now rejects it (createAdminIncome), this mirrors that in the UI.
+  const adminProjectsUnfiltered = isAdmin
     ? projects.filter((p) => p.seniorId === user?.id)
     : isAccountant
       ? projects.filter((p) => adminUserIds.has(p.seniorId))
       : []
+  const adminProjects = adminProjectsUnfiltered.filter((p) => p.paymentType !== 'USDT')
   // Drop role - phase 2. DROP user can only declare income on drop-projects
   // routed through them. Backend enforces this too — UI mirrors the rule.
   // task-drop-share-override-and-receiver (Surface B, ADR D2): USDT-payment
@@ -729,6 +734,23 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
               >
                 На всех ваших проектах приход декларирует администратор (USDT). Обратитесь к
                 администратору.
+              </p>
+            )}
+          {/* task-admin-income-payment-type-guard: same gate-hint convention as
+              SENIOR_INCOME/DROP_INCOME above — shown only when the underlying
+              admin-owned pool is non-empty but every project in it is a
+              USDT-payment project (filtered pool empty despite a non-empty
+              underlying list), so a project disappearing from the Select is
+              explained instead of silently vanishing. */}
+          {type === 'ADMIN_INCOME' &&
+            adminProjectsUnfiltered.length > 0 &&
+            adminProjects.length === 0 && (
+              <p
+                className="text-xs text-muted-foreground italic"
+                data-testid="admin-income-usdt-gate-hint"
+              >
+                Приход по USDT-проектам заводится через форму «USDT-приход» — она автоматически
+                бронирует доли синьора и дропа.
               </p>
             )}
 

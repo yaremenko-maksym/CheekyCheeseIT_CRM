@@ -1640,6 +1640,23 @@ export class TransactionsService {
       receiverId = owner.id
     }
 
+    // task-admin-income-payment-type-guard: symmetric with createSeniorIncome
+    // (:2027) / createDropIncome (:2126) — a USDT-payment project books
+    // obligations to its senior/drop ONLY through declareUsdtProjectIncome
+    // (bookCompanyObligations runs inside that transaction; this path never
+    // calls it). Before this check nothing stopped an ADMIN/ACCOUNTANT from
+    // recording a USDT-project's income here, silently skipping the
+    // obligation booking — that is exactly what happened in prod (GamingTec,
+    // 4708.69 USDT, no drop share). Gated on `project.paymentType`, not on
+    // `data.currency`/`fundingSource` — a FOP/GIG project routed into the
+    // company-account pool (currency forced to USDT for THIS transaction) is
+    // unaffected; only a project whose OWN payment type is USDT is rejected.
+    if (project.paymentType === 'USDT') {
+      throw new BadRequestException(
+        'Доход USDT-проекта заводится через форму «USDT-приход» (declareUsdtProjectIncome) — она автоматически бронирует доли синьора и дропа',
+      )
+    }
+
     // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
     // receipt re-check on the service, not only in Zod at the controller
     // boundary. Effective currency = USDT for a company-account income (USDT-only
