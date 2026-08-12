@@ -1831,8 +1831,10 @@ export const jobSources = pgTable(
     budgetLimit: integer('budget_limit'),
     // Stryker disable next-line StringLiteral: same — a column name, verified against a real database by the integration suite and by the DDL script, never by a unit test
     budgetWindow: jobSourceBudgetWindowEnum('budget_window'),
+    // Stryker disable next-line StringLiteral: a COLUMN NAME — it exists in the database, so no unit test can observe it; the prod DDL declares the same identifier in 2026-08-12_job_source_budgets.sql and the integration suite reads through it
     budgetUsed: integer('budget_used').notNull().default(0),
     /** Start of the window `budget_used` is counted in (UTC, calendar-anchored). */
+    // Stryker disable next-line BooleanLiteral,StringLiteral,ObjectLiteral: the column name and its options — withTimezone decides timestamptz vs timestamp — a COLUMN TYPE in Postgres, declared by 2026-08-12_job_source_budgets.sql and exercised by the integration suite. It appeared killed locally only because this machine runs at UTC+03 while CI runs at UTC, so a unit test comparing an ISO string happened to notice; that is a property of the runner's timezone, not an assertion about the schema
     budgetWindowStartedAt: timestamp('budget_window_started_at', { withTimezone: true }),
 
     // --- how this source may be collected (task-vacancy-matching §5) ---------
