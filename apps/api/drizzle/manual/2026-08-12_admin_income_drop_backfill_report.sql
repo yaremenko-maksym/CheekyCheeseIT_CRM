@@ -30,10 +30,12 @@
 -- `2026-07-27_drop_share_pending_parity_precount.sql` prints aggregates
 -- only). Row-level detail — for when an owner genuinely needs to see WHICH
 -- incomes/projects/drops are involved — now lives in a SEPARATE file,
--- `2026-08-12_admin_income_drop_backfill_detail.sql`, which is NEVER wired
--- into deploy.yml and is meant to be run manually, in a private terminal
--- session, by one of the two admins with direct prod DB access (the same
--- access model already documented for prod DB operations generally — see
+-- `apps/api/drizzle/manual-private/2026-08-12_admin_income_drop_backfill_detail.sql`
+-- (deliberately NOT in this `manual/` directory — see that file's own header
+-- for why), which is NEVER wired into deploy.yml and is meant to be run
+-- manually, in a private terminal session, by one of the two admins with
+-- direct prod DB access (the same access model already documented for prod
+-- DB operations generally — see
 -- project-state.md). See that file's header for the full reasoning on why a
 -- private manual run — not a new automated channel — is the right level of
 -- exposure for this data.

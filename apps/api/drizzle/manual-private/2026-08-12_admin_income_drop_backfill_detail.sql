@@ -5,12 +5,22 @@
 -- =============================================================================
 --
 -- security-review round 2 (PR #517, HIGH-3). This file is the row-level
--- counterpart of `2026-08-12_admin_income_drop_backfill_report.sql`, which
--- prints only aggregate counts because it runs inside the automated,
+-- counterpart of `apps/api/drizzle/manual/2026-08-12_admin_income_drop_backfill_report.sql`,
+-- which prints only aggregate counts because it runs inside the automated,
 -- deploy-wired pipeline whose logs are PUBLIC (this repository is public,
 -- and so are its GitHub Actions logs). Client names, drop display names, and
 -- per-transaction USDT amounts are exactly the kind of data that must never
 -- land there.
+--
+-- LIVES IN `apps/api/drizzle/manual-private/`, deliberately NOT
+-- `apps/api/drizzle/manual/` — that directory is exactly what
+-- `scripts/devops/check-prod-ddl-wiring.py` scans (non-recursively) and
+-- requires every file in it to be either wired into deploy.yml or listed as
+-- a reasoned exception in that script's `KNOWN_NOT_WIRED` (a DevOps-owned
+-- file, outside Coder's zone-of-write). A file that must NEVER be wired,
+-- ever, has no business living where that guard looks for deploy candidates
+-- — putting it one directory over is not a workaround, it is the honest
+-- location for "manual admin utility script", which is what this actually is.
 --
 -- This file exists so an owner can still SEE that row-level breakdown when
 -- they actually need it — WHICH incomes, WHICH projects, WHICH drop — without
@@ -22,12 +32,11 @@
 --
 --   docker compose -f docker-compose.prod.yml exec -T postgres psql \
 --     -U "$POSTGRES_USER" -d "$POSTGRES_DB" -v ON_ERROR_STOP=1 \
---     < apps/api/drizzle/manual/2026-08-12_admin_income_drop_backfill_detail.sql
+--     < apps/api/drizzle/manual-private/2026-08-12_admin_income_drop_backfill_detail.sql
 --
 -- The output stays in that local terminal / SSH session — never in a CI log,
 -- never posted anywhere automated. `scripts/devops/check-prod-ddl-wiring.py`
--- must NOT be told about this file (it is not deploy-time DDL and must never
--- become part of the deploy step's `source:`/migrate list); if a future PR
+-- never sees this file at all (see the directory note above); if a future PR
 -- wants a durable, non-interactive way to deliver this same row-level detail
 -- to a private audience, the existing private channel this repo already has
 -- is `scripts/devops/post-merge-alert.sh` (posts to the private

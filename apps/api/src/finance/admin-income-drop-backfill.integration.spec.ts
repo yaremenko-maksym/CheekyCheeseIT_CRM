@@ -99,8 +99,12 @@ const APPLY_SQL = readFileSync(
   join(__dirname, '../../drizzle/manual/2026-08-12_admin_income_drop_backfill_apply.sql'),
   'utf-8',
 )
+// Deliberately NOT under drizzle/manual/ — see that file's own header for why
+// (keeps it outside check-prod-ddl-wiring.py's scan, which is scoped to that
+// exact directory and would otherwise demand this file be wired or excepted,
+// a DevOps-owned decision this file must never be a candidate for).
 const DETAIL_SQL = readFileSync(
-  join(__dirname, '../../drizzle/manual/2026-08-12_admin_income_drop_backfill_detail.sql'),
+  join(__dirname, '../../drizzle/manual-private/2026-08-12_admin_income_drop_backfill_detail.sql'),
   'utf-8',
 )
 

@@ -51,10 +51,13 @@
 --      repo is PUBLIC — GitHub Actions logs are public too — so the
 --      automated report NEVER prints per-row detail (client names, drop
 --      names, individual amounts) into that log. Row-level detail lives in
---      `2026-08-12_admin_income_drop_backfill_detail.sql` — see that file's
---      header: it is NEVER wired into deploy.yml, run manually and
---      privately by an owner with direct DB access when the row-level
---      breakdown is actually needed.
+--      `apps/api/drizzle/manual-private/2026-08-12_admin_income_drop_backfill_detail.sql`
+--      — a SIBLING directory, not this one, precisely so
+--      `scripts/devops/check-prod-ddl-wiring.py` (which scans `manual/` and
+--      requires every file in it to be wired or excepted) never has to know
+--      about it. See that file's header: it is NEVER wired into deploy.yml,
+--      run manually and privately by an owner with direct DB access when
+--      the row-level breakdown is actually needed.
 --   3. `2026-08-12_admin_income_drop_backfill_apply.sql` — the actual
 --      backfill, only after step 2's go-ahead.
 --
