@@ -325,6 +325,10 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
       projectId: 'proj-fop-own',
       amount: 500,
       receiverId: 'admin-2',
+      // A plain FOP project + a specific admin receiver is neither a USDT
+      // project nor a COMPANY_ACCOUNT route — `isUsdtLocked` must stay FALSE
+      // here, or every ADMIN_INCOME would silently be forced to USDT.
+      currency: 'USD',
     })
   })
 
@@ -460,6 +464,15 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     expect(
       screen.queryByText(/Весь приход \(gross\) уйдёт выбранному получателю/),
     ).not.toBeInTheDocument()
+  })
+
+  it('the "весь приход" USDT-route note SHOWS when the selected project IS USDT (positive case)', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('USDT Own Project')
+    expect(
+      await screen.findByText(/Весь приход \(gross\) уйдёт выбранному получателю/),
+    ).toBeInTheDocument()
   })
 
   it('the obligation-preview banner disappears when the TYPE is switched away from ADMIN_INCOME, not just the project', async () => {
@@ -771,6 +784,26 @@ describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiv
     expect(payload).toMatchObject({ receiverId: 'COMPANY_ACCOUNT' })
   })
 
+  it('ACCOUNTANT + ADMIN_INCOME + «Счёт компании» locks currency AND invalidates the company-account query (isAdminIncomeCompanyFunded, accountant branch)', async () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USDT')
+    expect(currencyTrigger).toBeDisabled()
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xacct2' },
+    })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['company-account'] }),
+    )
+    invalidateSpy.mockRestore()
+  })
+
   it('gate-hint explains why USDT projects are absent when the accountant has only USDT admin-owned projects', async () => {
     currentRole = 'ACCOUNTANT'
     renderDialog()
@@ -813,6 +846,40 @@ describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiv
     expect(await screen.findByTestId('admin-income-accountant-usdt-gate-hint')).toBeInTheDocument()
     fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
     expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
+  })
+
+  it('gate-hint stays absent when the accountant has NO admin-owned projects at all (empty pool, not an all-USDT one)', async () => {
+    currentProjects = []
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await screen.findByTestId('create-transaction-project-trigger')
+    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
+    // No options at all — the empty pool is genuinely empty, not merely
+    // filtered down. `adminOwnProjects.length > 0` must stay false here, or
+    // the hint would wrongly promise a USDT-only reason for an empty list.
+    expect(screen.queryByRole('option')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
+  })
+
+  it('switching project resets the ACCOUNTANT toggle to legacy (project-switch handler applies to the accountant toggle too)', async () => {
+    // A second non-USDT admin-owned project, present from the START (state
+    // must be set BEFORE render — React Query does not refetch mid-test).
+    currentProjects = [
+      ...PROJECTS,
+      {
+        id: 'proj-fop-own-2',
+        name: 'FOP Own Project 2',
+        seniorId: 'admin-1',
+        paymentType: 'FOP',
+      },
+    ]
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
+    await selectProject('FOP Own Project 2')
+    expect(screen.queryByTestId('create-transaction-company-balance-hint')).not.toBeInTheDocument()
   })
 })
 

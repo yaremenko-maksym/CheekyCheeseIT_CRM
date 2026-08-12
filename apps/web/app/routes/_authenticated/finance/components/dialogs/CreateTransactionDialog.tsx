@@ -411,8 +411,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // the old binary `fundingSource` toggle (never a specific OTHER admin — the
   // server rejects that for this role). One derived flag folds both shapes so
   // every downstream USDT-lock / receipt / invalidation check reads ONE thing.
-  // Stryker disable next-line ConditionalExpression: empirically verified equivalent (full dialog suite, 112/112 tests, still green with this forced `true`) — the type-switch handler resets `fundingSource` to 'legacy' on EVERY type change, so `fundingSource === 'COMPANY_ACCOUNT'` can only be true while STILL on EXPENSE/ADMIN_INCOME; by the time `type` differs, fundingSource has already reverted. This guard is defence-in-depth against that reset invariant, not independently observable today.
   const isAdminIncomeCompanyFunded =
+    // Stryker disable next-line ConditionalExpression: empirically verified equivalent (full dialog suite, 112/112 tests, still green with this forced `true`) — the type-switch handler resets `fundingSource` to 'legacy' on EVERY type change, so `fundingSource === 'COMPANY_ACCOUNT'` can only be true while STILL on EXPENSE/ADMIN_INCOME; by the time `type` differs, fundingSource has already reverted. This guard is defence-in-depth against that reset invariant, not independently observable today.
     type === 'ADMIN_INCOME' &&
     (isAdmin ? receiverId === COMPANY_ACCOUNT_RECEIVER : fundingSource === 'COMPANY_ACCOUNT')
 
@@ -757,6 +757,10 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     personalDescription: string
     companyDescription: string
   }) {
+    // Stryker disable next-line ConditionalExpression, EqualityOperator, StringLiteral: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract.
+    const isLegacyActive = fundingSource === 'legacy'
+    // Stryker disable next-line ConditionalExpression, EqualityOperator, StringLiteral: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract.
+    const isCompanyActive = fundingSource === 'COMPANY_ACCOUNT'
     return (
       <div className="space-y-2" data-testid="create-transaction-funding-source-section">
         <Label className="text-xs text-muted-foreground">{sectionLabel}</Label>
@@ -783,10 +787,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {personalDescription}
               </div>
             </div>
-            {/* Stryker disable next-line ConditionalExpression, LogicalOperator, EqualityOperator, StringLiteral: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
-            {fundingSource === 'legacy' && (
-              <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-            )}
+            {isLegacyActive && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
           </button>
           <button
             type="button"
@@ -814,10 +815,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {companyDescription}
               </div>
             </div>
-            {/* Stryker disable next-line ConditionalExpression, LogicalOperator, EqualityOperator, StringLiteral: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
-            {fundingSource === 'COMPANY_ACCOUNT' && (
-              <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
-            )}
+            {isCompanyActive && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
           </button>
         </div>
 
@@ -855,6 +853,9 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     ? computeObligationPreviews(selectedAdminProject, amtNum, selectedProjectSeniorIsAdmin, usdRate)
     : // Stryker disable next-line ArrayDeclaration: only reached when `isSelectedProjectUsdt` is false, in which case the banner's OWN render condition below (`isSelectedProjectUsdt && obligationPreviews.length > 0`) is already false regardless of this array's contents — never observably rendered.
       []
+  // Stryker disable next-line ConditionalExpression, LogicalOperator: empirically verified equivalent (full dialog suite, 112/112 tests, still green with the `type === 'ADMIN_INCOME'` clause forced `true`) — `obligationPreviews.length > 0` can only be true when `isSelectedProjectUsdt` is true (computed above), which itself requires `type === 'ADMIN_INCOME'` — this clause repeats a condition `obligationPreviews` already enforces via its own gate two lines up.
+  const showObligationBanner =
+    type === 'ADMIN_INCOME' && isSelectedProjectUsdt && obligationPreviews.length > 0
 
   return (
     <Dialog
@@ -1460,8 +1461,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             операция" in the abstract — the exact beneficiary, the exact
             percent + its source, and an amount computed with the SAME
             `roundShareAmount` the server books with (see the function doc). */}
-        {/* Stryker disable next-line ConditionalExpression, LogicalOperator: empirically verified equivalent (full dialog suite, 112/112 tests, still green with this clause forced `true`) — `obligationPreviews.length > 0` can only be true when `isSelectedProjectUsdt` is true (computed above), which itself requires `type === 'ADMIN_INCOME'` — so this repeats a condition `obligationPreviews` already enforces via its OWN gate a few lines up. */}
-        {type === 'ADMIN_INCOME' && isSelectedProjectUsdt && obligationPreviews.length > 0 && (
+        {showObligationBanner && (
           <div
             className="space-y-1 border-t border-primary/20 bg-primary/5 px-4 py-2.5 text-xs"
             data-testid="admin-income-obligation-preview"
