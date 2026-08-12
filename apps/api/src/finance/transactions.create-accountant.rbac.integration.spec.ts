@@ -454,6 +454,55 @@ describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mock
       expect(row?.receiverId).toBe(ADMIN.id)
     })
 
+    // task-admin-income-unified (§2, owner decision 2026-08-12). ADMIN may now
+    // pick a DIFFERENT active admin as the receiver — the same "who gets
+    // credited" freedom `declareUsdtProjectIncome` already had, extended to
+    // this non-USDT path (see the schema/service doc comments).
+    it('ADMIN with an explicit receiverId → 201, credits THAT admin (not self)', async () => {
+      if (!dbAvailable) return
+      const { status, json } = await post('/api/transactions/admin-income', ADMIN, {
+        ...adminIncomePayload(),
+        receiverId: ADMIN2.id,
+      })
+      expect(status).toBe(201)
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
+      })
+      expect(row?.receiverId).toBe(ADMIN2.id)
+      expect(row?.createdBy).toBe(ADMIN.id)
+    })
+
+    // AC10: the accountant has never been a router of funds — the server
+    // hard-credits the project's admin owner for this role. A payload that
+    // disagrees (an explicit receiverId, even the caller's own admin-owner
+    // target) is a contract violation, not a preference to honour — the web
+    // dialog's selector never offers this choice for ACCOUNTANT either.
+    it('ACCOUNTANT with an explicit receiverId → 403 (no routing freedom, AC10)', async () => {
+      if (!dbAvailable) return
+      const { status } = await post('/api/transactions/admin-income', ACCOUNTANT, {
+        ...adminIncomePayload(),
+        receiverId: ADMIN.id,
+      })
+      expect(status).toBe(403)
+    })
+
+    // The COMPANY_ACCOUNT sentinel is NOT "picking a specific admin" — it
+    // stays available to the accountant (unchanged capability, just expressed
+    // through the new field name).
+    it('ACCOUNTANT with receiverId=COMPANY_ACCOUNT → 201 (still allowed — not a specific-admin choice)', async () => {
+      if (!dbAvailable) return
+      const { status, json } = await post('/api/transactions/admin-income', ACCOUNTANT, {
+        ...adminIncomePayload(),
+        receiverId: 'COMPANY_ACCOUNT',
+      })
+      expect(status).toBe(201)
+      const row = await dbSvc.db.query.transactions.findFirst({
+        where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
+      })
+      expect(row?.fundingSource).toBe('COMPANY_ACCOUNT')
+      expect(row?.receiverId).toBe(ACCOUNTANT.id)
+    })
+
     for (const [label, persona] of FORBIDDEN) {
       it(`${label} → 403`, async () => {
         if (!dbAvailable) return

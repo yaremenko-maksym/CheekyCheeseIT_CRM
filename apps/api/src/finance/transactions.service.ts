@@ -1626,13 +1626,19 @@ export class TransactionsService {
 
     // task-admin-income-unified (§2, owner decision 2026-08-12). WHO gets
     // credited is now a SEPARATE choice from project eligibility above — but
-    // ONLY for ADMIN. The ACCOUNTANT has never been a router of funds (the
-    // server has always hard-credited the project's admin owner for this
-    // role); the web dialog's selector reflects that by never rendering a
-    // choice for the accountant, and this is the server-side half of the same
-    // invariant — a payload that disagrees with the UI's constraint is
-    // rejected, not silently coerced.
-    if (currentUser.role === 'ACCOUNTANT' && data.receiverId !== undefined) {
+    // picking a SPECIFIC admin is ADMIN-only. The ACCOUNTANT has never been a
+    // router of funds (the server has always hard-credited the project's
+    // admin owner for this role); the web dialog's selector reflects that by
+    // only ever offering "project owner" (no receiverId) or "company account"
+    // (the sentinel — not a specific-admin choice, still allowed for this
+    // role, same capability the old `fundingSource` toggle already had). A
+    // payload naming a SPECIFIC admin disagrees with the UI's constraint and
+    // is rejected, not silently coerced.
+    if (
+      currentUser.role === 'ACCOUNTANT' &&
+      data.receiverId !== undefined &&
+      data.receiverId !== COMPANY_ACCOUNT_RECEIVER
+    ) {
       throw new ForbiddenException('ACCOUNTANT cannot choose who receives ADMIN_INCOME')
     }
 
