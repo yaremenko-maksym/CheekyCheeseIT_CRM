@@ -496,6 +496,27 @@ describe('CreateTransactionDialog — project-switch handler (task-admin-income-
     await selectProject('USDT Own Project')
     expect(screen.queryByTestId('admin-income-error-receiver')).not.toBeInTheDocument()
   })
+
+  it('the ADMIN_INCOME-only reset (receiverId/fundingSource/currency) never fires for a SENIOR picking their own project', async () => {
+    currentRole = 'SENIOR'
+    currentUserId = 'senior-1'
+    renderDialog()
+    await screen.findByTestId('create-transaction-project-trigger')
+    // Pick a non-default currency BEFORE selecting the project — the
+    // ADMIN_INCOME-only reset (`setFundingSource`/`setCurrency('USD')`) is
+    // nested inside `if (type === 'ADMIN_INCOME')`; a SENIOR's own project
+    // pick must never reach it, so the manually-chosen currency must survive.
+    fireEvent.click(screen.getAllByRole('combobox').find((el) => el.textContent === 'USD')!)
+    fireEvent.click(await screen.findByRole('option', { name: 'EUR' }))
+    expect(
+      screen.getAllByRole('combobox').find((el) => el.textContent === 'EUR'),
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
+    fireEvent.click(await screen.findByText('FOP Project'))
+    expect(
+      screen.getAllByRole('combobox').find((el) => el.textContent === 'EUR'),
+    ).toBeInTheDocument()
+  })
 })
 
 describe('CreateTransactionDialog — company-account invalidation on success', () => {
@@ -550,6 +571,15 @@ describe('CreateTransactionDialog — EXPENSE funding-source toggle (shared rend
     await waitFor(() => expect(createExpenseMock).toHaveBeenCalledTimes(1))
     const [payload] = createExpenseMock.mock.calls[0] as [Record<string, unknown>]
     expect(payload).toMatchObject({ currency: 'USDT', fundingSource: 'COMPANY_ACCOUNT' })
+  })
+
+  it('EXPENSE + COMPANY_ACCOUNT disables the currency Select (isUsdtLocked), not just directly-set currency state', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USDT')
+    expect(currencyTrigger).toBeDisabled()
   })
 
   it('clicking "Обычный расход" AFTER COMPANY_ACCOUNT reverts the toggle to legacy (ArrowFunction handler is live)', async () => {
@@ -749,6 +779,14 @@ describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiv
     // so the hint should NOT show — mirrors the SENIOR/DROP "mixed portfolio,
     // no hint" convention. Covered by the pool test above; this asserts the
     // corollary: no hint when the pool is not empty.
+    // `findByText` (not a synchronous `queryByTestId`) — MUST wait for the
+    // `/projects` query to actually resolve before asserting absence, or a
+    // false-negative (still-loading = empty pool = same "no hint" outcome)
+    // hides a mutant that would make the hint show unconditionally once
+    // adminOwnProjects IS populated.
+    await screen.findByTestId('create-transaction-project-trigger')
+    fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
+    expect(await screen.findByText('FOP Own Project')).toBeInTheDocument()
     expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
   })
 
@@ -766,6 +804,15 @@ describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiv
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
     expect(await screen.findByTestId('admin-income-accountant-usdt-gate-hint')).toBeInTheDocument()
+  })
+
+  it('gate-hint is ADMIN_INCOME-only — an all-USDT accountant pool must not leak the hint into another type (e.g. EXPENSE)', async () => {
+    currentProjects = PROJECTS.filter((p) => p.id === 'proj-usdt-own')
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    expect(await screen.findByTestId('admin-income-accountant-usdt-gate-hint')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
   })
 })
 

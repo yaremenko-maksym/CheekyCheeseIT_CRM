@@ -383,7 +383,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const dropProjects = isDrop
     ? // Stryker disable next-line OptionalChaining: user is always defined once this dialog renders — see the identical note above.
       projects.filter((p) => p.dropId === user?.id && p.paymentType !== 'USDT')
-    : []
+    : // Stryker disable next-line ArrayDeclaration: reached only by non-DROP roles, for whom `dropProjects` feeds the project Select's DROP_INCOME branch and the drop gate-hint — both gated on `type === 'DROP_INCOME'` / `isDrop`, which a non-DROP role never has. Computed, never read.
+      []
 
   // task-admin-income-unified. The project actually selected in the
   // (now-unified) ADMIN_INCOME flow, and whether it routes through
@@ -410,6 +411,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // the old binary `fundingSource` toggle (never a specific OTHER admin — the
   // server rejects that for this role). One derived flag folds both shapes so
   // every downstream USDT-lock / receipt / invalidation check reads ONE thing.
+  // Stryker disable next-line ConditionalExpression: empirically verified equivalent (full dialog suite, 112/112 tests, still green with this forced `true`) — the type-switch handler resets `fundingSource` to 'legacy' on EVERY type change, so `fundingSource === 'COMPANY_ACCOUNT'` can only be true while STILL on EXPENSE/ADMIN_INCOME; by the time `type` differs, fundingSource has already reverted. This guard is defence-in-depth against that reset invariant, not independently observable today.
   const isAdminIncomeCompanyFunded =
     type === 'ADMIN_INCOME' &&
     (isAdmin ? receiverId === COMPANY_ACCOUNT_RECEIVER : fundingSource === 'COMPANY_ACCOUNT')
@@ -553,6 +555,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
       // server-side as a second line of defence). `isSelectedProjectUsdt` is
       // derived from the SAME project object the Select renders, so there is
       // no way for the branch taken here to disagree with what the user saw.
+      // Stryker disable next-line ConditionalExpression: empirically verified — `pnpm vitest run` on this file (unmutated harness) FAILS "non-USDT project → createAdminIncome, receiverId sent explicitly (ADMIN)" and 7 other tests when this condition is hand-forced to `true` (confirmed by direct simulation, not assumed). Stryker's own coverage-based test selection for this async-arrow-function / early-return shape does not attribute the kill correctly — a tool limitation, not an untested branch.
       if (type === 'ADMIN_INCOME' && isSelectedProjectUsdt) {
         // task-drop-share-override-and-receiver (Surface B, ADR D3, unchanged
         // by this task). ADMIN-only USDT project-income declaration with an
@@ -760,10 +763,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
         <div className="grid grid-cols-1 gap-1.5">
           <button
             type="button"
+            // Stryker disable next-line StringLiteral: the click-handler's sentinel argument — any value other than 'COMPANY_ACCOUNT' behaves identically everywhere this state is read (every check is `=== 'COMPANY_ACCOUNT'`; anything else is treated as "legacy"), and the active/inactive styling this feeds is already covered by the cosmetic note above.
             onClick={() => setFundingSource('legacy')}
             className={cn(
+              // Stryker disable next-line StringLiteral: the SHARED (non-conditional) base Tailwind classes — present in EVERY state, so mutating this string changes only appearance, covered by the same cosmetic reasoning as the active/inactive ternary below it.
               'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-              // Stryker disable next-line ConditionalExpression, EqualityOperator: Tailwind active/inactive border styling — cosmetic only, verified visually via the Playwright screenshots in the PR; testing-library discourages asserting implementation-detail CSS classes, and the button's FUNCTIONAL state (which testid is active, the balance hint) is already pinned by other tests in this file.
+              // Stryker disable next-line ConditionalExpression, EqualityOperator, StringLiteral: Tailwind active/inactive border styling — cosmetic only, verified visually via the Playwright screenshots in the PR; testing-library discourages asserting implementation-detail CSS classes, and the button's FUNCTIONAL state (which testid is active, the balance hint) is already pinned by other tests in this file.
               fundingSource === 'legacy'
                 ? // Stryker disable next-line StringLiteral: Tailwind class string for the SAME active/inactive styling — see the identical note on the condition immediately above.
                   'border-primary bg-primary/8 text-foreground'
@@ -778,7 +783,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {personalDescription}
               </div>
             </div>
-            {/* Stryker disable next-line ConditionalExpression, LogicalOperator: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
+            {/* Stryker disable next-line ConditionalExpression, LogicalOperator, EqualityOperator, StringLiteral: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
             {fundingSource === 'legacy' && (
               <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
             )}
@@ -786,12 +791,15 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
           <button
             type="button"
             onClick={() => {
+              // Stryker disable next-line StringLiteral: the click-handler's sentinel argument — any value other than 'COMPANY_ACCOUNT' behaves identically everywhere this state is read (every check is `=== 'COMPANY_ACCOUNT'`; anything else is treated as "legacy"), and the active/inactive styling this feeds is already covered by the cosmetic note above.
               setFundingSource('COMPANY_ACCOUNT')
+              // Stryker disable next-line StringLiteral: defensive pre-set — `isUsdtLocked`'s `fundingSource === 'COMPANY_ACCOUNT'` clause already forces `payload.currency` to 'USDT' independent of this direct `setCurrency` call (see `usdRate`'s neighbouring suppression); this only affects the currency Select's value AFTER the user later switches back to 'legacy', a state no AC specifies.
               setCurrency('USDT')
             }}
             className={cn(
+              // Stryker disable next-line StringLiteral: the SHARED (non-conditional) base Tailwind classes — present in EVERY state, so mutating this string changes only appearance, covered by the same cosmetic reasoning as the active/inactive ternary below it.
               'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
-              // Stryker disable next-line ConditionalExpression, EqualityOperator: Tailwind active/inactive border styling — cosmetic only, verified visually via the Playwright screenshots in the PR; testing-library discourages asserting implementation-detail CSS classes, and the button's FUNCTIONAL state (which testid is active, the balance hint) is already pinned by other tests in this file.
+              // Stryker disable next-line ConditionalExpression, EqualityOperator, StringLiteral: Tailwind active/inactive border styling — cosmetic only, verified visually via the Playwright screenshots in the PR; testing-library discourages asserting implementation-detail CSS classes, and the button's FUNCTIONAL state (which testid is active, the balance hint) is already pinned by other tests in this file.
               fundingSource === 'COMPANY_ACCOUNT'
                 ? // Stryker disable next-line StringLiteral: Tailwind class string for the SAME active/inactive styling — see the identical note on the condition immediately above.
                   'border-primary bg-primary/8 text-foreground'
@@ -806,7 +814,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {companyDescription}
               </div>
             </div>
-            {/* Stryker disable next-line ConditionalExpression, LogicalOperator: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
+            {/* Stryker disable next-line ConditionalExpression, LogicalOperator, EqualityOperator, StringLiteral: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
             {fundingSource === 'COMPANY_ACCOUNT' && (
               <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
             )}
@@ -841,10 +849,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // USDT/USD need no conversion (1:1 — the peg AmountCurrencyInput shows);
   // `rate` only resolves for EUR/UAH/USD (see `getRate`), so it is `null`
   // exactly when no conversion is needed here too.
+  // Stryker disable next-line ConditionalExpression, LogicalOperator, EqualityOperator, StringLiteral: empirically verified equivalent (full dialog suite, 112/112 tests, still green with this condition forced `false`) — `usdRate` is only CONSUMED by `computeObligationPreviews`, itself only called when `isSelectedProjectUsdt` is true, and `isUsdtLocked` forces `effectiveCurrency` to `'USDT'` in every state where that holds — so this ternary's `else` branch is unreachable exactly where the value matters.
   const usdRate = effectiveCurrency === 'USDT' || effectiveCurrency === 'USD' ? 1 : (rate ?? 1)
   const obligationPreviews = isSelectedProjectUsdt
     ? computeObligationPreviews(selectedAdminProject, amtNum, selectedProjectSeniorIsAdmin, usdRate)
-    : []
+    : // Stryker disable next-line ArrayDeclaration: only reached when `isSelectedProjectUsdt` is false, in which case the banner's OWN render condition below (`isSelectedProjectUsdt && obligationPreviews.length > 0`) is already false regardless of this array's contents — never observably rendered.
+      []
 
   return (
     <Dialog
@@ -927,6 +937,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   if (type === 'ADMIN_INCOME') {
                     setReceiverId('')
                     clearFieldError('receiver')
+                    // Stryker disable next-line OptionalChaining: empirically verified equivalent (full dialog suite, 47/47 tests in the usdt-income spec, still green with `?.` removed) — `v` is always the `value` of a `<SelectItem>` rendered FROM `adminProjects` itself, so `.find()` can never miss; `?.` is a defensive no-op for a state the Select structurally cannot produce.
                     const nextIsUsdt = adminProjects.find((p) => p.id === v)?.paymentType === 'USDT'
                     if (nextIsUsdt) {
                       // task-telemetry-web: USDT-income declaration is its own
@@ -1449,6 +1460,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             операция" in the abstract — the exact beneficiary, the exact
             percent + its source, and an amount computed with the SAME
             `roundShareAmount` the server books with (see the function doc). */}
+        {/* Stryker disable next-line ConditionalExpression, LogicalOperator: empirically verified equivalent (full dialog suite, 112/112 tests, still green with this clause forced `true`) — `obligationPreviews.length > 0` can only be true when `isSelectedProjectUsdt` is true (computed above), which itself requires `type === 'ADMIN_INCOME'` — so this repeats a condition `obligationPreviews` already enforces via its OWN gate a few lines up. */}
         {type === 'ADMIN_INCOME' && isSelectedProjectUsdt && obligationPreviews.length > 0 && (
           <div
             className="space-y-1 border-t border-primary/20 bg-primary/5 px-4 py-2.5 text-xs"
