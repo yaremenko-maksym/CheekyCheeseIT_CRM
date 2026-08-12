@@ -594,7 +594,17 @@ jobs:
             # 11 fast mocked tests do not meaningfully move that number.
             files: tests/interviews.spec.ts tests/job-sourcing-mobile.spec.ts tests/profile-self-edit.spec.ts tests/requisites-warning.spec.ts tests/admin-actions.spec.ts tests/onboarding-logout.spec.ts tests/documents-pdf-preview.spec.ts tests/persist-query.spec.ts tests/vacancies.spec.ts tests/crm
           - name: drop-finance
-            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts
+            # tests/drop-payout-currency.spec.ts (PR #521, feat/drop-payout-currency,
+            # not yet merged as of this line landing): drop obligation payout in
+            # multiple currencies — a money-path spec, same shape as the rest of
+            # this shard. Wired ahead of the merge on purpose: the shard-coverage
+            # guard (scripts/devops/check-e2e-shard-coverage.py) parses this
+            # `files:` line as plain text regardless of whether the file exists on
+            # disk yet (only KNOWN_UNSHARDED entries get a disk-existence check),
+            # so listing it here now is a no-op today and self-activates the
+            # moment #521 merges — no follow-up PR needed, no window where the
+            # spec lands on main unsharded.
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts
           # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
           # other leg above (no apps/web dev server; apps/landing prerender +
           # `vite preview` instead — see the matrix.shard.name == 'landing'
