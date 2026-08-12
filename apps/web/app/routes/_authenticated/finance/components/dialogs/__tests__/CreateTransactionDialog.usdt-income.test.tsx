@@ -116,6 +116,7 @@ const PROJECTS = [
     id: 'proj-fop-own',
     name: 'FOP Own Project',
     seniorId: 'admin-1',
+    seniorName: 'Admin One',
     dropId: 'drop-3',
     dropName: 'Dropper Three',
     paymentType: 'FOP',
@@ -142,10 +143,17 @@ const ALL_USERS = [
   { id: 'senior-1', displayName: 'Senior Person', role: 'SENIOR' },
 ]
 
+// Mutable per-test override (mirrors the `currentRole`/`currentUserId`
+// pattern below) — one test needs a DIFFERENT `/projects` response (an
+// accountant whose admin-owned pool is ALL USDT) without a second mocked
+// module or a fragile `mockImplementationOnce` chain across 3 different
+// query keys hitting the same `api.get`.
+let currentProjects: typeof PROJECTS = PROJECTS
+
 vi.mock('@/lib/axios', () => ({
   api: {
     get: vi.fn().mockImplementation((url: string) => {
-      if (url.startsWith('/projects')) return Promise.resolve({ data: PROJECTS })
+      if (url.startsWith('/projects')) return Promise.resolve({ data: currentProjects })
       if (url.startsWith('/users')) return Promise.resolve({ data: ALL_USERS })
       return Promise.resolve({ data: [] })
     }),
@@ -203,6 +211,7 @@ async function selectReceiver(name: string) {
 beforeEach(() => {
   currentRole = 'ADMIN'
   currentUserId = 'admin-1'
+  currentProjects = PROJECTS
   declareUsdtProjectIncomeMock.mockClear()
   createDropIncomeMock.mockClear()
   createAdminIncomeMock.mockClear()
@@ -625,6 +634,22 @@ describe('CreateTransactionDialog — AC10: ACCOUNTANT gets a constrained receiv
     // no hint" convention. Covered by the pool test above; this asserts the
     // corollary: no hint when the pool is not empty.
     expect(screen.queryByTestId('admin-income-accountant-usdt-gate-hint')).not.toBeInTheDocument()
+  })
+
+  it('the "project owner" toggle label interpolates the SELECTED project\'s senior name', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
+      'Приход зачислится администратору Admin One',
+    )
+  })
+
+  it('gate-hint SHOWS (positive case) when the admin-owned pool is non-empty but every project in it is USDT', async () => {
+    currentProjects = PROJECTS.filter((p) => p.id === 'proj-usdt-own')
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    expect(await screen.findByTestId('admin-income-accountant-usdt-gate-hint')).toBeInTheDocument()
   })
 })
 

@@ -141,6 +141,24 @@ describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {
     fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
     expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
   })
+
+  it('EXPENSE toggle carries the EXPENSE-specific copy, not the ACCOUNTANT ADMIN_INCOME copy (shared renderFundingSourceToggle helper)', () => {
+    renderDialog()
+    clickTypeCard('create-transaction-type-expense')
+    expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
+      'Источник средств',
+    )
+    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
+      'Обычный расход',
+    )
+    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
+      'Стандартный расход, не затрагивает счёт компании',
+    )
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    expect(screen.getByTestId('create-transaction-funding-company')).toHaveTextContent(
+      'Спишется со счёта компании (USDT)',
+    )
+  })
 })
 
 // task-admin-income-unified (§2, owner decision 2026-08-12): ADMIN's old
@@ -199,6 +217,28 @@ describe('CreateTransactionDialog — ACCOUNTANT constrained "Счёт полу�
     renderDialog()
     fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
     expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
+  })
+
+  it("carries the ACCOUNTANT-specific copy, not EXPENSE's copy (shared renderFundingSourceToggle helper) — falls back when no project is selected yet", () => {
+    currentRole = 'ACCOUNTANT'
+    renderDialog()
+    expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
+      'Счёт получателя',
+    )
+    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
+      'Владелец проекта',
+    )
+    // No project selected yet in this fixture (`useQuery` stub returns no
+    // projects) — the fallback copy, not the `selectedAdminProject.seniorName`
+    // interpolation (that branch is pinned with a real project fixture in
+    // CreateTransactionDialog.usdt-income.test.tsx).
+    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
+      'Приход зачислится администратору-владельцу проекта',
+    )
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    expect(screen.getByTestId('create-transaction-funding-company')).toHaveTextContent(
+      'Зачислится на счёт компании (USDT)',
+    )
   })
 })
 
