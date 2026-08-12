@@ -72,6 +72,10 @@ import {
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
+// task-admin-income-unified: MONEY_SCALE/roundShareAmount moved to @crm/shared
+// so the web pre-submit obligation-preview banner and this service compute the
+// exact same rounded share amount — see the module doc in packages/shared.
+import { MONEY_SCALE, roundShareAmount } from '@crm/shared'
 import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -144,27 +148,6 @@ export { DEFAULT_DROP_SHARE_PERCENT }
  * and getSummary to avoid scattering the literal `26` across the service.
  */
 export const DEFAULT_SENIOR_SHARE_PERCENT = 26
-
-/**
- * Scaled-integer constant used throughout money aggregations to avoid JS
- * float accumulation errors (same scale as the write-path in confirmPayout /
- * payPayoutRequest: 1e6, round to int). Single source of truth so the
- * per-drop aggregate helper and `getSummary` agree.
- */
-export const MONEY_SCALE = 1_000_000
-
-/**
- * Decimal-safe `income × percent / 100` at the numeric(18,6) precision the
- * amount column persists. Scale to integer minor units, round once, divide back
- * and fix to 6 decimals — avoids IEEE-754 drift so two shares of the same income
- * reconcile against the gross. Shared by `computeDropDistribution` (drop payout)
- * and `bookCompanyObligations` (admin-USDT) so both price shares identically.
- */
-export function roundShareAmount(income: number, percent: number): number {
-  const incomeMinor = Math.round(income * MONEY_SCALE)
-  const shareMinor = Math.round((incomeMinor * percent) / 100)
-  return Number((shareMinor / MONEY_SCALE).toFixed(6))
-}
 
 type TxWithRelations = Transaction & {
   // task-counterparty-role-masking: `role` is joined so mapTx can tell whether
@@ -1640,20 +1623,26 @@ export class TransactionsService {
       receiverId = owner.id
     }
 
-    // task-admin-income-payment-type-guard: symmetric with createSeniorIncome
-    // (:2027) / createDropIncome (:2126) — a USDT-payment project books
-    // obligations to its senior/drop ONLY through declareUsdtProjectIncome
-    // (bookCompanyObligations runs inside that transaction; this path never
-    // calls it). Before this check nothing stopped an ADMIN/ACCOUNTANT from
-    // recording a USDT-project's income here, silently skipping the
-    // obligation booking — that is exactly what happened in prod (GamingTec,
+    // task-admin-income-unified (was task-admin-income-payment-type-guard —
+    // the owner rewrote the task 2026-08-12 mid-implementation from "add a
+    // check" to "remove the choice that needed checking": the web dialog no
+    // longer offers a separate USDT form the caller could pick wrong, it
+    // decides `createAdminIncome` vs `declareUsdtProjectIncome` itself from
+    // `project.paymentType`). This throw is what remains of the original
+    // fix — AC4's invariant, now enforced as defense-in-depth: the UI cannot
+    // reach this branch for a USDT project (it always routes to
+    // `declareUsdtProjectIncome` instead), but nothing stops a direct API
+    // call from trying, and a USDT-payment project books obligations to its
+    // senior/drop ONLY through `declareUsdtProjectIncome`
+    // (`bookCompanyObligations` runs inside THAT transaction; this path never
+    // calls it) — that gap is exactly what happened in prod (GamingTec,
     // 4708.69 USDT, no drop share). Gated on `project.paymentType`, not on
     // `data.currency`/`fundingSource` — a FOP/GIG project routed into the
     // company-account pool (currency forced to USDT for THIS transaction) is
     // unaffected; only a project whose OWN payment type is USDT is rejected.
     if (project.paymentType === 'USDT') {
       throw new BadRequestException(
-        'Доход USDT-проекта заводится через форму «USDT-приход» (declareUsdtProjectIncome) — она автоматически бронирует доли синьора и дропа',
+        'USDT-проекты не создают доход через этот маршрут — используйте объявление USDT-прихода (declareUsdtProjectIncome), которое бронирует доли синьора и дропа вместе с доходом',
       )
     }
 
