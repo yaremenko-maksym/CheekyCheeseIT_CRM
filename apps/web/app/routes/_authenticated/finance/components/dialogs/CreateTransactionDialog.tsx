@@ -787,7 +787,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {personalDescription}
               </div>
             </div>
-            {isLegacyActive && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+            {isLegacyActive && (
+              <div
+                className="h-2 w-2 rounded-full bg-primary shrink-0"
+                data-testid="funding-toggle-active-dot"
+              />
+            )}
           </button>
           <button
             type="button"
@@ -815,7 +820,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {companyDescription}
               </div>
             </div>
-            {isCompanyActive && <div className="h-2 w-2 rounded-full bg-primary shrink-0" />}
+            {isCompanyActive && (
+              <div
+                className="h-2 w-2 rounded-full bg-primary shrink-0"
+                data-testid="funding-toggle-active-dot"
+              />
+            )}
           </button>
         </div>
 
@@ -853,8 +863,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     ? computeObligationPreviews(selectedAdminProject, amtNum, selectedProjectSeniorIsAdmin, usdRate)
     : // Stryker disable next-line ArrayDeclaration: only reached when `isSelectedProjectUsdt` is false, in which case the banner's OWN render condition below (`isSelectedProjectUsdt && obligationPreviews.length > 0`) is already false regardless of this array's contents — never observably rendered.
       []
-  // Stryker disable next-line ConditionalExpression, LogicalOperator: empirically verified equivalent (full dialog suite, 112/112 tests, still green with the `type === 'ADMIN_INCOME'` clause forced `true`) — `obligationPreviews.length > 0` can only be true when `isSelectedProjectUsdt` is true (computed above), which itself requires `type === 'ADMIN_INCOME'` — this clause repeats a condition `obligationPreviews` already enforces via its own gate two lines up.
   const showObligationBanner =
+    // Stryker disable next-line ConditionalExpression, LogicalOperator: empirically verified equivalent (full dialog suite, 112/112 tests, still green with the `type === 'ADMIN_INCOME'` clause forced `true`) — `obligationPreviews.length > 0` can only be true when `isSelectedProjectUsdt` is true (computed above), which itself requires `type === 'ADMIN_INCOME'` — this clause repeats a condition `obligationPreviews` already enforces via its own gate two lines up.
     type === 'ADMIN_INCOME' && isSelectedProjectUsdt && obligationPreviews.length > 0
 
   return (
@@ -946,6 +956,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                       // that DECIDES the route, not a separate type-card click.
                       trackFeatureClick('usdt-income-declare')
                     } else {
+                      // Stryker disable next-line StringLiteral: `defaultFundingSource` ignores its argument in EVERY branch (`if (t === 'EXPENSE' || t === 'ADMIN_INCOME') return 'legacy'; return 'legacy'`) — both paths return the same literal, so which string is passed in is unobservable by construction.
                       setFundingSource(defaultFundingSource('ADMIN_INCOME'))
                       setCurrency('USD')
                     }

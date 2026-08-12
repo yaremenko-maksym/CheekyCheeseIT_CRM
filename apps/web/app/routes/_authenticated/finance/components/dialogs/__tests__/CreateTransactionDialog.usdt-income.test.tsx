@@ -595,6 +595,30 @@ describe('CreateTransactionDialog — EXPENSE funding-source toggle (shared rend
     expect(currencyTrigger).toBeDisabled()
   })
 
+  it('EXPENSE + legacy (the default) does NOT lock currency — the COMPANY_ACCOUNT clause in isUsdtLocked is not always-on', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    // No toggle click — stays on the default 'legacy'.
+    const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USD')
+    expect(currencyTrigger).not.toBeDisabled()
+  })
+
+  it('the active-state dot appears only on the CURRENTLY active toggle button, never both at once', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    const legacyButton = screen.getByTestId('create-transaction-funding-legacy')
+    const companyButton = screen.getByTestId('create-transaction-funding-company')
+    // Default state — legacy is active.
+    expect(within(legacyButton).getByTestId('funding-toggle-active-dot')).toBeInTheDocument()
+    expect(within(companyButton).queryByTestId('funding-toggle-active-dot')).not.toBeInTheDocument()
+    fireEvent.click(companyButton)
+    // After switching — company is active, legacy is not.
+    expect(within(legacyButton).queryByTestId('funding-toggle-active-dot')).not.toBeInTheDocument()
+    expect(within(companyButton).getByTestId('funding-toggle-active-dot')).toBeInTheDocument()
+  })
+
   it('clicking "Обычный расход" AFTER COMPANY_ACCOUNT reverts the toggle to legacy (ArrowFunction handler is live)', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
