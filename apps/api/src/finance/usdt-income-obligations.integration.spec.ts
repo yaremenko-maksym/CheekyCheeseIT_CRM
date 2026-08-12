@@ -305,6 +305,21 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     return rows
   }
 
+  // task-admin-income-drop-backfill AC1/AC2: fetch the obligation's own SOURCE
+  // transaction row (the SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT IOU) so a
+  // test can read `sourceIncomeTransactionId` off it.
+  async function sourceTxOf(
+    obligationId: string,
+  ): Promise<typeof transactions.$inferSelect | undefined> {
+    const obl = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, obligationId),
+    })
+    if (!obl) return undefined
+    return dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, obl.sourceTransactionId),
+    })
+  }
+
   beforeAll(async () => {
     try {
       const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -576,6 +591,49 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     const dropObls = await obligationsFor(DROP.id)
     expect(dropObls).toHaveLength(1)
     expect(parseFloat(dropObls[0]!.amount)).toBeCloseTo((1000 * DROP_OVERRIDE) / 100, 6)
+  })
+
+  // ── task-admin-income-drop-backfill AC1/AC2: sourceIncomeTransactionId ─────
+  it('task-admin-income-drop-backfill AC1: booking stamps sourceIncomeTransactionId on BOTH the senior IOU and the drop IOU, equal to the ADMIN_INCOME row it was booked from', async () => {
+    if (!dbAvailable) return
+    const income = await declare(
+      { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
+      ADMIN_MAKSYM,
+    )
+    const [seniorObl] = await obligationsFor(SENIOR.id)
+    const [dropObl] = await obligationsFor(DROP.id)
+    const seniorSrc = await sourceTxOf(seniorObl!.id)
+    const dropSrc = await sourceTxOf(dropObl!.id)
+    expect(seniorSrc!.sourceIncomeTransactionId).toBe(income.id)
+    expect(dropSrc!.sourceIncomeTransactionId).toBe(income.id)
+  })
+
+  it('task-admin-income-drop-backfill AC2: the payout cascade (manualConfirmPayout → applyPayoutPaidCascade) books the drop IOU with sourceIncomeTransactionId=NULL — no single source income to name', async () => {
+    if (!dbAvailable) return
+    const [income] = await dbSvc.db
+      .insert(transactions)
+      .values({
+        type: 'DROP_INCOME',
+        status: 'VALIDATED',
+        amount: '1000',
+        currency: 'USDT',
+        receiverId: DROP.id,
+        recipientId: DROP.id,
+        projectId: USDT_DROP_PROJECT,
+        dropSharePercent: DROP_SHARE,
+        dropSharePercentSource: 'USER_DEFAULT',
+        createdBy: DROP.id,
+      })
+      .returning()
+    const pr = await svc.createPayoutRequest([income!.id], DROP)
+    const hash = '0x' + 'bd'.repeat(32)
+    await svc.manualConfirmPayout(pr.id, 'COMPANY_ACCOUNT', ADMIN_MAKSYM, { txHash: hash })
+
+    const [dropObl] = await obligationsFor(DROP.id)
+    expect(dropObl!.sourceType).toBe('DROP_PENDING_PAYOUT')
+    const dropSrc = await sourceTxOf(dropObl!.id)
+    expect(dropSrc!.payoutRequestId).toBe(pr.id)
+    expect(dropSrc!.sourceIncomeTransactionId).toBeNull()
   })
 
   // ── AC12: idempotent settle (anti-BIZ-02 double-settle) ────────────────────
