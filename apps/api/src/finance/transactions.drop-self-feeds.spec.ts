@@ -5,9 +5,14 @@
  *
  * Coverage:
  *  RBAC (self-only): every non-DROP role → 403 on both feeds.
- *  Incomes: status mapping (DB → FE), companyName resolution (senderLabel →
- *    project.companyName → ''), status filter, from/to date-window filter,
- *    pagination (page/limit slice + total before slice), createdAt ISO.
+ *  Incomes: status mapping (DB → FE) for BOTH income models (task-drop-sees-
+ *    own-obligations: DROP_INCOME declared vs DROP_PENDING_PAYOUT/PAYOUT_DROP
+ *    obligation, discriminated by `model`), companyName resolution
+ *    (senderLabel → project.companyName → '' for declared;
+ *    project.companyName → '' for obligation — `senderLabel` on an obligation
+ *    row is always the literal 'COMPANY' marker, never a real company name),
+ *    status filter, from/to date-window filter, pagination (page/limit slice
+ *    + total before slice), createdAt ISO.
  *  Payments: status mapping (PENDING_PAYMENT→pending, PAID→confirmed,
  *    REJECTED→failed), txHash present/absent, amount parse, ISO createdAt.
  *
@@ -141,6 +146,103 @@ describe('getDropSelfIncomes — companyName resolution', () => {
 
   it("falls back to '' when neither senderLabel nor project present", async () => {
     const svc = makeSvc([income({ senderLabel: null, project: null })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).toBe('')
+  })
+})
+
+// task-drop-sees-own-obligations: the feed's second model — a company-booked
+// IOU (DROP_PENDING_PAYOUT, later settled IN PLACE to PAYOUT_DROP). Same
+// factory shape as `income()` but `senderLabel` is always the literal
+// 'COMPANY' marker `bookCompanyObligations` stamps — never a real company name.
+function obligationRow(overrides: Partial<IncomeRow> = {}): IncomeRow {
+  return {
+    id: '00000000-0000-4000-8000-000000000002',
+    type: 'DROP_PENDING_PAYOUT',
+    status: 'PENDING_PAYMENT',
+    amount: '800.48',
+    currency: 'USDT',
+    senderLabel: 'COMPANY',
+    receiverId: DROP_ID,
+    createdAt: new Date('2026-08-12T09:00:00.000Z'),
+    project: { companyName: 'GamingTec' },
+    ...overrides,
+  }
+}
+
+describe('getDropSelfIncomes — model discriminator (§AC3)', () => {
+  it('a DROP_INCOME row carries model="declared"', async () => {
+    const svc = makeSvc([income()])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.model).toBe('declared')
+  })
+
+  it('a DROP_PENDING_PAYOUT row carries model="obligation"', async () => {
+    const svc = makeSvc([obligationRow()])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.model).toBe('obligation')
+  })
+
+  it('a settled PAYOUT_DROP row ALSO carries model="obligation" (same row, flipped in place)', async () => {
+    const svc = makeSvc([obligationRow({ type: 'PAYOUT_DROP', status: 'PAID' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.model).toBe('obligation')
+    expect(res.items[0]!.status).toBe('paid')
+  })
+
+  it('BOTH models are returned together, each keeping its own discriminator (§AC3)', async () => {
+    const svc = makeSvc([income(), obligationRow()])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.total).toBe(2)
+    const models = res.items.map((i) => i.model).sort()
+    expect(models).toEqual(['declared', 'obligation'])
+  })
+
+  // §AC4: exact-cent parity with the booked amount — no rounding drift.
+  it('obligation amount matches the booked figure to the cent (§AC4)', async () => {
+    const svc = makeSvc([obligationRow({ amount: '800.48' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.amount).toBe(800.48)
+  })
+})
+
+describe('getDropSelfIncomes — obligation status mapping', () => {
+  const cases: Array<[string, string]> = [
+    ['PENDING_PAYMENT', 'pending'],
+    ['REJECTED', 'rejected'],
+  ]
+  for (const [db, fe] of cases) {
+    it(`DROP_PENDING_PAYOUT maps DB ${db} → ${fe}`, async () => {
+      const svc = makeSvc([obligationRow({ status: db })])
+      const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+      expect(res.items[0]!.status).toBe(fe)
+    })
+  }
+
+  it('PAYOUT_DROP maps DB PAID → paid', async () => {
+    const svc = makeSvc([obligationRow({ type: 'PAYOUT_DROP', status: 'PAID' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.status).toBe('paid')
+  })
+
+  it('an obligation row never resolves to "validated" (declared-only state)', async () => {
+    // Defensive: even an unexpected DB status on an obligation row must never
+    // surface the DROP_INCOME-only 'validated' state.
+    const svc = makeSvc([obligationRow({ status: 'VALIDATED' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.status).not.toBe('validated')
+  })
+
+  it("companyName uses project.companyName, NEVER the 'COMPANY' senderLabel marker", async () => {
+    const svc = makeSvc([
+      obligationRow({ senderLabel: 'COMPANY', project: { companyName: 'GamingTec' } }),
+    ])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).toBe('GamingTec')
+  })
+
+  it("companyName falls back to '' when the project link is gone", async () => {
+    const svc = makeSvc([obligationRow({ project: null })])
     const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
     expect(res.items[0]!.companyName).toBe('')
   })

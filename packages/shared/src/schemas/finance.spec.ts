@@ -249,16 +249,29 @@ describe('dropIncomeDtoSchema', () => {
     currency: 'USDT',
     createdAt: '2026-06-12T10:00:00.000Z',
     status: 'validated',
+    model: 'declared',
   }
 
   it('parses a valid income row', () => {
     const r = dropIncomeDtoSchema.parse(base)
     expect(r.companyName).toBe('TechCorp')
     expect(r.status).toBe('validated')
+    expect(r.model).toBe('declared')
   })
 
   it.each(['pending', 'validated', 'paid', 'rejected'])('accepts status %s', (status) => {
     expect(dropIncomeDtoSchema.parse({ ...base, status }).status).toBe(status)
+  })
+
+  // task-drop-sees-own-obligations: the feed now covers the company-booked
+  // obligation model (DROP_PENDING_PAYOUT/PAYOUT_DROP) alongside the old
+  // self-declared DROP_INCOME model — discriminated by `model`.
+  it.each(['declared', 'obligation'])('accepts model %s', (model) => {
+    expect(dropIncomeDtoSchema.parse({ ...base, model }).model).toBe(model)
+  })
+
+  it('rejects an unknown model', () => {
+    expect(() => dropIncomeDtoSchema.parse({ ...base, model: 'DROP_PENDING_PAYOUT' })).toThrow()
   })
 
   it('rejects a DB-internal status that must never reach the FE', () => {
@@ -281,6 +294,7 @@ describe('paginatedDropIncomesSchema', () => {
           currency: 'USDT',
           createdAt: '2026-06-10T10:00:00.000Z',
           status: 'pending',
+          model: 'obligation',
         },
       ],
       total: 42,
@@ -290,6 +304,7 @@ describe('paginatedDropIncomesSchema', () => {
     expect(r.items).toHaveLength(1)
     expect(r.total).toBe(42)
     expect(r.page).toBe(2)
+    expect(r.items[0]?.model).toBe('obligation')
   })
 
   it('rejects a non-positive page', () => {

@@ -24,6 +24,17 @@
  *   9. balance + pendingIncomesCount mirror the admin dropBalances semantics
  *      (PAYOUT_DROP received − sent; DROP_INCOME PENDING|VALIDATED count).
  *
+ *  pendingObligationAmount/Count (task-drop-sees-own-obligations — the reverse
+ *  leg of debtToCompany: what the COMPANY owes THIS drop, booked but not yet
+ *  paid). Σ over DROP_PENDING_PAYOUT rows where `receiverId = drop.id` AND
+ *  `status = 'PENDING_PAYMENT'`:
+ *   10. No obligations → pendingObligationAmount = 0, pendingObligationCount = 0.
+ *   11. One booked-unpaid obligation → amount = its amount, count = 1.
+ *   12. Settled obligation (row flipped to PAYOUT_DROP/PAID) does NOT count.
+ *   13. Isolation: another drop's DROP_PENDING_PAYOUT must NOT leak in.
+ *   14. balance stays the money ALREADY PAID (PAID PAYOUT_DROP) — a pending
+ *       obligation never inflates it (accrued ≠ paid, §AC2).
+ *
  * Pure stub for DatabaseService — no Postgres. The integration spec
  * (drop.rbac.integration.spec.ts) pins the same behaviour against a real DB.
  */
@@ -109,6 +120,18 @@ function payout(
   return { id, type: 'PAYOUT', status, amount, senderId, receiverId: null }
 }
 
+// task-drop-sees-own-obligations: booked by bookCompanyObligations on the
+// admin-USDT declare path / drop-payout cascade — type=DROP_PENDING_PAYOUT,
+// receiverId=drop, status=PENDING_PAYMENT until settleByCompany flips it.
+function obligation(
+  receiverId: string,
+  status: string,
+  amount: string,
+  id = `obligation-${amount}-${status}`,
+): TxStub {
+  return { id, type: 'DROP_PENDING_PAYOUT', status, amount, senderId: null, receiverId }
+}
+
 // ── RBAC ─────────────────────────────────────────────────────────────────────
 
 describe('getDropSelfSummary — RBAC (self-only)', () => {
@@ -121,7 +144,7 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
     })
   }
 
-  it('resolves the four-field DTO for DROP', async () => {
+  it('resolves the six-field DTO for DROP', async () => {
     const svc = makeSvc(selfRow, [])
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
     expect(res).toEqual({
@@ -129,6 +152,8 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
       dropSharePercent: 5,
       pendingIncomesCount: 0,
       debtToCompany: 0,
+      pendingObligationAmount: 0,
+      pendingObligationCount: 0,
     })
   })
 
@@ -281,6 +306,85 @@ describe('getDropSelfSummary — balance & pendingIncomesCount', () => {
     const svc = makeSvc({ id: DROP_ID, displayName: 'Drop A', dropSharePercent: null }, [])
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
     expect(res.dropSharePercent).toBe(5)
+  })
+})
+
+// ── task-drop-sees-own-obligations: pendingObligationAmount/Count ────────────
+// The core bug: a drop with a booked DROP_PENDING_PAYOUT (admin-USDT declare /
+// drop-payout cascade) saw balance=$0 and no hint anything was owed. These
+// pin the reverse-of-debtToCompany figure the self-summary now surfaces.
+describe('getDropSelfSummary — pendingObligationAmount/Count (§AC1/§AC2)', () => {
+  it('no obligations → pendingObligationAmount = 0, pendingObligationCount = 0', async () => {
+    const svc = makeSvc(selfRow, [])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+  })
+
+  it('one booked-unpaid obligation → amount = its amount, count = 1', async () => {
+    const svc = makeSvc(selfRow, [obligation(DROP_ID, 'PENDING_PAYMENT', '800.48')])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(800.48)
+    expect(res.pendingObligationCount).toBe(1)
+  })
+
+  it('sums multiple PENDING_PAYMENT obligations (float-safe)', async () => {
+    const svc = makeSvc(selfRow, [
+      obligation(DROP_ID, 'PENDING_PAYMENT', '0.1', 'o1'),
+      obligation(DROP_ID, 'PENDING_PAYMENT', '0.2', 'o2'),
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0.3)
+    expect(res.pendingObligationCount).toBe(2)
+  })
+
+  it('a settled obligation (flipped to PAYOUT_DROP/PAID) does NOT count as pending', async () => {
+    const svc = makeSvc(selfRow, [
+      {
+        id: 'settled',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '300',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+    // AC2: the settled obligation IS reflected — as balance, not obligation.
+    expect(res.balance).toBe(300)
+  })
+
+  it("ignores another drop's DROP_PENDING_PAYOUT (no cross-drop leak, §AC5)", async () => {
+    const svc = makeSvc(selfRow, [
+      obligation(DROP_ID, 'PENDING_PAYMENT', '100', 'mine'),
+      obligation(OTHER_DROP_ID, 'PENDING_PAYMENT', '999', 'theirs'),
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(100)
+    expect(res.pendingObligationCount).toBe(1)
+  })
+
+  it('§AC2: pending obligation and paid balance are NEVER summed into one figure', async () => {
+    const svc = makeSvc(selfRow, [
+      obligation(DROP_ID, 'PENDING_PAYMENT', '800.48'),
+      {
+        id: 'paid',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '120',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    // Two distinct fields, each carrying its own money — NOT one blended
+    // total (920.48). This is the exact regression this task closes: a
+    // drop seeing 800 booked and 0 in their wallet must never read that as
+    // "$920.48 balance".
+    expect(res.balance).toBe(120)
+    expect(res.pendingObligationAmount).toBe(800.48)
   })
 })
 
