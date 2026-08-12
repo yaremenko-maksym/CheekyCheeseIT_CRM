@@ -67,6 +67,19 @@ holding a psql command string without ever running it would also still count. It
 is a wiring check. The proof that a migration actually applied is deploy.yml's
 own fail-loud apply step and the prod schema afterwards.
 
+REVERSE INVARIANT (security-review, PR #517) — apps/api/drizzle/manual-private/
+---------------------------------------------------------------------------------
+apps/api/drizzle/manual-private/ holds SQL meant to be run BY HAND on the VPS,
+never through CI: it prints row-level financial detail (client names, drop
+names, per-transaction USDT amounts) that must never reach a log, and this
+repo's Actions logs are public. Everything above proves a file IS wired; this
+directory must prove the opposite — that none of its files are wired ANYWHERE.
+An exclusion is a positive claim someone wrote and someone read; a separate
+directory alone is the absence of a claim, so this guard also fails loudly if
+any apps/api/drizzle/manual-private/*.sql filename appears anywhere under
+.github/workflows/**, and prints that directory's inventory every run so a new
+file landing there is visible to a human, not just to this check.
+
 Tests: scripts/devops/tests/test-check-prod-ddl-wiring.sh (positive AND negative
 cases — including the comment-only cheat above, which must go red).
 
@@ -84,6 +97,8 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
 DDL_MANUAL_DIR = os.path.join(REPO_ROOT, "apps", "api", "drizzle", "manual")
 DEPLOY_YML = os.path.join(REPO_ROOT, ".github", "workflows", "deploy.yml")
+MANUAL_PRIVATE_DIR = os.path.join(REPO_ROOT, "apps", "api", "drizzle", "manual-private")
+WORKFLOWS_DIR = os.path.join(REPO_ROOT, ".github", "workflows")
 
 # ---------------------------------------------------------------------------
 # KNOWN_NOT_WIRED — explicit, reasoned exceptions. A file only belongs here if
@@ -147,6 +162,25 @@ def collect_all_ddl_files(ddl_dir):
     if not os.path.isdir(ddl_dir):
         return set()
     return {f for f in os.listdir(ddl_dir) if f.endswith(".sql")}
+
+
+def find_private_leaks(private_files):
+    """Reverse invariant (see module docstring): none of `private_files` may be
+    named anywhere under .github/workflows/**. Missing directory -> empty set ->
+    no leaks, silently. Returns sorted (filename, workflow-relpath) pairs.
+    """
+    hits = []
+    if not private_files or not os.path.isdir(WORKFLOWS_DIR):
+        return hits
+    for dirpath, _dirs, filenames in os.walk(WORKFLOWS_DIR):
+        for name in filenames:
+            path = os.path.join(dirpath, name)
+            with open(path, "r") as f:
+                content = f.read()
+            for private_file in private_files:
+                if mentions(content, private_file):
+                    hits.append((private_file, os.path.relpath(path, REPO_ROOT)))
+    return sorted(hits)
 
 
 # ---------------------------------------------------------------------------
@@ -399,12 +433,17 @@ def main():
     ghost_allowlist = sorted(KNOWN_NOT_WIRED - all_files)
     broken = copy_only + apply_only + unwired
 
+    private_files = collect_all_ddl_files(MANUAL_PRIVATE_DIR)
+    private_leaks = find_private_leaks(private_files)
+
     print("Prod DDL Wiring Guard")
     print("  Total manual DDL files:  {}".format(len(all_files)))
     print("  Copied AND applied:      {}".format(len(fully_wired)))
     print("  Known not-wired (debt):  {}".format(len(KNOWN_NOT_WIRED)))
     print("  Ghost allow-list entries:{}".format(len(ghost_allowlist)))
     print("  BROKEN WIRING:           {}".format(len(broken)))
+    print("  Manual-private files:    {}".format(len(private_files)))
+    print("  Manual-private LEAKED:   {}".format(len(private_leaks)))
 
     if ghost_allowlist:
         print()
@@ -412,6 +451,15 @@ def main():
         for f in ghost_allowlist:
             print("  {}".format(f))
         print("  -> Remove these stale entries from KNOWN_NOT_WIRED in this script.")
+
+    print()
+    print("Manual-private DDL inventory (apps/api/drizzle/manual-private/ — hand-run")
+    print("only, must NEVER be wired into .github/workflows/**):")
+    if private_files:
+        for f in sorted(private_files):
+            print("  {}".format(f))
+    else:
+        print("  (none — directory absent or empty)")
 
     if broken:
         print()
@@ -453,11 +501,28 @@ def main():
         print()
         print("Rule: every manual DDL file must either run on every deploy or be an explicit,")
         print("reasoned exception — never just forgotten.")
+
+    if private_leaks:
+        print()
+        print("FAIL: the following apps/api/drizzle/manual-private/*.sql files are")
+        print("referenced inside .github/workflows/** — that directory is for SQL run BY")
+        print("HAND on the VPS, never through CI: it holds row-level financial detail")
+        print("(client names, drop names, per-transaction USDT amounts), and this repo's")
+        print("Actions logs are PUBLIC. A workflow that names one of these files risks")
+        print("printing that detail into a public log the moment it runs.")
+        for filename, wf in private_leaks:
+            print("  {} referenced in {}".format(filename, wf))
+        print()
+        print("Fix: remove the reference. Files under manual-private/ must never be copied")
+        print("or applied by any workflow — only run by hand, directly on the VPS.")
+
+    if broken or private_leaks:
         return 1
 
     print()
     print("OK: every manual DDL file is either copied AND applied by deploy.yml, or")
-    print("explicitly acknowledged as intentionally not wired.")
+    print("explicitly acknowledged as intentionally not wired, and no manual-private")
+    print("file is referenced by any workflow.")
     return 0
 
 
