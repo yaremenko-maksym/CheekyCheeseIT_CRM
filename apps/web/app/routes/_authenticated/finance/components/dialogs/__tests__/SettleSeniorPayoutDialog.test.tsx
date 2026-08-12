@@ -28,9 +28,14 @@
  * two instances (mirrors `CreateTransactionDialog.usdt-income.test.tsx` /
  * `PaySalaryDialog.test.tsx`). Only the API boundary is mocked.
  */
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+
+// task-drop-payout-currency: fixed NBU-rate fixture — both the dialog itself
+// (expectedAmount) and the inner AmountCurrencyInput fetch this same
+// endpoint/cache-key, so a single mock covers both call sites.
+const FAKE_RATES = { usdUah: '41.50', usdtUah: '41.50', eurUah: '44.80', date: '20260801' }
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -43,6 +48,9 @@ vi.mock('@/lib/axios', () => ({
             { id: 'hr-id', displayName: 'HR Person', role: 'HR' },
           ],
         })
+      }
+      if (url.startsWith('/finance/exchange-rate')) {
+        return Promise.resolve({ data: FAKE_RATES })
       }
       return Promise.resolve({ data: [] })
     }),
@@ -132,6 +140,24 @@ const UNSTAMPED_DROP_TX = {
   createdAt: '2026-07-28T00:00:00.000Z',
 } as never
 
+// task-drop-payout-currency: a DROP obligation denominated in UAH — lets a
+// cross-currency conversion be exercised WITHOUT driving the (Radix, not
+// reliably driveable in happy-dom — see PaySalaryDialog.paid-amount.test.tsx)
+// currency Select: picking «Счёт компании» (a plain button) forces
+// effectiveCurrency=USDT, which is already a REAL conversion away from this
+// obligation's own UAH. 4150 UAH / 41.50 = exactly 100 USDT (FAKE_RATES).
+const UAH_DROP_TX = {
+  id: 'uah-drop-pending-1',
+  type: 'DROP_PENDING_PAYOUT',
+  status: 'PENDING_PAYMENT',
+  amount: '4150',
+  currency: 'UAH',
+  receiverName: 'UAH Drop Person',
+  projectName: 'Drop Project',
+  dropCascadeOrigin: false,
+  createdAt: '2026-08-01T00:00:00.000Z',
+} as never
+
 function renderDialog(tx: unknown = TX) {
   const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
@@ -207,16 +233,17 @@ describe('SettleSeniorPayoutDialog — account + currency selectors (salary-styl
     expect(payload.currency).toBeUndefined()
   })
 
-  // task-remove-settle-currency: the currency Select is gone entirely — a
-  // settle obligation is always denominated in USDT, so there is nothing to
-  // pick. Checked both for «Счёт компании» (default) and for an ADMIN partner
-  // (previously the only branch where the Select was enabled/interactable).
-  it('does not render a currency Select at all', async () => {
-    renderDialog()
+  // task-remove-settle-currency: a SENIOR settle still has no amount/currency
+  // field at all — a senior obligation is always denominated in USDT, so
+  // there is nothing to pick. Checked both for «Счёт компании» (default) and
+  // for an ADMIN partner. task-drop-payout-currency: a DROP settle is
+  // different — see the next describe block.
+  it('SENIOR: does not render an amount/currency field at all', async () => {
+    renderDialog(TX)
     await screen.findByTestId('settle-senior-account-company')
-    expect(screen.queryByTestId('settle-senior-currency-trigger')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('settle-senior-amount-field')).not.toBeInTheDocument()
     fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
-    expect(screen.queryByTestId('settle-senior-currency-trigger')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('settle-senior-amount-field')).not.toBeInTheDocument()
   })
 })
 
@@ -253,7 +280,10 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     const [id, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(id).toBe('drop-pending-1')
     expect(payload.fundingSource).toBe('COMPANY_ACCOUNT')
-    expect(payload.currency).toBeUndefined()
+    // task-drop-payout-currency: a DROP settle now DOES send `currency` — the
+    // default is the obligation's own currency (USDT here), same as the
+    // «Счёт компании» force. Unlike a SENIOR settle (still omitted below).
+    expect(payload.currency).toBe('USDT')
   })
 
   it('submitting a DROP settle shows the drop-specific success toast', async () => {
@@ -344,5 +374,147 @@ describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obl
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
     expect(settleMock).not.toHaveBeenCalled()
     expect(screen.getByTestId('settle-senior-error-account')).toBeInTheDocument()
+  })
+})
+
+// task-drop-payout-currency — «Выплатить дропу» can now be settled in any of
+// the four currencies (USDT/USD/UAH/EUR); the amount field stays fully
+// disabled (owner decision — it only shows the server-recalculated figure).
+// The currency Select is Radix (not reliably driveable in happy-dom — see
+// PaySalaryDialog.paid-amount.test.tsx) — cross-currency behaviour is
+// exercised the SAME way that spec establishes: via the obligation's OWN
+// currency + the «Счёт компании» (plain button) USDT-force, never a
+// simulated Select click.
+describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-currency)', () => {
+  beforeEach(() => {
+    settleMock.mockClear()
+  })
+
+  async function fillReceiptViaUrlTab(url = 'https://drive.google.com/file/uahdrop') {
+    fireEvent.click(await screen.findByTestId('receipt-input-mode-url'))
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), { target: { value: url } })
+  }
+
+  // AC1: the amount field exists ONLY for a DROP settle, is disabled, and the
+  // currency it sits next to is a real, enabled choice (once a personal
+  // account is picked — «Счёт компании» locks it to USDT, same as
+  // PaySalaryDialog's `disableCurrency={isCompany}`).
+  it('AC1: amount input is disabled; currency selector is enabled once a personal account is chosen', async () => {
+    renderDialog(DROP_TX)
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    expect(within(amountField).getByTestId('amount-currency-amount-input')).toBeDisabled()
+    // Default: «Счёт компании» → currency forced/locked (disableCurrency).
+    expect(within(amountField).getByRole('combobox')).toBeDisabled()
+
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    // Amount stays disabled regardless of the funding source …
+    expect(within(amountField).getByTestId('amount-currency-amount-input')).toBeDisabled()
+    // … but the currency Select is now interactable.
+    expect(within(amountField).getByRole('combobox')).not.toBeDisabled()
+  })
+
+  // AC1: a SENIOR settle never renders this field at all (unaffected).
+  it('AC1: SENIOR settle renders no amount/currency field', () => {
+    renderDialog(TX)
+    expect(screen.queryByTestId('settle-senior-amount-field')).not.toBeInTheDocument()
+  })
+
+  // AC2 (default — no recalculation): the obligation's own currency shows the
+  // obligation amount verbatim, no NBU round-trip needed.
+  it('AC2: defaults to the obligation currency — shown amount equals the obligation, unconverted', async () => {
+    renderDialog(DROP_TX)
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    // DROP_TX: amount 420, currency USDT — «Счёт компании» is also USDT, so
+    // this is the no-conversion path from BOTH angles at once.
+    expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('420.00')
+  })
+
+  // AC2 (recalculation happens): switching OFF «Счёт компании» for a
+  // non-USDT obligation stops forcing USDT — the shown amount reverts to the
+  // obligation's own currency/figure (UAH here), proving the field really
+  // recomputes with the funding/currency context instead of a frozen value.
+  it('AC2: switching account changes the effective currency and recalculates the shown amount', async () => {
+    renderDialog(UAH_DROP_TX)
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    // Default «Счёт компании» → forced USDT → 4150 UAH / 41.50 = 100 USDT.
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('100.00'),
+    )
+
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    // ADMIN_PERSONAL → currency reverts to the obligation's own (UAH) → the
+    // obligation figure, unconverted.
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue(
+        '4150.00',
+      ),
+    )
+  })
+
+  // AC3 (backend cross-check lives in pending-settlement.drop-currency.spec.ts
+  // and the real-DB integration spec) — the frontend half of that invariant:
+  // whatever figure is SHOWN is exactly what gets SENT (no separate, silently
+  // divergent amount channel — there is no amount field in the payload at
+  // all, see AC5 below).
+  it('AC3: the shown figure and the settle payload agree on currency (server derives the amount from it)', async () => {
+    renderDialog(UAH_DROP_TX)
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('100.00'),
+    )
+    await fillReceipt('https://etherscan.io/tx/0xuahdrop')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    // Company-funded → forced USDT, matching the shown 100.00 figure's currency.
+    expect(payload.currency).toBe('USDT')
+  })
+
+  // AC4: `currency` is sent on EVERY drop settle — including the default,
+  // same-currency case (DROP_TX, tested above in the "reused for
+  // DROP_PENDING_PAYOUT" describe block) — never omitted the way a SENIOR
+  // settle omits it.
+  it('AC4/AC5: the payload carries exactly {fundingSource, currency, receipt*} — no amount, no rate, nothing else for the client to spoof', async () => {
+    renderDialog(UAH_DROP_TX)
+    await screen.findByTestId('settle-senior-amount-field')
+    await fillReceipt('https://etherscan.io/tx/0xuahdrop2')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(Object.keys(payload).sort()).toEqual(
+      ['currency', 'fundingSource', 'receiptDocumentId', 'receiptExternalUrl'].sort(),
+    )
+    // No amount, no exchangeRate/rate field exists on the client at all — the
+    // server computes both (pending-settlement.service.ts), never trusting
+    // a client-supplied figure.
+    expect(payload['amount']).toBeUndefined()
+    expect(payload['exchangeRate']).toBeUndefined()
+    expect(payload['rate']).toBeUndefined()
+  })
+
+  // Receipt currency-awareness: a DROP settle in a non-USDT currency is NOT
+  // explorer-only (mirrors PaySalaryDialog) — the owner can attach a bank
+  // receipt file/url instead of an on-chain hash.
+  it('receipt is explorer-only for USDT (default), but offers file/url once a non-USDT currency is in effect', async () => {
+    renderDialog(UAH_DROP_TX)
+    // Default: «Счёт компании» → USDT → explorer-only (no mode toggle).
+    await screen.findByTestId('settle-senior-amount-field')
+    expect(screen.queryByTestId('receipt-input-mode-file')).not.toBeInTheDocument()
+
+    // ADMIN_PERSONAL → currency reverts to UAH (the obligation's own) → the
+    // receipt is no longer explorer-only.
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    expect(await screen.findByTestId('receipt-input-mode-file')).toBeInTheDocument()
+  })
+
+  it('submits successfully in the obligation-own (UAH) currency via ADMIN_PERSONAL, with the receipt filled through the url tab', async () => {
+    renderDialog(UAH_DROP_TX)
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    await fillReceiptViaUrlTab()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
+    expect(payload.currency).toBe('UAH')
   })
 })
