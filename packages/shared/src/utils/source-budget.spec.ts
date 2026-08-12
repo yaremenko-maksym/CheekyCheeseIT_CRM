@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  budgetState,
   budgetWindowEnd,
   budgetWindowStart,
   isCredibleBudgetLimit,
@@ -7,6 +8,7 @@ import {
   spendBudget,
   type SourceBudgetState,
 } from './source-budget'
+import { jobSourceBudgetSchema } from '../schemas/job-sourcing'
 
 /**
  * task-vacancy-matching §4 — "Бюджет источника — механикой, а не намерением".
@@ -198,6 +200,89 @@ describe('budget windows are calendar-anchored in UTC', () => {
   it('rolls the year over in December', () => {
     const december = new Date('2026-12-20T10:00:00.000Z')
     expect(budgetWindowEnd(december, 'MONTH').toISOString()).toBe('2027-01-01T00:00:00.000Z')
+  })
+})
+
+/**
+ * Code review MED-4 — a budget that received nonsense must PRESENT as stricter.
+ *
+ * The UI used to infer "unlimited" from `limit === null || window === null`, so
+ * a cap the collector cannot use (no window, or a value the arithmetic refuses)
+ * was displayed as "без лимита запросов" — a hard stop shown as no restriction
+ * at all. The state is decided here instead, next to the arithmetic, so the API
+ * and the UI cannot disagree about it.
+ */
+describe('budgetState — how a resolved budget presents (MED-4)', () => {
+  const at = (over: Partial<SourceBudgetState>) => budgetState(resolveBudget(state(over), JULY))
+
+  it('no published limit → UNLIMITED', () => {
+    expect(
+      budgetState(
+        resolveBudget({ limit: null, window: null, used: 0, windowStartedAt: null }, JULY),
+      ),
+    ).toBe('UNLIMITED')
+  })
+
+  it('cap with requests left → ACTIVE', () => {
+    expect(at({ used: 47 })).toBe('ACTIVE')
+  })
+
+  it('cap spent for this window → EXHAUSTED (it comes back on its own)', () => {
+    expect(at({ used: 200 })).toBe('EXHAUSTED')
+  })
+
+  it('cap with NO WINDOW → MISCONFIGURED, never UNLIMITED', () => {
+    // This is the exact row that used to render as "без лимита запросов" while
+    // the collector refused every request.
+    expect(at({ window: null })).toBe('MISCONFIGURED')
+  })
+
+  for (const [name, limit] of [
+    ['NaN', Number.NaN],
+    ['Infinity', Number.POSITIVE_INFINITY],
+    ['1e21', 1e21],
+    ['negative', -5],
+    ['fractional', 12.5],
+  ] as const) {
+    it(`cap of ${name} → MISCONFIGURED, never UNLIMITED`, () => {
+      expect(at({ limit })).toBe('MISCONFIGURED')
+    })
+  }
+})
+
+describe('a misconfigured budget survives the wire contract (MED-4)', () => {
+  /** Exactly what the API builds from a resolved budget. */
+  const toDto = (over: Partial<SourceBudgetState>) => {
+    const resolved = resolveBudget(state(over), JULY)
+    return {
+      state: budgetState(resolved),
+      limit: resolved.limited ? (resolved.limit ?? null) : null,
+      window: resolved.window,
+      used: resolved.used,
+      remaining: resolved.remaining,
+      resetsAt: resolved.resetsAt?.toISOString() ?? null,
+    }
+  }
+
+  it('CONTROL: a healthy budget parses', () => {
+    expect(jobSourceBudgetSchema.safeParse(toDto({ used: 47 })).success).toBe(true)
+  })
+
+  it('a broken limit resolves to 0 and still parses, instead of 400-ing /sources', () => {
+    // `.positive()` rejected the 0 that a broken limit deliberately resolves to,
+    // so ONE misconfigured row took down the whole source list with a validation
+    // error — the strictest reading of the budget turned into the least useful
+    // response. `.nonnegative()` lets the row travel and be shown as broken.
+    const dto = toDto({ limit: Number.NaN })
+    expect(dto.limit).toBe(0)
+    expect(dto.state).toBe('MISCONFIGURED')
+    expect(jobSourceBudgetSchema.safeParse(dto).success).toBe(true)
+  })
+
+  it('a cap with no window also parses and is marked broken', () => {
+    const dto = toDto({ window: null })
+    expect(dto.state).toBe('MISCONFIGURED')
+    expect(jobSourceBudgetSchema.safeParse(dto).success).toBe(true)
   })
 })
 

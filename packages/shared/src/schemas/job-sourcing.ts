@@ -268,9 +268,41 @@ export const jobCollectionFailureSchema = z.object({
  * (ResumeStatusPanel): a number plus WHEN it comes back. A collector that has
  * stopped must never look like a collector that found nothing.
  */
+/**
+ * What the budget IS, decided server-side — code review MED-4.
+ *
+ * The UI used to infer this from `limit === null || window === null`, and that
+ * inference read a MISCONFIGURED source (a limit with no window, or a limit the
+ * arithmetic refuses to believe) as "без лимита запросов" — i.e. it displayed a
+ * collector that is refusing everything as one with no restriction at all. A
+ * limiter that has received nonsense must present as STRICTER, never weaker, so
+ * the distinction is now stated by the server rather than guessed by the client.
+ *
+ *   UNLIMITED      — no cap published for this source (DOU's feed)
+ *   ACTIVE         — cap configured, requests still available
+ *   EXHAUSTED      — cap configured, spent for this window (comes back at reset)
+ *   MISCONFIGURED  — cap present but unusable (no window, or a value the
+ *                    arithmetic will not trust). Collection is REFUSED, and this
+ *                    needs a human, not a wait.
+ */
+export const jobSourceBudgetStateSchema = z.enum([
+  'UNLIMITED',
+  'ACTIVE',
+  'EXHAUSTED',
+  'MISCONFIGURED',
+])
+
 export const jobSourceBudgetSchema = z.object({
-  /** Requests permitted per window. `null` = no published limit (DOU's feed). */
-  limit: z.number().int().positive().nullable(),
+  state: jobSourceBudgetStateSchema,
+  /**
+   * Requests permitted per window. `null` = no published limit (DOU's feed).
+   *
+   * `.nonnegative()`, NOT `.positive()`: a broken limit resolves to 0 remaining
+   * — the deliberately strictest reading — and `.positive()` rejected exactly
+   * that value, turning a misconfigured source into a 400 on the whole
+   * `/sources` response instead of a visible warning on one row.
+   */
+  limit: z.number().int().nonnegative().nullable(),
   window: jobSourceBudgetWindowSchema.nullable(),
   /** Requests already spent in the CURRENT window. */
   used: z.number().int().nonnegative(),
@@ -321,6 +353,7 @@ export type JobCollectionResultDto = z.infer<typeof jobCollectionResultSchema>
 export type JobCollectionFailureDto = z.infer<typeof jobCollectionFailureSchema>
 export type JobCollectionRunDto = z.infer<typeof jobCollectionRunSchema>
 export type JobSourceBudgetWindow = z.infer<typeof jobSourceBudgetWindowSchema>
+export type JobSourceBudgetState = z.infer<typeof jobSourceBudgetStateSchema>
 export type JobSourceTriggerMode = z.infer<typeof jobSourceTriggerModeSchema>
 export type JobSourceBudgetDto = z.infer<typeof jobSourceBudgetSchema>
 export type JobSourceDto = z.infer<typeof jobSourceSchema>

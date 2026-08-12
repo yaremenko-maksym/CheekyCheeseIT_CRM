@@ -41,9 +41,35 @@ export function formatResetAt(iso: string | null): string {
 }
 
 export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
-  const { limit, window, used, remaining, resetsAt } = source.budget
-  const unlimited = limit === null || window === null
-  const exhausted = !unlimited && (remaining ?? 0) <= 0
+  const { state, limit, window, used, remaining, resetsAt } = source.budget
+
+  // Code review MED-4: this used to be inferred here as
+  // `limit === null || window === null`, which read a MISCONFIGURED source — a
+  // cap the collector cannot use, so it refuses every request — as "без лимита
+  // запросов", i.e. showed a hard stop as no restriction at all. The server now
+  // states which case this is; the UI only renders it.
+  if (state === 'MISCONFIGURED') {
+    return (
+      <li
+        data-testid="job-source-budget-row"
+        data-source-type={source.type}
+        className="flex flex-col gap-0.5 rounded-md border border-destructive/50 px-3 py-2 text-xs sm:flex-row sm:items-center sm:justify-between sm:gap-3"
+      >
+        <span className="font-medium text-foreground">
+          {source.type}
+          <span className="ml-1.5 font-normal text-muted-foreground">
+            ({TRIGGER_LABEL[source.triggerMode]})
+          </span>
+        </span>
+        <span className="font-medium text-destructive" data-testid="job-source-budget-broken">
+          Лимит настроен неверно — сбор остановлен. Проверьте настройки источника.
+        </span>
+      </li>
+    )
+  }
+
+  const unlimited = state === 'UNLIMITED'
+  const exhausted = state === 'EXHAUSTED'
 
   return (
     <li
@@ -68,7 +94,10 @@ export function SourceBudgetRow({ source }: { source: JobSourceDto }) {
           className={exhausted ? 'font-medium text-destructive' : 'text-muted-foreground'}
         >
           {exhausted ? 'Лимит исчерпан' : `Осталось ${remaining} из ${limit}`}{' '}
-          {WINDOW_LABEL[window]}
+          {/* `window` is non-null whenever the server says ACTIVE/EXHAUSTED —
+              a cap without a window is MISCONFIGURED and returned above. The
+              fallback keeps that a rendering detail rather than a crash. */}
+          {window ? WINDOW_LABEL[window] : ''}
           {/* The reset instant is the actionable half — without it "исчерпан"
               tells an operator nothing they can plan around. */}
           {resetsAt && <span> · обновится {formatResetAt(resetsAt)}</span>}

@@ -32,7 +32,14 @@ const source = (over: Partial<JobSourceDto> = {}): JobSourceDto => ({
   enabled: true,
   triggerMode: 'SCHEDULED',
   lastCollectedAt: '2026-08-12T05:00:00.000Z',
-  budget: { limit: null, window: null, used: 0, remaining: null, resetsAt: null },
+  budget: {
+    state: 'UNLIMITED',
+    limit: null,
+    window: null,
+    used: 0,
+    remaining: null,
+    resetsAt: null,
+  },
   ...over,
 })
 
@@ -61,6 +68,7 @@ describe('SourceBudgetPanel (AC7)', () => {
       items: [
         source({
           budget: {
+            state: 'ACTIVE',
             limit: 200,
             window: 'MONTH',
             used: 153,
@@ -83,6 +91,7 @@ describe('SourceBudgetPanel (AC7)', () => {
       items: [
         source({
           budget: {
+            state: 'EXHAUSTED',
             limit: 200,
             window: 'MONTH',
             used: 200,
@@ -112,11 +121,66 @@ describe('SourceBudgetPanel (AC7)', () => {
         source({
           triggerMode: 'MANUAL',
           budget: {
+            state: 'ACTIVE',
             limit: 200,
             window: 'MONTH',
             used: 0,
             remaining: 200,
             resetsAt: '2026-09-01T00:00:00.000Z',
+          },
+        }),
+      ],
+    }
+    renderPanel()
+
+    expect(await screen.findByTestId('job-source-budget-row')).toHaveTextContent('по кнопке')
+  })
+
+  /**
+   * Code review MED-4 — a broken limiter must LOOK broken.
+   *
+   * The panel used to infer "unlimited" from `limit === null || window === null`,
+   * so a source whose cap the collector cannot use — and which therefore refuses
+   * every request — was shown as "без лимита запросов". That is the restriction
+   * presenting as WEAKER than it is, which is the one direction this codebase
+   * treats as never acceptable.
+   */
+  it('shows a misconfigured limit as broken, NOT as "без лимита"', async () => {
+    mockSources = {
+      items: [
+        source({
+          budget: {
+            state: 'MISCONFIGURED',
+            limit: 0,
+            window: null,
+            used: 0,
+            remaining: 0,
+            resetsAt: null,
+          },
+        }),
+      ],
+    }
+    renderPanel()
+
+    expect(await screen.findByTestId('job-source-budget-broken')).toHaveTextContent(
+      'Лимит настроен неверно',
+    )
+    // The exact confusion this fixes: it must NOT read as an unrestricted source.
+    expect(screen.queryByTestId('job-source-budget-unlimited')).toBeNull()
+  })
+
+  it('still names the source and its trigger while it is broken', async () => {
+    mockSources = {
+      items: [
+        source({
+          triggerMode: 'MANUAL',
+          budget: {
+            state: 'MISCONFIGURED',
+            limit: 0,
+            window: 'MONTH',
+            used: 0,
+            remaining: 0,
+            resetsAt: null,
           },
         }),
       ],

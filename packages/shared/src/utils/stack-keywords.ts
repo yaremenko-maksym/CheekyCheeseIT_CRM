@@ -240,7 +240,17 @@ const CYRILLIC_TO_LATIN: Readonly<Record<string, string>> = {
   я: 'ia',
 }
 
+/** Cheap pre-test: is there anything for `transliterate` to actually do? */
+const CYRILLIC_RE = /[Ѐ-ӿ]/
+
 function transliterate(value: string): string {
+  // The loop below is character-by-character string concatenation over the whole
+  // text, which for a 20 KB vacancy description is the single most expensive
+  // thing this module does. A great many descriptions are pure Latin, and for
+  // those the entire pass is wasted work — one native regex test skips it.
+  // Measured on the queue benchmark, not assumed (see MED-3 in the PR).
+  if (!CYRILLIC_RE.test(value)) return value
+
   let out = ''
   for (const char of value) {
     const mapped = CYRILLIC_TO_LATIN[char]

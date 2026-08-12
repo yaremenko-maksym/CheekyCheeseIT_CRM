@@ -252,14 +252,25 @@ describe('Job matching + source budgets — real DB integration', () => {
       .values({
         id: SOURCE_ID,
         type: 'DOU_RSS',
-        // Unique config so the (type, config) unique index never collides with
-        // a real DOU row that may already exist in the QA database.
-        config: { category: 'Java' },
+        // The `spec` key is what keeps this row unique.
+        //
+        // `job_sources` has a UNIQUE (type, config) index, so a plain
+        // `{ category: 'Java' }` collides with any other DOU row that happens to
+        // carry the same config — and then `onConflictDoNothing` silently skips
+        // the insert and the SELECT below finds nothing. That is not
+        // hypothetical: it happened the moment a demo row with exactly that
+        // config landed in the QA database, and every test in this file failed
+        // at once with "cannot read properties of undefined".
+        config: { category: 'Java', spec: 'job-matching' },
         enabled: true,
         ...over,
       })
       .onConflictDoNothing()
-    return (await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_ID)))[0]!
+    const row = (await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_ID)))[0]
+    // Fail LOUDLY here rather than handing `undefined` to the collector, where
+    // it surfaces as an unrelated TypeError in seventeen different tests.
+    if (!row) throw new Error(`seedSource: job_sources row ${SOURCE_ID} was not created`)
+    return row
   }
 
   // ---------------------------------------------------------------------------
@@ -482,6 +493,42 @@ describe('Job matching + source budgets — real DB integration', () => {
       // …and the 17 refusals were reported, not silently swallowed.
       const refusals = runs.filter((r) => r.failures.some((f) => f.budgetExhausted))
       expect(refusals).toHaveLength(17)
+    })
+
+    /**
+     * Security review MED-2 — the compare-and-set was correct but UNPINNED.
+     *
+     * The twenty-presses test above runs SEQUENTIALLY, and a plain
+     * `WHERE id = ?` update passes it identically: each run reads the counter
+     * after the previous one wrote it, so nothing ever races. Only concurrent
+     * callers can tell the two implementations apart.
+     *
+     * Here two manual runs start together against a budget of ONE. With the CAS
+     * (`WHERE id = ? AND budget_used = <value we decided on>`) exactly one write
+     * matches and the loser is refused; without it both read "0 used", both
+     * write "1", and the source is collected twice on a single unit — which on
+     * JSearch's 200/month is how an allowance quietly goes missing.
+     */
+    it('two SIMULTANEOUS manual runs cannot both spend the last unit', async () => {
+      if (!dbAvailable) return
+      await seedSource({
+        budgetLimit: 1,
+        budgetWindow: 'MONTH',
+        budgetUsed: 0,
+        budgetWindowStartedAt: new Date(),
+        triggerMode: 'BOTH',
+      })
+      provider.batch = [posting({ externalId: 'race-1' })]
+
+      const [a, b] = await Promise.all([service.collectAll('MANUAL'), service.collectAll('MANUAL')])
+
+      // The budget allowed one request, so the feed was hit exactly once.
+      expect(provider.collectCalls).toBe(1)
+      const [row] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_ID))
+      expect(row?.budgetUsed).toBe(1)
+      // …and the loser was told, rather than silently doing nothing.
+      const refusals = [a, b].filter((r) => r.failures.some((f) => f.budgetExhausted))
+      expect(refusals).toHaveLength(1)
     })
 
     it('a manual spend leaves the scheduled run nothing left to spend', async () => {

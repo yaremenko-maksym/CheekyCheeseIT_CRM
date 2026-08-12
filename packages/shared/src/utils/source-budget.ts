@@ -40,7 +40,7 @@
  * differently on purpose.
  */
 
-import type { JobSourceBudgetWindow } from '../schemas/job-sourcing'
+import type { JobSourceBudgetState, JobSourceBudgetWindow } from '../schemas/job-sourcing'
 
 /** Stored budget state for one source, exactly as it comes out of the row. */
 export interface SourceBudgetState {
@@ -195,6 +195,24 @@ export function resolveBudget(state: SourceBudgetState, now: Date = new Date()):
     resetsAt,
     exhausted: remaining <= 0,
   }
+}
+
+/**
+ * How a resolved budget should PRESENT — code review MED-4.
+ *
+ * Lives next to the arithmetic (and therefore in `@crm/shared`) so the API and
+ * the UI cannot form different opinions about the same row. The important line
+ * is the MISCONFIGURED one: a limit with no window, or a limit the arithmetic
+ * refuses to believe, resolves to "refuse everything" — and must SAY so, not
+ * fall through to a display that means "no restriction".
+ */
+export function budgetState(resolved: ResolvedBudget): JobSourceBudgetState {
+  if (!resolved.limited) return 'UNLIMITED'
+  // `limit === 0` is what `resolveBudget` produces for an untrustworthy value
+  // (NaN / Infinity / 1e21 / negative / fractional); a missing window is the
+  // other way a cap can exist but be unusable.
+  if (resolved.window === null || (resolved.limit ?? 0) <= 0) return 'MISCONFIGURED'
+  return resolved.exhausted ? 'EXHAUSTED' : 'ACTIVE'
 }
 
 /**
