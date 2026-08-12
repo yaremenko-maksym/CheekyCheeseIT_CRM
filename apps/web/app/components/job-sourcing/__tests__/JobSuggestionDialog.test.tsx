@@ -29,9 +29,14 @@ vi.mock('@/hooks/use-job-sourcing', () => ({
   // not care about ranking should not have to restate its shape, and one that
   // does overrides exactly the field it is about.
   useJobSuggestions: () => ({
-    data: { lowMatch: [], lowMatchCount: 0, threshold: 0.2, stackKeywords: [], ...mockQueue },
-    isLoading: false,
-    isError: false,
+    // `data` is undefined while loading / on error — the same shape the real
+    // hook returns, which is what the `?? []` fallbacks in the dialog exist for.
+    data:
+      mockState.isLoading || mockState.isError
+        ? undefined
+        : { lowMatch: [], lowMatchCount: 0, threshold: 0.2, stackKeywords: [], ...mockQueue },
+    isLoading: mockState.isLoading,
+    isError: mockState.isError,
   }),
   useJobExclusions: () => ({ data: { items: [] }, isLoading: false }),
   useJobSources: () => ({ data: { items: [] }, isLoading: false, isError: false }),
@@ -71,11 +76,18 @@ let mockQueue: Partial<JobSuggestionListDto> & { items: JobSuggestionDto[]; tota
   total: 0,
 }
 
-function renderDialog() {
+let mockState = { isLoading: false, isError: false }
+
+function renderDialog(canViewBudgets = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={queryClient}>
-      <JobSuggestionDialog open onClose={() => {}} seniorId={undefined} />
+      <JobSuggestionDialog
+        open
+        onClose={() => {}}
+        seniorId={undefined}
+        canViewBudgets={canViewBudgets}
+      />
     </QueryClientProvider>,
   )
 }
@@ -83,6 +95,7 @@ function renderDialog() {
 describe('JobSuggestionDialog', () => {
   beforeEach(() => {
     mockQueue = { items: [suggestion()], total: 3 }
+    mockState = { isLoading: false, isError: false }
     mutate.mockClear()
     createExclusion.mockClear()
   })
@@ -459,6 +472,85 @@ describe('JobSuggestionDialog', () => {
 
       await screen.findByTestId('job-suggestion-card')
       expect(screen.queryByTestId('job-low-match-toggle')).toBeNull()
+    })
+  })
+
+  /**
+   * The render branches, one assertion each.
+   *
+   * Raised by the mutation gate: the guards around these sections could be
+   * flipped and the strings blanked with the suite still green. They are all
+   * user-visible states of the same dialog, so none of them is suppressible —
+   * a "loading" screen that also renders the low-match counter, or an empty
+   * state that says the wrong thing, is exactly what a reviewer would catch by
+   * eye and a test should catch first.
+   */
+  describe('states that must not bleed into each other', () => {
+    it('shows no low-match counter and no stack hint WHILE LOADING', async () => {
+      mockQueue = { items: [], total: 0, lowMatch: [], lowMatchCount: 5 }
+      mockState = { isLoading: true, isError: false }
+      renderDialog()
+
+      await screen.findByTestId('job-suggestion-dialog')
+      expect(screen.queryByTestId('job-low-match-toggle')).toBeNull()
+      expect(screen.queryByTestId('job-no-stack-hint')).toBeNull()
+    })
+
+    it('shows no low-match counter and no stack hint ON ERROR', async () => {
+      mockQueue = { items: [], total: 0, lowMatch: [], lowMatchCount: 5 }
+      mockState = { isLoading: false, isError: true }
+      renderDialog()
+
+      await screen.findByTestId('job-suggestion-error')
+      expect(screen.queryByTestId('job-low-match-toggle')).toBeNull()
+      expect(screen.queryByTestId('job-no-stack-hint')).toBeNull()
+    })
+
+    it('survives an undefined payload without throwing', async () => {
+      // The `?? []` fallbacks: on error the hook returns no data at all, and the
+      // dialog still has to render its own error state rather than crash.
+      mockState = { isLoading: false, isError: true }
+      renderDialog()
+      expect(await screen.findByTestId('job-suggestion-error')).toBeInTheDocument()
+    })
+
+    it('the empty state names the reason: nothing at all vs nothing above the threshold', async () => {
+      mockQueue = { items: [], total: 0, lowMatch: [], lowMatchCount: 0 }
+      const { unmount } = renderDialog()
+      const empty = await screen.findByTestId('job-suggestion-empty')
+      expect(empty).toHaveTextContent('Подходящих вакансий нет')
+      expect(empty).toHaveTextContent('Новые появятся после следующего сбора')
+      unmount()
+
+      mockQueue = { items: [], total: 4, lowMatch: [], lowMatchCount: 4 }
+      renderDialog()
+      const collapsed = await screen.findByTestId('job-suggestion-empty')
+      expect(collapsed).toHaveTextContent('Вакансий с высоким совпадением нет')
+      expect(collapsed).toHaveTextContent('Ниже — те, что совпали со стеком слабее')
+    })
+
+    it('explains where the expanded vacancies went, only once expanded', async () => {
+      mockQueue = { items: [suggestion()], total: 2, lowMatch: [], lowMatchCount: 1 }
+      renderDialog()
+
+      const section = await screen.findByTestId('job-low-match')
+      expect(section).not.toHaveTextContent('ничего не потеряно')
+
+      fireEvent.click(screen.getByTestId('job-low-match-toggle'))
+      expect(screen.getByTestId('job-low-match')).toHaveTextContent('ничего не потеряно')
+    })
+
+    it('hides the source budgets from anyone but an ADMIN', async () => {
+      mockQueue = { items: [suggestion()], total: 1 }
+      const { unmount } = renderDialog()
+      await screen.findByTestId('job-suggestion-card')
+      // Default is "not an admin" — the endpoint behind this panel is ADMIN-only,
+      // so asking for it as anyone else buys a guaranteed 403.
+      expect(screen.queryByTestId('job-source-budgets')).toBeNull()
+      unmount()
+
+      renderDialog(true)
+      expect(await screen.findByTestId('job-source-budgets')).toBeInTheDocument()
     })
   })
 

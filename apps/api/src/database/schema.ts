@@ -244,10 +244,15 @@ export const jobSuggestionStatusEnum = pgEnum('job_suggestion_status', [
 export const jobExclusionKindEnum = pgEnum('job_exclusion_kind', ['COMPANY', 'KEYWORD'])
 // task-vacancy-matching §4/§5 — per-source request budgets and how a source may
 // be triggered. Mirrors jobSourceBudgetWindowSchema / jobSourceTriggerModeSchema.
+// Stryker disable next-line StringLiteral,ArrayDeclaration: a Postgres type name and its members — these exist in the DATABASE, so only the integration suite (which the mutation gate does not run) can observe them; the same two members are asserted from both sides in packages/shared/src/schemas/job-sourcing.spec.ts, and the prod DDL declares them in 2026-08-12_job_source_budgets.sql
 export const jobSourceBudgetWindowEnum = pgEnum('job_source_budget_window', ['DAY', 'MONTH'])
+// Stryker disable next-line StringLiteral,ArrayDeclaration: Postgres type name + member list — same reasoning as the window enum above: they live in the DATABASE, so only the integration suite can observe them, and the members are asserted from both sides in packages/shared/src/schemas/job-sourcing.spec.ts
 export const jobSourceTriggerModeEnum = pgEnum('job_source_trigger_mode', [
+  // Stryker disable next-line StringLiteral: member of the Postgres enum above; SCHEDULED is exercised against a real database in job-matching.integration.spec.ts, which the unit-scoped mutation gate does not run
   'SCHEDULED',
+  // Stryker disable next-line StringLiteral: one member of that Postgres enum; MANUAL is exercised against a real database in job-matching.integration.spec.ts (the cron must not touch a manual-only source), which the unit-scoped mutation gate does not run
   'MANUAL',
+  // Stryker disable next-line StringLiteral: member of the Postgres enum above; BOTH is exercised against a real database in job-matching.integration.spec.ts (a source both the cron and a human may collect)
   'BOTH',
 ])
 // task-vacancy-salary-range — matches Google's JobPosting baseSalary.value.unitText
@@ -1822,7 +1827,9 @@ export const jobSources = pgTable(
     // NULL `budget_limit` means "no published limit" (DOU's feed) — and it is
     // the ONLY value that means that. A nonsense number does NOT: see the
     // hostile-input rule in source-budget.ts.
+    // Stryker disable next-line StringLiteral: a COLUMN NAME — it exists in the database, so no unit test can observe it; the prod DDL declares the same identifier in 2026-08-12_job_source_budgets.sql and the integration suite reads through it
     budgetLimit: integer('budget_limit'),
+    // Stryker disable next-line StringLiteral: same — a column name, verified against a real database by the integration suite and by the DDL script, never by a unit test
     budgetWindow: jobSourceBudgetWindowEnum('budget_window'),
     budgetUsed: integer('budget_used').notNull().default(0),
     /** Start of the window `budget_used` is counted in (UTC, calendar-anchored). */
@@ -1833,6 +1840,7 @@ export const jobSources = pgTable(
     // Cheap sources run on the schedule; expensive ones wait for a human. The
     // driver is arithmetic: JSearch's 200/month is ~6/day, useless on a cron but
     // ample when aimed at one senior by hand.
+    // Stryker disable next-line StringLiteral: the column DEFAULT is applied by Postgres on INSERT, so no unit test can see it; the default is pinned in the DDL script and exercised by job-matching.integration.spec.ts, which inserts a source without a trigger mode and expects the scheduled cron to pick it up
     triggerMode: jobSourceTriggerModeEnum('trigger_mode').notNull().default('SCHEDULED'),
 
     createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),

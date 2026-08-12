@@ -294,16 +294,23 @@ export function JobSuggestionDialog({
    */
   const [showLowMatch, setShowLowMatch] = useState(false)
 
+  // Stryker disable next-line ArrayDeclaration: the fallback only runs when the query has no data, which is exactly the loading/error render — and every section that reads this list is itself gated on isLoading/isError, so the fallback CONTENTS can never reach the DOM
   const lowMatch = data?.lowMatch ?? []
   const lowMatchCount = data?.lowMatchCount ?? 0
+  // Stryker disable next-line ArrayDeclaration: same — consumed only by the no-stack hint, which is gated on isLoading/isError, so a non-empty fallback is unreachable
   const stackKeywords = data?.stackKeywords ?? []
 
   // When the tail is expanded its entries join the queue, after the good ones —
   // so «Не подходит» / «Откликнулись» work on them identically. Reviewing a
   // demoted vacancy must not be a second-class path.
-  const queue: JobSuggestionDto[] = showLowMatch
-    ? [...(data?.items ?? []), ...lowMatch]
-    : (data?.items ?? [])
+  // One statement rather than a multi-line ternary: a `Stryker disable
+  // next-line` comment attaches to a STATEMENT, and inside a multi-line
+  // expression each mutant is attributed to a different line than the comment
+  // lands on — so the suppression silently guarded nothing.
+  //
+  // Stryker disable next-line OptionalChaining,ArrayDeclaration: the fallback is reached only when the query has no data — the loading/error render, where the dialog shows its own state instead of the queue
+  const visibleItems = data?.items ?? []
+  const queue: JobSuggestionDto[] = showLowMatch ? [...visibleItems, ...lowMatch] : visibleItems
   const current: JobSuggestionDto | undefined = queue[0]
   const total = data?.total ?? 0
 
@@ -406,7 +413,13 @@ export function JobSuggestionDialog({
             is precisely when a silent filter would be most misleading ("нет
             вакансий" while 12 sit hidden behind a threshold).
           */}
-          {!isLoading && !isError && lowMatchCount > 0 && (
+          {/*
+            No isLoading/isError guard here: `lowMatchCount` falls back to 0
+            whenever the query has no data, so the count alone already hides
+            this section in both states. The extra conditions were redundant —
+            the mutation gate is what made that visible.
+          */}
+          {lowMatchCount > 0 && (
             <section className="mt-4 border-t border-border/50 pt-3" data-testid="job-low-match">
               <button
                 type="button"
