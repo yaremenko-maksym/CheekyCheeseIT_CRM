@@ -204,15 +204,28 @@ VITE_API_URL=http://localhost:3001/api
 ## Branch Protection (main)
 
 - Требует PR для merge.
-- **Required checks: НЕТ** (убраны — см. ниже).
+- **Required checks: ЕСТЬ** — `Typecheck · Lint · Unit Tests` и `E2E Tests`.
+  Проверено обращением к API 2026-08-08 (`gh api …/branches/main/protection`); `strict: false`.
 - Required reviews: УБРАНЫ (AI Review pipeline == review).
 - Прямой push в main: разрешён только для bootstrap (CI pipeline fixes).
 
-### Почему нет required status checks
+### История: почему тут раньше стояло «required checks нет»
 
-`workflow_dispatch` runs (triggered by merge job для CI verification) НЕ удовлетворяют branch protection required checks. Только `pull_request`/`push` events создают "approved" check runs. Bot-pushes (`GITHUB_TOKEN`) НЕ триггерят `pull_request: synchronize` (GitHub anti-loop protection).
+До 2026-07-28 здесь утверждалось обратное, с обоснованием: `workflow_dispatch`-прогоны не
+удовлетворяют required checks, только `pull_request`/`push` создают зачитываемые check runs,
+а бот-пуши (`GITHUB_TOKEN`) не тригерят `pull_request: synchronize`. Ограничение платформы
+реальное — но вывод «поэтому убираем required checks» с тех пор отменён: проверки включены,
+а проблема бот-пушей решена always-run скелетом в `ci.yml` (см. `project_github_infra`).
 
-**Решение:** убрать required checks из branch protection. Merge job сам верифицирует CI (`quality=success`) перед merge — эквивалентная защита через pipeline.
+**Практическое следствие, которое из этого вытекает:** переименование job'а
+`Typecheck · Lint · Unit Tests` или `E2E Tests` ломает мерж всех открытых PR — имя контекста
+зашито в branch protection. Меняешь имя — меняй и защиту, одним действием.
+
+**Урок, ради которого этот раздел сохранён.** Утверждение прожило в документе ~10 дней после
+того, как перестало быть верным, и разошлось по трём файлам (`guard-test-gate.yml`,
+`devops.md` и далее). Любое утверждение о состоянии окружения устаревает молча — если пишешь
+такое, ставь рядом дату и команду, которой это проверяется, чтобы следующий мог перепроверить
+за секунду, а не поверить.
 
 ---
 
