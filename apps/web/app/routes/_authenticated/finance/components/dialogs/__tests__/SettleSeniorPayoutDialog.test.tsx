@@ -36,6 +36,11 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 // (expectedAmount) and the inner AmountCurrencyInput fetch this same
 // endpoint/cache-key, so a single mock covers both call sites.
 const FAKE_RATES = { usdUah: '41.50', usdtUah: '41.50', eurUah: '44.80', date: '20260801' }
+// Toggled by ONE test (rates-unavailable) to prove the amount field falls
+// back to an EMPTY string, never a placeholder, when the NBU rate can't be
+// loaded for a genuine cross-currency conversion. Reset in that test's own
+// cleanup so it never leaks into the rest of the suite.
+let exchangeRateShouldFail = false
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -50,6 +55,7 @@ vi.mock('@/lib/axios', () => ({
         })
       }
       if (url.startsWith('/finance/exchange-rate')) {
+        if (exchangeRateShouldFail) return Promise.reject(new Error('rates unavailable'))
         return Promise.resolve({ data: FAKE_RATES })
       }
       return Promise.resolve({ data: [] })
@@ -74,6 +80,7 @@ vi.mock('../../../api', () => ({
 }))
 
 import { toast } from 'sonner'
+import { api } from '@/lib/axios'
 import { SettleSeniorPayoutDialog } from '../SettleSeniorPayoutDialog'
 
 const TX = {
@@ -388,6 +395,10 @@ describe('SettleSeniorPayoutDialog — HIGH-1 guard: cascade-originated drop obl
 describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-currency)', () => {
   beforeEach(() => {
     settleMock.mockClear()
+    // Two tests below assert on api.get's OWN call history (call count /
+    // which URLs) — must start from a clean slate, not accumulate calls
+    // from earlier describe blocks in this file.
+    vi.mocked(api.get).mockClear()
   })
 
   async function fillReceiptViaUrlTab(url = 'https://drive.google.com/file/uahdrop') {
@@ -516,5 +527,144 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
     expect(payload.fundingSource).toBe('ADMIN_PERSONAL')
     expect(payload.currency).toBe('UAH')
+  })
+
+  // Defensive: every hook in this component (useState/useEffect/useMemo/
+  // useQuery) runs BEFORE the `if (!tx) return null` early return (Rules of
+  // Hooks), so a tx===null render is NOT a no-op at the hook level — it is
+  // the only render where `tx.currency`/`tx.amount`/`tx.id` accessed without
+  // a null-guard would throw. Renders cleanly here; nothing crashes.
+  it('renders nothing and does not throw when tx is null', () => {
+    expect(() => renderDialog(null)).not.toThrow()
+    expect(screen.queryByTestId('settle-senior-dialog')).not.toBeInTheDocument()
+  })
+
+  // AC1 corollary: the exchange-rate query is genuinely GATED on isDropPayout
+  // — a SENIOR settle (which never shows the currency-conversion field) must
+  // not fetch it at all.
+  it('SENIOR settle never fetches /finance/exchange-rate', async () => {
+    renderDialog(TX)
+    await screen.findByTestId('settle-senior-account-company')
+    const rateCalls = vi
+      .mocked(api.get)
+      .mock.calls.filter(([url]) => (url as string).startsWith('/finance/exchange-rate'))
+    expect(rateCalls).toHaveLength(0)
+  })
+
+  // The dialog's own rate query and AmountCurrencyInput's internal one use
+  // the IDENTICAL react-query key (calendar-day scoped) so TanStack Query
+  // dedupes them into ONE network call, not two — pins the cache-sharing
+  // comment above the `useQuery` call.
+  //
+  // DROP_TX (USDT, the default) is NOT a valid probe here: AmountCurrencyInput
+  // gates its OWN internal query on `needsRate` (true only for EUR/UAH/USD),
+  // so for USDT its query is disabled and there is only ever ONE fetch
+  // regardless of whether the two queryKeys actually match — a wrong key on
+  // the dialog's side would go undetected. UAH_DROP_TX via an ADMIN partner
+  // (currency=UAH) makes BOTH queries genuinely active at once, which is the
+  // only way a queryKey mismatch (→ two separate fetches) is observable.
+  it('DROP settle (non-USDT currency) shares ONE /finance/exchange-rate fetch between the dialog and AmountCurrencyInput (not two)', async () => {
+    renderDialog(UAH_DROP_TX)
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    await waitFor(() =>
+      expect(
+        within(screen.getByTestId('settle-senior-amount-field')).getByTestId(
+          'amount-currency-amount-input',
+        ),
+      ).toHaveValue('4150.00'),
+    )
+    const rateCalls = vi
+      .mocked(api.get)
+      .mock.calls.filter(([url]) => (url as string).startsWith('/finance/exchange-rate'))
+    expect(rateCalls).toHaveLength(1)
+  })
+
+  // The mount-sync effect is keyed on `tx?.id` so it re-runs when the SAME
+  // mounted dialog instance is handed a DIFFERENT obligation (the parent
+  // reuses one dialog component across rows) — proven via `rerender`, not a
+  // fresh mount, so an EMPTY dependency array (which would only run once)
+  // is genuinely distinguishable. Leaves «Счёт компании» BEFORE the rerender
+  // (and stays off it) so `effectiveCurrency` reflects the STORED `currency`
+  // state directly — with «Счёт компании» selected it would force USDT
+  // regardless of whether the effect re-ran, masking the very thing under test
+  // (the same pitfall the currency-reset test above works around).
+  it('re-syncs the currency default when the SAME dialog instance receives a DIFFERENT tx (rerender, not remount)', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <SettleSeniorPayoutDialog tx={DROP_TX as never} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('420.00'),
+    )
+
+    rerender(
+      <QueryClientProvider client={qc}>
+        <SettleSeniorPayoutDialog tx={UAH_DROP_TX as never} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    // «Счёт компании» was never re-selected — still ADMIN_PERSONAL, so
+    // `effectiveCurrency` reads the STORED value directly. If the effect
+    // re-ran (unmutated): currency → UAH_DROP_TX's own (UAH) → 4150.00,
+    // unconverted. If it did NOT (mutant `[]`): currency stays the STALE
+    // 'USDT' from the first tx → shows the USDT-CONVERTED figure, 100.00.
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue(
+        '4150.00',
+      ),
+    )
+  })
+
+  // AC1 corollary: picking «Счёт компании» resets the STORED currency choice
+  // back to the obligation's own — not just the DISPLAYED effective one.
+  // Only observable by leaving company again afterwards: `effectiveCurrency`
+  // forces USDT while `isCompany` is true regardless of the stored value, so
+  // the reset is invisible until the NEXT switch away exposes what was
+  // actually stored.
+  it('picking «Счёт компании» resets the stored currency — a later switch back to a partner shows USDT, not a stale earlier pick', async () => {
+    renderDialog(UAH_DROP_TX)
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    // 1) Leave «Счёт компании» — stored currency is UAH (the obligation's own,
+    //    set by the mount-sync effect, untouched by the company-force yet).
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue(
+        '4150.00',
+      ),
+    )
+    // 2) Back to «Счёт компании» — forces USDT (display), and per
+    //    selectAccount must ALSO reset the STORED currency to USDT.
+    fireEvent.click(await screen.findByTestId('settle-senior-account-company'))
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('100.00'),
+    )
+    // 3) Leave again — the SELECT's own displayed text (not the amount:
+    //    convertAmount's target='' fallback coincidentally still resolves to
+    //    the SAME numeric figure as 'USDT', so the amount alone cannot tell
+    //    a reset from a no-op here) is the only thing that actually exposes
+    //    the STORED value: it must read literally "USDT" (the reset having
+    //    happened in step 2), not blank/unmatched (a stale or cleared value).
+    fireEvent.click(await screen.findByTestId('settle-senior-account-admin-kostya-id'))
+    await waitFor(() => expect(within(amountField).getByRole('combobox')).toHaveTextContent('USDT'))
+  })
+
+  // AC2 corollary: when the rate genuinely cannot be loaded for a real
+  // conversion, the field shows NOTHING (empty), never a placeholder string.
+  it('shows an empty amount (not a placeholder) when the NBU rate cannot be loaded for a real cross-currency conversion', async () => {
+    exchangeRateShouldFail = true
+    try {
+      renderDialog(UAH_DROP_TX)
+      const amountField = await screen.findByTestId('settle-senior-amount-field')
+      // Default «Счёт компании» forces USDT against a UAH obligation — a
+      // GENUINE conversion that needs the (failing) rate.
+      await waitFor(() =>
+        expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue(''),
+      )
+    } finally {
+      exchangeRateShouldFail = false
+    }
   })
 })

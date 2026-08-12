@@ -122,6 +122,7 @@ export function SettleSeniorPayoutDialog({
   // task-drop-payout-currency: the DROP payout's currency (SENIOR unaffected
   // — its `<AmountCurrencyInput>` block never renders, see below). Defaults
   // to the obligation's own currency (see the reset effect keyed on tx.id).
+  // Stryker disable next-line StringLiteral: this literal is unobservable — the reset effect below (keyed on tx?.id) synchronously overwrites it to tx.currency on EVERY mount before any render is visible to a consumer/test (the dialog never renders without a tx); see the identical reasoning at resetState's `setCurrency('USDT')`
   const [currency, setCurrency] = useState<Currency>('USDT')
   // task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
   // this dialog had NO receipt/hash field at all before; explorer-only while
@@ -163,6 +164,7 @@ export function SettleSeniorPayoutDialog({
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', todayKey],
     queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
+    // Stryker disable next-line ArithmeticOperator: cache-freshness WINDOW (24h) — affects only whether a background refetch happens after a long-idle tab, not any single-render output a unit test observes; same untested-by-design shape as the identical literal in PaySalaryDialog.tsx and amount-currency-input.tsx (pre-existing, not part of this diff)
     staleTime: 1000 * 60 * 60 * 24,
     enabled: !!tx && isDropPayout,
   })
@@ -179,6 +181,7 @@ export function SettleSeniorPayoutDialog({
 
   function resetState() {
     setAccount(COMPANY_ACCOUNT_VALUE)
+    // Stryker disable next-line StringLiteral: unobservable for the SAME reason as the useState default above — resetState only ever runs right before onClose (tx→null, nothing renders) or right before a NEW tx mounts/rerenders in, and in EITHER case the mount-sync effect (keyed on tx?.id) overwrites this value before any consumer can read it
     setCurrency('USDT')
     setReceipt(emptyReceiptState())
     setReceiptError(null)

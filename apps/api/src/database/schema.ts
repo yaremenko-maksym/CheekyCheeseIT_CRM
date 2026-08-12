@@ -626,8 +626,17 @@ export const transactions = pgTable(
     // currency always stored; USDT for crypto flows, USD for salary/expenses
     currency: currencyEnum().notNull().default('USDT'),
     /**
-     * task-salary-pay-amount — OBLIGATION snapshot, written ONCE by `paySalary`
-     * at the PENDING→PAID flip. All three are NULL on every other row.
+     * task-salary-pay-amount — OBLIGATION snapshot, written by `paySalary` at
+     * the PENDING→PAID flip. task-drop-payout-currency (2026-08) extends the
+     * SAME triple to `PendingSettlementService.settleByCompany`'s DROP-only
+     * branch (settling a DROP_PENDING_PAYOUT obligation in a non-obligation
+     * currency) — byte-for-byte the same three columns, same
+     * `isStorableExchangeRate` guard, only the amount is SERVER-computed via
+     * `convertToBase` rather than client-supplied (the settle dialog's amount
+     * field is fully disabled — there is no client fact to record, only a
+     * conversion). A SENIOR settle does NOT write these — unaffected by this
+     * task, unchanged pre-existing behaviour. All three are NULL on every
+     * other row (including a SENIOR settle).
      *
      * WHY THIS EXISTS. A salary is created as a PENDING reminder denominated in
      * the obligation's own currency («800 USD»). It is settled later, possibly
@@ -644,9 +653,13 @@ export const transactions = pgTable(
      *   exchange_rate     — the EFFECTIVE applied rate, `paid / original`
      *                       (units of the paid currency per 1 unit of the
      *                       original). Computed SERVER-SIDE from the two
-     *                       amounts, never accepted from the client: the payer
-     *                       settles at their own bank's rate, which is by
-     *                       definition whatever those two amounts imply, so a
+     *                       amounts, never accepted from the client — for
+     *                       paySalary the payer settles at their own bank's
+     *                       rate, which is by definition whatever those two
+     *                       amounts imply; for settleByCompany's DROP branch
+     *                       there is no external fact at all (the amount
+     *                       field is disabled), so the server derives BOTH
+     *                       amounts via the NBU rate. Either way a
      *                       client-supplied rate would add nothing but a
      *                       spoofable field. A SNAPSHOT of what was applied at
      *                       pay time (like `senior_share_percent`) — a later

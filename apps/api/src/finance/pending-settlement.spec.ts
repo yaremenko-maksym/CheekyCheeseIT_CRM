@@ -460,6 +460,16 @@ describe('PendingSettlementService.settleByCompany', () => {
     expect(flips[0]?.['fundingSource']).toBe('COMPANY_ACCOUNT')
     // payoutRequestId is reset on the flip (ADR — avoid payout-aggregation bleed).
     expect(flips[0]?.['payoutRequestId']).toBeNull()
+    // task-drop-payout-currency: a SENIOR settle NEVER enters the DROP-only
+    // amount-conversion block — the flip patch must carry none of its keys at
+    // all (not even as `undefined`-valued — the block's whole
+    // `...(isDropObligation ? {...} : {})` spread must contribute nothing).
+    expect('originalAmount' in flips[0]!).toBe(false)
+    expect('originalCurrency' in flips[0]!).toBe(false)
+    expect('exchangeRate' in flips[0]!).toBe(false)
+    // The pre-existing `amount` column is left completely untouched too —
+    // same invariant, the mirror of the DROP-side assertion elsewhere.
+    expect('amount' in flips[0]!).toBe(false)
     // MONEY-CRITICAL: the share snapshot is nulled so getSeniorBalance treats the
     // flipped SENIOR_INCOME amount as NET (already the share), not GROSS. Keeping
     // seniorSharePercent=26 would under-count the senior by ~26× (NET × 26%).

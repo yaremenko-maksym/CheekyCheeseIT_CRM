@@ -1579,7 +1579,7 @@ export async function dismissDialog(page: Page) {
  * call-site. Defaults to the standard dev/CI port — existing specs are
  * unaffected.
  */
-const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'
+export const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'
 
 /**
  * Seed ADMIN email used by the dev seed. Hardcoded here to keep the

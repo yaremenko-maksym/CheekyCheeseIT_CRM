@@ -274,7 +274,7 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
 
   it('AC3/AC4: UAH settle — amount matches an independently-computed convertToBase prediction to the penny', async () => {
     const { svc, settledTx, state } = makeService()
-    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+    const result = await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
       fundingSource: 'ADMIN_PERSONAL',
       payerAdminId: ADMIN_PAYER_ID,
       currency: 'UAH',
@@ -290,6 +290,16 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
     expect(row['originalCurrency']).toBe('USDT')
     expect(row['currency']).toBe('UAH')
     expect(parseFloat(row['exchangeRate'] as string)).toBeCloseTo(41.5, 6)
+
+    // task-drop-payout-currency (mutation-gate): the RESPONSE DTO
+    // (`toTransactionDto`) must surface the same snapshot too — a reader of
+    // the settle response (not just the raw DB row) needs to see it.
+    const created = result.created[0]
+    expect(created).toBeTruthy()
+    expect(parseFloat(created!.originalAmount!)).toBeCloseTo(1000, 6)
+    expect(created!.originalCurrency).toBe('USDT')
+    expect(created!.exchangeRate).not.toBeNull()
+    expect(parseFloat(created!.exchangeRate!)).toBeCloseTo(41.5, 6)
   })
 
   it('AC3: EUR settle — amount matches convertToBase triangulation exactly', async () => {
@@ -400,6 +410,30 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
     const row = settledTx()
     expect(row['exchangeRate']).toBeNull()
     expect(row['amount']).not.toBeNull()
+  })
+
+  // mutation-gate: a NEGATIVE obligation.amount (unreachable in practice —
+  // Zod's `.positive()` rejects it at creation — but the guard exists
+  // defensively) is the ONLY value that actually distinguishes
+  // `Number.isFinite(x) && x > 0` from a version that skips the check
+  // (`true`) or loosens it (`x >= 0`, `||`): at exactly 0 the ratio collapses
+  // to 0/0=NaN under EVERY reading (still NULL either way — see the
+  // Stryker-disable comment on `> 0` in the source), but at a genuine
+  // negative value `paidAmount/obligationAmount` is a real, POSITIVE,
+  // storable number (two negatives), which the guard must still refuse.
+  it('AC6 (defense-in-depth): a corrupted NEGATIVE obligation.amount still yields NULL exchangeRate, never a computed number', async () => {
+    const { svc, settledTx } = makeService({ obligation: makeObligation({ amount: '-100' }) })
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'UAH',
+      ...RECEIPT_FILE,
+    })
+    const row = settledTx()
+    // Sanity: the ratio WOULD be a real, storable 41.5 if the guard were
+    // bypassed (-4150 / -100 = 41.5) — proving this is a genuine behavioural
+    // fork, not a vacuous check.
+    expect(row['exchangeRate']).toBeNull()
   })
 
   it('sanity: isStorableExchangeRate boundary matches what settleByCompany relies on', () => {

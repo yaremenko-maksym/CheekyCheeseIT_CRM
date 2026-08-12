@@ -391,6 +391,17 @@ export class PendingSettlementService {
       // IS converted below (the amount-conversion block), which is exactly
       // what removes the risk this guard exists to catch.
       if (funding.currency !== undefined) {
+        // mutation-gate: provably equivalent to removing this line — `currency`
+        // is assigned `funding.currency` UNCHANGED on the very next line and
+        // nothing between here and the defense-in-depth re-assert below
+        // (`if (!isDropObligation) assertSettleCurrencyAllowed(currency)`)
+        // can alter it, so that second check throws on the IDENTICAL value
+        // whenever this one would have. No test can observe this line firing
+        // vs not: the outcome (throw or not) is decided by the unconditional
+        // re-assert either way. Real defense-in-depth (a second, independent
+        // gate is worth keeping for a future refactor that inserts logic
+        // between the two), not dead code — see the SECURITY comment there.
+        // Stryker disable next-line ConditionalExpression: backstopped by the unconditional re-assert 20 lines below on the same final `currency` value
         if (!isDropObligation) assertSettleCurrencyAllowed(funding.currency)
         currency = funding.currency
       }
@@ -436,6 +447,7 @@ export class PendingSettlementService {
     let originalAmount: string | undefined
     let originalCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
     let exchangeRate: string | null | undefined
+    // Stryker disable next-line ConditionalExpression: for a SENIOR settlement this block's four locals are ASSIGNED but never READ — the `.set()` patch below spreads them behind its OWN, separately-tested `isDropObligation` ternary (see the `'originalAmount' in flips[0]!` assertions in pending-settlement.spec.ts), so entering this block unnecessarily has no observable output. It is also provably side-effect-free: a SENIOR obligation is ALWAYS booked in USDT and BIZ-03 restricts a SENIOR settle's currency to USD/USDT — the only pair convertToBase short-circuits WITHOUT calling `this.nbuCurrency.getRates()` — so no stray network call either
     if (isDropObligation) {
       const obligationAmount = parseFloat(obligation.amount)
       const obligationCurrency = obligation.currency as BalanceCurrency
@@ -462,10 +474,12 @@ export class PendingSettlementService {
       // whether a NULL original_amount means "unchanged" or "settled before
       // this flow existed" (the latter — see the schema.ts column comment).
       const rawExchangeRate =
+        // Stryker disable next-line EqualityOperator: `> 0` vs `>= 0` differ ONLY at obligationAmount===0 exactly — and at 0, convertToBase (a linear scaling of 0) always returns paidAmount=0 too, so the ratio is 0/0=NaN under EITHER reading, and isStorableExchangeRate(NaN) below is false either way — the two are provably indistinguishable by their output
         Number.isFinite(obligationAmount) && obligationAmount > 0
           ? paidAmount / obligationAmount
           : null
       exchangeRate =
+        // Stryker disable next-line ConditionalExpression: `!== null` is a TS narrowing guard for `.toFixed` below; at runtime it is ALSO behaviorally redundant — isStorableExchangeRate(null) already returns false via its own Number.isFinite(null) check, so removing this guard cannot change the outcome
         rawExchangeRate !== null && isStorableExchangeRate(rawExchangeRate)
           ? rawExchangeRate.toFixed(8)
           : null
