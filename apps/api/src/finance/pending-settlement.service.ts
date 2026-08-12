@@ -68,6 +68,9 @@ import {
   lockCompanyAccount,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
+import { NbuCurrencyService } from './nbu-currency.service'
+import { convertToBase, type BalanceCurrency } from './balance.service'
+import { isStorableExchangeRate } from './exchange-rate.util'
 
 /**
  * task-senior-settle-owner: the pay-time funding selection for a senior IOU
@@ -78,13 +81,20 @@ import { assertReceiptDocumentBindable } from './receipt.util'
  *   - ADMIN_PERSONAL  → payerAdminId (validated ADMIN) is the sender; the
  *     company account is untouched.
  *
- * task-remove-settle-currency (2026-07): `currency` is now OPTIONAL — the
- * settle dialog no longer lets the caller pick one (every senior/drop
- * obligation is denominated in USDT; see transactions.service.ts createIous).
- * When omitted, `settleByCompany` defaults it to `obligation.currency`
- * (always USDT in practice). It stays on the type (not removed) so a
- * defensive/legacy caller that still passes an explicit currency keeps
- * working — the BIZ-03 guard below still validates it when present.
+ * task-remove-settle-currency (2026-07): `currency` is OPTIONAL — a SENIOR
+ * settle still never sends one (every senior obligation is denominated in
+ * USDT; see transactions.service.ts createIous). When omitted,
+ * `settleByCompany` defaults it to `obligation.currency` (always USDT in
+ * practice). It stays on the type (not removed) so a defensive/legacy caller
+ * that still passes an explicit currency keeps working — the BIZ-03 guard
+ * below still validates it when present.
+ *
+ * task-drop-payout-currency (2026-08): a DROP settle DOES now send `currency`
+ * explicitly — the owner-facing dialog lets the recipient's payout be paid in
+ * any of the four currencies. See the amount-conversion block in
+ * `settleByCompany` for how the actual paid figure is derived (never trusted
+ * from the client — there is nothing to trust, the dialog's amount field is
+ * fully disabled).
  */
 export type SettleFunding = {
   fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
@@ -97,13 +107,29 @@ export type SettleFunding = {
 }
 
 /**
- * BIZ-03 (HIGH) — canonical whitelist of currencies a senior/drop IOU may be
+ * BIZ-03 (HIGH) — canonical whitelist of currencies a SENIOR IOU may be
  * settled in. Every IOU is booked in USDT (see `bookCompanyObligations` /
  * `createIous` in transactions.service.ts); the downstream balance readers
  * (getSeniorBalance / getTotalEarned / getSummary) convert the RESOLVED
  * currency LABEL via `convertToBase`, which is only value-preserving for
  * USD/USDT (1:1 short-circuit) — UAH/EUR triangulate through NBU rates and
- * would silently UNDER-count the payout by ~40×.
+ * would silently UNDER-count the payout by ~40× IF the row's `amount` were
+ * merely relabeled rather than actually converted (which is exactly what this
+ * function existed to prevent — see the two call sites below).
+ *
+ * task-drop-payout-currency (2026-08): a DROP settle is EXEMPT from this
+ * whitelist (both call sites below skip it when `isDropObligation`). That is
+ * safe, not a relaxation of the underlying rule: the exemption only applies
+ * together with the amount-conversion block in `settleByCompany`, which
+ * writes the row's `amount` as the ACTUAL converted figure (via the same
+ * `convertToBase` downstream readers use) rather than a relabeled one — the
+ * exact precondition BIZ-03's own root-cause note says would make UAH/EUR
+ * safe ("if multi-currency settlement is ever needed the amount must be
+ * converted to USDT before recording" — now it is). `computeDropAggregate`
+ * (the drop-side balance reader) was ALREADY currency-aware before this task,
+ * so once the amount is real, its conversion is correct for any of the four
+ * currencies. SENIOR settlements keep the exact pre-existing restriction —
+ * this task never touches the salary/senior flow.
  *
  * SINGLE SOURCE OF TRUTH — reused by BOTH the explicit-currency
  * re-validation (an `ADMIN_PERSONAL` caller that still supplies `currency`)
@@ -129,6 +155,10 @@ export class PendingSettlementService {
     private readonly db: DatabaseService,
     @Inject(forwardRef(() => InvoicesService))
     private readonly invoicesService: InvoicesService,
+    // task-drop-payout-currency: NBU rates for converting a DROP obligation's
+    // USDT-booked amount into whichever currency the payout is settled in.
+    // SENIOR settlements never reach the branch that uses this.
+    private readonly nbuCurrency: NbuCurrencyService,
   ) {}
 
   // ── Read endpoints ────────────────────────────────────────────────────────
@@ -343,22 +373,25 @@ export class PendingSettlementService {
       }
       senderId = payer.id
       senderLabel = payer.displayName
-      // BIZ-03 (HIGH), kept as a safety net (task-remove-settle-currency): the
-      // frontend no longer sends a currency, so `funding.currency` is normally
-      // undefined here and `currency` stays `obligation.currency` (USDT) from
-      // the declaration above. IF a caller still supplies one explicitly
-      // (legacy/defensive), re-validate it — the SENIOR_INCOME row carries the
-      // chosen currency, and downstream (getSeniorBalance / getTotalEarned /
-      // summary) converts it via convertToBase using the currency LABEL — not a
-      // fixed USDT amount. So:
-      //   • USD/USDT → convertToBase short-circuits 1:1 → correct $-amount ✅
-      //   • UAH      → convertToBase divides by usdUah (~40) → ~40× undercount ✗
-      //   • EUR      → further triangulation → similar distortion ✗
-      // Allow only USD and USDT (equivalent to the USDT obligation value 1:1).
-      // UAH/EUR are rejected with a clear message; if multi-currency settlement
-      // is ever needed the amount must be converted to USDT before recording.
+      // BIZ-03 (HIGH), kept as a safety net for a SENIOR settlement
+      // (task-remove-settle-currency): a senior settle dialog never sends a
+      // currency, so `funding.currency` is normally undefined here and
+      // `currency` stays `obligation.currency` (USDT) from the declaration
+      // above. IF a caller still supplies one explicitly (legacy/defensive),
+      // re-validate it — the SENIOR_INCOME row carries the chosen currency,
+      // and downstream (getSeniorBalance / getTotalEarned / summary) converts
+      // it via convertToBase using the currency LABEL. That reader trusts the
+      // row's `amount` to already BE in that currency — true for USD/USDT
+      // (1:1) but, for a SENIOR settle, this branch has never actually
+      // converted the figure (a pure relabel), so UAH/EUR would silently
+      // misrepresent the payout.
+      //
+      // task-drop-payout-currency: a DROP settle is exempt — see the
+      // extended comment on `assertSettleCurrencyAllowed` above. Its `amount`
+      // IS converted below (the amount-conversion block), which is exactly
+      // what removes the risk this guard exists to catch.
       if (funding.currency !== undefined) {
-        assertSettleCurrencyAllowed(funding.currency)
+        if (!isDropObligation) assertSettleCurrencyAllowed(funding.currency)
         currency = funding.currency
       }
     } else if (debitsCompanyAccount) {
@@ -372,17 +405,71 @@ export class PendingSettlementService {
     // its DEFAULT (`obligation.currency`, declared above and always USDT in
     // practice — see the module-level obligation-creation code) WITHOUT ever
     // going through the explicit-currency re-validation, because
-    // task-remove-settle-currency made `funding.currency` optional and the
-    // settle dialog no longer sends one. That default path currently relies
-    // entirely on the invariant "every pending_obligations row is USDT" — this
-    // re-asserts the SAME whitelist against the FULLY-RESOLVED currency so a
-    // corrupted/legacy obligation currency can never silently bypass BIZ-03.
-    // Covers BOTH funding sources (COMPANY_ACCOUNT is forced to USDT just
-    // above — trivially passes) and BOTH source-IOU types: this code path is
-    // shared by SENIOR_PENDING_PAYOUT and DROP_PENDING_PAYOUT settlements
-    // (`isDropObligation` only changes the flipped row's TYPE below, not the
-    // currency resolution above).
-    assertSettleCurrencyAllowed(currency)
+    // task-remove-settle-currency made `funding.currency` optional and a
+    // senior settle dialog never sends one. That default path currently
+    // relies entirely on the invariant "every pending_obligations row is
+    // USDT" — this re-asserts the SAME whitelist against the FULLY-RESOLVED
+    // currency so a corrupted/legacy obligation currency can never silently
+    // bypass BIZ-03. Covers BOTH funding sources (COMPANY_ACCOUNT is forced to
+    // USDT just above — trivially passes). Skipped for a DROP obligation —
+    // see the extended comment on `assertSettleCurrencyAllowed`.
+    if (!isDropObligation) assertSettleCurrencyAllowed(currency)
+
+    // ── task-drop-payout-currency: the FACT of the payment vs the OBLIGATION ──
+    //
+    // A DROP obligation is always booked in USDT (see `bookCompanyObligations`
+    // in transactions.service.ts). The owner-facing dialog lets the payout be
+    // settled in any of the four currencies, but its amount field is fully
+    // DISABLED — there is no client-typed figure to trust or distrust, only a
+    // conversion to perform. `paidAmount` is therefore computed HERE, from the
+    // NBU rate, mirroring `TransactionsService.paySalary`'s original/exchange
+    // -rate bookkeeping byte-for-byte (same three columns, same
+    // `isStorableExchangeRate` guard) — but with the amount SERVER-derived
+    // instead of client-supplied, because (unlike a salary payer settling at
+    // their own bank's rate) there is no external fact to record: the payout
+    // amount IS the conversion.
+    //
+    // A SENIOR settlement never enters this block — `paidAmount` stays
+    // `undefined` and the flipped row's `amount` column is left untouched,
+    // byte-for-byte the pre-existing behaviour.
+    let paidAmount: number | undefined
+    let originalAmount: string | undefined
+    let originalCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
+    let exchangeRate: string | null | undefined
+    if (isDropObligation) {
+      const obligationAmount = parseFloat(obligation.amount)
+      const obligationCurrency = obligation.currency as BalanceCurrency
+      const targetCurrency = currency as BalanceCurrency
+      // Skip the NBU round-trip entirely when there is nothing to convert
+      // (the default — and by far the most common — case: paid in the
+      // obligation's own currency). `convertToBase` would short-circuit to
+      // the same value anyway; this just avoids the network call.
+      paidAmount =
+        targetCurrency === obligationCurrency
+          ? obligationAmount
+          : convertToBase(
+              obligationAmount,
+              obligationCurrency,
+              targetCurrency,
+              await this.nbuCurrency.getRates(),
+            )
+      originalAmount = obligation.amount
+      originalCurrency = obligationCurrency
+      // Effective applied rate = paid / original (units of the paid currency
+      // per 1 unit of the obligation) — same formula, same NULL-on-
+      // unrepresentable fallback as paySalary. Stamped on EVERY drop settle
+      // (not only when the currency changed), so a reader never has to guess
+      // whether a NULL original_amount means "unchanged" or "settled before
+      // this flow existed" (the latter — see the schema.ts column comment).
+      const rawExchangeRate =
+        Number.isFinite(obligationAmount) && obligationAmount > 0
+          ? paidAmount / obligationAmount
+          : null
+      exchangeRate =
+        rawExchangeRate !== null && isStorableExchangeRate(rawExchangeRate)
+          ? rawExchangeRate.toFixed(8)
+          : null
+    }
 
     // task-receipts-backend (#10): a settle from the user-facing dialog supplies
     // `funding` carrying a MANDATORY receipt. Re-validate on the service against
@@ -478,6 +565,20 @@ export class PendingSettlementService {
           // (COMPANY_ACCOUNT → USDT; ADMIN_PERSONAL → chosen; legacy default →
           // obligation currency). The IOU was booked USDT; this may re-stamp it.
           currency,
+          // task-drop-payout-currency: the FACT of the drop payout (converted
+          // server-side above) plus the OBLIGATION snapshot it settled —
+          // stamped on EVERY drop settle, mirroring paySalary's paidSet
+          // byte-for-byte. Empty object for a SENIOR settle (`paidAmount` stays
+          // `undefined`) — `amount` is left completely untouched, exactly the
+          // pre-existing behaviour.
+          ...(isDropObligation
+            ? {
+                amount: String(paidAmount),
+                originalAmount,
+                originalCurrency,
+                exchangeRate,
+              }
+            : {}),
           // ADMIN_PERSONAL → the paying partner is the sender; COMPANY_ACCOUNT /
           // legacy → no personal sender, label 'COMPANY' (the IOU's booked label).
           senderId,
@@ -795,6 +896,12 @@ export class PendingSettlementService {
       status: row.status,
       amount: row.amount,
       currency: row.currency,
+      // task-drop-payout-currency: surfaces the obligation snapshot a DROP
+      // settle stamps (see the amount-conversion block in settleByCompany).
+      // `null` for every other row — mirrors mapTx in transactions.service.ts.
+      originalAmount: row.originalAmount ?? null,
+      originalCurrency: row.originalCurrency ?? null,
+      exchangeRate: row.exchangeRate ?? null,
       senderId: row.senderId ?? null,
       senderLabel: row.senderLabel ?? null,
       senderName: null,

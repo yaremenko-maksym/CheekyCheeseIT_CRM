@@ -134,7 +134,7 @@ function makeSettlementService(overrides: Record<string, unknown> = {}) {
     autoCreateForSalary: vi.fn().mockResolvedValue(undefined),
   } as unknown as InvoicesService
 
-  const svc = new PendingSettlementService(db, stubInvoices as InvoicesService)
+  const svc = new PendingSettlementService(db, stubInvoices as InvoicesService, fakeNbu)
   return { svc, db }
 }
 

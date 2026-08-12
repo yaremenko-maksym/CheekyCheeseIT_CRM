@@ -19,6 +19,7 @@ import type { SessionUser } from '@crm/shared'
 import { pendingObligations, transactions } from '../database/schema'
 import { PendingSettlementService } from './pending-settlement.service'
 import type { InvoicesService } from '../invoices/invoices.service'
+import type { NbuCurrencyService } from './nbu-currency.service'
 
 // ── Fixtures ────────────────────────────────────────────────────────────────
 
@@ -415,7 +416,14 @@ function makeService(initial: Partial<MockState> = {}) {
     }),
   } as unknown as InvoicesService
 
-  const svc = new PendingSettlementService(dbStub as never, invoicesMock)
+  // task-drop-payout-currency: PendingSettlementService now takes an
+  // NbuCurrencyService. Every obligation in this file settles via a
+  // SENIOR_PENDING_PAYOUT source row (isDropObligation stays false — see
+  // makeSourceTx's default `type`), so `getRates` is never reached — DROP's
+  // currency-conversion coverage lives in pending-settlement.drop-currency.spec.ts.
+  const nbuMock = { getRates: vi.fn() } as unknown as NbuCurrencyService
+
+  const svc = new PendingSettlementService(dbStub as never, invoicesMock, nbuMock)
   return {
     svc,
     state,

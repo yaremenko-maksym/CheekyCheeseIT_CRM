@@ -98,6 +98,16 @@ const stubInvoices = {
   autoCreateForSeniorPayout: () => Promise.resolve(),
 } as never
 
+// task-drop-payout-currency: PendingSettlementService now takes an
+// NbuCurrencyService for converting a DROP obligation into a non-obligation
+// currency. Every DROP case in this spec settles in the obligation's own
+// currency (USDT) — see the "omitted-currency defaulting" test below — which
+// short-circuits before `getRates` is ever called, so a fixed stub is enough.
+const fakeNbu = {
+  getRates: () =>
+    Promise.resolve({ usdUah: '41.50', usdtUah: '41.50', eurUah: '44.80', date: '20260703' }),
+} as never
+
 let _pool: Pool | null = null
 let dbAvailable = true
 
@@ -136,7 +146,7 @@ class TestDatabaseModule {}
   providers: [
     {
       provide: PendingSettlementService,
-      useFactory: (db: DatabaseService) => new PendingSettlementService(db, stubInvoices),
+      useFactory: (db: DatabaseService) => new PendingSettlementService(db, stubInvoices, fakeNbu),
       inject: [DatabaseService],
     },
   ],
