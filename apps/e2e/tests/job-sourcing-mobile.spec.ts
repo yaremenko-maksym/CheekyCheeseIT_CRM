@@ -69,6 +69,12 @@ const SUGGESTION = {
   statusChangedByName: null,
   createdAt: '2026-08-07T09:00:00.000Z',
   posting: POSTING,
+  // task-vacancy-matching: the queue is ranked, so a suggestion now carries its
+  // score. `null` = the senior has no stack on file, which is the unranked
+  // fallback and keeps THIS spec about the popup-gesture ordering rather than
+  // about ranking (covered by job-matching.integration.spec.ts + the unit tests).
+  matchScore: null,
+  matchedKeywords: [],
 }
 
 type OpenCall = {
@@ -130,7 +136,17 @@ async function mockJobSourcing(page: Page, items: unknown[] = [SUGGESTION]) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ items, total: items.length }),
+      // The response shape is `.parse()`d client-side, so the mock has to carry
+      // the ranking envelope too — an out-of-date mock fails the schema and the
+      // dialog renders its error state instead of the vacancy.
+      body: JSON.stringify({
+        items,
+        total: items.length,
+        lowMatch: [],
+        lowMatchCount: 0,
+        threshold: 0.2,
+        stackKeywords: [],
+      }),
     }),
   )
   await page.route('**/api/job-sourcing/exclusions**', (route) => {
@@ -426,4 +442,73 @@ test.describe('Job sourcing modal — responsive widths (AC7)', () => {
     expect(calls).toHaveLength(1)
     expect(calls[0]?.inGesture).toBe(true)
   })
+})
+
+/**
+ * task-vacancy-matching AC3 + AC8 — the collapsed low-match tail must be
+ * REACHABLE on every device class, not just wide enough to exist on a desktop.
+ *
+ * This is the device half of "скрытая вакансия — это нерассмотренная вакансия":
+ * a counter that is rendered but unreachable on a phone hides the vacancy just
+ * as effectively as deleting it would.
+ */
+test.describe('Low-match tail across device classes (AC3 + AC8)', () => {
+  /** One strong match on top, one demoted below the threshold. */
+  const WEAK = {
+    ...SUGGESTION,
+    id: '55555555-5555-4555-8555-555555555555',
+    matchScore: 0.05,
+    matchedKeywords: [],
+    posting: {
+      ...POSTING,
+      id: '66666666-6666-4666-8666-666666666666',
+      title: 'Middle PHP Developer',
+    },
+  }
+  const RANKED = { ...SUGGESTION, matchScore: 1, matchedKeywords: ['react', 'typescript'] }
+
+  test.beforeEach(async ({ page }) => {
+    await instrumentWindowOpen(page)
+    await mockAuthAs(page, USERS.senior)
+    await page.route('**/api/job-sourcing/suggestions**', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          items: [RANKED],
+          total: 2,
+          lowMatch: [WEAK],
+          lowMatchCount: 1,
+          threshold: 0.2,
+          stackKeywords: ['react', 'typescript'],
+        }),
+      }),
+    )
+    await page.route('**/api/job-sourcing/exclusions**', (route) =>
+      route.fulfill({ status: 200, contentType: 'application/json', body: '{"items":[]}' }),
+    )
+  })
+
+  for (const width of [320, 768, 1024, 1440]) {
+    test(`the collapsed vacancy can be revealed at ${width}px`, async ({ page }) => {
+      await page.setViewportSize({ width, height: 900 })
+      await openDialog(page)
+
+      // The score is explained, not just applied.
+      await expect(page.getByTestId('job-match-summary')).toContainText('100%')
+
+      const toggle = page.getByTestId('job-low-match-toggle')
+      await expect(toggle).toBeVisible()
+      await expect(page.getByTestId('job-low-match-count')).toHaveText('Ещё 1 с низким совпадением')
+      await expect(toggle).toHaveAttribute('aria-expanded', 'false')
+
+      await toggle.click()
+
+      await expect(toggle).toHaveAttribute('aria-expanded', 'true')
+      // Reachable AND actionable: the demoted vacancy joins the queue rather
+      // than merely being counted.
+      await expect(page.getByTestId('job-suggestion-title')).toHaveText('Senior Frontend Engineer')
+      await expectDialogFitsViewport(page)
+    })
+  }
 })

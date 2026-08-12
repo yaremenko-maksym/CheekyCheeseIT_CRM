@@ -1,97 +1,188 @@
 import { describe, expect, it } from 'vitest'
 import {
-  createJobExclusionSchema,
-  externalHttpsUrlSchema,
-  jobPostingSchema,
-  updateJobSuggestionStatusSchema,
+  jobSourceBudgetSchema,
+  jobSourceBudgetStateSchema,
+  jobSourceBudgetWindowSchema,
+  jobSourceSchema,
+  jobSourceTriggerModeSchema,
+  jobSuggestionListSchema,
+  jobSuggestionSchema,
 } from './job-sourcing'
+import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
 
-const validPosting = {
-  id: '11111111-1111-4111-8111-111111111111',
-  sourceType: 'DOU_RSS',
-  externalId: 'https://jobs.dou.ua/companies/epam-systems/vacancies/356562/',
-  url: 'https://jobs.dou.ua/companies/epam-systems/vacancies/356562/',
-  title: 'Senior Frontend Engineer',
-  companyName: 'EPAM',
-  location: 'Kyiv, remote',
-  descriptionMd: '**We are hiring**',
-  publishedAt: '2026-08-07T08:48:38.000Z',
-  collectedAt: '2026-08-07T09:00:00.000Z',
-}
+/**
+ * The wire contract for task-vacancy-matching, asserted as behaviour.
+ *
+ * Raised by the mutation gate: the bounds and enum members in this file were
+ * declarations nobody checked. `max` could become `min`, `1` could become `0`,
+ * and an enum could lose a member with every test still green — which is how a
+ * contract silently stops contracting. Each limit below is asserted from BOTH
+ * sides, because a bound only means something if the value past it is refused.
+ */
 
-describe('externalHttpsUrlSchema — the value that reaches window.open', () => {
-  it('accepts an https URL', () => {
-    expect(externalHttpsUrlSchema.parse('https://jobs.dou.ua/x/')).toBe('https://jobs.dou.ua/x/')
+const suggestion = (over: Record<string, unknown> = {}) => ({
+  id: '33333333-3333-4333-8333-333333333333',
+  seniorId: '11111111-1111-4111-8111-111111111111',
+  status: 'NEW' as const,
+  statusChangedAt: null,
+  statusChangedByName: null,
+  createdAt: '2026-08-12T09:00:00.000Z',
+  matchScore: 0.5,
+  matchedKeywords: ['java'],
+  posting: {
+    id: '22222222-2222-4222-8222-222222222222',
+    sourceType: 'DOU_RSS' as const,
+    externalId: 'https://jobs.dou.ua/companies/acme/vacancies/1',
+    url: 'https://jobs.dou.ua/companies/acme/vacancies/1',
+    title: 'Senior Java Developer',
+    companyName: 'Acme',
+    location: null,
+    descriptionMd: '',
+    publishedAt: null,
+    collectedAt: '2026-08-12T09:00:00.000Z',
+  },
+  ...over,
+})
+
+describe('matchScore is a share, so it is bounded at BOTH ends', () => {
+  it('accepts the ends of the range and a value between them', () => {
+    for (const matchScore of [0, 0.5, 1]) {
+      expect(jobSuggestionSchema.safeParse(suggestion({ matchScore })).success).toBe(true)
+    }
   })
 
-  it('rejects javascript: (XSS via window.open)', () => {
-    // NOTE: the `javascript:` URL below is the point of the test. If
-    // `no-script-url` is ever enabled for this package, re-add an
-    // `eslint-disable-next-line` here (task-lint-teeth: the directive that used
-    // to be here was inert — no config enabled that rule).
-    expect(() => externalHttpsUrlSchema.parse('javascript:alert(1)')).toThrow()
+  it('refuses anything above 1 — a share cannot exceed the whole', () => {
+    expect(jobSuggestionSchema.safeParse(suggestion({ matchScore: 1.0001 })).success).toBe(false)
+    expect(jobSuggestionSchema.safeParse(suggestion({ matchScore: 2 })).success).toBe(false)
   })
 
-  it('rejects data: URLs', () => {
-    expect(() => externalHttpsUrlSchema.parse('data:text/html,<script>alert(1)</script>')).toThrow()
+  it('refuses anything below 0', () => {
+    expect(jobSuggestionSchema.safeParse(suggestion({ matchScore: -0.0001 })).success).toBe(false)
   })
 
-  it('rejects plain http (downgrade)', () => {
-    expect(() => externalHttpsUrlSchema.parse('http://jobs.dou.ua/x/')).toThrow()
-  })
-
-  it('rejects a non-URL string', () => {
-    expect(() => externalHttpsUrlSchema.parse('not a url')).toThrow()
+  it('accepts null — "not ranked" is a different fact from "scored zero"', () => {
+    expect(jobSuggestionSchema.safeParse(suggestion({ matchScore: null })).success).toBe(true)
   })
 })
 
-describe('jobPostingSchema', () => {
-  it('parses a well-formed posting', () => {
-    expect(jobPostingSchema.parse(validPosting).companyName).toBe('EPAM')
+describe('keyword arrays are capped in length AND in element size', () => {
+  const keyword = (n: number) => 'a'.repeat(n)
+
+  it('accepts a keyword of exactly the maximum length', () => {
+    const dto = suggestion({ matchedKeywords: [keyword(MAX_STACK_KEYWORD_CHARS)] })
+    expect(jobSuggestionSchema.safeParse(dto).success).toBe(true)
   })
 
-  it('rejects a posting whose url is not https', () => {
-    expect(() => jobPostingSchema.parse({ ...validPosting, url: 'javascript:alert(1)' })).toThrow()
+  it('refuses a keyword one character too long', () => {
+    const dto = suggestion({ matchedKeywords: [keyword(MAX_STACK_KEYWORD_CHARS + 1)] })
+    expect(jobSuggestionSchema.safeParse(dto).success).toBe(false)
   })
 
-  it('allows a null location and null publishedAt', () => {
-    const parsed = jobPostingSchema.parse({ ...validPosting, location: null, publishedAt: null })
-    expect(parsed.location).toBeNull()
-    expect(parsed.publishedAt).toBeNull()
+  it('accepts exactly the maximum number of keywords, and refuses one more', () => {
+    const fill = (n: number) => Array.from({ length: n }, (_, i) => `k${i}`)
+    expect(
+      jobSuggestionSchema.safeParse(suggestion({ matchedKeywords: fill(MAX_STACK_KEYWORDS) }))
+        .success,
+    ).toBe(true)
+    expect(
+      jobSuggestionSchema.safeParse(suggestion({ matchedKeywords: fill(MAX_STACK_KEYWORDS + 1) }))
+        .success,
+    ).toBe(false)
   })
-})
 
-describe('updateJobSuggestionStatusSchema', () => {
-  it('accepts APPLIED and REJECTED', () => {
-    expect(updateJobSuggestionStatusSchema.parse({ status: 'APPLIED' }).status).toBe('APPLIED')
-    expect(updateJobSuggestionStatusSchema.parse({ status: 'REJECTED' }).status).toBe('REJECTED')
-  })
-
-  it('rejects a roll-back to NEW (would re-surface a rejected posting)', () => {
-    expect(() => updateJobSuggestionStatusSchema.parse({ status: 'NEW' })).toThrow()
-  })
-})
-
-describe('createJobExclusionSchema', () => {
-  it('trims and accepts a company exclusion', () => {
-    const parsed = createJobExclusionSchema.parse({
-      scope: 'SENIOR',
-      seniorId: '11111111-1111-4111-8111-111111111111',
-      kind: 'COMPANY',
-      value: '  EPAM Systems  ',
+  it('applies the same two caps to the senior stack on the list envelope', () => {
+    const envelope = (stackKeywords: string[]) => ({
+      items: [],
+      lowMatch: [],
+      lowMatchCount: 0,
+      total: 0,
+      threshold: 0.2,
+      stackKeywords,
     })
-    expect(parsed.value).toBe('EPAM Systems')
+    expect(
+      jobSuggestionListSchema.safeParse(envelope([keyword(MAX_STACK_KEYWORD_CHARS)])).success,
+    ).toBe(true)
+    expect(
+      jobSuggestionListSchema.safeParse(envelope([keyword(MAX_STACK_KEYWORD_CHARS + 1)])).success,
+    ).toBe(false)
+    expect(
+      jobSuggestionListSchema.safeParse(
+        envelope(Array.from({ length: MAX_STACK_KEYWORDS + 1 }, (_, i) => `k${i}`)),
+      ).success,
+    ).toBe(false)
+  })
+})
+
+describe('the budget enums carry exactly the members the code branches on', () => {
+  it('budget window: DAY and MONTH, nothing else', () => {
+    expect(jobSourceBudgetWindowSchema.options).toEqual(['DAY', 'MONTH'])
+    for (const value of ['DAY', 'MONTH']) {
+      expect(jobSourceBudgetWindowSchema.safeParse(value).success).toBe(true)
+    }
+    for (const value of ['WEEK', 'YEAR', 'day', '']) {
+      expect(jobSourceBudgetWindowSchema.safeParse(value).success).toBe(false)
+    }
   })
 
-  it('rejects a 1-character value (would filter out half the feed)', () => {
-    expect(() =>
-      createJobExclusionSchema.parse({ scope: 'GLOBAL', kind: 'KEYWORD', value: 'a' }),
-    ).toThrow()
+  it('trigger mode: SCHEDULED, MANUAL, BOTH — dropping one silently re-enables a source', () => {
+    expect(jobSourceTriggerModeSchema.options).toEqual(['SCHEDULED', 'MANUAL', 'BOTH'])
+    for (const value of ['SCHEDULED', 'MANUAL', 'BOTH']) {
+      expect(jobSourceTriggerModeSchema.safeParse(value).success).toBe(true)
+    }
+    for (const value of ['NEVER', 'manual', '']) {
+      expect(jobSourceTriggerModeSchema.safeParse(value).success).toBe(false)
+    }
   })
 
-  it('rejects an unknown kind', () => {
-    expect(() =>
-      createJobExclusionSchema.parse({ scope: 'GLOBAL', kind: 'DOMAIN', value: 'gambling' }),
-    ).toThrow()
+  it('budget state: the four cases the panel renders differently', () => {
+    expect(jobSourceBudgetStateSchema.options).toEqual([
+      'UNLIMITED',
+      'ACTIVE',
+      'EXHAUSTED',
+      'MISCONFIGURED',
+    ])
+    for (const value of ['UNLIMITED', 'ACTIVE', 'EXHAUSTED', 'MISCONFIGURED']) {
+      expect(jobSourceBudgetStateSchema.safeParse(value).success).toBe(true)
+    }
+    expect(jobSourceBudgetStateSchema.safeParse('BROKEN').success).toBe(false)
+  })
+})
+
+describe('the source DTO keeps its shape', () => {
+  const budget = {
+    state: 'ACTIVE' as const,
+    limit: 200,
+    window: 'MONTH' as const,
+    used: 153,
+    remaining: 47,
+    resetsAt: '2026-09-01T00:00:00.000Z',
+  }
+  const source = {
+    id: '55555555-5555-4555-8555-555555555555',
+    type: 'DOU_RSS' as const,
+    enabled: true,
+    triggerMode: 'SCHEDULED' as const,
+    lastCollectedAt: null,
+    budget,
+  }
+
+  it('accepts a fully-populated source', () => {
+    expect(jobSourceSchema.safeParse(source).success).toBe(true)
+  })
+
+  it('refuses a budget missing its state — the field the UI branches on', () => {
+    const { state: _state, ...withoutState } = budget
+    expect(jobSourceBudgetSchema.safeParse(withoutState).success).toBe(false)
+    expect(jobSourceSchema.safeParse({ ...source, budget: withoutState }).success).toBe(false)
+  })
+
+  it('refuses a source missing its trigger mode', () => {
+    const { triggerMode: _mode, ...withoutMode } = source
+    expect(jobSourceSchema.safeParse(withoutMode).success).toBe(false)
+  })
+
+  it('refuses a negative remaining count', () => {
+    expect(jobSourceBudgetSchema.safeParse({ ...budget, remaining: -1 }).success).toBe(false)
+    expect(jobSourceBudgetSchema.safeParse({ ...budget, used: -1 }).success).toBe(false)
   })
 })

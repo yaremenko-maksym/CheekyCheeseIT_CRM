@@ -4,7 +4,9 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  Optional,
 } from '@nestjs/common'
+import { ConfigService } from '@nestjs/config'
 import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm'
 import type {
   CreateJobExclusionDto,
@@ -12,27 +14,41 @@ import type {
   JobCollectionResultDto,
   JobCollectionRunDto,
   JobExclusionDto,
+  JobSourceDto,
+  JobSourceTriggerMode,
   JobSourceType,
   JobSuggestionDto,
   JobSuggestionListDto,
   SessionUser,
   UpdateJobSuggestionStatusDto,
 } from '@crm/shared'
-import { normalizeCompanyName } from '@crm/shared'
+import {
+  budgetState,
+  canonicalStackKeywords,
+  normalizeCompanyName,
+  resolveBudget,
+  spendBudget,
+  stackMatchScore,
+  type SourceBudgetState,
+} from '@crm/shared'
 import { HrAccessService } from '../common/hr-access.service'
+import { DEFAULT_JOB_MATCH_THRESHOLD, type Env } from '../config/env'
 import { DatabaseService } from '../database/database.service'
 import {
   type JobPosting,
+  type JobSource,
   jobExclusionFilters,
   jobPostings,
   jobSources,
   jobSuggestions,
   projects,
+  seniorResumes,
   teamMembers,
   users,
 } from '../database/schema'
 import { DouRssProvider } from './dou.provider'
 import { deriveProjectExclusions, findMatchingExclusion } from './filtering'
+import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
 import type { JobSourceProvider, NormalizedPosting } from './job-source.provider'
 
@@ -57,6 +73,38 @@ export const POSTING_RETENTION_DAYS = 90
 /** Page size for a senior's queue — the modal shows one at a time. */
 export const SUGGESTIONS_PAGE_SIZE = 20
 
+/**
+ * How many of the freshest suggestions are RANKED on one request.
+ *
+ * Security review MED-3. Scoring reads the whole description, and the queue is
+ * unbounded: the feed adds ~25 postings a day and retention keeps them 90 days,
+ * so a senior who never triages accumulates a couple of thousand NEW rows.
+ *
+ * MEASURED end to end against a real Postgres, 2250 NEW suggestions × 20 KB of
+ * description, median of five runs on the same data and the same machine —
+ * before and after are the SAME code path with only this window changed:
+ *
+ *     ranking every visible row (the previous behaviour)   3217 ms
+ *     ranking the freshest 200 (this window)                306 ms
+ *
+ * Three seconds is not a slow endpoint — it is the single-threaded event loop
+ * blocked for three seconds, i.e. the whole API unavailable to every other
+ * request, because one senior opened a modal.
+ *
+ * The window bounds the WORK, not the queue: `total` stays exact (it is computed
+ * from a cheap projection that never touches `description_md`), the page cap
+ * already limited what is displayed, and the senior works down the queue as
+ * before. The trade-off is honest and bounded: a vacancy older than the freshest
+ * 200 visible ones is not ranked on this request, so a superb match from two
+ * months ago waits its turn instead of jumping the queue.
+ *
+ * The exact fix — canonical match tokens computed ONCE at ingest and stored on
+ * the posting — is the right long-term answer and is noted in the PR as
+ * follow-up; it needs a column, a backfill and prod DDL, which is more than this
+ * change should carry.
+ */
+export const SUGGESTION_RANKING_WINDOW = 200
+
 type SuggestionRow = {
   id: string
   seniorId: string
@@ -65,6 +113,34 @@ type SuggestionRow = {
   createdAt: Date
   statusChangedByName: string | null
   posting: JobPosting
+}
+
+/**
+ * What `collectSource` needs from a source row: identity, provider config and
+ * the budget columns. Structural rather than `JobSource` itself so a test can
+ * hand in a literal without inventing timestamps it does not care about.
+ */
+export type BudgetedSource = Pick<JobSource, 'id' | 'type'> & {
+  config: unknown
+  budgetLimit?: number | null
+  budgetWindow?: 'DAY' | 'MONTH' | null
+  budgetUsed?: number | null
+  budgetWindowStartedAt?: Date | null
+}
+
+/**
+ * Whether a source configured as `mode` may be collected by `trigger`.
+ *
+ * Exported and pure so the rule is testable on its own: it is the whole of §5,
+ * and a mistake here is either a wasted paid quota (scheduled collection of a
+ * manual-only source) or a source that never runs at all.
+ */
+export function sourceAcceptsTrigger(
+  mode: JobSourceTriggerMode,
+  trigger: JobSourceTriggerMode,
+): boolean {
+  if (mode === 'BOTH') return true
+  return mode === trigger
 }
 
 @Injectable()
@@ -76,10 +152,25 @@ export class JobSourcingService {
     private readonly db: DatabaseService,
     private readonly hrAccess: HrAccessService,
     dou: DouRssProvider,
+    @Optional() private readonly config?: ConfigService<Env, true>,
   ) {
     // Provider registry — slice 2 adds its source here and nothing else in this
     // service changes.
     this.providers = new Map<JobSourceType, JobSourceProvider>([[dou.type, dou]])
+  }
+
+  /**
+   * The collapse threshold (task-vacancy-matching AC4) — a SETTING, read
+   * through ConfigService, never a constant in this file.
+   *
+   * `@Optional()` on the injection is for the unit/integration specs that build
+   * this service by hand; the fallback is the SAME constant the env schema
+   * defaults to, so "no ConfigService" and "no env var" cannot mean two
+   * different thresholds. The env value itself is already range-validated at
+   * boot (0..1, blank → default), so nothing unvalidated reaches here.
+   */
+  private matchThreshold(): number {
+    return this.config?.get('JOB_MATCH_THRESHOLD', { infer: true }) ?? DEFAULT_JOB_MATCH_THRESHOLD
   }
 
   // -------------------------------------------------------------------------
@@ -121,6 +212,23 @@ export class JobSourcingService {
   private assertCanManageGlobal(user: SessionUser): void {
     if (user.role !== 'ADMIN' && user.role !== 'HR') {
       throw new ForbiddenException('Общий список исключений редактируют ADMIN и HR')
+    }
+  }
+
+  /**
+   * Source configuration and spending — ADMIN only.
+   *
+   * Security review MED-1: `listSources`/`collectAll` used to be guarded ONLY by
+   * the controller's `@Roles('ADMIN')` decorator, unlike every other route here,
+   * which re-checks in the service body. That is the exact shape the #157/#158
+   * lesson is about — the decorator is one edit away from being dropped, and
+   * these two endpoints expose which sources exist plus a button that SPENDS a
+   * paid quota. Now the guarantee survives losing the decorator, and a test
+   * pins both halves.
+   */
+  private assertCanManageSources(user: SessionUser): void {
+    if (user.role !== 'ADMIN') {
+      throw new ForbiddenException('Источники подбора вакансий настраивает ADMIN')
     }
   }
 
@@ -277,7 +385,41 @@ export class JobSourcingService {
   // Suggestions
   // -------------------------------------------------------------------------
 
-  private mapSuggestion(row: SuggestionRow): JobSuggestionDto {
+  /**
+   * The senior's stack — task-vacancy-matching §1.
+   *
+   * SOURCE: the skills already stored on their resume (`senior_resumes.content`,
+   * task-resume-base). Chosen over a second, dedicated "matching keywords" field
+   * for the reason `deriveProjectExclusions` gives one level up: a stored COPY
+   * of something the CRM already knows drifts, and it drifts SILENTLY — HR
+   * updates the resume, matching keeps ranking on last quarter's stack, and
+   * nothing anywhere says so. One list, one place to edit it, no sync.
+   *
+   * NOT EVERY SENIOR HAS ONE. Measured before choosing, not assumed: at the time
+   * of writing 0 of 4 active seniors had a resume row at all. So an empty stack
+   * is a FIRST-CLASS case, not an edge case — see `listSuggestions`, where it
+   * disables ranking rather than scoring every vacancy zero and hiding the lot.
+   */
+  async getSeniorStack(seniorId: string): Promise<string[]> {
+    const row = await this.db.db
+      .select({ content: seniorResumes.content })
+      .from(seniorResumes)
+      .where(eq(seniorResumes.userId, seniorId))
+      .limit(1)
+      .then((r) => r[0])
+
+    // `content` is jsonb — typed as the resume shape by Drizzle, but the ROW is
+    // whatever is in the database, so the skills array is treated as unknown
+    // until proven otherwise rather than trusted into the matcher.
+    const skills: unknown = (row?.content as { skills?: unknown } | undefined)?.skills
+    if (!Array.isArray(skills)) return []
+    return canonicalStackKeywords(skills.filter((s): s is string => typeof s === 'string'))
+  }
+
+  private mapSuggestion(
+    row: SuggestionRow,
+    match: { score: number | null; matched: string[] } = { score: null, matched: [] },
+  ): JobSuggestionDto {
     return {
       id: row.id,
       seniorId: row.seniorId,
@@ -285,6 +427,8 @@ export class JobSourcingService {
       statusChangedAt: row.statusChangedAt?.toISOString() ?? null,
       statusChangedByName: row.statusChangedByName,
       createdAt: row.createdAt.toISOString(),
+      matchScore: match.score,
+      matchedKeywords: match.matched,
       posting: {
         id: row.posting.id,
         sourceType: row.posting.sourceType,
@@ -301,21 +445,126 @@ export class JobSourcingService {
   }
 
   /**
-   * The senior's queue: NEW suggestions, newest posting first, with the CURRENT
+   * The senior's queue: NEW suggestions, RANKED BY STACK MATCH, with the CURRENT
    * exclusion set applied on read.
    *
    * Filtering happens at collection time too, but re-applying it here is what
    * makes a filter added AFTER collection take effect immediately — otherwise a
    * senior who just excluded their employer would keep being shown that
-   * employer until the next cron run.
+   * employer until the next cron run. The same argument applies to the ranking:
+   * it is computed on READ, so editing the resume re-ranks the queue at once
+   * instead of at the next collection.
+   *
+   * TWO LISTS, NEVER A SILENT DROP (task-vacancy-matching §3)
+   * --------------------------------------------------------
+   * The owner asked for less noise, which is right — but "hidden" and "deleted"
+   * must not become the same thing: a suggestion nobody can see is a suggestion
+   * nobody reviewed. So everything below the threshold goes to `lowMatch` with
+   * an honest `lowMatchCount`, the UI collapses it behind one counter, and one
+   * click brings it back. Nothing is discarded, and HR can always audit what the
+   * ranking decided to demote.
+   *
+   * NO STACK → NO RANKING
+   * ---------------------
+   * A senior with no resume skills gets `matchScore: null` on every row and the
+   * original freshness order, NOT a queue of zeroes — scoring everything 0 and
+   * then collapsing below the threshold would empty the feature's own screen for
+   * exactly the people it has not been configured for yet.
    */
   async listSuggestions(
     requestedSeniorId: string | undefined,
     user: SessionUser,
   ): Promise<JobSuggestionListDto> {
     const seniorId = await this.assertCanAccessSenior(user, requestedSeniorId)
-    const exclusions = await this.buildExclusionSet(seniorId)
+    const [exclusions, stackKeywords] = await Promise.all([
+      this.buildExclusionSet(seniorId),
+      this.getSeniorStack(seniorId),
+    ])
 
+    // PASS 1 — the cheap projection (MED-3).
+    //
+    // Everything the EXCLUSION rules and the honest `total` need, and nothing
+    // else. `description_md` is deliberately absent: it is the big column (up to
+    // ~20 KB a row) and pulling it for a couple of thousand rows to then discard
+    // all but twenty is both the transfer cost and the scoring cost this pass
+    // exists to avoid.
+    const candidates = await this.db.db
+      .select({
+        id: jobSuggestions.id,
+        companyName: jobPostings.companyName,
+        title: jobPostings.title,
+        url: jobPostings.url,
+        sourceType: jobPostings.sourceType,
+      })
+      .from(jobSuggestions)
+      .innerJoin(jobPostings, eq(jobSuggestions.postingId, jobPostings.id))
+      .where(and(eq(jobSuggestions.seniorId, seniorId), eq(jobSuggestions.status, 'NEW')))
+      // Freshness order is still the base ordering — it decides ties within the
+      // same score, and it is the WHOLE ordering when there is no stack.
+      .orderBy(desc(jobPostings.publishedAt), desc(jobPostings.collectedAt))
+
+    const visible = candidates.filter((row) => findMatchingExclusion(row, exclusions) === null)
+    const threshold = this.matchThreshold()
+    // Exact, because pass 1 saw every row.
+    const total = visible.length
+
+    if (visible.length === 0) {
+      return { items: [], lowMatch: [], lowMatchCount: 0, total, threshold, stackKeywords }
+    }
+
+    // PASS 2 — full rows, for the bounded set we might actually show.
+    // Unranked queues need only one page; ranked queues need the window.
+    const wanted = stackKeywords.length === 0 ? SUGGESTIONS_PAGE_SIZE : SUGGESTION_RANKING_WINDOW
+    const rows = await this.loadSuggestionRows(visible.slice(0, wanted).map((r) => r.id))
+
+    if (stackKeywords.length === 0) {
+      return {
+        items: rows.slice(0, SUGGESTIONS_PAGE_SIZE).map((row) => this.mapSuggestion(row)),
+        lowMatch: [],
+        lowMatchCount: 0,
+        total,
+        threshold,
+        stackKeywords: [],
+      }
+    }
+
+    const scored = rows.map((row) => {
+      const match = stackMatchScore(
+        { title: row.posting.title, body: row.posting.descriptionMd },
+        stackKeywords,
+      )
+      return { row, score: match.score, matched: match.matched }
+    })
+
+    // Sort by score, keeping the freshness order inside a score band. `sort` is
+    // stable in every engine we run on (ES2019+), so the ORDER BY above survives
+    // as the tiebreak instead of being re-derived here.
+    const ranked = [...scored].sort((a, b) => b.score - a.score)
+
+    const above = ranked.filter((entry) => entry.score >= threshold)
+    const below = ranked.filter((entry) => entry.score < threshold)
+
+    const toDto = (entry: (typeof ranked)[number]) =>
+      this.mapSuggestion(entry.row, { score: entry.score, matched: entry.matched })
+
+    return {
+      items: above.slice(0, SUGGESTIONS_PAGE_SIZE).map(toDto),
+      lowMatch: below.slice(0, SUGGESTIONS_PAGE_SIZE).map(toDto),
+      // The COUNT is the full number of DEMOTED suggestions, not the page — the
+      // counter must not under-report what the threshold collapsed just because
+      // the array is capped. Suggestions beyond the ranking window are not
+      // counted here because they were not judged at all; they remain in `total`,
+      // which the dialog shows as «Осталось: N», so nothing disappears silently.
+      lowMatchCount: below.length,
+      total,
+      threshold,
+      stackKeywords,
+    }
+  }
+
+  /** Full suggestion rows (description included) for an explicit id list. */
+  private async loadSuggestionRows(ids: string[]): Promise<SuggestionRow[]> {
+    if (ids.length === 0) return []
     const rows = await this.db.db
       .select({
         id: jobSuggestions.id,
@@ -329,15 +578,9 @@ export class JobSourcingService {
       .from(jobSuggestions)
       .innerJoin(jobPostings, eq(jobSuggestions.postingId, jobPostings.id))
       .leftJoin(users, eq(jobSuggestions.statusChangedBy, users.id))
-      .where(and(eq(jobSuggestions.seniorId, seniorId), eq(jobSuggestions.status, 'NEW')))
+      .where(inArray(jobSuggestions.id, ids))
       .orderBy(desc(jobPostings.publishedAt), desc(jobPostings.collectedAt))
-
-    const visible = rows.filter((row) => findMatchingExclusion(row.posting, exclusions) === null)
-
-    return {
-      items: visible.slice(0, SUGGESTIONS_PAGE_SIZE).map((row) => this.mapSuggestion(row)),
-      total: visible.length,
-    }
+    return rows
   }
 
   async updateStatus(
@@ -478,14 +721,75 @@ export class JobSourcingService {
     return inserted
   }
 
+  /** Budget state of a source row, in the shape the shared arithmetic wants. */
+  private budgetStateOf(source: BudgetedSource): SourceBudgetState {
+    return {
+      limit: source.budgetLimit ?? null,
+      window: source.budgetWindow ?? null,
+      used: source.budgetUsed ?? 0,
+      windowStartedAt: source.budgetWindowStartedAt ?? null,
+    }
+  }
+
+  /**
+   * Charge one request to a source's budget, or refuse.
+   *
+   * Called BEFORE the provider is asked for anything — the point of a budget is
+   * that an exhausted source costs ZERO requests, not one more. Because the
+   * charge happens here, it applies identically to the cron and to an admin
+   * pressing the button: twenty clicks in a row spend twenty units and then stop
+   * (AC6), rather than twenty clicks burning a month of JSearch's allowance.
+   *
+   * The counter is written with a CONDITIONAL update guarded by the value it was
+   * read at, so two runs racing each other cannot both spend the same last unit:
+   * the loser's WHERE matches nothing and it is refused.
+   */
+  private async chargeBudget(source: BudgetedSource, now: Date = new Date()): Promise<void> {
+    const state = this.budgetStateOf(source)
+    const budget = resolveBudget(state, now)
+    if (!budget.limited) return
+
+    if (budget.exhausted) {
+      throw new JobSourceBudgetExhaustedError(source.type, budget.limit ?? 0, budget.resetsAt)
+    }
+
+    const next = spendBudget(state, now)
+    if (!next) return
+
+    const updated = await this.db.db
+      .update(jobSources)
+      .set({
+        budgetUsed: next.used,
+        budgetWindowStartedAt: next.windowStartedAt,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(jobSources.id, source.id),
+          // Compare-and-set on the counter we based the decision on. Without it
+          // two concurrent runs both read "1 left" and both spend it.
+          eq(jobSources.budgetUsed, source.budgetUsed ?? 0),
+        ),
+      )
+      .returning({ id: jobSources.id })
+
+    if (updated.length === 0) {
+      // Someone else moved the counter between our read and our write. Refusing
+      // is the safe half of the race: at worst we skip a run that had budget,
+      // and the next cycle picks it up.
+      throw new JobSourceBudgetExhaustedError(source.type, budget.limit ?? 0, budget.resetsAt)
+    }
+  }
+
   /** Run one configured source end to end. */
-  async collectSource(source: {
-    id: string
-    type: JobSourceType
-    config: unknown
-  }): Promise<JobCollectionResultDto> {
+  async collectSource(source: BudgetedSource): Promise<JobCollectionResultDto> {
     const provider = this.providers.get(source.type)
     if (!provider) throw new BadRequestException(`Нет провайдера для источника ${source.type}`)
+
+    // Budget FIRST — before the provider, before the network. A source that has
+    // run out refuses to go and fetch data (§4), loudly, instead of quietly
+    // returning nothing and looking like a quiet day.
+    await this.chargeBudget(source)
 
     const config = (source.config ?? {}) as Record<string, unknown>
     const postings = await provider.collect(config)
@@ -523,12 +827,31 @@ export class JobSourcingService {
   }
 
   /**
-   * Run every enabled source. One failing source is logged and skipped — a
-   * third-party outage must not stop the others (or, when called from the cron,
-   * kill the scheduler).
+   * Run every enabled source that the given trigger is allowed to run. One
+   * failing source is logged and skipped — a third-party outage must not stop
+   * the others (or, when called from the cron, kill the scheduler).
+   *
+   * `trigger` is what makes §5 real: the cron passes `SCHEDULED` and never
+   * touches a manual-only source (JSearch's ~6 requests a day would be spent by
+   * the scheduler on nobody's behalf), while the admin button passes `MANUAL`.
+   * A source set to `BOTH` answers to either.
    */
-  async collectAll(): Promise<JobCollectionRunDto> {
-    const sources = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
+  /**
+   * The MANUAL path, as a human triggers it — ADMIN only (MED-1).
+   *
+   * A separate entry point rather than an optional `actor` argument on
+   * `collectAll`: an optional caller identity is a check you can forget to pass,
+   * and this is the path that spends money. The cron keeps calling `collectAll`
+   * directly with no actor, which is honest — it IS the system, not a user.
+   */
+  async collectAllAsActor(actor: SessionUser): Promise<JobCollectionRunDto> {
+    this.assertCanManageSources(actor)
+    return this.collectAll('MANUAL')
+  }
+
+  async collectAll(trigger: JobSourceTriggerMode = 'SCHEDULED'): Promise<JobCollectionRunDto> {
+    const all = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
+    const sources = all.filter((source) => sourceAcceptsTrigger(source.triggerMode, trigger))
 
     const results: JobCollectionResultDto[] = []
     const failures: JobCollectionFailureDto[] = []
@@ -548,7 +871,16 @@ export class JobSourcingService {
         // ADMIN trigger answered `200 []` for a broken source, i.e. exactly what
         // a quiet day looks like: the same "breakage disguised as silence"
         // defect that was fixed inside collectSource, surfacing one level up.
-        failures.push({ sourceType: source.type, message })
+        //
+        // A budget stop is flagged so the UI can tell the two apart: "we chose
+        // to stop, it comes back on the 1st" is not an incident, and dressing it
+        // up as one trains the operator to ignore real incidents.
+        const budgetExhausted = err instanceof JobSourceBudgetExhaustedError
+        failures.push({ sourceType: source.type, message, budgetExhausted })
+        if (budgetExhausted) {
+          this.logger.warn(`Job collection skipped for source ${source.type}: ${message}`)
+          continue
+        }
         this.logger.error(
           `Job collection failed for source ${source.type} (${source.id})`,
           err instanceof Error ? err.stack : String(err),
@@ -596,10 +928,36 @@ export class JobSourcingService {
     return deleted.length
   }
 
-  /** Used by the controller's ADMIN-only manual trigger. */
-  async listSources(): Promise<{ id: string; type: JobSourceType; enabled: boolean }[]> {
+  /**
+   * Configured sources with their CURRENT budget position — task-vacancy-matching
+   * AC7 ("остаток виден в интерфейсе").
+   *
+   * The remainder is computed here rather than read raw off the row, so a window
+   * that has rolled over reports a full allowance immediately instead of showing
+   * last month's spend until the next collection happens to reset it.
+   */
+  async listSources(actor: SessionUser, now: Date = new Date()): Promise<JobSourceDto[]> {
+    this.assertCanManageSources(actor)
     const rows = await this.db.db.select().from(jobSources)
-    return rows.map((r) => ({ id: r.id, type: r.type, enabled: r.enabled }))
+    return rows.map((row) => {
+      const budget = resolveBudget(this.budgetStateOf(row), now)
+      return {
+        id: row.id,
+        type: row.type,
+        enabled: row.enabled,
+        triggerMode: row.triggerMode,
+        lastCollectedAt: row.lastCollectedAt?.toISOString() ?? null,
+        budget: {
+          // Stated, not inferred by the client (MED-4).
+          state: budgetState(budget),
+          limit: budget.limited ? (budget.limit ?? null) : null,
+          window: budget.window,
+          used: budget.used,
+          remaining: budget.remaining,
+          resetsAt: budget.resetsAt?.toISOString() ?? null,
+        },
+      }
+    })
   }
 
   /** Exposed for the integration test's setup path. */

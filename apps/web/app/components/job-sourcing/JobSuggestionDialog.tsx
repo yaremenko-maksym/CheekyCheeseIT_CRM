@@ -1,6 +1,14 @@
 import { useState } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
-import { ExternalLink, Loader2, ThumbsDown, ThumbsUp, X } from 'lucide-react'
+import {
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  Loader2,
+  ThumbsDown,
+  ThumbsUp,
+  X,
+} from 'lucide-react'
 import type { JobExclusionDto, JobSuggestionDto } from '@crm/shared'
 import {
   useCreateJobExclusion,
@@ -21,6 +29,7 @@ import {
 } from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { isSafeExternalUrl, openOriginalPosting } from './open-original'
+import { SourceBudgetPanel } from './SourceBudgetPanel'
 
 /**
  * RENDER-SIDE HARDENING — security-review round 2, HIGH-1.
@@ -230,22 +239,79 @@ function ExclusionsPanel({
   )
 }
 
+/**
+ * Why this vacancy is at the top (or is not) — task-vacancy-matching §2/§3.
+ *
+ * A rank the user cannot interrogate is just an opinion. Showing the matched
+ * keywords turns "почему это первым?" into a readable answer, and makes a
+ * mis-normalised keyword visible instead of silently skewing the order.
+ */
+function MatchSummary({ suggestion }: { suggestion: JobSuggestionDto }) {
+  if (suggestion.matchScore === null) return null
+
+  const percent = Math.round(suggestion.matchScore * 100)
+  return (
+    <p className="mt-2 flex flex-wrap items-center gap-1.5 text-xs" data-testid="job-match-summary">
+      <span className="text-muted-foreground">Совпадение со стеком: {percent}%</span>
+      {suggestion.matchedKeywords.map((keyword) => (
+        <span
+          key={keyword}
+          data-testid="job-match-keyword"
+          className="inline-flex items-center rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[11px]"
+        >
+          {keyword}
+        </span>
+      ))}
+    </p>
+  )
+}
+
 export function JobSuggestionDialog({
   open,
   onClose,
   seniorId,
   canManageGlobal = false,
+  canViewBudgets = false,
 }: {
   open: boolean
   onClose: () => void
   /** Whose queue to show. `undefined` = "mine" (a SENIOR viewing their own). */
   seniorId: string | undefined
   canManageGlobal?: boolean
+  /**
+   * ADMIN only — `GET /job-sourcing/sources` is ADMIN-gated server-side, so
+   * asking for it as anyone else buys a guaranteed 403 and an error box.
+   */
+  canViewBudgets?: boolean
 }) {
   const { data, isLoading, isError } = useJobSuggestions(seniorId, open)
   const updateStatus = useUpdateJobSuggestionStatus(seniorId)
 
-  const current: JobSuggestionDto | undefined = data?.items[0]
+  /**
+   * Whether the collapsed low-match tail is expanded. Defaults to CLOSED (the
+   * owner asked for a quieter feed) but the counter that opens it is always
+   * rendered — "скрытая вакансия это нерассмотренная вакансия".
+   */
+  const [showLowMatch, setShowLowMatch] = useState(false)
+
+  // Stryker disable next-line ArrayDeclaration: the fallback only runs when the query has no data, which is exactly the loading/error render — and every section that reads this list is itself gated on isLoading/isError, so the fallback CONTENTS can never reach the DOM
+  const lowMatch = data?.lowMatch ?? []
+  const lowMatchCount = data?.lowMatchCount ?? 0
+  // Stryker disable next-line ArrayDeclaration: same — consumed only by the no-stack hint, which is gated on isLoading/isError, so a non-empty fallback is unreachable
+  const stackKeywords = data?.stackKeywords ?? []
+
+  // When the tail is expanded its entries join the queue, after the good ones —
+  // so «Не подходит» / «Откликнулись» work on them identically. Reviewing a
+  // demoted vacancy must not be a second-class path.
+  // One statement rather than a multi-line ternary: a `Stryker disable
+  // next-line` comment attaches to a STATEMENT, and inside a multi-line
+  // expression each mutant is attributed to a different line than the comment
+  // lands on — so the suppression silently guarded nothing.
+  //
+  // Stryker disable next-line OptionalChaining,ArrayDeclaration: the fallback is reached only when the query has no data — the loading/error render, where the dialog shows its own state instead of the queue
+  const visibleItems = data?.items ?? []
+  const queue: JobSuggestionDto[] = showLowMatch ? [...visibleItems, ...lowMatch] : visibleItems
+  const current: JobSuggestionDto | undefined = queue[0]
   const total = data?.total ?? 0
 
   /**
@@ -293,9 +359,15 @@ export function JobSuggestionDialog({
 
           {!isLoading && !isError && !current && (
             <div className="py-8 text-center" data-testid="job-suggestion-empty">
-              <p className="text-sm font-medium">Подходящих вакансий нет</p>
+              <p className="text-sm font-medium">
+                {lowMatchCount > 0
+                  ? 'Вакансий с высоким совпадением нет'
+                  : 'Подходящих вакансий нет'}
+              </p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Новые появятся после следующего сбора — или ослабьте исключения ниже.
+                {lowMatchCount > 0
+                  ? 'Ниже — те, что совпали со стеком слабее. Их можно раскрыть.'
+                  : 'Новые появятся после следующего сбора — или ослабьте исключения ниже.'}
               </p>
             </div>
           )}
@@ -312,6 +384,8 @@ export function JobSuggestionDialog({
                   <span> · {formatDate(current.posting.publishedAt)}</span>
                 )}
               </p>
+
+              <MatchSummary suggestion={current} />
 
               <div
                 className="prose prose-sm dark:prose-invert mt-4 max-w-none break-words text-sm leading-relaxed [&_a]:underline [&_li]:my-0.5 [&_p]:my-2 [&_ul]:list-disc [&_ul]:pl-5"
@@ -333,7 +407,58 @@ export function JobSuggestionDialog({
             </article>
           )}
 
+          {/*
+            The collapsed tail (task-vacancy-matching AC3). Rendered whenever
+            anything was demoted — including when the good queue is empty, which
+            is precisely when a silent filter would be most misleading ("нет
+            вакансий" while 12 sit hidden behind a threshold).
+          */}
+          {/*
+            No isLoading/isError guard here: `lowMatchCount` falls back to 0
+            whenever the query has no data, so the count alone already hides
+            this section in both states. The extra conditions were redundant —
+            the mutation gate is what made that visible.
+          */}
+          {lowMatchCount > 0 && (
+            <section className="mt-4 border-t border-border/50 pt-3" data-testid="job-low-match">
+              <button
+                type="button"
+                onClick={() => setShowLowMatch((v) => !v)}
+                aria-expanded={showLowMatch}
+                data-testid="job-low-match-toggle"
+                className="inline-flex min-h-[44px] items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:underline sm:min-h-0"
+              >
+                {showLowMatch ? (
+                  <ChevronUp className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                ) : (
+                  <ChevronDown className="h-3.5 w-3.5 shrink-0" aria-hidden />
+                )}
+                <span data-testid="job-low-match-count">
+                  Ещё {lowMatchCount} с низким совпадением
+                </span>
+              </button>
+              {showLowMatch && (
+                <p className="mt-1.5 text-xs text-muted-foreground">
+                  Они добавлены в очередь после подходящих — ничего не потеряно.
+                </p>
+              )}
+            </section>
+          )}
+
+          {/*
+            No stack on file → nothing was ranked. Say so, and say what to do:
+            silently falling back to "newest first" would look identical to a
+            ranking that decided every vacancy is equally good.
+          */}
+          {!isLoading && !isError && stackKeywords.length === 0 && (
+            <p className="mt-4 text-xs text-muted-foreground" data-testid="job-no-stack-hint">
+              Стек не задан — вакансии показаны по свежести, без ранжирования. Заполните навыки в
+              резюме синьора, чтобы подбор учитывал стек.
+            </p>
+          )}
+
           <ExclusionsPanel seniorId={seniorId} canManageGlobal={canManageGlobal} />
+          <SourceBudgetPanel canView={canViewBudgets} />
         </CrmDialogBody>
 
         <CrmDialogFooter className="sm:justify-between">
