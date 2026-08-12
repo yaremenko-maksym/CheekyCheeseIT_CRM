@@ -71,6 +71,11 @@ interface MockState {
     table: 'transactions' | 'transactionAuditLog' | 'unknown'
     row: Record<string, unknown>
   }>
+  // Captures the `where` argument of every `users.findFirst` call — the mock
+  // otherwise ignores it entirely (returns the next queued row regardless of
+  // what was asked for), which would let a mutant that drops the `where`
+  // clause survive silently.
+  usersFindFirstArgs: unknown[]
 }
 
 function makeService(initial: Partial<MockState> = {}) {
@@ -78,6 +83,7 @@ function makeService(initial: Partial<MockState> = {}) {
     projectRow: makeProjectRow(),
     userQueue: [],
     inserts: [],
+    usersFindFirstArgs: [],
     ...initial,
   }
 
@@ -108,7 +114,12 @@ function makeService(initial: Partial<MockState> = {}) {
     },
     query: {
       projects: { findFirst: async () => state.projectRow },
-      users: { findFirst: async () => state.userQueue.shift() },
+      users: {
+        findFirst: async (args: unknown) => {
+          state.usersFindFirstArgs.push(args)
+          return state.userQueue.shift()
+        },
+      },
     },
   }
   const db = { db: drizzleClient } as unknown
@@ -137,7 +148,9 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ACCOUNTANT,
         ),
-      ).rejects.toThrow(ForbiddenException)
+      ).rejects.toThrow(
+        new ForbiddenException('ACCOUNTANT cannot choose who receives ADMIN_INCOME'),
+      )
       expect(state.inserts).toHaveLength(0)
     })
 
@@ -225,8 +238,12 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toThrow(new BadRequestException('Получатель должен быть активным администратором'))
       expect(state.inserts).toHaveLength(0)
+      // The mock's `findFirst` returns the next queued row regardless of
+      // ARGS — without this, a mutant that drops the `where` clause entirely
+      // (`findFirst({})`) would still pass every assertion above.
+      expect(state.usersFindFirstArgs[0]).toHaveProperty('where')
     })
 
     it('receiverId = a uuid whose user is NOT an ADMIN → BadRequestException', async () => {
@@ -245,8 +262,9 @@ describe('createAdminIncome — receiver resolution (unit, mocked db)', () => {
           },
           ADMIN,
         ),
-      ).rejects.toThrow(BadRequestException)
+      ).rejects.toThrow(new BadRequestException('Получатель должен быть активным администратором'))
       expect(state.inserts).toHaveLength(0)
+      expect(state.usersFindFirstArgs[0]).toHaveProperty('where')
     })
 
     it('receiverId = an ARCHIVED admin → BadRequestException', async () => {
