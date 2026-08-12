@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   MAX_STACK_KEYWORD_CHARS,
   MAX_STACK_KEYWORDS,
+  STACK_ALIAS_FAMILIES,
+  STACK_AMBIGUOUS_ALIASES,
   canonicalStackKeyword,
   canonicalStackKeywords,
   normalizeStackKeyword,
@@ -132,6 +134,126 @@ describe('stack keyword normalization — one test per class (AC2)', () => {
   })
 })
 
+/**
+ * Every alias in the table, pinned as a LITERAL pair.
+ *
+ * The named per-class tests above cover the families the task called out. The
+ * table has more than that, and the mutation gate showed why it matters: a
+ * spelling nobody asserts is not a rule, it is a hopeful string — delete it, or
+ * empty a whole family's array, and every test still passed.
+ *
+ * The pairs are written out rather than looped over `STACK_ALIAS_FAMILIES`
+ * ON PURPOSE. A test that iterates the table under test moves WITH it: blank an
+ * alias and the loop simply stops checking that alias. These literals do not
+ * move, so removing or renaming any entry — alias, canonical id or whole family
+ * — turns into a failure here.
+ */
+describe('every alias in the table resolves to its canonical id', () => {
+  const PAIRS: readonly (readonly [string, string])[] = [
+    ['java', 'java'],
+    ['javascript', 'javascript'],
+    ['js', 'javascript'],
+    ['ecmascript', 'javascript'],
+    ['typescript', 'typescript'],
+    ['ts', 'typescript'],
+    ['csharp', 'csharp'],
+    ['c sharp', 'csharp'],
+    ['cplusplus', 'cplusplus'],
+    ['cpp', 'cplusplus'],
+    ['golang', 'golang'],
+    ['go', 'golang'],
+    ['nodejs', 'nodejs'],
+    ['node', 'nodejs'],
+    ['node js', 'nodejs'],
+    ['react', 'react'],
+    ['reactjs', 'react'],
+    ['react native', 'react native'],
+    ['reactnative', 'react native'],
+    ['vue', 'vue'],
+    ['vuejs', 'vue'],
+    ['angular', 'angular'],
+    ['angularjs', 'angular'],
+    ['dotnet', 'dotnet'],
+    ['dotnet core', 'dotnet'],
+    ['net core', 'dotnet'],
+    ['netcore', 'dotnet'],
+    ['spring boot', 'spring boot'],
+    ['springboot', 'spring boot'],
+    ['postgresql', 'postgresql'],
+    ['postgres', 'postgresql'],
+    ['psql', 'postgresql'],
+    ['mongodb', 'mongodb'],
+    ['mongo', 'mongodb'],
+    ['mongo db', 'mongodb'],
+    ['elasticsearch', 'elasticsearch'],
+    ['elastic search', 'elasticsearch'],
+    ['elk', 'elasticsearch'],
+    ['rabbitmq', 'rabbitmq'],
+    ['rabbit mq', 'rabbitmq'],
+    ['kubernetes', 'kubernetes'],
+    ['k8s', 'kubernetes'],
+    ['k8', 'kubernetes'],
+    ['kube', 'kubernetes'],
+    ['cicd', 'ci/cd'],
+    ['ci cd', 'ci/cd'],
+    ['aws', 'aws'],
+    ['amazon web services', 'aws'],
+    ['gcp', 'gcp'],
+    ['google cloud', 'gcp'],
+    ['google cloud platform', 'gcp'],
+    ['azure', 'azure'],
+    ['microsoft azure', 'azure'],
+    ['rest api', 'rest api'],
+    ['restful', 'rest api'],
+    ['rest apis', 'rest api'],
+    ['rest', 'rest api'],
+    ['graphql', 'graphql'],
+    ['graph ql', 'graphql'],
+  ]
+
+  for (const [alias, canonical] of PAIRS) {
+    it(`«${alias}» → ${canonical}`, () => {
+      expect(canonicalStackKeyword(alias)).toBe(canonical)
+    })
+  }
+
+  it('the table contains exactly these families — a new one needs a test', () => {
+    // Guards the other direction: adding a family without pinning it here would
+    // otherwise ship an unverified rule. Written out rather than derived from
+    // PAIRS, for the same reason PAIRS is written out. `java` is absent on
+    // purpose — one spelling, handled by the fallback.
+    expect(Object.keys(STACK_ALIAS_FAMILIES).sort()).toEqual([
+      'angular',
+      'aws',
+      'azure',
+      'ci/cd',
+      'cplusplus',
+      'csharp',
+      'dotnet',
+      'elasticsearch',
+      'gcp',
+      'golang',
+      'graphql',
+      'javascript',
+      'kubernetes',
+      'mongodb',
+      'nodejs',
+      'postgresql',
+      'rabbitmq',
+      'react',
+      'react native',
+      'rest api',
+      'spring boot',
+      'typescript',
+      'vue',
+    ])
+  })
+
+  it('the ambiguous set is exactly the spellings that are English words', () => {
+    expect([...STACK_AMBIGUOUS_ALIASES].sort()).toEqual(['go', 'node', 'rest'])
+  })
+})
+
 describe('NEGATIVE classes — substring bleed must not happen (AC2)', () => {
   it('`Java` is NOT `JavaScript` (the headline false positive)', () => {
     expect(canonicalStackKeyword('Java')).not.toBe(canonicalStackKeyword('JavaScript'))
@@ -214,6 +336,49 @@ describe('ambiguous spellings are honoured in a title, not in prose', () => {
   })
 })
 
+/**
+ * The pre-tokenisation rewrites, asserted on the TOKEN STREAM.
+ *
+ * Asserting them only through `canonicalStackKeyword` hides most of them: the
+ * alias table independently maps the spaced spellings (`ci cd`), so a rewrite
+ * could stop firing entirely and the canonical id would still come out right.
+ * `stackTokens` is where the rewrite is the only thing that can produce the
+ * result, which is why each one is pinned here as well.
+ */
+describe('symbol rewrites, pinned on the token stream', () => {
+  it('`CI/CD` and its spaced/dashed spellings all become one `cicd` token', () => {
+    expect(stackTokens('CI/CD')).toEqual(['cicd'])
+    expect(stackTokens('CI / CD')).toEqual(['cicd'])
+    expect(stackTokens('ci-cd')).toEqual(['cicd'])
+    expect(stackTokens('ci - cd')).toEqual(['cicd'])
+  })
+
+  it('`R&D` becomes one `rnd` token, spaced or not', () => {
+    expect(stackTokens('R&D team')).toEqual(['rnd', 'team'])
+    expect(stackTokens('R & D team')).toEqual(['rnd', 'team'])
+  })
+
+  it('`F#` becomes `fsharp`', () => {
+    expect(stackTokens('F# developer')).toEqual(['fsharp', 'developer'])
+    expect(canonicalStackKeyword('F#')).toBe('fsharp')
+  })
+
+  it('`C#` and `C++` become their own tokens, distinct from a bare `c`', () => {
+    expect(stackTokens('C# and C++ and C')).toEqual(['csharp', 'and', 'cplusplus', 'and', 'c'])
+  })
+
+  it('`.NET` becomes `dotnet`, and `ASP.NET` keeps both parts', () => {
+    expect(stackTokens('.NET')).toEqual(['dotnet'])
+    expect(stackTokens('ASP.NET Core')).toEqual(['asp', 'dotnet', 'core'])
+  })
+
+  it('the `X.js` convention folds for any framework, not a listed few', () => {
+    expect(stackTokens('Node.js')).toEqual(['nodejs'])
+    expect(stackTokens('Vue.js')).toEqual(['vuejs'])
+    expect(stackTokens('Svelte.js')).toEqual(['sveltejs'])
+  })
+})
+
 describe('stackTokens / normalizeStackKeyword', () => {
   it('splits on punctuation but keeps rewritten symbol names whole', () => {
     expect(stackTokens('C++, C#, .NET')).toEqual(['cplusplus', 'csharp', 'dotnet'])
@@ -222,6 +387,28 @@ describe('stackTokens / normalizeStackKeyword', () => {
   it('folds a Cyrillic spelling onto the Latin one', () => {
     expect(normalizeStackKeyword('Пайтон')).toBe('paiton')
     expect(stackTokens('Досвід з Docker')).toContain('docker')
+  })
+
+  it('transliterates EVERY letter the Cyrillic map covers', () => {
+    // One assertion over the whole alphabet, so a single wrong or deleted letter
+    // mapping fails — the per-letter entries are otherwise unasserted strings
+    // (the mutation gate flagged each one individually). `ъ` and `ь` map to
+    // nothing on purpose, which is why the output is shorter than the input.
+    expect(normalizeStackKeyword('абвгґдеёєжзиіїйклмнопрстуфхцчшщъыьэюя')).toBe(
+      'abvggdeeezhziiiiklmnoprstufhcchshschyeiuia',
+    )
+  })
+
+  it('folds the UPPER-CASE alphabet identically', () => {
+    expect(normalizeStackKeyword('АБВГҐДЕЁЄЖЗИІЇЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯ')).toBe(
+      normalizeStackKeyword('абвгґдеёєжзиіїйклмнопрстуфхцчшщъыьэюя'),
+    )
+  })
+
+  it('strips stacked combining marks, not just a single one', () => {
+    // `\p{M}+` vs `\p{M}`: with one mark per letter both behave the same, so the
+    // quantifier is only observable on a letter carrying TWO marks.
+    expect(normalizeStackKeyword('é̂lastic')).toBe('elastic')
   })
 
   it('returns an empty list for blank input', () => {

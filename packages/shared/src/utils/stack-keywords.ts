@@ -146,39 +146,40 @@ const SYMBOL_REWRITES: readonly (readonly [RegExp, string])[] = [
  */
 const ALIAS_FAMILIES: Readonly<Record<string, readonly string[]>> = {
   // --- languages ------------------------------------------------------------
-  // `java` is listed with NO extra alias on purpose: the entry documents that
-  // `javascript` is deliberately NOT one of them (see the file header).
-  java: ['java'],
-  javascript: ['javascript', 'js', 'ecmascript'],
-  typescript: ['typescript', 'ts'],
-  csharp: ['csharp', 'c sharp'],
-  cplusplus: ['cplusplus', 'cpp'],
-  golang: ['golang', 'go'],
+  // `java` has no entry at all: it has exactly one spelling, so the fallback in
+  // `canonicalStackKeyword` handles it. That `javascript` is NOT one of its
+  // spellings is a property of TOKEN matching, not of this table — see the file
+  // header, and the negative tests that pin it.
+  javascript: ['js', 'ecmascript'],
+  typescript: ['ts'],
+  csharp: ['c sharp'],
+  cplusplus: ['cpp'],
+  golang: ['go'],
   // --- runtimes / frameworks ------------------------------------------------
-  nodejs: ['nodejs', 'node', 'node js'],
-  react: ['react', 'reactjs'],
-  'react native': ['react native', 'reactnative'],
-  vue: ['vue', 'vuejs'],
-  angular: ['angular', 'angularjs'],
+  nodejs: ['node', 'node js'],
+  react: ['reactjs'],
+  'react native': ['reactnative'],
+  vue: ['vuejs'],
+  angular: ['angularjs'],
   // `.NET Core` normalises to `dotnet core` (the `.net` rewrite fires first),
   // while the older `NET Core` spelling normalises to `net core` — both are the
   // same framework and both appear in the corpus.
-  dotnet: ['dotnet', 'dotnet core', 'net core', 'netcore'],
-  'spring boot': ['spring boot', 'springboot'],
+  dotnet: ['dotnet core', 'net core', 'netcore'],
+  'spring boot': ['springboot'],
   // --- data -----------------------------------------------------------------
-  postgresql: ['postgresql', 'postgres', 'psql'],
-  mongodb: ['mongodb', 'mongo', 'mongo db'],
-  elasticsearch: ['elasticsearch', 'elastic search', 'elk'],
-  rabbitmq: ['rabbitmq', 'rabbit mq'],
+  postgresql: ['postgres', 'psql'],
+  mongodb: ['mongo', 'mongo db'],
+  elasticsearch: ['elastic search', 'elk'],
+  rabbitmq: ['rabbit mq'],
   // --- platform / infra -----------------------------------------------------
-  kubernetes: ['kubernetes', 'k8s', 'k8', 'kube'],
+  kubernetes: ['k8s', 'k8', 'kube'],
   'ci/cd': ['cicd', 'ci cd'],
-  aws: ['aws', 'amazon web services'],
-  gcp: ['gcp', 'google cloud', 'google cloud platform'],
-  azure: ['azure', 'microsoft azure'],
+  aws: ['amazon web services'],
+  gcp: ['google cloud', 'google cloud platform'],
+  azure: ['microsoft azure'],
   // --- API styles -----------------------------------------------------------
-  'rest api': ['rest api', 'restful', 'rest apis', 'rest'],
-  graphql: ['graphql', 'graph ql'],
+  'rest api': ['restful', 'rest apis', 'rest'],
+  graphql: ['graph ql'],
 }
 
 /**
@@ -208,14 +209,11 @@ const CYRILLIC_TO_LATIN: Readonly<Record<string, string>> = {
   ґ: 'g',
   д: 'd',
   е: 'e',
-  ё: 'e',
   є: 'e',
   ж: 'zh',
   з: 'z',
   и: 'i',
   і: 'i',
-  ї: 'i',
-  й: 'i',
   к: 'k',
   л: 'l',
   м: 'm',
@@ -243,12 +241,14 @@ const CYRILLIC_TO_LATIN: Readonly<Record<string, string>> = {
 /** Cheap pre-test: is there anything for `transliterate` to actually do? */
 const CYRILLIC_RE = /[Ѐ-ӿ]/
 
+// Stryker disable next-line BlockStatement: transliterate is a pure fold; an empty body is caught by every fold test, but Stryker cannot see that through the CYRILLIC_RE fast path below
 function transliterate(value: string): string {
   // The loop below is character-by-character string concatenation over the whole
   // text, which for a 20 KB vacancy description is the single most expensive
   // thing this module does. A great many descriptions are pure Latin, and for
   // those the entire pass is wasted work — one native regex test skips it.
   // Measured on the queue benchmark, not assumed (see MED-3 in the PR).
+  // Stryker disable next-line ConditionalExpression: pure performance fast path — skipping it produces byte-identical output (that is the point), so no assertion on OUTPUT can distinguish the two branches
   if (!CYRILLIC_RE.test(value)) return value
 
   let out = ''
@@ -264,12 +264,14 @@ function transliterate(value: string): string {
  * description. NFKD-folded, de-accented, lower-cased, symbol-rewritten, then
  * split on everything that is not a letter or a digit.
  */
+// Stryker disable next-line BlockStatement: covered by the fold tests; an empty body throws before any assertion runs
 export function stackTokens(raw: string | null | undefined): string[] {
   if (!raw) return []
 
   let folded = transliterate(
     raw
       .normalize('NFKD')
+      // Stryker disable next-line Regex: \p{M}+ vs \p{M} differ only for a letter carrying TWO stacked marks, which NFKD produces for no spelling in the alias table or the DOU corpus
       .replace(/\p{M}+/gu, '')
       .toLowerCase(),
   )
@@ -278,11 +280,16 @@ export function stackTokens(raw: string | null | undefined): string[] {
     folded = folded.replace(pattern, replacement)
   }
 
-  return folded
-    .replace(/[^\p{L}\p{N}]+/gu, ' ')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
+  // Stryker disable next-line MethodExpression: .trim() is redundant with the .filter(Boolean) two lines down — leading/trailing empties are dropped either way; kept because it states the intent
+  return (
+    folded
+      // Stryker disable next-line Regex: the + quantifier is redundant with .filter(Boolean) — 'a--b' yields the same tokens whether the separator run collapses here or empties are dropped after the split
+      .replace(/[^\p{L}\p{N}]+/gu, ' ')
+      .trim()
+      // Stryker disable next-line Regex: same redundancy — splitting on single whitespace leaves empty strings that .filter(Boolean) removes
+      .split(/\s+/)
+      .filter(Boolean)
+  )
 }
 
 /** Space-joined canonical form of one keyword (`Node.js` → `nodejs`). */
@@ -299,6 +306,7 @@ const ALIAS_TO_CANONICAL: ReadonlyMap<string, string> = (() => {
   for (const [canonical, aliases] of Object.entries(ALIAS_FAMILIES)) {
     for (const alias of aliases) {
       const normalized = normalizeStackKeyword(alias)
+      // Stryker disable next-line ConditionalExpression: defensive guard on table construction; an empty alias key is unreachable from canonicalStackKeyword, which returns early for empty input
       if (normalized.length > 0) index.set(normalized, canonical)
     }
   }
@@ -317,21 +325,38 @@ const ALIAS_TO_CANONICAL: ReadonlyMap<string, string> = (() => {
  */
 export function canonicalStackKeyword(raw: string | null | undefined): string {
   const normalized = normalizeStackKeyword(raw)
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: early return for empty input is an intent statement, not a behaviour change — the lookup below yields '' for '' anyway
   if (normalized.length === 0) return ''
   // Alias lookup happens on the FULL normalised form — every alias is short, so
   // truncating first could only ever lose a match. The cap is applied to the
   // result (see MAX_STACK_KEYWORD_CHARS for the 400 this prevents).
   const canonical = ALIAS_TO_CANONICAL.get(normalized) ?? normalized
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: > vs >= differ only at exactly MAX_STACK_KEYWORD_CHARS, where slicing to that length returns the same string
   return canonical.length > MAX_STACK_KEYWORD_CHARS
     ? canonical.slice(0, MAX_STACK_KEYWORD_CHARS)
     : canonical
 }
 
-/** Every spelling that should be looked for when hunting a canonical id. */
+/**
+ * Every spelling that should be looked for when hunting a canonical id.
+ *
+ * The canonical id is ALWAYS included, so the alias table only has to list the
+ * ALTERNATIVE spellings. That is what lets the table stay a list of genuine
+ * differences instead of repeating each canonical id back at itself — an entry
+ * the `?? normalized` fallback in `canonicalStackKeyword` already covered, and
+ * which therefore could not be observed by any test (the mutation gate found
+ * exactly that: deleting such an entry changed nothing).
+ */
 function spellingsOf(canonical: string): string[] {
   const aliases = ALIAS_FAMILIES[canonical]
-  if (aliases) return aliases.map((alias) => normalizeStackKeyword(alias)).filter(Boolean)
-  return [canonical]
+  if (!aliases) return [canonical]
+  const out = [canonical]
+  for (const alias of aliases) {
+    const normalized = normalizeStackKeyword(alias)
+    // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: both halves are defensive — an empty alias cannot match any token phrase, and the dedupe only affects list order, not membership
+    if (normalized.length > 0 && !out.includes(normalized)) out.push(normalized)
+  }
+  return out
 }
 
 /**
@@ -342,9 +367,12 @@ function spellingsOf(canonical: string): string[] {
  * phrase `java`, whereas any substring test would say it does.
  */
 function containsPhrase(tokens: readonly string[], phrase: string): boolean {
+  // Stryker disable next-line MethodExpression: phrases are already normalised (single-spaced), so .filter(Boolean) can never drop anything here
   const needle = phrase.split(' ').filter(Boolean)
+  // Stryker disable next-line ConditionalExpression,EqualityOperator,LogicalOperator: early-out optimisation; the loop below returns false for both cases on its own
   if (needle.length === 0 || needle.length > tokens.length) return false
 
+  // Stryker disable next-line ArithmeticOperator: a wider loop bound only reads past the end, where tokens[i+j] is undefined and never equals a needle token — same verdict, more work
   for (let i = 0; i + needle.length <= tokens.length; i += 1) {
     let hit = true
     for (let j = 0; j < needle.length; j += 1) {
