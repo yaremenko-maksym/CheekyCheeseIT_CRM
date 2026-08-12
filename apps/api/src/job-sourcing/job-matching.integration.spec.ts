@@ -17,7 +17,11 @@ import {
 import * as schema from '../database/schema'
 import { DouRssProvider } from './dou.provider'
 import type { NormalizedPosting } from './job-source.provider'
-import { JobSourcingService } from './job-sourcing.service'
+import {
+  SUGGESTIONS_PAGE_SIZE,
+  SUGGESTION_RANKING_WINDOW,
+  JobSourcingService,
+} from './job-sourcing.service'
 
 /**
  * Stack matching + source budgets — real-database integration spec
@@ -401,6 +405,146 @@ describe('Job matching + source budgets — real DB integration', () => {
       expect(queue.items.every((i) => i.matchScore === null)).toBe(true)
       // Newest first — the pre-existing behaviour, untouched.
       expect(queue.items[0]?.posting.title).toBe('Middle PHP Developer')
+    })
+  })
+
+  /**
+   * The ranking window bounds the WORK — it must never bound the COUNT.
+   *
+   * `total` is exact only because pass 1 (the cheap projection) has NO `LIMIT`:
+   * it sees every visible row, and the window is applied afterwards, to the
+   * second query. Nothing enforced that. Every other test in this file runs on
+   * two or three rows, where a window of 200 clips nothing at all, so all of
+   * them stay green whether the window exists or not — and the next person to
+   * add `.limit()` to pass 1 as an "obvious optimisation" would silently turn
+   * «Осталось: 2251» into «Осталось: 200» with no test to stop them. Same shape
+   * as the compare-and-set finding: the behaviour was right, the guard absent.
+   *
+   * So this block is the only one that seeds MORE rows than the window, which is
+   * what makes the two numbers distinguishable at all.
+   */
+  describe('counts stay exact past the ranking window', () => {
+    const OVERFLOW = SUGGESTION_RANKING_WINDOW + 50
+    /** Rows for the OTHER senior — the volume that makes a missing WHERE visible. */
+    const OTHER_SENIOR_ROWS = 30
+
+    beforeEach(async () => {
+      if (!dbAvailable) return
+      await seedSource()
+
+      // One strong match, newest, so it lands inside the window and on top.
+      const rows: NormalizedPosting[] = [
+        posting({
+          externalId: 'overflow-strong',
+          title: 'Senior Java Developer',
+          descriptionMd: 'Spring Boot, Postgres, Docker.',
+          publishedAt: new Date('2026-08-11T12:00:00.000Z'),
+        }),
+      ]
+      // …and a pile of irrelevant ones, all older, all scoring 0.
+      for (let i = 0; i < OVERFLOW; i += 1) {
+        rows.push(
+          posting({
+            externalId: `overflow-${i}`,
+            title: `Middle PHP Developer ${i}`,
+            descriptionMd: 'Laravel, MySQL, jQuery.',
+            publishedAt: new Date(Date.parse('2026-08-10T00:00:00.000Z') - i * 60_000),
+          }),
+        )
+      }
+      provider.batch = rows
+      await service.collectSource(await seedSource())
+    }, 120_000)
+
+    it('reports the TRUE total, not the size of the window', async () => {
+      if (!dbAvailable) return
+      const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
+
+      // 1 strong + OVERFLOW weak. If pass 1 ever grows a LIMIT, this collapses
+      // to SUGGESTION_RANKING_WINDOW and the counter starts under-reporting.
+      expect(queue.total).toBe(OVERFLOW + 1)
+      expect(queue.total).toBeGreaterThan(SUGGESTION_RANKING_WINDOW)
+    })
+
+    it('ranks within the window without losing the strong match', async () => {
+      if (!dbAvailable) return
+      const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
+
+      expect(queue.items[0]?.posting.title).toBe('Senior Java Developer')
+      expect(queue.items[0]?.matchScore).toBe(1)
+    })
+
+    it('demotes only what it actually judged — the window, not the whole queue', async () => {
+      if (!dbAvailable) return
+      const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
+
+      // Everything scored is either shown or demoted; nothing judged is dropped.
+      expect(queue.items.length + queue.lowMatchCount).toBe(SUGGESTION_RANKING_WINDOW)
+      // The rest are simply further down the queue — still inside `total`, which
+      // is what the dialog shows as «Осталось: N». Nothing vanishes.
+      expect(queue.total).toBeGreaterThan(queue.items.length + queue.lowMatchCount)
+      // The array is page-capped; the COUNT is not.
+      expect(queue.lowMatch.length).toBeLessThanOrEqual(SUGGESTIONS_PAGE_SIZE)
+      expect(queue.lowMatchCount).toBeGreaterThan(queue.lowMatch.length)
+    })
+
+    it('keeps one senior’s queue out of another’s, at a volume where it shows', async () => {
+      if (!dbAvailable) return
+      // With two rows a missing `WHERE senior_id = ?` is indistinguishable from a
+      // present one. Both seniors are in the same team, so the collector already
+      // offered them the SAME OVERFLOW + 1 postings; giving one of them a known
+      // number of EXCLUSIVE extras is what makes the two queues different sizes
+      // — and makes a dropped filter show up as both queues reporting the union.
+      const extra = Array.from({ length: OTHER_SENIOR_ROWS }, (_, i) =>
+        posting({
+          externalId: `other-senior-${i}`,
+          title: `QA Engineer ${i}`,
+          descriptionMd: 'Manual testing, TestRail.',
+          publishedAt: new Date(Date.parse('2026-08-01T00:00:00.000Z') + i * 60_000),
+        }),
+      )
+      const inserted = await dbSvc.db
+        .insert(jobPostings)
+        .values(
+          extra.map((p) => ({
+            sourceType: p.sourceType,
+            sourceId: SOURCE_ID,
+            externalId: p.externalId,
+            url: p.url,
+            title: p.title,
+            companyName: p.companyName,
+            companyNameNormalized: p.companyNameNormalized,
+            location: p.location,
+            descriptionMd: p.descriptionMd,
+            publishedAt: p.publishedAt,
+            fingerprint: p.fingerprint,
+          })),
+        )
+        .onConflictDoNothing()
+        .returning({ id: jobPostings.id })
+      await dbSvc.db
+        .insert(jobSuggestions)
+        .values(inserted.map((p) => ({ postingId: p.id, seniorId: SENIOR_NO_RESUME.id })))
+        .onConflictDoNothing()
+
+      const mine = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
+      const theirs = await service.listSuggestions(SENIOR_NO_RESUME.id, ADMIN)
+
+      // Shared postings only.
+      expect(mine.total).toBe(OVERFLOW + 1)
+      // Shared postings PLUS this senior's exclusive ones.
+      expect(theirs.total).toBe(OVERFLOW + 1 + OTHER_SENIOR_ROWS)
+
+      // The decisive pair. Every suggestion row in the table belongs to one of
+      // these two seniors, so an unfiltered query returns their SUM — a number
+      // neither queue may ever report.
+      const everySuggestionRow = mine.total + theirs.total
+      expect(mine.total).not.toBe(everySuggestionRow)
+      expect(theirs.total).not.toBe(everySuggestionRow)
+      expect(mine.total).not.toBe(theirs.total)
+      // …and the rows actually handed back belong to the senior who asked.
+      expect(theirs.items.every((i) => i.seniorId === SENIOR_NO_RESUME.id)).toBe(true)
+      expect(mine.items.every((i) => i.seniorId === SENIOR_JAVA.id)).toBe(true)
     })
   })
 
