@@ -49,8 +49,16 @@ export function DropBalanceCard({
     )
   }
 
-  const { balance, dropSharePercent, pendingIncomesCount, debtToCompany } = summary
+  const {
+    balance,
+    dropSharePercent,
+    pendingIncomesCount,
+    debtToCompany,
+    pendingObligationAmount,
+    pendingObligationCount,
+  } = summary
   const hasDebt = debtToCompany > 0
+  const hasPendingObligation = pendingObligationAmount > 0
 
   return (
     <TooltipProvider>
@@ -69,15 +77,49 @@ export function DropBalanceCard({
         </CardHeader>
 
         <CardContent className="px-5 pb-4 space-y-3">
-          {/* Main balance figure */}
-          <div>
-            <p
-              className="text-3xl font-bold tabular-nums text-foreground"
-              data-testid="drop-balance-amount"
-            >
-              {fmtUsd(balance)}
-            </p>
-            <p className="text-xs text-muted-foreground mt-0.5">Накопленная доля</p>
+          {/* task-drop-sees-own-obligations (§AC1/§AC2): "выплачено" и "ожидает
+              выплаты" — два РАЗНЫХ числа, показанные раздельно, никогда не
+              суммируются в одну цифру. Mobile-first: стек в столбик на <640px
+              (grid-cols-1), side-by-side с sm: */}
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div>
+              <p
+                className="text-3xl font-bold tabular-nums text-foreground"
+                data-testid="drop-balance-amount"
+              >
+                {fmtUsd(balance)}
+              </p>
+              <p className="text-xs text-muted-foreground mt-0.5">Выплачено</p>
+            </div>
+
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <div className="cursor-default">
+                  <p
+                    className={cn(
+                      'text-3xl font-bold tabular-nums',
+                      hasPendingObligation ? 'text-amber-500' : 'text-foreground',
+                    )}
+                    data-testid="drop-balance-pending-obligation"
+                  >
+                    {fmtUsd(pendingObligationAmount)}
+                  </p>
+                  <p
+                    className="text-xs text-muted-foreground mt-0.5"
+                    data-testid="drop-balance-pending-obligation-count"
+                  >
+                    Ожидает выплаты
+                    {pendingObligationCount > 0
+                      ? ` · ${pendingObligationCount} ${pendingObligationCount === 1 ? 'начисление' : 'начисления'}`
+                      : ''}
+                  </p>
+                </div>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                Компания уже начислила вам эту сумму, но ещё не перевела — отдельно от «Выплачено»
+                выше
+              </TooltipContent>
+            </Tooltip>
           </div>
 
           <Separator />
@@ -136,7 +178,8 @@ export function DropBalanceCard({
                 </div>
               </TooltipTrigger>
               <TooltipContent side="bottom">
-                Доля синьора, которую компания должна выплатить вам
+                Ваша задолженность перед компанией за подтверждённые приходы, которые ещё не
+                переведены
               </TooltipContent>
             </Tooltip>
           </div>
