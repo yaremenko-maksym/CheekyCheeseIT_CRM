@@ -1100,10 +1100,14 @@ export class TransactionsService {
    *   - `pendingCount`        — DROP_INCOME rows with `receiverId = drop.id` in
    *                             PENDING|VALIDATED status (the «N ожидают» badge).
    *
-   * NEW field (additive, only consumed by the drop self-summary; the admin
-   * summary maps it away so its DTO/tests are unaffected):
+   * NEW fields (additive, only consumed by the drop self-summary; the admin
+   * summary maps them away so its DTO/tests are unaffected):
    *   - `debtToCompany`       — what the drop still owes the company for
    *                             VALIDATED-but-unsettled incomes.
+   *   - `pendingObligationAmount` / `pendingObligationCount` —
+   *                             task-drop-sees-own-obligations. The REVERSE
+   *                             direction: what the COMPANY owes THIS drop,
+   *                             booked but not yet paid out.
    *
    * debtToCompany formula (derived from the DROP_INCOME → company lifecycle,
    * see `validateTransaction` + `PaymentChannelService`):
@@ -1115,6 +1119,16 @@ export class TransactionsService {
    *   rows still in 'PENDING_PAYMENT'. This reads the BOOKED payable directly
    *   (rather than recomputing share math), so it stays correct even if a
    *   future income carries a per-row share override.
+   *
+   * pendingObligationAmount formula (task-drop-sees-own-obligations — see
+   * `bookCompanyObligations`): the admin-USDT declare path and the drop-payout
+   * cascade both book a DROP_PENDING_PAYOUT row (`receiverId = drop.id`,
+   * `status = 'PENDING_PAYMENT'`) the moment the company recognizes the
+   * drop's share is owed. `settleByCompany` (pending-settlement.service.ts)
+   * later flips that SAME row IN PLACE to `PAYOUT_DROP`/`PAID` — never a
+   * second row — so the outstanding pending-obligation total is exactly the
+   * sum of the drop's DROP_PENDING_PAYOUT rows still in 'PENDING_PAYMENT'.
+   * Deliberately NOT added into `balance` (§AC2 — accrued ≠ paid).
    */
   private computeDropAggregate(
     drop: { id: string; displayName: string; dropSharePercent: number | null },
@@ -1141,6 +1155,8 @@ export class TransactionsService {
     dropSharePercent: number
     pendingCount: number
     debtToCompany: number
+    pendingObligationAmount: number
+    pendingObligationCount: number
   } {
     const paid = allTxs.filter((tx) => tx.status === 'PAID')
 
@@ -1195,6 +1211,21 @@ export class TransactionsService {
       )
       .reduce((sum, tx) => sum + Math.round(baseAmount(tx) * MONEY_SCALE), 0)
 
+    // task-drop-sees-own-obligations: pendingObligationAmount — DROP_PENDING_PAYOUT
+    // rows booked FOR this drop (receiverId = drop.id) that the company has not
+    // yet settled (settleByCompany flips the SAME row to PAYOUT_DROP/PAID — see
+    // this method's docstring). This is the reverse leg of debtToCompany above.
+    const pendingObligationRows = allTxs.filter(
+      (tx) =>
+        tx.type === 'DROP_PENDING_PAYOUT' &&
+        tx.receiverId === drop.id &&
+        tx.status === 'PENDING_PAYMENT',
+    )
+    const pendingObligationScaled = pendingObligationRows.reduce(
+      (sum, tx) => sum + Math.round(baseAmount(tx) * MONEY_SCALE),
+      0,
+    )
+
     return {
       userId: drop.id,
       displayName: drop.displayName,
@@ -1202,6 +1233,8 @@ export class TransactionsService {
       dropSharePercent: drop.dropSharePercent ?? DEFAULT_DROP_SHARE_PERCENT,
       pendingCount,
       debtToCompany: debtScaled / MONEY_SCALE,
+      pendingObligationAmount: pendingObligationScaled / MONEY_SCALE,
+      pendingObligationCount: pendingObligationRows.length,
     }
   }
 
@@ -1219,6 +1252,8 @@ export class TransactionsService {
     dropSharePercent: number
     pendingIncomesCount: number
     debtToCompany: number
+    pendingObligationAmount: number
+    pendingObligationCount: number
   }> {
     if (currentUser.role !== 'DROP') {
       throw new ForbiddenException('Access denied: drop summary is available to DROP role only')
@@ -1256,6 +1291,8 @@ export class TransactionsService {
       dropSharePercent: aggregate.dropSharePercent,
       pendingIncomesCount: aggregate.pendingCount,
       debtToCompany: aggregate.debtToCompany,
+      pendingObligationAmount: aggregate.pendingObligationAmount,
+      pendingObligationCount: aggregate.pendingObligationCount,
     }
   }
 
@@ -1276,6 +1313,32 @@ export class TransactionsService {
       case 'REJECTED':
         return 'rejected'
       case 'PENDING':
+      default:
+        return 'pending'
+    }
+  }
+
+  /**
+   * task-drop-sees-own-obligations. Map a DROP_PENDING_PAYOUT / PAYOUT_DROP
+   * row's raw DB `transaction_status` to the SAME FE-facing `DropIncomeStatus`
+   * enum `mapDropIncomeStatus` uses — the incomes feed shows both income
+   * models side by side (discriminated by `model`), so they share one status
+   * vocabulary. Only two states are actually reachable on this pair: the row
+   * is booked PENDING_PAYMENT and later settled IN PLACE to PAYOUT_DROP/PAID
+   * (see `bookCompanyObligations` + `pending-settlement.service.ts`) — there
+   * is no accountant-validation step for an obligation row, so 'validated' is
+   * never produced here (that state is exclusively a DROP_INCOME lifecycle
+   * step). REJECTED is defensive (not currently emitted by either booking
+   * path) — kept explicit rather than silently defaulting, same rationale as
+   * `mapDropPaymentStatus`'s PENDING_CASH_CONFIRM case below.
+   */
+  private mapDropObligationStatus(dbStatus: string): DropIncomeStatus {
+    switch (dbStatus) {
+      case 'PAID':
+        return 'paid'
+      case 'REJECTED':
+        return 'rejected'
+      case 'PENDING_PAYMENT':
       default:
         return 'pending'
     }
@@ -1324,13 +1387,31 @@ export class TransactionsService {
    *
    * Drop role - phase 2 (task-drop-2-backend). RBAC: DROP only — every other
    * role gets 403. The drop only ever sees THEIR OWN incomes — the query is
-   * scoped to `receiverId = self.id AND type = 'DROP_INCOME'` at the DB level,
-   * so no other drop's income can leak. Supports status / date-window filters
-   * and offset pagination; `total` is the count BEFORE the page slice.
+   * scoped to `receiverId = self.id` at the DB level, so no other drop's
+   * income can leak. Supports status / date-window filters and offset
+   * pagination; `total` is the count BEFORE the page slice.
    *
-   * `companyName` is sourced from the income's `senderLabel` (set to
-   * `project.companyName` at creation — see `createDropIncome`), falling back
-   * to the linked project's companyName, then '' if neither is present.
+   * task-drop-sees-own-obligations: the feed covers BOTH income models a drop
+   * can carry — `DROP_INCOME` is `receiverId`-scoped by design (see
+   * `createDropIncome`); `receiverId` is likewise the invariant for every
+   * DROP_PENDING_PAYOUT / PAYOUT_DROP row (`bookCompanyObligations` always
+   * sets `receiverId: drop.id`), so ONE `receiverId = self.id` predicate
+   * safely covers all three types — no widening of WHO can be seen, only of
+   * WHICH of the caller's OWN rows are included (§AC5).
+   *   - 'DROP_INCOME'                    → the old self-declared model.
+   *   - 'DROP_PENDING_PAYOUT'/'PAYOUT_DROP' → the SAME obligation row across
+   *     its lifecycle (booked PENDING_PAYMENT, settled IN PLACE to PAYOUT_DROP
+   *     PAID — never two rows for one obligation), from the admin-USDT
+   *     declare path or the drop-payout cascade.
+   * `model` on the returned DTO discriminates which one produced each row.
+   *
+   * `companyName`: for a DROP_INCOME row, sourced from `senderLabel` (set to
+   * `project.companyName` at creation), falling back to the linked project's
+   * companyName, then ''. For an obligation row `senderLabel` is always the
+   * literal 'COMPANY' marker (see `bookCompanyObligations`), which is not a
+   * company name — those rows always use `project.companyName` (obligations
+   * are always project-scoped), falling back to '' only if the project link
+   * is gone.
    */
   async getDropSelfIncomes(
     currentUser: SessionUser,
@@ -1340,11 +1421,12 @@ export class TransactionsService {
       throw new ForbiddenException('Access denied: drop incomes are available to DROP role only')
     }
 
-    // Self-scope at the DB level: only this drop's DROP_INCOME rows. AC2:
-    // DROP is non-privileged — a deleted own income must not resurface here.
+    // Self-scope at the DB level: only this drop's rows across BOTH income
+    // models (see docstring). AC2: DROP is non-privileged — a deleted own
+    // income must not resurface here.
     const rows = await this.db.db.query.transactions.findMany({
       where: and(
-        eq(transactions.type, 'DROP_INCOME'),
+        inArray(transactions.type, ['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP']),
         eq(transactions.receiverId, currentUser.id),
         isNull(transactions.deletedAt),
       ),
@@ -1355,7 +1437,8 @@ export class TransactionsService {
     // In-memory status + date-window filters (the feed per drop is small;
     // pushing these to SQL would not change correctness and keeps the status
     // mapping in one place). The status filter compares the MAPPED status so
-    // the FE contract (pending|validated|paid|rejected) is honoured.
+    // the FE contract (pending|validated|paid|rejected) is honoured, for
+    // EITHER model.
     const fromTs = query.from ? Date.parse(query.from) : undefined
     // `to` is a YYYY-MM-DD date string: Date.parse gives midnight UTC (start of
     // that day). Add 86_399_999 ms (= 23:59:59.999) so that incomes created
@@ -1363,8 +1446,13 @@ export class TransactionsService {
     // exactly 00:00:00 UTC. Fix: MED review finding code-review-2.
     const toTs = query.to ? Date.parse(query.to) + 86_399_999 : undefined
 
+    const mappedStatusOf = (tx: { type: string; status: string }): DropIncomeStatus =>
+      tx.type === 'DROP_INCOME'
+        ? this.mapDropIncomeStatus(tx.status)
+        : this.mapDropObligationStatus(tx.status)
+
     const filtered = rows.filter((tx) => {
-      if (query.status && this.mapDropIncomeStatus(tx.status) !== query.status) return false
+      if (query.status && mappedStatusOf(tx) !== query.status) return false
       const created =
         tx.createdAt instanceof Date ? tx.createdAt.getTime() : Date.parse(String(tx.createdAt))
       if (fromTs !== undefined && !Number.isNaN(fromTs) && created < fromTs) return false
@@ -1378,14 +1466,18 @@ export class TransactionsService {
 
     const items: DropIncomeDto[] = pageRows.map((tx) => ({
       id: tx.id,
-      companyName: tx.senderLabel ?? tx.project?.companyName ?? '',
+      companyName:
+        tx.type === 'DROP_INCOME'
+          ? (tx.senderLabel ?? tx.project?.companyName ?? '')
+          : (tx.project?.companyName ?? ''),
       amount: parseFloat(tx.amount),
       currency: tx.currency,
       createdAt:
         tx.createdAt instanceof Date
           ? tx.createdAt.toISOString()
           : new Date(tx.createdAt).toISOString(),
-      status: this.mapDropIncomeStatus(tx.status),
+      status: mappedStatusOf(tx),
+      model: tx.type === 'DROP_INCOME' ? 'declared' : 'obligation',
     }))
 
     return { items, total, page: query.page, limit: query.limit }

@@ -1576,11 +1576,28 @@ export type SettleObligationResponseDto = z.infer<typeof settleObligationRespons
 //                            status = 'PENDING_PAYMENT' of `amount`
 //                            (= income × (1 − dropSharePercent/100) per income,
 //                            booked at validation, cleared on company payment).
+//   - pendingObligationAmount — task-drop-sees-own-obligations. The REVERSE
+//                            direction of debtToCompany: money the COMPANY
+//                            owes THIS drop that has been booked but not yet
+//                            paid out. Σ over DROP_PENDING_PAYOUT rows where
+//                            receiverId = drop AND status = 'PENDING_PAYMENT'
+//                            of `amount` (booked by bookCompanyObligations on
+//                            the admin-USDT declare path and the drop-payout
+//                            cascade — see transactions.service). Deliberately
+//                            NOT folded into `balance`: balance is money
+//                            already paid (PAID PAYOUT_DROP); this is money
+//                            accrued but still owed — conflating the two would
+//                            make a drop with a large pending obligation and
+//                            zero payouts believe nothing is owed to them.
+//   - pendingObligationCount — count of the DROP_PENDING_PAYOUT rows behind
+//                            `pendingObligationAmount` (mirrors pendingCount).
 export const dropSelfSummarySchema = z.object({
   balance: z.number(),
   dropSharePercent: z.number().int().min(0).max(100),
   pendingIncomesCount: z.number().int().min(0),
   debtToCompany: z.number(),
+  pendingObligationAmount: z.number(),
+  pendingObligationCount: z.number().int().min(0),
 })
 export type DropSelfSummaryDto = z.infer<typeof dropSelfSummarySchema>
 
@@ -1604,6 +1621,18 @@ export type DropIncomeStatus = z.infer<typeof dropIncomeStatusSchema>
 // `companyName` is the client company that paid (sourced from the income's
 // senderLabel / project.companyName). `amount` is the gross income before the
 // drop's share is split out.
+//
+// task-drop-sees-own-obligations: the feed now covers TWO income models a
+// drop can carry, discriminated by `model`:
+//   - 'declared'  — the old self-declared DROP_INCOME row (drop registers the
+//                   income themselves; PENDING → VALIDATED → PAID lifecycle).
+//   - 'obligation' — a company-booked IOU (DROP_PENDING_PAYOUT, PENDING_PAYMENT
+//                   → settles IN PLACE to PAYOUT_DROP, PAID) from the
+//                   admin-USDT declare path or the drop-payout cascade — see
+//                   `bookCompanyObligations` in transactions.service. `status`
+//                   is still one of the same four values (obligation rows only
+//                   ever produce 'pending'/'paid'/'rejected' — never
+//                   'validated', which is exclusively a DROP_INCOME state).
 export const dropIncomeDtoSchema = z.object({
   id: z.string().uuid(),
   companyName: z.string(),
@@ -1611,6 +1640,7 @@ export const dropIncomeDtoSchema = z.object({
   currency: z.string(),
   createdAt: z.string(), // ISO date
   status: dropIncomeStatusSchema,
+  model: z.enum(['declared', 'obligation']),
 })
 export type DropIncomeDto = z.infer<typeof dropIncomeDtoSchema>
 
@@ -1627,15 +1657,15 @@ export type PaginatedDropIncomes = z.infer<typeof paginatedDropIncomesSchema>
 
 // Query filters for GET /api/finance/drop/me/incomes. All optional; status/type
 // narrow the feed, from/to bound the createdAt window (ISO date strings), and
-// page/limit drive pagination (defaults 1 / 20). `type` currently only accepts
-// DROP_INCOME (the sole income type a drop owns) but is kept as a filter for
-// forward-compatibility and to mirror the FE filter UI.
+// page/limit drive pagination (defaults 1 / 20).
 export const dropIncomesQuerySchema = z.object({
   status: dropIncomeStatusSchema.optional(),
-  // forward-compat: type is not used in WHERE (only DROP_INCOME rows are ever
-  // returned for a drop), but kept as an explicit filter field so the FE can
-  // pass it without errors and future income types can narrow without a schema
-  // change. LOW review finding — intentionally NOT removed.
+  // task-drop-sees-own-obligations: the feed now ALSO returns DROP_PENDING_PAYOUT
+  // / PAYOUT_DROP rows (see dropIncomeDtoSchema's `model`), but `type` is still
+  // not consulted in the WHERE clause — the mapped `status` filter is the
+  // established narrowing knob for the FE table. Kept as an explicit (unused)
+  // filter field for forward-compatibility. LOW review finding — intentionally
+  // NOT removed.
   type: z.literal('DROP_INCOME').optional(),
   from: z.string().optional(),
   to: z.string().optional(),
