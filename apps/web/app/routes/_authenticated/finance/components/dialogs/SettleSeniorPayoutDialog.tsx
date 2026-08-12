@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { TransactionDto } from '@crm/shared'
 import { receiptMandatoryError } from '@crm/shared'
@@ -13,9 +13,11 @@ import {
   DialogDescription,
   DialogTitle,
 } from '@/components/ui/crm-dialog'
+import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
+import { api } from '@/lib/axios'
 import { financeApi } from '../../api'
-import { fmtAmount, fmtDate } from '../../constants'
-import { FundingSourceFields, COMPANY_ACCOUNT_VALUE } from './FundingSourceFields'
+import { fmtAmount, fmtDate, convertAmount, type ExchangeRates } from '../../constants'
+import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
 // Local copy of the finance-page error extractor (same shape used in
@@ -45,24 +47,36 @@ function extractErrorMessage(err: unknown): string {
  *   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner. The
  *     company account is NOT touched.
  *
- * task-remove-settle-currency (2026-07): there is no currency choice — every
- * senior/drop obligation is denominated in USDT (see transactions.service.ts
- * createIous) and the label was purely cosmetic (USD/USDT are treated 1:1
- * downstream). The backend now defaults the funding currency to the
- * obligation's own currency when the payload omits one (see
- * pending-settlement.service.ts), so this dialog simply never sends it.
+ * task-remove-settle-currency (2026-07): a SENIOR settle still has no currency
+ * choice — every senior obligation is denominated in USDT (see
+ * transactions.service.ts createIous) and the label was purely cosmetic
+ * (USD/USDT are treated 1:1 downstream). The backend defaults the funding
+ * currency to the obligation's own currency when the payload omits one (see
+ * pending-settlement.service.ts), so the SENIOR branch of this dialog simply
+ * never sends it.
+ *
+ * task-drop-payout-currency (2026-08): a DROP settle IS different — the owner
+ * asked for the payout to be settleable in any of USDT/USD/UAH/EUR. The
+ * amount field stays fully DISABLED (it only shows the server-computed
+ * conversion — there is nothing to type), but the currency `<Select>` is
+ * active for that branch. See the amount-conversion block in
+ * `pending-settlement.service.ts`'s `settleByCompany` for how the actual
+ * figure is derived — never client-supplied, there is nothing to trust or
+ * distrust with the field disabled.
  *
  * Mirrors PaySalaryDialog (shares FundingSourceFields, with `hideCurrency` —
- * PaySalaryDialog still lets the caller pick a currency, that IS legitimate
- * for a salary payout). The settle body is just the funding choice — the
- * obligation/amount live server-side, resolved by the source
- * (SENIOR_PENDING_PAYOUT) transaction id.
+ * both dialogs keep FundingSourceFields' OWN currency Select hidden and use
+ * their own `AmountCurrencyInput` block instead, same as PaySalaryDialog).
+ * The settle body is just the funding choice (+ currency for a DROP settle)
+ * — the obligation/amount live server-side, resolved by the source
+ * (SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT) transaction id.
  *
  * settle-drop-btn: this dialog is REUSED as-is for DROP_PENDING_PAYOUT rows —
  * the backend settle-company cascade is generic (ADR D5, branches on the source
  * transaction's type), so only the recipient-facing copy (title / description /
- * success toast) adapts to «дропу» below. Everything else (funding picker,
- * mutation, invalidations) is identical for both row types.
+ * success toast) AND the currency picker (drop-only, see above) adapt to
+ * «дропу» below. Everything else (funding picker, mutation, invalidations)
+ * is identical for both row types.
  *
  * security-review PR #443 (HIGH-1 / MED-B / MED-1 round 4): a
  * DROP_PENDING_PAYOUT row booked by the drop-payout CASCADE
@@ -105,9 +119,15 @@ export function SettleSeniorPayoutDialog({
   // drop obligation, see the HIGH-1 note above; the accountant must actively
   // pick an admin partner, never guessed).
   const [account, setAccount] = useState<string>(COMPANY_ACCOUNT_VALUE)
+  // task-drop-payout-currency: the DROP payout's currency (SENIOR unaffected
+  // — its `<AmountCurrencyInput>` block never renders, see below). Defaults
+  // to the obligation's own currency (see the reset effect keyed on tx.id).
+  const [currency, setCurrency] = useState<Currency>('USDT')
   // task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
-  // this dialog had NO receipt/hash field at all before; explorer-only since
-  // a settle obligation is always denominated in USDT (task-remove-settle-currency).
+  // this dialog had NO receipt/hash field at all before; explorer-only while
+  // the effective currency is USDT (always true for SENIOR — a settle
+  // obligation stays USDT there, task-remove-settle-currency — and true for
+  // the DROP default before the owner switches currency).
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [receiptError, setReceiptError] = useState<string | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
@@ -117,6 +137,11 @@ export function SettleSeniorPayoutDialog({
   // funding logic is identical for both SENIOR_PENDING_PAYOUT and
   // DROP_PENDING_PAYOUT source rows.
   const isDropPayout = tx?.type === 'DROP_PENDING_PAYOUT'
+  // task-drop-payout-currency: «Счёт компании» is a USDT-only account (the
+  // backend re-forces this) — mirrors PaySalaryDialog's `effectiveCurrency`.
+  // Meaningless for a SENIOR settle (no currency picker renders there), but
+  // harmless to compute unconditionally.
+  const effectiveCurrency: Currency = isCompany ? 'USDT' : currency
   // HIGH-1 / MED-1 (round 4): cascade-originated (or unknown-origin) drop
   // obligation — `dropCascadeOrigin !== false` is the EXACT discriminator
   // the server reads (resolveSource / settleByCompany), not an
@@ -130,8 +155,31 @@ export function SettleSeniorPayoutDialog({
   const dialogDescription = isDropPayout ? 'Выплата дропу его доли' : 'Выплата синьору его доли'
   const successMessage = isDropPayout ? 'Выплата дропу проведена' : 'Выплата синьору проведена'
 
+  // task-drop-payout-currency: same query key `AmountCurrencyInput` uses
+  // internally (calendar-day scoped) — ONE shared cache entry, not a second
+  // request, exactly mirroring PaySalaryDialog. Only fetched for a DROP
+  // payout (a SENIOR settle never shows the currency-conversion field).
+  const todayKey = new Date().toISOString().slice(0, 10)
+  const { data: rates } = useQuery<ExchangeRates>({
+    queryKey: ['exchange-rate', todayKey],
+    queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
+    staleTime: 1000 * 60 * 60 * 24,
+    enabled: !!tx && isDropPayout,
+  })
+
+  // The obligation, re-expressed in the currency being paid. `null` while the
+  // rates are loading (or unusable) — the amount field then stays empty
+  // instead of showing a confidently wrong number. Equal to the obligation
+  // amount, unconverted, when `effectiveCurrency` is the obligation's own
+  // currency (AC2 — no recalculation when the currency is unchanged).
+  const expectedAmount = useMemo(() => {
+    if (!tx) return null
+    return convertAmount(tx.amount, tx.currency, effectiveCurrency, rates)
+  }, [tx, effectiveCurrency, rates])
+
   function resetState() {
     setAccount(COMPANY_ACCOUNT_VALUE)
+    setCurrency('USDT')
     setReceipt(emptyReceiptState())
     setReceiptError(null)
     setAccountError(null)
@@ -150,6 +198,23 @@ export function SettleSeniorPayoutDialog({
     }
   }, [tx?.id])
 
+  // task-drop-payout-currency (AC2 default): every time the dialog opens for
+  // a NEW tx, the currency picker starts at the OBLIGATION's own currency —
+  // «по умолчанию — валюта обязательства», never a stale pick left over from
+  // a previously settled row.
+  useEffect(() => {
+    if (tx) setCurrency(tx.currency as Currency)
+  }, [tx?.id])
+
+  // Select the account: when switching to «Счёт компании» the currency is
+  // locked to USDT (mirrors PaySalaryDialog's `selectAccount`) — a no-op for
+  // a SENIOR settle (no currency picker there).
+  function selectAccount(value: string) {
+    setAccount(value)
+    setAccountError(null)
+    if (value === COMPANY_ACCOUNT_VALUE) setCurrency('USDT')
+  }
+
   const mutation = useMutation({
     mutationFn: () => {
       const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
@@ -159,11 +224,16 @@ export function SettleSeniorPayoutDialog({
       //     backend forces it and gates the balance).
       //   - an ADMIN partner → ADMIN_PERSONAL, payerAdminId = that partner; the
       //     company account is untouched.
-      // task-remove-settle-currency: no `currency` field — the backend
-      // defaults it to the obligation's own currency (always USDT).
+      // task-remove-settle-currency: a SENIOR settle sends no `currency` field
+      // — the backend defaults it to the obligation's own currency (USDT).
+      // task-drop-payout-currency: a DROP settle DOES send one — the amount
+      // that lands on the row is computed server-side from it (never trusted
+      // from the client; the field above is fully disabled, so there is
+      // nothing to trust in the first place).
       return financeApi.settleSeniorPayoutFromTransaction(tx!.id, {
         fundingSource: isCompany ? 'COMPANY_ACCOUNT' : 'ADMIN_PERSONAL',
         ...(isCompany ? {} : { payerAdminId: account }),
+        ...(isDropPayout ? { currency: effectiveCurrency } : {}),
         receiptDocumentId,
         receiptExternalUrl,
       })
@@ -194,9 +264,9 @@ export function SettleSeniorPayoutDialog({
   // task-receipts-frontend: client-side gate (mirrors PaySalaryDialog) —
   // blocks mutation.mutate() when the receipt is missing/invalid, delegating
   // the rule to the SAME shared function the backend refine uses.
-  // task-remove-settle-currency: the effective currency is always USDT — a
-  // settle obligation is never denominated in anything else (matches the
-  // backend default in pending-settlement.service.ts).
+  // task-remove-settle-currency / task-drop-payout-currency: `effectiveCurrency`
+  // is always USDT for a SENIOR settle (matches the backend default), and
+  // whatever the owner picked for a DROP settle.
   // HIGH-1: additionally blocks submit when no valid account is selected yet
   // (empty string — the forced-off default for a cascade-drop obligation) or,
   // defensively, if `isCompany` were somehow still true for one (the button
@@ -211,7 +281,7 @@ export function SettleSeniorPayoutDialog({
     }
     const receiptDocumentId = receipt.mode === 'file' ? receipt.documentId : null
     const receiptExternalUrl = receipt.mode === 'url' ? receipt.externalUrl || null : null
-    const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, 'USDT')
+    const err = receiptMandatoryError({ receiptDocumentId, receiptExternalUrl }, effectiveCurrency)
     if (err) {
       setReceiptError(err)
       return
@@ -260,15 +330,14 @@ export function SettleSeniorPayoutDialog({
             </div>
           </div>
 
-          {/* Shared funding-source picker — same UI as PaySalaryDialog, minus the
-              currency Select (task-remove-settle-currency: a settle obligation
-              is always USDT — see pending-settlement.service.ts). */}
+          {/* Shared funding-source picker — same UI as PaySalaryDialog, with its
+              own currency Select hidden: a SENIOR settle has nothing to pick
+              (task-remove-settle-currency); a DROP settle's currency picker
+              lives in the AmountCurrencyInput block below instead (mirrors
+              PaySalaryDialog — amount and currency sit together). */}
           <FundingSourceFields
             account={account}
-            onSelectAccount={(v) => {
-              setAccount(v)
-              setAccountError(null)
-            }}
+            onSelectAccount={selectAccount}
             enabled={!!tx}
             testIdPrefix="settle-senior"
             hideCurrency
@@ -281,10 +350,34 @@ export function SettleSeniorPayoutDialog({
             </p>
           )}
 
+          {/* task-drop-payout-currency (AC1). DROP-only: the currency the payout
+              is settled in is a real choice (USDT/USD/UAH/EUR), but the amount
+              input is fully DISABLED — it only shows the server-recalculated
+              figure for the chosen currency, never accepts typed input (owner
+              decision: «задизейбли полностью инпут и оставь только возможность
+              переключать валюту»). Recalculates live on every currency change
+              (AC2); no client-typed amount is ever sent (see the mutationFn
+              above). */}
+          {isDropPayout && (
+            <div data-testid="settle-senior-amount-field">
+              <AmountCurrencyInput
+                amount={expectedAmount !== null ? expectedAmount.toFixed(2) : ''}
+                currency={effectiveCurrency}
+                onAmountChange={() => {}}
+                onCurrencyChange={setCurrency}
+                label="Сумма выплаты"
+                disableAmount
+                disableCurrency={isCompany}
+                errorTestId="settle-senior-amount-error"
+              />
+            </div>
+          )}
+
           {/* task-receipts-frontend: mandatory proof of payment (design-spec §3.3) —
-              this dialog had no receipt/hash field before. Always explorer-only —
-              a settle obligation is always denominated in USDT
-              (task-remove-settle-currency). */}
+              this dialog had no receipt/hash field before. Explorer-only while
+              the effective currency is USDT — always true for a SENIOR settle
+              (task-remove-settle-currency); true for a DROP settle until the
+              owner switches away from the obligation's own currency. */}
           <div className="space-y-1.5">
             <ReceiptInput
               state={receipt}
@@ -293,7 +386,7 @@ export function SettleSeniorPayoutDialog({
                 setReceiptError(null)
               }}
               label="Чек / подтверждение *"
-              explorerOnly
+              explorerOnly={effectiveCurrency === 'USDT'}
               error={receiptError ?? undefined}
             />
             {receiptError && (

@@ -48,6 +48,7 @@ export function AmountCurrencyInput({
   inputClassName,
   disabled,
   disableCurrency,
+  disableAmount,
   error,
   errorTestId,
 }: {
@@ -59,12 +60,23 @@ export function AmountCurrencyInput({
   currencyLabel?: string
   placeholder?: string
   inputClassName?: string
+  /** Disables BOTH the amount input and the currency selector. */
   disabled?: boolean
   /**
    * Lock the currency selector only while keeping the amount input editable.
    * Used when the funding source mandates a fixed currency (e.g. COMPANY_ACCOUNT → USDT).
    */
   disableCurrency?: boolean
+  /**
+   * task-drop-payout-currency: lock ONLY the amount input, leaving the
+   * currency selector active — the opposite pairing from `disableCurrency`.
+   * Used when the shown figure is a server-computed conversion the caller
+   * must not hand-edit, but the currency it is expressed in is still a real
+   * choice (e.g. «Выплатить дропу» — the payout is recalculated, not typed).
+   * Independent of `disabled`/`disableCurrency`: it does NOT touch the
+   * currency `<Select>`.
+   */
+  disableAmount?: boolean
   /** Inline validation message rendered under the amount input. */
   error?: string | undefined
   /** data-testid for the error <p> (caller-supplied for E2E). */
@@ -102,7 +114,7 @@ export function AmountCurrencyInput({
             placeholder={placeholder}
             type="text"
             inputMode="decimal"
-            disabled={disabled}
+            disabled={disabled || disableAmount}
             data-testid="amount-currency-amount-input"
             className={cn('h-9 text-sm', error && 'border-destructive', inputClassName)}
           />
