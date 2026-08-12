@@ -69,6 +69,12 @@ const SUGGESTION = {
   statusChangedByName: null,
   createdAt: '2026-08-07T09:00:00.000Z',
   posting: POSTING,
+  // task-vacancy-matching: the queue is ranked, so a suggestion now carries its
+  // score. `null` = the senior has no stack on file, which is the unranked
+  // fallback and keeps THIS spec about the popup-gesture ordering rather than
+  // about ranking (covered by job-matching.integration.spec.ts + the unit tests).
+  matchScore: null,
+  matchedKeywords: [],
 }
 
 type OpenCall = {
@@ -130,7 +136,17 @@ async function mockJobSourcing(page: Page, items: unknown[] = [SUGGESTION]) {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify({ items, total: items.length }),
+      // The response shape is `.parse()`d client-side, so the mock has to carry
+      // the ranking envelope too — an out-of-date mock fails the schema and the
+      // dialog renders its error state instead of the vacancy.
+      body: JSON.stringify({
+        items,
+        total: items.length,
+        lowMatch: [],
+        lowMatchCount: 0,
+        threshold: 0.2,
+        stackKeywords: [],
+      }),
     }),
   )
   await page.route('**/api/job-sourcing/exclusions**', (route) => {
