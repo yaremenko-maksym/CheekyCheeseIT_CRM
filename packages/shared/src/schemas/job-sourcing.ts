@@ -1,4 +1,10 @@
 import { z } from 'zod'
+// The keyword caps are OWNED by the matcher (which is what builds a canonical
+// keyword) and imported here rather than restated. Security review HIGH-1: the
+// two numbers had drifted apart — the resume layer allowed 200 characters per
+// skill while this contract allowed 100 — and the gap surfaced as a 400 on
+// GET /suggestions for the first senior with a filled-in resume.
+import { MAX_STACK_KEYWORD_CHARS, MAX_STACK_KEYWORDS } from '../utils/stack-keywords'
 
 /**
  * task-job-sourcing-slice1 — semi-automatic applying to external vacancies.
@@ -145,7 +151,7 @@ export const jobSuggestionSchema = z.object({
    * Canonical stack keywords the posting actually mentions — the WHY behind the
    * score. Shown as chips so a hidden vacancy is auditable rather than a mystery.
    */
-  matchedKeywords: z.array(z.string().max(100)).max(60),
+  matchedKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(MAX_STACK_KEYWORDS),
 })
 
 export const jobSuggestionListSchema = z.object({
@@ -171,7 +177,7 @@ export const jobSuggestionListSchema = z.object({
    * The senior's effective stack (canonical form). EMPTY means unranked — see
    * `matchScore`. Echoed so the UI can name what it matched on.
    */
-  stackKeywords: z.array(z.string().max(100)).max(60),
+  stackKeywords: z.array(z.string().max(MAX_STACK_KEYWORD_CHARS)).max(MAX_STACK_KEYWORDS),
 })
 
 /**

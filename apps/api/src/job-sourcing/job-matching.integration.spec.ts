@@ -542,7 +542,7 @@ describe('Job matching + source budgets — real DB integration', () => {
         budgetWindowStartedAt: new Date('2026-08-01T00:00:00.000Z'),
       })
 
-      const sources = await service.listSources(new Date('2026-08-12T09:00:00.000Z'))
+      const sources = await service.listSources(ADMIN, new Date('2026-08-12T09:00:00.000Z'))
       const mine = sources.find((s) => s.id === SOURCE_ID)
 
       expect(mine?.budget.remaining).toBe(47)
@@ -561,7 +561,7 @@ describe('Job matching + source budgets — real DB integration', () => {
         budgetWindowStartedAt: new Date('2026-07-01T00:00:00.000Z'),
       })
 
-      const sources = await service.listSources(new Date('2026-08-12T09:00:00.000Z'))
+      const sources = await service.listSources(ADMIN, new Date('2026-08-12T09:00:00.000Z'))
       expect(sources.find((s) => s.id === SOURCE_ID)?.budget.remaining).toBe(200)
     })
 
@@ -569,7 +569,7 @@ describe('Job matching + source budgets — real DB integration', () => {
       if (!dbAvailable) return
       await seedSource({ budgetLimit: null, budgetWindow: null })
 
-      const mine = (await service.listSources()).find((s) => s.id === SOURCE_ID)
+      const mine = (await service.listSources(ADMIN)).find((s) => s.id === SOURCE_ID)
       expect(mine?.budget.limit).toBeNull()
       expect(mine?.budget.remaining).toBeNull()
     })

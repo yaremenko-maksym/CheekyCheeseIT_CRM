@@ -182,6 +182,23 @@ export class JobSourcingService {
     }
   }
 
+  /**
+   * Source configuration and spending — ADMIN only.
+   *
+   * Security review MED-1: `listSources`/`collectAll` used to be guarded ONLY by
+   * the controller's `@Roles('ADMIN')` decorator, unlike every other route here,
+   * which re-checks in the service body. That is the exact shape the #157/#158
+   * lesson is about — the decorator is one edit away from being dropped, and
+   * these two endpoints expose which sources exist plus a button that SPENDS a
+   * paid quota. Now the guarantee survives losing the decorator, and a test
+   * pins both halves.
+   */
+  private assertCanManageSources(user: SessionUser): void {
+    if (user.role !== 'ADMIN') {
+      throw new ForbiddenException('Источники подбора вакансий настраивает ADMIN')
+    }
+  }
+
   // -------------------------------------------------------------------------
   // Exclusions
   // -------------------------------------------------------------------------
@@ -747,6 +764,19 @@ export class JobSourcingService {
    * the scheduler on nobody's behalf), while the admin button passes `MANUAL`.
    * A source set to `BOTH` answers to either.
    */
+  /**
+   * The MANUAL path, as a human triggers it — ADMIN only (MED-1).
+   *
+   * A separate entry point rather than an optional `actor` argument on
+   * `collectAll`: an optional caller identity is a check you can forget to pass,
+   * and this is the path that spends money. The cron keeps calling `collectAll`
+   * directly with no actor, which is honest — it IS the system, not a user.
+   */
+  async collectAllAsActor(actor: SessionUser): Promise<JobCollectionRunDto> {
+    this.assertCanManageSources(actor)
+    return this.collectAll('MANUAL')
+  }
+
   async collectAll(trigger: JobSourceTriggerMode = 'SCHEDULED'): Promise<JobCollectionRunDto> {
     const all = await this.db.db.select().from(jobSources).where(eq(jobSources.enabled, true))
     const sources = all.filter((source) => sourceAcceptsTrigger(source.triggerMode, trigger))
@@ -834,7 +864,8 @@ export class JobSourcingService {
    * that has rolled over reports a full allowance immediately instead of showing
    * last month's spend until the next collection happens to reset it.
    */
-  async listSources(now: Date = new Date()): Promise<JobSourceDto[]> {
+  async listSources(actor: SessionUser, now: Date = new Date()): Promise<JobSourceDto[]> {
+    this.assertCanManageSources(actor)
     const rows = await this.db.db.select().from(jobSources)
     return rows.map((row) => {
       const budget = resolveBudget(this.budgetStateOf(row), now)

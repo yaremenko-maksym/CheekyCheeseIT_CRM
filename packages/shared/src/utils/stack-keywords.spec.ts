@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  MAX_STACK_KEYWORD_CHARS,
+  MAX_STACK_KEYWORDS,
   canonicalStackKeyword,
   canonicalStackKeywords,
   normalizeStackKeyword,
@@ -7,6 +9,7 @@ import {
   stackTokens,
   textMentionsStackKeyword,
 } from './stack-keywords'
+import { jobSuggestionListSchema } from '../schemas/job-sourcing'
 
 /**
  * task-vacancy-matching AC2: "Каждый класс нормализации закреплён отдельным
@@ -248,6 +251,66 @@ describe('canonicalStackKeywords — the senior stack, de-duplicated', () => {
   it('returns an empty list for a missing stack', () => {
     expect(canonicalStackKeywords(null)).toEqual([])
     expect(canonicalStackKeywords([])).toEqual([])
+  })
+})
+
+/**
+ * Security review HIGH-1 — a long resume skill used to take the whole queue down.
+ *
+ * The resume layer allows 200 characters per skill and the AI extractor
+ * truncates to exactly that; this wire contract allows 100; nothing in between
+ * truncated. So `GET /job-sourcing/suggestions` failed its own outgoing
+ * `.parse()` → 400, for the senior AND for the ADMIN/HR viewing them — on the
+ * first filled-in resume, i.e. the first real user of the feature.
+ *
+ * The lengths below are not invented: 200 is the resume layer's OWN maximum
+ * (`RESUME_LIMITS.shortText`). The Cyrillic case is separate on purpose — it is
+ * the one a latin-only test cannot find.
+ */
+describe('keyword length is bounded where the canonical form is built (HIGH-1)', () => {
+  it('CONTROL: an ordinary keyword is not truncated', () => {
+    // Without this the whole block could pass by truncating everything to
+    // nothing, which would "fix" the 400 by breaking matching instead.
+    expect(canonicalStackKeyword('PostgreSQL')).toBe('postgresql')
+    expect(canonicalStackKeyword('Spring Boot')).toBe('spring boot')
+  })
+
+  it('caps a keyword at the resume layer’s own maximum length (200 chars in)', () => {
+    const canonical = canonicalStackKeyword('B'.repeat(200))
+    expect(canonical).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+  })
+
+  it('caps a CYRILLIC keyword — transliteration LENGTHENS the canonical form', () => {
+    // `щ` → `sch`, so 40 characters of input become 120 of canonical form and
+    // blow a 100-char cap that 40 latin characters would sail straight through.
+    // This is why the latin case above is not sufficient on its own.
+    expect(normalizeStackKeyword('щ'.repeat(40))).toHaveLength(120)
+    expect(canonicalStackKeyword('щ'.repeat(40))).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+  })
+
+  it('caps every keyword in a stack, not just the first', () => {
+    const stack = canonicalStackKeywords(['Java', 'C'.repeat(150), 'ю'.repeat(90)])
+    expect(stack.every((k) => k.length <= MAX_STACK_KEYWORD_CHARS)).toBe(true)
+  })
+
+  it('caps HOW MANY keywords a stored resume may contribute', () => {
+    // The write path caps skills at 60, but this module reads the stored jsonb
+    // column — data, not a promise that the write limit was ever applied.
+    const tooMany = Array.from({ length: 200 }, (_, i) => `skill${i}`)
+    expect(canonicalStackKeywords(tooMany)).toHaveLength(MAX_STACK_KEYWORDS)
+  })
+
+  it('the capped output satisfies the wire contract — the actual 400', () => {
+    const stack = canonicalStackKeywords(['B'.repeat(200), 'щ'.repeat(40)])
+    const parsed = jobSuggestionListSchema.safeParse({
+      items: [],
+      lowMatch: [],
+      lowMatchCount: 0,
+      total: 0,
+      threshold: 0.2,
+      stackKeywords: stack,
+    })
+    expect(parsed.success).toBe(true)
   })
 })
 

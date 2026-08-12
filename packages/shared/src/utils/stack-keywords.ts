@@ -60,6 +60,52 @@
  */
 
 /**
+ * Hard ceiling on ONE canonical keyword, and the single number the wire schema
+ * caps `stackKeywords` / `matchedKeywords` at (`schemas/job-sourcing.ts` imports
+ * it rather than repeating `100`).
+ *
+ * WHY THE CEILING LIVES HERE, AT THE POINT THE CANONICAL FORM IS BUILT
+ * -------------------------------------------------------------------
+ * Security review HIGH-1, and it was a live 400 rather than a theoretical one.
+ * The layers disagreed about how long a "skill" may be:
+ *
+ *     resume content schema   200 chars per skill (RESUME_LIMITS.shortText)
+ *     AI extraction           truncates to exactly that 200
+ *     this wire contract      100
+ *
+ * …with nothing in between. So the first senior whose resume carried a long
+ * skill made `GET /job-sourcing/suggestions` fail its own outgoing `.parse()`
+ * → ZodExceptionFilter → 400, for that senior AND for the ADMIN/HR looking at
+ * their queue. Measured before fixing, with a control:
+ *
+ *     ordinary stack        → parses
+ *     108 latin chars       → 400
+ *     200 latin chars       → 400
+ *     40 CYRILLIC chars     → 400 — canonical length 120
+ *
+ * The Cyrillic row is the one a latin-only test never finds: transliteration
+ * LENGTHENS (`щ`→`sch`, `ю`→`iu`), so 40 characters of input become 120 of
+ * canonical form and blow a 100-char cap that 40 latin characters would sail
+ * through. Both are pinned by their own test.
+ *
+ * Capping here rather than at the wire is what makes the guarantee total: every
+ * canonical keyword the module can produce — the senior's stack, the matched
+ * ids, anything a future caller derives — is bounded by construction, so no new
+ * call site can re-open the hole by forgetting to truncate.
+ */
+export const MAX_STACK_KEYWORD_CHARS = 100
+
+/**
+ * Hard ceiling on HOW MANY canonical keywords one stack may contribute.
+ *
+ * Mirrors `RESUME_LIMITS.skills` (60), which is what the resume WRITE path
+ * enforces — but this module reads the stored `jsonb` column, and a stored
+ * value is data, not a promise. Same reasoning as the per-keyword cap: bound it
+ * where the list is built, not where it is serialised.
+ */
+export const MAX_STACK_KEYWORDS = 60
+
+/**
  * Rewrites applied to the lower-cased string BEFORE anything is tokenised.
  *
  * Order matters only in that each pattern must not eat a longer one's input;
@@ -262,7 +308,13 @@ const ALIAS_TO_CANONICAL: ReadonlyMap<string, string> = (() => {
 export function canonicalStackKeyword(raw: string | null | undefined): string {
   const normalized = normalizeStackKeyword(raw)
   if (normalized.length === 0) return ''
-  return ALIAS_TO_CANONICAL.get(normalized) ?? normalized
+  // Alias lookup happens on the FULL normalised form — every alias is short, so
+  // truncating first could only ever lose a match. The cap is applied to the
+  // result (see MAX_STACK_KEYWORD_CHARS for the 400 this prevents).
+  const canonical = ALIAS_TO_CANONICAL.get(normalized) ?? normalized
+  return canonical.length > MAX_STACK_KEYWORD_CHARS
+    ? canonical.slice(0, MAX_STACK_KEYWORD_CHARS)
+    : canonical
 }
 
 /** Every spelling that should be looked for when hunting a canonical id. */
@@ -331,6 +383,9 @@ export function canonicalStackKeywords(raw: readonly string[] | null | undefined
     if (canonical.length === 0 || seen.has(canonical)) continue
     seen.add(canonical)
     out.push(canonical)
+    // Bounded by construction — the stored jsonb this reads is data, not a
+    // promise that the write-time limit was ever applied.
+    if (out.length >= MAX_STACK_KEYWORDS) break
   }
   return out
 }
