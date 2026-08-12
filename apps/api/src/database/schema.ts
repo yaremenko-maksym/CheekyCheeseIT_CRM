@@ -17,6 +17,7 @@ import {
   uniqueIndex,
   uuid,
   varchar,
+  type AnyPgColumn,
 } from 'drizzle-orm/pg-core'
 import {
   DEFAULT_RESUME_LAYOUT,
@@ -764,6 +765,52 @@ export const transactions = pgTable(
     // Snapshot source for the percent above — 'PROJECT' | 'USER_DEFAULT' (no
     // team level for the drop). Nullable for legacy / non-drop rows.
     dropSharePercentSource: varchar('drop_share_percent_source', { length: 16 }),
+    /**
+     * task-admin-income-drop-backfill (2026-08-12). Links a SENIOR_PENDING_PAYOUT
+     * / DROP_PENDING_PAYOUT obligation row back to the ADMIN_INCOME (or other
+     * admin-USDT declaration) transaction it was booked FROM, when known.
+     *
+     * WHY THIS EXISTS. Before this column, "does this income already have a
+     * booked share?" could only be answered by matching project + amount +
+     * time — good enough to browse, not good enough to move real money on.
+     * `createAdminIncome` never called `bookCompanyObligations` (the historical
+     * bug this task's data-fix backfills — see
+     * apps/api/drizzle/manual/2026-08-12_admin_income_drop_backfill_*.sql), so a
+     * project can carry ADMIN_INCOME rows with zero, one, or several
+     * DROP_PENDING_PAYOUT rows and no reliable way to tell which income each one
+     * covers. This column makes that link explicit and queryable.
+     *
+     * Stamped ONCE, by `bookCompanyObligations`, on BOTH the senior and the drop
+     * IOU it books — set to the id of the income row that caused the booking,
+     * when the caller knows it. `declareUsdtProjectIncome` always does (it is
+     * the ADMIN_INCOME row it just inserted, in the SAME db transaction).
+     * `applyPayoutPaidCascade` deliberately does NOT pass it: that call books
+     * ONE obligation per payout REQUEST, which can aggregate several linked
+     * SENIOR_INCOME/DROP_INCOME rows behind a single `payoutRequestId` — there
+     * is no single source income to name, and `payoutRequestId` +
+     * `dropCascadeOrigin` already discriminate that origin. NULL there is the
+     * honest answer, not a gap.
+     *
+     * NULLABLE, NO DEFAULT, NO BACKFILL of the column itself (the DATA backfill
+     * for historical rows is a separate, explicit two-deploy SQL pair — see the
+     * files named above) — every row created before this column existed keeps
+     * NULL forever. That is the literal truth: their origin was genuinely never
+     * recorded, and inventing one after the fact is guessing, not data.
+     *
+     * Self-referencing FK, ON DELETE SET NULL — a (hypothetical, ADMIN-only)
+     * hard-delete of the source income never blocks or cascades into the
+     * obligation it produced; the obligation itself is truth about money owed
+     * regardless of what later happens to its origin's audit trail.
+     *
+     * ADD COLUMN DDL (prod is applied via deploy.yml — there is no SSH; see
+     * apps/api/drizzle/manual/2026-08-12_admin_income_drop_backfill_column.sql):
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS source_income_transaction_id uuid
+     *     REFERENCES transactions(id) ON DELETE SET NULL;
+     */
+    sourceIncomeTransactionId: uuid('source_income_transaction_id').references(
+      (): AnyPgColumn => transactions.id,
+      { onDelete: 'set null' },
+    ),
     // Receipt — uploaded file (FK to documents.id, category=RECEIPT) OR an
     // external URL (etherscan link, screenshot). Mutually exclusive — enforced
     // by a row-level CHECK constraint, see migration 0013. Both NULL = no
