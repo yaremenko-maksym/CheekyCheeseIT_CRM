@@ -166,16 +166,24 @@ vi.mock('sonner', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
 }))
 
+// Real `trackFeatureClick` is a safe no-op in test env (VITE_TELEMETRY !== 'on'),
+// but a no-op can't be spied on — mock it so the project-switch handler's
+// telemetry call is directly observable (mutation-gate coverage for that branch).
+vi.mock('@/lib/telemetry', () => ({
+  trackFeatureClick: vi.fn(),
+}))
+
 const declareUsdtProjectIncomeMock = vi.fn().mockResolvedValue({})
 const createDropIncomeMock = vi.fn().mockResolvedValue({})
 const createAdminIncomeMock = vi.fn().mockResolvedValue({})
+const createExpenseMock = vi.fn().mockResolvedValue({})
 vi.mock('../../../api', () => ({
   financeApi: {
     declareUsdtProjectIncome: (...args: unknown[]) => declareUsdtProjectIncomeMock(...args),
     createDropIncome: (...args: unknown[]) => createDropIncomeMock(...args),
     createSeniorIncome: vi.fn().mockResolvedValue({}),
     createAdminIncome: (...args: unknown[]) => createAdminIncomeMock(...args),
-    createExpense: vi.fn().mockResolvedValue({}),
+    createExpense: (...args: unknown[]) => createExpenseMock(...args),
     createSalary: vi.fn().mockResolvedValue({}),
     createAdminTransfer: vi.fn().mockResolvedValue({}),
   },
@@ -215,6 +223,7 @@ beforeEach(() => {
   declareUsdtProjectIncomeMock.mockClear()
   createDropIncomeMock.mockClear()
   createAdminIncomeMock.mockClear()
+  createExpenseMock.mockClear()
 })
 
 describe('CreateTransactionDialog — AC1: no separate USDT type-card', () => {
@@ -440,6 +449,52 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     await screen.findByTestId('create-transaction-type-admin_income')
     fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
     expect(screen.queryByTestId('create-transaction-project-trigger')).not.toBeInTheDocument()
+    // The flat receiver Select is ADMIN_INCOME-only — must not leak into EXPENSE.
+    expect(screen.queryByTestId('admin-income-receiver-trigger')).not.toBeInTheDocument()
+  })
+
+  it('the "весь приход" USDT-route note is absent when the selected project is NOT USDT (FOP)', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    expect(
+      screen.queryByText(/Весь приход \(gross\) уйдёт выбранному получателю/),
+    ).not.toBeInTheDocument()
+  })
+
+  it('the obligation-preview banner disappears when the TYPE is switched away from ADMIN_INCOME, not just the project', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('USDT Own Project')
+    await selectReceiver('Admin Two')
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    expect(await screen.findByTestId('admin-income-obligation-preview')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    expect(screen.queryByTestId('admin-income-obligation-preview')).not.toBeInTheDocument()
+  })
+})
+
+describe('CreateTransactionDialog — project-switch handler (task-admin-income-unified)', () => {
+  it('fires the usdt-income-declare telemetry event when switching TO a USDT project, not otherwise', async () => {
+    const { trackFeatureClick } = await import('@/lib/telemetry')
+    const spy = vi.mocked(trackFeatureClick)
+    spy.mockClear()
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    expect(spy).not.toHaveBeenCalledWith('usdt-income-declare')
+    await selectProject('USDT Own Project')
+    expect(spy).toHaveBeenCalledWith('usdt-income-declare')
+  })
+
+  it('clears a pre-existing receiver validation error when the project is switched', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('admin-income-error-receiver')).toBeInTheDocument()
+    await selectProject('USDT Own Project')
+    expect(screen.queryByTestId('admin-income-error-receiver')).not.toBeInTheDocument()
   })
 })
 
@@ -477,6 +532,51 @@ describe('CreateTransactionDialog — company-account invalidation on success', 
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
     await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
     expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['company-account'] })
+    invalidateSpy.mockRestore()
+  })
+})
+
+describe('CreateTransactionDialog — EXPENSE funding-source toggle (shared renderFundingSourceToggle)', () => {
+  it('selecting COMPANY_ACCOUNT locks currency to USDT in the actual submitted payload', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '80' } })
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xexpense1' },
+    })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(createExpenseMock).toHaveBeenCalledTimes(1))
+    const [payload] = createExpenseMock.mock.calls[0] as [Record<string, unknown>]
+    expect(payload).toMatchObject({ currency: 'USDT', fundingSource: 'COMPANY_ACCOUNT' })
+  })
+
+  it('clicking "Обычный расход" AFTER COMPANY_ACCOUNT reverts the toggle to legacy (ArrowFunction handler is live)', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    expect(screen.getByTestId('create-transaction-company-balance-hint')).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId('create-transaction-funding-legacy'))
+    expect(screen.queryByTestId('create-transaction-company-balance-hint')).not.toBeInTheDocument()
+  })
+
+  it('EXPENSE + COMPANY_ACCOUNT invalidates the company-account query on success, ISOLATED from ADMIN_INCOME (AC-independent branch)', async () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '80' } })
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xexpense2' },
+    })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(createExpenseMock).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['company-account'] }),
+    )
     invalidateSpy.mockRestore()
   })
 })
@@ -521,6 +621,22 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
       expect(screen.getByTestId('admin-income-obligation-amount-drop')).toHaveTextContent(
         expected2.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
       ),
+    )
+  })
+
+  it('preserves the literal space between inline text and the amount/source spans (exact whitespace, not collapsed)', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('USDT Own Project')
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '100' } })
+    const row = await screen.findByTestId('admin-income-obligation-preview-drop')
+    // `normalizeWhitespace: false` — a plain `toHaveTextContent` call collapses
+    // whitespace, which would make a JSX `{' '}` and an empty string `{''}`
+    // indistinguishable. The full sentence must read as ONE space-separated
+    // phrase, not text glued together at the span boundaries.
+    expect(row).toHaveTextContent(
+      /Дропу Dropper One будет начислено 5\.00 USDT \(доля 5%, источник: по умолчанию\)/,
+      { normalizeWhitespace: false },
     )
   })
 
@@ -664,6 +780,11 @@ describe('CreateTransactionDialog — SENIOR/DROP gate-hint on USDT-only project
     const listbox = screen.getByRole('listbox')
     expect(await within(listbox).findByText('FOP Project')).toBeInTheDocument()
     expect(within(listbox).queryByText('USDT Third Party Project')).not.toBeInTheDocument()
+    // `myProjects` filters by `p.seniorId === user?.id` — a non-USDT project
+    // belonging to a DIFFERENT senior/admin (FOP Own Project → admin-1, FOP
+    // Drop Project → senior-3) must never leak into senior-1's own list.
+    expect(within(listbox).queryByText('FOP Own Project')).not.toBeInTheDocument()
+    expect(within(listbox).queryByText('FOP Drop Project')).not.toBeInTheDocument()
   })
 
   it('DROP sees the gate-hint when ALL their projects are USDT', async () => {
@@ -679,6 +800,26 @@ describe('CreateTransactionDialog — SENIOR/DROP gate-hint on USDT-only project
     renderDialog()
     await screen.findByTestId('create-transaction-project-trigger')
     expect(screen.queryByTestId('drop-income-usdt-gate-hint')).not.toBeInTheDocument()
+  })
+
+  it('SENIOR_INCOME requires a project — submit without one is blocked', async () => {
+    currentRole = 'SENIOR'
+    currentUserId = 'senior-1'
+    renderDialog()
+    await screen.findByTestId('create-transaction-project-trigger')
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '200' } })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-error-project')).toBeInTheDocument()
+  })
+
+  it('DROP_INCOME requires a project — submit without one is blocked', async () => {
+    currentRole = 'DROP'
+    currentUserId = 'drop-2'
+    renderDialog()
+    await screen.findByTestId('create-transaction-project-trigger')
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '200' } })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    expect(screen.getByTestId('create-transaction-error-project')).toBeInTheDocument()
   })
 })
 

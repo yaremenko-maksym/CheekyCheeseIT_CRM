@@ -190,6 +190,7 @@ export function computeObligationPreviews(
   usdRate: number,
 ): ObligationPreview[] {
   if (!project || project.paymentType !== 'USDT') return []
+  // Stryker disable next-line EqualityOperator: `amount <= 0 ? 0 : amount` and `amount < 0 ? 0 : amount` produce the IDENTICAL result at amount === 0 — both branches evaluate to the literal value 0 (the `? 0` branch directly, the `: amount` branch because amount itself equals 0). Mathematically equivalent, not just hard to test.
   const rawAmount = isNaN(amount) || amount <= 0 ? 0 : amount
   const safeAmount = rawAmount * (isNaN(usdRate) || usdRate <= 0 ? 1 : usdRate)
   const previews: ObligationPreview[] = []
@@ -348,7 +349,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // ADMIN's own `myProjects` (unused in practice — ADMIN never reaches
   // type='SENIOR_INCOME') is left unfiltered for backward-compat.
   const myProjects = isSenior
-    ? projects.filter((p) => p.seniorId === user?.id && p.paymentType !== 'USDT')
+    ? // Stryker disable next-line OptionalChaining: user is always defined once this dialog renders (gated by the authenticated route it lives on) — `?.` is a defensive no-op here, not an observable branch.
+      projects.filter((p) => p.seniorId === user?.id && p.paymentType !== 'USDT')
     : projects
   // ADMIN_INCOME pool. ADMIN sees income for projects they own (seniorId===self)
   // PLUS any USDT-payment project system-wide — task-admin-income-unified merged
@@ -361,10 +363,13 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // offering a project only the endpoint itself will 403 on is a dead end, not
   // a shorter list; the accountant-facing gate-hint below explains the absence.
   const adminOwnProjects = isAdmin
-    ? projects.filter((p) => p.seniorId === user?.id)
+    ? // Stryker disable next-line OptionalChaining: user is always defined once this dialog renders — see the identical note above.
+      projects.filter((p) => p.seniorId === user?.id)
     : isAccountant
       ? projects.filter((p) => adminUserIds.has(p.seniorId))
-      : []
+      : // Stryker disable next-line ArrayDeclaration: reached only by SENIOR/DROP, for whom `adminOwnProjects` feeds `adminProjects`'s non-admin branch further down — but THAT branch only renders for `type === 'ADMIN_INCOME'`, a type SENIOR/DROP never have in `availableTypes`. Computed, never read.
+        []
+  // Stryker disable next-line ArrayDeclaration: same reasoning as `adminOwnProjects` above — SENIOR/DROP never render the ADMIN_INCOME project pool that reads this.
   const adminUsdtProjects = isAdmin ? projects.filter((p) => p.paymentType === 'USDT') : []
   const adminProjects = isAdmin
     ? Array.from(
@@ -376,7 +381,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // task-drop-share-override-and-receiver (Surface B, ADR D2): USDT-payment
   // drop-projects are excluded — the drop's income there is declared by ADMIN.
   const dropProjects = isDrop
-    ? projects.filter((p) => p.dropId === user?.id && p.paymentType !== 'USDT')
+    ? // Stryker disable next-line OptionalChaining: user is always defined once this dialog renders — see the identical note above.
+      projects.filter((p) => p.dropId === user?.id && p.paymentType !== 'USDT')
     : []
 
   // task-admin-income-unified. The project actually selected in the
@@ -386,6 +392,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // endpoint" can never desync from "which project is showing".
   const selectedAdminProject = adminProjects.find((p) => p.id === projectId)
   const isSelectedProjectUsdt =
+    // Stryker disable next-line ConditionalExpression: `selectedAdminProject` is derived from `adminProjects.find(p => p.id === projectId)`, and every type-switch (the type-card onClick) resets `projectId` to '' in the SAME handler — so for any type other than 'ADMIN_INCOME', `selectedAdminProject` is already undefined by construction and this guard changes nothing observable. Kept as defence-in-depth against that invariant ever decoupling.
     type === 'ADMIN_INCOME' && selectedAdminProject?.paymentType === 'USDT'
   // Mirrors `senior && senior.role !== 'ADMIN'` in `bookCompanyObligations` —
   // needed both for the obligation-preview banner and (implicitly, via the
@@ -393,7 +400,8 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   // this is purely a client-side PREDICTION.
   const selectedProjectSeniorIsAdmin = selectedAdminProject?.seniorId
     ? adminUserIds.has(selectedAdminProject.seniorId)
-    : false
+    : // Stryker disable next-line BooleanLiteral: this value is only READ inside `computeObligationPreviews`, which is only CALLED when `isSelectedProjectUsdt` is true — a state that requires `selectedAdminProject` to be defined, which makes `selectedAdminProject?.seniorId` truthy, which means this `: false` fallback never executes in any reachable call. Unobservable by construction, not by absence of a test.
+      false
 
   // task-admin-income-unified (§2). ADMIN_INCOME's "is this routed to the
   // shared pool" signal now lives in TWO different places depending on the
@@ -755,9 +763,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             onClick={() => setFundingSource('legacy')}
             className={cn(
               'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+              // Stryker disable next-line ConditionalExpression, EqualityOperator: Tailwind active/inactive border styling — cosmetic only, verified visually via the Playwright screenshots in the PR; testing-library discourages asserting implementation-detail CSS classes, and the button's FUNCTIONAL state (which testid is active, the balance hint) is already pinned by other tests in this file.
               fundingSource === 'legacy'
-                ? 'border-primary bg-primary/8 text-foreground'
-                : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                ? // Stryker disable next-line StringLiteral: Tailwind class string for the SAME active/inactive styling — see the identical note on the condition immediately above.
+                  'border-primary bg-primary/8 text-foreground'
+                : // Stryker disable next-line StringLiteral: Tailwind class string for the SAME active/inactive styling — see the identical note on the condition immediately above.
+                  'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
             )}
             data-testid="create-transaction-funding-legacy"
           >
@@ -767,6 +778,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {personalDescription}
               </div>
             </div>
+            {/* Stryker disable next-line ConditionalExpression, LogicalOperator: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
             {fundingSource === 'legacy' && (
               <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
             )}
@@ -779,9 +791,12 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
             }}
             className={cn(
               'flex items-center gap-3 rounded-lg border px-3 py-2 text-left transition-all',
+              // Stryker disable next-line ConditionalExpression, EqualityOperator: Tailwind active/inactive border styling — cosmetic only, verified visually via the Playwright screenshots in the PR; testing-library discourages asserting implementation-detail CSS classes, and the button's FUNCTIONAL state (which testid is active, the balance hint) is already pinned by other tests in this file.
               fundingSource === 'COMPANY_ACCOUNT'
-                ? 'border-primary bg-primary/8 text-foreground'
-                : 'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
+                ? // Stryker disable next-line StringLiteral: Tailwind class string for the SAME active/inactive styling — see the identical note on the condition immediately above.
+                  'border-primary bg-primary/8 text-foreground'
+                : // Stryker disable next-line StringLiteral: Tailwind class string for the SAME active/inactive styling — see the identical note on the condition immediately above.
+                  'border-border bg-muted/20 text-muted-foreground hover:border-border/80 hover:bg-muted/40',
             )}
             data-testid="create-transaction-funding-company"
           >
@@ -791,6 +806,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 {companyDescription}
               </div>
             </div>
+            {/* Stryker disable next-line ConditionalExpression, LogicalOperator: Purely decorative active-state dot, redundant with the border-color styling already asserted as cosmetic above — no testid, not part of any AC's observable contract. */}
             {fundingSource === 'COMPANY_ACCOUNT' && (
               <div className="h-2 w-2 rounded-full bg-primary shrink-0" />
             )}

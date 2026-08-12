@@ -159,6 +159,24 @@ describe('CreateTransactionDialog — funding source: EXPENSE (kept)', () => {
       'Спишется со счёта компании (USDT)',
     )
   })
+
+  // task-admin-income-unified (§2). EXPENSE's toggle is gated by
+  // `type === 'EXPENSE'` alone (no role check — every role that reaches
+  // EXPENSE gets it); ADMIN_INCOME's ACCOUNTANT toggle is gated by
+  // `type === 'ADMIN_INCOME' && isAccountant`. The two conditions must never
+  // desync: an ACCOUNTANT switching to EXPENSE must see EXPENSE's OWN copy,
+  // never the "Счёт получателя" copy leaking in from the other gate.
+  it('ACCOUNTANT switching to EXPENSE sees the EXPENSE copy, not the ADMIN_INCOME "Счёт получателя" copy', () => {
+    currentRole = 'ACCOUNTANT'
+    renderDialog()
+    clickTypeCard('create-transaction-type-expense')
+    expect(screen.getByTestId('create-transaction-funding-source-section')).toHaveTextContent(
+      'Источник средств',
+    )
+    expect(screen.getByTestId('create-transaction-funding-legacy')).toHaveTextContent(
+      'Обычный расход',
+    )
+  })
 })
 
 // task-admin-income-unified (§2, owner decision 2026-08-12): ADMIN's old
