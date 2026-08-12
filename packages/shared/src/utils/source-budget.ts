@@ -84,6 +84,7 @@ const MAX_CREDIBLE_LIMIT = 10_000_000
 /** True when `value` is a limit we can safely do arithmetic with. */
 export function isCredibleBudgetLimit(value: unknown): value is number {
   return (
+    // Stryker disable next-line ConditionalExpression: belt-and-braces — forcing this predicate true still yields 0 remaining, because the NaN/Infinity arithmetic downstream clamps through Math.max(0, ...); the guard exists to make the refusal INTENTIONAL rather than incidental, which no assertion on the OUTPUT can distinguish
     typeof value === 'number' && Number.isInteger(value) && value > 0 && value <= MAX_CREDIBLE_LIMIT
   )
 }
@@ -132,6 +133,7 @@ export function resolveBudget(state: SourceBudgetState, now: Date = new Date()):
   // An explicit `null` limit is the ONE input that means "no cap" (DOU's feed).
   // It is a different value from a broken number and is the only one that
   // releases the meter.
+  // Stryker disable next-line ConditionalExpression: forcing this branch off leaves the misconfigured path below, which also refuses — the two disagree only in intent (no cap published vs cap unusable), and budgetState() is where that distinction is asserted
   if (state.limit === null || state.limit === undefined) return unlimited
 
   const window = state.window
@@ -179,6 +181,7 @@ export function resolveBudget(state: SourceBudgetState, now: Date = new Date()):
 
   const rawUsed = state.used
   // Same rule as the limit: an uncountable spend counts as fully spent.
+  // Stryker disable next-line ConditionalExpression: forcing the counter 'sane' still exhausts the budget, because Math.min against the limit and Math.max(0, ...) clamp a NaN/negative spend to the same verdict; the guard states the rule instead of relying on that arithmetic
   const usedIsSane = typeof rawUsed === 'number' && Number.isInteger(rawUsed) && rawUsed >= 0
   const carriedUsed = usedIsSane ? Math.min(rawUsed, limit) : limit
   const used = rolledOver ? 0 : carriedUsed

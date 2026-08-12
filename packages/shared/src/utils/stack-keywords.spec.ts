@@ -405,6 +405,14 @@ describe('stackTokens / normalizeStackKeyword', () => {
     )
   })
 
+  it('folds a precomposed accent — the NFKD form is what makes it decompose', () => {
+    // `ü` arrives as ONE codepoint; only NFKD splits it into `u` + a combining
+    // mark for the strip below to remove. Without the decomposition it stays
+    // `ü`, which is a letter and survives tokenisation intact.
+    expect(normalizeStackKeyword('Zürich')).toBe('zurich')
+    expect(stackTokens('Café Redis')).toEqual(['cafe', 'redis'])
+  })
+
   it('strips stacked combining marks, not just a single one', () => {
     // `\p{M}+` vs `\p{M}`: with one mark per letter both behave the same, so the
     // quantifier is only observable on a letter carrying TWO marks.
@@ -414,6 +422,15 @@ describe('stackTokens / normalizeStackKeyword', () => {
   it('returns an empty list for blank input', () => {
     expect(stackTokens('')).toEqual([])
     expect(stackTokens(null)).toEqual([])
+  })
+
+  it('returns an empty list — not a list holding one empty string — for punctuation', () => {
+    // Non-empty input with no letters or digits is the only way to reach the
+    // final `.filter(Boolean)`: the early return covers '' and null, so without
+    // the filter this answers [''] and every caller counts one phantom keyword.
+    expect(stackTokens('—')).toEqual([])
+    expect(stackTokens('   ...   ')).toEqual([])
+    expect(canonicalStackKeywords(['—', '...'])).toEqual([])
   })
 })
 

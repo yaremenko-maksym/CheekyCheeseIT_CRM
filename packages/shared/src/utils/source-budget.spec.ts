@@ -186,6 +186,68 @@ describe('isCredibleBudgetLimit', () => {
   })
 })
 
+/**
+ * The exact boundaries. Raised by the mutation gate: each comparison below could
+ * be flipped or widened with every other test still green, because they were all
+ * asserted comfortably inside the range rather than ON it.
+ */
+describe('boundary conditions, asserted ON the boundary', () => {
+  it('the credibility ceiling includes its own value and excludes the next one', () => {
+    expect(isCredibleBudgetLimit(10_000_000)).toBe(true)
+    expect(isCredibleBudgetLimit(10_000_001)).toBe(false)
+  })
+
+  it('the smallest usable cap is 1', () => {
+    expect(isCredibleBudgetLimit(1)).toBe(true)
+    expect(isCredibleBudgetLimit(0)).toBe(false)
+  })
+
+  it('a MISSING window start is a rollover, and the counter starts clean', () => {
+    const budget = resolveBudget(state({ used: 200, windowStartedAt: null }), JULY)
+    expect(budget.limited).toBe(true)
+    expect(budget.used).toBe(0)
+    expect(budget.remaining).toBe(200)
+  })
+
+  it('an explicit null limit is unlimited even with a window set', () => {
+    // The `limit === null` branch must win before the window is consulted;
+    // otherwise a source with no cap reads as one whose cap cannot be used.
+    const budget = resolveBudget(
+      { limit: null, window: 'MONTH', used: 5, windowStartedAt: null },
+      JULY,
+    )
+    expect(budget.limited).toBe(false)
+    expect(budget.remaining).toBeNull()
+    expect(budgetState(budget)).toBe('UNLIMITED')
+  })
+
+  it('a used counter of exactly 0 is sane — it is a fresh window, not a broken one', () => {
+    const budget = resolveBudget(state({ used: 0 }), JULY)
+    expect(budget.used).toBe(0)
+    expect(budget.remaining).toBe(200)
+    expect(budget.exhausted).toBe(false)
+  })
+
+  it('a FRACTIONAL used counter counts as fully spent', () => {
+    expect(resolveBudget(state({ used: 1.5 }), JULY).exhausted).toBe(true)
+  })
+
+  it('a non-numeric used counter counts as fully spent', () => {
+    const budget = resolveBudget(state({ used: '47' as unknown as number }), JULY)
+    expect(budget.exhausted).toBe(true)
+  })
+
+  it('spendBudget writes for a LIMITED source and only for a limited one', () => {
+    // Pins both halves of the guard: limited-with-window writes, unlimited does
+    // not, and a limited source whose window is unusable also does not.
+    expect(spendBudget(state({ used: 3 }), JULY)).not.toBeNull()
+    expect(
+      spendBudget({ limit: null, window: null, used: 0, windowStartedAt: null }, JULY),
+    ).toBeNull()
+    expect(spendBudget(state({ window: null }), JULY)).toBeNull()
+  })
+})
+
 describe('budget windows are calendar-anchored in UTC', () => {
   it('DAY starts at midnight and ends at the next midnight', () => {
     expect(budgetWindowStart(JULY, 'DAY').toISOString()).toBe('2026-07-15T00:00:00.000Z')

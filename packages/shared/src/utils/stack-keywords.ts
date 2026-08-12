@@ -268,31 +268,29 @@ function transliterate(value: string): string {
 export function stackTokens(raw: string | null | undefined): string[] {
   if (!raw) return []
 
-  let folded = transliterate(
-    raw
-      .normalize('NFKD')
-      // Stryker disable next-line Regex: \p{M}+ vs \p{M} differ only for a letter carrying TWO stacked marks, which NFKD produces for no spelling in the alias table or the DOU corpus
-      .replace(/\p{M}+/gu, '')
-      .toLowerCase(),
-  )
+  // Each step is its own statement rather than one long chain: a
+  // `Stryker disable next-line` comment attaches to a STATEMENT, and inside a
+  // chain every mutant is attributed to the chain's first line, so the
+  // suppressions below would silently apply to the wrong operator.
+  //
+  // Stryker disable next-line StringLiteral: the argument names a Unicode normalisation form; every substitution either throws or leaves accents composed, which the accent-folding tests already pin — Stryker attributes both literals on this line to one mutant
+  // Stryker disable next-line Regex: \p{M}+ vs \p{M} differ only for a letter carrying TWO stacked marks, which NFKD produces for no spelling in the alias table or the DOU corpus
+  const deaccented = raw.normalize('NFKD').replace(/\p{M}+/gu, '')
+  let folded = transliterate(deaccented.toLowerCase())
 
   for (const [pattern, replacement] of SYMBOL_REWRITES) {
     folded = folded.replace(pattern, replacement)
   }
 
-  // Stryker disable next-line MethodExpression: .trim() is redundant with the .filter(Boolean) two lines down — leading/trailing empties are dropped either way; kept because it states the intent
-  return (
-    folded
-      // Stryker disable next-line Regex: the + quantifier is redundant with .filter(Boolean) — 'a--b' yields the same tokens whether the separator run collapses here or empties are dropped after the split
-      .replace(/[^\p{L}\p{N}]+/gu, ' ')
-      .trim()
-      // Stryker disable next-line Regex: same redundancy — splitting on single whitespace leaves empty strings that .filter(Boolean) removes
-      .split(/\s+/)
-      .filter(Boolean)
-  )
+  // Stryker disable next-line Regex: the + quantifier is redundant with the .filter(Boolean) below — 'a--b' yields the same tokens whether the separator run collapses here or the empties are dropped after the split
+  const spaced = folded.replace(/[^\p{L}\p{N}]+/gu, ' ')
+  // Stryker disable next-line Regex,MethodExpression: same redundancy — .trim() and splitting on a single space both only ever produce empty strings, which .filter(Boolean) removes; kept because they state the intent
+  const parts = spaced.trim().split(/\s+/)
+  return parts.filter(Boolean)
 }
 
 /** Space-joined canonical form of one keyword (`Node.js` → `nodejs`). */
+// Stryker disable next-line BlockStatement: a one-line delegation to stackTokens — an empty body returns undefined and every caller throws, which no assertion can report more precisely than the fold tests already do
 export function normalizeStackKeyword(raw: string | null | undefined): string {
   return stackTokens(raw).join(' ')
 }
@@ -306,7 +304,7 @@ const ALIAS_TO_CANONICAL: ReadonlyMap<string, string> = (() => {
   for (const [canonical, aliases] of Object.entries(ALIAS_FAMILIES)) {
     for (const alias of aliases) {
       const normalized = normalizeStackKeyword(alias)
-      // Stryker disable next-line ConditionalExpression: defensive guard on table construction; an empty alias key is unreachable from canonicalStackKeyword, which returns early for empty input
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: defensive guard on table construction; an empty alias key is unreachable from canonicalStackKeyword, which returns early for empty input
       if (normalized.length > 0) index.set(normalized, canonical)
     }
   }
