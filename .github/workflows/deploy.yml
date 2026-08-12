@@ -1092,6 +1092,43 @@ jobs:
           # apps/api/drizzle/manual/2026-08-10_senior_resume_template.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-10_senior_resume_template.sql
 
+      # ── job source budgets DDL — GUARDED, same reason as the blocks above ──────────────
+      # task-vacancy-matching (PR #515, feature/vacancy-matching, draft): each external job
+      # API meters requests differently (Adzuna 250/day, JSearch 200/MONTH hard cap, Jooble
+      # 500/period, DOU's RSS feed not at all) and nothing in the schema tracked that before
+      # this migration. It adds two new enums (job_source_budget_window,
+      # job_source_trigger_mode) + five columns on the existing job_sources table
+      # (budget_limit, budget_window, budget_used, budget_window_started_at, trigger_mode)
+      # plus a non-negative CHECK constraint on budget_used — fully additive, no existing
+      # column touched, same shape as the job-sourcing/senior-resume module DDL above, not
+      # an order-critical enum-VALUE addition like Step 2r. DevOps zone-of-write excludes
+      # apps/api/**, so this wiring lands separately from the Coder branch that creates the
+      # file — same guarded copy + notice-skip pattern as every block above. PR #515 is
+      # still a draft at the time this infra-PR lands — a missing file here is the expected
+      # steady state until #515 merges, not an error.
+      - name: Check for job source budgets DDL file (guard until PR #515 merges)
+        id: job-source-budgets-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-12_job_source_budgets.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-12_job_source_budgets.sql not found in checkout — task-vacancy-matching (PR #515) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy job source budgets DDL via SCP (only if present)
+        if: steps.job-source-budgets-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-12_job_source_budgets.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-12_job_source_budgets.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-12_job_source_budgets.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -2135,6 +2172,45 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$SENIOR_RESUME_TEMPLATE_FILE"
               echo "==> senior resume template module DDL applied successfully"
+            fi
+
+            # ── Step 2v: job source budgets columns + enums (idempotent, GUARDED) ─────────────
+            # task-vacancy-matching (PR #515, feature/vacancy-matching, draft): two new enums
+            # (job_source_budget_window, job_source_trigger_mode) + five columns on the existing
+            # job_sources table (budget_limit, budget_window, budget_used,
+            # budget_window_started_at, trigger_mode) plus a non-negative CHECK constraint on
+            # budget_used. Fully additive, no existing column altered — same shape as the
+            # job-sourcing/senior-resume module DDL above (Step 2s/2t/2u), not order-critical
+            # the way an enum-VALUE addition to an already-live enum is (Step 2r). GUARDED for
+            # the same reason as the blocks above — DevOps zone-of-write excludes apps/api/**,
+            # this wiring lands separately from the Coder branch, and a missing file here is the
+            # expected steady state until #515 merges, not an error. copy-compose job's matching
+            # "Check for job source budgets DDL file" step mirrors this guard on the scp side.
+            # Still placed BEFORE Step 3 (like every DDL step above): the new api image's job
+            # collector reads these columns BEFORE it goes to the network on every collection
+            # run the moment it serves traffic — a new image against an un-migrated DB would 500
+            # on that surface. The reverse order is safe: applying this file while the OLD image
+            # still runs is a no-op for it (the columns are simply unused until #515's image
+            # ships; every existing job_sources row keeps behaving exactly as it does today —
+            # budget_limit NULL = no published limit, trigger_mode 'SCHEDULED' = the daily cron).
+            # Idempotent: guarded CREATE TYPE (duplicate_object swallowed) x2 + ADD COLUMN IF NOT
+            # EXISTS x5 + guarded ADD CONSTRAINT (duplicate_object swallowed) — safe to re-run on
+            # every deploy, forever.
+            # Source: apps/api/drizzle/manual/2026-08-12_job_source_budgets.sql
+            JOB_SOURCE_BUDGETS_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-12_job_source_budgets.sql"
+
+            if [ ! -f "$JOB_SOURCE_BUDGETS_FILE" ]; then
+              echo "::notice::Job source budgets DDL file not found at $JOB_SOURCE_BUDGETS_FILE — task-vacancy-matching (PR #515) has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying job source budgets DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$JOB_SOURCE_BUDGETS_FILE"
+              echo "==> job source budgets DDL applied successfully"
             fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
