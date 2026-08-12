@@ -117,6 +117,23 @@ KNOWN_NOT_WIRED = {
     # scripts/devops/drop-share-pending-parity-backfill-runbook.md for the full
     # history. Not re-wired if this file is ever touched again for unrelated
     # reasons — it stays a historical artifact.
+    "2026-08-12_admin_income_drop_backfill_apply.sql",  # deliberately NOT wired —
+    # task-admin-income-drop-backfill (PR #517, fix/admin-income-drop-backfill), same
+    # "report-first, apply-only-after-go-ahead" shape as the 2026-07-27 drop-share-
+    # pending-parity precedent above. This file creates REAL financial obligations
+    # (DROP_PENDING_PAYOUT rows + their paired pending_obligations) for historical
+    # ADMIN_INCOME rows that never went through bookCompanyObligations. Its own
+    # sibling, `2026-08-12_admin_income_drop_backfill_report.sql`, IS wired (fully
+    # read-only — makes zero writes) precisely so the OWNER can read its candidate +
+    # ambiguous list in a deploy log FIRST; this file is only meant to run once the
+    # owner has reviewed that output and explicitly confirmed proceeding — never
+    # automatically on every deploy. Wire it in a SEPARATE follow-up PR after that
+    # confirmation (mirrors how the drop-share-pending-parity backfill above was
+    # applied once, then immediately de-wired — this one starts pre-wired-out
+    # instead, since the owner's confirmation has not happened yet). The column file,
+    # `2026-08-12_admin_income_drop_backfill_column.sql`, is wired normally (additive,
+    # idempotent schema change, safe on every deploy regardless of whether the
+    # backfill itself is ever applied).
 }
 
 
