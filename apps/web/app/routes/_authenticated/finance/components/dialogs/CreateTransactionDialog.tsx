@@ -960,6 +960,19 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                   обязательства выплатить синьору и дропу их доли.
                 </p>
               )}
+              {/* Company account balance hint — same hint the EXPENSE/ACCOUNTANT
+                  toggles show, now keyed off `receiverId` for this Select. */}
+              {receiverId === COMPANY_ACCOUNT_RECEIVER && (
+                <div className="flex items-center justify-between rounded-md border border-blue-500/20 bg-blue-500/5 px-3 py-2 text-xs text-blue-400">
+                  <span>Баланс счёта компании</span>
+                  <span
+                    className="font-bold tabular-nums"
+                    data-testid="create-transaction-company-balance-hint"
+                  >
+                    {fmtUsdt(companyBalance)} USDT
+                  </span>
+                </div>
+              )}
               {fieldErrors.receiver && (
                 <p
                   className="text-[11px] text-destructive"
