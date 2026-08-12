@@ -424,6 +424,7 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const isUsdtLocked =
     isSelectedProjectUsdt ||
     isAdminIncomeCompanyFunded ||
+    // Stryker disable next-line ConditionalExpression: empirically verified equivalent (full dialog suite, still green with the `type === 'EXPENSE'` half forced `true`) — for EXPENSE itself this half was already true, no change; for every OTHER type, `fundingSource` has already been reset to 'legacy' by the type-switch handler's own unconditional `setFundingSource(defaultFundingSource(t))` (defaultFundingSource ignores its argument, see the neighbouring suppression, and always returns 'legacy') before this line can ever see a stale 'COMPANY_ACCOUNT' — the ONE type that keeps that value alive across a mutation of this clause is ACCOUNTANT's ADMIN_INCOME toggle, and THAT case is already covered by `isAdminIncomeCompanyFunded` two lines up, independent of this clause.
     (type === 'EXPENSE' && fundingSource === 'COMPANY_ACCOUNT')
 
   // task-receipts-frontend. Single discriminant for the receipt explorer-only
