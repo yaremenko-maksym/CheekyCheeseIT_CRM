@@ -132,16 +132,21 @@ const PROJECTS = [
   },
 ]
 
-const ADMIN_USERS = [
+// `/users` returns EVERY role — `adminUsers = allUsers.filter(u => u.role
+// === 'ADMIN')` is the component's OWN filter (mutation-gate coverage: a
+// mutant that deletes this filter must be observable, so a non-admin has to
+// be present in the fixture for the receiver-Select-exclusion test below).
+const ALL_USERS = [
   { id: 'admin-1', displayName: 'Admin One', role: 'ADMIN' },
   { id: 'admin-2', displayName: 'Admin Two', role: 'ADMIN' },
+  { id: 'senior-1', displayName: 'Senior Person', role: 'SENIOR' },
 ]
 
 vi.mock('@/lib/axios', () => ({
   api: {
     get: vi.fn().mockImplementation((url: string) => {
       if (url.startsWith('/projects')) return Promise.resolve({ data: PROJECTS })
-      if (url.startsWith('/users')) return Promise.resolve({ data: ADMIN_USERS })
+      if (url.startsWith('/users')) return Promise.resolve({ data: ALL_USERS })
       return Promise.resolve({ data: [] })
     }),
     post: vi.fn().mockResolvedValue({ data: {} }),
@@ -241,6 +246,11 @@ describe('CreateTransactionDialog — AC11: ADMIN_INCOME project pool is the uni
     expect(await within(listbox).findByText('FOP Own Project')).toBeInTheDocument()
     expect(within(listbox).queryByText('USDT Own Project')).not.toBeInTheDocument()
     expect(within(listbox).queryByText('USDT Third Party Project')).not.toBeInTheDocument()
+    // ACCOUNTANT's pool is admin-OWNED projects, not every project — a project
+    // whose senior is a non-admin (`FOP Project`, seniorId=senior-1) must stay
+    // out even though it is not USDT (`adminUserIds.has(p.seniorId)`, not a
+    // blanket `projects` pass-through).
+    expect(within(listbox).queryByText('FOP Project')).not.toBeInTheDocument()
   })
 })
 
@@ -257,6 +267,9 @@ describe('CreateTransactionDialog — AC9: receiver Select is a flat active-admi
     // `/users` never returns a DROP-role user here — structurally impossible
     // for one to appear, which IS the enforcement (see file header AC9).
     expect(within(listbox).queryByText('Dropper One')).not.toBeInTheDocument()
+    // `/users` returns every role — `adminUsers = allUsers.filter(role===ADMIN)`
+    // is what keeps a non-admin OUT of the list a mutant could delete silently.
+    expect(within(listbox).queryByText('Senior Person')).not.toBeInTheDocument()
   })
 
   it('does NOT pre-select a receiver by default', async () => {
@@ -317,6 +330,30 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
       receiverId: 'admin-2',
       receiptExternalUrl: 'https://etherscan.io/tx/0xusdt1',
     })
+    // Notes left blank must reach the server as `null`, not `''`/`undefined` —
+    // `notes || null` is the exact contract `receiptMandatoryError` /
+    // `createUsdtIncomeSchema` on the other end expect.
+    expect(payload.notes).toBeNull()
+  })
+
+  it('sends notes and txDate through EXACTLY as typed, not silently nulled (USDT payload)', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('USDT Own Project')
+    await selectReceiver('Admin Two')
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xnotes' },
+    })
+    fireEvent.change(screen.getByPlaceholderText('Дополнительная информация...'), {
+      target: { value: 'Quarterly settlement' },
+    })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(declareUsdtProjectIncomeMock).toHaveBeenCalledTimes(1))
+    const [payload] = declareUsdtProjectIncomeMock.mock.calls[0] as [Record<string, unknown>]
+    expect(payload.notes).toBe('Quarterly settlement')
+    expect(typeof payload.txDate).toBe('string')
+    expect(payload.txDate).not.toBeNull()
   })
 
   it('submits with receiverId="COMPANY_ACCOUNT" when «Счёт компании» is chosen on a USDT project', async () => {
@@ -370,6 +407,68 @@ describe('CreateTransactionDialog — routing: selected project decides the endp
     // element. The currency trigger's accessible text is the bare code.
     const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USDT')
     expect(currencyTrigger).toBeDisabled()
+  })
+
+  it('switching FROM a USDT project TO a non-USDT one clears the stale receiver and un-locks currency', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('USDT Own Project')
+    await selectReceiver('Admin Two')
+    expect(screen.getByTestId('admin-income-receiver-trigger')).toHaveTextContent('Admin Two')
+    // Switch to a non-USDT project — the two routes have disjoint
+    // receiver/funding semantics; a stale pick from the OTHER route must not
+    // silently carry over into `createAdminIncome`'s payload.
+    await selectProject('FOP Own Project')
+    expect(screen.getByTestId('admin-income-receiver-trigger')).toHaveTextContent(
+      'Выберите получателя',
+    )
+    const currencyTrigger = screen.getAllByRole('combobox').find((el) => el.textContent === 'USD')
+    expect(currencyTrigger).not.toBeDisabled()
+  })
+
+  it('project selector is absent for types that never carry a project (EXPENSE)', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    fireEvent.click(screen.getByTestId('create-transaction-type-expense'))
+    expect(screen.queryByTestId('create-transaction-project-trigger')).not.toBeInTheDocument()
+  })
+})
+
+describe('CreateTransactionDialog — company-account invalidation on success', () => {
+  it('a «Счёт компании»-routed ADMIN_INCOME invalidates the company-account query (isAdminIncomeCompanyFunded)', async () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
+    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://etherscan.io/tx/0xcompanyfunded' },
+    })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['company-account'] }),
+    )
+    invalidateSpy.mockRestore()
+  })
+
+  it('a project-owner-routed ADMIN_INCOME does NOT invalidate the company-account query', async () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('FOP Own Project')
+    await selectReceiver('Admin Two')
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
+    fireEvent.click(screen.getByTestId('receipt-input-mode-url'))
+    fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
+      target: { value: 'https://example.com/receipt.png' },
+    })
+    fireEvent.click(screen.getByTestId('create-transaction-submit'))
+    await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['company-account'] })
+    invalidateSpy.mockRestore()
   })
 })
 
