@@ -40,28 +40,16 @@
 -- private manual run — not a new automated channel — is the right level of
 -- exposure for this data.
 --
--- Selection predicate (mirrors the apply file EXACTLY — same CTEs, same
--- WHERE clauses; only the SELECT list differs, this file adds human-readable
--- columns for the report, the apply file adds the columns it needs to write)
+-- Selection predicate — the CANDIDATE SET (rows this loop even looks at)
+-- mirrors the apply file's `usdt_drop_incomes` with ONE deliberate
+-- exception: currency (see MED-G below). Same `linked`/`ambiguous_projects`
+-- CTEs, same WHERE clauses otherwise; the SELECT list differs because this
+-- file adds human-readable columns for the report, the apply file adds the
+-- columns it needs to write.
 -- ------------------------------------------------------------------------------
--- A candidate is an ADMIN_INCOME row where ALL of:
+-- A row this loop considers is an ADMIN_INCOME row where ALL of:
 --   - type = 'ADMIN_INCOME' AND deleted_at IS NULL (soft-deleted incomes are
 --     never processed — task-admin-income-drop-backfill AC8);
---   - currency = 'USDT' — security-review round 2 (PR #517, HIGH-1):
---     `createAdminIncomeSchema` allows USDT | USD | EUR | UAH, and the
---     service persists whatever currency the caller supplied verbatim
---     (currency is only ever forced to USDT for a COMPANY_ACCOUNT-funded
---     income — see `transactions.service.ts` `createAdminIncome`). A
---     project's `payment_type = 'USDT'` says nothing about the CURRENCY of
---     any individual income row on it — a personal-currency UAH/USD/EUR
---     admin income can exist on a USDT-payment project. Without this filter
---     a 200 000 UAH income would be treated as 200 000 USDT and a
---     obligation for 1/40th of nothing-like-the-real-value would be booked
---     in the wrong currency entirely. `pending_obligations`/the created
---     `DROP_PENDING_PAYOUT` row are ALWAYS USDT (the drop's share of a
---     USDT-project's revenue is a USDT obligation by definition) — so this
---     filter is not optional narrowing, it is the ONLY way "amount" below
---     means what the created row claims it means;
 --   - created_at is before this backfill's authorship cutoff (see BOUNDS
 --     below) — security-review round 2 (PR #517, MED-B): scopes this
 --     ONE-TIME script to the income rows that existed when it was written
@@ -111,6 +99,20 @@
 -- rows as "ambiguous" rather than trying to be clever about excluding them; a
 -- human reviewing a short list is cheaper than a wrong guess on money.
 --
+-- WRONG-CURRENCY (security-review round 3, PR #517, MED-G) — checked FIRST,
+-- before the ambiguous check above, for every row this loop considers: a row
+-- whose `currency <> 'USDT'` (HIGH-1's gate — see `transactions.service.ts`
+-- `createAdminIncome`, which never forces currency to USDT for a personal
+-- admin income) is counted into its OWN bucket and excluded from both the
+-- candidate total and the ambiguous count. This is DELIBERATELY not filtered
+-- out of the `usdt_drop_incomes` CTE the way it is in `apply.sql` — doing so
+-- here would make the class invisible: a real ADMIN_INCOME on a real
+-- drop-bound USDT project, no share ever booked, and the report saying
+-- nothing about it. `apply.sql` still filters currency in its own CTE (it
+-- must never WRITE a USDT obligation priced off a non-USDT amount); this
+-- file's job is only to SURFACE that the class exists, not to fix it — there
+-- is no safe currency conversion to invent here.
+--
 -- Percent + amount — OWNER-APPROVED ASSUMPTION (say it out loud)
 -- -----------------------------------------------------------------------------
 -- No historical drop-share % was ever recorded for these incomes (the
@@ -121,6 +123,21 @@
 -- match what would have been booked back when the income was originally
 -- declared. This is a deliberate, disclosed approximation, not a bug — see
 -- the task file (task-admin-income-drop-backfill.md) for the owner's framing.
+--
+-- security-review round 3 (PR #517, MED-G): the currency filter (HIGH-1
+-- above) sits IN the `usdt_drop_incomes` CTE — a non-USDT-currency row never
+-- reaches the loop below, so the FIRST version of this fix left it with no
+-- signal at all: a real ADMIN_INCOME on a real drop project, never given a
+-- share, and the report said nothing. The owner would have no way to learn
+-- this class of "needs a manual currency decision" income even exists. Fixed
+-- by moving the currency check OUT of the CTE and INTO the loop body — every
+-- row that matches everything else (type/deleted/cutoff/project) is now
+-- counted, bucketed into `wrong-currency` FIRST (before the ambiguous check)
+-- when its currency isn't USDT, and reported as its own count. This is
+-- deliberately just a counter, not a fix — there is no safe currency
+-- conversion this script should invent; it only makes the class visible so a
+-- human decides what (if anything) to do with each one (see the private
+-- detail file for which specific incomes).
 --
 -- security-review round 2 (PR #517, MED-C): the SAME today's-snapshot caveat
 -- applies to WHICH drop gets the share. `projects.drop_id` is the CURRENT
@@ -156,6 +173,7 @@ DECLARE
   v_candidates integer := 0;
   v_candidate_total_usdt numeric(18, 6) := 0;
   v_ambiguous integer := 0;
+  v_wrong_currency integer := 0;
 BEGIN
   FOR rec IN
     WITH bounds AS (
@@ -164,16 +182,19 @@ BEGIN
       SELECT '2026-08-13 00:00:00+00'::timestamptz AS cutoff
     ),
     usdt_drop_incomes AS (
+      -- MED-G: deliberately NO `currency = 'USDT'` filter here (unlike
+      -- apply.sql) — see the WRONG-CURRENCY header note above for why this
+      -- file needs to SEE non-USDT rows in order to count them.
       SELECT
         t.id AS income_id,
         t.project_id,
-        t.amount
+        t.amount,
+        t.currency
       FROM transactions t
       JOIN projects p ON p.id = t.project_id
       CROSS JOIN bounds b
       WHERE t.type = 'ADMIN_INCOME'
         AND t.deleted_at IS NULL
-        AND t.currency = 'USDT'
         AND t.created_at < b.cutoff
         AND p.drop_id IS NOT NULL
         AND p.payment_type = 'USDT'
@@ -201,6 +222,7 @@ BEGIN
     SELECT
       u.income_id,
       u.project_id,
+      u.currency,
       (
         round(round(u.amount * 1000000) * COALESCE(p.drop_share_percent_override, d.drop_share_percent, 5) / 100)
         / 1000000
@@ -211,7 +233,13 @@ BEGIN
     JOIN users d ON d.id = p.drop_id
     WHERE NOT EXISTS (SELECT 1 FROM linked l WHERE l.income_id = u.income_id)
   LOOP
-    IF rec.is_ambiguous THEN
+    -- MED-G: currency checked FIRST — a wrong-currency row is never counted
+    -- as a candidate OR as ambiguous, regardless of its project's ambiguity
+    -- status (it was never going to be auto-processed either way; the point
+    -- of this bucket is visibility, not a second selection criterion).
+    IF rec.currency <> 'USDT' THEN
+      v_wrong_currency := v_wrong_currency + 1;
+    ELSIF rec.is_ambiguous THEN
       v_ambiguous := v_ambiguous + 1;
     ELSE
       v_candidates := v_candidates + 1;
@@ -219,6 +247,6 @@ BEGIN
     END IF;
   END LOOP;
 
-  RAISE NOTICE 'admin-income-drop-backfill REPORT (read-only, AGGREGATE-ONLY — row-level ids/names deliberately omitted from this public deploy log, see 2026-08-12_admin_income_drop_backfill_detail.sql for the private breakdown): % candidate(s) totalling % USDT of drop-share that would be created by the apply file, % ambiguous row(s) excluded pending manual review — nothing has been written yet',
-    v_candidates, v_candidate_total_usdt, v_ambiguous;
+  RAISE NOTICE 'admin-income-drop-backfill REPORT (read-only, AGGREGATE-ONLY — row-level ids/names deliberately omitted from this public deploy log, see 2026-08-12_admin_income_drop_backfill_detail.sql for the private breakdown): % candidate(s) totalling % USDT of drop-share that would be created by the apply file, % ambiguous row(s) excluded pending manual review, % non-USDT-currency row(s) skipped (currency mismatch — never auto-processed, needs a manual currency decision) — nothing has been written yet',
+    v_candidates, v_candidate_total_usdt, v_ambiguous, v_wrong_currency;
 END $$;

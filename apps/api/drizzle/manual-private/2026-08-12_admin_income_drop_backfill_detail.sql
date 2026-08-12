@@ -46,11 +46,15 @@
 -- together is a deliberate follow-up decision for a separate infra PR, not
 -- something this file does for itself. See this PR's body for the proposal.
 --
--- Selection predicate — IDENTICAL to the automated report/apply files (same
--- CTEs, same WHERE clauses, same cutoff, same currency filter, same
--- ambiguity rules) so the row-level breakdown here can never disagree with
--- what the aggregate counts in the public log say or with what the apply
--- file would actually do. See `2026-08-12_admin_income_drop_backfill_report
+-- Selection predicate — IDENTICAL to the automated report file (same CTEs,
+-- same WHERE clauses, same cutoff, same ambiguity rules, same WRONG-CURRENCY
+-- bucket — security-review round 3, PR #517, MED-G) so the row-level
+-- breakdown here can never disagree with what the aggregate counts in the
+-- public log say. Deliberately does NOT filter `currency = 'USDT'` in its
+-- CTE either, for the SAME reason report.sql doesn't — a non-USDT row must
+-- be visible here (by name, this time — this file's whole point) rather than
+-- silently absent. `apply.sql` (the one file that WRITES) still filters
+-- currency in its own CTE. See `2026-08-12_admin_income_drop_backfill_report
 -- .sql`'s header for the full reasoning behind every clause.
 --
 -- 100% read-only: no CREATE/INSERT/UPDATE/DELETE of any kind, not even a
@@ -63,6 +67,7 @@ DECLARE
   rec RECORD;
   v_candidates integer := 0;
   v_ambiguous integer := 0;
+  v_wrong_currency integer := 0;
 BEGIN
   FOR rec IN
     WITH bounds AS (
@@ -73,6 +78,7 @@ BEGIN
         t.id AS income_id,
         t.project_id,
         t.amount,
+        t.currency,
         COALESCE(t.tx_date, t.created_at) AS effective_date,
         p.name AS project_name,
         p.drop_id,
@@ -82,7 +88,6 @@ BEGIN
       CROSS JOIN bounds b
       WHERE t.type = 'ADMIN_INCOME'
         AND t.deleted_at IS NULL
-        AND t.currency = 'USDT'
         AND t.created_at < b.cutoff
         AND p.drop_id IS NOT NULL
         AND p.payment_type = 'USDT'
@@ -113,6 +118,7 @@ BEGIN
       u.project_name,
       u.effective_date,
       u.amount,
+      u.currency,
       u.drop_id,
       d.display_name AS drop_name,
       COALESCE(u.drop_share_percent_override, d.drop_share_percent, 5) AS resolved_percent,
@@ -130,7 +136,11 @@ BEGIN
     WHERE NOT EXISTS (SELECT 1 FROM linked l WHERE l.income_id = u.income_id)
     ORDER BY u.effective_date
   LOOP
-    IF rec.is_ambiguous THEN
+    IF rec.currency <> 'USDT' THEN
+      v_wrong_currency := v_wrong_currency + 1;
+      RAISE NOTICE 'WRONG-CURRENCY — income=% project=% (%) date=% amount=% % drop=% (%) — currency is not USDT, never auto-processed by the apply file; needs a manual currency decision',
+        rec.income_id, rec.project_name, rec.project_id, rec.effective_date, rec.amount, rec.currency, rec.drop_name, rec.drop_id;
+    ELSIF rec.is_ambiguous THEN
       v_ambiguous := v_ambiguous + 1;
       RAISE NOTICE 'AMBIGUOUS — income=% project=% (%) date=% amount=% USDT drop=% (%) — project already carries an untagged drop-share row or a DROP_INCOME row, origin cannot be determined; SKIPPED on both the report and the apply file, resolve manually',
         rec.income_id, rec.project_name, rec.project_id, rec.effective_date, rec.amount, rec.drop_name, rec.drop_id;
@@ -141,6 +151,6 @@ BEGIN
     END IF;
   END LOOP;
 
-  RAISE NOTICE 'admin-income-drop-backfill DETAIL (read-only, private, run manually — never in CI): % candidate(s), % ambiguous row(s) — nothing has been written yet',
-    v_candidates, v_ambiguous;
+  RAISE NOTICE 'admin-income-drop-backfill DETAIL (read-only, private, run manually — never in CI): % candidate(s), % ambiguous row(s), % non-USDT-currency row(s) — nothing has been written yet',
+    v_candidates, v_ambiguous, v_wrong_currency;
 END $$;

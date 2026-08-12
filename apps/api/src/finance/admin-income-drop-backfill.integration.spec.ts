@@ -524,6 +524,39 @@ describe('admin-income-drop-backfill report + apply + detail SQL (real DB)', () 
     }
   })
 
+  it('MED-I (security-review round 3): the authorship cutoff literal is EXTRACTED from each file, not retyped, and is IDENTICAL across report.sql, apply.sql, and detail.sql', async () => {
+    // MED-D pinned the rounding formula this same way (extract, don't
+    // retype, compare files against each other) after AC9 was flagged for
+    // hand-copying it. MED-I applies the identical technique to the OTHER
+    // literal duplicated across all three files — the authorship cutoff.
+    const CUTOFF_RE = /'([^']+)'::timestamptz AS cutoff/
+    const reportMatch = REPORT_SQL.match(CUTOFF_RE)
+    const applyMatch = APPLY_SQL.match(CUTOFF_RE)
+    const detailMatch = DETAIL_SQL.match(CUTOFF_RE)
+    expect(reportMatch).not.toBeNull()
+    expect(applyMatch).not.toBeNull()
+    expect(detailMatch).not.toBeNull()
+
+    const [reportCutoff, applyCutoff, detailCutoff] = [
+      reportMatch![1],
+      applyMatch![1],
+      detailMatch![1],
+    ]
+    // All three files must carry the LITERALLY identical cutoff — a drift in
+    // any one of them (e.g. someone updates report.sql for a fresh backfill
+    // run and forgets apply.sql) now fails loudly instead of silently
+    // letting the report approve a different set than apply processes.
+    expect(applyCutoff).toBe(reportCutoff)
+    expect(detailCutoff).toBe(reportCutoff)
+    // Also pin the actual value — a drift where all three files change
+    // TOGETHER to something wrong would still pass the cross-file-equality
+    // checks above; this catches that case too.
+    expect(reportCutoff).toBe('2026-08-13 00:00:00+00')
+    // Sanity: this is the SAME instant CUTOFF_ISO (used to build the MED-B
+    // fixture above) represents.
+    expect(new Date(`${reportCutoff.replace(' ', 'T')}:00`).toISOString()).toBe(CUTOFF_ISO)
+  })
+
   it('HIGH-1 (security-review round 2): an ADMIN_INCOME in a DIFFERENT currency (UAH) on a USDT-payment project is NEVER treated as USDT — excluded from the apply file', async () => {
     if (!dbAvailable) return
     const incomeId = 'ce770000-0000-4000-d000-000000000017'
@@ -536,6 +569,42 @@ describe('admin-income-drop-backfill report + apply + detail SQL (real DB)', () 
       [incomeId],
     )
     expect(created).toHaveLength(0)
+  })
+
+  it('MED-G (security-review round 3): a non-USDT-currency row does not just vanish from the report — it is counted in its OWN "non-USDT-currency" bucket, visible in the same aggregate NOTICE', async () => {
+    if (!dbAvailable) return
+    const incomeId = 'ce770000-0000-4000-d000-000000000023'
+    await seedIncome(incomeId, P_CANDIDATE, '200000', { currency: 'UAH' })
+
+    const notices: string[] = []
+    const client = await pool!.connect()
+    client.on('notice', (msg) => notices.push(msg.message ?? ''))
+    await client.query(REPORT_SQL)
+    client.release()
+
+    const joined = notices.join('\n')
+    expect(joined).toMatch(/1 non-USDT-currency row\(s\)/)
+    // Neither counted as a candidate nor as ambiguous — its own bucket only.
+    expect(joined).toMatch(/0 candidate\(s\)/)
+    expect(joined).toMatch(/0 ambiguous row\(s\)/)
+  })
+
+  it('MED-G-detail (security-review round 3): the private detail file ALSO surfaces the wrong-currency row by name, not just as a count', async () => {
+    if (!dbAvailable) return
+    const incomeId = 'ce770000-0000-4000-d000-000000000024'
+    await seedIncome(incomeId, P_CANDIDATE, '321', { currency: 'USD' })
+
+    const notices: string[] = []
+    const client = await pool!.connect()
+    client.on('notice', (msg) => notices.push(msg.message ?? ''))
+    await client.query(DETAIL_SQL)
+    client.release()
+
+    expect(
+      notices.some(
+        (n) => n.startsWith('WRONG-CURRENCY') && n.includes(incomeId) && n.includes('USD'),
+      ),
+    ).toBe(true)
   })
 
   it('HIGH-2 (security-review round 2): a project currently USDT but carrying ANY historical DROP_INCOME row (FOP-period self-declared income) is ambiguous — even with NO DROP_PENDING_PAYOUT/PAYOUT_DROP row present at all', async () => {
