@@ -45,7 +45,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, inArray } from 'drizzle-orm'
-import { receiptMandatoryError } from '@crm/shared'
+import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
 import type {
   PendingSettlementItemDto,
   PendingObligationDto,
@@ -452,19 +452,83 @@ export class PendingSettlementService {
       const obligationAmount = parseFloat(obligation.amount)
       const obligationCurrency = obligation.currency as BalanceCurrency
       const targetCurrency = currency as BalanceCurrency
+
+      // SECURITY (MED-1, security-review PR #521 round 1): every write path
+      // that books a DROP obligation (`bookCompanyObligations` in
+      // transactions.service.ts) hardcodes USDT — normal data can never
+      // reach here with a different currency. But the BIZ-03 whitelist
+      // exemption a few lines up is justified SPECIFICALLY by "the amount is
+      // genuinely converted, not relabeled" (see the extended comment on
+      // `assertSettleCurrencyAllowed`), and that justification is silent
+      // exactly when NO conversion happens (`targetCurrency ===
+      // obligationCurrency` below) — a corrupted/legacy obligation whose
+      // `currency` is not USDT would then take a copy of `amount` verbatim
+      // under a wrong label, the exact "clean rename" BIZ-03 exists to
+      // prevent. Assert the invariant explicitly rather than trust it
+      // silently — a SENIOR settle already gets the equivalent protection
+      // from `assertSettleCurrencyAllowed`, which still runs for it.
+      if (obligationCurrency !== 'USDT') {
+        throw new BadRequestException(
+          'Обязательство дропа испорчено: валюта обязательства не USDT — конверсия невозможна',
+        )
+      }
+
       // Skip the NBU round-trip entirely when there is nothing to convert
       // (the default — and by far the most common — case: paid in the
       // obligation's own currency). `convertToBase` would short-circuit to
-      // the same value anyway; this just avoids the network call.
-      paidAmount =
-        targetCurrency === obligationCurrency
-          ? obligationAmount
-          : convertToBase(
-              obligationAmount,
-              obligationCurrency,
-              targetCurrency,
-              await this.nbuCurrency.getRates(),
-            )
+      // the same value anyway; this just avoids the network call (and the
+      // MED-2 staleness gate below, which has nothing to guard when no rate
+      // is actually applied).
+      if (targetCurrency === obligationCurrency) {
+        paidAmount = obligationAmount
+      } else {
+        const rates = await this.nbuCurrency.getRates()
+        // SECURITY (MED-2, security-review PR #521 round 1): `getRates()`
+        // NEVER throws — on a live-NBU outage it silently falls back to a
+        // cached or hardcoded rate and sets `stale: true` (see the TODO at
+        // nbu-currency.service.ts:21-25, written for exactly this future:
+        // "once conversion is wired into a payout amount, consumers MUST
+        // check `stale` and warn before applying it"). Every OTHER
+        // consumer only feeds a stale rate into a DISPLAY value that
+        // self-corrects on the next read (a balance, a summary card). This
+        // is the first one to bake it into a PERMANENT, irreversible
+        // payout figure — refuse rather than silently commit a possibly
+        // wrong amount to money that cannot be un-paid. The ADMIN/ACCOUNTANT
+        // can retry once NBU recovers, or settle in the obligation's own
+        // currency (USDT) right now, which never needs a rate at all.
+        if (rates.stale) {
+          throw new BadRequestException(
+            'Курс НБУ недоступен или устарел — выплата в конвертированной валюте временно невозможна. Повторите позже или выплатите в валюте обязательства (USDT).',
+          )
+        }
+        const rawPaidAmount = convertToBase(
+          obligationAmount,
+          obligationCurrency,
+          targetCurrency,
+          rates,
+        )
+        // LOW (security-review PR #521 round 1): round to the money
+        // precision actually payable — `AmountCurrencyInput` DISPLAYS
+        // `.toFixed(2)`, but the raw division can carry many more decimals
+        // (e.g. 41512.345679 UAH), a "fact of payment" nobody could
+        // actually transfer. Round BEFORE recording so the written amount
+        // matches the displayed one exactly (AC3) and stays a real payable
+        // figure, not just an average close enough for a 2-decimal test.
+        paidAmount = Math.round(rawPaidAmount * 100) / 100
+      }
+
+      // LOW (security-review PR #521 round 1): the server-computed figure
+      // is exempt from Zod's boundary validation (there is no client
+      // `amount` field to validate) but can still exceed the project's own
+      // ceiling once multiplied by a currency rate — e.g. a near-MAX_
+      // TRANSACTION_AMOUNT USDT obligation × ~41 for UAH. Re-apply the SAME
+      // finiteness/positivity/ceiling rule every client-supplied amount
+      // already goes through (also closes the `Number.isFinite` gap: a
+      // NaN/Infinity paid amount must never reach `numeric` — Postgres
+      // accepts the literal string `'NaN'`).
+      const paidAmountError = transactionAmountError(paidAmount)
+      if (paidAmountError) throw new BadRequestException(paidAmountError)
+
       originalAmount = obligation.amount
       originalCurrency = obligationCurrency
       // Effective applied rate = paid / original (units of the paid currency
