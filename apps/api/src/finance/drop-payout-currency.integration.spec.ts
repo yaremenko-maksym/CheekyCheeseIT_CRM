@@ -510,4 +510,83 @@ describe('DROP obligation settle — currency conversion (real DB, task-drop-pay
     })
     expect(stillPendingPayment?.status).toBe('PENDING_PAYMENT')
   })
+
+  // ── MED-A (security-review PR #521 round 3): a zero-amount DROP obligation
+  // (a 0%-share drop) must still close — against the real DB / real
+  // numeric(18,6) column, not just the mocked unit spec.
+  it('MED-A: a zero-amount DROP obligation settles successfully against the real DB', async () => {
+    if (!dbAvailable) return
+    await dbSvc.db
+      .update(transactions)
+      .set({ amount: '0' })
+      .where(eq(transactions.id, SOURCE_TX_ID))
+    await dbSvc.db
+      .update(pendingObligations)
+      .set({ amount: '0' })
+      .where(eq(pendingObligations.id, OBLIGATION_ID))
+
+    await settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      currency: 'USDT',
+      ...EXPLORER_RECEIPT,
+    })
+
+    const row = await payoutDropRow()
+    expect(row).toBeTruthy()
+    expect(parseFloat(row!.amount)).toBe(0)
+    expect(row!.exchangeRate).toBeNull() // 0/0 is unrepresentable, not zero
+
+    const closed = await dbSvc.db.query.pendingObligations.findFirst({
+      where: eq(pendingObligations.id, OBLIGATION_ID),
+    })
+    expect(closed?.status).toBe('PAID')
+  })
+
+  // ── owner addendum (2026-08): date-of-record — the SELECTED date drives
+  // BOTH the applied rate AND the flipped row's txDate, against a REAL
+  // timestamp column (not a mocked patch object the unit spec's harness
+  // just stores as-is).
+  it("owner addendum: settling at a SELECTED past date writes THAT date as txDate and applies THAT date's rate", async () => {
+    if (!dbAvailable) return
+    // Backdate the seeded obligation so the lower bound (not before the
+    // obligation existed) doesn't reject the selected date below.
+    await dbSvc.db
+      .update(pendingObligations)
+      .set({ createdAt: new Date('2026-01-01T00:00:00Z') })
+      .where(eq(pendingObligations.id, OBLIGATION_ID))
+
+    const SELECTED_DATE = '2026-08-05'
+    // Date-aware stub: returns a DIFFERENT rate for the selected date than
+    // FIXED_RATES (every other test's rate) — the only way this test can
+    // distinguish "used the selected date" from "used today"/some default.
+    const dateAwareNbu: Pick<NbuCurrencyService, 'getRates'> = {
+      getRates: (date?: string) =>
+        Promise.resolve(
+          date === '20260805'
+            ? { usdUah: '38.00', usdtUah: '38.00', eurUah: '44.80', date: '20260805' }
+            : FIXED_RATES,
+        ),
+    }
+    const dateSvc = new PendingSettlementService(
+      dbSvc,
+      stubInvoices,
+      dateAwareNbu as NbuCurrencyService,
+    )
+
+    await dateSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN.id,
+      currency: 'UAH',
+      txDate: SELECTED_DATE,
+      ...FILE_RECEIPT,
+    })
+
+    const row = await payoutDropRow()
+    expect(row).toBeTruthy()
+    // The SELECTED date's rate (38.00) — NOT FIXED_RATES' 41.50.
+    expect(parseFloat(row!.amount)).toBeCloseTo(parseFloat(DROP_SHARE) * 38.0, 2)
+    expect(row!.txDate).toBeTruthy()
+    expect(row!.txDate!.toISOString().slice(0, 10)).toBe(SELECTED_DATE)
+  })
 })
