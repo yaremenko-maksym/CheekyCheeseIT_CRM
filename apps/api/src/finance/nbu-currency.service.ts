@@ -111,7 +111,7 @@ export class NbuCurrencyService {
     // Attempt 1: today's date
     const attempt1 = await this.fetchRates(url)
     if (attempt1 !== null && attempt1.length > 0) {
-      return this.buildResult(attempt1, dateStr, false, isLiveRequest)
+      return this.buildResult(attempt1, dateStr, { stale: false, allowCacheUpdate: isLiveRequest })
     }
 
     // Attempt 1 returned empty data or failed
@@ -137,7 +137,10 @@ export class NbuCurrencyService {
       // fallback is just as unfit to cache as its exact-date match would
       // have been. buildResult with stale=true skips the cache update, so
       // we update it here.
-      const prevResult = this.buildResult(attempt2, prev, false, isLiveRequest) // cache as fresh prev-day, live requests only
+      const prevResult = this.buildResult(attempt2, prev, {
+        stale: false, // cache as fresh prev-day
+        allowCacheUpdate: isLiveRequest, // live requests only
+      })
       void prevResult // side-effect: updates this.lastKnownGood
       return { ...prevResult, date: dateStr, stale: true }
     }
@@ -180,19 +183,29 @@ export class NbuCurrencyService {
    * Build a successful ExchangeRateResult from NBU rate rows and update the
    * last-known-good cache.
    *
-   * @param allowCacheUpdate security-review PR #521 round 3 (MED) — only
-   *   `true` when the date this call actually fetched traces back to a
+   * A named-options object, not two trailing booleans — security-review PR
+   * #521 round 4 (non-blocking): two adjacent `boolean` positional params
+   * is exactly the shape a future caller mixes up the order of, silently
+   * (both are valid booleans, so a swap type-checks and only misbehaves at
+   * runtime). Each field is documented at its own name instead.
+   *
+   * @param options.stale marks the WHOLE result stale from the caller's own
+   *   knowledge (e.g. the prev-day fallback path in `getRates` — the exact
+   *   requested date had no data). `buildResult` may ALSO derive
+   *   `stale: true` itself (missing USD/EUR rows) regardless of this input.
+   * @param options.allowCacheUpdate security-review PR #521 round 3 (MED) —
+   *   only `true` when the date this call actually fetched traces back to a
    *   TODAY request (see `isLiveRequest` in `getRates`). A historical-date
-   *   fetch (the new date-of-record feature) must never overwrite the
-   *   shared last-known-good cache that every OTHER `getRates()` caller
-   *   relies on during a genuine live-feed outage.
+   *   fetch (the date-of-record feature) must never overwrite the shared
+   *   last-known-good cache that every OTHER `getRates()` caller relies on
+   *   during a genuine live-feed outage.
    */
   private buildResult(
     rates: NbuRateResponse[],
     date: string,
-    stale: boolean,
-    allowCacheUpdate: boolean,
+    options: { stale: boolean; allowCacheUpdate: boolean },
   ): ExchangeRateResult {
+    const { stale, allowCacheUpdate } = options
     // Missing currency rows: keep last-known-good value or use hardcoded constant.
     const usd = rates.find((r) => r.cc === 'USD')?.rate
     const eur = rates.find((r) => r.cc === 'EUR')?.rate

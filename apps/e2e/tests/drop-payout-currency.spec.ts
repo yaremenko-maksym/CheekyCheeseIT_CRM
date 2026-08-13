@@ -260,6 +260,20 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
     const amountField = dialog.getByTestId('settle-senior-amount-field')
     await expect(amountField).toBeVisible()
 
+    // owner addendum review round (design-fidelity-review.md gate): the
+    // BUSIEST state is what actually needs a visual check — an untouched
+    // dialog never exercises the currency Select or the date-picker
+    // popover, exactly the two surfaces most likely to overflow/collide at
+    // 320px. Switch to an ADMIN partner (unlocks the currency Select) and a
+    // real conversion currency ONCE, before the width loop, so every
+    // screenshot below shows the dialog in that state.
+    await dialog.getByTestId(`settle-senior-account-admin-${KOSTYA_ID}`).click()
+    const currencySelect = amountField.getByRole('combobox')
+    await expect(currencySelect).toBeEnabled()
+    await currencySelect.click()
+    await page.getByRole('option', { name: 'UAH', exact: true }).click()
+
+    const debugDir = process.env['DEBUG_SCREENSHOT_DIR'] ?? '/tmp/drop-payout-currency-e2e'
     for (const width of [320, 375, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 900 })
       await expect(dialog).toBeVisible()
@@ -268,9 +282,35 @@ test.describe('Выплатить дропу — currency picker (task-drop-payo
         () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
       )
       expect(hasOverflow, `horizontal overflow at ${width}px`).toBe(false)
-      await page.screenshot({
-        path: `${process.env['DEBUG_SCREENSHOT_DIR'] ?? '/tmp/drop-payout-currency-e2e'}/settle-drop-${width}.png`,
-      })
+      await page.screenshot({ path: `${debugDir}/settle-drop-${width}.png` })
+
+      // The date-picker calendar POPOVER is the other surface a reviewer
+      // asked to see — it collides with the viewport edge more than
+      // anything else at 320px. Open it, screenshot with it visible, close
+      // it again so the width loop's own overflow check above (dialog
+      // closed) stays representative of the steady state.
+      const datePickerBtn = dialog.getByTestId('settle-senior-txdate')
+      await datePickerBtn.click()
+      const calendar = page.getByRole('dialog').filter({ has: page.locator('.rdp-root') })
+      await expect(calendar).toBeVisible()
+      // The popover's own entrance transition (fade-in + zoom-in, ~200ms —
+      // see popover.tsx's `data-[state=open]:animate-in` classes) is still
+      // finishing when `toBeVisible()` resolves (that assertion only checks
+      // CSS visibility, not "transition settled"). A screenshot taken mid-
+      // transition — right after a viewport resize, when floating-ui is
+      // ALSO still recomputing the anchor position for the new width — can
+      // catch a transient, wrongly-scaled/positioned frame that never
+      // matches what an operator actually sees. Let it settle first.
+      await page.waitForTimeout(300)
+      const calendarOverflow = await page.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      )
+      expect(calendarOverflow, `calendar popover causes horizontal overflow at ${width}px`).toBe(
+        false,
+      )
+      await page.screenshot({ path: `${debugDir}/settle-drop-${width}-calendar-open.png` })
+      await page.keyboard.press('Escape')
+      await expect(calendar).not.toBeVisible()
     }
   })
 })
