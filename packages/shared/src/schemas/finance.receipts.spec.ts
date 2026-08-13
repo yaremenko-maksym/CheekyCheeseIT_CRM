@@ -366,6 +366,44 @@ describe('settleSeniorPayoutSchema — effective currency (COMPANY_ACCOUNT → U
   })
 })
 
+// task-drop-payout-currency (owner addendum, 2026-08): `txDate` — the
+// operator-selected settle date. The schema enforces the ONE bound it can
+// (no future dates, against server "today"); the LOWER bound (not before
+// the obligation existed) needs the obligation row and is enforced in
+// pending-settlement.service.ts (covered there).
+describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => {
+  const base = { fundingSource: 'ADMIN_PERSONAL' as const, receiptExternalUrl: EXPLORER_URL }
+
+  it('accepts a past date', () => {
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: '2026-01-01' }).success).toBe(true)
+  })
+
+  it('accepts today', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: today }).success).toBe(true)
+  })
+
+  it('rejects a future date', () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const result = settleSeniorPayoutSchema.safeParse({ ...base, txDate: tomorrow })
+    expect(result.success).toBe(false)
+  })
+
+  it('rejects a malformed date string', () => {
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: '01/01/2026' }).success).toBe(
+      false,
+    )
+  })
+
+  it('omitted txDate is valid — every pre-existing caller keeps working', () => {
+    expect(settleSeniorPayoutSchema.safeParse(base).success).toBe(true)
+  })
+
+  it('null txDate is valid (nullable, mirrors the other txDate fields in this module)', () => {
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: null }).success).toBe(true)
+  })
+})
+
 // ── attachReceiptSchema (attach/replace body) ────────────────────────────────
 
 describe('attachReceiptSchema', () => {

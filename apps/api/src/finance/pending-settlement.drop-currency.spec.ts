@@ -116,7 +116,17 @@ interface MockState {
   // `stale?` — task-drop-payout-currency (MED-2): NbuCurrencyService.getRates
   // marks a fallback/cached result `stale: true`; every fixture below defaults
   // to a live (non-stale) rate.
-  rates: typeof DEFAULT_RATES & { stale?: boolean }
+  // `rateDate?` — owner addendum (round 3): the date the rate ACTUALLY came
+  // from (see nbu-currency.service.ts) — set to distinguish a graceful,
+  // dated fallback from a genuine outage.
+  rates: typeof DEFAULT_RATES & { stale?: boolean; rateDate?: string }
+  // owner addendum (round 3): per-date rate overrides, keyed by the
+  // YYYYMMDD `date` argument settleByCompany passes to `getRates` (see the
+  // `getRates` mock below). A date with no entry here falls back to
+  // `rates` — every EXISTING fixture/test that never sets this keeps
+  // getting the SAME rate regardless of which date is requested, exactly
+  // the pre-existing mock behaviour.
+  ratesByDate?: Record<string, typeof DEFAULT_RATES & { stale?: boolean; rateDate?: string }>
 }
 
 function makeService(initial: Partial<MockState> = {}) {
@@ -242,7 +252,14 @@ function makeService(initial: Partial<MockState> = {}) {
     autoCreateForSeniorPayout: vi.fn(async () => undefined),
   } as unknown as InvoicesService
 
-  const getRates = vi.fn(async () => state.rates)
+  // owner addendum (round 3): the mock now HONOURS the `date` argument —
+  // returns the per-date override when one is set for the requested
+  // YYYYMMDD, else the plain `state.rates` (every existing test's shape,
+  // date-independent — matches the pre-existing mock behaviour exactly).
+  const getRates = vi.fn(async (date?: string) => {
+    if (date && state.ratesByDate?.[date]) return state.ratesByDate[date]
+    return state.rates
+  })
   const nbuMock = { getRates } as unknown as NbuCurrencyService
 
   const svc = new PendingSettlementService(db, invoicesMock, nbuMock)
@@ -637,5 +654,271 @@ describe('settleByCompany — server-computed amount still bounded (LOW round 2,
         ...RECEIPT_EXPLORER,
       }),
     ).rejects.toThrow(BadRequestException)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MED-A (security-review PR #521 round 3) — the round-1 LOW-2 fix
+// (`transactionAmountError`, floor "> 0") became a REGRESSION for DROP: a
+// 0%-share drop obligation is legitimately booked at amount='0'
+// (`bookCompanyObligations` does no zero-filtering; the share is
+// `min(0)`-validated), so round 1's fix permanently stranded every such
+// obligation in "Ожидает выплаты". `settledAmountError`'s floor is ">= 0" —
+// zero settles, negative/NaN/Infinity/over-ceiling still don't.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('settleByCompany — zero-amount DROP obligation closes (MED-A, security-review PR #521 round 3)', () => {
+  it('a zero-amount obligation (0%-share drop) settles successfully — same currency, no conversion', async () => {
+    const { svc, settledTx, obligationStatus } = makeService({
+      obligation: makeObligation({ amount: '0' }),
+    })
+    const result = await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'USDT',
+      ...RECEIPT_EXPLORER,
+    })
+    expect(obligationStatus()).toBe('PAID')
+    const row = settledTx()
+    expect(row['amount']).toBe('0')
+    expect(row['originalAmount']).toBe('0')
+    // 0/0 is undefined, not zero — recorded as NULL, same as any other
+    // unrepresentable ratio (see the comment on `rawExchangeRate` in
+    // pending-settlement.service.ts).
+    expect(row['exchangeRate']).toBeNull()
+    expect(result.obligation.status).toBe('PAID')
+  })
+
+  it('a zero-amount obligation settles successfully through an actual currency conversion too (0 × rate = 0)', async () => {
+    const { svc, settledTx } = makeService({ obligation: makeObligation({ amount: '0' }) })
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'UAH',
+      ...RECEIPT_FILE,
+    })
+    const row = settledTx()
+    expect(row['amount']).toBe('0')
+    expect(row['exchangeRate']).toBeNull()
+  })
+
+  it('negative/NaN/over-ceiling paid amounts are still rejected — only the floor moved from ">0" to ">=0"', async () => {
+    const { svc: svcNegative } = makeService({ obligation: makeObligation({ amount: '-1' }) })
+    await expect(
+      svcNegative.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'USDT',
+        ...RECEIPT_EXPLORER,
+      }),
+    ).rejects.toThrow(BadRequestException)
+
+    const { svc: svcOverCeiling } = makeService({
+      obligation: makeObligation({ amount: '50000' }),
+    })
+    await expect(
+      svcOverCeiling.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'UAH',
+        ...RECEIPT_FILE,
+      }),
+    ).rejects.toThrow(/превышать/)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// LOW (security-review PR #521 round 3) — the "nothing to convert" fast path
+// used to key off an EXACT currency-string match only. USD⇄USDT is pegged
+// 1:1 (convertToBase's own short-circuit) — the obligation is always USDT
+// (MED-1), so paying it out in USD is likewise a no-op, not a real rate
+// application, and must not be blocked by an NBU outage either.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('settleByCompany — USD⇄USDT peg pair skips the NBU round-trip (LOW, security-review PR #521 round 3)', () => {
+  it('paying a USDT obligation out in USD needs no rate — a stale/outage rate does NOT block it', async () => {
+    const { svc, getRates, settledTx } = makeService({ rates: { ...DEFAULT_RATES, stale: true } })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'USD',
+        ...RECEIPT_FILE,
+      }),
+    ).resolves.toBeDefined()
+    expect(getRates).not.toHaveBeenCalled()
+    expect(settledTx()['amount']).toBe('1000') // passthrough, not "1 : 41.50"
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// owner addendum (2026-08, security-review PR #521 round 3) — «При оплате
+// доли дропа должна быть возможность выбрать дату, и нужно считать курс
+// согласно выбранной даты транзакции». The rate used to compute the paid
+// amount, and the flipped row's `txDate`, both follow the OPERATOR-SELECTED
+// date — not "today" — when one is sent.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('settleByCompany — date-of-record: selected date drives BOTH the applied rate and txDate (owner addendum, round 3)', () => {
+  // The single test the owner called out as the main one for this part: two
+  // DIFFERENT past dates with two DIFFERENT known rates. Only a genuine
+  // date-of-record implementation can pass both assertions — a fixture that
+  // secretly ignores the date and always uses "today"/a single global rate
+  // could not distinguish "used the selected date" from "used today".
+  it("owner's main test — settling at two different SELECTED dates applies each date's OWN rate, and records THAT date as txDate", async () => {
+    const DATE_A = '2026-07-10' // rate 40.00
+    const DATE_B = '2026-07-20' // rate 45.00
+    const svcA = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-07-01T00:00:00Z') }),
+      ratesByDate: {
+        '20260710': { usdUah: '40.00', usdtUah: '40.00', eurUah: '44.80', date: '20260710' },
+      },
+    })
+    const resultA = await svcA.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'UAH',
+      txDate: DATE_A,
+      ...RECEIPT_FILE,
+    })
+    const rowA = svcA.settledTx()
+    expect(rowA['amount']).toBe('40000') // 1000 USDT × 40.00
+    expect((rowA['txDate'] as Date).toISOString().slice(0, 10)).toBe(DATE_A)
+    expect(resultA.created[0]?.amount).toBe('40000')
+
+    const svcB = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-07-01T00:00:00Z') }),
+      ratesByDate: {
+        '20260720': { usdUah: '45.00', usdtUah: '45.00', eurUah: '44.80', date: '20260720' },
+      },
+    })
+    const resultB = await svcB.svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'UAH',
+      txDate: DATE_B,
+      ...RECEIPT_FILE,
+    })
+    const rowB = svcB.settledTx()
+    expect(rowB['amount']).toBe('45000') // 1000 USDT × 45.00 — a DIFFERENT rate
+    expect((rowB['txDate'] as Date).toISOString().slice(0, 10)).toBe(DATE_B)
+    expect(resultB.created[0]?.amount).toBe('45000')
+
+    // The two settlements genuinely differ — proves this isn't a fixture
+    // that would produce the same number regardless of which date was sent.
+    expect(rowA['amount']).not.toBe(rowB['amount'])
+  })
+
+  it('no txDate sent → legacy behaviour: "now" is used for the rate, txDate column is left untouched', async () => {
+    const { svc, settledTx, getRates, state } = makeService()
+    const originalTxDate = state.sourceTx.txDate
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'UAH',
+      ...RECEIPT_FILE,
+    })
+    // getRates was called with NO date argument (⇒ NbuCurrencyService
+    // defaults to today internally) — byte-for-byte the pre-existing call.
+    expect(getRates).toHaveBeenCalledWith(undefined)
+    const row = settledTx()
+    expect(row['txDate']).toBe(originalTxDate) // untouched, not overwritten
+  })
+
+  it('a selected date BEFORE the obligation existed is rejected — nothing to backdate a payment of a not-yet-booked debt', async () => {
+    const { svc } = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
+    })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'USDT',
+        txDate: '2026-07-31', // one day before the obligation's own creation
+        ...RECEIPT_EXPLORER,
+      }),
+    ).rejects.toThrow(/раньше даты возникновения/)
+  })
+
+  it('a selected date EQUAL to the obligation creation date is accepted (the boundary is inclusive)', async () => {
+    const { svc } = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
+    })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'USDT',
+        txDate: '2026-08-01',
+        ...RECEIPT_EXPLORER,
+      }),
+    ).resolves.toBeDefined()
+  })
+
+  it('a same-currency settle still records the selected txDate even though no rate is fetched', async () => {
+    const { svc, settledTx, getRates } = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
+    })
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+      fundingSource: 'ADMIN_PERSONAL',
+      payerAdminId: ADMIN_PAYER_ID,
+      currency: 'USDT',
+      txDate: '2026-08-05',
+      ...RECEIPT_EXPLORER,
+    })
+    expect(getRates).not.toHaveBeenCalled()
+    const row = settledTx()
+    expect((row['txDate'] as Date).toISOString().slice(0, 10)).toBe('2026-08-05')
+  })
+
+  // Refined MED-2 (owner addendum): a graceful, DATED fallback (a holiday
+  // with no same-day publication, but a real number from the nearest prior
+  // business day) is NOT the same failure as a genuine feed outage. Only
+  // the outage case (no `rateDate` at all) is refused.
+  it('a graceful, DATED fallback (rateDate set) is ACCEPTED — not the same as a genuine outage', async () => {
+    const { svc, settledTx } = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
+      ratesByDate: {
+        '20260810': {
+          usdUah: '42.00',
+          usdtUah: '42.00',
+          eurUah: '44.80',
+          date: '20260810', // echoes the REQUESTED date (NbuCurrencyService convention)
+          stale: true,
+          rateDate: '20260809', // but the numbers actually came from the day before
+        },
+      },
+    })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'UAH',
+        txDate: '2026-08-10',
+        ...RECEIPT_FILE,
+      }),
+    ).resolves.toBeDefined()
+    expect(settledTx()['amount']).toBe('42000') // used the FALLBACK rate, not refused
+  })
+
+  it('a genuine outage (stale, no rateDate at all) is STILL refused, even for a past selected date', async () => {
+    const { svc } = makeService({
+      obligation: makeObligation({ createdAt: new Date('2026-08-01T00:00:00Z') }),
+      ratesByDate: {
+        '20260810': {
+          usdUah: '42.00',
+          usdtUah: '42.00',
+          eurUah: '44.80',
+          date: '20260810',
+          stale: true, // no rateDate — cache/hardcoded, no dated source at all
+        },
+      },
+    })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'UAH',
+        txDate: '2026-08-10',
+        ...RECEIPT_FILE,
+      }),
+    ).rejects.toThrow(/курс/i)
   })
 })

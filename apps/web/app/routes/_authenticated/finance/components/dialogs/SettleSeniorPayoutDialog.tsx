@@ -294,14 +294,16 @@ export function SettleSeniorPayoutDialog({
       })
     },
     onSuccess: (data) => {
-      // security-review PR #521 round 3 (LOW-2): show the ACTUAL recorded
-      // amount, not just a generic "done" — the amount field being disabled
-      // means this toast is the operator's only post-submit confirmation of
-      // what was actually paid (the preview above can never fully guarantee
-      // it matched, e.g. a graceful rate fallback resolved between preview
-      // and submit). Falls back to the generic message if, for any reason,
-      // the response shape doesn't carry a flipped row (should not happen).
-      const paid = data.created[0]
+      // security-review PR #521 round 3 (LOW-2): DROP-only — show the ACTUAL
+      // recorded amount, not just a generic "done". The amount field being
+      // disabled means this toast is the operator's only post-submit
+      // confirmation of what was actually paid (the preview above can never
+      // fully guarantee it matched, e.g. a graceful rate fallback resolved
+      // between preview and submit). A SENIOR settle's amount is never
+      // server-computed (the row is untouched — see settleByCompany) and was
+      // already visible in the static "Сумма" card the whole time, so its
+      // toast stays the plain, pre-existing message.
+      const paid = isDropPayout ? data.created?.[0] : undefined
       toast.success(
         paid ? `${successMessage}: ${fmtAmount(paid.amount, paid.currency)}` : successMessage,
       )

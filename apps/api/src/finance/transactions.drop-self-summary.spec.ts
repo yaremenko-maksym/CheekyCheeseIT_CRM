@@ -330,7 +330,17 @@ describe('getDropSelfSummary — #3: PAYOUT_DROP self-loop regression', () => {
 // moved after the fact — the pinned snapshot exists specifically to prevent
 // that.
 // ─────────────────────────────────────────────────────────────────────────────
-describe('getDropSelfSummary — MED-3: pinned obligation snapshot avoids rate drift', () => {
+// security-review PR #521 round 3 (MED-B): the MED-3 "pinned obligation
+// snapshot" behaviour this describe block used to test was REVERTED per the
+// owner's explicit decision — the SAME transaction was reading as 3
+// different numbers in different parts of the app (this endpoint pinned to
+// the booked snapshot; getTotalEarned / adminBalances.sent kept
+// reconverting at today's rate), and the owner chose uniformity over
+// pinning: «везде по сегодняшнему курсу». `computeDropAggregate` now ALWAYS
+// reconverts at the CURRENT rate, same as every other balance reader —
+// `original_amount`/`original_currency` stay on the schema as a fact record
+// (see settleByCompany) but are no longer consulted here.
+describe('getDropSelfSummary — MED-B: uniform current-rate reconversion (no pinning)', () => {
   function rateStub(usdUah: string): NbuCurrencyService {
     return {
       getRates: vi.fn().mockResolvedValue({
@@ -342,9 +352,10 @@ describe('getDropSelfSummary — MED-3: pinned obligation snapshot avoids rate d
     } as unknown as NbuCurrencyService
   }
 
-  it('a UAH-settled PAYOUT_DROP with an original USDT snapshot balances at the PINNED figure, not the current-rate reconversion', async () => {
+  it('a UAH-settled PAYOUT_DROP reconverts at the CURRENT rate — an original_amount/original_currency snapshot is a fact record only, never read here', async () => {
     // Settled when 1000 USDT ≈ 41 500 UAH (rate 41.50) — the row the real
-    // settleByCompany would have written.
+    // settleByCompany would have written (original_amount/original_currency
+    // stamped as the fact of what was originally owed).
     const row: TxStub = {
       id: 'uah-settle',
       type: 'PAYOUT_DROP',
@@ -356,36 +367,46 @@ describe('getDropSelfSummary — MED-3: pinned obligation snapshot avoids rate d
       senderId: null,
       receiverId: DROP_ID,
     }
-    // The rate has since moved to 50.00 (a month later, say) — reading the
-    // ledger TODAY must not let that later rate change what an
-    // ALREADY-SETTLED payout is worth.
+    // The rate has since moved to 50.00 (a month later, say). Per the
+    // owner's decision, this is the CORRECT reading — every balance reader
+    // uniformly reconverts at today's rate, matching getTotalEarned /
+    // adminBalances.sent, which never pinned in the first place.
     const svc = makeSvc(selfRow, [row], rateStub('50.00'))
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
-    // Pinned via original_amount (1000 USDT ≡ $1000) — NOT the drifted
-    // reconversion (41500 / 50.00 = $830, which the OLD code would have
-    // returned and which moves every time this endpoint is read again).
-    expect(res.balance).toBe(1000)
+    expect(res.balance).toBe(830) // 41500 / 50.00 — the current-rate figure
   })
 
-  it('control: the SAME row WOULD read as $830 if original_amount were absent (proves the fixture is a genuine drift, not a no-op)', async () => {
-    const row: TxStub = {
-      id: 'uah-settle-legacy',
+  it('the SAME reconversion happens whether or not an original_amount/original_currency snapshot is present on the row', async () => {
+    const withSnapshot: TxStub = {
+      id: 'uah-settle-with-snapshot',
       type: 'PAYOUT_DROP',
       status: 'PAID',
       amount: '41500',
       currency: 'UAH',
-      // No original snapshot — a legacy/pre-feature row (or a SENIOR_INCOME,
-      // which never carries one either) — falls back to the pre-existing
-      // reconvert-at-current-rate behaviour, unchanged.
+      originalAmount: '1000',
+      originalCurrency: 'USDT',
       senderId: null,
       receiverId: DROP_ID,
     }
-    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
-    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
-    expect(res.balance).toBe(830) // 41500 / 50.00 — the drifted figure
+    const withoutSnapshot: TxStub = {
+      ...withSnapshot,
+      id: 'uah-settle-no-snapshot',
+      originalAmount: null,
+      originalCurrency: null,
+    }
+    const resWith = await makeSvc(selfRow, [withSnapshot], rateStub('50.00')).getDropSelfSummary(
+      user('DROP', DROP_ID),
+    )
+    const resWithout = await makeSvc(
+      selfRow,
+      [withoutSnapshot],
+      rateStub('50.00'),
+    ).getDropSelfSummary(user('DROP', DROP_ID))
+    expect(resWith.balance).toBe(resWithout.balance)
+    expect(resWith.balance).toBe(830)
   })
 
-  it('a same-currency USDT settle (original_amount === amount) is unaffected either way', async () => {
+  it('a same-currency USDT settle needs no rate either way (identity, not pinning)', async () => {
     const row: TxStub = {
       id: 'usdt-settle',
       type: 'PAYOUT_DROP',
@@ -400,67 +421,5 @@ describe('getDropSelfSummary — MED-3: pinned obligation snapshot avoids rate d
     const svc = makeSvc(selfRow, [row], rateStub('999.99'))
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
     expect(res.balance).toBe(1000)
-  })
-
-  // mutation-gate: every test above uses originalCurrency='USDT' only — the
-  // condition also accepts 'USD' (the other USD-pegged currency), which none
-  // of them distinguish from a mutant that silently drops the 'USD' branch.
-  it('original_currency=USD (the other pegged currency) is ALSO pinned directly', async () => {
-    const row: TxStub = {
-      id: 'usd-settle',
-      type: 'PAYOUT_DROP',
-      status: 'PAID',
-      amount: '41500',
-      currency: 'UAH',
-      originalAmount: '1000',
-      originalCurrency: 'USD',
-      senderId: null,
-      receiverId: DROP_ID,
-    }
-    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
-    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
-    expect(res.balance).toBe(1000) // pinned — NOT 41500/50.00=830
-  })
-
-  // mutation-gate: an original_currency OUTSIDE {USD, USDT} must NOT be
-  // treated as pinnable, even though original_amount is present — this is
-  // the case that actually exercises the `&&` (not `||`) and the real
-  // string comparisons, as opposed to always-true/false mutants.
-  it('original_currency outside {USD, USDT} (unexpected/defensive) is NOT pinned — falls back to reconversion', async () => {
-    const row: TxStub = {
-      id: 'eur-original-settle',
-      type: 'PAYOUT_DROP',
-      status: 'PAID',
-      amount: '41500',
-      currency: 'UAH',
-      originalAmount: '1000',
-      originalCurrency: 'EUR', // never produced by settleByCompany (MED-1
-      // pins the invariant to USDT) — a defensive/corrupted-data case.
-      senderId: null,
-      receiverId: DROP_ID,
-    }
-    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
-    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
-    expect(res.balance).toBe(830) // reconverted, NOT the (wrong) pinned 1000
-  })
-
-  // mutation-gate: original_currency='USDT' present WITHOUT original_amount
-  // (null) must not be treated as pinnable either — exercises the
-  // `tx.originalAmount != null` half of the condition specifically.
-  it('original_amount=null (original_currency present) is NOT pinned — falls back to reconversion', async () => {
-    const row: TxStub = {
-      id: 'null-original-amount',
-      type: 'PAYOUT_DROP',
-      status: 'PAID',
-      amount: '41500',
-      currency: 'UAH',
-      originalAmount: null,
-      originalCurrency: 'USDT',
-      senderId: null,
-      receiverId: DROP_ID,
-    }
-    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
-    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
-    expect(res.balance).toBe(830) // reconverted — null original_amount ignored
   })
 })

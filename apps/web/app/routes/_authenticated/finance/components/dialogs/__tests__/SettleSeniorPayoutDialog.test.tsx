@@ -41,6 +41,11 @@ const FAKE_RATES = { usdUah: '41.50', usdtUah: '41.50', eurUah: '44.80', date: '
 // loaded for a genuine cross-currency conversion. Reset in that test's own
 // cleanup so it never leaks into the rest of the suite.
 let exchangeRateShouldFail = false
+// owner addendum (2026-08): toggled by ONE test to prove a graceful, DATED
+// fallback (`rateDate` differs from the requested date) surfaces a note to
+// the operator. `null` (default) → every OTHER test's plain FAKE_RATES
+// response, unaffected. Reset in that test's own cleanup.
+let rateDateOverride: string | null = null
 
 vi.mock('@/lib/axios', () => ({
   api: {
@@ -56,6 +61,8 @@ vi.mock('@/lib/axios', () => ({
       }
       if (url.startsWith('/finance/exchange-rate')) {
         if (exchangeRateShouldFail) return Promise.reject(new Error('rates unavailable'))
+        if (rateDateOverride && url.includes('?date='))
+          return Promise.resolve({ data: { ...FAKE_RATES, rateDate: rateDateOverride } })
         return Promise.resolve({ data: FAKE_RATES })
       }
       return Promise.resolve({ data: [] })
@@ -492,8 +499,11 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     fireEvent.click(screen.getByTestId('settle-senior-submit'))
     await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
     const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    // owner addendum (2026-08): `txDate` joined the payload — the operator-
+    // selected settle date (defaults to the obligation's own creation date;
+    // see the date-picker tests below). Still no amount, no rate.
     expect(Object.keys(payload).sort()).toEqual(
-      ['currency', 'fundingSource', 'receiptDocumentId', 'receiptExternalUrl'].sort(),
+      ['currency', 'fundingSource', 'receiptDocumentId', 'receiptExternalUrl', 'txDate'].sort(),
     )
     // No amount, no exchangeRate/rate field exists on the client at all — the
     // server computes both (pending-settlement.service.ts), never trusting
@@ -501,6 +511,39 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     expect(payload['amount']).toBeUndefined()
     expect(payload['exchangeRate']).toBeUndefined()
     expect(payload['rate']).toBeUndefined()
+  })
+
+  // owner addendum (2026-08): the date picker is DROP-only.
+  it('date picker: does not render at all for a SENIOR settle', async () => {
+    renderDialog(TX)
+    await screen.findByTestId('settle-senior-account-company')
+    expect(screen.queryByTestId('settle-senior-txdate')).not.toBeInTheDocument()
+  })
+
+  // owner addendum (2026-08): defaults to the obligation's own creation date
+  // («по умолчанию — дата создания»), and that default is exactly what
+  // lands in the settle payload untouched.
+  it('date picker: for a DROP payout, defaults to the obligation creation date, and that default is what gets sent', async () => {
+    renderDialog(UAH_DROP_TX) // DROP, createdAt = 2026-08-01
+    const picker = await screen.findByTestId('settle-senior-txdate')
+    expect(picker).toHaveTextContent('01 авг') // dd MMM (ru locale) of the default
+
+    await fillReceipt('https://etherscan.io/tx/0xuahdrop3')
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() => expect(settleMock).toHaveBeenCalledTimes(1))
+    const [, payload] = settleMock.mock.calls[0] as [string, Record<string, unknown>]
+    expect(payload['txDate']).toBe('2026-08-01')
+  })
+
+  // Refined MED-2 (owner addendum): the operator sees which day's rate is
+  // actually behind the preview WHEN it differs from the requested date —
+  // surfaced next to the amount, before submit.
+  it('shows a note when the applied rate came from a different date than requested (graceful fallback)', async () => {
+    rateDateOverride = '20260731'
+    renderDialog(UAH_DROP_TX) // requests 2026-08-01, gets data dated 2026-07-31
+    await screen.findByTestId('settle-senior-amount-field')
+    expect(await screen.findByTestId('settle-senior-rate-date-note')).toHaveTextContent('31.07.26')
+    rateDateOverride = null
   })
 
   // Receipt currency-awareness: a DROP settle in a non-USDT currency is NOT
@@ -563,7 +606,17 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
   // the dialog's side would go undetected. UAH_DROP_TX via an ADMIN partner
   // (currency=UAH) makes BOTH queries genuinely active at once, which is the
   // only way a queryKey mismatch (→ two separate fetches) is observable.
-  it('DROP settle (non-USDT currency) shares ONE /finance/exchange-rate fetch between the dialog and AmountCurrencyInput (not two)', async () => {
+  // owner addendum (2026-08): the dialog's own rate query is now DATE-scoped
+  // (`?date=<selected date>`, defaulting to the obligation's creation date —
+  // NOT today), while `AmountCurrencyInput`'s internal "≈ $X" hint always
+  // fetches TODAY's rate (a separate, purely cosmetic secondary conversion —
+  // see its own component). Once the selected date differs from today (the
+  // common case — an obligation is rarely settled the same day it was
+  // booked), the two queries genuinely no longer share a cache key, so this
+  // is now 2 real fetches, not 1 — the OLD "shares ONE fetch" premise relied
+  // on both sides hardcoding "today", which the date picker deliberately
+  // breaks for the dialog's own (correctness-critical) query.
+  it("DROP settle (non-USDT currency) fetches the dialog's own rate AT THE SELECTED DATE — separately from AmountCurrencyInput's today-only display hint", async () => {
     renderDialog(UAH_DROP_TX)
     fireEvent.click(await screen.findByTestId('settle-senior-account-admin-maksym-id'))
     await waitFor(() =>
@@ -576,7 +629,12 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     const rateCalls = vi
       .mocked(api.get)
       .mock.calls.filter(([url]) => (url as string).startsWith('/finance/exchange-rate'))
-    expect(rateCalls).toHaveLength(1)
+      .map(([url]) => url as string)
+    // The dialog's own query — scoped to the obligation's creation date
+    // (UAH_DROP_TX.createdAt = 2026-08-01), the picker's default.
+    expect(rateCalls).toContain('/finance/exchange-rate?date=20260801')
+    // AmountCurrencyInput's own internal hint — no date param (today).
+    expect(rateCalls).toContain('/finance/exchange-rate')
   })
 
   // The mount-sync effect is keyed on `tx?.id` so it re-runs when the SAME
