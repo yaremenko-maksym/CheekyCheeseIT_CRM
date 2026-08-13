@@ -43,9 +43,11 @@ describe('FinanceSummaryController.getExchangeRate — ?date= validation (LOW-1,
   // `getExchangeRate` is a SYNCHRONOUS method — the validation throws
   // immediately, not via a rejected Promise — so these use the sync
   // `expect(() => …).toThrow()` form, not `.rejects`.
-  it("rejects a date with dashes (the settle dialog's OWN internal format, before it strips them — a real caller mistake this guards against)", () => {
+  it("rejects a date with dashes (the settle dialog's OWN internal format, before it strips them — a real caller mistake this guards against), with a precise Russian message", () => {
     const { controller, getRates } = makeController()
-    expect(() => controller.getExchangeRate('2026-08-01')).toThrow(BadRequestException)
+    expect(() => controller.getExchangeRate('2026-08-01')).toThrow(
+      'date должен быть в формате YYYYMMDD',
+    )
     expect(getRates).not.toHaveBeenCalled()
   })
 
