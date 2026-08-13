@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import { motion } from 'framer-motion'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { Briefcase, Clock, Wallet } from 'lucide-react'
+import { Briefcase, Clock, HandCoins, Wallet } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -21,7 +21,10 @@ import { InProgressPanel } from './InProgressPanel'
  *
  * KPI:
  *   - Активные проекты   → useDropProjects() → count
- *   - Мой баланс (доля)  → useDropSummary() → balance (USDT)
+ *   - Мой баланс (доля)  → useDropSummary() → balance (USDT, уже выплачено)
+ *   - Ожидает выплаты    → useDropSummary() → pendingObligationAmount
+ *     (task-drop-sees-own-obligations — начислено компанией, но ещё не
+ *     переведено; отдельная карточка, НИКОГДА не складывается с балансом)
  *   - Приходы в работе   → useDropSummary() → pendingIncomesCount
  *
  * «Транзакции в работе»:
@@ -120,9 +123,13 @@ export function DropDashboard() {
     <div className="flex-1 min-h-0 overflow-y-auto px-6 py-4">
       <div data-testid="drop-dashboard-hub" className="space-y-6">
         {isLoading ? (
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" data-testid="drop-kpi-loading">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 w-full rounded-lg" />
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="drop-kpi-loading">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton
+                key={i}
+                className="h-28 w-full rounded-lg"
+                data-testid="drop-kpi-skeleton"
+              />
             ))}
           </div>
         ) : isError || !summary ? (
@@ -136,9 +143,13 @@ export function DropDashboard() {
           </Card>
         ) : (
           <>
-            {/* KPI grid — 3 cards, consistent with SeniorDashboard/HR/Accountant style. */}
+            {/* KPI grid — 4 cards, consistent with SeniorDashboard/HR/Accountant style.
+                task-drop-sees-own-obligations: added «Ожидает выплаты» so the hub — the
+                first screen a drop lands on — never shows a misleadingly empty balance
+                while a company-booked obligation is sitting unpaid (§AC1). Kept as a
+                SEPARATE card from «Мой баланс», never folded into its number (§AC2). */}
             <motion.div
-              className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+              className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"
               variants={container}
               initial="hidden"
               animate="show"
@@ -161,6 +172,20 @@ export function DropDashboard() {
                   sub={`Ставка: ${summary.dropSharePercent}%`}
                   icon={<Wallet className="h-5 w-5" />}
                   color="green"
+                />
+              </motion.div>
+
+              <motion.div variants={card} data-testid="drop-kpi-pending-obligation">
+                <KpiCard
+                  title="Ожидает выплаты"
+                  value={fmtUsd(summary.pendingObligationAmount)}
+                  sub={
+                    summary.pendingObligationCount > 0
+                      ? `Начислений: ${summary.pendingObligationCount}`
+                      : 'Нет начислений'
+                  }
+                  icon={<HandCoins className="h-5 w-5" />}
+                  color="red"
                 />
               </motion.div>
 

@@ -5,23 +5,43 @@
  *
  * Coverage:
  *  RBAC (self-only): every non-DROP role → 403 on both feeds.
- *  Incomes: status mapping (DB → FE), companyName resolution (senderLabel →
- *    project.companyName → ''), status filter, from/to date-window filter,
- *    pagination (page/limit slice + total before slice), createdAt ISO.
+ *  Incomes: status mapping (DB → FE) for BOTH income models (task-drop-sees-
+ *    own-obligations: DROP_INCOME declared vs DROP_PENDING_PAYOUT/PAYOUT_DROP
+ *    obligation, discriminated by `model`), companyName resolution
+ *    (senderLabel → project.companyName → '' for declared;
+ *    project.companyName → '' for obligation — `senderLabel` on an obligation
+ *    row is always the literal 'COMPANY' marker, never a real company name),
+ *    status filter, from/to date-window filter, pagination (page/limit slice
+ *    + total before slice), createdAt ISO.
  *  Payments: status mapping (PENDING_PAYMENT→pending, PAID→confirmed,
  *    REJECTED→failed), txHash present/absent, amount parse, ISO createdAt.
  *
  * Pure stub for DatabaseService — no Postgres. The DB-level self-scope
- * (receiverId/senderId/type WHERE clauses) is pinned by the real-DB
- * integration spec (drop.rbac.integration.spec.ts), since the stub's findMany
- * ignores the `where` argument by design — these tests target the in-memory
- * mapping / filter / pagination logic the WHERE clause cannot cover.
+ * (receiverId/senderId WHERE clauses) is pinned by the real-DB integration
+ * spec (drop.rbac.integration.spec.ts). Most tests below use a stub whose
+ * `findMany` ignores the `where` argument and just returns canned rows — they
+ * target the in-memory mapping / filter / pagination logic.
+ *
+ * ONE exception (mutation-gate MED-2, security-review PR #523 round 1): the
+ * `WHERE type IN (...)` type-scope literal at the `inArray(...)` call site is
+ * itself a Drizzle SQL fragment built against the REAL `transactions` table
+ * (only the query EXECUTOR is stubbed, not the query-builder), so a mocked
+ * `findMany` that ignores its `where` argument structurally cannot observe a
+ * mutation of that literal — and the real-DB integration spec cannot either,
+ * because Stryker's mutation run excludes every `*.integration.spec.ts` file
+ * from discovery (see apps/api/vitest.config.mts `isIntegrationRun`/
+ * `INTEGRATION_SPEC_EXCLUDE_GLOB` — integration specs never even parse on a
+ * non-integration run, mutated or not). The "DB-level type scope" describe
+ * block below captures the real `where` AST instead and walks it (mirrors
+ * `collectUuids` in finance-hygiene.unit.spec.ts) to assert on the type list
+ * directly — this is what actually kills that class of mutant.
  */
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { DropIncomesQuery, SessionUser } from '@crm/shared'
 import { dropIncomesQuerySchema } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { collectParamValues } from './__test-helpers__/drizzle-where-introspection'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -48,6 +68,8 @@ type IncomeRow = {
   txHash?: string | null
   createdAt: Date
   project?: { companyName: string } | null
+  // task-drop-sees-own-obligations (security-review PR #523 round 1, MED-4).
+  companyNameSnapshot?: string | null
 }
 
 /** TransactionsService whose `transactions.findMany` returns the supplied rows. */
@@ -63,6 +85,37 @@ function makeSvc(rows: unknown[]) {
   }
   return makeTransactionsService({ db: dbStub as never })
 }
+
+/**
+ * TransactionsService whose `transactions.findMany` CAPTURES the real
+ * `where` AST it was called with (mutation-gate MED-2 — see file header).
+ * `getWhere()` returns whatever was captured by the LAST call.
+ */
+function makeSvcCapturingWhere(rows: unknown[]): {
+  svc: ReturnType<typeof makeTransactionsService>
+  getWhere: () => unknown
+} {
+  let capturedWhere: unknown
+  const dbStub = {
+    db: {
+      query: {
+        transactions: {
+          findMany: (args?: { where?: unknown }) => {
+            capturedWhere = args?.where
+            return Promise.resolve(rows)
+          },
+        },
+      },
+    },
+  }
+  return { svc: makeTransactionsService({ db: dbStub as never }), getWhere: () => capturedWhere }
+}
+
+// `collectParamValues` — see ./__test-helpers__/drizzle-where-introspection.ts
+// (extracted there, security-review PR #523 round 2 MED-7, once
+// transactions.drop-self-summary.spec.ts needed the exact same walker for
+// its own WHERE-capturing test — a single source of truth for BOTH specs
+// instead of two copies drifting apart).
 
 function q(overrides: Partial<DropIncomesQuery> = {}): DropIncomesQuery {
   return dropIncomesQuerySchema.parse(overrides)
@@ -86,6 +139,28 @@ describe('getDropSelfIncomes — RBAC (self-only)', () => {
     const svc = makeSvc([])
     const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
     expect(res).toEqual({ items: [], total: 0, page: 1, limit: 20 })
+  })
+})
+
+// task-drop-sees-own-obligations — mutation-gate MED-2 (security-review PR
+// #523 round 1): closes the surviving mutant on the `inArray(transactions.type,
+// [...])` type-scope literal — see the file header for why the mocked-row
+// tests above cannot observe it and the real-DB integration spec cannot
+// either under Stryker.
+describe('getDropSelfIncomes — DB-level type scope (§AC3, mutation-gate MED-2)', () => {
+  it('WHERE clause binds exactly the three drop income types — nothing more, nothing less', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere([])
+    await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    const bound = collectParamValues(getWhere())
+
+    // The receiverId (a UUID) is ALSO a bound Param on this WHERE — filter it
+    // out so the type-scope assertion below is exact, not just "contains".
+    const boundTypeStrings = bound.filter(
+      (v): v is string => typeof v === 'string' && v !== user('DROP', DROP_ID).id,
+    )
+    expect(boundTypeStrings.sort()).toEqual(
+      ['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP'].sort(),
+    )
   })
 })
 
@@ -141,6 +216,134 @@ describe('getDropSelfIncomes — companyName resolution', () => {
 
   it("falls back to '' when neither senderLabel nor project present", async () => {
     const svc = makeSvc([income({ senderLabel: null, project: null })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).toBe('')
+  })
+})
+
+// task-drop-sees-own-obligations: the feed's second model — a company-booked
+// IOU (DROP_PENDING_PAYOUT, later settled IN PLACE to PAYOUT_DROP). Same
+// factory shape as `income()` but `senderLabel` is always the literal
+// 'COMPANY' marker `bookCompanyObligations` stamps — never a real company name.
+// `companyNameSnapshot` defaults to matching `project.companyName` — the
+// NORMAL post-migration shape every row `bookCompanyObligations` books now
+// carries (security-review PR #523 round 1, MED-4). Tests that need the
+// LEGACY pre-migration shape (no snapshot yet) pass `companyNameSnapshot: null`
+// explicitly.
+function obligationRow(overrides: Partial<IncomeRow> = {}): IncomeRow {
+  return {
+    id: '00000000-0000-4000-8000-000000000002',
+    type: 'DROP_PENDING_PAYOUT',
+    status: 'PENDING_PAYMENT',
+    amount: '800.48',
+    currency: 'USDT',
+    senderLabel: 'COMPANY',
+    receiverId: DROP_ID,
+    createdAt: new Date('2026-08-12T09:00:00.000Z'),
+    project: { companyName: 'GamingTec' },
+    companyNameSnapshot: 'GamingTec',
+    ...overrides,
+  }
+}
+
+describe('getDropSelfIncomes — model discriminator (§AC3)', () => {
+  it('a DROP_INCOME row carries model="declared"', async () => {
+    const svc = makeSvc([income()])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.model).toBe('declared')
+  })
+
+  it('a DROP_PENDING_PAYOUT row carries model="obligation"', async () => {
+    const svc = makeSvc([obligationRow()])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.model).toBe('obligation')
+  })
+
+  it('a settled PAYOUT_DROP row ALSO carries model="obligation" (same row, flipped in place)', async () => {
+    const svc = makeSvc([obligationRow({ type: 'PAYOUT_DROP', status: 'PAID' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.model).toBe('obligation')
+    expect(res.items[0]!.status).toBe('paid')
+  })
+
+  it('BOTH models are returned together, each keeping its own discriminator (§AC3)', async () => {
+    const svc = makeSvc([income(), obligationRow()])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.total).toBe(2)
+    const models = res.items.map((i) => i.model).sort()
+    expect(models).toEqual(['declared', 'obligation'])
+  })
+
+  // §AC4: exact-cent parity with the booked amount — no rounding drift.
+  it('obligation amount matches the booked figure to the cent (§AC4)', async () => {
+    const svc = makeSvc([obligationRow({ amount: '800.48' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.amount).toBe(800.48)
+  })
+})
+
+describe('getDropSelfIncomes — obligation status mapping', () => {
+  const cases: Array<[string, string]> = [
+    ['PENDING_PAYMENT', 'pending'],
+    ['REJECTED', 'rejected'],
+  ]
+  for (const [db, fe] of cases) {
+    it(`DROP_PENDING_PAYOUT maps DB ${db} → ${fe}`, async () => {
+      const svc = makeSvc([obligationRow({ status: db })])
+      const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+      expect(res.items[0]!.status).toBe(fe)
+    })
+  }
+
+  it('PAYOUT_DROP maps DB PAID → paid', async () => {
+    const svc = makeSvc([obligationRow({ type: 'PAYOUT_DROP', status: 'PAID' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.status).toBe('paid')
+  })
+
+  it('an obligation row never resolves to "validated" (declared-only state)', async () => {
+    // Defensive: even an unexpected DB status on an obligation row must never
+    // surface the DROP_INCOME-only 'validated' state.
+    const svc = makeSvc([obligationRow({ status: 'VALIDATED' })])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.status).not.toBe('validated')
+  })
+
+  it("companyName NEVER uses the 'COMPANY' senderLabel marker", async () => {
+    const svc = makeSvc([
+      obligationRow({ senderLabel: 'COMPANY', companyNameSnapshot: 'GamingTec' }),
+    ])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).not.toBe('COMPANY')
+    expect(res.items[0]!.companyName).toBe('GamingTec')
+  })
+
+  // task-drop-sees-own-obligations (security-review PR #523 round 1, MED-4):
+  // companyNameSnapshot is frozen at booking time — a LATER project rename
+  // must never rewrite what a drop reads as the history of money already
+  // booked under the old name. Simulates exactly that: the snapshot and the
+  // (renamed) live project disagree, and the snapshot must win.
+  it('companyName uses the FROZEN companyNameSnapshot, not the live (renamed) project name', async () => {
+    const svc = makeSvc([
+      obligationRow({
+        companyNameSnapshot: 'GamingTec (old name)',
+        project: { companyName: 'GamingTec Rebrand LLC' },
+      }),
+    ])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).toBe('GamingTec (old name)')
+  })
+
+  it('companyName falls back to the live project join when companyNameSnapshot is NULL (legacy pre-migration row)', async () => {
+    const svc = makeSvc([
+      obligationRow({ companyNameSnapshot: null, project: { companyName: 'LegacyRowCo' } }),
+    ])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).toBe('LegacyRowCo')
+  })
+
+  it("companyName falls back to '' when BOTH the snapshot and the project link are gone", async () => {
+    const svc = makeSvc([obligationRow({ companyNameSnapshot: null, project: null })])
     const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
     expect(res.items[0]!.companyName).toBe('')
   })

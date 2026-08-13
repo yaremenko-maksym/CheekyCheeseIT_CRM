@@ -43,12 +43,19 @@ const API_BASE = `${_webOrigin}/api`
 
 // ── Fixture data for DROP-specific API endpoints ───────────────────────────────
 
-/** DropSelfSummaryDto with non-zero values to verify rendering. */
+/**
+ * DropSelfSummaryDto with non-zero values to verify rendering.
+ * task-drop-sees-own-obligations: pendingObligationAmount/Count are now
+ * required fields — omitting them would fail the FE's Zod `.parse()` and
+ * surface as a silent error state instead of the expected rendered data.
+ */
 const DROP_SUMMARY = {
   balance: 1250.5,
   dropSharePercent: 7,
   pendingIncomesCount: 3,
   debtToCompany: 430.0,
+  pendingObligationAmount: 800.48,
+  pendingObligationCount: 2,
 }
 
 // ── UUID constants for fixture ids (Zod schemas require z.string().uuid()) ─────
@@ -62,7 +69,12 @@ const PROJ1_ID = 'b2000000-0000-4000-8000-000000000001'
 const PROJ2_ID = 'b2000000-0000-4000-8000-000000000002'
 const PAYMENT1_ID = 'b3000000-0000-4000-8000-000000000001'
 
-/** Two validated incomes for DropActionRequiredBlock. */
+/**
+ * Two validated incomes for DropActionRequiredBlock.
+ * task-drop-sees-own-obligations: `model` is now a required DropIncomeDto
+ * field — both rows are the old self-declared model (never 'validated' for
+ * an obligation row).
+ */
 const DROP_VALIDATED_INCOMES = {
   items: [
     {
@@ -72,6 +84,7 @@ const DROP_VALIDATED_INCOMES = {
       currency: 'USDT',
       createdAt: '2026-05-10T10:00:00.000Z',
       status: 'validated' as const,
+      model: 'declared' as const,
     },
     {
       id: INCOME_V2_ID,
@@ -80,6 +93,7 @@ const DROP_VALIDATED_INCOMES = {
       currency: 'USDT',
       createdAt: '2026-05-15T12:00:00.000Z',
       status: 'validated' as const,
+      model: 'declared' as const,
     },
   ],
   total: 2,
@@ -115,6 +129,7 @@ const DROP_ALL_INCOMES = {
       currency: 'USDT',
       createdAt: '2026-05-10T10:00:00.000Z',
       status: 'pending' as const,
+      model: 'declared' as const,
     },
     {
       id: INCOME_V1_ID,
@@ -123,6 +138,7 @@ const DROP_ALL_INCOMES = {
       currency: 'USDT',
       createdAt: '2026-05-15T12:00:00.000Z',
       status: 'validated' as const,
+      model: 'declared' as const,
     },
     {
       id: INCOME_PAID1_ID,
@@ -131,6 +147,7 @@ const DROP_ALL_INCOMES = {
       currency: 'USD',
       createdAt: '2026-04-01T08:00:00.000Z',
       status: 'paid' as const,
+      model: 'declared' as const,
     },
   ],
   total: 3,

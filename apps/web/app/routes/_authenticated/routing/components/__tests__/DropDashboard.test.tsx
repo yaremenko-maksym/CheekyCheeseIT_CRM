@@ -93,6 +93,8 @@ function makeDropSummary() {
     dropSharePercent: 30,
     pendingIncomesCount: 2,
     debtToCompany: 0,
+    pendingObligationAmount: 800.48,
+    pendingObligationCount: 2,
   }
 }
 
@@ -167,6 +169,12 @@ describe('DropDashboard', () => {
     renderDashboard()
     expect(screen.getByTestId('drop-kpi-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('drop-kpi-grid')).not.toBeInTheDocument()
+    // task-drop-sees-own-obligations, security-review round 2 (mutation-gate
+    // closure): the loading grid was widened from 3 to 4 skeletons when the
+    // «Ожидает выплаты» KPI card was added (§AC1), but nothing counted them —
+    // `Array.from({ length: 4 })` mutated to `Array.from({})` (0 skeletons)
+    // and this test still passed, since it only checked the WRAPPER testid.
+    expect(screen.getAllByTestId('drop-kpi-skeleton')).toHaveLength(4)
   })
 
   it('renders error state on summary fetch failure', () => {
@@ -187,11 +195,12 @@ describe('DropDashboard', () => {
       useDropProjectsMock.mockReturnValue({ data: makeDropProjects(), isLoading: false })
     })
 
-    it('renders 3 KPI cards in senior-style grid', () => {
+    it('renders 4 KPI cards in senior-style grid', () => {
       renderDashboard()
       expect(screen.getByTestId('drop-kpi-grid')).toBeInTheDocument()
       expect(screen.getByTestId('drop-kpi-active-projects')).toBeInTheDocument()
       expect(screen.getByTestId('drop-kpi-balance')).toBeInTheDocument()
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toBeInTheDocument()
       expect(screen.getByTestId('drop-kpi-pending')).toBeInTheDocument()
     })
 
@@ -207,6 +216,30 @@ describe('DropDashboard', () => {
       const card = screen.getByTestId('drop-kpi-balance')
       expect(card).toHaveTextContent('$3,200.00')
       expect(card).toHaveTextContent('30%')
+    })
+
+    // task-drop-sees-own-obligations (§AC1/§AC2): the core bug this task
+    // fixes — the hub must show what the company owes, as a card SEPARATE
+    // from «Мой баланс» (never summed into $3,200.00 + $800.48).
+    it('shows pendingObligationAmount from useDropSummary, distinct from balance', () => {
+      renderDashboard()
+      const card = screen.getByTestId('drop-kpi-pending-obligation')
+      expect(card).toHaveTextContent('$800.48')
+      expect(card).toHaveTextContent('Начислений: 2')
+      expect(card).not.toHaveTextContent('$4,000.48')
+      const balanceCard = screen.getByTestId('drop-kpi-balance')
+      expect(balanceCard).toHaveTextContent('$3,200.00')
+      expect(balanceCard).not.toHaveTextContent('$800.48')
+    })
+
+    it('shows «Нет начислений» when pendingObligationCount is 0', () => {
+      useDropSummaryMock.mockReturnValue({
+        data: { ...makeDropSummary(), pendingObligationAmount: 0, pendingObligationCount: 0 },
+        isLoading: false,
+        isError: false,
+      })
+      renderDashboard()
+      expect(screen.getByTestId('drop-kpi-pending-obligation')).toHaveTextContent('Нет начислений')
     })
 
     it('shows pendingIncomesCount from useDropSummary', () => {

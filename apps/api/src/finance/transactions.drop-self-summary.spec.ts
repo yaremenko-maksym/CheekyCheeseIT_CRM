@@ -24,6 +24,17 @@
  *   9. balance + pendingIncomesCount mirror the admin dropBalances semantics
  *      (PAYOUT_DROP received − sent; DROP_INCOME PENDING|VALIDATED count).
  *
+ *  pendingObligationAmount/Count (task-drop-sees-own-obligations — the reverse
+ *  leg of debtToCompany: what the COMPANY owes THIS drop, booked but not yet
+ *  paid). Σ over DROP_PENDING_PAYOUT rows where `receiverId = drop.id` AND
+ *  `status = 'PENDING_PAYMENT'`:
+ *   10. No obligations → pendingObligationAmount = 0, pendingObligationCount = 0.
+ *   11. One booked-unpaid obligation → amount = its amount, count = 1.
+ *   12. Settled obligation (row flipped to PAYOUT_DROP/PAID) does NOT count.
+ *   13. Isolation: another drop's DROP_PENDING_PAYOUT must NOT leak in.
+ *   14. balance stays the money ALREADY PAID (PAID PAYOUT_DROP) — a pending
+ *       obligation never inflates it (accrued ≠ paid, §AC2).
+ *
  * Pure stub for DatabaseService — no Postgres. The integration spec
  * (drop.rbac.integration.spec.ts) pins the same behaviour against a real DB.
  */
@@ -32,6 +43,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { NbuCurrencyService } from './nbu-currency.service'
+import { collectParamValues } from './__test-helpers__/drizzle-where-introspection'
 
 // ── Session user factory ────────────────────────────────────────────────────
 
@@ -94,6 +106,49 @@ function makeSvc(
   return makeTransactionsService({ db: dbStub as never, nbuCurrencyService })
 }
 
+/**
+ * task-drop-sees-own-obligations (security-review PR #523 round 2, MED-7).
+ * `makeSvc` above stubs `transactions.findMany` with a bare `() => ...` that
+ * IGNORES its `where` argument entirely — every test using it proves the
+ * IN-MEMORY math in `computeDropAggregate` is right, but is structurally
+ * blind to whether the SQL-level scope added for MED-1 (round 1) is right.
+ * That gap was real: MED-1 replaced an unscoped `findMany` with one scoped
+ * to `(receiverId = self OR senderId = self) AND type IN (four types)` —
+ * get that predicate WRONG (e.g. drop one of the four types, or narrow the
+ * OR to only `receiverId`) and NOT ONE test here would notice, because
+ * `makeSvc`'s stub returns the same canned `txs` regardless of what `where`
+ * it was called with. The failure direction is an UNDER-count — a drop
+ * would see LESS than they are owed, the exact defect this task exists to
+ * fix — which is why this is closed with an observing test, not left as a
+ * documented gap.
+ *
+ * This variant CAPTURES the real `where` AST instead of ignoring it, so the
+ * tests below can walk it (via `collectParamValues`) and assert on what it
+ * actually binds.
+ */
+function makeSvcCapturingWhere(
+  self: UserRow | undefined,
+  txs: TxStub[],
+): { svc: ReturnType<typeof makeTransactionsService>; getWhere: () => unknown } {
+  let capturedWhere: unknown
+  const dbStub = {
+    db: {
+      query: {
+        users: {
+          findFirst: () => Promise.resolve(self),
+        },
+        transactions: {
+          findMany: (args?: { where?: unknown }) => {
+            capturedWhere = args?.where
+            return Promise.resolve(txs)
+          },
+        },
+      },
+    },
+  }
+  return { svc: makeTransactionsService({ db: dbStub as never }), getWhere: () => capturedWhere }
+}
+
 const DROP_ID = 'drop-A'
 const OTHER_DROP_ID = 'drop-B'
 
@@ -109,6 +164,18 @@ function payout(
   return { id, type: 'PAYOUT', status, amount, senderId, receiverId: null }
 }
 
+// task-drop-sees-own-obligations: booked by bookCompanyObligations on the
+// admin-USDT declare path / drop-payout cascade — type=DROP_PENDING_PAYOUT,
+// receiverId=drop, status=PENDING_PAYMENT until settleByCompany flips it.
+function obligation(
+  receiverId: string,
+  status: string,
+  amount: string,
+  id = `obligation-${amount}-${status}`,
+): TxStub {
+  return { id, type: 'DROP_PENDING_PAYOUT', status, amount, senderId: null, receiverId }
+}
+
 // ── RBAC ─────────────────────────────────────────────────────────────────────
 
 describe('getDropSelfSummary — RBAC (self-only)', () => {
@@ -121,7 +188,7 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
     })
   }
 
-  it('resolves the four-field DTO for DROP', async () => {
+  it('resolves the six-field DTO for DROP', async () => {
     const svc = makeSvc(selfRow, [])
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
     expect(res).toEqual({
@@ -129,6 +196,8 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
       dropSharePercent: 5,
       pendingIncomesCount: 0,
       debtToCompany: 0,
+      pendingObligationAmount: 0,
+      pendingObligationCount: 0,
     })
   })
 
@@ -137,6 +206,53 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
     await expect(svc.getDropSelfSummary(user('DROP', DROP_ID))).rejects.toBeInstanceOf(
       NotFoundException,
     )
+  })
+})
+
+// task-drop-sees-own-obligations — mutation-gate MED-7 (security-review PR
+// #523 round 2): the MED-1 (round 1) SQL-level scope on `getDropSelfSummary`'s
+// `findMany` was invisible to every test above (`makeSvc`'s stub ignores
+// `where`). Ports the same `makeSvcCapturingWhere` + `collectParamValues`
+// harness already proven in transactions.drop-self-feeds.spec.ts to THIS
+// query. The risk direction is under-count (a drop seeing LESS than they are
+// owed), so these assert the predicate is a SUPERSET covering every type +
+// relation `computeDropAggregate` actually reads — narrowing any of it would
+// fail these tests.
+describe('getDropSelfSummary — DB-level scope (mutation-gate MED-7)', () => {
+  const OBLIGATION_TYPES = ['PAYOUT_DROP', 'DROP_INCOME', 'PAYOUT', 'DROP_PENDING_PAYOUT']
+
+  it('WHERE clause binds all four types computeDropAggregate reads — none dropped (no under-count)', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere(selfRow, [])
+    await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    const bound = collectParamValues(getWhere())
+
+    const boundTypes = bound.filter(
+      (v): v is string => typeof v === 'string' && OBLIGATION_TYPES.includes(v),
+    )
+    expect(boundTypes.sort()).toEqual([...OBLIGATION_TYPES].sort())
+  })
+
+  it('WHERE clause binds self.id for BOTH sides of the receiverId/senderId OR-scope', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere(selfRow, [])
+    await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    const bound = collectParamValues(getWhere())
+
+    // and(isNull(deletedAt), or(eq(receiverId, self.id), eq(senderId, self.id)), inArray(type, [...]))
+    // binds self.id TWICE (once per side of the OR) plus the four type
+    // literals — six Params total. Asserting the exact count (not just
+    // "contains") catches a mutant that silently drops one side of the OR
+    // (e.g. narrows to receiverId-only), which would under-count exactly
+    // the same way a missing type would.
+    const selfIdOccurrences = bound.filter((v) => v === DROP_ID)
+    expect(selfIdOccurrences.length).toBe(2)
+    expect(bound.length).toBe(2 + OBLIGATION_TYPES.length)
+  })
+
+  it('a different drop id is NEVER bound in the WHERE (no cross-drop leak in the SQL scope itself, §AC5)', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere(selfRow, [])
+    await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    const bound = collectParamValues(getWhere())
+    expect(bound).not.toContain(OTHER_DROP_ID)
   })
 })
 
@@ -281,6 +397,130 @@ describe('getDropSelfSummary — balance & pendingIncomesCount', () => {
     const svc = makeSvc({ id: DROP_ID, displayName: 'Drop A', dropSharePercent: null }, [])
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
     expect(res.dropSharePercent).toBe(5)
+  })
+})
+
+// ── task-drop-sees-own-obligations: pendingObligationAmount/Count ────────────
+// The core bug: a drop with a booked DROP_PENDING_PAYOUT (admin-USDT declare /
+// drop-payout cascade) saw balance=$0 and no hint anything was owed. These
+// pin the reverse-of-debtToCompany figure the self-summary now surfaces.
+describe('getDropSelfSummary — pendingObligationAmount/Count (§AC1/§AC2)', () => {
+  it('no obligations → pendingObligationAmount = 0, pendingObligationCount = 0', async () => {
+    const svc = makeSvc(selfRow, [])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+  })
+
+  it('one booked-unpaid obligation → amount = its amount, count = 1', async () => {
+    const svc = makeSvc(selfRow, [obligation(DROP_ID, 'PENDING_PAYMENT', '800.48')])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(800.48)
+    expect(res.pendingObligationCount).toBe(1)
+  })
+
+  it('sums multiple PENDING_PAYMENT obligations (float-safe)', async () => {
+    const svc = makeSvc(selfRow, [
+      obligation(DROP_ID, 'PENDING_PAYMENT', '0.1', 'o1'),
+      obligation(DROP_ID, 'PENDING_PAYMENT', '0.2', 'o2'),
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0.3)
+    expect(res.pendingObligationCount).toBe(2)
+  })
+
+  it('a settled obligation (flipped to PAYOUT_DROP/PAID) does NOT count as pending', async () => {
+    const svc = makeSvc(selfRow, [
+      {
+        id: 'settled',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '300',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+    // AC2: the settled obligation IS reflected — as balance, not obligation.
+    expect(res.balance).toBe(300)
+  })
+
+  it("ignores another drop's DROP_PENDING_PAYOUT (no cross-drop leak, §AC5)", async () => {
+    const svc = makeSvc(selfRow, [
+      obligation(DROP_ID, 'PENDING_PAYMENT', '100', 'mine'),
+      obligation(OTHER_DROP_ID, 'PENDING_PAYMENT', '999', 'theirs'),
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(100)
+    expect(res.pendingObligationCount).toBe(1)
+  })
+
+  // Mutation-gate (security-review PR #523 round 1, MED-2): the two tests
+  // above always vary type AND status together (obligation vs settled), so a
+  // mutant that drops EITHER the `type === 'DROP_PENDING_PAYOUT'` OR the
+  // `status === 'PENDING_PAYMENT'` clause alone can still survive — the OTHER
+  // clause happens to filter the row out anyway. These two isolate each
+  // clause: same receiverId, only ONE of {type, status} differs from a real
+  // pending obligation.
+  it('right receiverId + PENDING_PAYMENT status but wrong type → excluded (isolates the type check)', async () => {
+    const svc = makeSvc(selfRow, [
+      // Same shape as a real pending obligation (receiverId, status) but a
+      // DIFFERENT type — e.g. a PAYOUT row a drop owes the company (debt-to-
+      // company direction). Must never be read as money owed TO the drop.
+      {
+        id: 'wrong-type',
+        type: 'PAYOUT',
+        status: 'PENDING_PAYMENT',
+        amount: '500',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+  })
+
+  it('right receiverId + DROP_PENDING_PAYOUT type but wrong status → excluded (isolates the status check)', async () => {
+    const svc = makeSvc(selfRow, [
+      // Same type + receiverId as a real pending obligation, but a status
+      // that is NOT 'PENDING_PAYMENT' — e.g. REJECTED. Must not be counted
+      // as still owed.
+      {
+        id: 'wrong-status',
+        type: 'DROP_PENDING_PAYOUT',
+        status: 'REJECTED',
+        amount: '500',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+  })
+
+  it('§AC2: pending obligation and paid balance are NEVER summed into one figure', async () => {
+    const svc = makeSvc(selfRow, [
+      obligation(DROP_ID, 'PENDING_PAYMENT', '800.48'),
+      {
+        id: 'paid',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '120',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    // Two distinct fields, each carrying its own money — NOT one blended
+    // total (920.48). This is the exact regression this task closes: a
+    // drop seeing 800 booked and 0 in their wallet must never read that as
+    // "$920.48 balance".
+    expect(res.balance).toBe(120)
+    expect(res.pendingObligationAmount).toBe(800.48)
   })
 })
 

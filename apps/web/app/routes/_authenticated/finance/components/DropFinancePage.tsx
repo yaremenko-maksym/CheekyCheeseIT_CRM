@@ -100,6 +100,23 @@ function IncomeStatusBadge({ status, id }: { status: DropIncomeStatus; id: strin
   )
 }
 
+// task-drop-sees-own-obligations (§AC3): the feed now covers TWO income
+// models — this badge is the "понятное различение" the task asks for.
+// 'declared'   — the old self-declared DROP_INCOME row (drop registers it).
+// 'obligation' — a company-booked IOU (DROP_PENDING_PAYOUT/PAYOUT_DROP, from
+//                the admin-USDT declare path or the drop-payout cascade).
+function IncomeModelBadge({ model }: { model: DropIncomeDto['model'] }) {
+  return model === 'obligation' ? (
+    <Badge variant="secondary" className="text-xs">
+      Начисление
+    </Badge>
+  ) : (
+    <Badge variant="outline" className="text-xs">
+      Приход
+    </Badge>
+  )
+}
+
 function PaymentStatusBadge({ status }: { status: DropPaymentStatus }) {
   const config: Record<
     DropPaymentStatus,
@@ -276,11 +293,24 @@ function DropIncomesTable() {
                     <TableCell className="text-sm">{income.companyName}</TableCell>
                     <TableCell className="text-sm font-semibold tabular-nums">
                       {fmtUsd(income.amount)}
+                      {/* task-drop-sees-own-obligations (security-review PR #523
+                          round 1, MED-5): `amount` means TWO DIFFERENT things
+                          depending on `model` — a declared row's amount is the
+                          GROSS client payment (before the drop's share is split
+                          out); an obligation row's amount is already the drop's
+                          NET SHARE the company calculated and booked. Showing
+                          both under one "Сумма" header without this label would
+                          let a drop compare a $5,000 gross row against a $40
+                          share row as if they were the same kind of number. */}
+                      <span
+                        className="block text-[10px] font-normal text-muted-foreground"
+                        data-testid={`drop-income-amount-kind-${income.id}`}
+                      >
+                        {income.model === 'declared' ? 'Валовый приход' : 'Ваша доля'}
+                      </span>
                     </TableCell>
                     <TableCell>
-                      <Badge variant="outline" className="text-xs">
-                        Приход
-                      </Badge>
+                      <IncomeModelBadge model={income.model} />
                     </TableCell>
                     <TableCell>
                       <IncomeStatusBadge status={income.status} id={income.id} />

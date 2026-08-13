@@ -848,6 +848,38 @@ export const transactions = pgTable(
       (): AnyPgColumn => transactions.id,
       { onDelete: 'set null' },
     ),
+    /**
+     * task-drop-sees-own-obligations (security-review PR #523 round 1, MED-4).
+     * Snapshot of `projects.companyName` at the moment `bookCompanyObligations`
+     * books a SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT IOU row — the same
+     * "snapshot at creation, never re-derived" contract `dropSharePercent` /
+     * `seniorSharePercent` already use above, applied to the display name
+     * instead of a money figure.
+     *
+     * WHY THIS EXISTS. `getDropSelfIncomes` (the drop's own incomes feed)
+     * resolves an obligation row's `companyName` by joining the LIVE
+     * `projects` row (`senderLabel` on these rows is always the literal
+     * 'COMPANY' marker other code branches on — see transactions.service.ts
+     * `findAll`'s `sideLabel === 'COMPANY'` check and TransactionRow.tsx's
+     * matching branch — so it can never carry the real company name the way
+     * `createDropIncome`'s `senderLabel` already does for the OLD
+     * self-declared model). A live join means renaming the project later
+     * silently rewrites what a drop reads as history for money already
+     * booked under the OLD name — the one thing a money-history view must
+     * never do. This column is the fix: read once, frozen forever, exactly
+     * like every other snapshot column on this row.
+     *
+     * NULLABLE, NO BACKFILL — every DROP_PENDING_PAYOUT/PAYOUT_DROP row
+     * created before this column existed keeps NULL; `getDropSelfIncomes`
+     * falls back to the live `projects` join for those (§AC — same fallback
+     * `companyName` behaviour it always had, only for rows genuinely
+     * created before a snapshot was possible to take).
+     *
+     * ADD COLUMN DDL (prod is applied via deploy.yml — there is no SSH; see
+     * apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql):
+     *   ALTER TABLE transactions ADD COLUMN IF NOT EXISTS company_name_snapshot varchar(255);
+     */
+    companyNameSnapshot: varchar('company_name_snapshot', { length: 255 }),
     // Receipt — uploaded file (FK to documents.id, category=RECEIPT) OR an
     // external URL (etherscan link, screenshot). Mutually exclusive — enforced
     // by a row-level CHECK constraint, see migration 0013. Both NULL = no
