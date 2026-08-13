@@ -366,6 +366,44 @@ describe('getDropSelfSummary — pendingObligationAmount/Count (§AC1/§AC2)', (
     expect(res.pendingObligationCount).toBe(1)
   })
 
+  // Mutation-gate (security-review PR #523 round 1, MED-2): the two tests
+  // above always vary type AND status together (obligation vs settled), so a
+  // mutant that drops EITHER the `type === 'DROP_PENDING_PAYOUT'` OR the
+  // `status === 'PENDING_PAYMENT'` clause alone can still survive — the OTHER
+  // clause happens to filter the row out anyway. These two isolate each
+  // clause: same receiverId, only ONE of {type, status} differs from a real
+  // pending obligation.
+  it('right receiverId + PENDING_PAYMENT status but wrong type → excluded (isolates the type check)', async () => {
+    const svc = makeSvc(selfRow, [
+      // Same shape as a real pending obligation (receiverId, status) but a
+      // DIFFERENT type — e.g. a PAYOUT row a drop owes the company (debt-to-
+      // company direction). Must never be read as money owed TO the drop.
+      { id: 'wrong-type', type: 'PAYOUT', status: 'PENDING_PAYMENT', amount: '500', senderId: null, receiverId: DROP_ID },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+  })
+
+  it('right receiverId + DROP_PENDING_PAYOUT type but wrong status → excluded (isolates the status check)', async () => {
+    const svc = makeSvc(selfRow, [
+      // Same type + receiverId as a real pending obligation, but a status
+      // that is NOT 'PENDING_PAYMENT' — e.g. REJECTED. Must not be counted
+      // as still owed.
+      {
+        id: 'wrong-status',
+        type: 'DROP_PENDING_PAYOUT',
+        status: 'REJECTED',
+        amount: '500',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+    ])
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.pendingObligationAmount).toBe(0)
+    expect(res.pendingObligationCount).toBe(0)
+  })
+
   it('§AC2: pending obligation and paid balance are NEVER summed into one figure', async () => {
     const svc = makeSvc(selfRow, [
       obligation(DROP_ID, 'PENDING_PAYMENT', '800.48'),

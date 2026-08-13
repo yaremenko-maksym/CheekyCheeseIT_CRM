@@ -1266,8 +1266,21 @@ export class TransactionsService {
 
     // task-soft-delete-and-money-audit (AC4): a deleted row must not move the
     // drop's own balance/debt figures.
+    //
+    // security-review PR #523 round 1 (MED-1): scoped at the SQL level instead
+    // of pulling the WHOLE `transactions` table into memory for a single
+    // drop's summary. `computeDropAggregate` only ever reads a row where
+    // (receiverId = self OR senderId = self) AND type is one of these four —
+    // every one of its four filters (balance/pendingCount/debtToCompany/
+    // pendingObligationAmount) requires BOTH conditions, so this predicate is
+    // exactly equivalent to the old unscoped scan, never a behaviour change —
+    // it just stops fetching every OTHER drop's/senior's/admin's rows too.
     const allTxs = (await this.db.db.query.transactions.findMany({
-      where: isNull(transactions.deletedAt),
+      where: and(
+        isNull(transactions.deletedAt),
+        or(eq(transactions.receiverId, self.id), eq(transactions.senderId, self.id)),
+        inArray(transactions.type, ['PAYOUT_DROP', 'DROP_INCOME', 'PAYOUT', 'DROP_PENDING_PAYOUT']),
+      ),
     })) as Array<{
       type: string
       status: string
@@ -1409,9 +1422,13 @@ export class TransactionsService {
    * `project.companyName` at creation), falling back to the linked project's
    * companyName, then ''. For an obligation row `senderLabel` is always the
    * literal 'COMPANY' marker (see `bookCompanyObligations`), which is not a
-   * company name — those rows always use `project.companyName` (obligations
-   * are always project-scoped), falling back to '' only if the project link
-   * is gone.
+   * company name — those rows use `companyNameSnapshot` (frozen at booking
+   * time — security-review PR #523 round 1, MED-4: a live `project.companyName`
+   * join would let a LATER project rename silently rewrite the company name on
+   * money already booked under the old one), falling back to the live
+   * `project.companyName` join only for the rare pre-migration row that
+   * predates the snapshot column (NULL), then '' if even the project link is
+   * gone.
    */
   async getDropSelfIncomes(
     currentUser: SessionUser,
@@ -1469,7 +1486,7 @@ export class TransactionsService {
       companyName:
         tx.type === 'DROP_INCOME'
           ? (tx.senderLabel ?? tx.project?.companyName ?? '')
-          : (tx.project?.companyName ?? ''),
+          : (tx.companyNameSnapshot ?? tx.project?.companyName ?? ''),
       amount: parseFloat(tx.amount),
       currency: tx.currency,
       createdAt:
@@ -2099,6 +2116,7 @@ export class TransactionsService {
         await this.bookCompanyObligations(dbtx, {
           incomeAmount: data.amount,
           projectId: data.projectId,
+          companyName: project.companyName,
           createdBy: currentUser.id,
           // task-admin-income-drop-backfill: this row's own id — the ONE call
           // site that always knows its source income (it just inserted it, in
@@ -4272,6 +4290,14 @@ export class TransactionsService {
     params: {
       incomeAmount: number
       projectId: string
+      // task-drop-sees-own-obligations (security-review PR #523 round 1,
+      // MED-4). `projects.companyName` AT BOOKING TIME — both callers
+      // already have the project row loaded (they need `dropId`/`seniorId`
+      // off it), so this is a pass-through, not an extra query. Stamped onto
+      // `companyNameSnapshot` below so a later project rename can never
+      // rewrite what a senior/drop reads as the history of money already
+      // booked under the old name (see that column's doc in schema.ts).
+      companyName: string
       createdBy: string
       payoutRequestId?: string | null
       // task-admin-income-drop-backfill: the income transaction this booking
@@ -4292,7 +4318,8 @@ export class TransactionsService {
       notePrefix?: string
     },
   ): Promise<{ seniorAmount: number | null; dropAmount: number | null }> {
-    const { incomeAmount, projectId, createdBy, payoutRequestId, senior, drop } = params
+    const { incomeAmount, projectId, companyName, createdBy, payoutRequestId, senior, drop } =
+      params
     const incomeTransactionId = params.incomeTransactionId ?? null
     const notePrefix = params.notePrefix ?? 'Company owes'
     let seniorAmount: number | null = null
@@ -4318,6 +4345,7 @@ export class TransactionsService {
           notes: `${notePrefix} — senior IOU (debtor=COMPANY)`,
           createdBy,
           sourceIncomeTransactionId: incomeTransactionId,
+          companyNameSnapshot: companyName,
         })
         .returning()
       if (pendingRow) {
@@ -4361,6 +4389,7 @@ export class TransactionsService {
           notes: `${notePrefix} — drop IOU (debtor=COMPANY)`,
           createdBy,
           sourceIncomeTransactionId: incomeTransactionId,
+          companyNameSnapshot: companyName,
         })
         .returning()
       if (pendingRow) {
@@ -4774,6 +4803,7 @@ export class TransactionsService {
           await this.bookCompanyObligations(dbtx, {
             incomeAmount: income,
             projectId: primaryProject.id,
+            companyName: primaryProject.companyName,
             createdBy: currentUser.id,
             payoutRequestId: requestId,
             senior: { id: senior.id, role: senior.role, shareSnapshot: seniorShareSnapshot },

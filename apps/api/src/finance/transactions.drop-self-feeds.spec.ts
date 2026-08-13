@@ -17,10 +17,24 @@
  *    REJECTED→failed), txHash present/absent, amount parse, ISO createdAt.
  *
  * Pure stub for DatabaseService — no Postgres. The DB-level self-scope
- * (receiverId/senderId/type WHERE clauses) is pinned by the real-DB
- * integration spec (drop.rbac.integration.spec.ts), since the stub's findMany
- * ignores the `where` argument by design — these tests target the in-memory
- * mapping / filter / pagination logic the WHERE clause cannot cover.
+ * (receiverId/senderId WHERE clauses) is pinned by the real-DB integration
+ * spec (drop.rbac.integration.spec.ts). Most tests below use a stub whose
+ * `findMany` ignores the `where` argument and just returns canned rows — they
+ * target the in-memory mapping / filter / pagination logic.
+ *
+ * ONE exception (mutation-gate MED-2, security-review PR #523 round 1): the
+ * `WHERE type IN (...)` type-scope literal at the `inArray(...)` call site is
+ * itself a Drizzle SQL fragment built against the REAL `transactions` table
+ * (only the query EXECUTOR is stubbed, not the query-builder), so a mocked
+ * `findMany` that ignores its `where` argument structurally cannot observe a
+ * mutation of that literal — and the real-DB integration spec cannot either,
+ * because Stryker's mutation run excludes every `*.integration.spec.ts` file
+ * from discovery (see apps/api/vitest.config.mts `isIntegrationRun`/
+ * `INTEGRATION_SPEC_EXCLUDE_GLOB` — integration specs never even parse on a
+ * non-integration run, mutated or not). The "DB-level type scope" describe
+ * block below captures the real `where` AST instead and walks it (mirrors
+ * `collectUuids` in finance-hygiene.unit.spec.ts) to assert on the type list
+ * directly — this is what actually kills that class of mutant.
  */
 import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
@@ -69,6 +83,66 @@ function makeSvc(rows: unknown[]) {
   return makeTransactionsService({ db: dbStub as never })
 }
 
+/**
+ * TransactionsService whose `transactions.findMany` CAPTURES the real
+ * `where` AST it was called with (mutation-gate MED-2 — see file header).
+ * `getWhere()` returns whatever was captured by the LAST call.
+ */
+function makeSvcCapturingWhere(rows: unknown[]): {
+  svc: ReturnType<typeof makeTransactionsService>
+  getWhere: () => unknown
+} {
+  let capturedWhere: unknown
+  const dbStub = {
+    db: {
+      query: {
+        transactions: {
+          findMany: (args?: { where?: unknown }) => {
+            capturedWhere = args?.where
+            return Promise.resolve(rows)
+          },
+        },
+      },
+    },
+  }
+  return { svc: makeTransactionsService({ db: dbStub as never }), getWhere: () => capturedWhere }
+}
+
+/**
+ * Walk a Drizzle `where` AST and collect the BOUND runtime values it carries
+ * — i.e. every `Param { value, encoder }` node (Drizzle's wrapper for a
+ * value that will become a `$1`/`$2`/… placeholder), not every string
+ * reachable anywhere in the tree.
+ *
+ * Why not a generic string walk (tried first, empirically wrong): a
+ * `PgEnumColumn` (the `type` column here IS one) carries `enumValues` — the
+ * FULL static list of every value the Postgres enum can ever hold (all
+ * transaction types, not just the ones THIS query filters on) — as a plain
+ * property on the column reference embedded in the AST. A naive walk that
+ * collects every string it meets picks up `enumValues` too, so it "finds"
+ * every transaction type regardless of what `inArray(...)` actually bound —
+ * i.e. it can never fail, so it can never kill a mutant. Verified by
+ * `util.inspect`-dumping the real AST this service builds: `inArray()`'s
+ * bound values show up as a `[Param, Param, Param]` array (one Param per
+ * array element, each carrying the plain string in `.value`), sibling to —
+ * not inside — the `PgEnumColumn`'s `enumValues`. Restricting collection to
+ * `Param`-shaped nodes (`'value' in obj && 'encoder' in obj`, matching the
+ * class's real shape) reads only what was actually bound, so removing /
+ * altering an element of the `inArray(...)` array changes what this
+ * function returns — which is what makes the type-scope test below able to
+ * kill a mutant instead of vacuously passing regardless of the code.
+ */
+function collectParamValues(node: unknown, visited = new Set<unknown>()): unknown[] {
+  if (node === null || node === undefined) return []
+  if (Array.isArray(node)) return node.flatMap((v) => collectParamValues(v, visited))
+  if (typeof node !== 'object') return []
+  if (visited.has(node)) return []
+  visited.add(node)
+  const obj = node as Record<string, unknown>
+  if ('value' in obj && 'encoder' in obj) return [obj['value']]
+  return Object.values(obj).flatMap((v) => collectParamValues(v, visited))
+}
+
 function q(overrides: Partial<DropIncomesQuery> = {}): DropIncomesQuery {
   return dropIncomesQuerySchema.parse(overrides)
 }
@@ -91,6 +165,28 @@ describe('getDropSelfIncomes — RBAC (self-only)', () => {
     const svc = makeSvc([])
     const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
     expect(res).toEqual({ items: [], total: 0, page: 1, limit: 20 })
+  })
+})
+
+// task-drop-sees-own-obligations — mutation-gate MED-2 (security-review PR
+// #523 round 1): closes the surviving mutant on the `inArray(transactions.type,
+// [...])` type-scope literal — see the file header for why the mocked-row
+// tests above cannot observe it and the real-DB integration spec cannot
+// either under Stryker.
+describe('getDropSelfIncomes — DB-level type scope (§AC3, mutation-gate MED-2)', () => {
+  it('WHERE clause binds exactly the three drop income types — nothing more, nothing less', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere([])
+    await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    const bound = collectParamValues(getWhere())
+
+    // The receiverId (a UUID) is ALSO a bound Param on this WHERE — filter it
+    // out so the type-scope assertion below is exact, not just "contains".
+    const boundTypeStrings = bound.filter(
+      (v): v is string => typeof v === 'string' && v !== user('DROP', DROP_ID).id,
+    )
+    expect(boundTypeStrings.sort()).toEqual(
+      ['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP'].sort(),
+    )
   })
 })
 

@@ -1482,6 +1482,14 @@ export async function mockAuthAs(page: Page, user: (typeof USERS)[keyof typeof U
       dropSharePercent: 5,
       pendingIncomesCount: 0,
       debtToCompany: 0,
+      // task-drop-sees-own-obligations: dropSelfSummarySchema now REQUIRES
+      // these two fields — omitting them fails the FE's Zod `.parse()`,
+      // which silently error-states the whole hub/finance page (MED-3,
+      // security-review PR #523 round 1: this exact gap broke
+      // drop-share-usdt-gates.spec.ts via the missing `drop-add-income`
+      // testid, downstream of this fixture, not of anything in that spec).
+      pendingObligationAmount: 0,
+      pendingObligationCount: 0,
     })
   })
   await page.route(new RegExp(`${API_RE}/finance/drop/me/incomes(\\?.*)?$`), (r) => {
