@@ -1,6 +1,6 @@
 {
-  "name": "CheekyCheeseIT",
-  "short_name": "CheekyCheeseIT",
+  "name": "CRM CheekyCheeseIT",
+  "short_name": "CRM CheekyCheeseIT",
   "description": "We build products that scale — AI · EdTech · E-Commerce",
   "icons": [
     { "src": "/maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
