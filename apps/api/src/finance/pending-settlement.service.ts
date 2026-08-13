@@ -525,25 +525,27 @@ export class PendingSettlementService {
         txDateToWrite = new Date(`${selectedDateStr}T00:00:00.000Z`)
       }
 
-      // Skip the NBU round-trip entirely when there is nothing to convert.
-      // Two cases:
-      //   - the default — and by far the most common — case: paid in the
-      //     obligation's own currency (exact match).
-      //   - security-review PR #521 round 3 (LOW): USD⇄USDT are pegged 1:1
-      //     (see `convertToBase`'s own short-circuit) — the obligation is
-      //     ALWAYS USDT (MED-1 invariant just above), so paying it out in
-      //     USD is likewise a no-op conversion, not a real rate application.
-      //     Treating it as "needs a rate" made the MED-2 staleness gate
-      //     refuse a USD payout during an NBU outage even though no NBU data
-      //     was ever going to be used for that pair.
-      // `convertToBase` would short-circuit to the same value anyway either
-      // way; this just avoids the network call (and, for the peg pair
-      // specifically, the MED-2 staleness gate, which has nothing to guard
-      // when no rate is actually applied).
-      if (
-        targetCurrency === obligationCurrency ||
-        isUsdPegPair(obligationCurrency, targetCurrency)
-      ) {
+      // Skip the NBU round-trip entirely when there is nothing to convert —
+      // i.e. the pair is USD⇄USDT-pegged 1:1 (see `convertToBase`'s own
+      // short-circuit). `obligationCurrency` is provably 'USDT' at this
+      // point (the MED-1 invariant assert just above threw otherwise), so
+      // this single check ALSO covers the exact-match default case
+      // (paid in the obligation's own currency) — `targetCurrency ===
+      // obligationCurrency` would only ever be true for `targetCurrency
+      // === 'USDT'`, which `isUsdPegPair` already matches. A SEPARATE
+      // `targetCurrency === obligationCurrency` disjunct would therefore be
+      // unreachable-redundant, not real defense-in-depth — kept as ONE
+      // condition rather than two that can never disagree.
+      //
+      // security-review PR #521 round 3 (LOW): before this task, the check
+      // WAS exact-match-only, so paying a USDT obligation out in USD took
+      // the (correct, no-op) ELSE branch and needlessly hit the MED-2
+      // staleness gate during an NBU outage, even though no NBU data was
+      // ever going to be used for that pair. `convertToBase` would
+      // short-circuit to the same value anyway either way; this just avoids
+      // the network call (and, for the whole peg pair, the staleness gate,
+      // which has nothing to guard when no rate is actually applied).
+      if (isUsdPegPair(obligationCurrency, targetCurrency)) {
         paidAmount = obligationAmount
       } else {
         // task-drop-payout-currency (owner addendum): fetch the rate AS OF
@@ -622,12 +624,26 @@ export class PendingSettlementService {
       // (not only when the currency changed), so a reader never has to guess
       // whether a NULL original_amount means "unchanged" or "settled before
       // this flow existed" (the latter — see the schema.ts column comment).
-      // `obligationAmount > 0` genuinely branches both ways now (MED-A,
-      // round 3): a 0%-share drop obligation has `obligationAmount === 0`
-      // and is a legitimate settle (see `settledAmountError` above), for
-      // which the effective rate `paid / original` is 0/0 — undefined, not
-      // zero — so it is deliberately left NULL rather than computed, same
-      // as any other unrepresentable ratio.
+      // `obligationAmount > 0` reads as a real branch (MED-A, round 3: a
+      // 0%-share drop obligation legitimately has `obligationAmount === 0`,
+      // for which `paid / original` is 0/0 — deliberately left NULL rather
+      // than computed, same as any other unrepresentable ratio) — but is
+      // PROVABLY unobservable by any test, for a reason distinct from (and
+      // stronger than) the one that justified the old suppression here
+      // pre-MED-A: by construction at this point `obligationAmount` is
+      // either exactly 0 or a finite positive number (negative/NaN/Infinity
+      // were already rejected — `settledAmountError` above runs on
+      // `paidAmount`, which is `obligationAmount` itself on the same-
+      // currency path and `obligationAmount × <a positive finite NBU rate>`
+      // otherwise, so it inherits the SAME sign/finiteness). Force ANY of
+      // this condition's operators to always-true (`true`, `||`, `>=`) and
+      // the ONLY behaviour change is that the `obligationAmount === 0` case
+      // now computes `0 / 0 = NaN` instead of skipping straight to `null` —
+      // but `isStorableExchangeRate` immediately below rejects NaN via its
+      // own `Number.isFinite` check, producing the IDENTICAL `exchangeRate
+      // = null`. No test can observe the difference through this
+      // function's output.
+      // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: see the comment above — every mutant here (force true/false, && → ||, > → >=) is downstream-caught by isStorableExchangeRate's own Number.isFinite(NaN)===false check, producing the identical exchangeRate=null either way
       const rawExchangeRate =
         Number.isFinite(obligationAmount) && obligationAmount > 0
           ? paidAmount / obligationAmount

@@ -33,7 +33,7 @@ import { PendingSettlementService } from './pending-settlement.service'
 import type { InvoicesService } from '../invoices/invoices.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
-import { isStorableExchangeRate } from './exchange-rate.util'
+import { isStorableExchangeRate, settledAmountError } from './exchange-rate.util'
 
 const DROP_ID = '33333333-3333-4333-8333-333333333333'
 const OBLIGATION_ID = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb'
@@ -276,6 +276,21 @@ const RECEIPT_EXPLORER = { receiptExternalUrl: 'https://etherscan.io/tx/0xdropcu
 const RECEIPT_FILE = { receiptExternalUrl: 'https://drive.google.com/file/dropcurrency' }
 
 describe('settleByCompany — DROP obligation, currency conversion (task-drop-payout-currency)', () => {
+  // owner addendum (2026-08): the legacy/no-funding call path
+  // (`settleByCompany(id, actor)`, no third arg at all — still exercised by
+  // `settleByCompanySourceTransaction`'s own callers and older tests) must
+  // not crash resolving the date-of-record when `funding` itself is
+  // `undefined` — `funding?.txDate` must short-circuit safely rather than
+  // dereferencing a property of `undefined`.
+  it('no funding arg at all (legacy call) — resolves the date-of-record safely, defaults to COMPANY_ACCOUNT/USDT', async () => {
+    const { svc, settledTx, obligationStatus } = makeService()
+    await svc.settleByCompany(OBLIGATION_ID, accountantUser)
+    expect(obligationStatus()).toBe('PAID')
+    const row = settledTx()
+    expect(row['currency']).toBe('USDT')
+    expect(row['amount']).toBe('1000')
+  })
+
   it('AC2/AC4: default currency (omitted) — no NBU call, amount unchanged, exchangeRate=1, original snapshot stamped', async () => {
     const { svc, settledTx, getRates } = makeService()
     await svc.settleByCompany(OBLIGATION_ID, accountantUser, {
@@ -507,6 +522,19 @@ describe('settleByCompany — DROP obligation, currency conversion (task-drop-pa
     expect(isStorableExchangeRate(1e10)).toBe(false)
     expect(isStorableExchangeRate(NaN)).toBe(false)
     expect(isStorableExchangeRate(Infinity)).toBe(false)
+  })
+
+  // MED-A (security-review PR #521 round 3): settledAmountError's own
+  // boundary — direct unit coverage (settleByCompany only ever exercises it
+  // indirectly through realistic amounts, which doesn't pin the CEILING
+  // boundary precisely enough to distinguish `>` from `>=`).
+  it('sanity: settledAmountError boundary — zero passes, negative/NaN/Infinity/over-ceiling reject, the ceiling itself is INCLUSIVE (> not >=)', () => {
+    expect(settledAmountError(0, 500_000)).toBeNull()
+    expect(settledAmountError(500_000, 500_000)).toBeNull() // exactly at the ceiling — allowed
+    expect(settledAmountError(500_000.01, 500_000)).not.toBeNull() // one cent over — rejected
+    expect(settledAmountError(-0.01, 500_000)).not.toBeNull()
+    expect(settledAmountError(NaN, 500_000)).not.toBeNull()
+    expect(settledAmountError(Infinity, 500_000)).not.toBeNull()
   })
 })
 

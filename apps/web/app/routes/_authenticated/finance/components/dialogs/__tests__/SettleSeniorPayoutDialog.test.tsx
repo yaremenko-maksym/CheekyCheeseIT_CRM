@@ -307,6 +307,28 @@ describe('SettleSeniorPayoutDialog — reused for DROP_PENDING_PAYOUT (settle-dr
     await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Выплата дропу проведена'))
   })
 
+  // security-review PR #521 round 3 (LOW-2): when the response DOES carry
+  // the flipped row (the real API shape — `settleMock` in the OTHER tests
+  // above only stubs `{}`, which never exercises this branch at all), the
+  // toast shows the ACTUALLY RECORDED amount, not just a generic "done".
+  it('submitting a DROP settle shows the ACTUAL recorded amount in the success toast, when the response carries it', async () => {
+    renderDialog(DROP_TX)
+    settleMock.mockResolvedValueOnce({
+      obligation: { status: 'PAID' },
+      created: [{ amount: '420', currency: 'USDT' }],
+    })
+    await fillReceipt()
+    fireEvent.click(screen.getByTestId('settle-senior-submit'))
+    await waitFor(() =>
+      expect(toast.success).toHaveBeenCalledWith(
+        expect.stringContaining('Выплата дропу проведена:'),
+      ),
+    )
+    const [message] = vi.mocked(toast.success).mock.calls[0] as [string]
+    expect(message).toContain('420')
+    expect(message).toContain('USDT')
+  })
+
   it('submitting a SENIOR settle still shows the original success toast', async () => {
     renderDialog(TX)
     await fillReceipt()
@@ -542,8 +564,31 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     rateDateOverride = '20260731'
     renderDialog(UAH_DROP_TX) // requests 2026-08-01, gets data dated 2026-07-31
     await screen.findByTestId('settle-senior-amount-field')
-    expect(await screen.findByTestId('settle-senior-rate-date-note')).toHaveTextContent('31.07.26')
+    // The exact space before the applied date matters — a mutant that drops
+    // it would concatenate "за" straight into "31.07.26" with no separator.
+    expect(await screen.findByTestId('settle-senior-rate-date-note')).toHaveTextContent(
+      'за 31.07.26',
+    )
     rateDateOverride = null
+  })
+
+  it('does NOT show the note when rates.rateDate EQUALS the requested date (real, non-fallback rate)', async () => {
+    // Distinct from "rateDateOverride = null" (every OTHER test's shape,
+    // where rates.rateDate is entirely absent) — here it IS present but
+    // matches the request exactly, the only scenario that actually
+    // distinguishes `rateDateDiffers`'s own `!==` comparison from a mutant
+    // that forces it (or its dates-differ operand) unconditionally true.
+    rateDateOverride = '20260801' // UAH_DROP_TX's own default txDate
+    renderDialog(UAH_DROP_TX)
+    await screen.findByTestId('settle-senior-amount-field')
+    expect(screen.queryByTestId('settle-senior-rate-date-note')).not.toBeInTheDocument()
+    rateDateOverride = null
+  })
+
+  it('does NOT show the note at all for a normal rate response with no rateDate field (every non-fallback fixture in this suite)', async () => {
+    renderDialog(UAH_DROP_TX)
+    await screen.findByTestId('settle-senior-amount-field')
+    expect(screen.queryByTestId('settle-senior-rate-date-note')).not.toBeInTheDocument()
   })
 
   // Receipt currency-awareness: a DROP settle in a non-USDT currency is NOT
@@ -673,6 +718,46 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
       expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue(
         '4150.00',
       ),
+    )
+  })
+
+  // owner addendum (2026-08): the SAME rerender pattern as above, but for
+  // the date-of-record default AND its date-scoped rate query. Proves BOTH
+  // that the mount-sync effect re-runs on a tx CHANGE (not just once — the
+  // `[]`-deps mutant) and that the rate query is genuinely keyed per date
+  // (not a static key that would silently keep serving the FIRST tx's
+  // cached response for a SECOND, different date — the queryKey mutant).
+  it('re-syncs the date-of-record default AND re-fetches at the NEW date when the SAME dialog instance receives a DIFFERENT tx (rerender, not remount)', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <SettleSeniorPayoutDialog tx={DROP_TX as never} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    // DROP_TX.createdAt = 2026-06-01 — the picker's initial default.
+    await waitFor(() =>
+      expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('01 июн'),
+    )
+    expect(
+      vi.mocked(api.get).mock.calls.some(([url]) => (url as string).includes('date=20260601')),
+    ).toBe(true)
+
+    rerender(
+      <QueryClientProvider client={qc}>
+        <SettleSeniorPayoutDialog tx={UAH_DROP_TX as never} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    // UAH_DROP_TX.createdAt = 2026-08-01 — a genuinely DIFFERENT date. If the
+    // mount-sync effect had empty deps (mutant), the picker would stay stuck
+    // on June. If the query key were static (mutant), react-query would
+    // never issue a NEW fetch for August at all.
+    await waitFor(() =>
+      expect(screen.getByTestId('settle-senior-txdate')).toHaveTextContent('01 авг'),
+    )
+    await waitFor(() =>
+      expect(
+        vi.mocked(api.get).mock.calls.some(([url]) => (url as string).includes('date=20260801')),
+      ).toBe(true),
     )
   })
 

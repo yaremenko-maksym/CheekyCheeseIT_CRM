@@ -87,6 +87,9 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     expect(parseFloat(result.usdUah)).toBeCloseTo(41.2, 4)
     expect(parseFloat(result.eurUah)).toBeCloseTo(44.5, 4)
     expect(result.stale).toBe(false)
+    // owner addendum (2026-08): an exact-match, non-stale fetch is a REAL
+    // dated source — rateDate equals the (requested) date, not omitted.
+    expect(result.rateDate).toBe(result.date)
   })
 
   it('AC3: 200-OK with empty body → stale=true + error/warn logged', async () => {
@@ -169,6 +172,11 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     // Logging required
     const logged = loggerErrorSpy.mock.calls.length > 0 || loggerWarnSpy.mock.calls.length > 0
     expect(logged).toBe(true)
+    // owner addendum (2026-08): a genuine outage (cache/hardcoded, no real
+    // dated source at all) never claims a rateDate — this is exactly the
+    // signal `PendingSettlementService`'s date-of-record resolution uses to
+    // distinguish "refuse" from "accept a graceful, dated fallback".
+    expect(result.rateDate).toBeUndefined()
   })
   it('MED: prev-day fallback result is cached — next failure uses cache not hardcoded', async () => {
     // Call 1: today fails (empty), prev-day succeeds with known rates.
@@ -195,6 +203,12 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     const r1 = await svc.getRates()
     expect(r1.stale).toBe(true) // prev-day result = stale
     expect(parseFloat(r1.usdUah)).toBeCloseTo(38.5, 4)
+    // owner addendum (2026-08): a prev-day fallback IS a real, dated source
+    // (just not the exact requested day) — rateDate is set, and differs
+    // from `date` (which still echoes the ORIGINALLY REQUESTED day, for
+    // backward compat with every consumer that assumes date===requested).
+    expect(r1.rateDate).toBeDefined()
+    expect(r1.rateDate).not.toBe(r1.date)
 
     // Call 2: total network failure — must return cached 38.5, NOT hardcoded 41.5
     mockNbuNetworkError()
@@ -202,6 +216,9 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     expect(r2.stale).toBe(true)
     expect(parseFloat(r2.usdUah)).toBeCloseTo(38.5, 4)
     expect(parseFloat(r2.eurUah)).toBeCloseTo(42.0, 4)
+    // A cache-served result has no dated source either — same "genuine
+    // outage" signal as the hardcoded-fallback case above.
+    expect(r2.rateDate).toBeUndefined()
   })
 })
 

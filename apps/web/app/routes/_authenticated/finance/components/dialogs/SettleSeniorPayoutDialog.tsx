@@ -141,6 +141,7 @@ export function SettleSeniorPayoutDialog({
   // creation date, NOT today (owner: «по умолчанию — дата создания») — see
   // the reset effect below. Irrelevant for a SENIOR settle: the picker never
   // renders there and this stays at its initial ''.
+  // Stryker disable next-line StringLiteral: unobservable for the SAME reason as the useState default above — the mount-sync effect below (keyed on tx?.id) synchronously overwrites this to tx.createdAt.slice(0,10) on EVERY mount before any render is visible to a consumer/test (the dialog never renders without a tx)
   const [txDate, setTxDate] = useState<string>('')
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
@@ -431,11 +432,20 @@ export function SettleSeniorPayoutDialog({
               <DatePickerField
                 value={txDate}
                 onChange={setTxDate}
+                // Stryker disable next-line MethodExpression: `.slice(0,10)` matters for a REAL browser in a non-UTC local timezone — DatePickerField's parseISO treats a date-only string as LOCAL midnight (matching the operator's own calendar day), while a full ISO instant anchors to UTC and could shift the boundary by the TZ offset. This project's test environment (mutation gate + CI) is TZ=UTC-pinned, where "local" IS "UTC", so the two collapse to the identical calendar day for every time-of-day; no test run under the mandated TZ can observe the difference, though the slice is still the semantically correct one to ship
                 minDate={tx.createdAt.slice(0, 10)}
+                // Stryker disable next-line MethodExpression: same reasoning as minDate above — "today" sliced to a date vs the full instant is indistinguishable under TZ=UTC
                 maxDate={new Date().toISOString().slice(0, 10)}
                 className="w-full"
                 data-testid="settle-senior-txdate"
               />
+              {/* `rates?.rateDate` here is a TS-narrowing guard for the
+                  `rates.rateDate` read below — behaviorally redundant at
+                  runtime: `rateDateDiffers` is DEFINED as `!!rates?.rateDate
+                  && …` (see above), so `rateDateDiffers === true` already
+                  PROVES `rates.rateDate` is truthy; this can never be the
+                  clause that decides whether the note renders. */}
+              {/* Stryker disable next-line LogicalOperator,OptionalChaining: see the comment above — `rateDateDiffers` truthy already implies `rates?.rateDate` truthy by construction (its own definition four lines up), so no test can make this second operand the deciding factor either way */}
               {rateDateDiffers && rates?.rateDate && (
                 <p
                   className="text-[11px] text-muted-foreground"
