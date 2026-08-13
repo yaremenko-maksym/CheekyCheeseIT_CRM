@@ -27,9 +27,9 @@
  *     `finance-senior-flow.spec.ts` ("SENIOR не может создать транзакцию без
  *     чека", "SENIOR прикрепляет новый чек (ссылка) и переотправляет").
  *   - DROP_INCOME WITH a receipt (happy path) — `drop-income-ui.spec.ts`.
- *   - USDT_INCOME with a valid explorer link (happy path, both receiver
- *     branches) + SettleSeniorPayoutDialog WITH a receipt (happy path) —
- *     `drop-share-usdt-income.spec.ts`.
+ *   - A USDT-project declaration with a valid explorer link (happy path,
+ *     both receiver branches) + SettleSeniorPayoutDialog WITH a receipt
+ *     (happy path) — `drop-share-usdt-income.spec.ts`.
  *   - PaySalaryDialog WITH a receipt (happy path) — `finance.spec.ts`.
  *   - Document-level receipt badge (#356 `deriveStatusBadge`) — untouched by
  *     this feature (design-spec §6.1); covered by `documents-pr*.spec.ts`.
@@ -185,7 +185,7 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
     await expect(dialog).toBeVisible()
   })
 
-  test('USDT_INCOME без чека → submit заблокирован (ADMIN)', async ({ page }) => {
+  test('USDT-проект без чека → submit заблокирован (ADMIN)', async ({ page }) => {
     const suffix = uniqueSuffix()
     const dropEmail = `receipts-usdt-block-${suffix}@cheekycheese.dev`
     const projectName = `Receipts USDT Block ${suffix}`
@@ -209,15 +209,16 @@ test.describe('Transaction receipts — create-block без чека (mandatory)
       await page.getByTestId('finance-create-transaction-button').click()
       const dialog = page.getByTestId('create-transaction-dialog')
       await expect(dialog).toBeVisible()
-      await dialog.getByTestId('create-transaction-type-usdt_income').click()
-
+      // task-admin-income-unified: ADMIN_INCOME is the default/only
+      // admin-income type — selecting a USDT-payment project is what routes
+      // this submit to declareUsdtProjectIncome (explorer-only receipt).
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
-      await dialog.getByTestId('usdt-income-receiver-trigger').click()
+      await dialog.getByTestId('admin-income-receiver-trigger').click()
       await page.getByRole('option', { name: 'Счёт компании', exact: true }).click()
       await dialog.getByPlaceholder('0.00').fill('100')
 
-      // USDT_INCOME is ALWAYS explorer-only — the file tab must not even render.
+      // A USDT-payment project is ALWAYS explorer-only — the file tab must not even render.
       await expect(dialog.getByTestId('receipt-input-mode-file')).not.toBeAttached()
 
       await dialog.getByTestId('create-transaction-submit').click()
@@ -310,6 +311,11 @@ test.describe('Transaction receipts — создание с чеком (не-USD
 
     await dialog.getByTestId('create-transaction-project-trigger').click()
     await page.getByRole('option').first().click()
+    // task-admin-income-unified (§2): ADMIN always picks an explicit receiver
+    // for ADMIN_INCOME now — no silent default. Pick whichever active admin
+    // sorts first (self is one of the options).
+    await dialog.getByTestId('admin-income-receiver-trigger').click()
+    await page.getByRole('option').first().click()
     await dialog.getByPlaceholder('0.00').fill('321')
 
     // Default receipt mode is 'file' — upload directly (no tab click needed).
@@ -348,7 +354,7 @@ test.describe('Transaction receipts — создание с чеком (не-USD
 // ═══════════════════════════════════════════════════════════════════════════
 
 test.describe('Transaction receipts — USDT explorer-only', () => {
-  test('USDT_INCOME: не-explorer ссылка → блок с явной ошибкой', async ({ page }) => {
+  test('USDT-проект: не-explorer ссылка → блок с явной ошибкой', async ({ page }) => {
     const suffix = uniqueSuffix()
     const dropEmail = `receipts-usdt-badlink-${suffix}@cheekycheese.dev`
     const projectName = `Receipts USDT BadLink ${suffix}`
@@ -372,11 +378,11 @@ test.describe('Transaction receipts — USDT explorer-only', () => {
       await page.getByTestId('finance-create-transaction-button').click()
       const dialog = page.getByTestId('create-transaction-dialog')
       await expect(dialog).toBeVisible()
-      await dialog.getByTestId('create-transaction-type-usdt_income').click()
-
+      // ADMIN_INCOME is the default/only admin-income type — the USDT-payment
+      // project selection is what routes this submit to declareUsdtProjectIncome.
       await dialog.getByTestId('create-transaction-project-trigger').click()
       await page.getByRole('option', { name: projectName, exact: true }).click()
-      await dialog.getByTestId('usdt-income-receiver-trigger').click()
+      await dialog.getByTestId('admin-income-receiver-trigger').click()
       await page.getByRole('option', { name: 'Счёт компании', exact: true }).click()
       await dialog.getByPlaceholder('0.00').fill('100')
 
@@ -396,8 +402,8 @@ test.describe('Transaction receipts — USDT explorer-only', () => {
     }
   })
 
-  // Happy-path USDT_INCOME-with-explorer-link is covered end-to-end by
-  // drop-share-usdt-income.spec.ts (both receiver branches). DIVIDEND is the
+  // Happy-path USDT-project-declaration-with-explorer-link is covered
+  // end-to-end by drop-share-usdt-income.spec.ts (both receiver branches). DIVIDEND is the
   // other ALWAYS-explorer-only type in this dialog — exercised fresh here.
   test('DIVIDEND: file-режим недоступен, explorer-ссылка → создаётся', async ({ page }) => {
     // Self-contained balance top-up — DIVIDEND amount must not exceed the

@@ -5,6 +5,9 @@ import { and, eq, inArray, sql } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
+// task-admin-income-unified: `createAdminIncome`'s old `fundingSource:
+// 'COMPANY_ACCOUNT'` toggle is replaced by `receiverId` (see AC5 below).
+import { COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
@@ -385,7 +388,7 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
           projectId: PROJECT_ID,
           amount: 700,
           currency: 'UAH',
-          fundingSource: 'COMPANY_ACCOUNT',
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
           ...RECEIPT,
         },
         ADMIN,

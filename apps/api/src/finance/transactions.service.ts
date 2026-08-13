@@ -72,6 +72,16 @@ import {
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
+// task-admin-income-unified: MONEY_SCALE/roundShareAmount moved to @crm/shared
+// so the web pre-submit obligation-preview banner and this service compute the
+// exact same rounded share amount — see the module doc in packages/shared.
+import { MONEY_SCALE, roundShareAmount } from '@crm/shared'
+// Re-exported for backward compatibility: pre-move call sites (e.g.
+// admin-income-drop-backfill.integration.spec.ts, task-admin-income-drop-backfill,
+// merged independently of this move) still import `roundShareAmount` from this
+// file's old local-export surface — same binding as the @crm/shared import
+// above, not a second implementation.
+export { roundShareAmount }
 import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
 
 /**
@@ -144,27 +154,6 @@ export { DEFAULT_DROP_SHARE_PERCENT }
  * and getSummary to avoid scattering the literal `26` across the service.
  */
 export const DEFAULT_SENIOR_SHARE_PERCENT = 26
-
-/**
- * Scaled-integer constant used throughout money aggregations to avoid JS
- * float accumulation errors (same scale as the write-path in confirmPayout /
- * payPayoutRequest: 1e6, round to int). Single source of truth so the
- * per-drop aggregate helper and `getSummary` agree.
- */
-export const MONEY_SCALE = 1_000_000
-
-/**
- * Decimal-safe `income × percent / 100` at the numeric(18,6) precision the
- * amount column persists. Scale to integer minor units, round once, divide back
- * and fix to 6 decimals — avoids IEEE-754 drift so two shares of the same income
- * reconcile against the gross. Shared by `computeDropDistribution` (drop payout)
- * and `bookCompanyObligations` (admin-USDT) so both price shares identically.
- */
-export function roundShareAmount(income: number, percent: number): number {
-  const incomeMinor = Math.round(income * MONEY_SCALE)
-  const shareMinor = Math.round((incomeMinor * percent) / 100)
-  return Number((shareMinor / MONEY_SCALE).toFixed(6))
-}
 
 type TxWithRelations = Transaction & {
   // task-counterparty-role-masking: `role` is joined so mapTx can tell whether
@@ -1594,24 +1583,25 @@ export class TransactionsService {
       receiptExternalUrl?: string | null | undefined
       notes?: string | null | undefined
       txDate?: string | null | undefined
-      // task-salary-company-account: optional company-account routing. When
-      // COMPANY_ACCOUNT the income is directed INTO the shared company USDT pool
-      // (credits its balance, USDT-forced) and is EXCLUDED from the admin owner's
-      // personal balance (getSummary). Absent → legacy (credits the admin owner).
-      fundingSource?: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL' | undefined
+      // task-admin-income-unified: REPLACES the old `fundingSource` toggle.
+      // Same contract as `declareUsdtProjectIncome`'s `receiverId` — an active
+      // ADMIN's uuid credits THAT admin personally; the COMPANY_ACCOUNT_RECEIVER
+      // sentinel credits the shared pool. Absent → legacy default (see below).
+      // ACCOUNTANT sending an explicit value here is a contract violation, not
+      // a routing preference — rejected outright (see the RBAC block below).
+      receiverId?: string | undefined
     },
     currentUser: SessionUser,
   ) {
     // task-accountant-create-transaction. ACCOUNTANT has create-parity with
-    // ADMIN for ADMIN_INCOME. Ownership + crediting differ by caller so the
-    // income is ALWAYS credited to the admin owner of the project, never the
-    // accountant (an ADMIN_INCOME is «доход с админ-проекта»):
-    //   - ADMIN caller: project must be their own (seniorId === self); income
-    //     is credited to that admin (receiverId = self). UNCHANGED.
+    // ADMIN for ADMIN_INCOME — but ONLY as a recorder. Eligibility (which
+    // PROJECT a caller may declare income for) is unchanged by
+    // task-admin-income-unified:
+    //   - ADMIN caller: project must be their own (seniorId === self).
     //   - ACCOUNTANT caller: may register on ANY admin-owned project (the
-    //     project's senior must be an ADMIN); income is credited to that admin
-    //     owner (receiverId = project.seniorId). The accountant is the recorder
-    //     (createdBy), not the recipient.
+    //     project's senior must be an ADMIN). The accountant is the recorder
+    //     (createdBy), never the recipient — enforced below, independent of
+    //     project eligibility.
     if (currentUser.role !== 'ADMIN' && currentUser.role !== 'ACCOUNTANT')
       throw new ForbiddenException()
 
@@ -1620,15 +1610,15 @@ export class TransactionsService {
     })
     if (!project) throw new NotFoundException('Project not found')
 
-    let receiverId: string
+    let projectOwnerId: string
     if (currentUser.role === 'ADMIN') {
       if (project.seniorId !== currentUser.id) {
         throw new ForbiddenException('You can only add income for your own projects')
       }
-      receiverId = currentUser.id
+      projectOwnerId = currentUser.id
     } else {
       // ACCOUNTANT: the project must belong to an ADMIN (ADMIN_INCOME is income
-      // owned by an admin partner). Credit that admin, never the accountant.
+      // owned by an admin partner).
       const owner = await this.db.db.query.users.findFirst({
         where: eq(users.id, project.seniorId),
       })
@@ -1637,7 +1627,73 @@ export class TransactionsService {
           'ADMIN_INCOME can only be registered for an admin-owned project',
         )
       }
-      receiverId = owner.id
+      projectOwnerId = owner.id
+    }
+
+    // task-admin-income-unified (§2, owner decision 2026-08-12). WHO gets
+    // credited is now a SEPARATE choice from project eligibility above — but
+    // picking a SPECIFIC admin is ADMIN-only. The ACCOUNTANT has never been a
+    // router of funds (the server has always hard-credited the project's
+    // admin owner for this role); the web dialog's selector reflects that by
+    // only ever offering "project owner" (no receiverId) or "company account"
+    // (the sentinel — not a specific-admin choice, still allowed for this
+    // role, same capability the old `fundingSource` toggle already had). A
+    // payload naming a SPECIFIC admin disagrees with the UI's constraint and
+    // is rejected, not silently coerced.
+    if (
+      currentUser.role === 'ACCOUNTANT' &&
+      data.receiverId !== undefined &&
+      data.receiverId !== COMPANY_ACCOUNT_RECEIVER
+    ) {
+      throw new ForbiddenException('ACCOUNTANT cannot choose who receives ADMIN_INCOME')
+    }
+
+    let receiverId: string
+    let fundingSource: 'COMPANY_ACCOUNT' | null
+    if (data.receiverId === undefined) {
+      // Legacy default — unchanged behaviour: credit the project's owner.
+      receiverId = projectOwnerId
+      fundingSource = null
+    } else if (data.receiverId === COMPANY_ACCOUNT_RECEIVER) {
+      // Mirrors declareUsdtProjectIncome: the CALLER becomes the nominal
+      // receiverId (audit trail — who recorded it), fundingSource marks the
+      // ACTUAL destination (the shared pool, not that person's balance).
+      receiverId = currentUser.id
+      fundingSource = 'COMPANY_ACCOUNT'
+    } else {
+      // ADMIN caller only (the ACCOUNTANT branch above already threw). Same
+      // "active ADMIN" validation declareUsdtProjectIncome already applies.
+      const receiver = await this.db.db.query.users.findFirst({
+        where: eq(users.id, data.receiverId),
+      })
+      if (!receiver || receiver.role !== 'ADMIN' || receiver.archivedAt) {
+        throw new BadRequestException('Получатель должен быть активным администратором')
+      }
+      receiverId = receiver.id
+      fundingSource = null
+    }
+
+    // task-admin-income-unified (was task-admin-income-payment-type-guard —
+    // the owner rewrote the task 2026-08-12 mid-implementation from "add a
+    // check" to "remove the choice that needed checking": the web dialog no
+    // longer offers a separate USDT form the caller could pick wrong, it
+    // decides `createAdminIncome` vs `declareUsdtProjectIncome` itself from
+    // `project.paymentType`). This throw is what remains of the original
+    // fix — AC4's invariant, now enforced as defense-in-depth: the UI cannot
+    // reach this branch for a USDT project (it always routes to
+    // `declareUsdtProjectIncome` instead), but nothing stops a direct API
+    // call from trying, and a USDT-payment project books obligations to its
+    // senior/drop ONLY through `declareUsdtProjectIncome`
+    // (`bookCompanyObligations` runs inside THAT transaction; this path never
+    // calls it) — that gap is exactly what happened in prod (GamingTec,
+    // 4708.69 USDT, no drop share). Gated on `project.paymentType`, not on
+    // `data.currency`/`receiverId` — a FOP/GIG project routed into the
+    // company-account pool (currency forced to USDT for THIS transaction) is
+    // unaffected; only a project whose OWN payment type is USDT is rejected.
+    if (project.paymentType === 'USDT') {
+      throw new BadRequestException(
+        'USDT-проекты не создают доход через этот маршрут — используйте объявление USDT-прихода (declareUsdtProjectIncome), которое бронирует доли синьора и дропа вместе с доходом',
+      )
     }
 
     // task-receipts-backend (review round 1, MED-2): defense-in-depth mandatory-
@@ -1646,7 +1702,7 @@ export class TransactionsService {
     // pool) → explorer-only; else the supplied currency → file/url.
     const adminIncomeReceiptErr = receiptMandatoryError(
       { receiptDocumentId: data.receiptDocumentId, receiptExternalUrl: data.receiptExternalUrl },
-      data.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
+      fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : data.currency,
     )
     if (adminIncomeReceiptErr) throw new BadRequestException(adminIncomeReceiptErr)
 
@@ -1655,16 +1711,14 @@ export class TransactionsService {
       await this.assertReceiptDocumentBindable(data.receiptDocumentId, currentUser)
     }
 
-    // task-salary-company-account: company-account routing. When COMPANY_ACCOUNT
-    // the income is directed into the shared company pool — currency forced to
-    // USDT and funding_source persisted. The company balance formula counts
-    // ADMIN_INCOME(COMPANY_ACCOUNT) PAID as a (+) credit; getSummary EXCLUDES
-    // these rows from the admin owner's personal balance (the money went to the
-    // pool, not to the admin). No balance gate — this is an INFLOW. Absent →
-    // legacy (admin-personal income, funding_source NULL, currency as supplied).
-    const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
+    // task-salary-company-account (routing preserved, resolution moved above).
+    // When COMPANY_ACCOUNT the income is directed into the shared company pool
+    // — currency forced to USDT and funding_source persisted. The company
+    // balance formula counts ADMIN_INCOME(COMPANY_ACCOUNT) PAID as a (+)
+    // credit; getSummary EXCLUDES these rows from the receiver's personal
+    // balance (the money went to the pool, not to a person).
+    const isCompanyFunded = fundingSource === 'COMPANY_ACCOUNT'
     const currency = (isCompanyFunded ? 'USDT' : data.currency) as 'USDT' | 'USD' | 'EUR' | 'UAH'
-    const fundingSource: 'COMPANY_ACCOUNT' | null = isCompanyFunded ? 'COMPANY_ACCOUNT' : null
 
     // ── SECURITY (security-review PR #438, HIGH-3): the SECOND ADMIN_INCOME
     // writer. This path credits the company account with exactly the same

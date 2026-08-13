@@ -102,11 +102,16 @@ describe('CreateTransactionDialog — ADMIN_INCOME mandatory receipt (legacy fun
     expect(createAdminIncomeMock).not.toHaveBeenCalled()
   })
 
+  // task-admin-income-unified (§2): ADMIN now ALWAYS picks an explicit
+  // receiver — the flat "Счёт получателя" Select replaces the old implicit
+  // "always credits self" default.
   it('submits with a plain url receipt (non-explorer, currency=USD default)', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
     fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
     fireEvent.click(await screen.findByText('Admin Project'))
+    fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
+    fireEvent.click(await screen.findByText('Admin One'))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
     fireEvent.click(screen.getByTestId('receipt-input-mode-url'))
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
@@ -115,29 +120,37 @@ describe('CreateTransactionDialog — ADMIN_INCOME mandatory receipt (legacy fun
     fireEvent.click(screen.getByTestId('create-transaction-submit'))
     await waitFor(() => expect(createAdminIncomeMock).toHaveBeenCalledTimes(1))
     const [payload] = createAdminIncomeMock.mock.calls[0] as [Record<string, unknown>]
-    expect(payload).toMatchObject({ receiptExternalUrl: 'https://example.com/receipt.png' })
+    expect(payload).toMatchObject({
+      receiptExternalUrl: 'https://example.com/receipt.png',
+      receiverId: 'admin-1',
+    })
   })
 })
 
-describe('CreateTransactionDialog — ADMIN_INCOME + COMPANY_ACCOUNT (explorer-only)', () => {
+// task-admin-income-unified (§2): the old `create-transaction-funding-company`
+// button is gone for ADMIN (moved into the flat receiver Select — picking
+// «Счёт компании» there is the new equivalent). Still explorer-only/USDT-locked.
+describe('CreateTransactionDialog — ADMIN_INCOME + «Счёт компании» (explorer-only)', () => {
   beforeEach(() => {
     createAdminIncomeMock.mockClear()
   })
 
-  it('locking currency to USDT via COMPANY_ACCOUNT hides the tab-toggle (explorer-only)', async () => {
+  it('locking currency to USDT via «Счёт компании» hides the tab-toggle (explorer-only)', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
+    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
     expect(screen.queryByTestId('receipt-input-mode-file')).not.toBeInTheDocument()
     expect(screen.getByTestId('receipt-input-explorer-hint')).toBeInTheDocument()
   })
 
-  it('rejects a non-explorer url client-side when COMPANY_ACCOUNT is selected', async () => {
+  it('rejects a non-explorer url client-side when «Счёт компании» is selected', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
     fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
     fireEvent.click(await screen.findByText('Admin Project'))
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
+    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://example.com/not-an-explorer.png' },
@@ -152,7 +165,8 @@ describe('CreateTransactionDialog — ADMIN_INCOME + COMPANY_ACCOUNT (explorer-o
     await screen.findByTestId('create-transaction-type-admin_income')
     fireEvent.click(screen.getByTestId('create-transaction-project-trigger'))
     fireEvent.click(await screen.findByText('Admin Project'))
-    fireEvent.click(screen.getByTestId('create-transaction-funding-company'))
+    fireEvent.click(screen.getByTestId('admin-income-receiver-trigger'))
+    fireEvent.click(await screen.findByRole('option', { name: 'Счёт компании' }))
     fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '500' } })
     fireEvent.change(screen.getByTestId('receipt-input-url-field'), {
       target: { value: 'https://tronscan.org/#/transaction/0xabc' },
@@ -163,6 +177,7 @@ describe('CreateTransactionDialog — ADMIN_INCOME + COMPANY_ACCOUNT (explorer-o
     expect(payload).toMatchObject({
       currency: 'USDT',
       receiptExternalUrl: 'https://tronscan.org/#/transaction/0xabc',
+      receiverId: 'COMPANY_ACCOUNT',
     })
   })
 })

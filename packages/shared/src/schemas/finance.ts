@@ -637,10 +637,49 @@ function refineCompanyAccountUsdt(
   }
 }
 
-// ADMIN_INCOME — admin declares project income, no validation needed.
-// task-salary-company-account: optional `fundingSource` — when COMPANY_ACCOUNT
-// the income is directed INTO the shared company USDT account (credits its
-// balance) instead of the admin's personal balance. Currency forced to USDT.
+// task-drop-share-override-and-receiver (D3). Sentinel value for the "company
+// account" receiver of an admin-declared income — distinguishes crediting the
+// shared USDT pool from crediting a specific ADMIN's personal balance. Used by
+// BOTH `createAdminIncomeSchema` (task-admin-income-unified) and
+// `createUsdtIncomeSchema` below — declared once, before its first use.
+export const COMPANY_ACCOUNT_RECEIVER = 'COMPANY_ACCOUNT'
+
+// Shared refine: when receiverId = COMPANY_ACCOUNT_RECEIVER an explicit
+// non-USDT currency is a client bug (the company account is USDT-only). The
+// service also forces USDT server-side; surfacing the contradiction early
+// gives a clear error. task-admin-income-unified: keyed on `receiverId`, the
+// SAME field `createUsdtIncomeSchema` uses (no second "which account" field).
+function refineAdminIncomeCompanyAccountUsdt(
+  data: { receiverId?: string | undefined; currency?: string | undefined },
+  ctx: z.RefinementCtx,
+): void {
+  if (
+    data.receiverId === COMPANY_ACCOUNT_RECEIVER &&
+    // Stryker disable next-line ConditionalExpression: empirically verified (direct console instrumentation of this function, both createAdminIncomeSchema call sites) — Zod v4 never INVOKES this superRefine at all when `currency` itself fails its own `z.enum([...])` validation (confirmed for both an omitted key and an explicit invalid value); it only calls this function once `currency` has already parsed to a real enum member. So whenever this line executes, `data.currency !== undefined` is unconditionally true — not by this guard, but by the field having already been validated upstream. The `string | undefined` parameter type is defensive for the shared-helper shape, not evidence this branch is reachable-as-false here.
+    data.currency !== undefined &&
+    data.currency !== 'USDT'
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'Операция со счёта компании проводится только в USDT',
+      path: ['currency'],
+    })
+  }
+}
+
+// ADMIN_INCOME — admin declares project income for a project they own (or, for
+// ACCOUNTANT, an admin-owned project on that admin's behalf).
+//
+// task-admin-income-unified (2026-08-12). `receiverId` REPLACES the old
+// `fundingSource` toggle — "who gets credited" is now the SAME choice
+// `createUsdtIncomeSchema` already offers (an active ADMIN's uuid, or the
+// COMPANY_ACCOUNT_RECEIVER sentinel for the shared pool), extended to this
+// non-USDT path so one form covers both routes with one receiver concept.
+// Optional → legacy default (service credits the project's admin owner,
+// unchanged behaviour) for callers that do not send it. ACCOUNTANT MAY NOT
+// send an explicit receiverId at all (server rejects — see
+// TransactionsService.createAdminIncome): the accountant has always been a
+// recorder, never a router of funds, and this task does not change that.
 export const createAdminIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
@@ -653,23 +692,32 @@ export const createAdminIncomeSchema = z
       .regex(/^\d{4}-\d{2}-\d{2}$/)
       .optional()
       .nullable(),
-    // Reuse salaryFundingSourceSchema — only COMPANY_ACCOUNT is meaningful here
-    // (ADMIN_PERSONAL is implicit/legacy when absent). Optional → legacy path.
-    fundingSource: salaryFundingSourceSchema.optional(),
+    // Stryker disable next-line ArrayDeclaration: this array literal is evaluated ONCE at module-import time (schema construction), before any test's per-test coverage window opens, so Stryker's vitest-runner falls back to a single whole-suite run for this "static" mutant and reports 0 tests completed. Verified independently outside Stryker's sandbox (plain node, this repo's exact zod@4.3.6): `z.union([])` throws synchronously inside `new ZodUnion` the instant the module is imported — every test file importing anything from finance.ts would fail to even load. Not an equivalent mutant (it is a real, severe regression); real behavioural tests already exist accepting a UUID and the COMPANY_ACCOUNT sentinel for this exact field (createAdminIncomeSchema.spec.ts) — they just cannot register as "covering" a construction-time literal, a tool blind spot for module-scope Zod unions.
+    receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]).optional(),
+    // security-review (PR #522, MED-1): `receiverId` REPLACED `fundingSource` on
+    // this schema, but z.object() defaults to `.strip()` — a legacy client tab
+    // (open before this change deployed) sending the OLD `fundingSource:
+    // 'COMPANY_ACCOUNT'` shape would have that key silently dropped, not
+    // rejected, and fall through to the personal-credit default. That is not
+    // merely "wrong receiver": `settlementConsumesTransfer(..., null)` (the
+    // funding-source-gated branch) returns false for the resulting row, so the
+    // on-chain tx hash never gets claimed in the consumed-hash registry — the
+    // exact double-spend window PR #438 (MED-1) closed reopens. Declaring the
+    // field explicitly as `z.never()` makes Zod REJECT any non-undefined value
+    // instead of stripping it, so a stale client gets a 400, not a silently
+    // mis-routed 201.
+    fundingSource: z.never().optional(),
   })
-  .superRefine(refineCompanyAccountUsdt)
+  .superRefine(refineAdminIncomeCompanyAccountUsdt)
   // task-receipts-backend: receipt MANDATORY. Effective currency = USDT when
-  // funded from the company account (USDT-only) → explorer-only; else the input
+  // routed to the company account (USDT-only) → explorer-only; else the input
   // currency → file/url.
   .superRefine(
-    mandatoryReceiptRefine((d) => (d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : d.currency)),
+    mandatoryReceiptRefine((d) =>
+      d.receiverId === COMPANY_ACCOUNT_RECEIVER ? 'USDT' : d.currency,
+    ),
   )
 export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
-
-// task-drop-share-override-and-receiver (D3). Sentinel value for the "company
-// account" receiver of an admin-declared USDT income — distinguishes crediting
-// the shared USDT pool from crediting a specific ADMIN's personal balance.
-export const COMPANY_ACCOUNT_RECEIVER = 'COMPANY_ACCOUNT'
 
 // task-drop-share-override-and-receiver (D3). Admin-only declaration of USDT
 // project income on a USDT-paymentType project. The gross amount lands on the
