@@ -446,7 +446,47 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # headers suite
+        if self.path == "/site.webmanifest":
+            self.webmanifest_response(host)
+            return
         self.send_body(200, "<html>ok</html>", self.headers_for(host, self.path))
+
+    def webmanifest_response(self, host):
+        """task-infra-webmanifest-mime: the two nginx defects
+        check-security-headers.sh's webmanifest checks exist to catch (see
+        nginx/nginx.conf's `types {}` block + nginx/conf.d/landing.conf's
+        `location = /site.webmanifest`). Default (`--flaw none`) reproduces
+        the FIXED behaviour, so the guard's positive cases
+        (`run_case none ...`) stay green — this fixture would otherwise know
+        nothing about `.webmanifest` at all and fail both new checks
+        unconditionally, which is exactly the gap that made this file's own
+        positive cases go red the first time these checks were added to the
+        guard (they were proven against REAL nginx, not this fixture).
+        `--flaw webmanifest-wrong-type` / `--flaw webmanifest-landing-
+        fallback` reproduce the two PRE-fix production bugs one at a time,
+        so the guard's negative cases have real teeth on this class too —
+        same "both directions" discipline as every other case in this file.
+        """
+        headers = self.headers_for(host, self.path)
+        if host == CRM_HOST:
+            content_type = "application/manifest+json"
+            if ARGS.flaw == "webmanifest-wrong-type":
+                # THE BUG (production, before this fix): nginx's stock
+                # mime.types has no `.webmanifest` entry -> falls through to
+                # `default_type application/octet-stream`.
+                content_type = "application/octet-stream"
+            self.send_body(200, '{"name":"fixture"}', headers, content_type=content_type)
+            return
+        # landing
+        if ARGS.flaw == "webmanifest-landing-fallback":
+            # THE BUG (production, before this fix): landing has no
+            # `<link rel="manifest">` and no `site.webmanifest` file, so the
+            # request fell through the SPA `try_files` fallback and was
+            # served the HOME PAGE — 200 OK, HTML, under a path a client
+            # asked for as JSON.
+            self.send_body(200, "<html>ok</html>", headers)
+            return
+        self.send_body(404, NGINX_ERROR_PAGE.format(code=404, reason="Not Found"), headers)
 
     def handle_expect_100(self):
         """Reject oversized bodies before reading them, exactly like nginx does.

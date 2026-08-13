@@ -91,4 +91,19 @@ assert_red "an unknown CRM_CSP_MODE value is rejected outright, not defaulted" \
   --contains "must be exactly" \
   -- run_bad_mode_value
 
+# ── task-infra-webmanifest-mime ─────────────────────────────────────────────────
+# CRM served /site.webmanifest as application/octet-stream (nginx's stock
+# mime.types has no .webmanifest entry) instead of the spec-required
+# application/manifest+json; landing had no manifest at all and answered a
+# request for it with the SPA fallback's 200 text/html home page instead of an
+# honest 404. Both fixed in nginx/nginx.conf + nginx/conf.d/landing.conf — these
+# two cases prove the GUARD notices a regression of either one.
+assert_red "CRM /site.webmanifest regresses to application/octet-stream -> red" \
+  --contains "application/manifest+json" \
+  -- run_case webmanifest-wrong-type
+
+assert_red "Landing /site.webmanifest falls back to the SPA 200 instead of 404 -> red" \
+  --contains "(want: 404)" \
+  -- run_case webmanifest-landing-fallback
+
 guard_test_summary "test-check-security-headers.sh"
