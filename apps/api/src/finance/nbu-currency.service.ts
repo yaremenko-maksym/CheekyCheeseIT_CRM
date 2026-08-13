@@ -24,6 +24,27 @@ export interface ExchangeRateResult {
    *  Current callers (transactions.service ~:1958 etc.) do not block on stale —
    *  acceptable pre-conversion since rates only affect display, not ledger entries. */
   stale?: boolean
+  /**
+   * task-drop-payout-currency (owner addendum, 2026-08): the date the
+   * returned rates ACTUALLY came from, when known — distinct from `date`
+   * (which always echoes the REQUESTED date, even on a fallback, so
+   * existing consumers that assume `date === requested` keep working
+   * unchanged). Set only when we have a real, dated source for the numbers:
+   *   - exact match → rateDate === date (the request was honoured as-is).
+   *   - previous-day fallback (a holiday/weekend gap with no same-day
+   *     publication) → rateDate is the PRECEDING day the data actually came
+   *     from — see `getRates`.
+   * Left `undefined` when we genuinely do not know (the last-known-good
+   * cache or the hardcoded constant — could be minutes or weeks old, no
+   * specific date to attach). A caller that needs to distinguish "a
+   * graceful, dated fallback" from "a genuine feed outage" (see
+   * `PendingSettlementService`'s DROP settle date-of-record resolution)
+   * checks `rateDate !== undefined`, not `stale` alone, for exactly that
+   * reason — a historical date's rate, once actually obtained, is
+   * exact/final, not "stale" in the sense that matters for refusing a
+   * payout.
+   */
+  rateDate?: string
 }
 
 /** NBU fetch timeout — 10 seconds (AbortController guard, AC3). */
@@ -54,6 +75,13 @@ export class NbuCurrencyService {
   /**
    * Fetch NBU exchange rates for a specific date (YYYYMMDD) or today.
    *
+   * task-drop-payout-currency (owner addendum, 2026-08): `date` is no longer
+   * always "today" — a DROP settle now passes the operator-selected date, so
+   * this resolves the rate AS OF an arbitrary past date, not just the
+   * current one. The two-attempt shape below (exact date, then the day
+   * before) already reads correctly either way — "today" was always just
+   * the caller's default, never special-cased internally.
+   *
    * AC3 resilience:
    *   - AbortController timeout (10 s) on every fetch call.
    *   - 200-OK with empty body (empty JSON array) triggers stale fallback + log.
@@ -64,12 +92,26 @@ export class NbuCurrencyService {
    */
   async getRates(date?: string): Promise<ExchangeRateResult> {
     const dateStr = date ?? this.todayStr()
+    // security-review PR #521 round 3 (MED): `lastKnownGood` backs EVERY
+    // other consumer's outage fallback (balances, summaries — anything that
+    // calls `getRates()` with no date at all). It must only ever hold a
+    // rate for "now" — before the date-of-record feature, every call HERE
+    // was implicitly for today, so this was never a live distinction.
+    // Today, a HISTORICAL request (a DROP settle dated last March, or the
+    // dialog's own preview fetch for that same date) can legitimately
+    // succeed against NBU — and if that success were cached, it would
+    // silently overwrite the shared "current" rate with a months-old one,
+    // which then gets handed to every OTHER caller the next time the LIVE
+    // feed genuinely goes down. Gate cache writes on the ORIGINALLY
+    // REQUESTED date being today's — never on which attempt (exact-date or
+    // prev-day fallback) happened to succeed.
+    const isLiveRequest = dateStr === this.todayStr()
     const url = `https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?date=${dateStr}&json`
 
     // Attempt 1: today's date
     const attempt1 = await this.fetchRates(url)
     if (attempt1 !== null && attempt1.length > 0) {
-      return this.buildResult(attempt1, dateStr, false)
+      return this.buildResult(attempt1, dateStr, { stale: false, allowCacheUpdate: isLiveRequest })
     }
 
     // Attempt 1 returned empty data or failed
@@ -88,10 +130,17 @@ export class NbuCurrencyService {
       this.logger.warn(
         `NBU API unavailable for ${dateStr}, using previous-day rates (${prev}) — stale=true`,
       )
-      // MED fix: cache prev-day result so a subsequent API failure can use
-      // lastKnownGood instead of making 2 more HTTP calls then falling to hardcoded.
-      // buildResult with stale=true skips the cache update, so we update it here.
-      const prevResult = this.buildResult(attempt2, prev, false) // cache as fresh prev-day
+      // MED fix (round 1): cache prev-day result so a subsequent API failure
+      // can use lastKnownGood instead of making 2 more HTTP calls then
+      // falling to hardcoded — but ONLY when the ORIGINAL request was for
+      // today (see isLiveRequest above); a historical request's prev-day
+      // fallback is just as unfit to cache as its exact-date match would
+      // have been. buildResult with stale=true skips the cache update, so
+      // we update it here.
+      const prevResult = this.buildResult(attempt2, prev, {
+        stale: false, // cache as fresh prev-day
+        allowCacheUpdate: isLiveRequest, // live requests only
+      })
       void prevResult // side-effect: updates this.lastKnownGood
       return { ...prevResult, date: dateStr, stale: true }
     }
@@ -133,8 +182,30 @@ export class NbuCurrencyService {
   /**
    * Build a successful ExchangeRateResult from NBU rate rows and update the
    * last-known-good cache.
+   *
+   * A named-options object, not two trailing booleans — security-review PR
+   * #521 round 4 (non-blocking): two adjacent `boolean` positional params
+   * is exactly the shape a future caller mixes up the order of, silently
+   * (both are valid booleans, so a swap type-checks and only misbehaves at
+   * runtime). Each field is documented at its own name instead.
+   *
+   * @param options.stale marks the WHOLE result stale from the caller's own
+   *   knowledge (e.g. the prev-day fallback path in `getRates` — the exact
+   *   requested date had no data). `buildResult` may ALSO derive
+   *   `stale: true` itself (missing USD/EUR rows) regardless of this input.
+   * @param options.allowCacheUpdate security-review PR #521 round 3 (MED) —
+   *   only `true` when the date this call actually fetched traces back to a
+   *   TODAY request (see `isLiveRequest` in `getRates`). A historical-date
+   *   fetch (the date-of-record feature) must never overwrite the shared
+   *   last-known-good cache that every OTHER `getRates()` caller relies on
+   *   during a genuine live-feed outage.
    */
-  private buildResult(rates: NbuRateResponse[], date: string, stale: boolean): ExchangeRateResult {
+  private buildResult(
+    rates: NbuRateResponse[],
+    date: string,
+    options: { stale: boolean; allowCacheUpdate: boolean },
+  ): ExchangeRateResult {
+    const { stale, allowCacheUpdate } = options
     // Missing currency rows: keep last-known-good value or use hardcoded constant.
     const usd = rates.find((r) => r.cc === 'USD')?.rate
     const eur = rates.find((r) => r.cc === 'EUR')?.rate
@@ -151,10 +222,19 @@ export class NbuCurrencyService {
       eurUah: eurVal.toFixed(4),
       date,
       stale: effectiveStale,
+      // `date` here is the date THIS call actually fetched (either the
+      // originally-requested date on the exact-match path, or the prior
+      // business day on the fallback path — see getRates). Only claim it as
+      // the real source when nothing was degraded/substituted. Omitted
+      // entirely (not set to `undefined`) — `exactOptionalPropertyTypes`
+      // distinguishes "absent" from "present but undefined".
+      ...(effectiveStale ? {} : { rateDate: date }),
     }
 
-    // Cache the good result for future fallback (only when not stale and sanity passes)
-    if (!effectiveStale) {
+    // Cache the good result for future fallback (only when not stale, sanity
+    // passes, AND — round 3, MED — the request this call is answering was
+    // for TODAY; see the `allowCacheUpdate` doc comment above).
+    if (!effectiveStale && allowCacheUpdate) {
       const usdNum = parseFloat(result.usdUah)
       const eurNum = parseFloat(result.eurUah)
       // MED: sanity-check — defence against corrupt API responses with 0 or Inf rates

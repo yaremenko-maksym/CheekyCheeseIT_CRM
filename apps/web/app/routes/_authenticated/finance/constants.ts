@@ -123,7 +123,19 @@ export function fmtAmount(amount: string | number, currency: string) {
   return formatAmount(amount, currency)
 }
 
-export type ExchangeRates = { usdUah: string; usdtUah: string; eurUah: string; date: string }
+export type ExchangeRates = {
+  usdUah: string
+  usdtUah: string
+  eurUah: string
+  date: string
+  // task-drop-payout-currency (owner addendum, 2026-08): the date the
+  // numbers ACTUALLY came from, when known — see the extended comment on
+  // `ExchangeRateResult.rateDate` in nbu-currency.service.ts. Optional and
+  // unused by every function in this file — added so a caller (the DROP
+  // settle dialog) can show "курс за <rateDate>" when it differs from the
+  // date it asked for, without a second, shadow copy of this type.
+  rateDate?: string
+}
 
 export function toUsd(amount: string | number, currency: string, rates: ExchangeRates): number {
   const n = typeof amount === 'string' ? parseFloat(amount) : amount
@@ -215,6 +227,17 @@ export function fmtRate(currency: string, rates: ExchangeRates | undefined): str
     return `1 USD = ${parseFloat(rates.usdUah).toFixed(2)} UAH`
   }
   return null
+}
+
+/**
+ * task-drop-payout-currency (owner addendum, 2026-08): the NBU API's own date
+ * shape ("YYYYMMDD", no separators — see nbu-currency.service.ts) formatted
+ * the same human-readable way as `fmtDate`. Used to show the operator WHICH
+ * day's rate was actually applied (`ExchangeRates.rateDate`) when it differs
+ * from the requested date (a holiday/weekend fallback).
+ */
+export function fmtYyyymmdd(yyyymmdd: string) {
+  return fmtDate(`${yyyymmdd.slice(0, 4)}-${yyyymmdd.slice(4, 6)}-${yyyymmdd.slice(6, 8)}`)
 }
 
 export function fmtDate(iso: string) {

@@ -366,6 +366,74 @@ describe('settleSeniorPayoutSchema — effective currency (COMPANY_ACCOUNT → U
   })
 })
 
+// task-drop-payout-currency (owner addendum, 2026-08): `txDate` — the
+// operator-selected settle date. The schema enforces the ONE bound it can
+// (no future dates, against server "today"); the LOWER bound (not before
+// the obligation existed) needs the obligation row and is enforced in
+// pending-settlement.service.ts (covered there).
+describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => {
+  const base = { fundingSource: 'ADMIN_PERSONAL' as const, receiptExternalUrl: EXPLORER_URL }
+
+  it('accepts a past date', () => {
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: '2026-01-01' }).success).toBe(true)
+  })
+
+  it('accepts today', () => {
+    const today = new Date().toISOString().slice(0, 10)
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: today }).success).toBe(true)
+  })
+
+  it('rejects a future date, on the txDate field, with a russian "future" message', () => {
+    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    const result = settleSeniorPayoutSchema.safeParse({ ...base, txDate: tomorrow })
+    expect(result.success).toBe(false)
+    if (result.success) return
+    // Precise issue shape — not just success:false — so a mutant that
+    // still adds SOME issue (e.g. via a malformed addIssue call) but with
+    // the WRONG path/message is caught too.
+    const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
+    expect(issue).toBeTruthy()
+    expect(issue?.message).toMatch(/будущем/)
+    expect(issue?.code).toBe('custom')
+  })
+
+  it('rejects a malformed (non-digit) date string, with the regex-format message', () => {
+    const result = settleSeniorPayoutSchema.safeParse({ ...base, txDate: '01/01/2026' })
+    expect(result.success).toBe(false)
+    if (result.success) return
+    const issue = result.error.issues.find((i) => i.path.join('.') === 'txDate')
+    expect(issue?.message).toBe('Дата должна быть в формате YYYY-MM-DD')
+  })
+
+  // Regex anchor coverage — a bare `\d{4}-\d{2}-\d{2}` (no `^`/`$`) would
+  // accept these via a substring match; the schema must not.
+  it('rejects a date string with trailing junk (missing $ anchor)', () => {
+    expect(
+      settleSeniorPayoutSchema.safeParse({ ...base, txDate: '2026-01-01-extra' }).success,
+    ).toBe(false)
+  })
+
+  it('rejects a date string with leading junk (missing ^ anchor)', () => {
+    // NOT an 'x' (or any char with a HIGHER code point than a digit) prefix
+    // — that would make the whole string sort ABOVE any real date and get
+    // rejected by the SEPARATE future-date check regardless of what the
+    // regex itself does, masking the anchor. '!' (0x21) sorts BELOW every
+    // digit, so the malformed string is provably "not in the future" and
+    // only the regex can be the reason this is rejected.
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: '!2026-01-01' }).success).toBe(
+      false,
+    )
+  })
+
+  it('omitted txDate is valid — every pre-existing caller keeps working', () => {
+    expect(settleSeniorPayoutSchema.safeParse(base).success).toBe(true)
+  })
+
+  it('null txDate is valid (nullable, mirrors the other txDate fields in this module)', () => {
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: null }).success).toBe(true)
+  })
+})
+
 // ── attachReceiptSchema (attach/replace body) ────────────────────────────────
 
 describe('attachReceiptSchema', () => {

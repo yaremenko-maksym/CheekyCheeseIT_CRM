@@ -83,30 +83,11 @@ import { MONEY_SCALE, roundShareAmount } from '@crm/shared'
 // above, not a second implementation.
 export { roundShareAmount }
 import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
-
-/**
- * task-salary-pay-amount — bounds of `transactions.exchange_rate`
- * (`numeric(18,8)`): 10 integer digits and 8 fractional ones.
- *
- * security-review PR #485 (related to MED-1). The rate is DERIVED
- * (`paid / original`), so an extreme pair of amounts can produce a value the
- * column cannot hold:
- *   - at or above 1e10 Postgres raises a raw «numeric field overflow» — which
- *     failed CLOSED (the pay transaction rolled back, the row stayed PENDING)
- *     but told the user nothing;
- *   - below 1e-8 there is no error at all, which is worse: the value is
- *     silently stored as `0.00000000`, so the row claims a rate of ZERO when
- *     the real one was merely tiny.
- * Neither is written. The caller stores NULL instead — see the reasoning at the
- * call site in `paySalary` for why a derived field's width must not veto a
- * payment whose amounts are both storable.
- */
-const EXCHANGE_RATE_MAX_EXCLUSIVE = 1e10
-const EXCHANGE_RATE_MIN = 1e-8
-
-function isStorableExchangeRate(rate: number): boolean {
-  return Number.isFinite(rate) && rate >= EXCHANGE_RATE_MIN && rate < EXCHANGE_RATE_MAX_EXCLUSIVE
-}
+// task-drop-payout-currency: extracted to a shared util (was a private
+// function here) so pending-settlement.service.ts can apply the SAME
+// exchange-rate storability rule when settling a DROP obligation in a
+// non-obligation currency — see exchange-rate.util.ts for the full rationale.
+import { isStorableExchangeRate } from './exchange-rate.util'
 
 // Phase 8 v2 — payout → company wallet. Marker persisted in
 // transactions.fundingSource on a PAYOUT row whose money landed on the company
@@ -1165,6 +1146,20 @@ export class TransactionsService {
 
     // Audit 2026-06-28 (#4): convert each amount to base (USD) BEFORE scaling so a
     // mixed-currency drop ledger sums coherently. USD/USDT → byte-exact identity.
+    //
+    // security-review PR #521 round 3 (MED-B): a DROP settle's `amount` is
+    // ALWAYS re-converted at the CURRENT rate on every read here — uniformly
+    // with every other reader (`getTotalEarned`, `adminBalances.sent` in this
+    // same file). An earlier revision pinned a currency-converted settle to
+    // its booked `original_amount`/`original_currency` snapshot (USDT) so an
+    // already-closed obligation would not drift as NBU rates moved. Per the
+    // owner's explicit decision ("везде по сегодняшнему курсу"), that pinning
+    // is reverted: the SAME transaction must read as the SAME number
+    // everywhere in the app, and every OTHER balance reader already
+    // reconverts at today's rate — pinning only this one path made it the
+    // odd one out, not the correct one. `original_amount`/`original_currency`
+    // stay on the schema as a fact record of what was actually paid (see
+    // settleByCompany) — just no longer consulted by aggregation.
     const baseAmount = (tx: { amount: string; currency?: string }): number =>
       rates
         ? convertToBase(

@@ -511,8 +511,23 @@ export class FinanceSummaryController {
   }
 
   // ?date=YYYYMMDD — optional, defaults to today
+  //
+  // security-review PR #521 round 3 (LOW-1): the handle existed before this
+  // task, but only server-side callers (always a clean, internally-computed
+  // date) ever exercised it. The date-of-record feature is the FIRST thing
+  // that puts a client-suppliable value on this path (both the settle
+  // dialog's own preview fetch and — indirectly — whatever `?date=` a
+  // caller of THIS route sends). Not SSRF (the NBU host is hardcoded), but
+  // a malformed value still reaches the upstream URL unvalidated, and a
+  // malformed/mistargeted request produces the exact same
+  // cache-poisoning-shaped risk the MED fix above closes for the trusted
+  // internal path — cheaper to reject the shape here than to reason about
+  // every downstream consequence of an arbitrary string.
   @Get('exchange-rate')
   getExchangeRate(@Query('date') date: string | undefined) {
+    if (date !== undefined && !/^\d{8}$/.test(date)) {
+      throw new BadRequestException('date должен быть в формате YYYYMMDD')
+    }
     return this.nbu.getRates(date)
   }
 }

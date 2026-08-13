@@ -87,6 +87,9 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     expect(parseFloat(result.usdUah)).toBeCloseTo(41.2, 4)
     expect(parseFloat(result.eurUah)).toBeCloseTo(44.5, 4)
     expect(result.stale).toBe(false)
+    // owner addendum (2026-08): an exact-match, non-stale fetch is a REAL
+    // dated source — rateDate equals the (requested) date, not omitted.
+    expect(result.rateDate).toBe(result.date)
   })
 
   it('AC3: 200-OK with empty body → stale=true + error/warn logged', async () => {
@@ -169,7 +172,111 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     // Logging required
     const logged = loggerErrorSpy.mock.calls.length > 0 || loggerWarnSpy.mock.calls.length > 0
     expect(logged).toBe(true)
+    // owner addendum (2026-08): a genuine outage (cache/hardcoded, no real
+    // dated source at all) never claims a rateDate — this is exactly the
+    // signal `PendingSettlementService`'s date-of-record resolution uses to
+    // distinguish "refuse" from "accept a graceful, dated fallback".
+    expect(result.rateDate).toBeUndefined()
   })
+  // security-review PR #521 round 3 (MED): `lastKnownGood` backs EVERY
+  // OTHER `getRates()` caller's outage fallback (balances, summaries — any
+  // no-date call). Before the date-of-record feature, every call here was
+  // implicitly "today", so a cache write was always safe. Now a HISTORICAL
+  // request (a DROP settle dated last March, or the dialog's own preview
+  // fetch for that date) can legitimately succeed against NBU — caching
+  // that would silently overwrite the shared "current" rate with a
+  // months-old one, handed to every OTHER caller on the next genuine outage.
+  it('MED (round 3): a HISTORICAL date request does NOT poison the shared cache — a later "today" outage still serves the last GENUINE today rate, not the historical one', async () => {
+    // Establish a known-good "today" cache entry first.
+    mockNbuResponse([
+      { cc: 'USD', rate: 41.5 },
+      { cc: 'EUR', rate: 44.8 },
+    ])
+    const todayResult = await svc.getRates()
+    expect(todayResult.stale).toBe(false)
+    expect(parseFloat(todayResult.usdUah)).toBeCloseTo(41.5, 4)
+
+    // A HISTORICAL request succeeds with WILDLY different rates (e.g. March).
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve([
+          { r030: 0, txt: 'USD', rate: 38.0, cc: 'USD', exchangedate: '01.03.2026' },
+          { r030: 0, txt: 'EUR', rate: 41.0, cc: 'EUR', exchangedate: '01.03.2026' },
+        ]),
+    })
+    const historicalResult = await svc.getRates('20260301')
+    // The historical request itself is answered correctly …
+    expect(historicalResult.stale).toBe(false)
+    expect(parseFloat(historicalResult.usdUah)).toBeCloseTo(38.0, 4)
+
+    // … but a SUBSEQUENT total-outage "today" call must NOT see 38.0 — the
+    // cache must still hold the ORIGINAL today rate (41.5), proving the
+    // historical fetch above never touched `lastKnownGood`.
+    mockNbuNetworkError()
+    const fallbackResult = await svc.getRates()
+    expect(fallbackResult.stale).toBe(true)
+    expect(parseFloat(fallbackResult.usdUah)).toBeCloseTo(41.5, 4)
+  })
+
+  it('MED (round 3): a "today" request DOES refresh the shared cache (contrast case)', async () => {
+    mockNbuResponse([
+      { cc: 'USD', rate: 41.5 },
+      { cc: 'EUR', rate: 44.8 },
+    ])
+    await svc.getRates()
+
+    // A NEW "today" fetch with updated rates …
+    mockNbuResponse([
+      { cc: 'USD', rate: 43.0 },
+      { cc: 'EUR', rate: 46.0 },
+    ])
+    const refreshed = await svc.getRates()
+    expect(parseFloat(refreshed.usdUah)).toBeCloseTo(43.0, 4)
+
+    // … DOES propagate into the cache the outage fallback serves.
+    mockNbuNetworkError()
+    const fallbackResult = await svc.getRates()
+    expect(fallbackResult.stale).toBe(true)
+    expect(parseFloat(fallbackResult.usdUah)).toBeCloseTo(43.0, 4)
+  })
+
+  // A historical request whose EXACT date is unavailable still falls back
+  // to the day before it (both historical) — that prev-day success must
+  // ALSO stay out of the shared cache, not just the exact-date path.
+  it('MED (round 3): a historical prev-day FALLBACK also does not poison the shared cache', async () => {
+    mockNbuResponse([
+      { cc: 'USD', rate: 41.5 },
+      { cc: 'EUR', rate: 44.8 },
+    ])
+    await svc.getRates() // seed the cache with a genuine today rate
+
+    let callCount = 0
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+      callCount++
+      // Historical exact-date request: empty (holiday) → falls back to the
+      // day before, which succeeds with a DIFFERENT historical rate.
+      const body =
+        callCount === 1
+          ? []
+          : [
+              { r030: 0, txt: 'USD', rate: 37.0, cc: 'USD', exchangedate: '28.02.2026' },
+              { r030: 0, txt: 'EUR', rate: 40.0, cc: 'EUR', exchangedate: '28.02.2026' },
+            ]
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
+    })
+    const historicalResult = await svc.getRates('20260301')
+    expect(historicalResult.stale).toBe(true) // prev-day fallback is marked stale
+    expect(parseFloat(historicalResult.usdUah)).toBeCloseTo(37.0, 4)
+
+    mockNbuNetworkError()
+    const fallbackResult = await svc.getRates()
+    expect(parseFloat(fallbackResult.usdUah)).toBeCloseTo(41.5, 4) // still the ORIGINAL today rate
+  })
+
   it('MED: prev-day fallback result is cached — next failure uses cache not hardcoded', async () => {
     // Call 1: today fails (empty), prev-day succeeds with known rates.
     // Verifies that the prev-day success is stored in lastKnownGood so a
@@ -195,6 +302,12 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     const r1 = await svc.getRates()
     expect(r1.stale).toBe(true) // prev-day result = stale
     expect(parseFloat(r1.usdUah)).toBeCloseTo(38.5, 4)
+    // owner addendum (2026-08): a prev-day fallback IS a real, dated source
+    // (just not the exact requested day) — rateDate is set, and differs
+    // from `date` (which still echoes the ORIGINALLY REQUESTED day, for
+    // backward compat with every consumer that assumes date===requested).
+    expect(r1.rateDate).toBeDefined()
+    expect(r1.rateDate).not.toBe(r1.date)
 
     // Call 2: total network failure — must return cached 38.5, NOT hardcoded 41.5
     mockNbuNetworkError()
@@ -202,6 +315,9 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     expect(r2.stale).toBe(true)
     expect(parseFloat(r2.usdUah)).toBeCloseTo(38.5, 4)
     expect(parseFloat(r2.eurUah)).toBeCloseTo(42.0, 4)
+    // A cache-served result has no dated source either — same "genuine
+    // outage" signal as the hardcoded-fallback case above.
+    expect(r2.rateDate).toBeUndefined()
   })
 })
 

@@ -223,7 +223,8 @@ class TestDatabaseModule {}
     },
     {
       provide: PendingSettlementService,
-      useFactory: (db: DatabaseService) => new PendingSettlementService(db, stubInvoices as never),
+      useFactory: (db: DatabaseService) =>
+        new PendingSettlementService(db, stubInvoices as never, fakeNbu as NbuCurrencyService),
       inject: [DatabaseService],
     },
   ],

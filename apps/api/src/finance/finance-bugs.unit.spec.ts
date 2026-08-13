@@ -50,8 +50,12 @@ const fakeNbu = {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Build a PendingSettlementService with a mocked db that has one PENDING
- * COMPANY-debt obligation denominated in USDT. */
-function makeSettlementService(overrides: Record<string, unknown> = {}) {
+ * COMPANY-debt obligation denominated in USDT (or `obligationCurrency`, for
+ * the corrupted/legacy-data defense-in-depth test below). */
+function makeSettlementService(
+  overrides: Record<string, unknown> = {},
+  obligationCurrency = 'USDT',
+) {
   // We mock at the service level because PendingSettlementService has many
   // private helpers. The cleanest approach is to spy on the public method.
   const obligationRow = {
@@ -62,7 +66,7 @@ function makeSettlementService(overrides: Record<string, unknown> = {}) {
     sourceTransactionId: SOURCE_TX_ID,
     closingTransactionId: null as string | null,
     amount: '1000.000000',
-    currency: 'USDT',
+    currency: obligationCurrency,
     status: 'PENDING' as const,
     createdAt: new Date('2026-07-03'),
     updatedAt: new Date('2026-07-03'),
@@ -134,7 +138,7 @@ function makeSettlementService(overrides: Record<string, unknown> = {}) {
     autoCreateForSalary: vi.fn().mockResolvedValue(undefined),
   } as unknown as InvoicesService
 
-  const svc = new PendingSettlementService(db, stubInvoices as InvoicesService)
+  const svc = new PendingSettlementService(db, stubInvoices as InvoicesService, fakeNbu)
   return { svc, db }
 }
 
@@ -210,6 +214,35 @@ describe('AC2 — BIZ-03: settleByCompany ADMIN_PERSONAL currency guard (USD/USD
         receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
       }),
     ).resolves.toBeDefined()
+  })
+
+  // task-drop-payout-currency (mutation-gate): the SAME guard re-asserted
+  // against the FULLY-RESOLVED currency (the "SECURITY (defense-in-depth …)"
+  // comment in pending-settlement.service.ts, right above the second
+  // `assertSettleCurrencyAllowed` call) is the ONLY thing standing between a
+  // corrupted/legacy obligation currency and a silent BIZ-03 bypass — the
+  // per-call re-validation a few lines above never even runs on THIS path
+  // (no `funding.currency` is supplied at all). A genuinely non-USDT
+  // `obligation.currency` (a pre-Phase-4 legacy row, or data corruption) with
+  // an omitted currency must still be rejected.
+  it('AC2-f: a corrupted/legacy obligation.currency (EUR) with NO explicit currency → still BadRequest (defense-in-depth catches it, not the per-call guard)', async () => {
+    const { svc } = makeSettlementService({}, 'EUR')
+    // A valid (file) receipt is supplied so that, if the currency guard were
+    // bypassed, the call would otherwise SUCCEED — without this, a missing
+    // receipt would ALSO throw BadRequestException for an unrelated reason
+    // and the assertion below would pass regardless of whether the currency
+    // guard fired at all (a mutation-gate finding: the ORIGINAL version of
+    // this test omitted the receipt and could not actually distinguish the
+    // two).
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, adminUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_ID,
+        receiptExternalUrl: 'https://drive.google.com/file/corrupted-currency-spec',
+        // No `currency` field — the bug this guards would default `currency`
+        // straight to the corrupted `obligation.currency` (EUR) unvalidated.
+      }),
+    ).rejects.toThrow(/не поддерживается без конверсии/)
   })
 })
 
