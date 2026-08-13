@@ -67,6 +67,8 @@ type IncomeRow = {
   txHash?: string | null
   createdAt: Date
   project?: { companyName: string } | null
+  // task-drop-sees-own-obligations (security-review PR #523 round 1, MED-4).
+  companyNameSnapshot?: string | null
 }
 
 /** TransactionsService whose `transactions.findMany` returns the supplied rows. */
@@ -251,6 +253,11 @@ describe('getDropSelfIncomes — companyName resolution', () => {
 // IOU (DROP_PENDING_PAYOUT, later settled IN PLACE to PAYOUT_DROP). Same
 // factory shape as `income()` but `senderLabel` is always the literal
 // 'COMPANY' marker `bookCompanyObligations` stamps — never a real company name.
+// `companyNameSnapshot` defaults to matching `project.companyName` — the
+// NORMAL post-migration shape every row `bookCompanyObligations` books now
+// carries (security-review PR #523 round 1, MED-4). Tests that need the
+// LEGACY pre-migration shape (no snapshot yet) pass `companyNameSnapshot: null`
+// explicitly.
 function obligationRow(overrides: Partial<IncomeRow> = {}): IncomeRow {
   return {
     id: '00000000-0000-4000-8000-000000000002',
@@ -262,6 +269,7 @@ function obligationRow(overrides: Partial<IncomeRow> = {}): IncomeRow {
     receiverId: DROP_ID,
     createdAt: new Date('2026-08-12T09:00:00.000Z'),
     project: { companyName: 'GamingTec' },
+    companyNameSnapshot: 'GamingTec',
     ...overrides,
   }
 }
@@ -329,16 +337,41 @@ describe('getDropSelfIncomes — obligation status mapping', () => {
     expect(res.items[0]!.status).not.toBe('validated')
   })
 
-  it("companyName uses project.companyName, NEVER the 'COMPANY' senderLabel marker", async () => {
+  it("companyName NEVER uses the 'COMPANY' senderLabel marker", async () => {
     const svc = makeSvc([
-      obligationRow({ senderLabel: 'COMPANY', project: { companyName: 'GamingTec' } }),
+      obligationRow({ senderLabel: 'COMPANY', companyNameSnapshot: 'GamingTec' }),
     ])
     const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).not.toBe('COMPANY')
     expect(res.items[0]!.companyName).toBe('GamingTec')
   })
 
-  it("companyName falls back to '' when the project link is gone", async () => {
-    const svc = makeSvc([obligationRow({ project: null })])
+  // task-drop-sees-own-obligations (security-review PR #523 round 1, MED-4):
+  // companyNameSnapshot is frozen at booking time — a LATER project rename
+  // must never rewrite what a drop reads as the history of money already
+  // booked under the old name. Simulates exactly that: the snapshot and the
+  // (renamed) live project disagree, and the snapshot must win.
+  it('companyName uses the FROZEN companyNameSnapshot, not the live (renamed) project name', async () => {
+    const svc = makeSvc([
+      obligationRow({
+        companyNameSnapshot: 'GamingTec (old name)',
+        project: { companyName: 'GamingTec Rebrand LLC' },
+      }),
+    ])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).toBe('GamingTec (old name)')
+  })
+
+  it('companyName falls back to the live project join when companyNameSnapshot is NULL (legacy pre-migration row)', async () => {
+    const svc = makeSvc([
+      obligationRow({ companyNameSnapshot: null, project: { companyName: 'LegacyRowCo' } }),
+    ])
+    const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
+    expect(res.items[0]!.companyName).toBe('LegacyRowCo')
+  })
+
+  it("companyName falls back to '' when BOTH the snapshot and the project link are gone", async () => {
+    const svc = makeSvc([obligationRow({ companyNameSnapshot: null, project: null })])
     const res = await svc.getDropSelfIncomes(user('DROP', DROP_ID), q())
     expect(res.items[0]!.companyName).toBe('')
   })

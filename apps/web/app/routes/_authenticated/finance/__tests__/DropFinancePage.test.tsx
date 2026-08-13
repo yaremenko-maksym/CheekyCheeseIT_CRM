@@ -158,3 +158,64 @@ describe('DropFinancePage — incomes table model discriminator (§AC3)', () => 
     expect(screen.getByText('Приходов пока нет')).toBeInTheDocument()
   })
 })
+
+// task-drop-sees-own-obligations (security-review PR #523 round 1, MED-5):
+// `amount` means a DIFFERENT kind of number per model — a declared row's
+// amount is the GROSS client payment; an obligation row's amount is already
+// the drop's NET share. Both render under one "Сумма" column, so each row
+// must label which kind of amount it is showing.
+describe('DropFinancePage — amount-kind clarity (§MED-5)', () => {
+  it('a declared row labels its amount «Валовый приход» (gross)', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [makeIncome({ id: 'declared-1', model: 'declared', amount: 5000 })],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByTestId('drop-income-amount-kind-declared-1')).toHaveTextContent(
+      'Валовый приход',
+    )
+  })
+
+  it('an obligation row labels its amount «Ваша доля» (net share), never «Валовый приход»', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [makeIncome({ id: 'obligation-1', model: 'obligation', amount: 40.02 })],
+        total: 1,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    const label = screen.getByTestId('drop-income-amount-kind-obligation-1')
+    expect(label).toHaveTextContent('Ваша доля')
+    expect(label).not.toHaveTextContent('Валовый приход')
+  })
+
+  it('a $5,000 gross row and a $40 share row never read as directly comparable amounts', () => {
+    useDropIncomesMock.mockReturnValue({
+      data: {
+        items: [
+          makeIncome({ id: 'declared-1', model: 'declared', amount: 5000 }),
+          makeIncome({ id: 'obligation-1', model: 'obligation', amount: 40.02 }),
+        ],
+        total: 2,
+        page: 1,
+        limit: 20,
+      },
+      isLoading: false,
+    })
+    renderPage()
+    expect(screen.getByTestId('drop-income-amount-kind-declared-1')).toHaveTextContent(
+      'Валовый приход',
+    )
+    expect(screen.getByTestId('drop-income-amount-kind-obligation-1')).toHaveTextContent(
+      'Ваша доля',
+    )
+  })
+})

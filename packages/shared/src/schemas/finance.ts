@@ -1660,13 +1660,17 @@ export type PaginatedDropIncomes = z.infer<typeof paginatedDropIncomesSchema>
 // page/limit drive pagination (defaults 1 / 20).
 export const dropIncomesQuerySchema = z.object({
   status: dropIncomeStatusSchema.optional(),
-  // task-drop-sees-own-obligations: the feed now ALSO returns DROP_PENDING_PAYOUT
-  // / PAYOUT_DROP rows (see dropIncomeDtoSchema's `model`), but `type` is still
-  // not consulted in the WHERE clause — the mapped `status` filter is the
-  // established narrowing knob for the FE table. Kept as an explicit (unused)
-  // filter field for forward-compatibility. LOW review finding — intentionally
-  // NOT removed.
-  type: z.literal('DROP_INCOME').optional(),
+  // task-drop-sees-own-obligations (security-review PR #523 round 1, LOW):
+  // widened from `z.literal('DROP_INCOME')` — that literal became misleading
+  // the moment the feed started returning DROP_PENDING_PAYOUT/PAYOUT_DROP
+  // rows too (see dropIncomeDtoSchema's `model`); a caller reading this type
+  // would have concluded the feed still carries one type only. `type` is
+  // still not consulted in the WHERE clause — the mapped `status` filter
+  // (+ the DTO's `model`) is the established narrowing knob for the FE
+  // table — kept as an explicit (unused) filter field for forward-
+  // compatibility, now accurately describing the three types the feed can
+  // actually return instead of only the oldest one.
+  type: z.enum(['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP']).optional(),
   from: z.string().optional(),
   to: z.string().optional(),
   page: z.coerce.number().int().positive().optional().default(1),

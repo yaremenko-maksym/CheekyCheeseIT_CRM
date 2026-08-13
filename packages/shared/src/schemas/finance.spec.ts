@@ -331,8 +331,14 @@ describe('dropIncomesQuerySchema', () => {
     expect(() => dropIncomesQuerySchema.parse({ limit: '500' })).toThrow()
   })
 
-  it('only accepts DROP_INCOME for type', () => {
-    expect(dropIncomesQuerySchema.parse({ type: 'DROP_INCOME' }).type).toBe('DROP_INCOME')
+  // task-drop-sees-own-obligations (security-review PR #523 round 1, LOW):
+  // widened from a single DROP_INCOME literal to the three types the feed
+  // can now actually return (declared + both obligation-lifecycle types).
+  it.each(['DROP_INCOME', 'DROP_PENDING_PAYOUT', 'PAYOUT_DROP'])('accepts %s for type', (type) => {
+    expect(dropIncomesQuerySchema.parse({ type }).type).toBe(type)
+  })
+
+  it('rejects a type outside the drop-income model (another role income type)', () => {
     expect(() => dropIncomesQuerySchema.parse({ type: 'SENIOR_INCOME' })).toThrow()
   })
 })

@@ -293,6 +293,21 @@ function DropIncomesTable() {
                     <TableCell className="text-sm">{income.companyName}</TableCell>
                     <TableCell className="text-sm font-semibold tabular-nums">
                       {fmtUsd(income.amount)}
+                      {/* task-drop-sees-own-obligations (security-review PR #523
+                          round 1, MED-5): `amount` means TWO DIFFERENT things
+                          depending on `model` — a declared row's amount is the
+                          GROSS client payment (before the drop's share is split
+                          out); an obligation row's amount is already the drop's
+                          NET SHARE the company calculated and booked. Showing
+                          both under one "Сумма" header without this label would
+                          let a drop compare a $5,000 gross row against a $40
+                          share row as if they were the same kind of number. */}
+                      <span
+                        className="block text-[10px] font-normal text-muted-foreground"
+                        data-testid={`drop-income-amount-kind-${income.id}`}
+                      >
+                        {income.model === 'declared' ? 'Валовый приход' : 'Ваша доля'}
+                      </span>
                     </TableCell>
                     <TableCell>
                       <IncomeModelBadge model={income.model} />
