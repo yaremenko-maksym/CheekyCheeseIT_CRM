@@ -1493,6 +1493,25 @@ export const settleSeniorPayoutSchema = z
     payerAdminId: z.string().uuid().optional(),
     // Optional (task-remove-settle-currency) — see comment above.
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
+    // task-drop-payout-currency (owner addendum, 2026-08): the DATE the
+    // operator is recording this settlement as of — for a DROP settle, this
+    // is BOTH the day whose NBU rate is used to compute the paid amount AND
+    // the value written to the flipped row's `txDate` (see the extended
+    // comment in pending-settlement.service.ts). Defaults client-side to the
+    // obligation's own creation date, but the field itself is optional here
+    // (not required by the schema) so every EXISTING caller that never sends
+    // one (the legacy route, e2e fixtures, unit specs, and every SENIOR
+    // settle — the picker is DROP-only in the UI) keeps working byte-for-
+    // byte: the service falls back to "now", the pre-existing behaviour.
+    // Upper-bound (no future dates) is enforced right here — it needs no
+    // per-obligation context. The LOWER bound (not before the obligation
+    // existed) does need the obligation row, so it is enforced in the
+    // service instead.
+    txDate: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/, 'Дата должна быть в формате YYYY-MM-DD')
+      .optional()
+      .nullable(),
     // task-receipts-backend (#10): closing a senior/drop IOU now requires proof.
     // Effective currency = USDT for COMPANY_ACCOUNT (USDT-only) or when `currency`
     // is omitted (task-remove-settle-currency default) → explorer-only; else the
@@ -1507,6 +1526,20 @@ export const settleSeniorPayoutSchema = z
       d.fundingSource === 'COMPANY_ACCOUNT' ? 'USDT' : (d.currency ?? 'USDT'),
     ),
   )
+  .superRefine((data, ctx) => {
+    if (!data.txDate) return
+    // UTC "today" — deterministic regardless of server-process timezone,
+    // matches the YYYY-MM-DD the client sends (see date-picker.tsx / the
+    // settle dialog, which both work in plain calendar dates, not instants).
+    const todayStr = new Date().toISOString().slice(0, 10)
+    if (data.txDate > todayStr) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['txDate'],
+        message: 'Дата транзакции не может быть в будущем',
+      })
+    }
+  })
 export type SettleSeniorPayoutDto = z.infer<typeof settleSeniorPayoutSchema>
 
 // Response after a successful settle: returns the updated obligation snapshot

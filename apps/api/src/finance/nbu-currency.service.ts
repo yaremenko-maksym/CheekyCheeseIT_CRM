@@ -24,6 +24,27 @@ export interface ExchangeRateResult {
    *  Current callers (transactions.service ~:1958 etc.) do not block on stale —
    *  acceptable pre-conversion since rates only affect display, not ledger entries. */
   stale?: boolean
+  /**
+   * task-drop-payout-currency (owner addendum, 2026-08): the date the
+   * returned rates ACTUALLY came from, when known — distinct from `date`
+   * (which always echoes the REQUESTED date, even on a fallback, so
+   * existing consumers that assume `date === requested` keep working
+   * unchanged). Set only when we have a real, dated source for the numbers:
+   *   - exact match → rateDate === date (the request was honoured as-is).
+   *   - previous-day fallback (a holiday/weekend gap with no same-day
+   *     publication) → rateDate is the PRECEDING day the data actually came
+   *     from — see `getRates`.
+   * Left `undefined` when we genuinely do not know (the last-known-good
+   * cache or the hardcoded constant — could be minutes or weeks old, no
+   * specific date to attach). A caller that needs to distinguish "a
+   * graceful, dated fallback" from "a genuine feed outage" (see
+   * `PendingSettlementService`'s DROP settle date-of-record resolution)
+   * checks `rateDate !== undefined`, not `stale` alone, for exactly that
+   * reason — a historical date's rate, once actually obtained, is
+   * exact/final, not "stale" in the sense that matters for refusing a
+   * payout.
+   */
+  rateDate?: string
 }
 
 /** NBU fetch timeout — 10 seconds (AbortController guard, AC3). */
@@ -53,6 +74,13 @@ export class NbuCurrencyService {
 
   /**
    * Fetch NBU exchange rates for a specific date (YYYYMMDD) or today.
+   *
+   * task-drop-payout-currency (owner addendum, 2026-08): `date` is no longer
+   * always "today" — a DROP settle now passes the operator-selected date, so
+   * this resolves the rate AS OF an arbitrary past date, not just the
+   * current one. The two-attempt shape below (exact date, then the day
+   * before) already reads correctly either way — "today" was always just
+   * the caller's default, never special-cased internally.
    *
    * AC3 resilience:
    *   - AbortController timeout (10 s) on every fetch call.
@@ -151,6 +179,13 @@ export class NbuCurrencyService {
       eurUah: eurVal.toFixed(4),
       date,
       stale: effectiveStale,
+      // `date` here is the date THIS call actually fetched (either the
+      // originally-requested date on the exact-match path, or the prior
+      // business day on the fallback path — see getRates). Only claim it as
+      // the real source when nothing was degraded/substituted. Omitted
+      // entirely (not set to `undefined`) — `exactOptionalPropertyTypes`
+      // distinguishes "absent" from "present but undefined".
+      ...(effectiveStale ? {} : { rateDate: date }),
     }
 
     // Cache the good result for future fallback (only when not stale and sanity passes)

@@ -28,3 +28,33 @@ export const EXCHANGE_RATE_MIN = 1e-8
 export function isStorableExchangeRate(rate: number): boolean {
   return Number.isFinite(rate) && rate >= EXCHANGE_RATE_MIN && rate < EXCHANGE_RATE_MAX_EXCLUSIVE
 }
+
+/**
+ * task-drop-payout-currency (security-review PR #521 round 3, MED-A): the
+ * settle-time counterpart of `@crm/shared`'s `transactionAmountError` for a
+ * SERVER-COMPUTED payout figure where **zero is a legitimate value**, not
+ * garbage.
+ *
+ * A DROP obligation is booked as `share% × income` with NO zero-filtering
+ * (`bookCompanyObligations` in transactions.service.ts) — the share itself
+ * is `min(0)`-validated (users.ts / projects.ts allow an explicit 0%
+ * override), so a 0%-share drop genuinely owes 0 and its obligation must be
+ * closeable like any other. `transactionAmountError` rejects `value <= 0`
+ * unconditionally — correct for a CLIENT-TYPED amount, where 0 always means
+ * "field left empty", but reusing it verbatim for THIS server-derived figure
+ * permanently strands every zero-amount drop obligation in "Ожидает
+ * выплаты" (security-review PR #521 round 3, MED-A). This keeps every OTHER
+ * guard `transactionAmountError` enforces for a payout figure (finite,
+ * ceiling) — it only widens the floor from "> 0" to ">= 0". Not reused for
+ * the SENIOR path (unaffected — `paidAmount` there is never computed, the
+ * flipped row's `amount` column is left untouched) nor for `paySalary`
+ * (a $0 salary payment is not a case that flow needs to support).
+ */
+export function settledAmountError(value: number, maxAmount: number): string | null {
+  if (!Number.isFinite(value)) return 'Сумма выплаты должна быть числом'
+  if (value < 0) return 'Сумма выплаты не может быть отрицательной'
+  if (value > maxAmount) {
+    return `Сумма не может превышать ${maxAmount.toLocaleString('ru-RU')}`
+  }
+  return null
+}

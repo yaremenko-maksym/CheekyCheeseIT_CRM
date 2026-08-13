@@ -45,7 +45,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, inArray } from 'drizzle-orm'
-import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
+import { MAX_TRANSACTION_AMOUNT, receiptMandatoryError } from '@crm/shared'
 import type {
   PendingSettlementItemDto,
   PendingObligationDto,
@@ -70,7 +70,24 @@ import {
 import { assertReceiptDocumentBindable } from './receipt.util'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { convertToBase, type BalanceCurrency } from './balance.service'
-import { isStorableExchangeRate } from './exchange-rate.util'
+import { isStorableExchangeRate, settledAmountError } from './exchange-rate.util'
+
+/**
+ * security-review PR #521 round 3, LOW — mirrors the EXACT peg predicate
+ * `convertToBase` (balance.service.ts) short-circuits on internally, so the
+ * "nothing to convert, skip the NBU round-trip" fast path below covers a
+ * DROP obligation settled USDT→USD (and not just the exact-string-match
+ * USDT→USDT case it covered before). Kept local rather than exported from
+ * `balance.service.ts` to avoid widening that shared file's surface for a
+ * one-line predicate only this call site needs pre-rate-fetch — `
+ * convertToBase` itself still applies the identical short-circuit
+ * independently if this fast path is ever bypassed, so the two can never
+ * disagree about what counts as a no-op pair.
+ */
+function isUsdPegPair(a: BalanceCurrency, b: BalanceCurrency): boolean {
+  const pegged = (c: BalanceCurrency) => c === 'USD' || c === 'USDT'
+  return pegged(a) && pegged(b)
+}
 
 /**
  * task-senior-settle-owner: the pay-time funding selection for a senior IOU
@@ -95,11 +112,20 @@ import { isStorableExchangeRate } from './exchange-rate.util'
  * `settleByCompany` for how the actual paid figure is derived (never trusted
  * from the client — there is nothing to trust, the dialog's amount field is
  * fully disabled).
+ *
+ * task-drop-payout-currency (owner addendum, 2026-08): `txDate` — the
+ * operator-selected date this settlement is recorded as of. DROP-only (a
+ * SENIOR settle's dialog never renders the picker and never sends this).
+ * Governs BOTH which day's NBU rate computes `paidAmount` AND the flipped
+ * row's `txDate` column — see the amount-conversion block below. Optional:
+ * every caller that predates this feature (legacy route, e2e fixtures, unit
+ * specs) omits it and gets byte-for-byte the pre-existing behaviour ("now").
  */
 export type SettleFunding = {
   fundingSource: 'COMPANY_ACCOUNT' | 'ADMIN_PERSONAL'
   payerAdminId?: string | undefined
   currency?: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
+  txDate?: string | null | undefined
   // task-receipts-backend (#10): mandatory settle proof — currency-aware
   // (COMPANY_ACCOUNT → USDT → explorer-only; ADMIN_PERSONAL USD → file/url).
   receiptDocumentId?: string | null | undefined
@@ -447,6 +473,12 @@ export class PendingSettlementService {
     let originalAmount: string | undefined
     let originalCurrency: 'USDT' | 'USD' | 'EUR' | 'UAH' | undefined
     let exchangeRate: string | null | undefined
+    // task-drop-payout-currency (owner addendum, 2026-08): the date this
+    // settlement is recorded as of — see the extended comment on
+    // `SettleFunding.txDate`. `undefined` (⇒ `.set()` below leaves the
+    // column untouched, i.e. whatever it already was) for a SENIOR
+    // settlement or a DROP settle from a caller that predates this feature.
+    let txDateToWrite: Date | undefined
     // Stryker disable next-line ConditionalExpression: for a SENIOR settlement this block's four locals are ASSIGNED but never READ — the `.set()` patch below spreads them behind its OWN, separately-tested `isDropObligation` ternary (see the `'originalAmount' in flips[0]!` assertions in pending-settlement.spec.ts), so entering this block unnecessarily has no observable output. It is also provably side-effect-free: a SENIOR obligation is ALWAYS booked in USDT and BIZ-03 restricts a SENIOR settle's currency to USD/USDT — the only pair convertToBase short-circuits WITHOUT calling `this.nbuCurrency.getRates()` — so no stray network call either
     if (isDropObligation) {
       const obligationAmount = parseFloat(obligation.amount)
@@ -473,32 +505,76 @@ export class PendingSettlementService {
         )
       }
 
-      // Skip the NBU round-trip entirely when there is nothing to convert
-      // (the default — and by far the most common — case: paid in the
-      // obligation's own currency). `convertToBase` would short-circuit to
-      // the same value anyway; this just avoids the network call (and the
-      // MED-2 staleness gate below, which has nothing to guard when no rate
-      // is actually applied).
-      if (targetCurrency === obligationCurrency) {
+      // task-drop-payout-currency (owner addendum): resolve + validate the
+      // date-of-record BEFORE any currency logic — it applies uniformly
+      // whether or not a conversion actually happens (a same-currency
+      // settle still records WHICH day it was paid). The Zod schema already
+      // rejected a future date (compared against server "today", no
+      // obligation context needed); the LOWER bound needs the obligation
+      // row, so it lives here: a settlement cannot be dated before the debt
+      // itself existed — there is nothing to backdate a payment of an
+      // obligation that had not yet been booked.
+      const selectedDateStr = funding?.txDate ?? undefined
+      if (selectedDateStr) {
+        const obligationCreatedStr = obligation.createdAt.toISOString().slice(0, 10)
+        if (selectedDateStr < obligationCreatedStr) {
+          throw new BadRequestException(
+            `Дата выплаты не может быть раньше даты возникновения обязательства (${obligationCreatedStr})`,
+          )
+        }
+        txDateToWrite = new Date(`${selectedDateStr}T00:00:00.000Z`)
+      }
+
+      // Skip the NBU round-trip entirely when there is nothing to convert.
+      // Two cases:
+      //   - the default — and by far the most common — case: paid in the
+      //     obligation's own currency (exact match).
+      //   - security-review PR #521 round 3 (LOW): USD⇄USDT are pegged 1:1
+      //     (see `convertToBase`'s own short-circuit) — the obligation is
+      //     ALWAYS USDT (MED-1 invariant just above), so paying it out in
+      //     USD is likewise a no-op conversion, not a real rate application.
+      //     Treating it as "needs a rate" made the MED-2 staleness gate
+      //     refuse a USD payout during an NBU outage even though no NBU data
+      //     was ever going to be used for that pair.
+      // `convertToBase` would short-circuit to the same value anyway either
+      // way; this just avoids the network call (and, for the peg pair
+      // specifically, the MED-2 staleness gate, which has nothing to guard
+      // when no rate is actually applied).
+      if (
+        targetCurrency === obligationCurrency ||
+        isUsdPegPair(obligationCurrency, targetCurrency)
+      ) {
         paidAmount = obligationAmount
       } else {
-        const rates = await this.nbuCurrency.getRates()
-        // SECURITY (MED-2, security-review PR #521 round 1): `getRates()`
-        // NEVER throws — on a live-NBU outage it silently falls back to a
-        // cached or hardcoded rate and sets `stale: true` (see the TODO at
-        // nbu-currency.service.ts:21-25, written for exactly this future:
-        // "once conversion is wired into a payout amount, consumers MUST
-        // check `stale` and warn before applying it"). Every OTHER
+        // task-drop-payout-currency (owner addendum): fetch the rate AS OF
+        // the selected date (undefined ⇒ NbuCurrencyService defaults to
+        // today — byte-for-byte the pre-existing behaviour for every caller
+        // that never sends a date).
+        const rates = await this.nbuCurrency.getRates(selectedDateStr?.replace(/-/g, ''))
+        // SECURITY (MED-2, security-review PR #521 round 1) — refined by the
+        // owner addendum (round 3): `getRates()` NEVER throws — on an NBU
+        // gap it falls back to either (a) a real, dated rate from the
+        // nearest prior business day (`rates.rateDate` set — a holiday with
+        // no same-day publication, the SAME mechanism the round-2 reviewer
+        // verified already covers ordinary weekends without ever needing
+        // this fallback at all) or (b) a genuinely unknown cached/hardcoded
+        // value (`rates.rateDate` undefined — the live feed AND the
+        // requested-day-adjacent data are both unavailable). Only (b) is a
+        // reason to refuse: a historical date's rate, once actually
+        // obtained from a real NBU publication, is exact and final — it is
+        // not "stale" in the sense this gate exists to catch, and refusing
+        // it would make a past date permanently unsettleable whenever it
+        // happens to land on a bank holiday. Every OTHER `getRates`
         // consumer only feeds a stale rate into a DISPLAY value that
         // self-corrects on the next read (a balance, a summary card). This
-        // is the first one to bake it into a PERMANENT, irreversible
-        // payout figure — refuse rather than silently commit a possibly
+        // is the first one to bake it into a PERMANENT, irreversible payout
+        // figure — refuse case (b) rather than silently commit a possibly
         // wrong amount to money that cannot be un-paid. The ADMIN/ACCOUNTANT
         // can retry once NBU recovers, or settle in the obligation's own
         // currency (USDT) right now, which never needs a rate at all.
-        if (rates.stale) {
+        if (rates.stale && rates.rateDate === undefined) {
           throw new BadRequestException(
-            'Курс НБУ недоступен или устарел — выплата в конвертированной валюте временно невозможна. Повторите позже или выплатите в валюте обязательства (USDT).',
+            'Курс НБУ недоступен — выплата в конвертированной валюте временно невозможна. Повторите позже или выплатите в валюте обязательства (USDT).',
           )
         }
         const rawPaidAmount = convertToBase(
@@ -517,16 +593,25 @@ export class PendingSettlementService {
         paidAmount = Math.round(rawPaidAmount * 100) / 100
       }
 
-      // LOW (security-review PR #521 round 1): the server-computed figure
-      // is exempt from Zod's boundary validation (there is no client
-      // `amount` field to validate) but can still exceed the project's own
-      // ceiling once multiplied by a currency rate — e.g. a near-MAX_
-      // TRANSACTION_AMOUNT USDT obligation × ~41 for UAH. Re-apply the SAME
-      // finiteness/positivity/ceiling rule every client-supplied amount
-      // already goes through (also closes the `Number.isFinite` gap: a
-      // NaN/Infinity paid amount must never reach `numeric` — Postgres
+      // LOW (security-review PR #521 round 1) / MED-A (round 3): the
+      // server-computed figure is exempt from Zod's boundary validation
+      // (there is no client `amount` field to validate) but can still
+      // exceed the project's own ceiling once multiplied by a currency rate
+      // — e.g. a near-MAX_TRANSACTION_AMOUNT USDT obligation × ~41 for UAH.
+      // Re-apply the SAME finiteness/ceiling rule every client-supplied
+      // amount already goes through (also closes the `Number.isFinite` gap:
+      // a NaN/Infinity paid amount must never reach `numeric` — Postgres
       // accepts the literal string `'NaN'`).
-      const paidAmountError = transactionAmountError(paidAmount)
+      //
+      // `settledAmountError`, NOT `@crm/shared`'s `transactionAmountError`:
+      // a DROP obligation can be legitimately booked at exactly 0 (a 0%
+      // share override — see the extended comment on `settledAmountError`
+      // in exchange-rate.util.ts), and `transactionAmountError` rejects
+      // `value <= 0` unconditionally. Reusing it here (round 1's original
+      // fix) permanently stranded every zero-amount drop obligation in
+      // "Ожидает выплаты" — negative/NaN/Infinity/over-ceiling still
+      // rejected, only the floor moved from "> 0" to ">= 0".
+      const paidAmountError = settledAmountError(paidAmount, MAX_TRANSACTION_AMOUNT)
       if (paidAmountError) throw new BadRequestException(paidAmountError)
 
       originalAmount = obligation.amount
@@ -537,19 +622,13 @@ export class PendingSettlementService {
       // (not only when the currency changed), so a reader never has to guess
       // whether a NULL original_amount means "unchanged" or "settled before
       // this flow existed" (the latter — see the schema.ts column comment).
-      // LOW (security-review PR #521 round 2): since the `transactionAmountError`
-      // gate above ALREADY guarantees `paidAmount` is finite and strictly
-      // positive, and `paidAmount` is always `obligationAmount` itself
-      // (same-currency branch) or `obligationAmount × <a positive NBU rate>`
-      // (convertToBase never flips sign, and a rate is always > 0), the two
-      // provably share the same sign and finiteness by construction — a
-      // non-finite or non-positive `obligationAmount` would have produced a
-      // non-finite or non-positive `paidAmount` too, which the gate above
-      // already rejected. This condition is therefore true on every path that
-      // reaches it; kept as defense-in-depth documentation of that invariant,
-      // not because any live input can still make it false.
+      // `obligationAmount > 0` genuinely branches both ways now (MED-A,
+      // round 3): a 0%-share drop obligation has `obligationAmount === 0`
+      // and is a legitimate settle (see `settledAmountError` above), for
+      // which the effective rate `paid / original` is 0/0 — undefined, not
+      // zero — so it is deliberately left NULL rather than computed, same
+      // as any other unrepresentable ratio.
       const rawExchangeRate =
-        // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: unreachable-false — see the comment above; `transactionAmountError(paidAmount)` a few lines up already guarantees this condition holds by construction on every path that reaches here, so no test can drive it to the `: null` branch through settleByCompany
         Number.isFinite(obligationAmount) && obligationAmount > 0
           ? paidAmount / obligationAmount
           : null
@@ -668,6 +747,15 @@ export class PendingSettlementService {
                 exchangeRate,
               }
             : {}),
+          // task-drop-payout-currency (owner addendum, 2026-08): the
+          // operator-selected date, when one was sent (see the extended
+          // comment on `SettleFunding.txDate`). Omitted entirely — not set
+          // to `new Date()` — when absent, so the column keeps whatever it
+          // already held (the obligation's booking date, which is exactly
+          // the client-side DEFAULT the date-picker shows, so a caller that
+          // never touches the picker gets the identical recorded value
+          // either way).
+          ...(txDateToWrite ? { txDate: txDateToWrite } : {}),
           // ADMIN_PERSONAL → the paying partner is the sender; COMPANY_ACCOUNT /
           // legacy → no personal sender, label 'COMPANY' (the IOU's booked label).
           senderId,

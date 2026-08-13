@@ -14,9 +14,10 @@ import {
   DialogTitle,
 } from '@/components/ui/crm-dialog'
 import { AmountCurrencyInput } from '@/components/ui/amount-currency-input'
+import { DatePickerField } from '@/components/ui/date-picker'
 import { api } from '@/lib/axios'
 import { financeApi } from '../../api'
-import { fmtAmount, fmtDate, convertAmount, type ExchangeRates } from '../../constants'
+import { fmtAmount, fmtDate, fmtYyyymmdd, convertAmount, type ExchangeRates } from '../../constants'
 import { FundingSourceFields, COMPANY_ACCOUNT_VALUE, type Currency } from './FundingSourceFields'
 import { ReceiptInput, emptyReceiptState, type ReceiptState } from '../ReceiptInput'
 
@@ -132,6 +133,15 @@ export function SettleSeniorPayoutDialog({
   const [receipt, setReceipt] = useState<ReceiptState>(emptyReceiptState())
   const [receiptError, setReceiptError] = useState<string | null>(null)
   const [accountError, setAccountError] = useState<string | null>(null)
+  // task-drop-payout-currency (owner addendum, 2026-08): the date this DROP
+  // settlement is recorded as of — «YYYY-MM-DD». Governs BOTH which day's
+  // NBU rate computes the previewed/settled amount AND the flipped row's
+  // `txDate` column (see the extended comment on `SettleFunding.txDate` in
+  // pending-settlement.service.ts). Defaults to the obligation's own
+  // creation date, NOT today (owner: «по умолчанию — дата создания») — see
+  // the reset effect below. Irrelevant for a SENIOR settle: the picker never
+  // renders there and this stays at its initial ''.
+  const [txDate, setTxDate] = useState<string>('')
 
   const isCompany = account === COMPANY_ACCOUNT_VALUE
   // settle-drop-btn: only the copy below depends on this — the mutation body /
@@ -156,35 +166,42 @@ export function SettleSeniorPayoutDialog({
   const dialogDescription = isDropPayout ? 'Выплата дропу его доли' : 'Выплата синьору его доли'
   const successMessage = isDropPayout ? 'Выплата дропу проведена' : 'Выплата синьору проведена'
 
-  // task-drop-payout-currency: same query key `AmountCurrencyInput` uses
-  // internally (calendar-day scoped) — ONE shared cache entry, not a second
-  // request, exactly mirroring PaySalaryDialog. Only fetched for a DROP
-  // payout (a SENIOR settle never shows the currency-conversion field).
+  // task-drop-payout-currency (owner addendum, 2026-08): the rate is fetched
+  // AS OF the SELECTED date, not always today — mirrors
+  // CreateTransactionDialog's `rateDateParam` pattern byte-for-byte (date
+  // with dashes → NBU's own "YYYYMMDD" query param). `staleTime` 24h is safe
+  // for BOTH a past date (a historical rate never changes) and today's date
+  // (today's rate is quoted once published and does not change intraday) —
+  // was already the pre-existing assumption for the "always today" query
+  // this replaces. Only fetched for a DROP payout (a SENIOR settle never
+  // shows the currency-conversion field, and never sends a date either).
   //
-  // LOW (security-review PR #521 round 1, accepted as-is): `todayKey` is
-  // captured once per render, not re-derived on a timer — a tab left open
-  // across midnight keeps showing yesterday's cached rate until the NEXT
-  // re-render happens to recompute it, so the DISPLAYED figure can disagree
-  // with what the server will actually compute at submit time. This is a
-  // pre-existing pattern shared with `PaySalaryDialog`/`AmountCurrencyInput`
-  // (identical `todayKey`/`staleTime` shape, not introduced by this task) and
-  // it is NOT a money-integrity gap: unlike the amount, the server NEVER
-  // trusts a client-supplied figure here (the field is disabled — there is
-  // nothing to trust) and always recomputes from its own fresh
-  // `NbuCurrencyService.getRates()` call at settle time. The worst case is a
-  // stale on-screen preview corrected the moment the mutation resolves —
-  // not a wrong payout. Fixing the display-side day-rollover would mean
-  // reworking the shared cache-key convention across all three call sites,
-  // out of proportion for a cosmetic staleness window; left as a known,
-  // scoped, low-severity gap rather than a silent one.
-  const todayKey = new Date().toISOString().slice(0, 10)
+  // LOW (security-review PR #521 round 1, superseded by the date picker
+  // above): the previous "always today, captured once per render" gap (a
+  // tab left open across midnight showing a stale preview) no longer
+  // applies the same way — the query key is now the EXPLICITLY selected
+  // date, not an implicit "now" recomputed only on re-render. It remains
+  // true, as before, that the server NEVER trusts this client-side preview
+  // (the amount field is disabled) and always recomputes from its own fresh
+  // `NbuCurrencyService.getRates(selectedDate)` call at settle time — the
+  // worst case is still a stale ON-SCREEN preview, corrected the moment the
+  // mutation resolves, never a wrong payout.
+  const rateDateParam = txDate.replace(/-/g, '')
   const { data: rates } = useQuery<ExchangeRates>({
-    queryKey: ['exchange-rate', todayKey],
-    queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
+    queryKey: ['exchange-rate', rateDateParam],
+    queryFn: () =>
+      api.get<ExchangeRates>(`/finance/exchange-rate?date=${rateDateParam}`).then((r) => r.data),
     // Stryker disable next-line ArithmeticOperator: cache-freshness WINDOW (24h) — affects only whether a background refetch happens after a long-idle tab, not any single-render output a unit test observes; same untested-by-design shape as the identical literal in PaySalaryDialog.tsx and amount-currency-input.tsx (pre-existing, not part of this diff)
     staleTime: 1000 * 60 * 60 * 24,
-    enabled: !!tx && isDropPayout,
+    enabled: !!tx && isDropPayout && !!txDate,
   })
+
+  // security-review PR #521 round 3 (owner addendum): the operator sees
+  // WHICH day's rate is actually behind the preview, whenever it differs
+  // from the requested date — the same graceful holiday/weekend fallback
+  // `PendingSettlementService` accepts server-side (see `rates.rateDate` in
+  // nbu-currency.service.ts). Shown BEFORE submit, next to the amount.
+  const rateDateDiffers = !!rates?.rateDate && rates.rateDate !== rateDateParam
 
   // The obligation, re-expressed in the currency being paid. `null` while the
   // rates are loading (or unusable) — the amount field then stays empty
@@ -200,6 +217,7 @@ export function SettleSeniorPayoutDialog({
     setAccount(COMPANY_ACCOUNT_VALUE)
     // Stryker disable next-line StringLiteral: unobservable for the SAME reason as the useState default above — resetState only ever runs right before onClose (tx→null, nothing renders) or right before a NEW tx mounts/rerenders in, and in EITHER case the mount-sync effect (keyed on tx?.id) overwrites this value before any consumer can read it
     setCurrency('USDT')
+    setTxDate('')
     setReceipt(emptyReceiptState())
     setReceiptError(null)
     setAccountError(null)
@@ -226,6 +244,18 @@ export function SettleSeniorPayoutDialog({
     if (tx) setCurrency(tx.currency as Currency)
   }, [tx?.id])
 
+  // task-drop-payout-currency (owner addendum): every time the dialog opens
+  // for a NEW tx, the date picker starts at the OBLIGATION's own creation
+  // date — «по умолчанию — дата создания», never a stale pick left over
+  // from a previously settled row. `tx.createdAt` is a full ISO datetime;
+  // sliced to the calendar day the same way the backend compares it
+  // (`obligation.createdAt.toISOString().slice(0, 10)` in
+  // pending-settlement.service.ts), so an untouched picker always passes
+  // the server's own lower-bound check trivially.
+  useEffect(() => {
+    if (tx) setTxDate(tx.createdAt.slice(0, 10))
+  }, [tx?.id])
+
   // Select the account: when switching to «Счёт компании» the currency is
   // locked to USDT (mirrors PaySalaryDialog's `selectAccount`) — a no-op for
   // a SENIOR settle (no currency picker there).
@@ -250,16 +280,31 @@ export function SettleSeniorPayoutDialog({
       // that lands on the row is computed server-side from it (never trusted
       // from the client; the field above is fully disabled, so there is
       // nothing to trust in the first place).
+      // task-drop-payout-currency (owner addendum): `txDate` — the operator-
+      // selected date this settlement is recorded as of (governs both the
+      // rate applied and the flipped row's `txDate`; see
+      // pending-settlement.service.ts). DROP-only, mirroring `currency`
+      // above — a SENIOR settle sends neither.
       return financeApi.settleSeniorPayoutFromTransaction(tx!.id, {
         fundingSource: isCompany ? 'COMPANY_ACCOUNT' : 'ADMIN_PERSONAL',
         ...(isCompany ? {} : { payerAdminId: account }),
-        ...(isDropPayout ? { currency: effectiveCurrency } : {}),
+        ...(isDropPayout ? { currency: effectiveCurrency, txDate } : {}),
         receiptDocumentId,
         receiptExternalUrl,
       })
     },
-    onSuccess: () => {
-      toast.success(successMessage)
+    onSuccess: (data) => {
+      // security-review PR #521 round 3 (LOW-2): show the ACTUAL recorded
+      // amount, not just a generic "done" — the amount field being disabled
+      // means this toast is the operator's only post-submit confirmation of
+      // what was actually paid (the preview above can never fully guarantee
+      // it matched, e.g. a graceful rate fallback resolved between preview
+      // and submit). Falls back to the generic message if, for any reason,
+      // the response shape doesn't carry a flipped row (should not happen).
+      const paid = data.created[0]
+      toast.success(
+        paid ? `${successMessage}: ${fmtAmount(paid.amount, paid.currency)}` : successMessage,
+      )
       // Invalidate everything the settlement touches: the transactions list (the
       // row flips + a new SENIOR_INCOME appears), profile feeds, the
       // company-account balance / summary, and the auto-generated invoice list.
@@ -370,14 +415,45 @@ export function SettleSeniorPayoutDialog({
             </p>
           )}
 
+          {/* task-drop-payout-currency (owner addendum, 2026-08). DROP-only:
+              the date this settlement is recorded as of — governs which
+              day's NBU rate computes the amount below AND becomes the
+              flipped row's `txDate` (see pending-settlement.service.ts).
+              Bounded [obligation creation date, today] — the calendar
+              itself greys out anything outside that range (no future dates:
+              no rate exists yet; not before the obligation existed: nothing
+              to backdate a payment of a debt that was not yet booked). */}
+          {isDropPayout && (
+            <div className="space-y-1">
+              <label className="text-xs font-medium text-muted-foreground">Дата выплаты</label>
+              <DatePickerField
+                value={txDate}
+                onChange={setTxDate}
+                minDate={tx.createdAt.slice(0, 10)}
+                maxDate={new Date().toISOString().slice(0, 10)}
+                className="w-full"
+                data-testid="settle-senior-txdate"
+              />
+              {rateDateDiffers && rates?.rateDate && (
+                <p
+                  className="text-[11px] text-muted-foreground"
+                  data-testid="settle-senior-rate-date-note"
+                >
+                  На {fmtYyyymmdd(rateDateParam)} курс НБУ недоступен — применён курс за{' '}
+                  {fmtYyyymmdd(rates.rateDate)}
+                </p>
+              )}
+            </div>
+          )}
+
           {/* task-drop-payout-currency (AC1). DROP-only: the currency the payout
               is settled in is a real choice (USDT/USD/UAH/EUR), but the amount
               input is fully DISABLED — it only shows the server-recalculated
               figure for the chosen currency, never accepts typed input (owner
               decision: «задизейбли полностью инпут и оставь только возможность
               переключать валюту»). Recalculates live on every currency change
-              (AC2); no client-typed amount is ever sent (see the mutationFn
-              above). */}
+              (AC2) AND every date change (owner addendum); no client-typed
+              amount is ever sent (see the mutationFn above). */}
           {isDropPayout && (
             <div data-testid="settle-senior-amount-field">
               <AmountCurrencyInput
