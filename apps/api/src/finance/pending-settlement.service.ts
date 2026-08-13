@@ -514,6 +514,16 @@ export class PendingSettlementService {
       // row, so it lives here: a settlement cannot be dated before the debt
       // itself existed — there is nothing to backdate a payment of an
       // obligation that had not yet been booked.
+      // security-review PR #521 round 3 (LOW, decided NOT to fix): this is
+      // the AUTHORITATIVE lower bound, keyed on `obligation.createdAt` (the
+      // `pending_obligations` row) — the dialog's own picker bound (see
+      // `SettleSeniorPayoutDialog.tsx`'s `minDate`) reads `sourceTx.createdAt`
+      // instead, a SEPARATE INSERT `bookCompanyObligations` issues moments
+      // apart, so the two CAN disagree by one calendar day exactly at a UTC
+      // midnight straddle. Deliberately left unreconciled here too — see
+      // the frontend comment for the full reasoning (a millisecond-window
+      // coincidence, and the failure mode below is a loud, explicit 400,
+      // never a silent wrong write).
       const selectedDateStr = funding?.txDate ?? undefined
       if (selectedDateStr) {
         const obligationCreatedStr = obligation.createdAt.toISOString().slice(0, 10)
@@ -615,6 +625,23 @@ export class PendingSettlementService {
       // rejected, only the floor moved from "> 0" to ">= 0".
       const paidAmountError = settledAmountError(paidAmount, MAX_TRANSACTION_AMOUNT)
       if (paidAmountError) throw new BadRequestException(paidAmountError)
+
+      // LOW (security-review PR #521 round 3): the 2dp rounding above can
+      // legitimately round a genuinely NON-zero obligation down to exactly
+      // 0.00 in the target currency ("dust" — a fractional obligation
+      // converted through a rate/currency pair that collapses it below a
+      // hundredth of the target unit). `settledAmountError`'s own floor
+      // (`>= 0`, MED-A) cannot tell that apart from a REAL 0%-share
+      // obligation (`obligationAmount === 0`), where zero IS correct and
+      // must be allowed through. Distinguish them explicitly: dust is
+      // refused — a "0.00" record would misrepresent a debt that
+      // demonstrably still exists — while a genuine zero-obligation settle
+      // proceeds untouched.
+      if (paidAmount === 0 && obligationAmount > 0) {
+        throw new BadRequestException(
+          'После округления сумма выплаты получилась нулевой, хотя обязательство не нулевое — выберите другую валюту выплаты',
+        )
+      }
 
       originalAmount = obligation.amount
       originalCurrency = obligationCurrency

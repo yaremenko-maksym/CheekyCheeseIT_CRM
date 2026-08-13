@@ -460,8 +460,48 @@ export function SettleSeniorPayoutDialog({
                 value={txDate}
                 onChange={setTxDate}
                 // Stryker disable next-line MethodExpression: `.slice(0,10)` matters for a REAL browser in a non-UTC local timezone — DatePickerField's parseISO treats a date-only string as LOCAL midnight (matching the operator's own calendar day), while a full ISO instant anchors to UTC and could shift the boundary by the TZ offset. This project's test environment (mutation gate + CI) is TZ=UTC-pinned, where "local" IS "UTC", so the two collapse to the identical calendar day for every time-of-day; no test run under the mandated TZ can observe the difference, though the slice is still the semantically correct one to ship
+                //
+                // security-review PR #521 round 3 (LOW, decided NOT to fix):
+                // this reads `tx.createdAt` (the SOURCE transaction), while
+                // the SERVER's own lower-bound check in
+                // `pending-settlement.service.ts` reads `obligation.createdAt`
+                // (the paired `pending_obligations` row) — two separate
+                // INSERTs `bookCompanyObligations` issues moments apart, so
+                // in principle their timestamps could straddle a UTC
+                // midnight and disagree by one calendar day. Left
+                // unreconciled: the failure mode is an explicit, loud 400
+                // ("Дата выплаты не может быть раньше даты возникновения
+                // обязательства") on the rare day a picker selection that
+                // looked valid client-side turns out one day too early
+                // server-side — never a silent wrong write. Reconciling
+                // them would mean either making the two inserts share one
+                // timestamp (a `bookCompanyObligations` change out of
+                // proportion here) or having the frontend fetch the
+                // obligation row just for this bound (a shape change to a
+                // dialog that today only holds the transaction). Not worth
+                // it for a coincidence window measured in milliseconds.
                 minDate={tx.createdAt.slice(0, 10)}
                 // Stryker disable next-line MethodExpression: same reasoning as minDate above — "today" sliced to a date vs the full instant is indistinguishable under TZ=UTC
+                //
+                // security-review PR #521 round 3 (LOW, decided NOT to fix
+                // — see the round-3 response): this is UTC "today", not the
+                // operator's LOCAL calendar day. For a positive-offset
+                // timezone (Kyiv, UTC+2/+3 — this team's realistic
+                // operator base) that means, for a few hours right after
+                // local midnight, the calendar still shows what FEELS like
+                // "yesterday" as the latest selectable day — annoying, but
+                // safe: it can only ever be MORE restrictive than the
+                // operator's own clock, never less. A negative-offset
+                // timezone could in principle select a date that is
+                // locally "tomorrow" — but the SERVER validates the exact
+                // same UTC "today" (`settleSeniorPayoutSchema`'s superRefine
+                // in finance.ts), so nothing wrong is ever silently
+                // accepted end-to-end; a mismatch here surfaces as an
+                // explicit 400, not a wrong payout. Not worth reconciling
+                // against the operator's actual local timezone (would
+                // require plumbing it through both sides and keeping them
+                // in lockstep) for a UX-only edge case with no realistic
+                // operator today.
                 maxDate={new Date().toISOString().slice(0, 10)}
                 className="w-full"
                 data-testid="settle-senior-txdate"

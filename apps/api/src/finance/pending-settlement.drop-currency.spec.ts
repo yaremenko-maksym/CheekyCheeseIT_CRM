@@ -752,6 +752,27 @@ describe('settleByCompany — zero-amount DROP obligation closes (MED-A, securit
       }),
     ).rejects.toThrow(/превышать/)
   })
+
+  // security-review PR #521 round 3 (LOW, on the reviewer's own follow-up
+  // after auditing MED-A): 2dp rounding can collapse a genuinely NON-zero
+  // obligation to exactly 0.00 in the target currency ("dust") — the SAME
+  // observable shape as a real 0%-share obligation, but a DIFFERENT fact
+  // (a debt that still exists vs. one that never did). `obligationAmount >
+  // 0` is what distinguishes them; a 0%-share settle (asserted above) must
+  // still succeed, dust must not.
+  it('a NON-zero obligation that rounds to 0.00 in the target currency ("dust") is REFUSED, not silently recorded as zero', async () => {
+    // 0.0001 USDT × 41.50 UAH/USD = 0.00415 UAH — rounds to 0.00, but the
+    // obligation itself is genuinely non-zero.
+    const { svc } = makeService({ obligation: makeObligation({ amount: '0.0001' }) })
+    await expect(
+      svc.settleByCompany(OBLIGATION_ID, accountantUser, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_PAYER_ID,
+        currency: 'UAH',
+        ...RECEIPT_FILE,
+      }),
+    ).rejects.toThrow(/после округления/i)
+  })
 })
 
 // ─────────────────────────────────────────────────────────────────────────────

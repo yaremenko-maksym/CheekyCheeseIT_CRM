@@ -92,12 +92,26 @@ export class NbuCurrencyService {
    */
   async getRates(date?: string): Promise<ExchangeRateResult> {
     const dateStr = date ?? this.todayStr()
+    // security-review PR #521 round 3 (MED): `lastKnownGood` backs EVERY
+    // other consumer's outage fallback (balances, summaries — anything that
+    // calls `getRates()` with no date at all). It must only ever hold a
+    // rate for "now" — before the date-of-record feature, every call HERE
+    // was implicitly for today, so this was never a live distinction.
+    // Today, a HISTORICAL request (a DROP settle dated last March, or the
+    // dialog's own preview fetch for that same date) can legitimately
+    // succeed against NBU — and if that success were cached, it would
+    // silently overwrite the shared "current" rate with a months-old one,
+    // which then gets handed to every OTHER caller the next time the LIVE
+    // feed genuinely goes down. Gate cache writes on the ORIGINALLY
+    // REQUESTED date being today's — never on which attempt (exact-date or
+    // prev-day fallback) happened to succeed.
+    const isLiveRequest = dateStr === this.todayStr()
     const url = `https://bank.gov.ua/NBUStatService/v1/statdirectory/exchange?date=${dateStr}&json`
 
     // Attempt 1: today's date
     const attempt1 = await this.fetchRates(url)
     if (attempt1 !== null && attempt1.length > 0) {
-      return this.buildResult(attempt1, dateStr, false)
+      return this.buildResult(attempt1, dateStr, false, isLiveRequest)
     }
 
     // Attempt 1 returned empty data or failed
@@ -116,10 +130,14 @@ export class NbuCurrencyService {
       this.logger.warn(
         `NBU API unavailable for ${dateStr}, using previous-day rates (${prev}) — stale=true`,
       )
-      // MED fix: cache prev-day result so a subsequent API failure can use
-      // lastKnownGood instead of making 2 more HTTP calls then falling to hardcoded.
-      // buildResult with stale=true skips the cache update, so we update it here.
-      const prevResult = this.buildResult(attempt2, prev, false) // cache as fresh prev-day
+      // MED fix (round 1): cache prev-day result so a subsequent API failure
+      // can use lastKnownGood instead of making 2 more HTTP calls then
+      // falling to hardcoded — but ONLY when the ORIGINAL request was for
+      // today (see isLiveRequest above); a historical request's prev-day
+      // fallback is just as unfit to cache as its exact-date match would
+      // have been. buildResult with stale=true skips the cache update, so
+      // we update it here.
+      const prevResult = this.buildResult(attempt2, prev, false, isLiveRequest) // cache as fresh prev-day, live requests only
       void prevResult // side-effect: updates this.lastKnownGood
       return { ...prevResult, date: dateStr, stale: true }
     }
@@ -161,8 +179,20 @@ export class NbuCurrencyService {
   /**
    * Build a successful ExchangeRateResult from NBU rate rows and update the
    * last-known-good cache.
+   *
+   * @param allowCacheUpdate security-review PR #521 round 3 (MED) — only
+   *   `true` when the date this call actually fetched traces back to a
+   *   TODAY request (see `isLiveRequest` in `getRates`). A historical-date
+   *   fetch (the new date-of-record feature) must never overwrite the
+   *   shared last-known-good cache that every OTHER `getRates()` caller
+   *   relies on during a genuine live-feed outage.
    */
-  private buildResult(rates: NbuRateResponse[], date: string, stale: boolean): ExchangeRateResult {
+  private buildResult(
+    rates: NbuRateResponse[],
+    date: string,
+    stale: boolean,
+    allowCacheUpdate: boolean,
+  ): ExchangeRateResult {
     // Missing currency rows: keep last-known-good value or use hardcoded constant.
     const usd = rates.find((r) => r.cc === 'USD')?.rate
     const eur = rates.find((r) => r.cc === 'EUR')?.rate
@@ -188,8 +218,10 @@ export class NbuCurrencyService {
       ...(effectiveStale ? {} : { rateDate: date }),
     }
 
-    // Cache the good result for future fallback (only when not stale and sanity passes)
-    if (!effectiveStale) {
+    // Cache the good result for future fallback (only when not stale, sanity
+    // passes, AND — round 3, MED — the request this call is answering was
+    // for TODAY; see the `allowCacheUpdate` doc comment above).
+    if (!effectiveStale && allowCacheUpdate) {
       const usdNum = parseFloat(result.usdUah)
       const eurNum = parseFloat(result.eurUah)
       // MED: sanity-check — defence against corrupt API responses with 0 or Inf rates
