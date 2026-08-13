@@ -43,6 +43,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { NbuCurrencyService } from './nbu-currency.service'
+import { collectParamValues } from './__test-helpers__/drizzle-where-introspection'
 
 // ── Session user factory ────────────────────────────────────────────────────
 
@@ -105,6 +106,49 @@ function makeSvc(
   return makeTransactionsService({ db: dbStub as never, nbuCurrencyService })
 }
 
+/**
+ * task-drop-sees-own-obligations (security-review PR #523 round 2, MED-7).
+ * `makeSvc` above stubs `transactions.findMany` with a bare `() => ...` that
+ * IGNORES its `where` argument entirely — every test using it proves the
+ * IN-MEMORY math in `computeDropAggregate` is right, but is structurally
+ * blind to whether the SQL-level scope added for MED-1 (round 1) is right.
+ * That gap was real: MED-1 replaced an unscoped `findMany` with one scoped
+ * to `(receiverId = self OR senderId = self) AND type IN (four types)` —
+ * get that predicate WRONG (e.g. drop one of the four types, or narrow the
+ * OR to only `receiverId`) and NOT ONE test here would notice, because
+ * `makeSvc`'s stub returns the same canned `txs` regardless of what `where`
+ * it was called with. The failure direction is an UNDER-count — a drop
+ * would see LESS than they are owed, the exact defect this task exists to
+ * fix — which is why this is closed with an observing test, not left as a
+ * documented gap.
+ *
+ * This variant CAPTURES the real `where` AST instead of ignoring it, so the
+ * tests below can walk it (via `collectParamValues`) and assert on what it
+ * actually binds.
+ */
+function makeSvcCapturingWhere(
+  self: UserRow | undefined,
+  txs: TxStub[],
+): { svc: ReturnType<typeof makeTransactionsService>; getWhere: () => unknown } {
+  let capturedWhere: unknown
+  const dbStub = {
+    db: {
+      query: {
+        users: {
+          findFirst: () => Promise.resolve(self),
+        },
+        transactions: {
+          findMany: (args?: { where?: unknown }) => {
+            capturedWhere = args?.where
+            return Promise.resolve(txs)
+          },
+        },
+      },
+    },
+  }
+  return { svc: makeTransactionsService({ db: dbStub as never }), getWhere: () => capturedWhere }
+}
+
 const DROP_ID = 'drop-A'
 const OTHER_DROP_ID = 'drop-B'
 
@@ -162,6 +206,53 @@ describe('getDropSelfSummary — RBAC (self-only)', () => {
     await expect(svc.getDropSelfSummary(user('DROP', DROP_ID))).rejects.toBeInstanceOf(
       NotFoundException,
     )
+  })
+})
+
+// task-drop-sees-own-obligations — mutation-gate MED-7 (security-review PR
+// #523 round 2): the MED-1 (round 1) SQL-level scope on `getDropSelfSummary`'s
+// `findMany` was invisible to every test above (`makeSvc`'s stub ignores
+// `where`). Ports the same `makeSvcCapturingWhere` + `collectParamValues`
+// harness already proven in transactions.drop-self-feeds.spec.ts to THIS
+// query. The risk direction is under-count (a drop seeing LESS than they are
+// owed), so these assert the predicate is a SUPERSET covering every type +
+// relation `computeDropAggregate` actually reads — narrowing any of it would
+// fail these tests.
+describe('getDropSelfSummary — DB-level scope (mutation-gate MED-7)', () => {
+  const OBLIGATION_TYPES = ['PAYOUT_DROP', 'DROP_INCOME', 'PAYOUT', 'DROP_PENDING_PAYOUT']
+
+  it('WHERE clause binds all four types computeDropAggregate reads — none dropped (no under-count)', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere(selfRow, [])
+    await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    const bound = collectParamValues(getWhere())
+
+    const boundTypes = bound.filter(
+      (v): v is string => typeof v === 'string' && OBLIGATION_TYPES.includes(v),
+    )
+    expect(boundTypes.sort()).toEqual([...OBLIGATION_TYPES].sort())
+  })
+
+  it('WHERE clause binds self.id for BOTH sides of the receiverId/senderId OR-scope', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere(selfRow, [])
+    await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    const bound = collectParamValues(getWhere())
+
+    // and(isNull(deletedAt), or(eq(receiverId, self.id), eq(senderId, self.id)), inArray(type, [...]))
+    // binds self.id TWICE (once per side of the OR) plus the four type
+    // literals — six Params total. Asserting the exact count (not just
+    // "contains") catches a mutant that silently drops one side of the OR
+    // (e.g. narrows to receiverId-only), which would under-count exactly
+    // the same way a missing type would.
+    const selfIdOccurrences = bound.filter((v) => v === DROP_ID)
+    expect(selfIdOccurrences.length).toBe(2)
+    expect(bound.length).toBe(2 + OBLIGATION_TYPES.length)
+  })
+
+  it('a different drop id is NEVER bound in the WHERE (no cross-drop leak in the SQL scope itself, §AC5)', async () => {
+    const { svc, getWhere } = makeSvcCapturingWhere(selfRow, [])
+    await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    const bound = collectParamValues(getWhere())
+    expect(bound).not.toContain(OTHER_DROP_ID)
   })
 })
 

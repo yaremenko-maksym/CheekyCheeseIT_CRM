@@ -238,8 +238,61 @@ import {
   dropIncomesQuerySchema,
   dropPaymentDtoSchema,
   dropProjectDtoSchema,
+  dropSelfSummarySchema,
   paginatedDropIncomesSchema,
 } from './finance'
+
+// task-drop-sees-own-obligations, security-review round 2 (PR #523): the
+// `.min(0)` boundary on `pendingObligationCount` (and its sibling
+// `pendingIncomesCount`, same shape) had ZERO direct schema-level test
+// coverage — every consumer spec only ever constructs VALID DTOs (0, 1, 2,
+// …), so the mutation gate's survivor here was genuine: a mutant relaxing
+// `.min(0)` to accept negative counts, or a mutant that dropped the `.int()`
+// constraint, would never have been observed by anything in this repo.
+describe('dropSelfSummarySchema', () => {
+  const base = {
+    balance: 0,
+    dropSharePercent: 5,
+    pendingIncomesCount: 0,
+    debtToCompany: 0,
+    pendingObligationAmount: 0,
+    pendingObligationCount: 0,
+  }
+
+  it('accepts the all-zero baseline shape', () => {
+    expect(() => dropSelfSummarySchema.parse(base)).not.toThrow()
+  })
+
+  it('rejects a negative pendingObligationCount (kills the .min(0) mutant)', () => {
+    expect(() => dropSelfSummarySchema.parse({ ...base, pendingObligationCount: -1 })).toThrow()
+  })
+
+  it('rejects a non-integer pendingObligationCount', () => {
+    expect(() => dropSelfSummarySchema.parse({ ...base, pendingObligationCount: 1.5 })).toThrow()
+  })
+
+  it('accepts pendingObligationCount at the boundary (0) and just above it (1)', () => {
+    expect(
+      dropSelfSummarySchema.parse({ ...base, pendingObligationCount: 0 }).pendingObligationCount,
+    ).toBe(0)
+    expect(
+      dropSelfSummarySchema.parse({ ...base, pendingObligationCount: 1 }).pendingObligationCount,
+    ).toBe(1)
+  })
+
+  it('rejects a negative pendingIncomesCount (same .min(0) shape, sibling field)', () => {
+    expect(() => dropSelfSummarySchema.parse({ ...base, pendingIncomesCount: -1 })).toThrow()
+  })
+
+  it('allows pendingObligationAmount and debtToCompany to be negative (unbounded numbers, not counts)', () => {
+    // Unlike the *Count fields, these are money figures with no z.number().min()
+    // — a defensive check that the schema does NOT accidentally over-constrain
+    // them the way the counts are constrained.
+    expect(() =>
+      dropSelfSummarySchema.parse({ ...base, pendingObligationAmount: -5, debtToCompany: -5 }),
+    ).not.toThrow()
+  })
+})
 
 describe('dropIncomeDtoSchema', () => {
   const base = {

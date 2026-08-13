@@ -1351,6 +1351,18 @@ export class TransactionsService {
         return 'paid'
       case 'REJECTED':
         return 'rejected'
+      // Stryker disable next-line StringLiteral: a PROVABLY equivalent mutant,
+      // not an untested one — this case's body is IDENTICAL to `default`
+      // immediately below it (both `return 'pending'`), so no input can ever
+      // distinguish "this case label present" from "this case label removed
+      // entirely". Kept only as explicit, self-documenting notation of which
+      // one DB status this branch means to represent (mirrors the same
+      // deliberately-redundant `case 'PENDING_PAYMENT': default:` shape
+      // already established in the sibling `mapDropPaymentStatus` below, and
+      // the same `case 'PENDING'` default-fallthrough pattern in
+      // `mapDropIncomeStatus` above) — removing the label to "simplify" would
+      // make a future reader re-derive from scratch which status this
+      // fallthrough is meant to cover.
       case 'PENDING_PAYMENT':
       default:
         return 'pending'

@@ -125,7 +125,11 @@ export function DropDashboard() {
         {isLoading ? (
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="drop-kpi-loading">
             {Array.from({ length: 4 }).map((_, i) => (
-              <Skeleton key={i} className="h-28 w-full rounded-lg" />
+              <Skeleton
+                key={i}
+                className="h-28 w-full rounded-lg"
+                data-testid="drop-kpi-skeleton"
+              />
             ))}
           </div>
         ) : isError || !summary ? (

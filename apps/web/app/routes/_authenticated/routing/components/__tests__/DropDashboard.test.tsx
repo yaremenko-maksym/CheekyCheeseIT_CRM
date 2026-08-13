@@ -169,6 +169,12 @@ describe('DropDashboard', () => {
     renderDashboard()
     expect(screen.getByTestId('drop-kpi-loading')).toBeInTheDocument()
     expect(screen.queryByTestId('drop-kpi-grid')).not.toBeInTheDocument()
+    // task-drop-sees-own-obligations, security-review round 2 (mutation-gate
+    // closure): the loading grid was widened from 3 to 4 skeletons when the
+    // «Ожидает выплаты» KPI card was added (§AC1), but nothing counted them —
+    // `Array.from({ length: 4 })` mutated to `Array.from({})` (0 skeletons)
+    // and this test still passed, since it only checked the WRAPPER testid.
+    expect(screen.getAllByTestId('drop-kpi-skeleton')).toHaveLength(4)
   })
 
   it('renders error state on summary fetch failure', () => {

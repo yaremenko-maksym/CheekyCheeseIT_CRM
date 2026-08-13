@@ -106,6 +106,54 @@ describe('DropBalanceCard (self-view)', () => {
       expect(el).toHaveTextContent('Ожидает выплаты')
       expect(el).not.toHaveTextContent('начисление')
       expect(el).not.toHaveTextContent('начисления')
+      // Exact-text (not substring) check — mutation-gate round 2: a
+      // survivor mutated the `: ''` empty branch to a non-empty literal,
+      // which every substring-only assertion above happily ignored, since
+      // it only ever checks that certain words are ABSENT, never that the
+      // node's full text is EXACTLY "Ожидает выплаты" with nothing appended.
+      expect(el.textContent).toBe('Ожидает выплаты')
+    })
+  })
+
+  // task-drop-sees-own-obligations, security-review round 2 (PR #523,
+  // MED-gate "9 presentational mutants"): `hasPendingObligation` drives the
+  // amber-vs-foreground colour of the pending-obligation figure, but no test
+  // read `className` at all — every existing assertion here only checks
+  // `textContent`, so the colour ternary (and its own base-class string) could
+  // be flipped, forced to always-true/always-false, or emptied outright and
+  // every test above would still pass. Kills, per mutant found by
+  // `mutation-gate.mjs --changed` scoped to this file:
+  //   - line 61 ConditionalExpression → `false` / `true` (forced constant)
+  //   - line 61 EqualityOperator `> 0` → `<= 0` / `>= 0` (boundary flip)
+  //   - line 100 StringLiteral (shared base classes) → `""`
+  //   - line 101 StringLiteral (either ternary branch) → `""`
+  describe('pending-obligation colour reflects hasPendingObligation (mutation-gate closure)', () => {
+    it('amber when an obligation is booked (pendingObligationAmount > 0)', () => {
+      render(
+        <DropBalanceCard
+          summary={makeSummary({ pendingObligationAmount: 800.48, pendingObligationCount: 2 })}
+          isLoading={false}
+          isError={false}
+          onRetry={vi.fn()}
+        />,
+      )
+      const el = screen.getByTestId('drop-balance-pending-obligation')
+      expect(el).toHaveClass('text-3xl', 'font-bold', 'tabular-nums', 'text-amber-500')
+      expect(el).not.toHaveClass('text-foreground')
+    })
+
+    it('neutral foreground when nothing is booked (pendingObligationAmount === 0, the boundary itself)', () => {
+      render(
+        <DropBalanceCard
+          summary={makeSummary({ pendingObligationAmount: 0, pendingObligationCount: 0 })}
+          isLoading={false}
+          isError={false}
+          onRetry={vi.fn()}
+        />,
+      )
+      const el = screen.getByTestId('drop-balance-pending-obligation')
+      expect(el).toHaveClass('text-3xl', 'font-bold', 'tabular-nums', 'text-foreground')
+      expect(el).not.toHaveClass('text-amber-500')
     })
   })
 
