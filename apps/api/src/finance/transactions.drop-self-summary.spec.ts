@@ -378,7 +378,14 @@ describe('getDropSelfSummary — pendingObligationAmount/Count (§AC1/§AC2)', (
       // Same shape as a real pending obligation (receiverId, status) but a
       // DIFFERENT type — e.g. a PAYOUT row a drop owes the company (debt-to-
       // company direction). Must never be read as money owed TO the drop.
-      { id: 'wrong-type', type: 'PAYOUT', status: 'PENDING_PAYMENT', amount: '500', senderId: null, receiverId: DROP_ID },
+      {
+        id: 'wrong-type',
+        type: 'PAYOUT',
+        status: 'PENDING_PAYMENT',
+        amount: '500',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
     ])
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
     expect(res.pendingObligationAmount).toBe(0)
