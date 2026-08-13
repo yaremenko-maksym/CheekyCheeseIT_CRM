@@ -1527,10 +1527,12 @@ export const settleSeniorPayoutSchema = z
     ),
   )
   .superRefine((data, ctx) => {
+    // Stryker disable next-line ConditionalExpression: removing this early-return is unobservable — `data.txDate` would be `undefined` on the branch it guards, and JS's abstract relational comparison (`undefined > <anything>`) always evaluates to `false`, so the addIssue below is never reached either way; kept as an explicit, readable guard rather than relying on that coercion
     if (!data.txDate) return
     // UTC "today" — deterministic regardless of server-process timezone,
     // matches the YYYY-MM-DD the client sends (see date-picker.tsx / the
     // settle dialog, which both work in plain calendar dates, not instants).
+    // Stryker disable next-line MethodExpression: `.slice(0,10)` is unobservable here specifically — `data.txDate` already passed the `.regex(/^\d{4}-\d{2}-\d{2}$/)` check earlier in this schema, so it is ALWAYS exactly a 10-character date-only string; comparing a 10-char string against either the sliced (10-char) or un-sliced (full ISO instant) `todayStr` produces the IDENTICAL `>` result — a same-prefix shorter string can never be lexicographically greater than a longer one, so the slice only ever matters when the two DATE portions genuinely differ, which the slice doesn't affect
     const todayStr = new Date().toISOString().slice(0, 10)
     if (data.txDate > todayStr) {
       ctx.addIssue({

@@ -580,14 +580,24 @@ describe('SettleSeniorPayoutDialog — drop payout currency (task-drop-payout-cu
     // that forces it (or its dates-differ operand) unconditionally true.
     rateDateOverride = '20260801' // UAH_DROP_TX's own default txDate
     renderDialog(UAH_DROP_TX)
-    await screen.findByTestId('settle-senior-amount-field')
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    // Wait for the rate query to actually RESOLVE (default «Счёт компании»
+    // forces USDT — a real UAH→USDT conversion, 4150/41.50) before checking
+    // the note's absence — otherwise this would trivially pass just because
+    // `rates` hadn't loaded yet, regardless of any mutation.
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('100.00'),
+    )
     expect(screen.queryByTestId('settle-senior-rate-date-note')).not.toBeInTheDocument()
     rateDateOverride = null
   })
 
   it('does NOT show the note at all for a normal rate response with no rateDate field (every non-fallback fixture in this suite)', async () => {
     renderDialog(UAH_DROP_TX)
-    await screen.findByTestId('settle-senior-amount-field')
+    const amountField = await screen.findByTestId('settle-senior-amount-field')
+    await waitFor(() =>
+      expect(within(amountField).getByTestId('amount-currency-amount-input')).toHaveValue('100.00'),
+    )
     expect(screen.queryByTestId('settle-senior-rate-date-note')).not.toBeInTheDocument()
   })
 

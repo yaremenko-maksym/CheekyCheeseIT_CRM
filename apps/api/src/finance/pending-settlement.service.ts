@@ -643,8 +643,8 @@ export class PendingSettlementService {
       // own `Number.isFinite` check, producing the IDENTICAL `exchangeRate
       // = null`. No test can observe the difference through this
       // function's output.
-      // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: see the comment above — every mutant here (force true/false, && → ||, > → >=) is downstream-caught by isStorableExchangeRate's own Number.isFinite(NaN)===false check, producing the identical exchangeRate=null either way
       const rawExchangeRate =
+        // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: see the comment above — every mutant here (force true/false, && → ||, > → >=) is downstream-caught by isStorableExchangeRate's own Number.isFinite(NaN)===false check, producing the identical exchangeRate=null either way
         Number.isFinite(obligationAmount) && obligationAmount > 0
           ? paidAmount / obligationAmount
           : null

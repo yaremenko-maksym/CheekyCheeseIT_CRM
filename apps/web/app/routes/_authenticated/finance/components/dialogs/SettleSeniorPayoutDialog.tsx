@@ -189,6 +189,14 @@ export function SettleSeniorPayoutDialog({
   // mutation resolves, never a wrong payout.
   const rateDateParam = txDate.replace(/-/g, '')
   const { data: rates } = useQuery<ExchangeRates>({
+    // The `'exchange-rate'` label's exact text is functionally inert — it
+    // exists only so this query never collides with an unrelated
+    // react-query cache entry; nothing in this component (or
+    // AmountCurrencyInput's own, separately-keyed 'exchange-rate' query)
+    // reads or compares the string itself. `rateDateParam` is the part that
+    // actually has to change for a refetch to fire on a new date, and IS
+    // covered (see the rerender test asserting a NEW `?date=` fetch fires).
+    // Stryker disable next-line StringLiteral: the literal's exact text is unobservable — see the comment above; react-query only needs it to be STABLE and distinct from unrelated queries, not any particular string
     queryKey: ['exchange-rate', rateDateParam],
     queryFn: () =>
       api.get<ExchangeRates>(`/finance/exchange-rate?date=${rateDateParam}`).then((r) => r.data),
@@ -202,7 +210,26 @@ export function SettleSeniorPayoutDialog({
   // from the requested date — the same graceful holiday/weekend fallback
   // `PendingSettlementService` accepts server-side (see `rates.rateDate` in
   // nbu-currency.service.ts). Shown BEFORE submit, next to the amount.
-  const rateDateDiffers = !!rates?.rateDate && rates.rateDate !== rateDateParam
+  //
+  // Precomputed as the full STRING (not just a boolean) — rather than an
+  // inline `{rateDateDiffers && rates?.rateDate && (<p>…</p>)}` in the JSX
+  // below — for two reasons: (1) early returns give TS a single, genuine
+  // narrowing point for `rates.rateDate` (no REDUNDANT second `?.` needed,
+  // unlike a chained `&&` condition would require); (2) any Stryker
+  // suppression this needs can be a plain `//` comment here — JSX children
+  // only support `{/* */}` block comments, which Stryker's "disable
+  // next-line" scanner does not recognise.
+  const rateDateNote = ((): string | null => {
+    // `rates` is genuinely `undefined` on every render before the query
+    // resolves — this `?.` is a REAL defensive check, not a redundant one:
+    // removing it would throw on that (extremely common — every DROP
+    // dialog mount goes through it) render pass.
+    if (!rates?.rateDate) return null
+    // TS narrows `rates.rateDate` to `string` for the rest of this closure
+    // from the guard above — no further `?.` needed anywhere below.
+    if (rates.rateDate === rateDateParam) return null
+    return `На ${fmtYyyymmdd(rateDateParam)} курс НБУ недоступен — применён курс за ${fmtYyyymmdd(rates.rateDate)}`
+  })()
 
   // The obligation, re-expressed in the currency being paid. `null` while the
   // rates are loading (or unusable) — the amount field then stays empty
@@ -439,20 +466,12 @@ export function SettleSeniorPayoutDialog({
                 className="w-full"
                 data-testid="settle-senior-txdate"
               />
-              {/* `rates?.rateDate` here is a TS-narrowing guard for the
-                  `rates.rateDate` read below — behaviorally redundant at
-                  runtime: `rateDateDiffers` is DEFINED as `!!rates?.rateDate
-                  && …` (see above), so `rateDateDiffers === true` already
-                  PROVES `rates.rateDate` is truthy; this can never be the
-                  clause that decides whether the note renders. */}
-              {/* Stryker disable next-line LogicalOperator,OptionalChaining: see the comment above — `rateDateDiffers` truthy already implies `rates?.rateDate` truthy by construction (its own definition four lines up), so no test can make this second operand the deciding factor either way */}
-              {rateDateDiffers && rates?.rateDate && (
+              {rateDateNote && (
                 <p
                   className="text-[11px] text-muted-foreground"
                   data-testid="settle-senior-rate-date-note"
                 >
-                  На {fmtYyyymmdd(rateDateParam)} курс НБУ недоступен — применён курс за{' '}
-                  {fmtYyyymmdd(rates.rateDate)}
+                  {rateDateNote}
                 </p>
               )}
             </div>
