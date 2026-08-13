@@ -669,6 +669,24 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     invalidateSpy.mockRestore()
   })
 
+  it('DOES invalidate `projects` when `open` flips false→true on an already-mounted dialog — the effect must re-run on that transition, not only once at mount (empty deps array would miss this)', () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    const { rerender } = render(
+      <QueryClientProvider client={qc}>
+        <CreateTransactionDialog open={false} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects'] })
+    rerender(
+      <QueryClientProvider client={qc}>
+        <CreateTransactionDialog open onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
+    invalidateSpy.mockRestore()
+  })
+
   it('appears the instant a drop-bearing USDT project is selected — BEFORE any amount is typed', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
