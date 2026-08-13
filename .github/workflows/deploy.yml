@@ -1204,6 +1204,44 @@ jobs:
           # apps/api/drizzle/manual/2026-08-12_admin_income_drop_backfill_report.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-12_admin_income_drop_backfill_report.sql
 
+      # ── drop-obligation company-name snapshot DDL — GUARDED, same reason as the blocks above ──
+      # task-drop-sees-own-obligations (PR #523, fix/drop-sees-own-obligations): adds a
+      # nullable `company_name_snapshot` column to `transactions` — freezes
+      # `projects.companyName` onto a DROP_PENDING_PAYOUT/PAYOUT_DROP obligation row at
+      # booking time, the same "snapshot at creation" contract `drop_share_percent`/
+      # `senior_share_percent` already use on this same row (see the DDL file's own header
+      # for the full reasoning: a live join to `projects.companyName` let a later project
+      # rename silently rewrite what a drop reads as the history of money already booked
+      # under the OLD name). Fully additive, no existing column touched — same shape as the
+      # job-sourcing/senior-resume/job-source-budgets/admin-income-backfill module DDL above,
+      # not order-critical the way an enum-VALUE addition to an already-live enum is (Step
+      # 2r). DevOps zone-of-write excludes apps/api/**, so this wiring lands separately from
+      # the Coder branch that creates the file — same guarded copy + notice-skip pattern as
+      # every block above. PR #523 has not merged at the time this infra-PR lands — a missing
+      # file here is the expected steady state until it does, not an error.
+      - name: Check for drop-obligation company-name snapshot DDL file (guard until PR #523 merges)
+        id: drop-obligation-company-name-snapshot-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql not found in checkout — task-drop-sees-own-obligations (PR #523) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy drop-obligation company-name snapshot DDL via SCP (only if present)
+        if: steps.drop-obligation-company-name-snapshot-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -2371,6 +2409,100 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$ADMIN_INCOME_DROP_BACKFILL_REPORT_FILE"
               echo "==> admin-income drop-backfill report DDL applied successfully"
+            fi
+
+            # ── Step 2y: drop-obligation company-name snapshot COLUMN (idempotent, GUARDED) ───
+            # task-drop-sees-own-obligations (PR #523): adds `company_name_snapshot` (a
+            # nullable varchar on `transactions`) — freezes `projects.companyName` onto a
+            # DROP_PENDING_PAYOUT/PAYOUT_DROP obligation row at booking time so a later
+            # project rename cannot retroactively rewrite what a drop already read as the
+            # history of money booked under the OLD name. See the DDL file's own header for
+            # the full reasoning. Fully additive, no existing column touched — same shape as
+            # the job-sourcing/senior-resume/job-source-budgets/admin-income-backfill module
+            # DDL above (Step 2s-2w), not order-critical the way an enum-VALUE addition to an
+            # already-live enum is (Step 2r). GUARDED for the same reason as the blocks above
+            # — DevOps zone-of-write excludes apps/api/**, this wiring lands separately from
+            # the Coder branch, and a missing file here is the expected steady state until
+            # #523 merges, not an error. copy-compose job's matching "Check for drop-
+            # obligation company-name snapshot DDL file" step mirrors this guard on the scp
+            # side.
+            #
+            # Placed BEFORE Step 3 (like every DDL step above): once #523's code ships, every
+            # `bookCompanyObligations` call writes this column on the DROP/senior obligation
+            # rows it books — a new api image against an un-migrated DB would error on that
+            # write. The reverse order is safe: applying this file while the OLD image still
+            # runs is a no-op for it (the column is simply unused until that image ships).
+            #
+            # ORDER REQUIRED vs Step 2z immediately below (not merely "placement before Step
+            # 3"): `non_deleted_transactions` (Step 2p, above) is `CREATE OR REPLACE VIEW ...
+            # SELECT *` — Postgres does NOT retroactively add a newly-created base-table
+            # column to an EXISTING view, even a `SELECT *` one, until the view is explicitly
+            # re-applied. Step 2p already ran earlier in this script, before this column
+            # existed, so on the deploy where #523 first merges, its rebuild of the view was
+            # against the OLD column list. Step 2z immediately below re-applies that same view
+            # file a second time, now that the column exists, so every finance read that goes
+            # through the view (getAdminBalance / getSeniorBalance / getTotalEarned /
+            # getOwnSalaryStatus, and now getDropSelfIncomes) sees `company_name_snapshot`
+            # starting with THIS deploy, not the next one — this is exactly the
+            # `error: column "company_name_snapshot" does not exist` failure the migration's
+            # own author hit and documented while verifying this file on crm_qa (see the DDL
+            # file's header). Never reorder this step after Step 2z.
+            #
+            # Idempotent: ADD COLUMN IF NOT EXISTS — safe to re-run on every deploy, forever.
+            # Source: apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql
+            DROP_OBLIGATION_COMPANY_NAME_SNAPSHOT_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql"
+
+            if [ ! -f "$DROP_OBLIGATION_COMPANY_NAME_SNAPSHOT_FILE" ]; then
+              echo "::notice::Drop-obligation company-name snapshot DDL file not found at $DROP_OBLIGATION_COMPANY_NAME_SNAPSHOT_FILE — task-drop-sees-own-obligations (PR #523) has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying drop-obligation company-name snapshot DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$DROP_OBLIGATION_COMPANY_NAME_SNAPSHOT_FILE"
+              echo "==> drop-obligation company-name snapshot DDL applied successfully"
+            fi
+
+            # ── Step 2z: non_deleted_transactions VIEW re-apply #2 (idempotent, GUARDED, order-dependent on Step 2y) ──
+            # Companion step required by Step 2y's own DDL file header (see
+            # apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql).
+            # This is the SAME view file Step 2p already applies earlier in this script — that
+            # first application ran BEFORE Step 2y existed as a step, so on the deploy where
+            # #523 first merges, Step 2p's rebuild was against `transactions` WITHOUT
+            # `company_name_snapshot` yet (see Step 2y's own comment above for the failure this
+            # avoids). Re-applying the identical file here, immediately after Step 2y adds the
+            # column, is what actually closes that gap on THIS deploy rather than the next one
+            # — `CREATE OR REPLACE VIEW` is a full rebuild against the table's CURRENT column
+            # list, not an incremental diff, so running it twice in one deploy is redundant
+            # work, not a correctness risk.
+            #
+            # GUARDED on the SAME file-presence check as Step 2y (not the view file's own
+            # presence, which is unconditionally true already, per Step 2p above) — this
+            # second application only has a reason to exist once #523's column file is also
+            # present; skip it whenever Step 2y skips, for the same reason.
+            #
+            # ORDER-DEPENDENT on Step 2y immediately above — never reorder this step ahead of
+            # it. Idempotent otherwise: `CREATE OR REPLACE VIEW`, same as Step 2p.
+            # Source: apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql
+            NON_DELETED_TX_VIEW_REAPPLY_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-03_non_deleted_transactions_view.sql"
+
+            if [ ! -f "$DROP_OBLIGATION_COMPANY_NAME_SNAPSHOT_FILE" ]; then
+              echo "::notice::Skipping non_deleted_transactions view re-apply — task-drop-sees-own-obligations (PR #523) has not merged to main yet, so there is no new column for it to pick up early. Step 2p above already keeps the view current for every other column."
+            elif [ ! -f "$NON_DELETED_TX_VIEW_REAPPLY_FILE" ]; then
+              echo "::notice::non_deleted_transactions view DDL file not found at $NON_DELETED_TX_VIEW_REAPPLY_FILE — unexpected, since Step 2p above already found it. Skipping this step."
+            else
+              echo "==> Re-applying non_deleted_transactions view DDL to pick up company_name_snapshot (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$NON_DELETED_TX_VIEW_REAPPLY_FILE"
+              echo "==> non_deleted_transactions view DDL re-applied successfully"
             fi
 
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
