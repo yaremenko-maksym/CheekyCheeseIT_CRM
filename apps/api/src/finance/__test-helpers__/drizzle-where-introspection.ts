@@ -37,7 +37,9 @@
  * shape) reads only what was actually bound.
  */
 export function collectParamValues(node: unknown, visited = new Set<unknown>()): unknown[] {
-  if (node === null || node === undefined) return []
+  if (node === null) return []
+  // Stryker disable next-line EqualityOperator,ConditionalExpression: a PROVABLY equivalent mutant, not an untested one — `typeof node !== 'object'` three lines below already returns `[]` for `undefined` on its own (`typeof undefined === 'undefined'`, never `'object'`), so removing this check changes no observable input/output pair; it stays only so a reader doesn't have to re-derive that JS invariant. The sibling `null` check right above is NOT equivalent (`typeof null === 'object'`, so without it `'value' in null` throws) — see drizzle-where-introspection.spec.ts for both, proven empirically.
+  if (node === undefined) return []
   if (Array.isArray(node)) return node.flatMap((v) => collectParamValues(v, visited))
   if (typeof node !== 'object') return []
   if (visited.has(node)) return []
