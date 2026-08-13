@@ -126,6 +126,21 @@ const DROP_SHARE_OVERRIDE = 12
 // created at or after this instant is out of this one-time backfill's scope.
 const CUTOFF_ISO = '2026-08-13T00:00:00.000Z'
 
+// Every fixture in this spec that must land BEFORE CUTOFF_ISO (i.e. every
+// ADMIN_INCOME row seeded as a would-be candidate, and every project's
+// start_date, neither of which this spec means to test the value of) gets
+// this literal instead of relying on the wall clock. Deliberately a fixed
+// past date, not "CUTOFF_ISO minus a day" or similar arithmetic — it must
+// stay unambiguously before the cutoff even if a future PR moves the cutoff
+// itself, and it must never accidentally equal `now()` no matter when this
+// suite runs. Post-mortem: this file originally seeded these rows with
+// `now()` (via `COALESCE($n::timestamptz, now())` / a bare `now()` literal),
+// which happened to be before CUTOFF_ISO at authorship time and silently
+// stopped being true the instant the wall clock crossed the cutoff — the
+// whole suite went red at 2026-08-13T00:00 UTC with no code change. See this
+// PR's body for the full incident writeup.
+const SAFE_BEFORE_CUTOFF_ISO = '2020-01-01T00:00:00.000Z'
+
 let pool: Pool | null = null
 let dbAvailable = false
 
@@ -166,16 +181,23 @@ async function seedIncome(
   amount: string,
   opts: { deleted?: boolean; currency?: string; createdAt?: string } = {},
 ): Promise<void> {
+  // Deliberately NOT `COALESCE($n::timestamptz, now())` — every caller that
+  // omits `createdAt` (i.e. every "this should be a candidate" fixture in
+  // this file) now gets a fixed pre-cutoff instant instead of the wall
+  // clock, which is what silently broke this whole suite the moment `now()`
+  // crossed CUTOFF_ISO. Callers that DO care about a specific instant (e.g.
+  // MED-B, testing the cutoff boundary itself) still pass `createdAt`
+  // explicitly and are unaffected.
   await query(
     `INSERT INTO transactions (id, type, status, amount, currency, sender_label, receiver_id, project_id, created_by, tx_date, deleted_at, created_at)
-     VALUES ($1, 'ADMIN_INCOME', 'PAID', $2, $3, 'Backfill Spec Co', $4, $5, $4, COALESCE($6::timestamptz, now()), $7, COALESCE($6::timestamptz, now()))`,
+     VALUES ($1, 'ADMIN_INCOME', 'PAID', $2, $3, 'Backfill Spec Co', $4, $5, $4, $6::timestamptz, $7, $6::timestamptz)`,
     [
       id,
       amount,
       opts.currency ?? 'USDT',
       ADMIN_ID,
       projectId,
-      opts.createdAt ?? null,
+      opts.createdAt ?? SAFE_BEFORE_CUTOFF_ISO,
       opts.deleted ? new Date() : null,
     ],
   )
@@ -239,14 +261,29 @@ describe('admin-income-drop-backfill report + apply + detail SQL (real DB)', () 
       [ADMIN_ID, SENIOR_ID, DROP_ID, DROP_SHARE_DEFAULT],
     )
 
+    // start_date is NOT read by the report/apply predicate (only
+    // transactions.created_at is, via the ADMIN_INCOME cutoff check above)
+    // and is required NOT NULL by the schema with no default — it is
+    // seeded from the same fixed pre-cutoff constant as everything else in
+    // this file purely so nothing here reads from the wall clock, not
+    // because any assertion currently depends on its value.
     await query(
       `INSERT INTO projects (id, name, company_name, domain, start_date, senior_id, drop_id, rate, currency, payment_type, drop_share_percent_override)
        VALUES
-         ($1, 'AIDB Candidate', 'AIDB Candidate Co', 'ai', now(), $5, $6, 1000, 'USDT', 'USDT', NULL),
-         ($2, 'AIDB Non-USDT', 'AIDB NonUSDT Co', 'ai', now(), $5, $6, 1000, 'USDT', 'FOP', NULL),
-         ($3, 'AIDB Ambiguous', 'AIDB Ambiguous Co', 'ai', now(), $5, $6, 1000, 'USDT', 'USDT', NULL),
-         ($4, 'AIDB Override', 'AIDB Override Co', 'ai', now(), $5, $6, 1000, 'USDT', 'USDT', $7)`,
-      [P_CANDIDATE, P_NONUSDT, P_AMBIGUOUS, P_OVERRIDE, SENIOR_ID, DROP_ID, DROP_SHARE_OVERRIDE],
+         ($1, 'AIDB Candidate', 'AIDB Candidate Co', 'ai', $8::timestamptz, $5, $6, 1000, 'USDT', 'USDT', NULL),
+         ($2, 'AIDB Non-USDT', 'AIDB NonUSDT Co', 'ai', $8::timestamptz, $5, $6, 1000, 'USDT', 'FOP', NULL),
+         ($3, 'AIDB Ambiguous', 'AIDB Ambiguous Co', 'ai', $8::timestamptz, $5, $6, 1000, 'USDT', 'USDT', NULL),
+         ($4, 'AIDB Override', 'AIDB Override Co', 'ai', $8::timestamptz, $5, $6, 1000, 'USDT', 'USDT', $7)`,
+      [
+        P_CANDIDATE,
+        P_NONUSDT,
+        P_AMBIGUOUS,
+        P_OVERRIDE,
+        SENIOR_ID,
+        DROP_ID,
+        DROP_SHARE_OVERRIDE,
+        SAFE_BEFORE_CUTOFF_ISO,
+      ],
     )
   }, 30_000)
 
