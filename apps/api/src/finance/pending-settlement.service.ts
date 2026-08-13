@@ -537,8 +537,19 @@ export class PendingSettlementService {
       // (not only when the currency changed), so a reader never has to guess
       // whether a NULL original_amount means "unchanged" or "settled before
       // this flow existed" (the latter — see the schema.ts column comment).
+      // LOW (security-review PR #521 round 2): since the `transactionAmountError`
+      // gate above ALREADY guarantees `paidAmount` is finite and strictly
+      // positive, and `paidAmount` is always `obligationAmount` itself
+      // (same-currency branch) or `obligationAmount × <a positive NBU rate>`
+      // (convertToBase never flips sign, and a rate is always > 0), the two
+      // provably share the same sign and finiteness by construction — a
+      // non-finite or non-positive `obligationAmount` would have produced a
+      // non-finite or non-positive `paidAmount` too, which the gate above
+      // already rejected. This condition is therefore true on every path that
+      // reaches it; kept as defense-in-depth documentation of that invariant,
+      // not because any live input can still make it false.
       const rawExchangeRate =
-        // Stryker disable next-line EqualityOperator: `> 0` vs `>= 0` differ ONLY at obligationAmount===0 exactly — and at 0, convertToBase (a linear scaling of 0) always returns paidAmount=0 too, so the ratio is 0/0=NaN under EITHER reading, and isStorableExchangeRate(NaN) below is false either way — the two are provably indistinguishable by their output
+        // Stryker disable next-line ConditionalExpression,LogicalOperator,EqualityOperator: unreachable-false — see the comment above; `transactionAmountError(paidAmount)` a few lines up already guarantees this condition holds by construction on every path that reaches here, so no test can drive it to the `: null` branch through settleByCompany
         Number.isFinite(obligationAmount) && obligationAmount > 0
           ? paidAmount / obligationAmount
           : null

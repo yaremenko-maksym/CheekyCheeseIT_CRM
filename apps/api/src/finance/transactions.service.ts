@@ -1127,6 +1127,14 @@ export class TransactionsService {
       // USD/USDT-only ledgers; absent → treated as USD (identity). The admin
       // summary + drop self-summary now always pass it.
       currency?: string
+      // task-drop-payout-currency (MED-3, security-review PR #521 round 1):
+      // the obligation snapshot a currency-converted DROP settle stamps (see
+      // pending-settlement.service.ts) — always denominated in USDT (pegged
+      // 1:1 to USD), so it needs no rate at all. Optional/nullable: absent on
+      // every row that never went through that flow (a SENIOR_INCOME, a
+      // same-currency settle before this column existed, etc.).
+      originalAmount?: string | null
+      originalCurrency?: string | null
       senderId: string | null
       receiverId: string | null
     }>,
@@ -1146,8 +1154,32 @@ export class TransactionsService {
 
     // Audit 2026-06-28 (#4): convert each amount to base (USD) BEFORE scaling so a
     // mixed-currency drop ledger sums coherently. USD/USDT → byte-exact identity.
-    const baseAmount = (tx: { amount: string; currency?: string }): number =>
-      rates
+    //
+    // task-drop-payout-currency (MED-3, security-review PR #521 round 1): a
+    // DROP settle paid in a non-obligation currency (say UAH) stamps the FACT
+    // (`amount`/`currency` = the UAH figure) AND the pre-conversion obligation
+    // (`originalAmount`/`originalCurrency` = the USDT figure, see
+    // settleByCompany). Re-converting the FACT via CURRENT rates on every read
+    // makes an already-closed, immutable obligation drift over time purely
+    // because NBU rates moved — a settled 1000 USDT payout would silently
+    // read back as ~965 USD a month later at a different UAH/USD rate. The
+    // pinned `originalAmount` is ALWAYS USDT (pegged 1:1 to USD — see the
+    // MED-1 invariant assert in settleByCompany), so using it needs no rate
+    // and never drifts. Rows that never went through that flow (no
+    // `originalAmount`) keep the pre-existing behaviour byte-for-byte.
+    const baseAmount = (tx: {
+      amount: string
+      currency?: string
+      originalAmount?: string | null
+      originalCurrency?: string | null
+    }): number => {
+      if (
+        tx.originalAmount != null &&
+        (tx.originalCurrency === 'USD' || tx.originalCurrency === 'USDT')
+      ) {
+        return parseFloat(tx.originalAmount)
+      }
+      return rates
         ? convertToBase(
             parseFloat(tx.amount),
             (tx.currency ?? 'USD') as BalanceCurrency,
@@ -1155,6 +1187,7 @@ export class TransactionsService {
             rates,
           )
         : parseFloat(tx.amount)
+    }
 
     const receivedScaled = paid
       .filter((tx) => tx.receiverId === drop.id && tx.type === 'PAYOUT_DROP')
@@ -1224,6 +1257,11 @@ export class TransactionsService {
       status: string
       amount: string
       currency?: string
+      // task-drop-payout-currency (MED-3): forwarded so computeDropAggregate
+      // can pin a currency-converted settle to its USDT snapshot instead of
+      // re-converting at CURRENT rates — see the extended comment there.
+      originalAmount?: string | null
+      originalCurrency?: string | null
       senderId: string | null
       receiverId: string | null
     }>

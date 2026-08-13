@@ -160,6 +160,23 @@ export function SettleSeniorPayoutDialog({
   // internally (calendar-day scoped) — ONE shared cache entry, not a second
   // request, exactly mirroring PaySalaryDialog. Only fetched for a DROP
   // payout (a SENIOR settle never shows the currency-conversion field).
+  //
+  // LOW (security-review PR #521 round 1, accepted as-is): `todayKey` is
+  // captured once per render, not re-derived on a timer — a tab left open
+  // across midnight keeps showing yesterday's cached rate until the NEXT
+  // re-render happens to recompute it, so the DISPLAYED figure can disagree
+  // with what the server will actually compute at submit time. This is a
+  // pre-existing pattern shared with `PaySalaryDialog`/`AmountCurrencyInput`
+  // (identical `todayKey`/`staleTime` shape, not introduced by this task) and
+  // it is NOT a money-integrity gap: unlike the amount, the server NEVER
+  // trusts a client-supplied figure here (the field is disabled — there is
+  // nothing to trust) and always recomputes from its own fresh
+  // `NbuCurrencyService.getRates()` call at settle time. The worst case is a
+  // stale on-screen preview corrected the moment the mutation resolves —
+  // not a wrong payout. Fixing the display-side day-rollover would mean
+  // reworking the shared cache-key convention across all three call sites,
+  // out of proportion for a cosmetic staleness window; left as a known,
+  // scoped, low-severity gap rather than a silent one.
   const todayKey = new Date().toISOString().slice(0, 10)
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', todayKey],

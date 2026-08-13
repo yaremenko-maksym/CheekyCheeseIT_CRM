@@ -332,8 +332,12 @@ describe('DROP obligation settle — currency conversion (real DB, task-drop-pay
     expect(row).toBeTruthy()
     expect(row!.status).toBe('PAID')
     expect(row!.currency).toBe('UAH')
-    // The ACTUAL DB write — to the penny (numeric(18,6), 6dp round-trip).
-    expect(parseFloat(row!.amount)).toBeCloseTo(predicted, 6)
+    // The ACTUAL DB write — to the penny. LOW (security-review PR #521
+    // round 1): the service rounds to money precision (2dp) before writing,
+    // so compare against the ROUNDED prediction — the same figure a caller
+    // displaying `.toFixed(2)` would show (AC3's actual promise: shown ===
+    // recorded, not "close to within a few micro-units").
+    expect(parseFloat(row!.amount)).toBeCloseTo(Math.round(predicted * 100) / 100, 6)
     expect(predicted).toBeCloseTo(41500, 2) // 1000 USDT * 41.50 UAH/USD
 
     // AC4: obligation snapshot stamped.
@@ -363,7 +367,10 @@ describe('DROP obligation settle — currency conversion (real DB, task-drop-pay
     const row = await payoutDropRow()
     expect(row).toBeTruthy()
     expect(row!.currency).toBe('EUR')
-    expect(parseFloat(row!.amount)).toBeCloseTo(predicted, 6)
+    expect(parseFloat(row!.amount)).toBeCloseTo(Math.round(predicted * 100) / 100, 6)
+    // LOW: this pair's raw division genuinely carries more than 2 decimals —
+    // proves the comparison above exercises real rounding.
+    expect(Math.round(predicted * 100) / 100).not.toBe(predicted)
   })
 
   // ── AC2/AC4: default (same-currency) — no conversion, snapshot still stamped ──
@@ -443,5 +450,64 @@ describe('DROP obligation settle — currency conversion (real DB, task-drop-pay
         ...FILE_RECEIPT,
       }),
     ).resolves.toBeDefined()
+  })
+
+  // ── MED-1 (security-review PR #521 round 1): a corrupted obligation.currency
+  // against a REAL row/REAL numeric column — not just the mocked unit spec ──
+  it('MED-1: a corrupted obligation.currency (not USDT) is rejected against the real DB, never silently relabeled', async () => {
+    if (!dbAvailable) return
+    // Directly corrupt the seeded obligation's currency (bypassing every
+    // normal write path, which always books USDT) to simulate legacy/bad data.
+    await dbSvc.db
+      .update(pendingObligations)
+      .set({ currency: 'EUR' })
+      .where(eq(pendingObligations.id, OBLIGATION_ID))
+
+    await expect(
+      settleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN.id,
+        ...FILE_RECEIPT,
+      }),
+    ).rejects.toThrow(/USDT/)
+
+    // Nothing was written — the obligation is still open, the source IOU
+    // untouched.
+    const stillPending = await dbSvc.db.query.pendingObligations.findFirst({
+      where: and(
+        eq(pendingObligations.id, OBLIGATION_ID),
+        eq(pendingObligations.status, 'PENDING'),
+      ),
+    })
+    expect(stillPending).toBeTruthy()
+  })
+
+  // ── MED-2 (security-review PR #521 round 1): a stale NBU rate against a
+  // REAL settle call — a separate PendingSettlementService instance wired to
+  // a stale-rate stub, sharing the SAME real DB connection ──
+  it('MED-2: a stale NBU rate is refused — nothing is written to the real DB', async () => {
+    if (!dbAvailable) return
+    const staleNbu: Pick<NbuCurrencyService, 'getRates'> = {
+      getRates: () => Promise.resolve({ ...FIXED_RATES, stale: true }),
+    }
+    const staleSvc = new PendingSettlementService(
+      dbSvc,
+      stubInvoices,
+      staleNbu as NbuCurrencyService,
+    )
+
+    await expect(
+      staleSvc.settleByCompanySourceTransaction(SOURCE_TX_ID, ACCOUNTANT, {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN.id,
+        currency: 'UAH',
+        ...FILE_RECEIPT,
+      }),
+    ).rejects.toThrow(/курс/i)
+
+    const stillPendingPayment = await dbSvc.db.query.transactions.findFirst({
+      where: eq(transactions.id, SOURCE_TX_ID),
+    })
+    expect(stillPendingPayment?.status).toBe('PENDING_PAYMENT')
   })
 })

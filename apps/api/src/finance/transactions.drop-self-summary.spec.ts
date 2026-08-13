@@ -28,9 +28,10 @@
  * (drop.rbac.integration.spec.ts) pins the same behaviour against a real DB.
  */
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import type { NbuCurrencyService } from './nbu-currency.service'
 
 // ── Session user factory ────────────────────────────────────────────────────
 
@@ -53,6 +54,11 @@ type TxStub = {
   type: string
   status: string
   amount: string
+  currency?: string
+  // task-drop-payout-currency (MED-3): the obligation snapshot a currency-
+  // converted DROP settle stamps — see computeDropAggregate/settleByCompany.
+  originalAmount?: string | null
+  originalCurrency?: string | null
   senderId: string | null
   receiverId: string | null
 }
@@ -68,7 +74,11 @@ type UserRow = {
  *  - users.findFirst → the supplied self row (or undefined to simulate 404)
  *  - transactions.findMany → the supplied ledger
  */
-function makeSvc(self: UserRow | undefined, txs: TxStub[]) {
+function makeSvc(
+  self: UserRow | undefined,
+  txs: TxStub[],
+  nbuCurrencyService?: NbuCurrencyService,
+) {
   const dbStub = {
     db: {
       query: {
@@ -81,7 +91,7 @@ function makeSvc(self: UserRow | undefined, txs: TxStub[]) {
       },
     },
   }
-  return makeTransactionsService({ db: dbStub as never })
+  return makeTransactionsService({ db: dbStub as never, nbuCurrencyService })
 }
 
 const DROP_ID = 'drop-A'
@@ -308,5 +318,149 @@ describe('getDropSelfSummary — #3: PAYOUT_DROP self-loop regression', () => {
     ])
     const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
     expect(res.balance).toBe(0)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MED-3 (security-review PR #521 round 1) — a currency-converted DROP settle
+// (task-drop-payout-currency) stamps `original_amount`/`original_currency`
+// (always USDT, pegged 1:1 to USD) alongside the FACT (`amount`/`currency`,
+// e.g. UAH). Re-converting the FACT at CURRENT NBU rates on every read makes
+// an already-closed, immutable payout drift over time purely because rates
+// moved after the fact — the pinned snapshot exists specifically to prevent
+// that.
+// ─────────────────────────────────────────────────────────────────────────────
+describe('getDropSelfSummary — MED-3: pinned obligation snapshot avoids rate drift', () => {
+  function rateStub(usdUah: string): NbuCurrencyService {
+    return {
+      getRates: vi.fn().mockResolvedValue({
+        usdUah,
+        usdtUah: usdUah,
+        eurUah: '44.80',
+        date: '2026-08-13',
+      }),
+    } as unknown as NbuCurrencyService
+  }
+
+  it('a UAH-settled PAYOUT_DROP with an original USDT snapshot balances at the PINNED figure, not the current-rate reconversion', async () => {
+    // Settled when 1000 USDT ≈ 41 500 UAH (rate 41.50) — the row the real
+    // settleByCompany would have written.
+    const row: TxStub = {
+      id: 'uah-settle',
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '41500',
+      currency: 'UAH',
+      originalAmount: '1000',
+      originalCurrency: 'USDT',
+      senderId: null,
+      receiverId: DROP_ID,
+    }
+    // The rate has since moved to 50.00 (a month later, say) — reading the
+    // ledger TODAY must not let that later rate change what an
+    // ALREADY-SETTLED payout is worth.
+    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    // Pinned via original_amount (1000 USDT ≡ $1000) — NOT the drifted
+    // reconversion (41500 / 50.00 = $830, which the OLD code would have
+    // returned and which moves every time this endpoint is read again).
+    expect(res.balance).toBe(1000)
+  })
+
+  it('control: the SAME row WOULD read as $830 if original_amount were absent (proves the fixture is a genuine drift, not a no-op)', async () => {
+    const row: TxStub = {
+      id: 'uah-settle-legacy',
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '41500',
+      currency: 'UAH',
+      // No original snapshot — a legacy/pre-feature row (or a SENIOR_INCOME,
+      // which never carries one either) — falls back to the pre-existing
+      // reconvert-at-current-rate behaviour, unchanged.
+      senderId: null,
+      receiverId: DROP_ID,
+    }
+    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.balance).toBe(830) // 41500 / 50.00 — the drifted figure
+  })
+
+  it('a same-currency USDT settle (original_amount === amount) is unaffected either way', async () => {
+    const row: TxStub = {
+      id: 'usdt-settle',
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '1000',
+      currency: 'USDT',
+      originalAmount: '1000',
+      originalCurrency: 'USDT',
+      senderId: null,
+      receiverId: DROP_ID,
+    }
+    const svc = makeSvc(selfRow, [row], rateStub('999.99'))
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.balance).toBe(1000)
+  })
+
+  // mutation-gate: every test above uses originalCurrency='USDT' only — the
+  // condition also accepts 'USD' (the other USD-pegged currency), which none
+  // of them distinguish from a mutant that silently drops the 'USD' branch.
+  it('original_currency=USD (the other pegged currency) is ALSO pinned directly', async () => {
+    const row: TxStub = {
+      id: 'usd-settle',
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '41500',
+      currency: 'UAH',
+      originalAmount: '1000',
+      originalCurrency: 'USD',
+      senderId: null,
+      receiverId: DROP_ID,
+    }
+    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.balance).toBe(1000) // pinned — NOT 41500/50.00=830
+  })
+
+  // mutation-gate: an original_currency OUTSIDE {USD, USDT} must NOT be
+  // treated as pinnable, even though original_amount is present — this is
+  // the case that actually exercises the `&&` (not `||`) and the real
+  // string comparisons, as opposed to always-true/false mutants.
+  it('original_currency outside {USD, USDT} (unexpected/defensive) is NOT pinned — falls back to reconversion', async () => {
+    const row: TxStub = {
+      id: 'eur-original-settle',
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '41500',
+      currency: 'UAH',
+      originalAmount: '1000',
+      originalCurrency: 'EUR', // never produced by settleByCompany (MED-1
+      // pins the invariant to USDT) — a defensive/corrupted-data case.
+      senderId: null,
+      receiverId: DROP_ID,
+    }
+    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.balance).toBe(830) // reconverted, NOT the (wrong) pinned 1000
+  })
+
+  // mutation-gate: original_currency='USDT' present WITHOUT original_amount
+  // (null) must not be treated as pinnable either — exercises the
+  // `tx.originalAmount != null` half of the condition specifically.
+  it('original_amount=null (original_currency present) is NOT pinned — falls back to reconversion', async () => {
+    const row: TxStub = {
+      id: 'null-original-amount',
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '41500',
+      currency: 'UAH',
+      originalAmount: null,
+      originalCurrency: 'USDT',
+      senderId: null,
+      receiverId: DROP_ID,
+    }
+    const svc = makeSvc(selfRow, [row], rateStub('50.00'))
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    expect(res.balance).toBe(830) // reconverted — null original_amount ignored
   })
 })
