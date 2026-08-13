@@ -74,6 +74,38 @@ describe('createAdminIncomeSchema — refineAdminIncomeCompanyAccountUsdt', () =
   })
 })
 
+describe('createAdminIncomeSchema — fundingSource is REJECTED, not stripped (security-review PR #522, MED-1)', () => {
+  it('rejects a legacy payload carrying `fundingSource` — z.object() defaults to strip(), which would have silently dropped this key and routed the income to the personal-credit default instead of failing loudly', () => {
+    const result = createAdminIncomeSchema.safeParse(
+      basePayload({ fundingSource: 'COMPANY_ACCOUNT' }),
+    )
+    expect(result.success).toBe(false)
+    const issue = !result.success
+      ? result.error.issues.find((i) => i.path[0] === 'fundingSource')
+      : undefined
+    expect(issue).toBeDefined()
+  })
+
+  it('rejects `fundingSource: ADMIN_PERSONAL` too — z.never() has no legitimate value, this is not a COMPANY_ACCOUNT-only guard', () => {
+    const result = createAdminIncomeSchema.safeParse(
+      basePayload({ fundingSource: 'ADMIN_PERSONAL' }),
+    )
+    expect(result.success).toBe(false)
+  })
+
+  it('accepts `fundingSource: undefined` explicitly passed (key present, value undefined) — z.never().optional() short-circuits on undefined before reaching the never() validator, same as the key being absent entirely', () => {
+    const result = createAdminIncomeSchema.safeParse(
+      basePayload({ receiverId: OTHER_ADMIN_UUID, fundingSource: undefined }),
+    )
+    expect(result.success).toBe(true)
+  })
+
+  it('accepts a payload where `fundingSource` is simply absent (the normal, current-shape request)', () => {
+    const result = createAdminIncomeSchema.safeParse(basePayload({ receiverId: OTHER_ADMIN_UUID }))
+    expect(result.success).toBe(true)
+  })
+})
+
 describe('createAdminIncomeSchema — receipt currency resolver (COMPANY_ACCOUNT → USDT, else d.currency)', () => {
   it('receiverId=COMPANY_ACCOUNT forces the EFFECTIVE currency to USDT for the receipt check — a non-explorer link is rejected even though the raw `currency` field says USDT', () => {
     const result = createAdminIncomeSchema.safeParse(

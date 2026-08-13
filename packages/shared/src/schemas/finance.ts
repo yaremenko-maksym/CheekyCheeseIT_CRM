@@ -694,6 +694,19 @@ export const createAdminIncomeSchema = z
       .nullable(),
     // Stryker disable next-line ArrayDeclaration: this array literal is evaluated ONCE at module-import time (schema construction), before any test's per-test coverage window opens, so Stryker's vitest-runner falls back to a single whole-suite run for this "static" mutant and reports 0 tests completed. Verified independently outside Stryker's sandbox (plain node, this repo's exact zod@4.3.6): `z.union([])` throws synchronously inside `new ZodUnion` the instant the module is imported — every test file importing anything from finance.ts would fail to even load. Not an equivalent mutant (it is a real, severe regression); real behavioural tests already exist accepting a UUID and the COMPANY_ACCOUNT sentinel for this exact field (createAdminIncomeSchema.spec.ts) — they just cannot register as "covering" a construction-time literal, a tool blind spot for module-scope Zod unions.
     receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]).optional(),
+    // security-review (PR #522, MED-1): `receiverId` REPLACED `fundingSource` on
+    // this schema, but z.object() defaults to `.strip()` — a legacy client tab
+    // (open before this change deployed) sending the OLD `fundingSource:
+    // 'COMPANY_ACCOUNT'` shape would have that key silently dropped, not
+    // rejected, and fall through to the personal-credit default. That is not
+    // merely "wrong receiver": `settlementConsumesTransfer(..., null)` (the
+    // funding-source-gated branch) returns false for the resulting row, so the
+    // on-chain tx hash never gets claimed in the consumed-hash registry — the
+    // exact double-spend window PR #438 (MED-1) closed reopens. Declaring the
+    // field explicitly as `z.never()` makes Zod REJECT any non-undefined value
+    // instead of stripping it, so a stale client gets a 400, not a silently
+    // mis-routed 201.
+    fundingSource: z.never().optional(),
   })
   .superRefine(refineAdminIncomeCompanyAccountUsdt)
   // task-receipts-backend: receipt MANDATORY. Effective currency = USDT when

@@ -76,6 +76,12 @@ import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
 // so the web pre-submit obligation-preview banner and this service compute the
 // exact same rounded share amount — see the module doc in packages/shared.
 import { MONEY_SCALE, roundShareAmount } from '@crm/shared'
+// Re-exported for backward compatibility: pre-move call sites (e.g.
+// admin-income-drop-backfill.integration.spec.ts, task-admin-income-drop-backfill,
+// merged independently of this move) still import `roundShareAmount` from this
+// file's old local-export surface — same binding as the @crm/shared import
+// above, not a second implementation.
+export { roundShareAmount }
 import { assertTransactionVisible, assertTransactionWritable } from './transaction-visibility.util'
 
 /**

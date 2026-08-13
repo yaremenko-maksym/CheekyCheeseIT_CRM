@@ -41,8 +41,17 @@ import * as schema from '../database/schema'
  *   POST /transactions/admin-transfer — ACCOUNTANT 201, ADMIN 201, JUNIOR/HR/SENIOR/DROP 403
  *
  * Parity invariants (asserted on the persisted rows):
- *   - ADMIN_INCOME created by ACCOUNTANT credits the admin OWNER of the project
+ *   - ADMIN_INCOME created by ACCOUNTANT with NO explicit receiverId (the
+ *     legacy default — see AC10 below) credits the admin OWNER of the project
  *     (receiverId = project.seniorId), NOT the accountant. createdBy = accountant.
+ *     task-admin-income-unified (2026-08-12, security-review PR #522, MED-2):
+ *     this is NOT an absolute "receiverId is never the accountant" invariant —
+ *     when the accountant picks receiverId=COMPANY_ACCOUNT (still allowed,
+ *     AC10), the persisted row's receiverId IS the accountant's own id
+ *     (mirrors declareUsdtProjectIncome: the caller is the audit-trail nominal
+ *     receiver, fundingSource='COMPANY_ACCOUNT' is what actually routes the
+ *     money — see transactions.service.ts createAdminIncome). The default-path
+ *     and COMPANY_ACCOUNT-path tests below assert each shape separately.
  *   - ADMIN_TRANSFER created by ACCOUNTANT books a transfer between two ADMINs
  *     (accountant is never a party). createdBy = accountant.
  *

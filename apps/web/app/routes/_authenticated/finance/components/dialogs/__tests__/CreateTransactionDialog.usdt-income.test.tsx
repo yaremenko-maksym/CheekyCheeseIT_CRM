@@ -649,6 +649,26 @@ describe('CreateTransactionDialog — EXPENSE funding-source toggle (shared rend
 })
 
 describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', () => {
+  it('invalidates the `projects` query on open — security-review (PR #522, LOW): the global 60s staleTime would otherwise let a stale share% (edited in another tab) leak into the obligation-preview percent', async () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['projects'] })
+    invalidateSpy.mockRestore()
+  })
+
+  it('does NOT invalidate `projects` while closed — the effect is gated on `open`, not fired unconditionally on mount', () => {
+    const invalidateSpy = vi.spyOn(QueryClient.prototype, 'invalidateQueries')
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <CreateTransactionDialog open={false} onClose={() => {}} />
+      </QueryClientProvider>,
+    )
+    expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['projects'] })
+    invalidateSpy.mockRestore()
+  })
+
   it('appears the instant a drop-bearing USDT project is selected — BEFORE any amount is typed', async () => {
     renderDialog()
     await screen.findByTestId('create-transaction-type-admin_income')
@@ -658,8 +678,26 @@ describe('CreateTransactionDialog — AC5/AC7/AC8: obligation-preview banner', (
     expect(screen.getByTestId('admin-income-obligation-preview-drop')).toBeInTheDocument()
     // Admin IS the senior on this project → no senior IOU line.
     expect(screen.queryByTestId('admin-income-obligation-preview-senior')).not.toBeInTheDocument()
-    // Shown immediately with amount=0 — visible, not a crash on empty input (AC7).
-    expect(screen.getByTestId('admin-income-obligation-amount-drop')).toHaveTextContent('0.00')
+    // security-review (PR #522, LOW): AC7 says an empty amount must make the
+    // BANNER stay silent about the number ("плашка про сумму молчит") — a
+    // literal "0.00 USDT" claims a zero share, the opposite of the truth (a
+    // share WILL be booked once an amount is entered). The amount span is
+    // therefore absent (not zeroed) at this point; the qualitative fact stays
+    // visible via the row's own text.
+    expect(screen.queryByTestId('admin-income-obligation-amount-drop')).not.toBeInTheDocument()
+    expect(screen.getByTestId('admin-income-obligation-preview-drop')).toHaveTextContent(
+      'будет создана доля',
+    )
+  })
+
+  it('a LITERAL "0" typed in the amount field ALSO hides the amount span — 0 is a valid number (unlike the empty/NaN case above) but not a POSITIVE one, and `hasPositiveAmount` must reject it too, not just "is this parseable"', async () => {
+    renderDialog()
+    await screen.findByTestId('create-transaction-type-admin_income')
+    await selectProject('USDT Own Project')
+    fireEvent.change(screen.getByPlaceholderText('0.00'), { target: { value: '0' } })
+    const row = await screen.findByTestId('admin-income-obligation-preview-drop')
+    expect(screen.queryByTestId('admin-income-obligation-amount-drop')).not.toBeInTheDocument()
+    expect(row).toHaveTextContent('будет создана доля')
   })
 
   it('recomputes live as the amount field changes, matching roundShareAmount exactly (AC6)', async () => {

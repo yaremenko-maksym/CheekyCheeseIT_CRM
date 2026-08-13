@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertCircle, ArrowLeftRight, Coins, TrendingUp, Wallet } from 'lucide-react'
 import { toast } from 'sonner'
@@ -323,6 +323,18 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
     queryFn: () => api.get<ProjectOption[]>('/projects').then((r) => r.data),
     enabled: open && (isAdmin || isSenior || isDrop || isAccountant),
   })
+
+  // security-review (PR #522, LOW): the global QueryClient has a 60s
+  // `staleTime` — without this, reopening the dialog within that window
+  // would keep serving a stale `['projects']` cache (e.g. a share% edited in
+  // another tab moments ago), and the obligation-preview banner (AC5/AC6/AC7)
+  // would predict against that stale percent. `invalidateQueries` on every
+  // `open` transition forces a fresh fetch for the ACTIVE observer above
+  // (`enabled: open`), so the banner's percent is never older than "this
+  // dialog session".
+  useEffect(() => {
+    if (open) qc.invalidateQueries({ queryKey: ['projects'] })
+  }, [open, qc])
 
   const { data: allUsers = [] } = useQuery<UserOption[]>({
     queryKey: ['users-all'],
@@ -867,6 +879,11 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
   const showObligationBanner =
     // Stryker disable next-line ConditionalExpression, LogicalOperator: empirically verified equivalent (full dialog suite, 112/112 tests, still green with the `type === 'ADMIN_INCOME'` clause forced `true`) — `obligationPreviews.length > 0` can only be true when `isSelectedProjectUsdt` is true (computed above), which itself requires `type === 'ADMIN_INCOME'` — this clause repeats a condition `obligationPreviews` already enforces via its own gate two lines up.
     type === 'ADMIN_INCOME' && isSelectedProjectUsdt && obligationPreviews.length > 0
+  // security-review (PR #522, LOW): AC7 says "пустое поле или ноль → плашка про
+  // сумму молчит" — a literal 0.00 reads as "no share", not "amount unknown",
+  // so the amount clause is hidden (not zeroed) whenever the raw input isn't a
+  // usable positive number.
+  const hasPositiveAmount = !isNaN(amtNum) && amtNum > 0
 
   return (
     <Dialog
@@ -1483,13 +1500,26 @@ export function CreateTransactionDialog({ open, onClose }: { open: boolean; onCl
                 key={p.role}
                 data-testid={`admin-income-obligation-preview-${p.role.toLowerCase()}`}
               >
-                {p.roleLabel} <span className="font-medium">{p.name}</span> будет начислено{' '}
-                <span
-                  className="font-bold tabular-nums"
-                  data-testid={`admin-income-obligation-amount-${p.role.toLowerCase()}`}
-                >
-                  {fmtUsdt(p.amount)} USDT
-                </span>{' '}
+                {p.roleLabel} <span className="font-medium">{p.name}</span>{' '}
+                {hasPositiveAmount ? (
+                  <>
+                    будет начислено{' '}
+                    <span
+                      className="font-bold tabular-nums"
+                      data-testid={`admin-income-obligation-amount-${p.role.toLowerCase()}`}
+                    >
+                      {fmtUsdt(p.amount)} USDT
+                    </span>{' '}
+                  </>
+                ) : (
+                  // task-admin-income-unified (§3, AC7): an empty/zero amount must NOT
+                  // claim a $0.00 figure — that reads as "no share will be created",
+                  // the opposite of the truth. Stay silent on the number, keep the
+                  // qualitative fact ("a share WILL be booked") — see the module doc
+                  // above §3 for why the condition is deliberately wider than "receiver
+                  // is an admin".
+                  'будет создана доля '
+                )}
                 (доля {p.percent}%, источник:{' '}
                 <span data-testid={`admin-income-obligation-source-${p.role.toLowerCase()}`}>
                   {p.sourceLabel}
