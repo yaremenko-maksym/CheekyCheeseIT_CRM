@@ -569,7 +569,22 @@ jobs:
       matrix:
         shard:
           - name: auth-nav
-            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts
+            # tests/crm-tab-title.spec.ts (task-crm-tab-distinguishable, PR #528,
+            # fix/crm-tab-distinguishable, not yet merged as of this line landing):
+            # asserts the CRM tab's document.title starts with "CRM" and survives
+            # client-side navigation via the mobile Sheet nav — same shape as
+            # tests/navigation.spec.ts (client-side nav) and
+            # tests/app-shell-responsive.spec.ts (mobile Sheet/app-shell) already
+            # in this shard, and same mocked-auth pattern as tests/auth.spec.ts
+            # (mockAuthAs fixture, no real backend calls). Wired ahead of the merge
+            # on purpose, same precedent as tests/drop-payout-currency.spec.ts in
+            # the drop-finance shard (PR #524): the shard-coverage guard
+            # (scripts/devops/check-e2e-shard-coverage.py) parses this `files:`
+            # line as plain text regardless of whether the file exists on disk yet,
+            # so listing it here now is a no-op today and self-activates the
+            # moment #528 merges — no follow-up PR needed, no window where the
+            # spec lands on main unsharded.
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts
           - name: team-users
             files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
           - name: projects
