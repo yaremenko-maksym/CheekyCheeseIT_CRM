@@ -246,6 +246,24 @@ check_directive_not_contains() {
   fi
 }
 
+# task-infra-webmanifest-mime: asserts the exact HTTP status code — none of
+# the header-focused helpers above check this, and the landing regression
+# guard below (SPA fallback silently returning 200 instead of a real 404)
+# needs it. Args: description, path, Host header value, expected status code.
+check_status_code() {
+  local desc="$1" path="$2" host="$3" want="$4"
+  local got
+  got="$(curl -sS -k --max-time 10 -o /dev/null -w '%{http_code}' -H "Host: $host" "$ORIGIN$path" 2>/dev/null)"
+
+  if [[ "$got" == "$want" ]]; then
+    PASS=$((PASS + 1))
+    printf 'PASS  %-70s %s\n' "$desc" "$got"
+  else
+    FAIL=$((FAIL + 1))
+    printf 'FAIL  %-70s got=%s (want: %s)\n' "$desc" "$got" "$want"
+  fi
+}
+
 echo "== check-security-headers.sh — origin: $ORIGIN =="
 echo
 
@@ -389,6 +407,27 @@ check_header_absent "Scope: landing does NOT send Reporting-Endpoints" \
 # ── Baseline: landing still gets its own full header set (no regression) ──
 check_header_present "landing: / carries HSTS" \
   "/" "$LANDING_HOST" "Strict-Transport-Security"
+
+# ── task-infra-webmanifest-mime: Web App Manifest regression guard ────────
+# Two independent defects, found live (curl -I against production):
+#   1. CRM served /site.webmanifest as `application/octet-stream` (nginx's
+#      stock mime.types has no `.webmanifest` entry, see the `types {}`
+#      block added to nginx/nginx.conf in this PR) instead of the spec-
+#      required `application/manifest+json` — browsers may silently reject
+#      a manifest served with the wrong Content-Type, which is what supplies
+#      the mobile tab/PWA icon and "Add to Home Screen" name.
+#   2. Landing has no manifest at all (no `<link rel="manifest">`, no
+#      `site.webmanifest` file in apps/landing/public/) — a request for
+#      /site.webmanifest fell through the SPA fallback and got served the
+#      prerendered HOME PAGE: 200 OK, full HTML, under a path a client
+#      asked for as JSON. Fixed with an explicit
+#      `location = /site.webmanifest { return 404; }` in landing.conf (an
+#      honest 404 beats a fake 200) — see that file's own comment for why a
+#      real manifest was deliberately NOT added there instead.
+check_header_contains "CRM: /site.webmanifest is served as application/manifest+json" \
+  "/site.webmanifest" "$CRM_HOST" "Content-Type" "application/manifest+json"
+check_status_code "Landing: /site.webmanifest is an honest 404 (not the SPA-fallback 200)" \
+  "/site.webmanifest" "$LANDING_HOST" "404"
 
 echo
 echo "== $PASS passed, $FAIL failed =="
