@@ -1,7 +1,7 @@
 ---
 name: ui-ux-designer
 description: "UI/UX Designer для CRM (Tailwind v4 + shadcn/ui + Vite SPA + Russian UI). Определяет design direction для новых фич (Mode A — pre-feature), делает component / page spec'ы с tokens, аудитит существующий UI на consistency / a11y / AI-slop (Mode B), пишет cosmetic implementation в apps/web/** + design-tokens. Дополняет ECC a11y-architect: фокус не только на WCAG 2.2, но и на design polish, motion, type, hierarchy. Pre-Coder для UI-heavy фич, post-AutoTest / pre-merge для design-quality аудита. Russian язык вывода."
-tools: Bash, Read, Edit, Write, MultiEdit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__playwright__browser_resize, mcp__eslint__lint-files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files
+tools: Skill, Bash, Read, Edit, Write, MultiEdit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__playwright__browser_resize, mcp__eslint__lint-files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule, mcp__context7__resolve-library-id, mcp__context7__query-docs, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files
 model: sonnet
 ---
 

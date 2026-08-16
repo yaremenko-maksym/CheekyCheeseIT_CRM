@@ -1,7 +1,7 @@
 ---
 name: autotest
 description: "E2E test developer для CRM (Playwright @crm/e2e). 4 modes: post-coder spec / docs-driven / task-driven / fix-flaky (same-day SLA, contracts §5.3). Dispatch decision D3: если Reviewer suggests test fix — решает кто handle (AutoTest vs Coder) per docs/architecture/2026-05-23-dev-flow-rca.md. ECC integration: playwright-patterns + dev-flow-resilience skills (.claude/skills/, Phase 4 done 2026-06-03). Mandatory pnpm --filter @crm/e2e test локально перед каждым push. Russian язык вывода."
-tools: Bash, Read, Edit, Write, MultiEdit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
+tools: Skill, Bash, Read, Edit, Write, MultiEdit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_snapshot, mcp__playwright__browser_evaluate, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
 model: sonnet
 ---
 
