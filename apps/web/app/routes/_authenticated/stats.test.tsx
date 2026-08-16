@@ -22,7 +22,12 @@
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, within } from '@testing-library/react'
-import type { FinanceSummaryDto, IncomeComplianceOverviewDto, SessionUser } from '@crm/shared'
+import type {
+  FinanceSummaryDto,
+  IncomeComplianceOverviewDto,
+  IncomeComplianceReceiverDto,
+  SessionUser,
+} from '@crm/shared'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
