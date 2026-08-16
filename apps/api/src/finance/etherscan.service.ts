@@ -1,23 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 
-// ── Etherscan REST API response types ────────────────────────────────────────
-
-interface EtherscanTxResult {
-  status: string // "1" = success
-  result: {
-    hash: string
-    from: string
-    to: string
-    value: string
-    contractAddress: string
-    tokenSymbol: string
-    tokenDecimal: string
-    blockNumber: string
-    confirmations: string
-  }[]
-}
-
 // ── Etherscan JSON-RPC response types (BIZ-08 / BIZ-16 direct lookup) ────────
 
 /** eth_getTransactionByHash result */
@@ -86,16 +69,10 @@ function rpcResult(body: unknown): unknown | typeof RPC_UNAVAILABLE {
 
 // ── Public result types ───────────────────────────────────────────────────────
 
-export interface TxVerification {
-  confirmed: boolean
-  amountUsdt: number | null
-  error?: string
-}
-
 /**
  * task-company-account-backend. Result of verifying a USDT deposit against the
- * company wallet. Unlike `verifyTransaction`, this ALSO asserts the on-chain
- * RECIPIENT and the CONFIRMATION COUNT — the two checks the company-account
+ * company wallet. Asserts the on-chain RECIPIENT and the CONFIRMATION COUNT —
+ * the two checks the company-account
  * security invariant depends on (never credit a deposit whose recipient is not
  * the company wallet, or which has not reached the confirmation threshold).
  *
@@ -469,46 +446,6 @@ export class EtherscanService {
 
   // ── Public methods ──────────────────────────────────────────────────────────
 
-  /** Verify a USDT ERC-20 transaction by hash.
-   *  Checks: tx exists, status = success, token = USDT.
-   *  Returns confirmed + amountUsdt.
-   *
-   *  Unchanged legacy method — used by the payout flow. Do NOT alter its
-   *  contract (see transactions.service payPayoutRequest).
-   */
-  async verifyTransaction(txHash: string): Promise<TxVerification> {
-    if (!this.apiKey) {
-      this.logger.warn('ETHERSCAN_API_KEY not set — skipping blockchain verification')
-      // In dev/test, auto-confirm so flow can be tested without a real key
-      return { confirmed: true, amountUsdt: null }
-    }
-
-    try {
-      const url =
-        `https://api.etherscan.io/api?module=account&action=tokentx` +
-        `&contractaddress=${USDT_CONTRACT}` +
-        `&startblock=0&endblock=99999999&sort=desc` +
-        `&apikey=${this.apiKey}`
-
-      const res = await this.fetchWithTimeout(url)
-      const data = (await res.json()) as EtherscanTxResult
-
-      const tx = data.result?.find((t) => t.hash.toLowerCase() === txHash.toLowerCase())
-
-      if (!tx) {
-        return { confirmed: false, amountUsdt: null, error: 'Транзакция не найдена в блокчейне' }
-      }
-
-      const decimals = parseInt(tx.tokenDecimal || '6', 10)
-      const amountUsdt = parseInt(tx.value, 10) / Math.pow(10, decimals)
-
-      return { confirmed: true, amountUsdt }
-    } catch (err) {
-      this.logger.error(`Etherscan error: ${String(err)}`)
-      return { confirmed: false, amountUsdt: null, error: 'Ошибка проверки блокчейна' }
-    }
-  }
-
   /**
    * Verify a USDT deposit onto the company wallet.
    *
@@ -618,8 +555,8 @@ export class EtherscanService {
       // BIZ-08 (AC1): use direct txHash lookup — no 10k-window dependency.
       return await this.verifyDepositDirect(txHash, expectedToAddress, threshold)
     } catch (err) {
-      // Graceful on fetch error (same as verifyTransaction) so the progress bar
-      // does not hang: caller treats `found:false` as "still pending / retry".
+      // Graceful on fetch error so the progress bar does not hang: caller
+      // treats `found:false` as "still pending / retry".
       this.logger.error(`Etherscan deposit-verify error: ${String(err)}`)
       return {
         found: false,

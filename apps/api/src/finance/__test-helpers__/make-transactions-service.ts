@@ -19,7 +19,7 @@
  *   invoicesService   — no-op (autoCreateForPayout/Income/Salary return undefined)
  *   documentsService  — no-op (findOne returns undefined)
  *   nbuCurrencyService — no-op (getRates throws — callers that need it must pass a real stub)
- *   etherscanService  — no-op (verifyTransaction/verifyDeposit return confirmed=true)
+ *   etherscanService  — no-op (verifyDeposit returns confirmed=true)
  *
  * IMPORTANT: The stubs above are intentionally minimal. If a test path exercises
  * nbu/etherscan logic it MUST pass a customised stub via overrides.
@@ -79,7 +79,6 @@ function makeDefaultNbuStub(): NbuCurrencyService {
 /** Default no-op stub for EtherscanService — happy-path confirm. */
 function makeDefaultEtherscanStub(): EtherscanService {
   return {
-    verifyTransaction: vi.fn().mockResolvedValue({ confirmed: true, amountUsdt: null }),
     verifyDeposit: vi.fn().mockResolvedValue({
       found: true,
       toMatches: true,
