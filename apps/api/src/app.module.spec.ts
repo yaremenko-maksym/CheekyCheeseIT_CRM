@@ -68,15 +68,23 @@ describe('AppModule — real APP_GUARD registration order (MED-2, #532 review)',
   beforeAll(async () => {
     // Harmless placeholders — never connected to, never read for their
     // content by anything this test exercises (see the file doc above).
-    // `??=` never overwrites a real ambient value, so this cannot interfere
-    // with an integration run that DOES need a working DATABASE_URL.
-    process.env['DATABASE_URL'] ??= 'postgresql://test:test@localhost:5432/test'
-    process.env['REDIS_URL'] ??= 'redis://localhost:6379'
-    process.env['GOOGLE_CLIENT_ID'] ??= 'test-google-client-id'
-    process.env['GOOGLE_CLIENT_SECRET'] ??= 'test-google-client-secret'
-    process.env['GOOGLE_CALLBACK_URL'] ??= 'http://localhost:3001/api/auth/google/callback'
-    process.env['JWT_SECRET'] ??= 'x'.repeat(40)
-    process.env['SESSION_SECRET'] ??= 'x'.repeat(40)
+    // `||=`, not `??=`: this repo's git-policy pushes feature branches as
+    // `DATABASE_URL= git push` (an explicit EMPTY string, not unset — see
+    // .claude/rules/common/git-policy.md's data-safety section), which the
+    // pre-push hook's full `pnpm test` run inherits into every worker's
+    // env. `??=` only replaces `null`/`undefined` and leaves an empty
+    // string untouched, which is exactly ambient here and is what made this
+    // fail its own `DATABASE_URL: Too small` check the first time this ran
+    // under a real `git push`. `||=` treats '' as falsy too, and there is no
+    // legitimate reason any of these would ever be intentionally empty, so
+    // this cannot silently swallow a real ambient value either.
+    process.env['DATABASE_URL'] ||= 'postgresql://test:test@localhost:5432/test'
+    process.env['REDIS_URL'] ||= 'redis://localhost:6379'
+    process.env['GOOGLE_CLIENT_ID'] ||= 'test-google-client-id'
+    process.env['GOOGLE_CLIENT_SECRET'] ||= 'test-google-client-secret'
+    process.env['GOOGLE_CALLBACK_URL'] ||= 'http://localhost:3001/api/auth/google/callback'
+    process.env['JWT_SECRET'] ||= 'x'.repeat(40)
+    process.env['SESSION_SECRET'] ||= 'x'.repeat(40)
     ;({ AppModule } = await import('./app.module'))
   })
 
