@@ -442,9 +442,19 @@ function receiverInitials(name: string): string {
 
 // Status accent per receiver coverage: complete (green) / has-pending (amber) /
 // lagging-no-pending (red). Drives the left accent bar, dot and badge.
+//
+// task-compliance-overview-pending-types: `accruedCount` (a company-booked
+// obligation still awaiting the COMPANY's payout) is grouped with
+// `pendingCount` (self-declared income still awaiting the ACCOUNTANT) for THIS
+// coverage classification only — both mean "nothing left for the receiver to
+// do, not their fault", so neither should ever render as the red `lagging`
+// false alarm. The two stay separate NUMBERS everywhere else (badge text,
+// DTO) — see the extended comment on `incomeComplianceReceiverSchema` — this
+// function only decides a colour.
 function receiverStatus(r: IncomeComplianceReceiverDto): 'complete' | 'pending' | 'lagging' {
   if (r.submitted >= r.expected) return 'complete'
-  if (r.pendingCount > 0 && r.pendingCount >= r.expected - r.submitted) return 'pending'
+  const awaitingSomeoneElse = r.pendingCount + r.accruedCount
+  if (awaitingSomeoneElse > 0 && awaitingSomeoneElse >= r.expected - r.submitted) return 'pending'
   return 'lagging'
 }
 
@@ -498,24 +508,41 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
     pending: 'bg-amber-500',
     lagging: 'bg-red-500',
   }
+  // task-compliance-overview-pending-types: `accruedCount` (booked, awaiting
+  // the company's payout) gets its OWN badge text — reusing «На валидации»
+  // would be a wrong claim (nobody is validating anything; the accountant has
+  // nothing to check, the company just hasn't paid out yet). Same amber
+  // treatment as pendingValidation (neither is the receiver's fault), distinct
+  // wording.
   const badge =
     status === 'complete'
       ? { text: 'Все получены', cls: 'bg-green-500/10 text-green-500' }
-      : receiver.pendingCount > 0
+      : receiver.pendingCount > 0 && receiver.accruedCount > 0
         ? {
-            text:
-              receiver.pendingCount === 1
-                ? 'На валидации'
-                : `${receiver.pendingCount} на валидации`,
+            text: `${receiver.pendingCount + receiver.accruedCount} в процессе`,
             cls: 'bg-amber-500/10 text-amber-500',
           }
-        : {
-            text:
-              receiver.submitted === 0
-                ? 'Нет приходов'
-                : `${receiver.expected - receiver.submitted} без прихода`,
-            cls: 'bg-red-500/10 text-red-500',
-          }
+        : receiver.accruedCount > 0
+          ? {
+              text:
+                receiver.accruedCount === 1 ? 'Начислено' : `${receiver.accruedCount} начислено`,
+              cls: 'bg-amber-500/10 text-amber-500',
+            }
+          : receiver.pendingCount > 0
+            ? {
+                text:
+                  receiver.pendingCount === 1
+                    ? 'На валидации'
+                    : `${receiver.pendingCount} на валидации`,
+                cls: 'bg-amber-500/10 text-amber-500',
+              }
+            : {
+                text:
+                  receiver.submitted === 0
+                    ? 'Нет приходов'
+                    : `${receiver.expected - receiver.submitted} без прихода`,
+                cls: 'bg-red-500/10 text-red-500',
+              }
 
   return (
     <div
@@ -598,7 +625,7 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                       <span
                         className={cn(
                           'h-1.5 w-1.5 rounded-full shrink-0',
-                          p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
+                          p.accrued || p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
                         )}
                       />
                       <span className="truncate font-medium">{p.name}</span>
@@ -610,10 +637,19 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                       <span
                         className={cn(
                           'text-xs font-medium',
-                          p.pendingValidation ? 'text-amber-500' : 'text-red-500',
+                          p.accrued || p.pendingValidation ? 'text-amber-500' : 'text-red-500',
                         )}
                       >
-                        {p.pendingValidation ? 'На валидации' : 'Нет прихода'}
+                        {/* task-compliance-overview-pending-types: `accrued` gets
+                            its own wording — it is a company-booked obligation
+                            awaiting PAYOUT, not a self-declared income awaiting
+                            VALIDATION («На валидации» would misattribute the
+                            wait to the wrong party. */}
+                        {p.accrued
+                          ? 'Начислено · ожидает выплаты'
+                          : p.pendingValidation
+                            ? 'На валидации'
+                            : 'Нет прихода'}
                       </span>
                     </span>
                   </li>

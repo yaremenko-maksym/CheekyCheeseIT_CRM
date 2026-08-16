@@ -116,11 +116,12 @@ function makeCompliance(): IncomeComplianceOverviewDto {
   return {
     month: '2026-06',
     totals: {
-      expectedProjects: 4,
+      expectedProjects: 5,
       submittedProjects: 2,
       laggingReceivers: 1,
       completeReceivers: 1,
       pendingProjects: 1,
+      accruedProjects: 1,
     },
     receivers: [
       {
@@ -130,6 +131,7 @@ function makeCompliance(): IncomeComplianceOverviewDto {
         expected: 3,
         submitted: 1,
         pendingCount: 1,
+        accruedCount: 0,
         missingProjects: [
           {
             projectId: 'p-pending',
@@ -137,6 +139,7 @@ function makeCompliance(): IncomeComplianceOverviewDto {
             companyName: 'EdNext Inc.',
             submitted: false,
             pendingValidation: true,
+            accrued: false,
           },
           {
             projectId: 'p-missing',
@@ -144,6 +147,7 @@ function makeCompliance(): IncomeComplianceOverviewDto {
             companyName: 'ShopCore Ltd.',
             submitted: false,
             pendingValidation: false,
+            accrued: false,
           },
         ],
       },
@@ -154,7 +158,31 @@ function makeCompliance(): IncomeComplianceOverviewDto {
         expected: 1,
         submitted: 1,
         pendingCount: 0,
+        accruedCount: 0,
         missingProjects: [],
+      },
+      // task-compliance-overview-pending-types: a receiver whose ONLY open
+      // project is an unpaid company-booked obligation (accrued) — must render
+      // as a non-lagging (amber) state, never the red «Нет приходов» false
+      // alarm (the reported prod regression).
+      {
+        userId: 'drop-accrued',
+        displayName: 'Drop Accrued',
+        role: 'DROP',
+        expected: 1,
+        submitted: 0,
+        pendingCount: 0,
+        accruedCount: 1,
+        missingProjects: [
+          {
+            projectId: 'p-accrued',
+            name: 'GamingTec',
+            companyName: 'GamingTec LLC',
+            submitted: false,
+            pendingValidation: false,
+            accrued: true,
+          },
+        ],
       },
     ],
   }
@@ -252,6 +280,27 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(screen.getByText('Нет прихода')).toBeInTheDocument()
   })
 
+  // task-compliance-overview-pending-types: the reported prod regression — a
+  // receiver whose ONLY open project is an unpaid, company-booked obligation
+  // must render as a non-lagging (amber «Начислено») row, NEVER the red «Нет
+  // приходов» false alarm on someone who did nothing wrong.
+  it('an accrued-only receiver renders amber «Начислено», never the red «Нет приходов» false alarm', () => {
+    setup('ADMIN')
+    const row = screen.getByTestId('compliance-row-drop-accrued')
+    expect(row).toBeInTheDocument()
+    // Amber left-accent border, NOT the red lagging one.
+    expect(row.className).toContain('border-l-amber-500')
+    expect(row.className).not.toContain('border-l-red-500')
+    expect(screen.getByText('Начислено')).toBeInTheDocument()
+    expect(screen.queryByText('Нет приходов')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByTestId('compliance-toggle-drop-accrued'))
+    const detail = screen.getByTestId('compliance-detail-drop-accrued')
+    expect(detail).toBeInTheDocument()
+    expect(screen.getByText('GamingTec')).toBeInTheDocument()
+    expect(screen.getByText('Начислено · ожидает выплаты')).toBeInTheDocument()
+  })
+
   it('does NOT render the removed participants-balances section', () => {
     setup('ADMIN')
     expect(screen.queryByTestId('participants-balances-card')).not.toBeInTheDocument()
@@ -273,6 +322,7 @@ describe('StatsPage — income-compliance «Контроль приходов» 
               laggingReceivers: 0,
               completeReceivers: 0,
               pendingProjects: 0,
+              accruedProjects: 0,
             },
             receivers: [],
           } satisfies IncomeComplianceOverviewDto,
