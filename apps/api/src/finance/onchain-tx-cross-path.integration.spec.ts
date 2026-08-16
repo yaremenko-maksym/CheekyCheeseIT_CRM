@@ -20,6 +20,7 @@ import type { SessionUser } from '@crm/shared'
 import { COMPANY_ACCOUNT_RECEIVER } from '@crm/shared'
 
 import { DatabaseService } from '../database/database.service'
+import { uniqueViolationConstraint } from '../database/pg-errors'
 import { CompanyAccountService } from './company-account.service'
 import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
@@ -856,6 +857,13 @@ describe('on-chain hash consumption is CROSS-PATH (payout ⟷ deposit, real DB)'
       expect(err).not.toBeNull()
       // The whole point: the operator must NOT be sent hunting a hash.
       expect(String((err as Error).message)).not.toMatch(/уже использован/)
+      // Positive assert (item 13, BACKLOG-followups.md): a negative match alone
+      // proves nothing about WHICH check actually fired — an early return before
+      // ever reaching `isRegistryConflict` would leave this test green while
+      // silently losing the coverage it claims to have. Pin the actual violated
+      // constraint so the test only passes when execution genuinely reached the
+      // salary-month unique index (not some unrelated/no-op failure).
+      expect(uniqueViolationConstraint(err)).toBe('uq_transactions_salary_receiver_month')
 
       await dbSvc.db
         .delete(transactions)

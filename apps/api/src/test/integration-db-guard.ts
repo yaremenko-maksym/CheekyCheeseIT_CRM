@@ -32,7 +32,9 @@ export async function setup(): Promise<void> {
     // `override: false` — shell-exported DATABASE_URL takes precedence.
     // This means: if the developer explicitly set DATABASE_URL in their shell,
     // we respect it (and the guard below will still catch crm_db).
-    loadDotenv({ path: envTestPath, override: false })
+    // `quiet: true` — suppress dotenv's upstream "tip" banner (see
+    // vitest.config.mts for the full rationale).
+    loadDotenv({ path: envTestPath, override: false, quiet: true })
   }
 
   // CI uses a throwaway Postgres container — crm_db there is safe to write.
