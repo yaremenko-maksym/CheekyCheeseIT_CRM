@@ -285,16 +285,125 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(screen.getByText('Нет прихода')).toBeInTheDocument()
   })
 
-  // mutation-gate: sr-lag has pendingCount===1 — the row BADGE (collapsed,
-  // before expanding the drawer) must say the SINGULAR «На валидации», not
-  // «1 на валидации», with the amber badge cls.
-  it('sr-lag row badge (pendingCount===1) shows singular «На валидации» with the amber cls', () => {
+  // code-review (round 2, HIGH): sr-lag's pendingCount (1) covers only ONE of
+  // its TWO missing projects (EdNext LMS is pendingValidation; ShopCore
+  // Backend is genuinely missing — see `makeCompliance()`) — a PARTIAL
+  // coverage, so `receiverStatus()` correctly returns 'lagging'. Before the
+  // badge-gating fix, the row badge showed the reassuring amber «На
+  // валидации» regardless (checking `pendingCount > 0` alone, never whether
+  // it covered the WHOLE gap) — the exact contradiction (red row, amber
+  // badge) the reviewer reproduced. It must now be red end-to-end.
+  it('sr-lag (partial pendingCount coverage) renders RED end-to-end, never the amber «На валидации» badge', () => {
     setup('ADMIN')
     const row = screen.getByTestId('compliance-row-sr-lag')
+    expect(row.className).toContain('border-l-red-500')
+    expect(row.className).not.toContain('border-l-amber-500')
+    const badge = within(row).getByText('2 без прихода')
+    expect(badge.className).toContain('bg-red-500/10')
+    expect(badge.className).toContain('text-red-500')
+    expect(within(row).queryByText(/на валидации/i)).not.toBeInTheDocument()
+  })
+
+  // mutation-gate: when pendingCount FULLY covers the gap (a genuine
+  // 'pending'/amber status) and equals exactly 1, the badge must say the
+  // SINGULAR «На валидации», not «1 на валидации».
+  it('a receiver whose singular pendingCount fully covers its gap shows singular «На валидации», amber end-to-end', () => {
+    useAuthMock.mockReturnValue({ user: makeUser('ADMIN'), isLoading: false })
+    useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
+      const key = opts?.queryKey?.[0]
+      if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+      if (key === 'income-compliance')
+        return {
+          data: {
+            month: '2026-06',
+            totals: {
+              expectedProjects: 1,
+              submittedProjects: 0,
+              laggingReceivers: 0,
+              completeReceivers: 0,
+              pendingProjects: 1,
+              accruedProjects: 0,
+            },
+            receivers: [
+              {
+                userId: 'r-singular-pending',
+                displayName: 'Singular Pending',
+                role: 'SENIOR',
+                expected: 1,
+                submitted: 0,
+                pendingCount: 1,
+                accruedCount: 0,
+                missingProjects: [],
+              },
+            ],
+          } satisfies IncomeComplianceOverviewDto,
+          isLoading: false,
+        }
+      return { data: undefined, isLoading: false }
+    })
+    render(<StatsPage />)
+    const row = screen.getByTestId('compliance-row-r-singular-pending')
+    expect(row.className).toContain('border-l-amber-500')
     const badge = within(row).getByText('На валидации')
     expect(badge.className).toContain('bg-amber-500/10')
     expect(badge.className).toContain('text-amber-500')
     expect(within(row).queryByText('1 на валидации')).not.toBeInTheDocument()
+  })
+
+  // code-review (round 2, HIGH): a receiver whose pending+accrued only
+  // PARTIALLY covers the gap must be red end-to-end — accent AND badge — not
+  // a red-bordered row with a reassuring amber "На валидации" badge (the
+  // exact contradiction the reviewer reproduced: expected=3, submitted=0,
+  // pendingCount=1 covers only 1 of 3 missing projects, so receiverStatus()
+  // returns 'lagging', but the OLD badge code checked `pendingCount > 0`
+  // alone — ignoring whether it covered the WHOLE gap — and showed amber
+  // regardless).
+  it('HIGH: partial pendingCount/accruedCount coverage renders RED end-to-end, never a contradictory amber badge', () => {
+    useAuthMock.mockReturnValue({ user: makeUser('ADMIN'), isLoading: false })
+    useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
+      const key = opts?.queryKey?.[0]
+      if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+      if (key === 'income-compliance')
+        return {
+          data: {
+            month: '2026-06',
+            totals: {
+              expectedProjects: 3,
+              submittedProjects: 0,
+              laggingReceivers: 1,
+              completeReceivers: 0,
+              pendingProjects: 1,
+              accruedProjects: 0,
+            },
+            receivers: [
+              {
+                userId: 'r-partial',
+                displayName: 'Partial Coverage',
+                role: 'SENIOR',
+                expected: 3,
+                submitted: 0,
+                pendingCount: 1,
+                accruedCount: 0,
+                missingProjects: [],
+              },
+            ],
+          } satisfies IncomeComplianceOverviewDto,
+          isLoading: false,
+        }
+      return { data: undefined, isLoading: false }
+    })
+    render(<StatsPage />)
+    const row = screen.getByTestId('compliance-row-r-partial')
+    // Accent: red, not amber.
+    expect(row.className).toContain('border-l-red-500')
+    expect(row.className).not.toContain('border-l-amber-500')
+    // Badge: red «Нет приходов», never the amber «На валидации» the old
+    // ungated code would have shown.
+    const badge = within(row).getByText('Нет приходов')
+    expect(badge.className).toContain('bg-red-500/10')
+    expect(badge.className).toContain('text-red-500')
+    expect(within(row).queryByText('На валидации')).not.toBeInTheDocument()
+    expect(within(row).queryByText(/на валидации/)).not.toBeInTheDocument()
   })
 
   // task-compliance-overview-pending-types: the reported prod regression — a
