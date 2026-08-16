@@ -1918,6 +1918,31 @@ export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>
 // целевого месяца (UTC). PENDING НЕ считается внесённым — но проекты, у которых
 // есть только PENDING-строка за месяц, помечаются `pendingValidation: true`
 // (мелкий бейдж «на валидации»). REJECTED игнорируется.
+//
+// task-compliance-overview-pending-types (2026-08-16, owner decision — see the
+// task file's «Живой симптом с прода»). On the current USDT admin-declare path
+// a SENIOR/DROP never submits SENIOR_INCOME/DROP_INCOME themselves — the ADMIN's
+// declaration atomically books the company's OBLIGATION to them instead
+// (`SENIOR_PENDING_PAYOUT` / `DROP_PENDING_PAYOUT`, status PENDING_PAYMENT).
+// That obligation later settles IN PLACE — `settleByCompany` flips the SAME row
+// to `SENIOR_INCOME`/PAID for a senior (already covered by the original
+// criterion) or to `PAYOUT_DROP`/PAID for a drop (a THIRD type, never covered
+// before this task — see `pending-settlement.service.ts`). A widget that only
+// ever looked for the three self-declare types therefore judged this entire
+// (majority, USDT) path as "nothing submitted, forever" for both the in-flight
+// obligation AND its settled/paid outcome — flagging a person who did nothing
+// wrong, and never able to fix it (`DROP_INCOME` cannot even be created on a
+// USDT project — `createDropIncome` rejects it).
+//
+// Owner decision on what an in-flight (booked, not yet paid) obligation means
+// for this widget: NOT `submitted` (it is a debt, not received money — AC2,
+// "начисленное и полученное различимы") and NOT `lagging` either (false alarm
+// on someone who did nothing wrong is worse than omission — see the task file).
+// It gets its OWN third state, `accrued`, tracked in separate counters
+// (`accruedCount` / `totals.accruedProjects`) so it is never silently folded
+// into either `submitted` or `pendingCount` (which keeps meaning exactly what
+// it always meant: a self-declared income still awaiting accountant
+// validation — a DIFFERENT wait, on a DIFFERENT party).
 
 // Role label on a receiver row — drives the UI sub-label (senior / admin-as-
 // senior / drop). 'ADMIN_SENIOR' = an ADMIN user who owns projects as their
@@ -1925,24 +1950,33 @@ export type SeniorSummaryDto = z.infer<typeof seniorSummarySchema>
 export const incomeComplianceRoleSchema = z.enum(['SENIOR', 'ADMIN_SENIOR', 'DROP'])
 export type IncomeComplianceRole = z.infer<typeof incomeComplianceRoleSchema>
 
-// One project under a receiver. `submitted` = has a VALIDATED|PAID income this
-// month. `pendingValidation` = has ONLY a PENDING income this month (counts as
-// NOT submitted, but the UI shows a «на валидации» badge instead of «нет
-// прихода»). A project can never be both `submitted` and `pendingValidation`.
+// One project under a receiver. `submitted` = has a VALIDATED|PAID income (or a
+// SETTLED obligation — SENIOR_INCOME/PAYOUT_DROP, PAID) this month.
+// `pendingValidation` = has ONLY a self-declared PENDING income this month
+// (awaiting the ACCOUNTANT). `accrued` = has ONLY a company-booked obligation
+// still PENDING_PAYMENT this month (awaiting the COMPANY's payout — nothing for
+// this receiver to do). A project is `submitted`, OR `accrued`, OR
+// `pendingValidation`, OR none of the three (genuinely missing) — never two at
+// once.
 export const incomeComplianceProjectSchema = z.object({
   projectId: z.string().uuid(),
   name: z.string(),
   companyName: z.string(),
   submitted: z.boolean(),
   pendingValidation: z.boolean(),
+  accrued: z.boolean(),
 })
 export type IncomeComplianceProjectDto = z.infer<typeof incomeComplianceProjectSchema>
 
 // One income receiver. `expected` (N) = active projects; `submitted` (X) =
-// projects with a counted (VALIDATED|PAID) income this month. `missingProjects`
-// = the projects WITHOUT a counted income (for the expand drawer), each flagged
-// whether it is merely pending validation. `pendingCount` = how many of the
-// missing projects are pending (drives the per-receiver «N на валидации» badge).
+// projects with a counted (VALIDATED|PAID, or settled-obligation PAID) income
+// this month. `missingProjects` = the projects WITHOUT a counted income (for
+// the expand drawer), each flagged whether it is merely pending validation or
+// merely an unpaid accrued obligation. `pendingCount` = how many of the
+// missing projects await accountant validation (self-declared PENDING).
+// `accruedCount` = how many of the missing projects have an unpaid
+// company-booked obligation instead (PENDING_PAYMENT) — kept as its OWN counter,
+// never summed into `submitted` or `pendingCount` (AC2).
 export const incomeComplianceReceiverSchema = z.object({
   userId: z.string().uuid(),
   displayName: z.string(),
@@ -1950,6 +1984,7 @@ export const incomeComplianceReceiverSchema = z.object({
   expected: z.number().int().nonnegative(),
   submitted: z.number().int().nonnegative(),
   pendingCount: z.number().int().nonnegative(),
+  accruedCount: z.number().int().nonnegative(),
   missingProjects: z.array(incomeComplianceProjectSchema),
 })
 export type IncomeComplianceReceiverDto = z.infer<typeof incomeComplianceReceiverSchema>
@@ -1962,7 +1997,7 @@ export const incomeComplianceOverviewSchema = z.object({
   totals: z.object({
     // Σ expected projects across all receivers (the denominator of «X/N приходов»).
     expectedProjects: z.number().int().nonnegative(),
-    // Σ submitted (VALIDATED|PAID) projects this month (the numerator).
+    // Σ submitted (VALIDATED|PAID, or settled-obligation PAID) projects this month.
     submittedProjects: z.number().int().nonnegative(),
     // Receivers who have ≥1 missing project (X < N).
     laggingReceivers: z.number().int().nonnegative(),
@@ -1970,6 +2005,10 @@ export const incomeComplianceOverviewSchema = z.object({
     completeReceivers: z.number().int().nonnegative(),
     // Projects whose only income this month is still PENDING (на валидации).
     pendingProjects: z.number().int().nonnegative(),
+    // Projects whose only evidence this month is an unpaid, company-booked
+    // obligation (accrued — «начислено, ожидает выплаты»). Never folded into
+    // `submittedProjects` or `pendingProjects` (AC2).
+    accruedProjects: z.number().int().nonnegative(),
   }),
   receivers: z.array(incomeComplianceReceiverSchema),
 })
