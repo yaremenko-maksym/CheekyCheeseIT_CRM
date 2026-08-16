@@ -1,4 +1,4 @@
-import 'dotenv/config'
+import { config as loadDotenv } from 'dotenv'
 import { drizzle } from 'drizzle-orm/node-postgres'
 import { eq } from 'drizzle-orm'
 
@@ -9,6 +9,12 @@ import { HR_CONTRACT } from './seed-templates/contract-hr'
 import { ACCOUNTANT_CONTRACT } from './seed-templates/contract-accountant'
 import { ContractPdfService } from '../contracts/contract-pdf.service'
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
+
+// task-backlog-hygiene-batch (item 7/56): `quiet: true` suppresses dotenv's
+// own "tip" banner — upstream marketing/telemetry text printed to stdout on
+// every load (see vitest.config.mts for the full rationale). Replaces the
+// bare `import 'dotenv/config'` auto-loader, which offers no options object.
+loadDotenv({ quiet: true })
 
 // ---------------------------------------------------------------------------
 // Canonical UUIDs — must stay stable across reseeds (e2e fixtures + dev-login)

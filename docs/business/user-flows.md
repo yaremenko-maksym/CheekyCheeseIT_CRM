@@ -24,7 +24,7 @@
 ### Flow: Logout
 
 1. Пользователь нажимает "Выйти" в header dropdown
-2. Запрос `GET /api/auth/logout`
+2. Запрос `POST /api/auth/logout`
 3. Cookie очищается → redirect на `/login`
 
 ### Flow: Прямой доступ к /crm без сессии

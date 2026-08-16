@@ -73,7 +73,11 @@ const worktreeRoot = path.resolve(__dirname, '../..')
 const envTestPath = path.resolve(__dirname, '.env.test')
 const envTestVars: Record<string, string> = {}
 if (existsSync(envTestPath)) {
-  const result = loadDotenv({ path: envTestPath, processEnv: envTestVars })
+  // task-backlog-hygiene-batch (item 7/56): `quiet: true` suppresses dotenv's
+  // own "tip" banner — upstream marketing/telemetry text printed to stdout on
+  // every load, which our agents read as part of tool output (prompt-injection
+  // surface, not a real vulnerability by itself — see BACKLOG-followups.md #56).
+  const result = loadDotenv({ path: envTestPath, processEnv: envTestVars, quiet: true })
   void result // dotenv returns { parsed, error }; we only need the side-effect into envTestVars
 }
 // Build the effective DATABASE_URL for workers: shell env > .env.test > nothing.
