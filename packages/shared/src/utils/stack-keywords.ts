@@ -96,6 +96,18 @@
 export const MAX_STACK_KEYWORD_CHARS = 100
 
 /**
+ * Separator between a truncated keyword and its collision-breaking hash
+ * suffix (see `canonicalStackKeyword`'s TRUNCATION COLLISIONS block). Never
+ * appears in a normalised canonical string on its own — `normalizeStackKeyword`
+ * only ever produces `\p{L}\p{N}` tokens joined by single spaces — so it can
+ * be told apart from real content by construction, not by convention.
+ */
+const TRUNCATION_HASH_SEPARATOR = '~'
+
+/** Hex digits the FNV-1a hash below is rendered as — always exactly this many, zero-padded. */
+const TRUNCATION_HASH_HEX_CHARS = 8
+
+/**
  * Hard ceiling on HOW MANY canonical keywords one stack may contribute.
  *
  * Mirrors `RESUME_LIMITS.skills` (60), which is what the resume WRITE path
@@ -312,6 +324,24 @@ const ALIAS_TO_CANONICAL: ReadonlyMap<string, string> = (() => {
 })()
 
 /**
+ * A small, dependency-free 32-bit hash (FNV-1a) — used ONLY to make two
+ * different overlong keywords diverge after truncation (see the TRUNCATION
+ * COLLISIONS block in `canonicalStackKeyword`). This is NOT a cryptographic
+ * primitive and must never be treated as one: it exists to make an ACCIDENTAL
+ * collision between two independently-garbage strings improbable, not to
+ * resist a deliberately crafted one. `>>> 0` forces the result to an unsigned
+ * 32-bit integer so `.toString(16)` never emits a sign.
+ */
+function fnv1aHex(value: string): string {
+  let hash = 0x811c9dc5
+  for (let i = 0; i < value.length; i += 1) {
+    hash ^= value.charCodeAt(i)
+    hash = Math.imul(hash, 0x01000193)
+  }
+  return (hash >>> 0).toString(16).padStart(TRUNCATION_HASH_HEX_CHARS, '0')
+}
+
+/**
  * The canonical id a raw keyword denotes.
  *
  * An UNKNOWN keyword canonicalises to its own normalised form rather than being
@@ -329,10 +359,29 @@ export function canonicalStackKeyword(raw: string | null | undefined): string {
   // truncating first could only ever lose a match. The cap is applied to the
   // result (see MAX_STACK_KEYWORD_CHARS for the 400 this prevents).
   const canonical = ALIAS_TO_CANONICAL.get(normalized) ?? normalized
-  // Stryker disable next-line ConditionalExpression,EqualityOperator: > vs >= differ only at exactly MAX_STACK_KEYWORD_CHARS, where slicing to that length returns the same string
-  return canonical.length > MAX_STACK_KEYWORD_CHARS
-    ? canonical.slice(0, MAX_STACK_KEYWORD_CHARS)
-    : canonical
+  if (canonical.length <= MAX_STACK_KEYWORD_CHARS) return canonical
+
+  // TRUNCATION COLLISIONS (backlog #55, follow-up to security review HIGH-1).
+  // A plain `slice(0, MAX_STACK_KEYWORD_CHARS)` makes any two overlong inputs
+  // that share their first N characters truncate to the SAME canonical id —
+  // a false match between two skills that were never the same one. Every
+  // keyword reaching this branch is already known-bad data (a real skill is
+  // <=100 canonical chars, see this constant's own doc comment above), so the
+  // fix is scoped exactly to what backlog #48's asymmetry rule demands: a
+  // limiter fed corrupt input must get STRICTER, never looser. Silently
+  // merging two distinct garbage strings into one match is the "looser"
+  // direction (fewer distinct keywords than the data actually has); dropping
+  // them outright would be stricter still but would also throw away a senior's
+  // genuine (if malformed) skill entirely. The middle path taken here: fold in
+  // a short hash of the FULL, untruncated string, so two different inputs
+  // diverge with overwhelming probability while the SAME input keeps
+  // canonicalising to the SAME id every time — still matchable, still
+  // deduplicated against itself by `canonicalStackKeywords`. The suffix is
+  // carved out of the SAME cap rather than added on top of it, so the wire
+  // contract's guarantee ("every keyword is at most MAX_STACK_KEYWORD_CHARS")
+  // still holds by construction.
+  const suffix = TRUNCATION_HASH_SEPARATOR + fnv1aHex(canonical)
+  return canonical.slice(0, MAX_STACK_KEYWORD_CHARS - suffix.length) + suffix
 }
 
 /**

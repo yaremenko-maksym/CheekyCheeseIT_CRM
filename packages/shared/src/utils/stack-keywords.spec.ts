@@ -518,6 +518,97 @@ describe('keyword length is bounded where the canonical form is built (HIGH-1)',
   })
 })
 
+/**
+ * Backlog #55 — truncation collisions. Two DIFFERENT overlong skills that
+ * share a common prefix used to truncate to the SAME canonical id, which is a
+ * false match between two garbage strings that were never the same skill.
+ * Only reachable for keywords already over MAX_STACK_KEYWORD_CHARS in
+ * canonical form — i.e. already-known-bad data (see that constant's doc
+ * comment) — so the fix must not get LOOSER for well-formed keywords; it only
+ * has to stop two pieces of bad data from being treated as one.
+ */
+describe('truncation no longer collapses two different overlong skills (#55)', () => {
+  it('CONTROL: a canonical form of EXACTLY the cap length is left untouched', () => {
+    // Boundary case — proves the branch that adds the hash suffix is not
+    // taken one character too early (or too late).
+    const exact = 'z'.repeat(MAX_STACK_KEYWORD_CHARS)
+    expect(canonicalStackKeyword(exact)).toBe(exact)
+  })
+
+  it('one character over the cap is hash-suffixed, not silently sliced', () => {
+    const overByOne = 'z'.repeat(MAX_STACK_KEYWORD_CHARS + 1)
+    const result = canonicalStackKeyword(overByOne)
+    expect(result).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+    // A naive slice(0, 100) would just be 100 'z's — the fixed behaviour must
+    // differ from that, or the collision this test guards against is back.
+    expect(result).not.toBe('z'.repeat(MAX_STACK_KEYWORD_CHARS))
+  })
+
+  it('two overlong skills sharing a 100+ char prefix canonicalise to DIFFERENT ids', () => {
+    const shared = 'x'.repeat(150)
+    const skillA = `${shared}AAAA`
+    const skillB = `${shared}BBBB`
+
+    const canonicalA = canonicalStackKeyword(skillA)
+    const canonicalB = canonicalStackKeyword(skillB)
+
+    // Pre-fix behaviour: both slice(0, 100) to the same 100 x's — this is
+    // exactly the false match the fix removes.
+    expect(canonicalA).not.toBe(canonicalB)
+    expect(canonicalA).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+    expect(canonicalB).toHaveLength(MAX_STACK_KEYWORD_CHARS)
+  })
+
+  it('the SAME overlong skill still canonicalises identically — dedup keeps working', () => {
+    const longSkill = 'y'.repeat(140)
+    expect(canonicalStackKeyword(longSkill)).toBe(canonicalStackKeyword(longSkill))
+    expect(canonicalStackKeywords([longSkill, longSkill])).toHaveLength(1)
+  })
+
+  it('a senior stack with two DIFFERENT overlong skills keeps them as two entries', () => {
+    const shared = 'q'.repeat(150)
+    const stack = canonicalStackKeywords([`${shared}1111`, `${shared}2222`])
+    expect(stack).toHaveLength(2)
+  })
+
+  it('pins the EXACT hash-suffixed output for a known input (kills off-by-one / wrong-pad-char / wrong-separator mutants)', () => {
+    // Computed independently (not derived from the function under test) by
+    // running the SAME documented FNV-1a algorithm over the canonical (lower-
+    // cased, single-token) form of this input. A mutation to the hash loop's
+    // bound, its pad character, or the separator constant changes this exact
+    // string — a length-only or "differs from sibling" assertion would not
+    // notice any of those, which is exactly what Stryker's own survivor scan
+    // found before this test was added.
+    const raw = `${'x'.repeat(150)}ZZZZ`
+    expect(canonicalStackKeyword(raw)).toBe(`${'x'.repeat(91)}~6f2a0d1d`)
+  })
+
+  it('pins a hash that starts with a leading zero hex digit — exercises padStart, not just length', () => {
+    // Without padStart, an 8-char hex hash whose leading byte is < 0x10 would
+    // render as only 7 characters — this input's hash is exactly that case
+    // (0d9a74ba), so a mutant that swaps the pad character for '' silently
+    // shortens the suffix by one character. `toHaveLength` alone would still
+    // pass (the slice point would just move by one to compensate its own
+    // arithmetic); pinning the full string catches it.
+    const raw = `${'q'.repeat(120)}300`
+    expect(canonicalStackKeyword(raw)).toBe(`${'q'.repeat(91)}~0d9a74ba`)
+  })
+
+  it('the hash-suffixed id still satisfies the wire contract', () => {
+    const shared = 'w'.repeat(150)
+    const stack = canonicalStackKeywords([`${shared}AAAA`, `${shared}BBBB`])
+    const parsed = jobSuggestionListSchema.safeParse({
+      items: [],
+      lowMatch: [],
+      lowMatchCount: 0,
+      total: 0,
+      threshold: 0.2,
+      stackKeywords: stack,
+    })
+    expect(parsed.success).toBe(true)
+  })
+})
+
 describe('stackMatchScore — the ranking signal (AC1)', () => {
   const stack = ['Java', 'Spring Boot', 'PostgreSQL', 'Docker']
 

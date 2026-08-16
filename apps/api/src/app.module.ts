@@ -1,12 +1,13 @@
 import { Module } from '@nestjs/common'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { APP_GUARD } from '@nestjs/core'
-import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler'
+import { ThrottlerModule } from '@nestjs/throttler'
 import { AdminModule } from './admin/admin.module'
 import { AuthModule } from './auth/auth.module'
 import { JwtAuthGuard } from './auth/jwt.guard'
 import { OnboardingGuard } from './auth/onboarding.guard'
 import { CommonModule } from './common/common.module'
+import { UserAwareThrottlerGuard } from './common/guards/user-aware-throttler.guard'
 import { ContactModule } from './contact/contact.module'
 import { validateEnv } from './config/env'
 import type { Env } from './config/env'
@@ -113,10 +114,13 @@ import { SeniorResumesModule } from './resumes/resumes.module'
     // Integration test pinning this wiring: `auth/onboarding.guard.integration.spec.ts`.
     { provide: APP_GUARD, useClass: JwtAuthGuard },
     { provide: APP_GUARD, useClass: OnboardingGuard },
-    // ThrottlerGuard runs after auth guards so req.user is available for
-    // per-user tracking (default tracker = IP). Global default = 100 req/60 s;
+    // UserAwareThrottlerGuard runs after the auth guards so req.user is
+    // available: it tracks by the AUTHENTICATED USER when one is known,
+    // falling back to the request's IP address for anonymous traffic
+    // (backlog #52 — see that guard's file header for why the stock
+    // IP-only tracker under- and over-counts). Global default = 100 req/60 s;
     // sensitive write endpoints override with @Throttle() at controller level.
-    { provide: APP_GUARD, useClass: ThrottlerGuard },
+    { provide: APP_GUARD, useClass: UserAwareThrottlerGuard },
   ],
 })
 export class AppModule {}
