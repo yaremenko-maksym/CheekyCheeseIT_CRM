@@ -114,6 +114,7 @@ describe('getIncomeComplianceOverview — empty state', () => {
       laggingReceivers: 0,
       completeReceivers: 0,
       pendingProjects: 0,
+      accruedProjects: 0,
     })
     expect(r.receivers).toEqual([])
   })
@@ -256,6 +257,176 @@ describe('getIncomeComplianceOverview — receiver grouping by income type', () 
     expect(senior.submitted).toBe(0) // no SENIOR_INCOME this month
     expect(drop.role).toBe('DROP')
     expect(drop.submitted).toBe(1) // DROP_INCOME validated
+  })
+})
+
+describe('getIncomeComplianceOverview — obligation evidence (task-compliance-overview-pending-types)', () => {
+  // Reproduces the reported prod symptom: a DROP owner whose August share was
+  // booked AND paid (obligation flipped in place, settle-in-place ADR) but the
+  // widget only ever recognised the self-declare types. AC1 + the mutation-gate
+  // requirement (AC4): remove PAYOUT_DROP from the recognised-type list and this
+  // assertion fails.
+  it('a SETTLED drop obligation (PAYOUT_DROP, PAID) counts as submitted — the reported false-lag regression', async () => {
+    const svc = makeService({
+      projects: [
+        {
+          id: 'gt',
+          name: 'GamingTec',
+          companyName: 'GamingTec LLC',
+          seniorId: null,
+          dropId: 'drop-1',
+        },
+      ],
+      users: [{ id: 'drop-1', displayName: 'Sergii', role: 'DROP' }],
+      transactions: [
+        // bookCompanyObligations booked DROP_PENDING_PAYOUT in August; settleByCompany
+        // later flipped the SAME row in place to PAYOUT_DROP/PAID — never a
+        // separate DROP_INCOME row (createDropIncome rejects a USDT project).
+        { type: 'PAYOUT_DROP', status: 'PAID', projectId: 'gt', txDate: thisMonth },
+      ],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const drop = r.receivers.find((x) => x.userId === 'drop-1')!
+    expect(drop.submitted).toBe(1)
+    expect(drop.expected).toBe(1)
+    expect(drop.missingProjects).toHaveLength(0)
+    expect(drop.accruedCount).toBe(0)
+    expect(r.totals.laggingReceivers).toBe(0)
+    expect(r.totals.completeReceivers).toBe(1)
+  })
+
+  // AC1 (mutation-gate): remove SENIOR_PENDING_PAYOUT from the recognised-type
+  // list and this fails (submitted/accruedCount both silently go to 0/0 instead
+  // of 0/1, and the project would show as plain "missing" instead of "accrued").
+  it('a booked-but-unpaid SENIOR obligation (SENIOR_PENDING_PAYOUT, PENDING_PAYMENT) is accrued — NOT submitted, NOT plain-missing', async () => {
+    const svc = makeService({
+      projects: [{ id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'sr-1', dropId: null }],
+      users: [{ id: 'sr-1', displayName: 'Senior One', role: 'SENIOR' }],
+      transactions: [
+        {
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          projectId: 'p1',
+          txDate: thisMonth,
+        },
+      ],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const senior = r.receivers.find((x) => x.userId === 'sr-1')!
+    expect(senior.submitted).toBe(0)
+    expect(senior.accruedCount).toBe(1)
+    expect(senior.pendingCount).toBe(0)
+    expect(senior.missingProjects).toHaveLength(1)
+    expect(senior.missingProjects[0]).toMatchObject({
+      projectId: 'p1',
+      submitted: false,
+      pendingValidation: false,
+      accrued: true,
+    })
+    expect(r.totals.accruedProjects).toBe(1)
+    expect(r.totals.submittedProjects).toBe(0)
+  })
+
+  // AC1 (mutation-gate): remove DROP_PENDING_PAYOUT from the recognised-type
+  // list and this fails, symmetric to the SENIOR case above.
+  it('a booked-but-unpaid DROP obligation (DROP_PENDING_PAYOUT, PENDING_PAYMENT) is accrued — NOT submitted, NOT plain-missing', async () => {
+    const svc = makeService({
+      projects: [{ id: 'p1', name: 'P1', companyName: 'C1', seniorId: null, dropId: 'drop-1' }],
+      users: [{ id: 'drop-1', displayName: 'Drop One', role: 'DROP' }],
+      transactions: [
+        {
+          type: 'DROP_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          projectId: 'p1',
+          txDate: thisMonth,
+        },
+      ],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const drop = r.receivers.find((x) => x.userId === 'drop-1')!
+    expect(drop.submitted).toBe(0)
+    expect(drop.accruedCount).toBe(1)
+    expect(drop.missingProjects[0]).toMatchObject({ accrued: true, pendingValidation: false })
+    expect(r.totals.accruedProjects).toBe(1)
+  })
+
+  // AC2: accrued (a debt, not received money) must never be silently folded
+  // into `submitted` (received) — the two numbers stay strictly separate on the
+  // SAME receiver, one project each.
+  it('AC2: accrued and received are distinguishable, never summed into one number', async () => {
+    const svc = makeService({
+      projects: [
+        { id: 'p-paid', name: 'Paid Project', companyName: 'C1', seniorId: 'sr-1', dropId: null },
+        {
+          id: 'p-accrued',
+          name: 'Accrued Project',
+          companyName: 'C2',
+          seniorId: 'sr-1',
+          dropId: null,
+        },
+      ],
+      users: [{ id: 'sr-1', displayName: 'Senior One', role: 'SENIOR' }],
+      transactions: [
+        { type: 'SENIOR_INCOME', status: 'PAID', projectId: 'p-paid', txDate: thisMonth },
+        {
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          projectId: 'p-accrued',
+          txDate: thisMonth,
+        },
+      ],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const senior = r.receivers.find((x) => x.userId === 'sr-1')!
+    expect(senior.expected).toBe(2)
+    // The received project counts toward `submitted`; the accrued one does NOT
+    // — the accrued obligation is a debt the company still owes, not money the
+    // senior already received.
+    expect(senior.submitted).toBe(1)
+    expect(senior.accruedCount).toBe(1)
+    // `submitted` is not, e.g., 2 (accrued silently folded in) nor is
+    // `accruedCount` folded into `pendingCount`.
+    expect(senior.pendingCount).toBe(0)
+    expect(r.totals.submittedProjects).toBe(1)
+    expect(r.totals.accruedProjects).toBe(1)
+  })
+
+  it('AC3: a stray obligation row for someone who owns NO active project does not add a receiver', async () => {
+    const svc = makeService({
+      projects: [{ id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'sr-1', dropId: null }],
+      users: [
+        { id: 'sr-1', displayName: 'Senior One', role: 'SENIOR' },
+        { id: 'drop-orphan', displayName: 'Orphan Drop', role: 'DROP' },
+      ],
+      transactions: [
+        { type: 'SENIOR_INCOME', status: 'PAID', projectId: 'p1', txDate: thisMonth },
+        // A DROP_PENDING_PAYOUT row for a user who does NOT own any active
+        // project (e.g. their only project got archived) — recognising the new
+        // TYPE must never widen the receiver SET beyond project ownership.
+        {
+          type: 'DROP_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          projectId: 'p1',
+          txDate: thisMonth,
+        },
+      ],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    expect(r.receivers).toHaveLength(1)
+    expect(r.receivers.map((x) => x.userId)).toEqual(['sr-1'])
+    expect(r.receivers.map((x) => x.userId)).not.toContain('drop-orphan')
+  })
+
+  it('ADMIN owner never gets an obligation type (bookCompanyObligations skips ADMIN) — a stray SENIOR_PENDING_PAYOUT-shaped row does not leak in', async () => {
+    const svc = makeService({
+      projects: [{ id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'adm-1', dropId: null }],
+      users: [{ id: 'adm-1', displayName: 'Admin Owner', role: 'ADMIN' }],
+      transactions: [{ type: 'ADMIN_INCOME', status: 'PAID', projectId: 'p1', txDate: thisMonth }],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const admin = r.receivers.find((x) => x.userId === 'adm-1')!
+    expect(admin.submitted).toBe(1)
+    expect(admin.accruedCount).toBe(0)
   })
 })
 
