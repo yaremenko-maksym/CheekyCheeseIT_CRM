@@ -33,7 +33,17 @@ import * as schema from '../database/schema'
  * route. This spec stands up the REAL controllers behind the REAL JwtAuthGuard +
  * RolesGuard chain and asserts HTTP statusCode — removing the class-level guard
  * turns the 403 cases green-for-the-wrong-reason (handler leaks), so the test is
- * a genuine guarantee.
+ * a genuine guarantee for THOSE two guards.
+ *
+ * SCOPE (MED-1, security-review round on #534): the rig below registers ONLY
+ * `JwtAuthGuard` as `APP_GUARD` (plus per-controller `RolesGuard`) — it does
+ * NOT stand up the full production guard chain `JwtAuthGuard → OnboardingGuard
+ * → ThrottlerGuard` (`app.module.ts:114-119`, order-sensitive — see the
+ * comment there). This spec cannot and does not claim anything about
+ * onboarding-gating or throttling on these routes. Guard ORDER on the REAL
+ * module is pinned separately via metadata in `apps/api/src/app.module.spec.ts`
+ * (PR #532); guard-order regressions on onboarding specifically are pinned in
+ * `auth/onboarding.guard.integration.spec.ts` (referenced from app.module.ts).
  *
  * Covered routes (representative of each new @Roles group):
  *   #3 TransactionsController
@@ -435,17 +445,22 @@ describe('finance controller guards — real backend RBAC integration (real DB)'
       expect(res.statusCode).toBe(400)
     })
 
-    it('a single txHash param passes the duplicate-param guard (not 400 for THIS reason)', async () => {
+    it('a single txHash param passes the duplicate-param guard and reaches the service (200, unclaimed hash)', async () => {
       if (!dbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/transactions/onchain-hash?txHash=0x${'0'.repeat(64)}`,
         cookies: { jwt: tokenFor(ADMIN) },
       })
-      // Proves the assertion above is about DUPLICATION, not "any query 400s":
-      // a well-formed single hash reaches the service and gets a normal 200
-      // (unclaimed hash — see onchain-tx-cross-path.integration.spec.ts).
-      expect(res.statusCode).not.toBe(400)
+      // MED-2 (security-review round on #534, same principle item 13 of this
+      // PR applies): `not.toBe(400)` only proves the response ISN'T a 400 —
+      // not that it is the CORRECT 200. `inspectOnChainHash` has no
+      // `@HttpCode` decorator, so a well-formed, unclaimed hash is a
+      // deterministic 200 with `claimed: false` (see
+      // TransactionsService.inspectOnChainHash — no matching row → plain
+      // return, Nest's GET default). Assert the exact value.
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload)).toMatchObject({ claimed: false })
     })
 
     it('?txHash=a&txHash=b — SENIOR → 403 (RBAC guard still runs first)', async () => {
