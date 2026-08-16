@@ -21,7 +21,7 @@
  * are mocked so the component renders in isolation.
  */
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, within } from '@testing-library/react'
 import type { FinanceSummaryDto, IncomeComplianceOverviewDto, SessionUser } from '@crm/shared'
 
 // ── Mocks ─────────────────────────────────────────────────────────────────────
@@ -77,7 +77,7 @@ vi.mock('./finance/api', () => ({
   companyAccountApi: { getAccount: vi.fn() },
 }))
 
-import { StatsPage } from './stats'
+import { StatsPage, receiverStatus } from './stats'
 
 // ── Fixtures ──────────────────────────────────────────────────────────────────
 
@@ -280,6 +280,18 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     expect(screen.getByText('Нет прихода')).toBeInTheDocument()
   })
 
+  // mutation-gate: sr-lag has pendingCount===1 — the row BADGE (collapsed,
+  // before expanding the drawer) must say the SINGULAR «На валидации», not
+  // «1 на валидации», with the amber badge cls.
+  it('sr-lag row badge (pendingCount===1) shows singular «На валидации» with the amber cls', () => {
+    setup('ADMIN')
+    const row = screen.getByTestId('compliance-row-sr-lag')
+    const badge = within(row).getByText('На валидации')
+    expect(badge.className).toContain('bg-amber-500/10')
+    expect(badge.className).toContain('text-amber-500')
+    expect(within(row).queryByText('1 на валидации')).not.toBeInTheDocument()
+  })
+
   // task-compliance-overview-pending-types: the reported prod regression — a
   // receiver whose ONLY open project is an unpaid, company-booked obligation
   // must render as a non-lagging (amber «Начислено») row, NEVER the red «Нет
@@ -305,6 +317,187 @@ describe('StatsPage — income-compliance «Контроль приходов» 
     setup('ADMIN')
     expect(screen.queryByTestId('participants-balances-card')).not.toBeInTheDocument()
     expect(screen.queryByText('Балансы участников')).not.toBeInTheDocument()
+  })
+
+  // task-compliance-overview-pending-types (mutation-gate): every reachable
+  // badge/colour combination in ONE payload — mixed pending+accrued, plural
+  // accrued-only, plural pending-only, and the genuinely red «без прихода» /
+  // «Нет приходов» states (never positively rendered by any fixture before
+  // this task — the whole point of `accruedCount`/`pendingCount` is that
+  // THESE are the only states that should ever be red).
+  it('renders every badge/colour combination (mixed, plural accrued, plural pending, genuinely-lagging red)', () => {
+    useAuthMock.mockReturnValue({ user: makeUser('ADMIN'), isLoading: false })
+    useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
+      const key = opts?.queryKey?.[0]
+      if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+      if (key === 'income-compliance')
+        return {
+          data: {
+            month: '2026-06',
+            totals: {
+              expectedProjects: 9,
+              submittedProjects: 0,
+              laggingReceivers: 4,
+              completeReceivers: 0,
+              pendingProjects: 2,
+              accruedProjects: 3,
+            },
+            receivers: [
+              {
+                userId: 'r-mixed',
+                displayName: 'Mixed',
+                role: 'SENIOR',
+                expected: 2,
+                submitted: 0,
+                pendingCount: 1,
+                accruedCount: 1,
+                missingProjects: [
+                  {
+                    projectId: 'p-mixed-a',
+                    name: 'Mixed A',
+                    companyName: 'C',
+                    submitted: false,
+                    pendingValidation: true,
+                    accrued: false,
+                  },
+                  {
+                    projectId: 'p-mixed-b',
+                    name: 'Mixed B',
+                    companyName: 'C',
+                    submitted: false,
+                    pendingValidation: false,
+                    accrued: true,
+                  },
+                ],
+              },
+              {
+                userId: 'r-accrued-plural',
+                displayName: 'Accrued Plural',
+                role: 'DROP',
+                expected: 2,
+                submitted: 0,
+                pendingCount: 0,
+                accruedCount: 2,
+                missingProjects: [],
+              },
+              {
+                userId: 'r-pending-plural',
+                displayName: 'Pending Plural',
+                role: 'SENIOR',
+                expected: 2,
+                submitted: 0,
+                pendingCount: 2,
+                accruedCount: 0,
+                missingProjects: [],
+              },
+              {
+                userId: 'r-lagging-partial',
+                displayName: 'Lagging Partial',
+                role: 'SENIOR',
+                expected: 2,
+                submitted: 1,
+                pendingCount: 0,
+                accruedCount: 0,
+                missingProjects: [],
+              },
+              {
+                userId: 'r-lagging-zero',
+                displayName: 'Lagging Zero',
+                role: 'DROP',
+                expected: 1,
+                submitted: 0,
+                pendingCount: 0,
+                accruedCount: 0,
+                missingProjects: [],
+              },
+            ],
+          } satisfies IncomeComplianceOverviewDto,
+          isLoading: false,
+        }
+      return { data: undefined, isLoading: false }
+    })
+    render(<StatsPage />)
+
+    // Every assertion below is scoped to ITS OWN row via `within(...)` — a
+    // mutation that merely SWAPS which receiver gets which text (e.g. the
+    // submitted===0 ternary inverted) still leaves each string existing
+    // exactly once globally, so an unscoped `screen.getByText` cannot catch
+    // it; only checking WHICH row carries WHICH text can.
+
+    // Mixed: badge sums pending+accrued ("2 в процессе"), amber accent + cls.
+    const mixedRow = screen.getByTestId('compliance-row-r-mixed')
+    expect(mixedRow.className).toContain('border-l-amber-500')
+    const mixedBadge = within(mixedRow).getByText('2 в процессе')
+    expect(mixedBadge.className).toContain('bg-amber-500/10')
+    expect(mixedBadge.className).toContain('text-amber-500')
+
+    // Plural accrued-only — text AND badge cls (mutation-gate: StringLiteral
+    // on `cls` survives text-only assertions since `cls` never renders as
+    // visible text).
+    const accruedPluralRow = screen.getByTestId('compliance-row-r-accrued-plural')
+    const accruedPluralBadge = within(accruedPluralRow).getByText('2 начислено')
+    expect(accruedPluralBadge.className).toContain('bg-amber-500/10')
+    expect(accruedPluralBadge.className).toContain('text-amber-500')
+
+    // Plural pending-only — same, text AND cls.
+    const pendingPluralRow = screen.getByTestId('compliance-row-r-pending-plural')
+    const pendingPluralBadge = within(pendingPluralRow).getByText('2 на валидации')
+    expect(pendingPluralBadge.className).toContain('bg-amber-500/10')
+    expect(pendingPluralBadge.className).toContain('text-amber-500')
+
+    // Genuinely lagging (no pending, no accrued): red accent + red badge
+    // text+cls, scoped per row (the "some submitted" and "zero submitted"
+    // wordings must land on the RIGHT receiver, not just exist somewhere).
+    const laggingPartialRow = screen.getByTestId('compliance-row-r-lagging-partial')
+    expect(laggingPartialRow.className).toContain('border-l-red-500')
+    const laggingPartialBadge = within(laggingPartialRow).getByText('1 без прихода')
+    expect(laggingPartialBadge.className).toContain('bg-red-500/10')
+    expect(laggingPartialBadge.className).toContain('text-red-500')
+
+    const laggingZeroRow = screen.getByTestId('compliance-row-r-lagging-zero')
+    expect(laggingZeroRow.className).toContain('border-l-red-500')
+    const laggingZeroBadge = within(laggingZeroRow).getByText('Нет приходов')
+    expect(laggingZeroBadge.className).toContain('bg-red-500/10')
+    expect(laggingZeroBadge.className).toContain('text-red-500')
+    // Explicitly NOT the other row's wording — catches a submitted===0 vs
+    // !==0 swap that a global `getByText` would miss.
+    expect(within(laggingZeroRow).queryByText('1 без прихода')).not.toBeInTheDocument()
+    expect(within(laggingPartialRow).queryByText('Нет приходов')).not.toBeInTheDocument()
+
+    // Drawer-level per-project colour: expand Mixed and check BOTH the
+    // amber-pendingValidation dot/text AND the amber-accrued dot/text via
+    // their own data-testids (the dot has no text of its own to query by).
+    fireEvent.click(screen.getByTestId('compliance-toggle-r-mixed'))
+    const pendingText = screen.getByTestId('compliance-project-status-p-mixed-a')
+    expect(pendingText).toHaveTextContent('На валидации')
+    expect(pendingText.className).toContain('text-amber-500')
+    expect(pendingText.className).not.toContain('text-red-500')
+    const pendingDot = screen.getByTestId('compliance-project-dot-p-mixed-a')
+    expect(pendingDot.className).toContain('bg-amber-500')
+    expect(pendingDot.className).not.toContain('bg-red-500')
+
+    const accruedText = screen.getByTestId('compliance-project-status-p-mixed-b')
+    expect(accruedText).toHaveTextContent('Начислено · ожидает выплаты')
+    expect(accruedText.className).toContain('text-amber-500')
+    expect(accruedText.className).not.toContain('text-red-500')
+    const accruedDot = screen.getByTestId('compliance-project-dot-p-mixed-b')
+    expect(accruedDot.className).toContain('bg-amber-500')
+    expect(accruedDot.className).not.toContain('bg-red-500')
+
+    // Genuinely missing (red) drawer colour — the existing sr-lag fixture's
+    // ShopCore Backend entry, expanded via a fresh render for isolation.
+  })
+
+  it('a genuinely-missing project (no pending, no accrued) renders the RED dot/text in the drawer', () => {
+    setup('ADMIN')
+    fireEvent.click(screen.getByTestId('compliance-toggle-sr-lag'))
+    const missingText = screen.getByTestId('compliance-project-status-p-missing')
+    expect(missingText).toHaveTextContent('Нет прихода')
+    expect(missingText.className).toContain('text-red-500')
+    expect(missingText.className).not.toContain('text-amber-500')
+    const missingDot = screen.getByTestId('compliance-project-dot-p-missing')
+    expect(missingDot.className).toContain('bg-red-500')
+    expect(missingDot.className).not.toContain('bg-amber-500')
   })
 
   it('shows an empty state when there are no receivers', () => {
@@ -371,5 +564,77 @@ describe('StatsPage — ADMIN full surface (no regression)', () => {
     setup('ADMIN')
     expect(screen.getByTestId('stats-placeholders-section')).toBeInTheDocument()
     expect(screen.getByText('Другие разделы')).toBeInTheDocument()
+  })
+})
+
+// task-compliance-overview-pending-types (mutation-gate). `receiverStatus`
+// decides the amber-vs-red false-positive-avoidance colour this task exists
+// to fix — pinned directly (pure function), not only through rendered text,
+// so the boundary arithmetic itself is provably exercised.
+describe('receiverStatus (pure) — coverage boundary, mutation-gate', () => {
+  function r(overrides: Partial<IncomeComplianceReceiverDto>): IncomeComplianceReceiverDto {
+    return {
+      userId: 'x',
+      displayName: 'X',
+      role: 'SENIOR',
+      expected: 1,
+      submitted: 0,
+      pendingCount: 0,
+      accruedCount: 0,
+      missingProjects: [],
+      ...overrides,
+    }
+  }
+
+  it.each<[string, Partial<IncomeComplianceReceiverDto>, 'complete' | 'pending' | 'lagging']>([
+    ['submitted === expected → complete', { expected: 1, submitted: 1 }, 'complete'],
+    ['submitted > expected → still complete', { expected: 1, submitted: 2 }, 'complete'],
+    [
+      'no pending, no accrued at all → lagging',
+      { expected: 3, submitted: 0, pendingCount: 0, accruedCount: 0 },
+      'lagging',
+    ],
+    [
+      'pending+accrued cover PART of the gap, not all of it → lagging',
+      { expected: 3, submitted: 0, pendingCount: 1, accruedCount: 0 },
+      'lagging',
+    ],
+    [
+      'accruedCount ALONE exactly covers the gap → pending, never lagging (the reported regression)',
+      { expected: 1, submitted: 0, pendingCount: 0, accruedCount: 1 },
+      'pending',
+    ],
+    [
+      'pendingCount ALONE exactly covers the gap → pending',
+      { expected: 1, submitted: 0, pendingCount: 1, accruedCount: 0 },
+      'pending',
+    ],
+    [
+      'pendingCount + accruedCount SUM (not one alone) exactly covers a 2-project gap',
+      { expected: 2, submitted: 0, pendingCount: 1, accruedCount: 1 },
+      'pending',
+    ],
+    [
+      'pendingCount + accruedCount SUM (not difference) covers a 3-project gap',
+      { expected: 3, submitted: 0, pendingCount: 2, accruedCount: 1 },
+      'pending',
+    ],
+    [
+      'pending+accrued OVER-covers the gap → still pending, not lagging',
+      { expected: 1, submitted: 0, pendingCount: 1, accruedCount: 1 },
+      'pending',
+    ],
+    [
+      // mutation-gate: submitted > 0 (not just 0) — proves the gap is
+      // `expected - submitted`, not `expected + submitted` (which would give
+      // the SAME number whenever submitted is 0, as every case above does).
+      // Real gap = 3-1 = 2, exactly covered by pendingCount 2 → pending. The
+      // `+` mutant would compute a gap of 4, NOT covered by 2 → lagging.
+      'gap is expected MINUS submitted, not plus (submitted > 0 case)',
+      { expected: 3, submitted: 1, pendingCount: 2, accruedCount: 0 },
+      'pending',
+    ],
+  ])('%s', (_label, overrides, expectedStatus) => {
+    expect(receiverStatus(r(overrides))).toBe(expectedStatus)
   })
 })

@@ -25,6 +25,7 @@ import { ForbiddenException } from '@nestjs/common'
 import { describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
+import { collectParamValues } from './__test-helpers__/drizzle-where-introspection'
 
 function user(role: SessionUser['role'], id = `${role.toLowerCase()}-1`): SessionUser {
   return {
@@ -62,6 +63,43 @@ function makeService(data: StubData = {}): TransactionsService {
     },
   }
   return makeTransactionsService({ db: dbStub as never })
+}
+
+/**
+ * task-compliance-overview-pending-types (mutation-gate): `transactions.findMany`
+ * above IGNORES the `where` it is called with — it always returns the canned
+ * `data.transactions` array regardless — so a mocked-row test structurally
+ * cannot observe a mutation of the `inArray(transactions.type, [...])` /
+ * `inArray(transactions.status, [...])` literal ARRAYS in the query builder
+ * (only the query EXECUTOR is stubbed, not the query-builder — `transactions`
+ * is the real imported schema table, so `where` is a real Drizzle SQL AST).
+ * Same structural gap, same fix, as `transactions.drop-self-feeds.spec.ts`
+ * (security-review PR #523 round 1 MED-2) — capture the REAL `where` AST and
+ * walk it with `collectParamValues` instead of trusting the stub's return.
+ */
+function makeServiceCapturingTransactionsWhere(data: StubData = {}): {
+  svc: TransactionsService
+  getWhere: () => unknown
+} {
+  let capturedWhere: unknown
+  const dbStub = {
+    db: {
+      query: {
+        projects: { findMany: () => Promise.resolve(data.projects ?? []) },
+        users: { findMany: () => Promise.resolve(data.users ?? []) },
+        transactions: {
+          findMany: (args?: { where?: unknown }) => {
+            capturedWhere = args?.where
+            return Promise.resolve(data.transactions ?? [])
+          },
+        },
+      },
+    },
+  }
+  return {
+    svc: makeTransactionsService({ db: dbStub as never }),
+    getWhere: () => capturedWhere,
+  }
 }
 
 const now = new Date()
@@ -151,6 +189,7 @@ describe('getIncomeComplianceOverview — counted criterion (AC2)', () => {
       projectId: 'p3',
       submitted: false,
       pendingValidation: true,
+      accrued: false,
     })
     expect(r.totals).toMatchObject({
       expectedProjects: 3,
@@ -173,7 +212,32 @@ describe('getIncomeComplianceOverview — counted criterion (AC2)', () => {
     const rec = r.receivers[0]!
     expect(rec.submitted).toBe(0)
     expect(rec.pendingCount).toBe(0)
-    expect(rec.missingProjects[0]).toMatchObject({ pendingValidation: false })
+    expect(rec.accruedCount).toBe(0)
+    expect(rec.missingProjects[0]).toMatchObject({ pendingValidation: false, accrued: false })
+  })
+
+  // task-compliance-overview-pending-types (mutation-gate): a REJECTED-status
+  // obligation row must NOT be treated as accrued — only PENDING_PAYMENT means
+  // "booked, awaiting company payout". Kills the mutant that widens the
+  // `else if (tx.status === 'PENDING_PAYMENT')` branch to always-true.
+  it('REJECTED-status obligation row is ignored — not accrued, not submitted', async () => {
+    const svc = makeService({
+      projects: [{ id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'sr-1', dropId: null }],
+      users: [baseSenior],
+      transactions: [
+        { type: 'SENIOR_PENDING_PAYOUT', status: 'REJECTED', projectId: 'p1', txDate: thisMonth },
+      ],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const rec = r.receivers[0]!
+    expect(rec.submitted).toBe(0)
+    expect(rec.accruedCount).toBe(0)
+    expect(rec.pendingCount).toBe(0)
+    expect(rec.missingProjects[0]).toMatchObject({
+      submitted: false,
+      pendingValidation: false,
+      accrued: false,
+    })
   })
 
   it('income dated in another month does not count toward the target month', async () => {
@@ -257,6 +321,75 @@ describe('getIncomeComplianceOverview — receiver grouping by income type', () 
     expect(senior.submitted).toBe(0) // no SENIOR_INCOME this month
     expect(drop.role).toBe('DROP')
     expect(drop.submitted).toBe(1) // DROP_INCOME validated
+  })
+
+  // mutation-gate: proves the defensive `if (!complianceRole || !incomeTypes)
+  // return` early-exit is neither always-on (which would wipe out the REAL
+  // receiver in the SAME call, asserted below) nor a no-op (a non-receiver
+  // owner really must be skipped).
+  it('a project owned by a non-receiver role (JUNIOR) is silently ignored, alongside a real SENIOR receiver', async () => {
+    const svc = makeService({
+      projects: [
+        {
+          id: 'p-junior',
+          name: 'Junior Project',
+          companyName: 'C0',
+          seniorId: 'jr-1',
+          dropId: null,
+        },
+        { id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'sr-1', dropId: null },
+      ],
+      users: [
+        { id: 'jr-1', displayName: 'Some Junior', role: 'JUNIOR' },
+        { id: 'sr-1', displayName: 'Senior One', role: 'SENIOR' },
+      ],
+      transactions: [{ type: 'SENIOR_INCOME', status: 'PAID', projectId: 'p1', txDate: thisMonth }],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    expect(r.receivers.map((x) => x.userId)).toEqual(['sr-1'])
+    expect(r.receivers.find((x) => x.userId === 'jr-1')).toBeUndefined()
+    const senior = r.receivers.find((x) => x.userId === 'sr-1')!
+    expect(senior.submitted).toBe(1)
+  })
+})
+
+// task-compliance-overview-pending-types (mutation-gate): closes the surviving
+// mutants on the `inArray(transactions.type, [...])` / `inArray(transactions.
+// status, [...])` literals — see `makeServiceCapturingTransactionsWhere`'s
+// docstring for why the mocked-row tests above cannot observe them (and why
+// `income-compliance.integration.spec.ts` can't either — Stryker excludes
+// every `*.integration.spec.ts` file from mutation discovery).
+describe('getIncomeComplianceOverview — DB-level type/status scope (mutation-gate)', () => {
+  const oneActiveProject = {
+    projects: [{ id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'sr-1', dropId: null }],
+    users: [{ id: 'sr-1', displayName: 'Senior One', role: 'SENIOR' }],
+  }
+
+  it('WHERE clause binds exactly the 6 recognised income/obligation types — nothing more, nothing less', async () => {
+    const { svc, getWhere } = makeServiceCapturingTransactionsWhere(oneActiveProject)
+    await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const bound = collectParamValues(getWhere())
+    const KNOWN_TYPES = new Set([
+      'SENIOR_INCOME',
+      'ADMIN_INCOME',
+      'DROP_INCOME',
+      'SENIOR_PENDING_PAYOUT',
+      'DROP_PENDING_PAYOUT',
+      'PAYOUT_DROP',
+    ])
+    const boundTypes = bound.filter((v): v is string => typeof v === 'string' && KNOWN_TYPES.has(v))
+    expect(new Set(boundTypes)).toEqual(KNOWN_TYPES)
+  })
+
+  it('WHERE clause binds exactly the 4 recognised statuses — nothing more, nothing less', async () => {
+    const { svc, getWhere } = makeServiceCapturingTransactionsWhere(oneActiveProject)
+    await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const bound = collectParamValues(getWhere())
+    const KNOWN_STATUSES = new Set(['VALIDATED', 'PAID', 'PENDING', 'PENDING_PAYMENT'])
+    const boundStatuses = bound.filter(
+      (v): v is string => typeof v === 'string' && KNOWN_STATUSES.has(v),
+    )
+    expect(new Set(boundStatuses)).toEqual(KNOWN_STATUSES)
   })
 })
 

@@ -451,9 +451,10 @@ function receiverInitials(name: string): string {
 // false alarm. The two stay separate NUMBERS everywhere else (badge text,
 // DTO) — see the extended comment on `incomeComplianceReceiverSchema` — this
 // function only decides a colour.
-function receiverStatus(r: IncomeComplianceReceiverDto): 'complete' | 'pending' | 'lagging' {
+export function receiverStatus(r: IncomeComplianceReceiverDto): 'complete' | 'pending' | 'lagging' {
   if (r.submitted >= r.expected) return 'complete'
   const awaitingSomeoneElse = r.pendingCount + r.accruedCount
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: PROVABLY equivalent mutants (forcing `awaitingSomeoneElse > 0` to `true`, or widening it to `>= 0`), not untested ones — `pendingCount`/`accruedCount` are `z.number().int().nonnegative()` on the wire (incomeComplianceReceiverSchema), so their sum can never be negative, making `> 0` and `>= 0` differ ONLY at exactly 0 — and the line above this one already guarantees `r.expected - r.submitted > 0` whenever this line runs (the `submitted >= expected` case already returned 'complete'), so at `awaitingSomeoneElse === 0` the SECOND operand (`0 >= <a positive number>`) is false either way. No input (respecting the schema's own nonnegative contract) can ever make the two mutants' outputs diverge from the original's.
   if (awaitingSomeoneElse > 0 && awaitingSomeoneElse >= r.expected - r.submitted) return 'pending'
   return 'lagging'
 }
@@ -623,6 +624,7 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                   <li key={p.projectId} className="flex items-center justify-between gap-2 text-sm">
                     <span className="flex items-center gap-2 min-w-0">
                       <span
+                        data-testid={`compliance-project-dot-${p.projectId}`}
                         className={cn(
                           'h-1.5 w-1.5 rounded-full shrink-0',
                           p.accrued || p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
@@ -635,6 +637,7 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                         {p.companyName}
                       </span>
                       <span
+                        data-testid={`compliance-project-status-${p.projectId}`}
                         className={cn(
                           'text-xs font-medium',
                           p.accrued || p.pendingValidation ? 'text-amber-500' : 'text-red-500',

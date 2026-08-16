@@ -5693,6 +5693,7 @@ export class TransactionsService {
       const whenDate = new Date(when)
       if (whenDate < monthStart || whenDate >= nextMonthStart) continue
       const key = `${tx.projectId}|${tx.type}`
+      // Stryker disable next-line ObjectLiteral: a PROVABLY equivalent mutant, not an untested one — every field on this fallback is IMMEDIATELY either read as falsy (identical to `{}`'s `undefined`, since every read below is a truthy check: `if (entry.received)`) or overwritten by one of the three branches directly below, so `{}` and `{received:false,pendingValidation:false,accrued:false}` are indistinguishable to any observer of this function's output — see income-compliance.unit.spec.ts's DB-level type/status scope suite for the mutants on THIS line's neighbours that ARE observable.
       const entry = incomeByKey.get(key) ?? {
         received: false,
         pendingValidation: false,
@@ -5744,6 +5745,7 @@ export class TransactionsService {
       if (!owner) return
       const complianceRole = complianceRoleFor(owner.role)
       const incomeTypes = incomeTypesFor(owner.role)
+      // Stryker disable next-line LogicalOperator: a PROVABLY equivalent mutant (`||` → `&&`), not an untested one — `complianceRoleFor` and `incomeTypesFor` branch on the IDENTICAL three-way role check (SENIOR/ADMIN/DROP → non-null, everything else → null), so for every possible `owner.role` string `!complianceRole` and `!incomeTypes` are ALWAYS the same boolean — `A || A` and `A && A` both reduce to `A`. See the "non-receiver role (JUNIOR)" test right below for the mutant on THIS line that IS observable (the whole condition forced to a constant).
       if (!complianceRole || !incomeTypes) return // ignore non-receiver roles defensively
       let acc = byReceiver.get(ownerId)
       if (!acc) {
