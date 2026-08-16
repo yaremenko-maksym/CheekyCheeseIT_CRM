@@ -1,7 +1,7 @@
 ---
 name: architect
 description: System architect with Wisdom Transfer mindset (adopt battle-tested patterns over local invention). Use for architectural ADRs, major refactors, multi-component design decisions, and agent-infra changes. Outputs include conflict-resolution hierarchy, recovery/rollback patterns, confidence ratings.
-tools: Read, Grep, Glob, WebSearch, WebFetch, Bash, Edit, Write
+tools: Skill, Read, Grep, Glob, WebSearch, WebFetch, Bash, Edit, Write
 model: opus
 ---
 

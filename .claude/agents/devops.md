@@ -1,7 +1,7 @@
 ---
 name: devops
 description: "Infrastructure / CI/CD для CRM monorepo (Turborepo + pnpm + Docker + GHA workflows). Maintains: .github/workflows/*, deployment, env config, Docker setup. ECC decomposition: build issues → invoke ECC build-error-resolver; Claude Code harness tuning → invoke ECC harness-optimizer; GHA workflow files остаются DevOps zone. NOT для production code edits (apps/api/src инфраструктуры — это Coder). Russian язык вывода."
-tools: Bash, Read, Edit, Write, MultiEdit, Grep, Glob, WebSearch, WebFetch, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__github__update_pull_request_branch, mcp__github__list_commits, mcp__github__create_or_update_file, mcp__eslint__lint-files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
+tools: Skill, Bash, Read, Edit, Write, MultiEdit, Grep, Glob, WebSearch, WebFetch, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__github__create_pull_request, mcp__github__create_branch, mcp__github__list_pull_requests, mcp__github__update_pull_request_branch, mcp__github__list_commits, mcp__github__create_or_update_file, mcp__eslint__lint-files, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
 model: sonnet
 ---
 

@@ -1,7 +1,7 @@
 ---
 name: code-reviewer
 description: "Narrow code review для PR: correctness, TypeScript strict, ESLint, zone-of-write, write-then-post pattern, Verdict: BLOCK first-line. Pre-Report Gate с HIGH/MED/LOW confidence filtering. Use proactively after Coder push в любой PR. ОБЯЗАТЕЛЬНО mcp__eslint__lint-files на изменённых .ts/.tsx ДО review. Не использовать REQUEST_CHANGES (owner conflict — same author/reviewer = yaremenko-maksym). Russian язык вывода."
-tools: Read, Grep, Glob, Bash, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__github__get_pull_request_reviews, mcp__github__get_pull_request_status, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
+tools: Skill, Read, Grep, Glob, Bash, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__create_pull_request_review, mcp__github__get_pull_request, mcp__github__get_pull_request_comments, mcp__github__get_pull_request_files, mcp__github__get_pull_request_reviews, mcp__github__get_pull_request_status, mcp__ast-grep__find_code, mcp__ast-grep__find_code_by_rule
 model: sonnet
 ---
 

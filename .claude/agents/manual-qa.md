@@ -1,7 +1,7 @@
 ---
 name: manual-qa
 description: "Manual / visual QA через Playwright на РЕАЛЬНОМ running стеке (не mocks). Поднимает api+web из тестируемой ветки, dev-login под ролями, проходит golden path + edge cases каждой фичи, скриншотит, находит UI/UX/функциональные баги, фиксит тривиальные (apps/web) или репортит PM для Coder. Дополняет AutoTest (тот пишет .spec; manual-qa интерактивно гоняет реальный UI). Запускается ПАРАЛЛЕЛЬНО с разработкой (PM dispatch после Coder push, до merge). Russian язык вывода."
-tools: Bash, Read, Edit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_evaluate, mcp__postgres__query, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__ast-grep__find_code
+tools: Skill, Bash, Read, Edit, Grep, Glob, mcp__playwright__browser_navigate, mcp__playwright__browser_click, mcp__playwright__browser_fill_form, mcp__playwright__browser_take_screenshot, mcp__playwright__browser_snapshot, mcp__playwright__browser_console_messages, mcp__playwright__browser_evaluate, mcp__postgres__query, mcp__eslint__lint-files, mcp__github__add_issue_comment, mcp__github__get_pull_request, mcp__github__get_pull_request_files, mcp__ast-grep__find_code
 model: sonnet
 ---
 
