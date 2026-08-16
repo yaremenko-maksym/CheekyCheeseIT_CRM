@@ -5575,6 +5575,19 @@ export class TransactionsService {
    * (`SENIOR_INCOME` for a senior; `PAYOUT_DROP` — newly added here — for a
    * drop, since a drop's settlement does NOT reuse `DROP_INCOME`).
    *
+   * security-review PR #531 round 1 (MED-1/MED-2), both fixed:
+   *   - MED-1: the obligation-model types (SENIOR_PENDING_PAYOUT /
+   *     DROP_PENDING_PAYOUT / PAYOUT_DROP) are looked up KEYED BY RECEIVER
+   *     (`evidenceKey`, §3 below) — NOT project+type alone. Without this, a
+   *     project's `dropId` (or `seniorId`) reassignment would let the NEW
+   *     owner inherit the OLD owner's evidence for the rest of the month — a
+   *     person who was never paid would render compliant.
+   *   - MED-2: `PENDING_PAYMENT` is NOT exclusive to a booked-unpaid
+   *     obligation — `createPayoutRequest` also flips an already-VALIDATED
+   *     self-declare SENIOR_INCOME/DROP_INCOME row to `PENDING_PAYMENT` for
+   *     the payout-request window. That is `received` (already earned), not
+   *     `accrued` — see the type-aware classification in §3.
+   *
    * @param month optional 'YYYY-MM' (UTC). Defaults to the current UTC month.
    */
   async getIncomeComplianceOverview(
@@ -5642,13 +5655,14 @@ export class TransactionsService {
     })
     const ownerById = new Map(ownerRows.map((u) => [u.id, u]))
 
-    // ── 3. Evidence rows for the month, per (projectId, type) ──────────────────
+    // ── 3. Evidence rows for the month, per (projectId, type[, receiverId]) ────
     // A single aggregating pass over every type of row that can constitute
     // evidence a receiver's income was accounted for. Three kinds, per
     // task-compliance-overview-pending-types:
     //   - self-declared income (SENIOR_INCOME / ADMIN_INCOME / DROP_INCOME):
     //     VALIDATED|PAID → received; PENDING → pendingValidation (awaiting the
-    //     accountant).
+    //     accountant). PENDING_PAYMENT is ALSO reachable here — see the
+    //     type-aware classification below, NOT a generic one.
     //   - a company-booked OBLIGATION not yet paid (SENIOR_PENDING_PAYOUT /
     //     DROP_PENDING_PAYOUT, status PENDING_PAYMENT) → accrued (awaiting the
     //     COMPANY's payout — nothing for the receiver to do).
@@ -5675,13 +5689,47 @@ export class TransactionsService {
         // compliance badge.
         isNull(transactions.deletedAt),
       ),
-      columns: { type: true, status: true, projectId: true, txDate: true, createdAt: true },
+      columns: {
+        type: true,
+        status: true,
+        projectId: true,
+        // security-review PR #531 (MED-1): the three obligation-model types
+        // below need `receiverId` for keying — see `RECEIVER_SCOPED_TYPES`.
+        receiverId: true,
+        txDate: true,
+        createdAt: true,
+      },
     })
 
-    // key = `${projectId}|${type}` → per-state flags for the target month. A row's
-    // TYPE decides which flag its status can ever set — see the classification
-    // above — so a single generic (type, status) → flag mapping is enough; no
-    // per-type branching is needed here.
+    // security-review PR #531 (MED-1). `bookCompanyObligations` documents
+    // `receiverId` as a hard invariant on every SENIOR_PENDING_PAYOUT /
+    // DROP_PENDING_PAYOUT / PAYOUT_DROP row (always the actual person the
+    // company owes/paid), and every OTHER consumer of these rows keys by it
+    // (`computeDropAggregate`, `balance.service.ts:327`). This widget must
+    // too: without it, the evidence key is `${projectId}|${type}` ALONE, so
+    // reassigning a project's `dropId` mid-month makes the NEW drop silently
+    // inherit the OLD drop's obligation evidence — a person who was never
+    // paid would render compliant. Self-declare types (SENIOR_INCOME /
+    // ADMIN_INCOME / DROP_INCOME) are deliberately NOT in this set — their
+    // existing project-level (not receiver-level) semantics predate this task
+    // and are unchanged (e.g. an admin-as-senior's ADMIN_INCOME can legally be
+    // routed to a different admin's receiverId — COMPANY_ACCOUNT pooling in
+    // `declareUsdtProjectIncome` — without that being non-compliance).
+    const RECEIVER_SCOPED_TYPES = new Set([
+      'SENIOR_PENDING_PAYOUT',
+      'DROP_PENDING_PAYOUT',
+      'PAYOUT_DROP',
+    ])
+    // The subset of RECEIVER_SCOPED_TYPES whose PENDING_PAYMENT status means
+    // "booked, unpaid obligation" (accrued) — see the type-aware status
+    // classification below (MED-2).
+    const OBLIGATION_TYPES = new Set(['SENIOR_PENDING_PAYOUT', 'DROP_PENDING_PAYOUT'])
+    const evidenceKey = (projectId: string, type: string, receiverId: string | null): string =>
+      RECEIVER_SCOPED_TYPES.has(type)
+        ? `${projectId}|${type}|${receiverId}`
+        : `${projectId}|${type}`
+
+    // key = evidenceKey(...) → per-state flags for the target month.
     const incomeByKey = new Map<
       string,
       { received: boolean; pendingValidation: boolean; accrued: boolean }
@@ -5692,7 +5740,7 @@ export class TransactionsService {
       if (!when) continue
       const whenDate = new Date(when)
       if (whenDate < monthStart || whenDate >= nextMonthStart) continue
-      const key = `${tx.projectId}|${tx.type}`
+      const key = evidenceKey(tx.projectId, tx.type, tx.receiverId)
       // Stryker disable next-line ObjectLiteral: a PROVABLY equivalent mutant, not an untested one — every field on this fallback is IMMEDIATELY either read as falsy (identical to `{}`'s `undefined`, since every read below is a truthy check: `if (entry.received)`) or overwritten by one of the three branches directly below, so `{}` and `{received:false,pendingValidation:false,accrued:false}` are indistinguishable to any observer of this function's output — see income-compliance.unit.spec.ts's DB-level type/status scope suite for the mutants on THIS line's neighbours that ARE observable.
       const entry = incomeByKey.get(key) ?? {
         received: false,
@@ -5701,7 +5749,22 @@ export class TransactionsService {
       }
       if (tx.status === 'VALIDATED' || tx.status === 'PAID') entry.received = true
       else if (tx.status === 'PENDING') entry.pendingValidation = true
-      else if (tx.status === 'PENDING_PAYMENT') entry.accrued = true
+      else if (tx.status === 'PENDING_PAYMENT') {
+        // security-review PR #531 (MED-2): PENDING_PAYMENT is NOT exclusive to
+        // a booked-unpaid obligation. `createPayoutRequest`
+        // (transactions.service.ts, ~L3941-3944) ALSO flips an already-
+        // VALIDATED self-declare SENIOR_INCOME/DROP_INCOME row to
+        // PENDING_PAYMENT for the entire payout-request window (until
+        // `payPayoutRequest` flips it PAID). That income was already earned
+        // and validated — it is `received`, not a company debt the receiver
+        // is waiting on; labelling it "Начислено · ожидает выплаты" would
+        // misattribute the wait to the wrong party (the payout mechanics, not
+        // an ADMIN-booked IOU). Only the two TRUE obligation types — booked by
+        // `bookCompanyObligations`, which never emits a VALIDATED status —
+        // mean `accrued`.
+        if (OBLIGATION_TYPES.has(tx.type)) entry.accrued = true
+        else entry.received = true
+      }
       incomeByKey.set(key, entry)
     }
 
@@ -5790,7 +5853,12 @@ export class TransactionsService {
         let pendingValidation = false
         let accrued = false
         for (const type of acc.incomeTypes) {
-          const entry = incomeByKey.get(`${proj.projectId}|${type}`)
+          // security-review PR #531 (MED-1): looked up with the SAME
+          // receiver-aware key the aggregation pass wrote — see `evidenceKey`
+          // above. `acc.userId` is the CURRENT owner of `proj` (this receiver),
+          // so a stale row left behind by a PREVIOUS owner (project
+          // reassignment) never matches here.
+          const entry = incomeByKey.get(evidenceKey(proj.projectId, type, acc.userId))
           if (!entry) continue
           if (entry.received) received = true
           if (entry.pendingValidation) pendingValidation = true

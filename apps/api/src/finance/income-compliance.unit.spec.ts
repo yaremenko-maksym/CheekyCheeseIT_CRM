@@ -67,29 +67,37 @@ function makeService(data: StubData = {}): TransactionsService {
 
 /**
  * task-compliance-overview-pending-types (mutation-gate): `transactions.findMany`
- * above IGNORES the `where` it is called with — it always returns the canned
- * `data.transactions` array regardless — so a mocked-row test structurally
- * cannot observe a mutation of the `inArray(transactions.type, [...])` /
- * `inArray(transactions.status, [...])` literal ARRAYS in the query builder
- * (only the query EXECUTOR is stubbed, not the query-builder — `transactions`
- * is the real imported schema table, so `where` is a real Drizzle SQL AST).
- * Same structural gap, same fix, as `transactions.drop-self-feeds.spec.ts`
- * (security-review PR #523 round 1 MED-2) — capture the REAL `where` AST and
- * walk it with `collectParamValues` instead of trusting the stub's return.
+ * above IGNORES the `where`/`columns` it is called with — it always returns
+ * the canned `data.transactions` array regardless — so a mocked-row test
+ * structurally cannot observe a mutation of the `inArray(transactions.type,
+ * [...])` / `inArray(transactions.status, [...])` literal ARRAYS in the query
+ * builder (only the query EXECUTOR is stubbed, not the query-builder —
+ * `transactions` is the real imported schema table, so `where` is a real
+ * Drizzle SQL AST), NOR a mutation of the `columns: {...}` selection object
+ * (security-review PR #531 round 1 — `receiverId: true` is load-bearing for
+ * MED-1's receiver-scoped keying; a stub that ignores it can't tell whether
+ * that flag was ever flipped off). Same structural gap, same fix, as
+ * `transactions.drop-self-feeds.spec.ts` (security-review PR #523 round 1
+ * MED-2) — capture the REAL `where` AST (walk it with `collectParamValues`)
+ * and the REAL `columns` object (a plain JS object, no AST needed) instead of
+ * trusting the stub's return.
  */
 function makeServiceCapturingTransactionsWhere(data: StubData = {}): {
   svc: TransactionsService
   getWhere: () => unknown
+  getColumns: () => Record<string, boolean> | undefined
 } {
   let capturedWhere: unknown
+  let capturedColumns: Record<string, boolean> | undefined
   const dbStub = {
     db: {
       query: {
         projects: { findMany: () => Promise.resolve(data.projects ?? []) },
         users: { findMany: () => Promise.resolve(data.users ?? []) },
         transactions: {
-          findMany: (args?: { where?: unknown }) => {
+          findMany: (args?: { where?: unknown; columns?: Record<string, boolean> }) => {
             capturedWhere = args?.where
+            capturedColumns = args?.columns
             return Promise.resolve(data.transactions ?? [])
           },
         },
@@ -99,6 +107,7 @@ function makeServiceCapturingTransactionsWhere(data: StubData = {}): {
   return {
     svc: makeTransactionsService({ db: dbStub as never }),
     getWhere: () => capturedWhere,
+    getColumns: () => capturedColumns,
   }
 }
 
@@ -225,7 +234,13 @@ describe('getIncomeComplianceOverview — counted criterion (AC2)', () => {
       projects: [{ id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'sr-1', dropId: null }],
       users: [baseSenior],
       transactions: [
-        { type: 'SENIOR_PENDING_PAYOUT', status: 'REJECTED', projectId: 'p1', txDate: thisMonth },
+        {
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'REJECTED',
+          projectId: 'p1',
+          receiverId: 'sr-1',
+          txDate: thisMonth,
+        },
       ],
     })
     const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
@@ -391,6 +406,24 @@ describe('getIncomeComplianceOverview — DB-level type/status scope (mutation-g
     )
     expect(new Set(boundStatuses)).toEqual(KNOWN_STATUSES)
   })
+
+  // security-review PR #531 round 1 (MED-1): `receiverId` MUST be selected —
+  // without it, `evidenceKey` cannot key the three obligation-model types by
+  // person at all. A mocked-row test cannot observe this via the RETURNED rows
+  // (the stub ignores `columns` and returns the canned fixture regardless), so
+  // capture the actual `columns` object the query builder was called with.
+  it('columns selection includes every field evidenceKey/the month-window filter needs — especially receiverId (MED-1)', async () => {
+    const { svc, getColumns } = makeServiceCapturingTransactionsWhere(oneActiveProject)
+    await svc.getIncomeComplianceOverview(user('ADMIN'))
+    expect(getColumns()).toEqual({
+      type: true,
+      status: true,
+      projectId: true,
+      receiverId: true,
+      txDate: true,
+      createdAt: true,
+    })
+  })
 })
 
 describe('getIncomeComplianceOverview — obligation evidence (task-compliance-overview-pending-types)', () => {
@@ -415,7 +448,15 @@ describe('getIncomeComplianceOverview — obligation evidence (task-compliance-o
         // bookCompanyObligations booked DROP_PENDING_PAYOUT in August; settleByCompany
         // later flipped the SAME row in place to PAYOUT_DROP/PAID — never a
         // separate DROP_INCOME row (createDropIncome rejects a USDT project).
-        { type: 'PAYOUT_DROP', status: 'PAID', projectId: 'gt', txDate: thisMonth },
+        // receiverId set — security-review PR #531 (MED-1): PAYOUT_DROP is
+        // receiver-scoped, `bookCompanyObligations` always stamps it.
+        {
+          type: 'PAYOUT_DROP',
+          status: 'PAID',
+          projectId: 'gt',
+          receiverId: 'drop-1',
+          txDate: thisMonth,
+        },
       ],
     })
     const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
@@ -440,6 +481,7 @@ describe('getIncomeComplianceOverview — obligation evidence (task-compliance-o
           type: 'SENIOR_PENDING_PAYOUT',
           status: 'PENDING_PAYMENT',
           projectId: 'p1',
+          receiverId: 'sr-1',
           txDate: thisMonth,
         },
       ],
@@ -471,6 +513,7 @@ describe('getIncomeComplianceOverview — obligation evidence (task-compliance-o
           type: 'DROP_PENDING_PAYOUT',
           status: 'PENDING_PAYMENT',
           projectId: 'p1',
+          receiverId: 'drop-1',
           txDate: thisMonth,
         },
       ],
@@ -481,6 +524,101 @@ describe('getIncomeComplianceOverview — obligation evidence (task-compliance-o
     expect(drop.accruedCount).toBe(1)
     expect(drop.missingProjects[0]).toMatchObject({ accrued: true, pendingValidation: false })
     expect(r.totals.accruedProjects).toBe(1)
+  })
+
+  // security-review PR #531 (MED-1): the previous version of this test class
+  // did NOT catch a missing receiver-scope — a stray obligation row of the
+  // SAME type on the SAME project, but for a DIFFERENT person, must NOT count
+  // as evidence for the real owner. Concrete failure path this guards: a
+  // project's `dropId`/`seniorId` is reassigned mid-month — without this
+  // scope, the NEW owner would silently inherit the OLD owner's booked/paid
+  // evidence. Parameterized over ALL THREE receiver-scoped types (mutation-
+  // gate: each type STRING in `RECEIVER_SCOPED_TYPES` needs its OWN kill —
+  // a test for one type alone leaves the other two's literals unobserved).
+  it.each([
+    ['SENIOR_PENDING_PAYOUT', 'PENDING_PAYMENT', 'SENIOR', 'seniorId'],
+    ['DROP_PENDING_PAYOUT', 'PENDING_PAYMENT', 'DROP', 'dropId'],
+    ['PAYOUT_DROP', 'PAID', 'DROP', 'dropId'],
+  ] as const)(
+    'MED-1: a stray %s row for a DIFFERENT receiver on the SAME project is invisible to the CURRENT owner',
+    async (type, status, role, ownerField) => {
+      const project =
+        ownerField === 'seniorId'
+          ? { id: 'p1', name: 'P1', companyName: 'C1', seniorId: 'owner-new', dropId: null }
+          : { id: 'p1', name: 'P1', companyName: 'C1', seniorId: null, dropId: 'owner-new' }
+      const svc = makeService({
+        projects: [project],
+        users: [
+          { id: 'owner-new', displayName: 'New Owner', role },
+          { id: 'owner-old', displayName: 'Old Owner', role },
+        ],
+        transactions: [
+          // Booked for the OLD owner (e.g. before a reassignment) — same
+          // project, same type, WRONG receiver.
+          { type, status, projectId: 'p1', receiverId: 'owner-old', txDate: thisMonth },
+        ],
+      })
+      const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+      // owner-old no longer owns p1 — never a receiver.
+      expect(r.receivers.find((x) => x.userId === 'owner-old')).toBeUndefined()
+      // owner-new is the CURRENT owner — must NOT inherit owner-old's evidence.
+      const newOwner = r.receivers.find((x) => x.userId === 'owner-new')!
+      expect(newOwner.submitted).toBe(0)
+      expect(newOwner.accruedCount).toBe(0)
+      expect(newOwner.missingProjects).toHaveLength(1)
+      expect(newOwner.missingProjects[0]).toMatchObject({
+        projectId: 'p1',
+        submitted: false,
+        accrued: false,
+        pendingValidation: false,
+      })
+    },
+  )
+
+  // security-review PR #531 (MED-2): PENDING_PAYMENT is NOT exclusive to a
+  // booked obligation — `createPayoutRequest` (transactions.service.ts
+  // ~L3941-3944) ALSO flips an already-VALIDATED self-declare SENIOR_INCOME/
+  // DROP_INCOME row to PENDING_PAYMENT for the payout-request window. That
+  // income was already earned — it must count as `submitted`/received, NOT
+  // `accrued` (accrued would misattribute the wait to the company, when the
+  // receiver already did everything right and it is the PAYOUT flow waiting).
+  it('MED-2: a VALIDATED self-declare income mid-payout-request (PENDING_PAYMENT) counts as submitted, NOT accrued', async () => {
+    const svc = makeService({
+      projects: [
+        { id: 'p-sr', name: 'Senior Project', companyName: 'C1', seniorId: 'sr-1', dropId: null },
+        { id: 'p-drop', name: 'Drop Project', companyName: 'C2', seniorId: null, dropId: 'drop-1' },
+      ],
+      users: [
+        { id: 'sr-1', displayName: 'Senior One', role: 'SENIOR' },
+        { id: 'drop-1', displayName: 'Drop One', role: 'DROP' },
+      ],
+      transactions: [
+        // Self-declare SENIOR_INCOME, requested for payout → PENDING_PAYMENT.
+        {
+          type: 'SENIOR_INCOME',
+          status: 'PENDING_PAYMENT',
+          projectId: 'p-sr',
+          txDate: thisMonth,
+        },
+        // Symmetric case for DROP_INCOME.
+        {
+          type: 'DROP_INCOME',
+          status: 'PENDING_PAYMENT',
+          projectId: 'p-drop',
+          txDate: thisMonth,
+        },
+      ],
+    })
+    const r = await svc.getIncomeComplianceOverview(user('ADMIN'))
+    const senior = r.receivers.find((x) => x.userId === 'sr-1')!
+    expect(senior.submitted).toBe(1)
+    expect(senior.accruedCount).toBe(0)
+    expect(senior.missingProjects).toHaveLength(0)
+    const drop = r.receivers.find((x) => x.userId === 'drop-1')!
+    expect(drop.submitted).toBe(1)
+    expect(drop.accruedCount).toBe(0)
+    expect(drop.missingProjects).toHaveLength(0)
+    expect(r.totals.accruedProjects).toBe(0)
   })
 
   // AC2: accrued (a debt, not received money) must never be silently folded
@@ -505,6 +643,7 @@ describe('getIncomeComplianceOverview — obligation evidence (task-compliance-o
           type: 'SENIOR_PENDING_PAYOUT',
           status: 'PENDING_PAYMENT',
           projectId: 'p-accrued',
+          receiverId: 'sr-1',
           txDate: thisMonth,
         },
       ],

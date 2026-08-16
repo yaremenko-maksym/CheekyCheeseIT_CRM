@@ -1951,20 +1951,30 @@ export const incomeComplianceRoleSchema = z.enum(['SENIOR', 'ADMIN_SENIOR', 'DRO
 export type IncomeComplianceRole = z.infer<typeof incomeComplianceRoleSchema>
 
 // One project under a receiver. `submitted` = has a VALIDATED|PAID income (or a
-// SETTLED obligation — SENIOR_INCOME/PAYOUT_DROP, PAID) this month.
+// SETTLED obligation — SENIOR_INCOME/PAYOUT_DROP, PAID) this month. Also
+// `submitted` when a self-declare SENIOR_INCOME/DROP_INCOME row is already
+// VALIDATED but currently flipped to PENDING_PAYMENT by `createPayoutRequest`
+// (a payout was requested — the income itself was already earned; see the
+// type-aware classification in `getIncomeComplianceOverview`, security-review
+// PR #531 MED-2 — PENDING_PAYMENT is NOT exclusive to a booked obligation).
 // `pendingValidation` = has ONLY a self-declared PENDING income this month
 // (awaiting the ACCOUNTANT). `accrued` = has ONLY a company-booked obligation
+// (SENIOR_PENDING_PAYOUT/DROP_PENDING_PAYOUT — never a self-declare type)
 // still PENDING_PAYMENT this month (awaiting the COMPANY's payout — nothing for
 // this receiver to do). A project is `submitted`, OR `accrued`, OR
 // `pendingValidation`, OR none of the three (genuinely missing) — never two at
 // once.
+// security-review PR #531 (LOW-2): `accrued` is `.default(false)` — see the
+// matching note on `incomeComplianceReceiverSchema.accruedCount` below for the
+// full reasoning (identical for both: `.parse()` INPUT tolerance, not a
+// producer-contract change).
 export const incomeComplianceProjectSchema = z.object({
   projectId: z.string().uuid(),
   name: z.string(),
   companyName: z.string(),
   submitted: z.boolean(),
   pendingValidation: z.boolean(),
-  accrued: z.boolean(),
+  accrued: z.boolean().default(false),
 })
 export type IncomeComplianceProjectDto = z.infer<typeof incomeComplianceProjectSchema>
 
@@ -1977,6 +1987,22 @@ export type IncomeComplianceProjectDto = z.infer<typeof incomeComplianceProjectS
 // `accruedCount` = how many of the missing projects have an unpaid
 // company-booked obligation instead (PENDING_PAYMENT) — kept as its OWN counter,
 // never summed into `submitted` or `pendingCount` (AC2).
+//
+// security-review PR #531 (LOW-2, owner decision): `accruedCount` is
+// `.default(0)` — and so is `totals.accruedProjects` below. This is an
+// INPUT-side (`.parse()`) tolerance, not a change to what the PRODUCER
+// (this API endpoint) sends — it always populates all three fields, so the
+// OUTPUT type (`z.infer`, what every call site's TypeScript works against)
+// stays exactly as strict as it was: a plain `number`/`boolean`, never
+// `| undefined`. What it buys: if `.parse()` is ever run against a response
+// that predates this field (a rolling-deploy version-mismatch window, or any
+// future defensive re-parse of a cached/stale payload), the missing field
+// resolves to the SAFE reading — "no accrual information available" reads as
+// 0/false, not a hard validation crash that blanks the whole widget. That is
+// the same "absence over false alarm" principle the rest of this task is
+// built on, applied to the wire contract itself. `submitted`/`pendingCount`/
+// the pre-existing `totals` fields are deliberately LEFT without a default —
+// they predate this task and changing their strictness is out of scope here.
 export const incomeComplianceReceiverSchema = z.object({
   userId: z.string().uuid(),
   displayName: z.string(),
@@ -1984,7 +2010,7 @@ export const incomeComplianceReceiverSchema = z.object({
   expected: z.number().int().nonnegative(),
   submitted: z.number().int().nonnegative(),
   pendingCount: z.number().int().nonnegative(),
-  accruedCount: z.number().int().nonnegative(),
+  accruedCount: z.number().int().nonnegative().default(0),
   missingProjects: z.array(incomeComplianceProjectSchema),
 })
 export type IncomeComplianceReceiverDto = z.infer<typeof incomeComplianceReceiverSchema>
@@ -2007,8 +2033,9 @@ export const incomeComplianceOverviewSchema = z.object({
     pendingProjects: z.number().int().nonnegative(),
     // Projects whose only evidence this month is an unpaid, company-booked
     // obligation (accrued — «начислено, ожидает выплаты»). Never folded into
-    // `submittedProjects` or `pendingProjects` (AC2).
-    accruedProjects: z.number().int().nonnegative(),
+    // `submittedProjects` or `pendingProjects` (AC2). `.default(0)` — see the
+    // matching note on `incomeComplianceReceiverSchema.accruedCount`.
+    accruedProjects: z.number().int().nonnegative().default(0),
   }),
   receivers: z.array(incomeComplianceReceiverSchema),
 })
