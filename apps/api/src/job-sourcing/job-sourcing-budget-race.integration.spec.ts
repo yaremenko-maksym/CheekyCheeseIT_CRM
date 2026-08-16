@@ -48,6 +48,40 @@ import { JobSourcingService } from './job-sourcing.service'
  * (`Date.now() - 24h`), so "yesterday" is always yesterday, whenever this
  * runs, and `chargeBudget`'s own unmocked `new Date()` is always "today"
  * relative to it — no fake timers needed either.
+ *
+ * MUTATION VERIFICATION (manual — `pnpm mutation:changed` cannot reach this
+ * file; see below)
+ * -----------------------------------------------------------------------
+ * `chargeBudget`'s only test coverage is through this file and its sibling
+ * `job-sourcing.integration.spec.ts` — both `*.integration.spec.ts`, which
+ * `vitest.config.mts` structurally excludes from test discovery whenever
+ * `isIntegrationRun(process.argv)` is false (see
+ * `src/test/integration-run-mode.ts`). Stryker's vitest-runner drives Vitest
+ * programmatically with no `integration.spec` substring anywhere in its argv,
+ * so `pnpm mutation:changed` reports "Vitest failed to find test files
+ * related to mutated files" for every line in `chargeBudget` — an
+ * infrastructure gap (`scripts/devops/**`), not something fixable from this
+ * file's zone. Verified manually instead, against the REAL `crm_qa` Postgres
+ * (stronger than a mocked CAS, since it exercises actual SQL semantics):
+ *
+ *   Mutation A — `CHARGE_BUDGET_MAX_ATTEMPTS` 3 → 1 (removes the retry,
+ *   reproducing the pre-fix single-attempt CAS). Result: the FIRST test
+ *   below ("a second caller holding a STALE... still succeeds") failed with
+ *   the exact false `JobSourceBudgetExhaustedError` the fix removes.
+ *
+ *   Mutation B — dropped the `budgetWindowStartedAt` arm from the CAS
+ *   predicate (count-only compare-and-set, retry loop left intact). Result:
+ *   the SECOND test below ("CONTROL: genuine exhaustion still refuses")
+ *   failed — the count-only CAS let a stale caller coincidentally match a
+ *   row that had already been fully re-spent in the FRESH window (old-window
+ *   "used == limit" and new-window "used == limit" are the same number by
+ *   construction), silently overwriting a genuinely exhausted budget. This
+ *   is what motivated pinning the window start in the predicate, not just
+ *   the count (see `chargeBudget`'s own doc block).
+ *
+ * Both mutations were applied, run, observed red, and reverted (`git diff`
+ * against the committed `job-sourcing.service.ts` is empty after revert —
+ * verified before this file was committed).
  */
 
 const ADMIN_UUID_NS = 'd5e6f7a8-1b2c-4d3e-ee00-'
