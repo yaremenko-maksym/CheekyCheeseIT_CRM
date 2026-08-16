@@ -847,8 +847,19 @@ export class JobSourcingService {
         .limit(1)
         .then((rows) => rows[0])
       if (!fresh) {
-        // The source was deleted mid-run — nothing left to charge or refuse.
-        return
+        // Security review round on #532, MED-1: the source vanished between
+        // our read and our re-read (deletable only by an ADMIN, and only in
+        // this exact window — near-zero odds, but backlog #48's rule does not
+        // carve out an exception for "unlikely"). A limiter that cannot make
+        // sense of its own row must REFUSE, not silently let the caller
+        // through to `collectSource`'s `provider.collect()` — which is
+        // exactly what an unconditional `return` here used to do: the row
+        // being gone was read as "nothing left to charge", but the caller
+        // never learns that and proceeds to spend a REAL, uncounted request
+        // against the provider anyway.
+        throw new NotFoundException(
+          `Источник ${current.type} был удалён во время начисления бюджета — сбор отменён`,
+        )
       }
       current = fresh
     }

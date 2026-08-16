@@ -87,11 +87,17 @@ import { JobSourcingService } from './job-sourcing.service'
 const ADMIN_UUID_NS = 'd5e6f7a8-1b2c-4d3e-ee00-'
 const SOURCE_A_ID = `${ADMIN_UUID_NS}000000000001` // ample remaining quota post-rollover
 const SOURCE_B_ID = `${ADMIN_UUID_NS}000000000002` // genuinely at its limit
+const SOURCE_C_ID = `${ADMIN_UUID_NS}000000000003` // deleted mid-charge (MED-1, #532 review)
 
 /** A provider whose `collect()` is a canned in-memory list — no RSS parsing, no network. */
 class CannedProvider extends DouRssProvider {
   postings: NormalizedPosting[] = []
   private counter = 0
+
+  /** How many times `collect()` actually ran — a stand-in for "paid requests spent". */
+  get collectCallCount(): number {
+    return this.counter
+  }
 
   override collect(): Promise<NormalizedPosting[]> {
     // Each call returns a FRESH fingerprint so two successive collectSource()
@@ -114,7 +120,7 @@ class CannedProvider extends DouRssProvider {
   }
 }
 
-const SOURCE_IDS = [SOURCE_A_ID, SOURCE_B_ID] as const
+const SOURCE_IDS = [SOURCE_A_ID, SOURCE_B_ID, SOURCE_C_ID] as const
 
 /**
  * Deletes only what THIS spec's `collectSource` calls could have created —
@@ -234,6 +240,29 @@ describe('Job sourcing — budget window-reset boundary race (#53)', () => {
           budgetWindowStartedAt: yesterday,
         },
       })
+
+    // Source C: MED-1 fixture — re-seeded here so it exists at the start of
+    // its own test even though that test deletes it mid-run.
+    await dbSvc.db
+      .insert(jobSources)
+      .values({
+        id: SOURCE_C_ID,
+        type: 'DOU_RSS',
+        config: { category: 'JavaScript', race: 'c' },
+        budgetLimit: 5,
+        budgetWindow: 'DAY',
+        budgetUsed: 5,
+        budgetWindowStartedAt: yesterday,
+      })
+      .onConflictDoUpdate({
+        target: jobSources.id,
+        set: {
+          budgetLimit: 5,
+          budgetWindow: 'DAY',
+          budgetUsed: 5,
+          budgetWindowStartedAt: yesterday,
+        },
+      })
   })
 
   afterEach(async () => {
@@ -301,5 +330,48 @@ describe('Job sourcing — budget window-reset boundary race (#53)', () => {
 
     const [row] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_B_ID))
     expect(row!.budgetUsed).toBe(1)
+  })
+
+  /**
+   * MED-1, security review round on #532. The `!fresh` branch (source
+   * deleted between our read and our re-read) used to `return` — i.e.
+   * "nothing to charge or refuse" — which let `collectSource` fall straight
+   * through into `provider.collect()` with NO budget accounted for at all.
+   * Backlog #48's rule does not carve out an exception for "the row vanished
+   * for a reason I don't understand": a limiter facing input it cannot make
+   * sense of must refuse, not proceed. Reproduced deterministically — no
+   * concurrency needed — by deleting the row between building a stale
+   * snapshot and calling `collectSource` with it: the very first
+   * compare-and-set then matches nothing (the id itself is gone), forcing
+   * the re-read, which is exactly the `!fresh` branch.
+   */
+  it('MED-1 (#532 review): a source deleted mid-charge REFUSES instead of falling through to the provider', async () => {
+    if (!dbAvailable) return
+
+    const staleSnapshot = {
+      id: SOURCE_C_ID,
+      type: 'DOU_RSS' as const,
+      config: { category: 'JavaScript', race: 'c' },
+      budgetLimit: 5,
+      budgetWindow: 'DAY' as const,
+      budgetUsed: 5,
+      budgetWindowStartedAt: yesterday,
+    }
+
+    const callsBefore = provider.collectCallCount
+
+    // Delete the row BEFORE chargeBudget ever runs — the stale snapshot still
+    // "remembers" it as it was, exactly like a caller that read it a moment
+    // before an ADMIN deleted the source.
+    await dbSvc.db.delete(jobSources).where(eq(jobSources.id, SOURCE_C_ID))
+
+    await expect(service.collectSource({ ...staleSnapshot })).rejects.toThrow(/удалён/)
+
+    // The assertion that names the actual risk MED-1 is about: not merely
+    // "did collectSource reject" but "was the PAID provider call reached at
+    // all". A mutant that throws for the wrong reason, or throws AFTER
+    // `provider.collect()` has already run, would still satisfy
+    // `.rejects.toThrow` above — only this call-count check catches that.
+    expect(provider.collectCallCount).toBe(callsBefore)
   })
 })
