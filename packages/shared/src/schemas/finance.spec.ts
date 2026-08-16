@@ -11,6 +11,9 @@ import { describe, expect, it } from 'vitest'
 import {
   extractOnChainTxHash,
   financeSummarySchema,
+  incomeComplianceOverviewSchema,
+  incomeComplianceProjectSchema,
+  incomeComplianceReceiverSchema,
   manualConfirmPayoutSchema,
   transactionSchema,
 } from './finance'
@@ -142,6 +145,82 @@ describe('financeSummarySchema.dropBalances — new fields', () => {
     expect(result.dropBalances).toHaveLength(2)
     expect(result.dropBalances[1]!.dropSharePercent).toBe(10)
     expect(result.dropBalances[1]!.pendingCount).toBe(3)
+  })
+})
+
+// ── income compliance overview — accrued fields, security-review PR #531
+// (LOW-2): `.default()` is an INPUT-side (`.parse()`) tolerance, not a
+// producer-contract change. Pin the default VALUE itself — a mutant flipping
+// `.default(false)` to `.default(true)` is otherwise unobserved (nothing else
+// in the codebase constructs one of these objects without the field).
+
+const baseProject = {
+  projectId: '00000000-0000-4000-8000-000000000001',
+  name: 'P',
+  companyName: 'C',
+  submitted: false,
+  pendingValidation: false,
+}
+
+describe('incomeComplianceProjectSchema.accrued — default (security-review PR #531 LOW-2)', () => {
+  it('defaults to false when omitted', () => {
+    const result = incomeComplianceProjectSchema.parse(baseProject)
+    expect(result.accrued).toBe(false)
+  })
+
+  it('accepts an explicit true', () => {
+    const result = incomeComplianceProjectSchema.parse({ ...baseProject, accrued: true })
+    expect(result.accrued).toBe(true)
+  })
+})
+
+describe('incomeComplianceReceiverSchema.accruedCount — default (security-review PR #531 LOW-2)', () => {
+  const baseReceiver = {
+    userId: '00000000-0000-4000-8000-000000000002',
+    displayName: 'R',
+    role: 'SENIOR' as const,
+    expected: 1,
+    submitted: 0,
+    pendingCount: 0,
+    missingProjects: [],
+  }
+
+  it('defaults to 0 when omitted', () => {
+    const result = incomeComplianceReceiverSchema.parse(baseReceiver)
+    expect(result.accruedCount).toBe(0)
+  })
+
+  it('accepts an explicit count', () => {
+    const result = incomeComplianceReceiverSchema.parse({ ...baseReceiver, accruedCount: 3 })
+    expect(result.accruedCount).toBe(3)
+  })
+})
+
+describe('incomeComplianceOverviewSchema.totals.accruedProjects — default (security-review PR #531 LOW-2)', () => {
+  const baseTotals = {
+    expectedProjects: 1,
+    submittedProjects: 0,
+    laggingReceivers: 1,
+    completeReceivers: 0,
+    pendingProjects: 0,
+  }
+
+  it('defaults to 0 when omitted', () => {
+    const result = incomeComplianceOverviewSchema.parse({
+      month: '2026-08',
+      totals: baseTotals,
+      receivers: [],
+    })
+    expect(result.totals.accruedProjects).toBe(0)
+  })
+
+  it('accepts an explicit count', () => {
+    const result = incomeComplianceOverviewSchema.parse({
+      month: '2026-08',
+      totals: { ...baseTotals, accruedProjects: 5 },
+      receivers: [],
+    })
+    expect(result.totals.accruedProjects).toBe(5)
   })
 })
 

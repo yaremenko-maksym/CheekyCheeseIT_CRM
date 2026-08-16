@@ -178,18 +178,46 @@ export interface TypstRunner {
  */
 export const TYPST_RUNNER = Symbol('TYPST_RUNNER')
 
+/**
+ * Injection token for the scratch-directory root — where `mkdtemp` makes the
+ * per-render sandbox (`renderOnce`). Production never provides one, so the
+ * constructor falls back to the real `os.tmpdir()`, exactly as with
+ * `TYPST_RUNNER` above.
+ *
+ * The one caller that DOES pass a value is the leak-detection spec
+ * (`resume-typst.service.spec.ts`, "leaves no scratch directory behind"): it
+ * counts entries under this root before and after a render, and the machine
+ * -wide `tmpdir()` is shared with every other spec that renders for real —
+ * `resume-render-responsiveness.spec.ts` included, which drives a real ~4s
+ * render concurrently. Counting there made the assertion race against OTHER
+ * tests' scratch dirs, not against a leak in this service. A private root
+ * removes the shared namespace instead of trying to filter it.
+ *
+ * A plain `string` parameter would not hit the `Function`-token boot failure
+ * `TYPST_RUNNER` documents above (a non-callable type reflects to `String`,
+ * not `Function`) — but a dedicated token keeps both optional constructor
+ * arguments symmetric and explicit rather than relying on Nest's implicit
+ * primitive-type token.
+ */
+export const RESUME_SCRATCH_ROOT = Symbol('RESUME_SCRATCH_ROOT')
+
 @Injectable()
 export class ResumeTypstService {
   private readonly logger = new Logger(ResumeTypstService.name)
   private readonly gate = new ResumeSemaphore(MAX_CONCURRENT_RENDERS)
 
   private readonly runner: TypstRunner
+  private readonly scratchRoot: string
 
-  constructor(@Optional() @Inject(TYPST_RUNNER) runner?: TypstRunner) {
+  constructor(
+    @Optional() @Inject(TYPST_RUNNER) runner?: TypstRunner,
+    @Optional() @Inject(RESUME_SCRATCH_ROOT) scratchRoot?: string,
+  ) {
     // Assigned in the body rather than as a parameter default so the fallback
     // is applied by THIS code on an `undefined` argument, whoever passed it —
     // the injector with nothing bound, or a spec passing a stub positionally.
     this.runner = runner ?? spawnTypst
+    this.scratchRoot = scratchRoot ?? tmpdir()
   }
 
   /** In-flight renders — the concurrency bound's only observable effect. */
@@ -235,7 +263,7 @@ export class ResumeTypstService {
     const { payload, dropped } = this.serialiseInput(input)
     logDroppedGlyphs('resume render', dropped)
 
-    const dir = await mkdtemp(join(tmpdir(), 'crm-resume-'))
+    const dir = await mkdtemp(join(this.scratchRoot, 'crm-resume-'))
     try {
       const template = input.templateSource ?? loadDefaultTemplate()
       assertTemplateIsDrawable(template)
@@ -284,7 +312,7 @@ export class ResumeTypstService {
     } finally {
       // The directory holds personal data (the whole CV, in clear). It goes
       // away on every path, including the timeout and the throw.
-      await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+      await removeScratchDir(dir, this.logger)
     }
   }
 
@@ -325,6 +353,30 @@ export class ResumeTypstService {
 // ---------------------------------------------------------------------------
 // Process plumbing
 // ---------------------------------------------------------------------------
+
+/**
+ * Remove a render's scratch directory once the render is done with it.
+ *
+ * `force: true` matters for exactly ONE case: the directory is ALREADY gone by
+ * the time this runs — an operator's own stuck-render sweep, or a container
+ * restart landing between the render finishing and this call. `force` makes
+ * `rm` swallow the resulting `ENOENT` itself, so a directory that legitimately
+ * doesn't exist any more never produces a warning. Any OTHER removal failure
+ * (permissions, a locked file) is not that case and is not silently dropped —
+ * the directory holds a candidate's full CV in clear text, so it is logged.
+ *
+ * Exported so the "already gone" case can be exercised directly: reproducing
+ * it through a full render would mean deleting the directory the render
+ * itself still needs mid-flight, which changes the render's own outcome and
+ * tests something else entirely.
+ */
+export async function removeScratchDir(dir: string, logger: Pick<Logger, 'warn'>): Promise<void> {
+  await rm(dir, { recursive: true, force: true }).catch((err: unknown) => {
+    logger.warn(
+      `Failed to remove resume scratch directory ${dir}: ${err instanceof Error ? err.message : 'unknown'}`,
+    )
+  })
+}
 
 /**
  * Where the Typst binary is.

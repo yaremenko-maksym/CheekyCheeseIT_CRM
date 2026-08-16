@@ -442,9 +442,56 @@ function receiverInitials(name: string): string {
 
 // Status accent per receiver coverage: complete (green) / has-pending (amber) /
 // lagging-no-pending (red). Drives the left accent bar, dot and badge.
-function receiverStatus(r: IncomeComplianceReceiverDto): 'complete' | 'pending' | 'lagging' {
+//
+// task-compliance-overview-pending-types: `accruedCount` (a company-booked
+// obligation still awaiting the COMPANY's payout) is grouped with
+// `pendingCount` (self-declared income still awaiting the ACCOUNTANT) for THIS
+// coverage classification only — both mean "nothing left for the receiver to
+// do, not their fault", so neither should ever render as the red `lagging`
+// false alarm. The two stay separate NUMBERS everywhere else (badge text,
+// DTO) — see the extended comment on `incomeComplianceReceiverSchema` — this
+// function only decides a colour.
+export function receiverStatus(r: IncomeComplianceReceiverDto): 'complete' | 'pending' | 'lagging' {
   if (r.submitted >= r.expected) return 'complete'
-  if (r.pendingCount > 0 && r.pendingCount >= r.expected - r.submitted) return 'pending'
+  const awaitingSomeoneElse = r.pendingCount + r.accruedCount
+  // code-review (round 2, MED): the PREVIOUS suppression sat on the `if` line
+  // itself and named BOTH `ConditionalExpression,EqualityOperator` — Stryker
+  // applies a line-scoped `// Stryker disable` to EVERY mutant of the named
+  // mutator TYPES found on that line, not to one specific replacement value.
+  // That `if` line carried several genuinely different, independently
+  // catchable mutants (forcing the WHOLE condition to true/false; narrowing
+  // `>=` on the gap comparison) ALONGSIDE the two truly equivalent
+  // mutations — so the broad directive silently killed six catchable mutants
+  // along with the two equivalent ones (confirmed empirically: removing it
+  // and re-running let six die to the EXISTING test matrix below, unchanged).
+  //
+  // Isolating `awaitingSomeoneElse > 0` onto its own line shrinks what's left
+  // under the SAME two mutator names to EXACTLY the two mutations this
+  // paragraph proves equivalent (re-confirmed empirically after isolating:
+  // only these two remained, both provably equivalent — no third mutant
+  // appeared here under either name):
+  //   - EqualityOperator: `>` widened to `>=`.
+  //   - ConditionalExpression: the WHOLE expression forced to literal `true`.
+  // Both reduce to the identical question — does anything downstream see a
+  // difference between "true" and "awaitingSomeoneElse > 0" for THIS one
+  // boolean, used only as the left operand of `hasSomeoneElseInvolved &&
+  // awaitingSomeoneElse >= gap`? `pendingCount`/`accruedCount` are
+  // `z.number().int().nonnegative()` on the wire
+  // (incomeComplianceReceiverSchema), so their sum can never be negative —
+  // `> 0` and "always true" therefore differ ONLY at exactly 0. And the line
+  // above this one already guarantees `r.expected - r.submitted > 0`
+  // whenever this line runs (the `submitted >= expected` case already
+  // returned 'complete'), so at `awaitingSomeoneElse === 0` the gap
+  // comparison on the right of `&&` is false EITHER WAY. No input
+  // (respecting the schema's own nonnegative contract) can make either
+  // mutation diverge from the original's output. (A hypothetical
+  // force-to-`false` mutant would NOT be equivalent — it would return
+  // 'lagging' for every accrued/pending case the test matrix below expects
+  // 'pending' — but Stryker does not generate that variant for this node;
+  // only the `true` constant shown above.)
+  // Stryker disable next-line ConditionalExpression,EqualityOperator: see the paragraph above.
+  const hasSomeoneElseInvolved = awaitingSomeoneElse > 0
+  if (hasSomeoneElseInvolved && awaitingSomeoneElse >= r.expected - r.submitted) return 'pending'
   return 'lagging'
 }
 
@@ -498,17 +545,48 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
     pending: 'bg-amber-500',
     lagging: 'bg-red-500',
   }
+  // code-review (round 2, HIGH): the badge used to be computed INDEPENDENTLY
+  // of `status` — `receiver.pendingCount > 0` alone (ignoring whether it
+  // actually covers the whole gap) picked the amber "На валидации" wording
+  // even when `receiverStatus()` had already decided `lagging` (red), e.g.
+  // expected=3, submitted=0, pendingCount=1: pendingCount covers only 1 of 3
+  // missing projects, so status is 'lagging', but the OLD badge code still
+  // showed the reassuring amber text — a red-bordered row claiming, in its
+  // own badge, that everything is in progress. That pattern predates this
+  // task (existed for `pendingCount` alone on `main`); this task's
+  // `accruedCount` doubled the surface by adding a symmetric, equally
+  // ungated branch, so it is fixed here. Gating every non-green/red case
+  // through `status === 'pending'` makes the contradiction structurally
+  // impossible: the amber sub-wording (mixed / accrued-only / pending-only)
+  // only ever renders when `receiverStatus()` has ALREADY confirmed
+  // pendingCount+accruedCount fully cover the gap — which is exactly the
+  // condition `receiverStatus()` requires to return 'pending' in the first
+  // place. `accruedCount` (booked, awaiting the company's payout) still gets
+  // its OWN wording within that branch — reusing «На валидации» would be a
+  // wrong claim (nobody is validating anything; the accountant has nothing
+  // to check, the company just hasn't paid out yet).
   const badge =
     status === 'complete'
       ? { text: 'Все получены', cls: 'bg-green-500/10 text-green-500' }
-      : receiver.pendingCount > 0
-        ? {
-            text:
-              receiver.pendingCount === 1
-                ? 'На валидации'
-                : `${receiver.pendingCount} на валидации`,
-            cls: 'bg-amber-500/10 text-amber-500',
-          }
+      : status === 'pending'
+        ? receiver.pendingCount > 0 && receiver.accruedCount > 0
+          ? {
+              text: `${receiver.pendingCount + receiver.accruedCount} в процессе`,
+              cls: 'bg-amber-500/10 text-amber-500',
+            }
+          : receiver.accruedCount > 0
+            ? {
+                text:
+                  receiver.accruedCount === 1 ? 'Начислено' : `${receiver.accruedCount} начислено`,
+                cls: 'bg-amber-500/10 text-amber-500',
+              }
+            : {
+                text:
+                  receiver.pendingCount === 1
+                    ? 'На валидации'
+                    : `${receiver.pendingCount} на валидации`,
+                cls: 'bg-amber-500/10 text-amber-500',
+              }
         : {
             text:
               receiver.submitted === 0
@@ -596,9 +674,10 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                   <li key={p.projectId} className="flex items-center justify-between gap-2 text-sm">
                     <span className="flex items-center gap-2 min-w-0">
                       <span
+                        data-testid={`compliance-project-dot-${p.projectId}`}
                         className={cn(
                           'h-1.5 w-1.5 rounded-full shrink-0',
-                          p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
+                          p.accrued || p.pendingValidation ? 'bg-amber-500' : 'bg-red-500',
                         )}
                       />
                       <span className="truncate font-medium">{p.name}</span>
@@ -608,12 +687,22 @@ function ComplianceReceiverRow({ receiver }: { receiver: IncomeComplianceReceive
                         {p.companyName}
                       </span>
                       <span
+                        data-testid={`compliance-project-status-${p.projectId}`}
                         className={cn(
                           'text-xs font-medium',
-                          p.pendingValidation ? 'text-amber-500' : 'text-red-500',
+                          p.accrued || p.pendingValidation ? 'text-amber-500' : 'text-red-500',
                         )}
                       >
-                        {p.pendingValidation ? 'На валидации' : 'Нет прихода'}
+                        {/* task-compliance-overview-pending-types: `accrued` gets
+                            its own wording — it is a company-booked obligation
+                            awaiting PAYOUT, not a self-declared income awaiting
+                            VALIDATION («На валидации» would misattribute the
+                            wait to the wrong party. */}
+                        {p.accrued
+                          ? 'Начислено · ожидает выплаты'
+                          : p.pendingValidation
+                            ? 'На валидации'
+                            : 'Нет прихода'}
                       </span>
                     </span>
                   </li>

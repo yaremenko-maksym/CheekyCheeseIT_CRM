@@ -27,7 +27,7 @@
 GET /api/auth/google           → redirect на Google
 GET /api/auth/google/callback  → обработка callback
 GET /api/auth/me               → текущий пользователь (требует JWT)
-GET /api/auth/logout           → очистка cookie
+POST /api/auth/logout          → очистка cookie
 ```
 
 ## Роли

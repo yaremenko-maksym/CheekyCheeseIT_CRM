@@ -33,7 +33,17 @@ import * as schema from '../database/schema'
  * route. This spec stands up the REAL controllers behind the REAL JwtAuthGuard +
  * RolesGuard chain and asserts HTTP statusCode — removing the class-level guard
  * turns the 403 cases green-for-the-wrong-reason (handler leaks), so the test is
- * a genuine guarantee.
+ * a genuine guarantee for THOSE two guards.
+ *
+ * SCOPE (MED-1, security-review round on #534): the rig below registers ONLY
+ * `JwtAuthGuard` as `APP_GUARD` (plus per-controller `RolesGuard`) — it does
+ * NOT stand up the full production guard chain `JwtAuthGuard → OnboardingGuard
+ * → ThrottlerGuard` (`app.module.ts:114-119`, order-sensitive — see the
+ * comment there). This spec cannot and does not claim anything about
+ * onboarding-gating or throttling on these routes. Guard ORDER on the REAL
+ * module is pinned separately via metadata in `apps/api/src/app.module.spec.ts`
+ * (PR #532); guard-order regressions on onboarding specifically are pinned in
+ * `auth/onboarding.guard.integration.spec.ts` (referenced from app.module.ts).
  *
  * Covered routes (representative of each new @Roles group):
  *   #3 TransactionsController
@@ -401,6 +411,66 @@ describe('finance controller guards — real backend RBAC integration (real DB)'
     it('POST /transactions/expense — ACCOUNTANT passes the guard (not 403)', async () => {
       if (!dbAvailable) return
       expect(await post(ACCOUNTANT, '/api/transactions/expense', expensePayload)).not.toBe(403)
+    })
+  })
+
+  // BACKLOG-followups.md item 12 — the duplicated-`txHash` query-param guard
+  // (`inspectOnChainHash`, MED-S round 7) previously had ZERO controller-level
+  // HTTP coverage: every existing test called `svc.inspectOnChainHash(...)`
+  // directly, which never exercises Fastify's own query-string parsing — the
+  // exact layer this guard defends (`?txHash=a&txHash=b` arrives as an ARRAY,
+  // not a string, only at the HTTP boundary). A service-level test cannot prove
+  // the guard is wired on the route at all.
+  describe('GET /transactions/onchain-hash — duplicated txHash query param', () => {
+    it('?txHash=a&txHash=b — ADMIN → 400 (guard fires before the service)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(400)
+      // Positive assert: this 400 comes from the duplicated-param guard
+      // specifically, not from some other 400 source down the stack.
+      expect(JSON.parse(res.payload).message).toMatch(/ровно один параметр/)
+    })
+
+    it('?txHash=a&txHash=b — ACCOUNTANT → 400 too (guard is role-independent)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('a single txHash param passes the duplicate-param guard and reaches the service (200, unclaimed hash)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/transactions/onchain-hash?txHash=0x${'0'.repeat(64)}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      // MED-2 (security-review round on #534, same principle item 13 of this
+      // PR applies): `not.toBe(400)` only proves the response ISN'T a 400 —
+      // not that it is the CORRECT 200. `inspectOnChainHash` has no
+      // `@HttpCode` decorator, so a well-formed, unclaimed hash is a
+      // deterministic 200 with `claimed: false` (see
+      // TransactionsService.inspectOnChainHash — no matching row → plain
+      // return, Nest's GET default). Assert the exact value.
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.payload)).toMatchObject({ claimed: false })
+    })
+
+    it('?txHash=a&txHash=b — SENIOR → 403 (RBAC guard still runs first)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(403)
     })
   })
 
