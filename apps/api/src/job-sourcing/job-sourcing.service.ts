@@ -74,6 +74,20 @@ export const POSTING_RETENTION_DAYS = 90
 export const SUGGESTIONS_PAGE_SIZE = 20
 
 /**
+ * Bound on `chargeBudget`'s re-read-and-retry loop (backlog #53).
+ *
+ * Two attempts cover the realistic case this fix targets: one caller wins the
+ * first compare-and-set, a second loses it only because the row it read is
+ * now stale, re-reads, and wins the second. A third+ attempt only matters
+ * under genuine heavy contention (several processes charging the SAME source
+ * in the SAME instant), which this codebase does not have today — the cron
+ * runs `collectAll` sequentially and the manual trigger is one ADMIN clicking
+ * a button. The bound exists so contention that outlives it still refuses
+ * loudly rather than retrying forever.
+ */
+const CHARGE_BUDGET_MAX_ATTEMPTS = 3
+
+/**
  * How many of the freshest suggestions are RANKED on one request.
  *
  * Security review MED-3. Scoring reads the whole description, and the queue is
@@ -740,45 +754,110 @@ export class JobSourcingService {
    * pressing the button: twenty clicks in a row spend twenty units and then stop
    * (AC6), rather than twenty clicks burning a month of JSearch's allowance.
    *
-   * The counter is written with a CONDITIONAL update guarded by the value it was
-   * read at, so two runs racing each other cannot both spend the same last unit:
-   * the loser's WHERE matches nothing and it is refused.
+   * The counter is written with a CONDITIONAL update guarded by the FULL state
+   * it was read at (both the count AND the window it belongs to — see the
+   * window-pinning note below), so two runs racing each other cannot both
+   * spend the same last unit: the loser's WHERE matches nothing and it is
+   * refused.
+   *
+   * WINDOW-RESET BOUNDARY (backlog #53) — why this retries instead of refusing
+   * on the first lost compare-and-set
+   * -----------------------------------------------------------------------
+   * `resolveBudget` above already accounts for a window rollover correctly
+   * (it derives the window from `now`, not from the stale row), so two
+   * callers who both read the row a moment before its window reset BOTH
+   * correctly conclude "not exhausted". But a CAS keyed on `budgetUsed` alone
+   * still compares against the SAME stale, pre-rollover value — only the
+   * first write can match it. The second is not actually out of budget; it
+   * lost a compare against a number that was about to be discarded anyway.
+   * Refusing it there is a FALSE negative, and this repo's rule for a limiter
+   * fed input it cannot fully trust (backlog #48) is "become stricter, never
+   * looser" — a false refusal is not the stricter reading, it is simply the
+   * wrong one for a caller who genuinely has quota.
+   *
+   * The fix: on a lost CAS, RE-READ the row and retry against its actual
+   * current state, bounded by `CHARGE_BUDGET_MAX_ATTEMPTS`. Two outcomes:
+   *   - the row had already rolled over and someone else's write landed first
+   *     (the boundary case above) — the retry sees the fresh counter and, if
+   *     there is remaining room, writes its own increment on top of it;
+   *   - the row is genuinely at its limit — the retry sees `exhausted: true`
+   *     and throws exactly as before. The conservative direction is
+   *     unchanged; only the false trigger is removed.
+   * Attempts exhausted under real contention still refuse — a gate that keeps
+   * retrying forever under load is its own failure mode.
+   *
+   * WHY THE CAS ALSO PINS `budgetWindowStartedAt`, NOT JUST `budgetUsed`
+   * -----------------------------------------------------------------------
+   * `budgetLimit` does not change across a rollover, so "the OLD window was
+   * fully spent" and "the NEW window is ALSO fully spent" are, numerically,
+   * the exact same `budgetUsed` value (both equal `budgetLimit`). A CAS keyed
+   * on the count alone can therefore be fooled: a caller holding a snapshot
+   * from BEFORE the rollover could, by this coincidence, match a row that has
+   * since been rolled over AND fully re-spent — and overwrite it, which is a
+   * real overspend, not a false refusal. Pinning `budgetWindowStartedAt` in
+   * the SAME predicate closes that: a stale caller's remembered window start
+   * can only equal the row's CURRENT one when nobody has rolled it over yet,
+   * which is exactly the case where reusing the stale count is still correct.
    */
   private async chargeBudget(source: BudgetedSource, now: Date = new Date()): Promise<void> {
-    const state = this.budgetStateOf(source)
+    let current: BudgetedSource = source
+
+    for (let attempt = 1; attempt <= CHARGE_BUDGET_MAX_ATTEMPTS; attempt += 1) {
+      const state = this.budgetStateOf(current)
+      const budget = resolveBudget(state, now)
+      if (!budget.limited) return
+
+      if (budget.exhausted) {
+        throw new JobSourceBudgetExhaustedError(current.type, budget.limit ?? 0, budget.resetsAt)
+      }
+
+      const next = spendBudget(state, now)
+      if (!next) return
+
+      const currentWindowStartedAt = current.budgetWindowStartedAt ?? null
+      const updated = await this.db.db
+        .update(jobSources)
+        .set({
+          budgetUsed: next.used,
+          budgetWindowStartedAt: next.windowStartedAt,
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(jobSources.id, current.id),
+            // Compare-and-set on the FULL state we based the decision on —
+            // both fields, see the doc block above for why the count alone
+            // is not enough.
+            eq(jobSources.budgetUsed, current.budgetUsed ?? 0),
+            currentWindowStartedAt === null
+              ? isNull(jobSources.budgetWindowStartedAt)
+              : eq(jobSources.budgetWindowStartedAt, currentWindowStartedAt),
+          ),
+        )
+        .returning({ id: jobSources.id })
+
+      if (updated.length > 0) return
+
+      // Lost the compare-and-set — re-read the row and let the next iteration
+      // reason about its REAL current state (see the boundary note above).
+      const fresh = await this.db.db
+        .select()
+        .from(jobSources)
+        .where(eq(jobSources.id, current.id))
+        .limit(1)
+        .then((rows) => rows[0])
+      if (!fresh) {
+        // The source was deleted mid-run — nothing left to charge or refuse.
+        return
+      }
+      current = fresh
+    }
+
+    // Contention outlived the retry budget. Refuse — the same conservative
+    // outcome a single lost CAS used to mean before this fix.
+    const state = this.budgetStateOf(current)
     const budget = resolveBudget(state, now)
-    if (!budget.limited) return
-
-    if (budget.exhausted) {
-      throw new JobSourceBudgetExhaustedError(source.type, budget.limit ?? 0, budget.resetsAt)
-    }
-
-    const next = spendBudget(state, now)
-    if (!next) return
-
-    const updated = await this.db.db
-      .update(jobSources)
-      .set({
-        budgetUsed: next.used,
-        budgetWindowStartedAt: next.windowStartedAt,
-        updatedAt: now,
-      })
-      .where(
-        and(
-          eq(jobSources.id, source.id),
-          // Compare-and-set on the counter we based the decision on. Without it
-          // two concurrent runs both read "1 left" and both spend it.
-          eq(jobSources.budgetUsed, source.budgetUsed ?? 0),
-        ),
-      )
-      .returning({ id: jobSources.id })
-
-    if (updated.length === 0) {
-      // Someone else moved the counter between our read and our write. Refusing
-      // is the safe half of the race: at worst we skip a run that had budget,
-      // and the next cycle picks it up.
-      throw new JobSourceBudgetExhaustedError(source.type, budget.limit ?? 0, budget.resetsAt)
-    }
+    throw new JobSourceBudgetExhaustedError(current.type, budget.limit ?? 0, budget.resetsAt)
   }
 
   /** Run one configured source end to end. */
