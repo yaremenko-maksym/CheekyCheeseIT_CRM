@@ -311,15 +311,8 @@ export class ResumeTypstService {
       throw new ResumeRenderError('Не удалось собрать PDF резюме.', detail)
     } finally {
       // The directory holds personal data (the whole CV, in clear). It goes
-      // away on every path, including the timeout and the throw. A failed
-      // removal is logged rather than silently dropped — it cannot change the
-      // render's own outcome (already decided above), but it is the one signal
-      // an operator would have that personal data was left behind on disk.
-      await rm(dir, { recursive: true, force: true }).catch((err: unknown) => {
-        this.logger.warn(
-          `Failed to remove resume scratch directory ${dir}: ${err instanceof Error ? err.message : 'unknown'}`,
-        )
-      })
+      // away on every path, including the timeout and the throw.
+      await removeScratchDir(dir, this.logger)
     }
   }
 
@@ -360,6 +353,30 @@ export class ResumeTypstService {
 // ---------------------------------------------------------------------------
 // Process plumbing
 // ---------------------------------------------------------------------------
+
+/**
+ * Remove a render's scratch directory once the render is done with it.
+ *
+ * `force: true` matters for exactly ONE case: the directory is ALREADY gone by
+ * the time this runs — an operator's own stuck-render sweep, or a container
+ * restart landing between the render finishing and this call. `force` makes
+ * `rm` swallow the resulting `ENOENT` itself, so a directory that legitimately
+ * doesn't exist any more never produces a warning. Any OTHER removal failure
+ * (permissions, a locked file) is not that case and is not silently dropped —
+ * the directory holds a candidate's full CV in clear text, so it is logged.
+ *
+ * Exported so the "already gone" case can be exercised directly: reproducing
+ * it through a full render would mean deleting the directory the render
+ * itself still needs mid-flight, which changes the render's own outcome and
+ * tests something else entirely.
+ */
+export async function removeScratchDir(dir: string, logger: Pick<Logger, 'warn'>): Promise<void> {
+  await rm(dir, { recursive: true, force: true }).catch((err: unknown) => {
+    logger.warn(
+      `Failed to remove resume scratch directory ${dir}: ${err instanceof Error ? err.message : 'unknown'}`,
+    )
+  })
+}
 
 /**
  * Where the Typst binary is.

@@ -13,7 +13,7 @@
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   type ResumeContent,
@@ -29,8 +29,10 @@ import {
   buildArgs,
   createSpawnRunner,
   loadDefaultTemplate,
+  removeScratchDir,
   renderEnv,
   type ResumeRenderInput,
+  type TypstRunner,
 } from './resume-typst.service'
 
 /**
@@ -516,4 +518,67 @@ describe('the sandbox', () => {
     // The directory holds the whole CV in clear text; it must not survive.
     expect(after).toBe(before)
   }, 120_000)
+
+  /**
+   * The leak test above proves nothing survives — it says nothing about WHERE
+   * a render's directory lived while it existed, or what it was named. Both
+   * are exactly what `RESUME_SCRATCH_ROOT` (this service's private-root
+   * injection) and the `'crm-resume-'` prefix promise, and neither one is
+   * covered by a test that only ever looks after cleanup already ran. A
+   * runner that records `options.cwd` — the directory Typst was actually
+   * pointed at — settles both without timing or polling.
+   */
+  it('gives the child a scratch directory that lives under this service’s own root, named crm-resume-*', async () => {
+    const { dirname, basename } = await import('node:path')
+    let observedCwd = ''
+    const spyRunner: TypstRunner = (bin, args, options) => {
+      observedCwd = options.cwd
+      return createSpawnRunner()(bin, args, options)
+    }
+    const spied = new ResumeTypstService(spyRunner, SCRATCH_ROOT)
+
+    await spied.render(input())
+
+    expect(dirname(observedCwd)).toBe(SCRATCH_ROOT)
+    expect(basename(observedCwd).startsWith('crm-resume-')).toBe(true)
+  }, 120_000)
+})
+
+describe('removeScratchDir', () => {
+  /**
+   * `force: true` has exactly one job: a directory that is ALREADY gone by
+   * cleanup time (some other sweep, a restart) must not produce a warning —
+   * `rm`'s own `force` option is what makes the resulting `ENOENT` silent.
+   * Reaching this through a full render would mean deleting the directory
+   * the render itself still needs mid-flight, which changes the render's
+   * outcome and tests something else — so this calls the extracted cleanup
+   * directly, on a directory removed out from under it beforehand.
+   */
+  it('does not warn when the directory is already gone', async () => {
+    const { mkdtemp, rm } = await import('node:fs/promises')
+    const dir = await mkdtemp(join(SCRATCH_ROOT, 'crm-resume-'))
+    await rm(dir, { recursive: true, force: true }) // something else already removed it
+
+    const warn = vi.fn()
+    await removeScratchDir(dir, { warn })
+
+    expect(warn).not.toHaveBeenCalled()
+  })
+
+  /**
+   * The counterpart: a directory that is NOT simply missing (still holds a
+   * file) is removed and does not warn either — `force` only changes the
+   * missing-path case, it does not make every removal silent.
+   */
+  it('removes an existing directory without warning', async () => {
+    const { mkdtemp, writeFile, stat } = await import('node:fs/promises')
+    const dir = await mkdtemp(join(SCRATCH_ROOT, 'crm-resume-'))
+    await writeFile(join(dir, 'data.json'), '{}', 'utf8')
+
+    const warn = vi.fn()
+    await removeScratchDir(dir, { warn })
+
+    expect(warn).not.toHaveBeenCalled()
+    await expect(stat(dir)).rejects.toMatchObject({ code: 'ENOENT' })
+  })
 })
