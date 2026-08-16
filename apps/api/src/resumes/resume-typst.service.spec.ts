@@ -10,7 +10,10 @@
  * API responsiveness during a render (AC3) is measured separately, in
  * resume-render-responsiveness.spec.ts, because it needs an HTTP server.
  */
-import { beforeAll, describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   DEFAULT_RESUME_LAYOUT,
   type ResumeContent,
@@ -30,7 +33,21 @@ import {
   type ResumeRenderInput,
 } from './resume-typst.service'
 
-const service = new ResumeTypstService()
+/**
+ * A root private to THIS spec file — not the machine-wide `tmpdir()`. See
+ * `RESUME_SCRATCH_ROOT` in resume-typst.service.ts for why: the leak-
+ * detection test below counts entries here before and after a render, and a
+ * private root is what makes that count mean "this service leaked",
+ * rather than "some concurrently running spec's render was in flight when we
+ * happened to look".
+ */
+const SCRATCH_ROOT = mkdtempSync(join(tmpdir(), 'resume-typst-spec-'))
+
+afterAll(() => {
+  rmSync(SCRATCH_ROOT, { recursive: true, force: true })
+})
+
+const service = new ResumeTypstService(undefined, SCRATCH_ROOT)
 
 /** Russian + Ukrainian, the two alphabets AC2 names. */
 const CONTENT: ResumeContent = {
@@ -490,13 +507,12 @@ describe('the sandbox', () => {
 
   it('leaves no scratch directory behind, on success or on failure', async () => {
     const { readdir } = await import('node:fs/promises')
-    const { tmpdir } = await import('node:os')
-    const before = (await readdir(tmpdir())).filter((e) => e.startsWith('crm-resume-')).length
+    const before = (await readdir(SCRATCH_ROOT)).filter((e) => e.startsWith('crm-resume-')).length
 
     await service.render(input())
     await service.render(input({ templateSource: '#let render(data) = [' })).catch(() => undefined)
 
-    const after = (await readdir(tmpdir())).filter((e) => e.startsWith('crm-resume-')).length
+    const after = (await readdir(SCRATCH_ROOT)).filter((e) => e.startsWith('crm-resume-')).length
     // The directory holds the whole CV in clear text; it must not survive.
     expect(after).toBe(before)
   }, 120_000)

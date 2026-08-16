@@ -178,18 +178,46 @@ export interface TypstRunner {
  */
 export const TYPST_RUNNER = Symbol('TYPST_RUNNER')
 
+/**
+ * Injection token for the scratch-directory root — where `mkdtemp` makes the
+ * per-render sandbox (`renderOnce`). Production never provides one, so the
+ * constructor falls back to the real `os.tmpdir()`, exactly as with
+ * `TYPST_RUNNER` above.
+ *
+ * The one caller that DOES pass a value is the leak-detection spec
+ * (`resume-typst.service.spec.ts`, "leaves no scratch directory behind"): it
+ * counts entries under this root before and after a render, and the machine
+ * -wide `tmpdir()` is shared with every other spec that renders for real —
+ * `resume-render-responsiveness.spec.ts` included, which drives a real ~4s
+ * render concurrently. Counting there made the assertion race against OTHER
+ * tests' scratch dirs, not against a leak in this service. A private root
+ * removes the shared namespace instead of trying to filter it.
+ *
+ * A plain `string` parameter would not hit the `Function`-token boot failure
+ * `TYPST_RUNNER` documents above (a non-callable type reflects to `String`,
+ * not `Function`) — but a dedicated token keeps both optional constructor
+ * arguments symmetric and explicit rather than relying on Nest's implicit
+ * primitive-type token.
+ */
+export const RESUME_SCRATCH_ROOT = Symbol('RESUME_SCRATCH_ROOT')
+
 @Injectable()
 export class ResumeTypstService {
   private readonly logger = new Logger(ResumeTypstService.name)
   private readonly gate = new ResumeSemaphore(MAX_CONCURRENT_RENDERS)
 
   private readonly runner: TypstRunner
+  private readonly scratchRoot: string
 
-  constructor(@Optional() @Inject(TYPST_RUNNER) runner?: TypstRunner) {
+  constructor(
+    @Optional() @Inject(TYPST_RUNNER) runner?: TypstRunner,
+    @Optional() @Inject(RESUME_SCRATCH_ROOT) scratchRoot?: string,
+  ) {
     // Assigned in the body rather than as a parameter default so the fallback
     // is applied by THIS code on an `undefined` argument, whoever passed it —
     // the injector with nothing bound, or a spec passing a stub positionally.
     this.runner = runner ?? spawnTypst
+    this.scratchRoot = scratchRoot ?? tmpdir()
   }
 
   /** In-flight renders — the concurrency bound's only observable effect. */
@@ -235,7 +263,7 @@ export class ResumeTypstService {
     const { payload, dropped } = this.serialiseInput(input)
     logDroppedGlyphs('resume render', dropped)
 
-    const dir = await mkdtemp(join(tmpdir(), 'crm-resume-'))
+    const dir = await mkdtemp(join(this.scratchRoot, 'crm-resume-'))
     try {
       const template = input.templateSource ?? loadDefaultTemplate()
       assertTemplateIsDrawable(template)
@@ -283,8 +311,15 @@ export class ResumeTypstService {
       throw new ResumeRenderError('Не удалось собрать PDF резюме.', detail)
     } finally {
       // The directory holds personal data (the whole CV, in clear). It goes
-      // away on every path, including the timeout and the throw.
-      await rm(dir, { recursive: true, force: true }).catch(() => undefined)
+      // away on every path, including the timeout and the throw. A failed
+      // removal is logged rather than silently dropped — it cannot change the
+      // render's own outcome (already decided above), but it is the one signal
+      // an operator would have that personal data was left behind on disk.
+      await rm(dir, { recursive: true, force: true }).catch((err: unknown) => {
+        this.logger.warn(
+          `Failed to remove resume scratch directory ${dir}: ${err instanceof Error ? err.message : 'unknown'}`,
+        )
+      })
     }
   }
 
