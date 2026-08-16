@@ -1,0 +1,73 @@
+{
+  "_comment": "Accepted pnpm-audit exceptions — task-prod-runtime-vulns (2026-08-16). Read scripts/devops/check-pnpm-audit.mjs's module doc before editing. Every group below is keyed by exact GHSA id (not just a package name) — a NEW advisory id for an already-listed package is NOT covered and will gate CI red until it is triaged and either fixed or added here with its own reason. Every group MUST carry a `reason` of meaningful length (enforced by the guard, not just convention) — an empty or placeholder reason makes the guard treat the whole group as unaccepted regardless of severity.",
+  "audit_level": "moderate",
+  "exceptions": [
+    {
+      "module": "undici",
+      "tier": "tests",
+      "reason": "npm package `undici` is reachable ONLY through apps/web's devDependency chain vitest -> jsdom -> undici (jsdom's fetch/WebSocket polyfill for the jsdom Vitest test environment). Verified with `pnpm why undici -r`: zero paths through apps/api, zero paths through any apps/web PRODUCTION dependency — jsdom is a devDependency, never bundled by Vite for the shipped SPA (jsdom is Node-only and is not imported by any apps/web/app/** source file). apps/api does not depend on the undici npm package AT ALL. Every apps/api outbound HTTP call this vulnerability class would matter for (NBU exchange rate in finance/nbu-currency.service.ts, Etherscan blockchain deposit verification in finance/etherscan.service.ts, DOU job-sourcing in job-sourcing/dou.provider.ts, Cloudflare Turnstile in vacancies/turnstile.service.ts, Google Indexing API in vacancies/google-indexing.service.ts) uses Node's built-in global fetch(), which is powered by Node 20's OWN internal bundled undici (process.versions.undici == 6.13.0 on the pinned Node 20 image) -- a wholly separate artifact from the npm package pnpm audit is reporting on here, and OUTSIDE every one of these advisories' documented vulnerable range (all start at >=7.0.0; Node's internal copy is major version 6). Fix path that would close this for good: bump apps/web's `jsdom` devDependency 29.1.1 -> 30.0.1 (jsdom@30 pulls undici ^8.9.0, patched) -- a MAJOR version bump of a test-only tool, deliberately deferred to a follow-up PR so this security-fix PR does not also have to revalidate every jsdom-reliant unit test in apps/web.",
+      "ghsa_ids": [
+        "GHSA-vmh5-mc38-953g",
+        "GHSA-p88m-4jfj-68fv",
+        "GHSA-vxpw-j846-p89q",
+        "GHSA-hm92-r4w5-c3mj",
+        "GHSA-g8m3-5g58-fq7m",
+        "GHSA-pr7r-676h-xcf6",
+        "GHSA-8xcm-r25x-g524",
+        "GHSA-4cwx-7wf7-3272",
+        "GHSA-m8rv-5g2x-5cg5",
+        "GHSA-jr45-8vmc-qm54",
+        "GHSA-v3r7-h72x-cjcm",
+        "GHSA-35p6-xmwp-9g52"
+      ]
+    },
+    {
+      "module": "vite",
+      "tier": "build",
+      "reason": "Vite is the build tool itself -- never present in a shipped artifact. apps/api's Docker image is built via `pnpm --filter @crm/api --prod deploy`, which prunes ALL devDependencies before the runtime stage (see apps/api/Dockerfile stage `builder` -> `runtime`); apps/web and apps/landing ship only the static `dist/` output nginx serves (apps/web/Dockerfile / apps/landing/Dockerfile), never the bundler that produced it. Both current advisories are dev-server-only by their own titles (`server.fs.deny` bypass on Windows alternate paths; `launch-editor` NTLMv2 hash disclosure via UNC path handling, also Windows-only) -- features of `vite dev` / editor-launch, which never runs on the deploy pipeline (Linux containers) or in production. Pinned to `^6.4` per .claude/rules/common/version-pins.md (Vite 7 requires a separate Architect dispatch); 6.4.3 is already the newest 6.x release (the next is 7.0.0), so there is no smaller-than-major fix available beyond what pin allows and this exception documents that gap rather than silently bumping past it.",
+      "ghsa_ids": ["GHSA-v6wh-96g9-6wx3", "GHSA-fx2h-pf6j-xcff"]
+    },
+    {
+      "module": "postcss",
+      "tier": "build",
+      "reason": "Transitive via vite's CSS pipeline (vite -> postcss), build-time only. Both advisories are about arbitrary `.map` file disclosure via sourceMappingURL auto-loading during a BUILD -- a vulnerability in the machine running `vite build`, not in a served asset (nginx serves only the finished CSS output, never invokes postcss at request time).",
+      "ghsa_ids": ["GHSA-fxqj-rqcc-2cmp", "GHSA-r28c-9q8g-f849"]
+    },
+    {
+      "module": "nanoid",
+      "tier": "build",
+      "reason": "Transitive via vite -> postcss -> nanoid (postcss's internal source-map identifier generator). Runs only during `vite build`/`vite dev`, never at runtime -- same reachability story as the `vite` and `postcss` groups above, one link further down the same build-only chain.",
+      "ghsa_ids": ["GHSA-28wg-ghj8-5hjv", "GHSA-2v37-7h3g-55p8"]
+    },
+    {
+      "module": "@babel/core",
+      "tier": "build",
+      "reason": "Transitive via @tanstack/router-plugin, @vitejs/plugin-react, vite-plugin-pwa's workbox-build (service-worker precache manifest generation), and @stryker-mutator's instrumenter -- all build/transform-time tooling (JSX/TS transform, PWA asset generation, mutation-testing instrumentation). None of these run in the deployed artifact; the compiled output they produce does not itself embed @babel/core.",
+      "ghsa_ids": ["GHSA-4x5r-pxfx-6jf8"]
+    },
+    {
+      "module": "js-yaml",
+      "tier": "build",
+      "reason": "Transitive via @nestjs/cli -> fork-ts-checker-webpack-plugin -> cosmiconfig. @nestjs/cli is a devDependency used only by `nest build` / `nest start --watch`; apps/api's runtime image is produced by `pnpm --filter @crm/api --prod deploy`, which drops every devDependency (including @nestjs/cli and therefore js-yaml) before the runtime stage copies node_modules in. Confirmed absent from the pruned prod-deploy tree.",
+      "ghsa_ids": ["GHSA-h67p-54hq-rp68", "GHSA-52cp-r559-cp3m", "GHSA-5p4m-2wfm-xmqj"]
+    },
+    {
+      "module": "esbuild",
+      "tier": "build",
+      "reason": "Transitive via drizzle-kit (tsx -> @esbuild-kit -> esbuild) and the vite/vitest/tsx build toolchain. drizzle-kit is a devDependency (migration CLI, invoked manually via `db:push`/`db:studio`/`db:migrate`), never an apps/api runtime dependency and absent from the `--prod deploy` pruned tree. Both advisories describe esbuild's OWN dev server accepting arbitrary requests/file reads FROM that dev server -- a build-machine-only surface that is never started in CI or production.",
+      "ghsa_ids": ["GHSA-67mh-4wv8-2f99", "GHSA-g7r4-m6w7-qqqr"]
+    },
+    {
+      "module": "brace-expansion",
+      "tier": "build",
+      "reason": "Transitive via eslint/typescript-eslint (every workspace's lint devDependency), @stryker-mutator (mutation-testing tool), @nestjs/cli, and vite-plugin-pwa's workbox-build glob usage -- exclusively lint/mutation-testing/build-tool dependency chains, never a path into any shipped artifact. A root pnpm.overrides entry already exists for this package (`>=5.0.6`); tightening it to `>=5.0.9` closes these specific advisories and is left to a follow-up build-hygiene change per this task's own scope boundary (build-only findings are not fixed in the prod-vuln PR, only documented here).",
+      "ghsa_ids": ["GHSA-3jxr-9vmj-r5cp", "GHSA-mh99-v99m-4gvg", "GHSA-rgw5-rvv9-x895"]
+    },
+    {
+      "module": "qs",
+      "tier": "build",
+      "reason": "Transitive via @stryker-mutator/core's typed-rest-client (mutation-testing tool). @stryker-mutator/core is a ROOT devDependency used only by `pnpm mutation:changed` / `pnpm mutation:full` (CI's mutation gate) -- never installed as a runtime dependency of any app, never present in any deployed image.",
+      "ghsa_ids": ["GHSA-q8mj-m7cp-5q26"]
+    }
+  ]
+}
