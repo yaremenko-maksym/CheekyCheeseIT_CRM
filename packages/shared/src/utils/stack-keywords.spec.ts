@@ -571,6 +571,29 @@ describe('truncation no longer collapses two different overlong skills (#55)', (
     expect(stack).toHaveLength(2)
   })
 
+  it('pins the EXACT hash-suffixed output for a known input (kills off-by-one / wrong-pad-char / wrong-separator mutants)', () => {
+    // Computed independently (not derived from the function under test) by
+    // running the SAME documented FNV-1a algorithm over the canonical (lower-
+    // cased, single-token) form of this input. A mutation to the hash loop's
+    // bound, its pad character, or the separator constant changes this exact
+    // string — a length-only or "differs from sibling" assertion would not
+    // notice any of those, which is exactly what Stryker's own survivor scan
+    // found before this test was added.
+    const raw = `${'x'.repeat(150)}ZZZZ`
+    expect(canonicalStackKeyword(raw)).toBe(`${'x'.repeat(91)}~6f2a0d1d`)
+  })
+
+  it('pins a hash that starts with a leading zero hex digit — exercises padStart, not just length', () => {
+    // Without padStart, an 8-char hex hash whose leading byte is < 0x10 would
+    // render as only 7 characters — this input's hash is exactly that case
+    // (0d9a74ba), so a mutant that swaps the pad character for '' silently
+    // shortens the suffix by one character. `toHaveLength` alone would still
+    // pass (the slice point would just move by one to compensate its own
+    // arithmetic); pinning the full string catches it.
+    const raw = `${'q'.repeat(120)}300`
+    expect(canonicalStackKeyword(raw)).toBe(`${'q'.repeat(91)}~0d9a74ba`)
+  })
+
   it('the hash-suffixed id still satisfies the wire contract', () => {
     const shared = 'w'.repeat(150)
     const stack = canonicalStackKeywords([`${shared}AAAA`, `${shared}BBBB`])
