@@ -404,6 +404,61 @@ describe('finance controller guards — real backend RBAC integration (real DB)'
     })
   })
 
+  // BACKLOG-followups.md item 12 — the duplicated-`txHash` query-param guard
+  // (`inspectOnChainHash`, MED-S round 7) previously had ZERO controller-level
+  // HTTP coverage: every existing test called `svc.inspectOnChainHash(...)`
+  // directly, which never exercises Fastify's own query-string parsing — the
+  // exact layer this guard defends (`?txHash=a&txHash=b` arrives as an ARRAY,
+  // not a string, only at the HTTP boundary). A service-level test cannot prove
+  // the guard is wired on the route at all.
+  describe('GET /transactions/onchain-hash — duplicated txHash query param', () => {
+    it('?txHash=a&txHash=b — ADMIN → 400 (guard fires before the service)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(400)
+      // Positive assert: this 400 comes from the duplicated-param guard
+      // specifically, not from some other 400 source down the stack.
+      expect(JSON.parse(res.payload).message).toMatch(/ровно один параметр/)
+    })
+
+    it('?txHash=a&txHash=b — ACCOUNTANT → 400 too (guard is role-independent)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(400)
+    })
+
+    it('a single txHash param passes the duplicate-param guard (not 400 for THIS reason)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/transactions/onchain-hash?txHash=0x${'0'.repeat(64)}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      // Proves the assertion above is about DUPLICATION, not "any query 400s":
+      // a well-formed single hash reaches the service and gets a normal 200
+      // (unclaimed hash — see onchain-tx-cross-path.integration.spec.ts).
+      expect(res.statusCode).not.toBe(400)
+    })
+
+    it('?txHash=a&txHash=b — SENIOR → 403 (RBAC guard still runs first)', async () => {
+      if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(403)
+    })
+  })
+
   // ── #2 PendingSettlementController @Roles guards ────────────────────────────
   describe('#2 PendingSettlementController @Roles guards', () => {
     for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
