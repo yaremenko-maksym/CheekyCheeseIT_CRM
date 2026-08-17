@@ -136,6 +136,39 @@ assert_green "no advisories at all" \
   --contains "OK: no unaccepted advisory" \
   -- node "$GUARD" "$CLEAN_AUDIT" "$EMPTY_EXCEPTIONS"
 
+# ── Case: `pnpm audit` output has no `advisories` key at all -> RED, never a ──
+# ── silent "0 advisories = OK" (security-review PR #536 round 2, MED-2) ──────
+NO_ADVISORIES_KEY_AUDIT="$WS/no-advisories-key-audit.json"
+printf '{"actions": [], "metadata": {"vulnerabilities": {"high": 3}}}' >"$NO_ADVISORIES_KEY_AUDIT"
+
+assert_red "audit report with no 'advisories' key at all is a hard failure, not a silent 0-count green" \
+  --contains "no \`advisories\` object" \
+  --not-contains "OK: no unaccepted advisory" \
+  -- node "$GUARD" "$NO_ADVISORIES_KEY_AUDIT" "$EMPTY_EXCEPTIONS"
+
+# `advisories` present but the wrong TYPE (e.g. an array, or a string) must be
+# caught the same way — the check is "is this the object shape we expect",
+# not just "is the key present".
+WRONG_TYPE_ADVISORIES_AUDIT="$WS/wrong-type-advisories-audit.json"
+printf '{"advisories": ["not an object"]}' >"$WRONG_TYPE_ADVISORIES_AUDIT"
+
+assert_red "audit report where 'advisories' is not an object is also a hard failure" \
+  --contains "no \`advisories\` object" \
+  -- node "$GUARD" "$WRONG_TYPE_ADVISORIES_AUDIT" "$EMPTY_EXCEPTIONS"
+
+# ── Case: an advisory carries a severity string this guard does not know -> ──
+# ── RED, never silently treated as the lowest (harmless) rank (MED-3) ────────
+UNKNOWN_SEVERITY_AUDIT="$WS/unknown-severity-audit.json"
+printf '{"advisories": {%s}}' \
+  "$(one_advisory_json 3 mystery-pkg apocalyptic GHSA-zzzz-yyyy-xxxx)" \
+  >"$UNKNOWN_SEVERITY_AUDIT"
+
+assert_red "an advisory with an unrecognized severity string fails loud, not silently below-threshold" \
+  --contains "severity string this guard does" \
+  --contains "apocalyptic" \
+  --contains "mystery-pkg" \
+  -- node "$GUARD" "$UNKNOWN_SEVERITY_AUDIT" "$EMPTY_EXCEPTIONS"
+
 # ── Sanity: the REAL exceptions file this repo ships must itself be well-formed ──
 # (every group has a real reason) — run against an empty audit so this case
 # only exercises the exceptions-file validation, not the live `pnpm audit`

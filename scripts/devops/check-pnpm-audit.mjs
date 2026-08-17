@@ -76,6 +76,26 @@
  * The optional arguments exist ONLY so this guard's own test can point it at
  * fabricated input. They change what is inspected, never how strictly.
  *
+ * FAIL LOUD ON UNRECOGNIZED SHAPE (security-review PR #536 round 2, MED-2/
+ * MED-3) — "не смог проверить" не равно "ничего не нашёл":
+ *   - If the parsed JSON has no `advisories` object at all (pnpm changes its
+ *     output schema, or the command produced something else entirely), the
+ *     OLD code defaulted to `{}` via `??` and reported a silent, false "OK —
+ *     0 advisories". That is indistinguishable from a genuinely clean audit.
+ *     Now: a missing/malformed `advisories` key is a hard failure with its
+ *     own distinct message, never a green run.
+ *   - If an advisory's `severity` string is not one of the five known ranks
+ *     (`info`/`low`/`moderate`/`high`/`critical`), the OLD code defaulted its
+ *     rank to `0` via `?? 0` — the LOWEST rank, i.e. an unrecognized severity
+ *     silently never gated, even if pnpm/GHSA introduce a NEW tier for
+ *     something worse than "critical". Now: an unrecognized severity string
+ *     is collected separately and fails the gate regardless of threshold —
+ *     unknown is treated as "could be anything", not as "harmless".
+ * Both were reproduced by the reviewer with fixtures before this fix; both
+ * have their own negative case in the test file below (a fixture with a
+ * missing `advisories` key, and one with a fabricated unknown severity
+ * string), proving the OLD code went green on them and the NEW code goes red.
+ *
  * Tests: scripts/devops/tests/test-check-pnpm-audit.sh (positive AND negative
  * cases, including a deliberately-vulnerable unlisted package and a
  * deliberately-reasonless exception entry — task AC7: "внесена заведомо
@@ -155,17 +175,47 @@ function main() {
   const { auditLevel, byGhsa, invalidGroups } = loadExceptions()
   const thresholdRank = SEVERITY_RANK[auditLevel] ?? SEVERITY_RANK[DEFAULT_AUDIT_LEVEL]
 
-  const advisories = Object.values(audit.advisories ?? {})
+  // MED-2 (security-review PR #536 round 2): the `advisories` key must
+  // actually be present and be an object. A missing/malformed key means
+  // `pnpm audit`'s output shape changed (or the command produced something
+  // unexpected) — NOT "zero vulnerabilities". Failing loud here, with its
+  // own message, is the whole point: the old `audit.advisories ?? {}`
+  // silently produced an empty list indistinguishable from a clean run.
+  if (
+    typeof audit !== 'object' ||
+    audit === null ||
+    !('advisories' in audit) ||
+    typeof audit.advisories !== 'object' ||
+    audit.advisories === null ||
+    Array.isArray(audit.advisories)
+  ) {
+    console.log('== check-pnpm-audit.mjs ==')
+    console.log('')
+    console.log(
+      'FAIL: could not verify — the audit report has no `advisories` object at all.',
+    )
+    console.log(
+      "This is NOT the same as \"0 vulnerabilities found\": either `pnpm audit`'s JSON output",
+    )
+    console.log(
+      'shape changed, or the command produced something unexpected. Refusing to report a',
+    )
+    console.log('silent green on unrecognized input — inspect the raw `pnpm audit --json` output')
+    console.log('by hand and update this guard\'s parsing if the shape genuinely changed.')
+    process.exit(1)
+  }
+
+  const advisories = Object.values(audit.advisories)
 
   const gated = [] // fails the build
   const accepted = [] // covered by a valid exception
   const belowThreshold = [] // not covered, but below the gate's severity floor
+  const unknownSeverity = [] // MED-3: severity string we don't recognize — never silently below-threshold
   const seenGhsa = new Set()
 
   for (const adv of advisories) {
     const ghsa = adv.github_advisory_id
     if (ghsa) seenGhsa.add(ghsa)
-    const rank = SEVERITY_RANK[adv.severity] ?? 0
     const exc = ghsa ? byGhsa.get(ghsa) : undefined
 
     if (exc && exc.valid) {
@@ -173,6 +223,18 @@ function main() {
       continue
     }
 
+    // MED-3 (security-review PR #536 round 2): an unrecognized severity
+    // string used to fall through `SEVERITY_RANK[adv.severity] ?? 0` — rank
+    // 0, the LOWEST possible, meaning it silently never gated regardless of
+    // how bad it might actually be. A severity string outside our five known
+    // ranks means we cannot judge it at all; treat that as worse than
+    // unknown-but-harmless, not as "assume it's fine".
+    if (!(adv.severity in SEVERITY_RANK)) {
+      unknownSeverity.push(adv)
+      continue
+    }
+
+    const rank = SEVERITY_RANK[adv.severity]
     if (rank >= thresholdRank) {
       gated.push(adv)
     } else {
@@ -217,6 +279,28 @@ function main() {
   }
 
   let failed = false
+
+  if (unknownSeverity.length > 0) {
+    failed = true
+    console.log(
+      `FAIL: ${unknownSeverity.length} advisory(ies) have a severity string this guard does`,
+    )
+    console.log(
+      'not recognize (expected one of info/low/moderate/high/critical). Treating an unknown',
+    )
+    console.log('severity as harmless would be a silent false-green — refusing to guess:')
+    for (const adv of unknownSeverity) {
+      console.log(
+        `   severity="${adv.severity}"  ${adv.module_name} (${adv.github_advisory_id ?? 'no GHSA id'})`,
+      )
+    }
+    console.log('')
+    console.log(
+      'Fix: update SEVERITY_RANK in scripts/devops/check-pnpm-audit.mjs to include the new',
+    )
+    console.log('severity string at the correct rank, then re-run.')
+    console.log('')
+  }
 
   if (invalidGroups.length > 0) {
     failed = true
