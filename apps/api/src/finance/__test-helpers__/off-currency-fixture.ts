@@ -74,12 +74,30 @@ const TEST_FIXTURE_NOTES_PREFIX =
  * `pool` MUST be a real `pg.Pool` connected to the SAME database as `db` —
  * the lock is acquired on a connection checked out from it, independent of
  * whatever connection(s) `db`'s own queries use internally.
+ *
+ * `onReleasing` (SEC-1, round 6, optional) — fires SYNCHRONOUSLY, immediately
+ * before the `pg_advisory_unlock` query is sent (not after its response
+ * comes back). A caller that needs to record "did some concurrent event
+ * happen after we released" as a fact (not a guess) MUST hook here, not set
+ * its own flag after `withIsolatedOffCurrencyRow` resolves: this helper's own
+ * unlock is one round trip on ITS OWN connection, and a concurrent waiter's
+ * grant arrives on a DIFFERENT connection — Node's event loop gives no
+ * ordering guarantee between two independent sockets' response processing,
+ * so a flag set after our round trip completes can legitimately lose that
+ * race under real scheduling jank (this is exactly what broke
+ * `company-account-balance-off-currency.integration.spec.ts`'s causal-proof
+ * test in CI — passed on every local run, failed in CI, because the flag was
+ * being set too late to be safe by construction, not too late "usually").
+ * Firing the hook before the unlock is even SENT needs no round trip to win:
+ * sending happens-before Postgres can process it, which happens-before any
+ * grant it could cause — there is no race left for the caller to lose.
  */
 export async function withIsolatedOffCurrencyRow(
   pool: Pool,
   db: Db,
   rowValues: typeof transactions.$inferInsert & { id: string },
   run: () => Promise<void>,
+  onReleasing?: () => void,
 ): Promise<void> {
   const lockClient = await pool.connect()
   try {
@@ -88,6 +106,7 @@ export async function withIsolatedOffCurrencyRow(
     await run()
   } finally {
     await db.delete(transactions).where(eq(transactions.id, rowValues.id))
+    onReleasing?.()
     await lockClient.query('SELECT pg_advisory_unlock($1)', [COMPANY_ACCOUNT_LOCK_KEY.toString()])
     lockClient.release()
   }

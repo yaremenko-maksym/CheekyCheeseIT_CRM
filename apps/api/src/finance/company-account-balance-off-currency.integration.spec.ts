@@ -254,7 +254,40 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
   // (not merely "not yet issued"), THEN proves — via a causal ordering
   // signal, not wall-clock timing — that the gate-style call could only
   // complete AFTER the fixture released.
-  it('SEC-1 (round 4/5): the isolation lock genuinely BLOCKS a concurrent gate-style lock acquisition', async () => {
+  //
+  // SEC-1 (round 6) — CI caught what round 4/5 missed: this test went RED
+  // in CI (`expected false to be true`, 17ms, no timeout thrown) while
+  // green on every local run, including 65+ repeats here under artificial
+  // CPU contention. The CI error text rules out a re-run of round 5's bug —
+  // `waitUntilBlockedOnAdvisoryLock` throws its OWN distinct Error on
+  // timeout, and that message is absent from the CI log; the plain
+  // AssertionError at the `expect()` line below proves the poll DID observe
+  // the gate genuinely queued. So the gap was never in the "is it waiting"
+  // half — it was in how this test RECORDED the answer to "did the grant
+  // happen after our unlock".
+  //
+  // The DB-level guarantee here was never in question: Postgres cannot grant
+  // a conflicting advisory lock to a queued waiter before the current holder
+  // releases it — that is enforced by the lock manager itself, not a race.
+  // The bug was two JS callbacks racing on a shared variable across TWO
+  // INDEPENDENT connections: the old code set `fixtureUnlocked = true` only
+  // AFTER awaiting the full round trip of our OWN unlock response (plus a
+  // `DELETE` before it, plus client teardown) — meanwhile the gate's
+  // continuation runs the instant ITS OWN connection's grant response is
+  // processed. Nothing orders "our socket's read callback" before "the
+  // gate's socket's read callback" — Node's event loop services whichever
+  // fd the OS reports ready first, and that is a property of two unrelated
+  // TCP connections, not of the SQL that ran on them. Nothing about that
+  // observation is guaranteed by anything Postgres promises.
+  //
+  // The fix does not touch timing at all — it moves WHEN the JS flag is set
+  // to a point that is unconditionally safe by construction: synchronously,
+  // in the same tick the unlock command is SENT (not once its response is
+  // received). Sending a query happens-before Postgres can possibly process
+  // it, which happens-before it could grant the gate's request — so setting
+  // the flag there requires no round trip to "win" a race against the
+  // gate's connection; there is no race left to lose.
+  it('SEC-1 (round 4/5/6): the isolation lock genuinely BLOCKS a concurrent gate-style lock acquisition', async () => {
     if (!dbAvailable) return
     let fixtureUnlocked = false
     let gateAcquiredAfterFixtureUnlocked: boolean | undefined
@@ -286,18 +319,21 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
         // request is queued and waiting — an OBSERVATION, not a guess.
         await waitUntilBlockedOnAdvisoryLock(_pool!)
       },
+      // Fires synchronously, inside the helper's `finally`, the instant
+      // BEFORE the unlock query is sent — see the docstring above for why
+      // this specific placement (not "after `withIsolatedOffCurrencyRow`
+      // resolves") is what actually closes the race.
+      () => {
+        fixtureUnlocked = true
+      },
     )
-    // The fixture's `finally` block (inside withIsolatedOffCurrencyRow) has
-    // now fully completed, including its `pg_advisory_unlock` round-trip —
-    // `await` above does not return until that happens.
-    fixtureUnlocked = true
 
     await gatePromise
     // The gate was PROVEN queued behind our lock (the poll above only
-    // returns once Postgres reports it waiting) — so Postgres cannot grant
-    // it until it has PROCESSED the fixture's unlock. By the time the
-    // gate's continuation ran, `fixtureUnlocked` was necessarily already
-    // `true`.
+    // returns once Postgres reports it waiting), and `fixtureUnlocked` was
+    // set before the unlock that could free it was even sent — so however
+    // Node's event loop happens to interleave the two connections' response
+    // processing, the gate's continuation cannot observe `false` here.
     expect(gateAcquiredAfterFixtureUnlocked).toBe(true)
   })
 })
