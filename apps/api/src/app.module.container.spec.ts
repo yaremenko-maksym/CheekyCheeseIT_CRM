@@ -1,11 +1,12 @@
 import 'reflect-metadata'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { existsSync, mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
+import { existsSync, readdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
 import { beforeAll, describe, expect, it } from 'vitest'
+import { withBuildLock } from './test/build-lock'
 
 /**
  * Backlog #42 — "нет теста, поднимающего приложение целиком".
@@ -195,18 +196,35 @@ import { beforeAll, describe, expect, it } from 'vitest'
  *     with no corresponding edit anywhere else touches no mtime this check
  *     reads — accepted as the same class of limitation `tsc --incremental`'s
  *     own `.tsbuildinfo` and every other timestamp-based build cache carries.
- *   - `withBuildLock()` makes concurrent `pnpm test` invocations IN THE SAME
- *     worktree safe against each other (the scenario the review flagged):
- *     an exclusive lock via `fs.mkdirSync` (atomic — EEXIST when another
- *     process holds it), a short poll loop for the holder to finish, and a
- *     freshness RE-check after acquiring the lock — the second process to
- *     arrive almost always finds the first process's build already fresh and
- *     skips its own compile entirely rather than racing it. Two SEPARATE
+ *   - `withBuildLock()` (`./test/build-lock.ts`, own unit spec:
+ *     `./test/build-lock.spec.ts`) makes concurrent `pnpm test` invocations IN
+ *     THE SAME worktree safe against each other (the scenario the review
+ *     flagged): an exclusive lock via `fs.mkdirSync` (atomic — EEXIST when
+ *     another process holds it), a short poll loop for the holder to finish,
+ *     and a freshness RE-check after acquiring the lock — the second process
+ *     to arrive almost always finds the first process's build already fresh
+ *     and skips its own compile entirely rather than racing it. Two SEPARATE
  *     agents each get their own git worktree (a separate `apps/api` on a
  *     separate filesystem path), so cross-agent collision on this literal
  *     directory does not arise in the first place; this lock exists for the
  *     narrower, still-real case of two processes in ONE checkout (e.g. a
  *     manual re-run racing the pre-push hook's own `pnpm test`).
+ *
+ * ============================================================================
+ * A DEAD LOCK HOLDER RECOVERS ON ITS OWN (review round on PR #550, MED-2)
+ * ============================================================================
+ * A process that dies mid-`beforeAll` (session-limit cutoff, `kill -9`, OOM —
+ * a real, observed failure mode: four agents hit their session limit
+ * mid-work the day this review round happened) leaves the lock directory
+ * behind. `withBuildLock` does not just fail loudly on that — it reclaims a
+ * stale holder automatically: dead PID (fast path, immediate) or older than
+ * a generous age threshold (safety net for PID reuse / cross-host cases),
+ * evicted via an ATOMIC `rename` so two waiters racing the same stale lock
+ * can never both "win" the eviction. A genuinely live, recent holder is
+ * never touched — a waiter only ever sleeps and re-polls for that case, and
+ * only gives up (loudly, naming the lock path and a `rm -rf` escape hatch)
+ * after its own deadline. Full design rationale, and why PID alone or age
+ * alone is not enough: `./test/build-lock.ts`'s own file doc.
  *
  * ============================================================================
  * COST (measured, not the "free reuse" the earlier version of this file claimed)
@@ -260,47 +278,6 @@ function isCacheFresh(): boolean {
   return inputFiles().every((f) => statSync(f).mtimeMs < cacheMtime)
 }
 
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms))
-}
-
-/**
- * Exclusive lock across processes sharing this worktree (see file doc).
- *
- * `mkdirSync` is atomic-exclusive ONLY without `{ recursive: true }` — with
- * it, mkdir is `mkdir -p` semantics and returns success (not EEXIST) even
- * when the directory already exists, which would make two concurrent
- * callers BOTH believe they hold the lock (caught live during manual
- * concurrency verification for this exact function — two `vitest run`
- * processes launched back to back, second one crashed on `rmdir ENOENT`
- * because the first had already removed the "shared" lock dir out from
- * under it). The parent `.build-cache` directory is created separately,
- * ONCE, with `recursive: true` — safe for multiple processes to race on,
- * since creating an already-existing directory that way is a no-op, not a
- * mutual-exclusion operation.
- */
-async function withBuildLock<T>(fn: () => T): Promise<T> {
-  mkdirSync(join(API_ROOT, '.build-cache'), { recursive: true })
-  const deadline = Date.now() + 55_000
-  for (;;) {
-    try {
-      mkdirSync(LOCK_DIR)
-      break
-    } catch (err) {
-      if ((err as { code?: string }).code !== 'EEXIST') throw err
-      if (Date.now() > deadline) {
-        throw new Error(`[app.module.container.spec] timed out waiting for build lock ${LOCK_DIR}`)
-      }
-      await sleep(200)
-    }
-  }
-  try {
-    return fn()
-  } finally {
-    rmdirSync(LOCK_DIR)
-  }
-}
-
 function buildContainerTestDist(): void {
   try {
     execFileSync('pnpm', ['exec', 'tsc', '-p', 'tsconfig.build.json', '--outDir', CACHE_DIR], {
@@ -342,12 +319,15 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
     process.env['JWT_SECRET'] ||= 'x'.repeat(40)
     process.env['SESSION_SECRET'] ||= 'x'.repeat(40)
 
-    await withBuildLock(() => {
-      // Re-check freshness UNDER the lock: another process may have just
-      // finished building while this one was waiting, in which case there is
-      // nothing left to do (see file doc, "WHERE IT BUILDS TO").
-      if (!isCacheFresh()) buildContainerTestDist()
-    })
+    await withBuildLock(
+      () => {
+        // Re-check freshness UNDER the lock: another process may have just
+        // finished building while this one was waiting, in which case there
+        // is nothing left to do (see file doc, "WHERE IT BUILDS TO").
+        if (!isCacheFresh()) buildContainerTestDist()
+      },
+      { lockDir: LOCK_DIR },
+    )
     ;({ AppModule } = req(join(CACHE_DIR, 'app.module.js'))) as { AppModule: typeof AppModule }
     ;({ AdminSummaryService } = req(join(CACHE_DIR, 'admin/admin-summary.service.js'))) as {
       AdminSummaryService: typeof AdminSummaryService
@@ -361,7 +341,11 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
     ;({ TransactionsService } = req(join(CACHE_DIR, 'finance/transactions.service.js'))) as {
       TransactionsService: typeof TransactionsService
     }
-  }, 60_000)
+    // Comfortably above withBuildLock's own DEFAULT_DEADLINE_MS (90s) plus a
+    // real build (~5-8s) plus margin — otherwise vitest's own hook timeout
+    // would fire first with a generic "hook timed out" message, hiding
+    // withBuildLock's actual, instructive error (lock path + rm -rf hint).
+  }, 120_000)
 
   // ── AC1 ────────────────────────────────────────────────────────────────
   it('resolves the ENTIRE real module graph via Test.createTestingModule(...).compile() — no stubs, no reconstruction', async () => {
