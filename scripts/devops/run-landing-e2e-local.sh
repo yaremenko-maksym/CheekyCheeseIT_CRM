@@ -89,10 +89,53 @@ fi
 # this check does not vouch for it, it only refuses the one name every
 # default in this repo — docker-compose.yml's POSTGRES_DB, .env.example's
 # DATABASE_URL — actually spells out).
+#
+# REVIEW ROUND 3 (four peripheral cases raised against db_name_from_url()
+# beyond the round-2 form matrix, 2026-08-17) — resolved one by one, not
+# batched, because only one is a real bypass:
+#
+#   CLOSED — percent-encoding. `crm%5Fdb` is the SAME database as `crm_db`
+#   to libpq (URI percent-decoding is part of the connection-string spec),
+#   but is a different byte string to a literal `=` compare — this one
+#   actually reaches the live `crm_db` while walking past the check
+#   unmatched. Fixed below: percent-decode before comparing.
+#
+#   CLOSED — a dangling trailing space. Same fix closes it (trimmed
+#   after decoding, same function, same test).
+#
+#   NOT A BYPASS, left unmatched on purpose — UPPERCASE (`CRM_DB`). Postgres
+#   identifiers are case-sensitive unless double-quoted; an unquoted or
+#   quoted-uppercase `CRM_DB` is a DIFFERENT database object from `crm_db`
+#   in the same server (`CREATE DATABASE "CRM_DB"` does not touch `crm_db`).
+#   Connecting to it does not reach the live database this check exists to
+#   protect, so case-folding the comparison would only produce FALSE BLOCKs
+#   on a legitimately different, unrelated database that happens to share
+#   letters. Comparison stays case-sensitive.
+#
+#   NOT A BYPASS, left unmatched on purpose — a MISSING database name
+#   (`postgresql://crm_user:password@host:port` with no path segment at
+#   all, or a bare trailing `/`). Per the connection-string spec, an absent
+#   dbname defaults to the CONNECTING USER's name (`crm_user` in every
+#   DATABASE_URL this repo's tooling generates) — not `crm_db`. A URL
+#   shaped this way does not reach the live database either; treating an
+#   empty parsed name as dangerous would be scope creep with no real target
+#   to protect against, and (worse) would silently start matching "unknown"
+#   the same as "known-dangerous", eroding the specific claim this check
+#   makes. Left unmatched.
 db_name_from_url() {
   local url="$1"
   local no_query="${url%%\?*}"
-  printf '%s' "${no_query##*/}"
+  local raw="${no_query##*/}"
+  # Percent-decode: `%XX` -> the byte it encodes (`%5F` -> `_`). Standard
+  # bash idiom — replace `%` with the `\x` prefix printf's `%b` understands,
+  # then let `%b` do the hex-escape interpretation.
+  local decoded
+  decoded="$(printf '%b' "${raw//%/\\x}")"
+  # Trim surrounding whitespace (a dangling trailing space is the other
+  # round-3 case this same fix closes).
+  decoded="${decoded#"${decoded%%[![:space:]]*}"}"
+  decoded="${decoded%"${decoded##*[![:space:]]}"}"
+  printf '%s' "$decoded"
 }
 
 DB_NAME="$(db_name_from_url "$DATABASE_URL")"
