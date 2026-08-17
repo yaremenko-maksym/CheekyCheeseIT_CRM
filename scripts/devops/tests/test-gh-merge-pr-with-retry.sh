@@ -15,6 +15,20 @@
 #     "the base branch policy prohibits the merge". Must fail on the FIRST
 #     attempt, with NO retry (proven by asserting the fake only ever saw
 #     one call).
+#
+# CASE-INSENSITIVITY (PR #558 review, MED): the script matches error text
+# lower-cased on purpose, because the two ways a casing drift can go wrong
+# are NOT symmetric. The `*-different-casing` cases below prove BOTH
+# directions, not just the safe one:
+#   - a re-cased RACE message must still retry and recover (if this regresses
+#     to case-sensitive, the failure mode is "occasionally needs a manual
+#     re-label" — annoying but visible, today's actual starting bug).
+#   - a re-cased POLICY message must still fail fast on the FIRST call, not
+#     fall through to the retry branch (if THIS regresses, the script starts
+#     blindly retrying a merge branch protection will never allow — the
+#     retry mechanism stays in place and does nothing, exactly the silent
+#     failure this whole task exists to close). The call-count assertion is
+#     what actually proves "fast", not just "eventually failed".
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
@@ -57,6 +71,17 @@ assert_green "THE 2026-08-17 SHAPE: 'Base branch was modified' race recovers on 
   --contains "Merged PR #551 on attempt 2/4" \
   -- run_merge "1:0" "GraphQL: Base branch was modified. Review and try the merge again. (mergePullRequest)|merged ok" "$COUNTER2"
 
+# ── GREEN: a re-cased race message still retries and recovers ──────────────
+# Proves the match is genuinely case-insensitive, not merely coincidentally
+# matching GitHub's current casing — if GitHub ever ships ALL-CAPS,
+# Title-Case, or any other casing of this same message, this must still
+# behave exactly like COUNTER2 above.
+COUNTER2B="$WS/counter-race-recovers-different-casing"
+assert_green "a DIFFERENTLY-CASED 'Base branch was modified' race still retries and recovers" \
+  --contains "transient race" \
+  --contains "Merged PR #551 on attempt 2/4" \
+  -- run_merge "1:0" "GraphQL: BASE BRANCH WAS MODIFIED. Review and try the merge again. (mergePullRequest)|merged ok" "$COUNTER2B"
+
 # ── RED: the race keeps recurring past MAX_ATTEMPTS — gives up, named ──────
 COUNTER3="$WS/counter-race-exhausted"
 assert_red "the race is retried up to MAX_ATTEMPTS, then reported by name, not silently" \
@@ -82,6 +107,32 @@ else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [RED  ] policy refusal made exactly ONE gh call, not 4\n'
   printf '      reason: expected call count 1, got %s\n' "$CALLS4"
+fi
+
+# ── RED: a re-cased policy refusal STILL fails fast — the case that matters ─
+# THE HEADLINE CASE FOR THIS REVIEW ROUND: if this match were still
+# case-sensitive, a re-cased policy message would fall through to the
+# `*)` catch-all below... which also fails fast today, so a naive test
+# could pass here for the WRONG reason (matching the unrecognized-error
+# branch, not the policy branch) and hide a real regression. The
+# `--contains "refused by branch protection policy"` assertion pins it to
+# the RIGHT branch specifically — the unrecognized-error branch prints
+# different text ("neither the known base-branch-moved race..."). The call
+# count on top of that is what would actually catch a future regression
+# where the policy pattern silently moved into the RETRY branch instead.
+COUNTER4B="$WS/counter-policy-different-casing"
+assert_red "a DIFFERENTLY-CASED policy refusal is still refused by name (not just 'failed'), fast, not retried" \
+  --contains "refused by branch protection policy (not a transient error) — not retrying" \
+  -- run_merge "1" "GraphQL: The Base Branch Policy Prohibits The Merge (mergePullRequest)" "$COUNTER4B" MAX_ATTEMPTS=4
+
+CALLS4B="$(cat "$COUNTER4B" 2>/dev/null || echo '?')"
+if [ "$CALLS4B" = "1" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [RED  ] differently-cased policy refusal ALSO made exactly ONE gh call (did not silently start retrying)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [RED  ] differently-cased policy refusal made exactly ONE gh call\n'
+  printf '      reason: expected call count 1, got %s — a case-sensitivity regression would show up EXACTLY as this: the script silently retrying a merge branch protection will never allow.\n' "$CALLS4B"
 fi
 
 # ── RED: an unrecognized error also fails fast (unknown != blindly retried) ─

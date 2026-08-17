@@ -25,13 +25,28 @@
 # code — `gh` exits non-zero for both cases alike; there is no separate
 # code for "transient race" vs "policy refusal". Explicitly enumerated
 # below:
-#   RETRY:      "Base branch was modified" (case-sensitive match on GitHub's
-#               own GraphQL message; the transient race above).
+#   RETRY:      "Base branch was modified" (GitHub's own GraphQL message;
+#               the transient race above).
 #   FAIL FAST:  "the base branch policy prohibits the merge" (branch
 #               protection genuinely not satisfied — backlog #40).
 #   FAIL FAST:  anything else. An unrecognized error is exactly the case
 #               where blind retrying is LEAST justified — better to name it
 #               and stop than to spend the retry budget guessing.
+#
+# CASE-INSENSITIVE ON PURPOSE (review round, PR #558): both patterns are
+# matched against a lower-cased copy of the error text. GitHub does not
+# publish a stability guarantee on GraphQL error message casing, and the
+# two ways this can go wrong are NOT symmetric — a case-sensitive match
+# failing on the RETRY pattern just makes an occasional merge fail once and
+# need a manual re-label (annoying, visible, matches today's actual bug);
+# failing on the FAIL-FAST policy pattern is worse: the retry loop would
+# start blindly re-attempting a merge branch protection will never allow,
+# burning the whole retry budget while *looking* like it is doing
+# something, before still failing — the exact "mechanism stays in place,
+# does nothing" failure mode this fix exists to close. Lower-casing both
+# the haystack and the needles once, instead of relying on bash's
+# `nocasematch` shell option (a global, easy-to-forget-to-scope toggle),
+# keeps the fix local to the two comparisons that need it.
 #
 # Env:
 #   REPO           owner/repo (required)
@@ -73,8 +88,13 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
     exit 0
   fi
 
-  case "$last_out" in
-    *"Base branch was modified"*)
+  # Bash-3.2 compatible lower-casing (no `${var,,}`, that's bash 4+) — same
+  # constraint tests/lib/harness.sh and check-required-checks-complete.sh
+  # already document for this repo's guard scripts.
+  last_out_lc="$(printf '%s' "$last_out" | tr '[:upper:]' '[:lower:]')"
+
+  case "$last_out_lc" in
+    *"base branch was modified"*)
       if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
         echo "Attempt $attempt/$MAX_ATTEMPTS: base branch moved under the merge (transient race) — retrying in ${RETRY_SLEEP_SECONDS}s:"
         printf '%s\n' "$last_out"
@@ -87,6 +107,9 @@ while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
       exit 1
       ;;
     *"the base branch policy prohibits the merge"*)
+      # (Matched case-insensitively above — see the CASE-INSENSITIVE header
+      # note for why this branch, specifically, must not be the one that
+      # silently degrades into a retry if GitHub ever re-cases this string.)
       echo "::error::gh pr merge was refused by branch protection policy (not a transient error) — not retrying. This usually means a required check is not actually green/complete yet; see backlog #40 / scripts/devops/check-required-checks-complete.sh. Error:"
       printf '%s\n' "$last_out"
       exit 1
