@@ -74,6 +74,28 @@
         "id": "pre:bash:live-db-guard"
       },
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-cross-agent-blast.sh"
+          }
+        ],
+        "description": "Cross-agent blast gate — from an agent workspace, block broadcast process kills (pkill/killall), removing/pruning another agent's worktree, and mutating another agent's tree or the shared checkout (2026-08-17 incidents PR #547 / #544 / #551). Reads and kill-by-PID stay allowed.",
+        "id": "pre:bash:cross-agent-blast"
+      },
+      {
+        "matcher": "Agent|Task",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-agent-dispatch-isolation.sh"
+          }
+        ],
+        "description": "Dispatch isolation gate — block dispatching a WRITING subagent (coder/autotest/devops/ui-ux-designer/manual-qa/legal/pm/architect) without isolation=worktree or an explicit cwd, and block handing a shared absolute work dir in the prompt. Read-only agents pass untouched (PR #497 / #493).",
+        "id": "pre:agent:dispatch-isolation"
+      },
+      {
         "matcher": "Edit|Write|MultiEdit|NotebookEdit",
         "hooks": [
           {
