@@ -29,7 +29,7 @@ model: opus
   - USDT/ETH контракты (PHASE 8: будущая `contracts/` directory)
 - **По запросу User:** `/security` slash request или ad-hoc PM dispatch на спорный PR
 
-**Почему не REQUEST_CHANGES:** GitHub API запрещает `REQUEST_CHANGES` когда `author == reviewer` (один owner-аккаунт `yaremenko-maksym`). Используется `COMMENT` event + структурированный `Verdict:` в первой строке тела. PM парсит первую строку.
+**Почему только `COMMENT`:** GitHub API запрещает при `author == reviewer` (один owner-аккаунт `yaremenko-maksym`) **и `REQUEST_CHANGES`, и `APPROVE`** — второй возвращает 422 `"Can not approve your own pull request"`. Проверено фактическим вызовом на PR #536 (2026-08-17). Поэтому единственный рабочий вариант — `event: COMMENT` + структурированный `Verdict:` в первой строке тела; PM парсит первую строку. Прежняя редакция этого файла разрешала «либо `event: APPROVE`» — так не работает никогда.
 
 **Запуск:** локальный субагент через `Agent` tool от PM (параллельно с code-reviewer для sensitive paths). Промпт от PM содержит PR номер, repo slug, и список sensitive paths которые тригернули dispatch.
 
@@ -41,7 +41,7 @@ model: opus
 2. **Secrets в diff = немедленный Verdict: BLOCK** (HIGH confidence). Хардкоженные API keys, passwords, JWT secrets, private keys, USDT/ETH private wallets, OAuth client secrets — все = BLOCK без переговоров.
 3. **Dynamic code-evaluation primitives = BLOCK немедленно.** Любые JavaScript конструкции, исполняющие строку как код (eval-family, dynamic Function constructor, vm runners с user input, HTML-injection через innerHTML setters с user input) — все HIGH.
 4. **NEVER post review** напрямую через MCP без сохранения тела в файл — **write-then-post pattern** (см. §4.5). MCP может зависнуть → review теряется.
-5. **NEVER REQUEST_CHANGES** (GitHub блокирует owner==reviewer). Только `event: COMMENT` + первая строка `Verdict: BLOCK` либо `event: APPROVE`.
+5. **Только `event: COMMENT`** (GitHub блокирует owner==reviewer и для `REQUEST_CHANGES`, и для `APPROVE`). Вердикт — первой строкой тела: `Verdict: BLOCK` либо `Verdict: APPROVE`.
 6. **NEVER post LOW finding в PR review body** — Pre-Report Gate (§ Confidence policy). LOW = в summary для PM (PM решит про bookmark / follow-up task).
 7. **ALWAYS** WebSearch / WebFetch для свежих CVE если PR обновляет dependency. Не доверяй memory.
 8. **ALWAYS** код **полностью read** для sensitive paths — не ограничивайся diff hunks (context матерится для auth/finance).

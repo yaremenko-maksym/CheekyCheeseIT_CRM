@@ -29,7 +29,7 @@ Project-specific дополнения к ECC `code-reviewer.md` Pre-Report Gate.
 
 **Правило:** Для блокировки PR использовать `event: COMMENT` + первая строка тела `Verdict: BLOCK`. **НЕ** использовать `event: REQUEST_CHANGES`.
 
-**Источник проблемы:** GitHub API запрещает `REQUEST_CHANGES` когда reviewer-аккаунт == author. В CRM ВСЕ AI-агенты работают под единым owner — поэтому REQUEST_CHANGES всегда вернёт 422.
+**Источник проблемы:** GitHub API запрещает при reviewer-аккаунт == author **оба** блокирующих/одобряющих события: `REQUEST_CHANGES` и `APPROVE`. В CRM ВСЕ AI-агенты работают под единым owner — поэтому и то и другое всегда вернёт 422 (`APPROVE` → `"Can not approve your own pull request"`, проверено на PR #536 2026-08-17). Рабочий вариант ровно один: `event: COMMENT` + вердикт первой строкой.
 
 **Implementation:**
 
@@ -100,13 +100,13 @@ gh pr view <N> --json files --jq '.files[].path' | grep -E '^(scripts/pm/|script
 
 ## Anti-patterns
 
-| ❌ Don't                                                               | ✅ Do                                                                         |
-| ---------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
-| `event: REQUEST_CHANGES` для блокировки                                | `event: COMMENT` + первая строка `Verdict: BLOCK`                             |
-| `mcp__github__create_pull_request_review` без предварительного `Write` | Write file → MCP → gh fallback → PM recovery (chain)                          |
-| Игнор diff trojan-changes в `scripts/pm/**` / `.github/workflows/**`   | Auto-BLOCK + конкретные file paths в body                                     |
-| Post review с LOW finding в теле                                       | LOW only в summary для PM, НЕ в PR body (см. ECC Pre-Report Gate)             |
-| BLOCK без указания конкретной строки кода / link to rule               | Каждый HIGH finding с file:line + reference на `.clauderules` / coder.md zone |
+| ❌ Don't                                                                   | ✅ Do                                                                         |
+| -------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `event: REQUEST_CHANGES` для блокировки ИЛИ `event: APPROVE` для одобрения | `event: COMMENT` + первая строка `Verdict: BLOCK` \| `Verdict: APPROVE`       |
+| `mcp__github__create_pull_request_review` без предварительного `Write`     | Write file → MCP → gh fallback → PM recovery (chain)                          |
+| Игнор diff trojan-changes в `scripts/pm/**` / `.github/workflows/**`       | Auto-BLOCK + конкретные file paths в body                                     |
+| Post review с LOW finding в теле                                           | LOW only в summary для PM, НЕ в PR body (см. ECC Pre-Report Gate)             |
+| BLOCK без указания конкретной строки кода / link to rule                   | Каждый HIGH finding с file:line + reference на `.clauderules` / coder.md zone |
 
 ## References
 
