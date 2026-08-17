@@ -6,7 +6,9 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import {
   computeCompanyAccountBalanceForDisplay,
   computeCompanyAccountBalanceFromLedger,
+  lockCompanyAccount,
 } from './company-account-balance'
+import { withIsolatedOffCurrencyRow } from './__test-helpers__/off-currency-fixture'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
@@ -43,6 +45,13 @@ const TEST_TX_IDS = [TX_OFF_CURRENCY_EXPENSE, TX_OK_DEPOSIT]
 async function clearFixtures() {
   await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
 }
+
+// SEC-1 (mega-audit wave 2, round 4): the isolation helper (session advisory
+// lock so a concurrent gate call in this OR another agent's process blocks
+// instead of observing this row and failing) now lives in
+// __test-helpers__/off-currency-fixture.ts — shared with
+// company-account-ledger.integration.spec.ts's createExpense/paySalary
+// behavioural gate tests. See that file's docstring for the full rationale.
 
 describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company row (real DB, no mocks)', () => {
   beforeAll(async () => {
@@ -107,19 +116,24 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
     // A company-funded EXPENSE (fundingSource=COMPANY_ACCOUNT) booked in UAH —
     // the write path is SUPPOSED to hardcode USDT; this row simulates the ONE
     // future-bug scenario C-3 is about (a write path that forgets to).
-    await db.insert(transactions).values({
-      id: TX_OFF_CURRENCY_EXPENSE,
-      type: 'EXPENSE',
-      status: 'PAID',
-      amount: '250',
-      currency: 'UAH',
-      senderId: ADMIN_ID,
-      fundingSource: 'COMPANY_ACCOUNT',
-      createdBy: ADMIN_ID,
-    })
-
-    await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow(
-      /non-USDT|off-currency|currency other than USDT/i,
+    await withIsolatedOffCurrencyRow(
+      _pool!,
+      db,
+      {
+        id: TX_OFF_CURRENCY_EXPENSE,
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '250',
+        currency: 'UAH',
+        senderId: ADMIN_ID,
+        fundingSource: 'COMPANY_ACCOUNT',
+        createdBy: ADMIN_ID,
+      },
+      async () => {
+        await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow(
+          /non-USDT|off-currency|currency other than USDT/i,
+        )
+      },
     )
   })
 
@@ -163,31 +177,93 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
   // columns, params) that the mocked version cannot exercise.
   it('SEC-1: the DISPLAY-safe reader degrades instead of throwing on the SAME real off-currency row', async () => {
     if (!dbAvailable) return
-    await db.insert(transactions).values({
-      id: TX_OFF_CURRENCY_EXPENSE,
-      type: 'EXPENSE',
-      status: 'PAID',
-      amount: '250',
-      currency: 'UAH',
-      senderId: ADMIN_ID,
-      fundingSource: 'COMPANY_ACCOUNT',
-      createdBy: ADMIN_ID,
-    })
+    await withIsolatedOffCurrencyRow(
+      _pool!,
+      db,
+      {
+        id: TX_OFF_CURRENCY_EXPENSE,
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '250',
+        currency: 'UAH',
+        senderId: ADMIN_ID,
+        fundingSource: 'COMPANY_ACCOUNT',
+        createdBy: ADMIN_ID,
+      },
+      async () => {
+        // The GATE-style reader still throws (unchanged — createExpense/
+        // paySalary/settleByCompany/createDividend all call this one directly).
+        await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow()
 
-    // The GATE-style reader still throws (unchanged — createExpense/
-    // paySalary/settleByCompany/createDividend all call this one directly).
-    await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow()
+        // The DISPLAY-style reader does not — it degrades instead. `balance`
+        // stays a plain, finite `number` (round 3: CompanyAccountDto.balance is
+        // z.number() in the shared schema, out of this task's zone) — the
+        // best-effort ledger sum, not a fabricated/default value. crm_qa is a
+        // shared scratch DB with unpredictable pre-existing rows, so we assert
+        // the TYPE/finiteness invariant here, not an exact figure.
+        const reading = await computeCompanyAccountBalanceForDisplay(db)
+        expect(reading.reliable).toBe(false)
+        expect(reading.offCurrencyCount).toBeGreaterThan(0)
+        expect(typeof reading.balance).toBe('number')
+        expect(Number.isFinite(reading.balance)).toBe(true)
+      },
+    )
+  })
 
-    // The DISPLAY-style reader does not — it degrades instead. `balance`
-    // stays a plain, finite `number` (round 3: CompanyAccountDto.balance is
-    // z.number() in the shared schema, out of this task's zone) — the
-    // best-effort ledger sum, not a fabricated/default value. crm_qa is a
-    // shared scratch DB with unpredictable pre-existing rows, so we assert
-    // the TYPE/finiteness invariant here, not an exact figure.
-    const reading = await computeCompanyAccountBalanceForDisplay(db)
-    expect(reading.reliable).toBe(false)
-    expect(reading.offCurrencyCount).toBeGreaterThan(0)
-    expect(typeof reading.balance).toBe('number')
-    expect(Number.isFinite(reading.balance)).toBe(true)
+  // SEC-1 (mega-audit wave 2, round 4) — proves `withIsolatedOffCurrencyRow`
+  // actually ISOLATES, not just that it happens to pass. Fires a REAL
+  // gate-style `lockCompanyAccount` acquisition (on a separate connection)
+  // WHILE the fixture holds its session lock, then proves — via a causal
+  // ordering signal, not wall-clock timing — that the gate-style call could
+  // only complete AFTER the fixture released. Postgres itself guarantees
+  // the ordering: the gate's blocked lock request cannot be granted until
+  // the session lock is released, so its response physically cannot reach
+  // this process before the fixture's unlock does.
+  it('SEC-1 (round 4): the isolation lock genuinely BLOCKS a concurrent gate-style lock acquisition', async () => {
+    if (!dbAvailable) return
+    let fixtureUnlocked = false
+    let gateAcquiredAfterFixtureUnlocked: boolean | undefined
+    let gatePromise: Promise<void> | undefined
+
+    await withIsolatedOffCurrencyRow(
+      _pool!,
+      db,
+      {
+        id: TX_OFF_CURRENCY_EXPENSE,
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '250',
+        currency: 'UAH',
+        senderId: ADMIN_ID,
+        fundingSource: 'COMPANY_ACCOUNT',
+        createdBy: ADMIN_ID,
+      },
+      async () => {
+        // At this point the fixture's session lock is DEFINITELY held (it
+        // was acquired synchronously before this callback ran) and the row
+        // is committed. Start a REAL gate-style lock acquisition on a
+        // SEPARATE connection/transaction — fire it, don't await it here.
+        gatePromise = db.transaction(async (dbtx) => {
+          await lockCompanyAccount(dbtx)
+          gateAcquiredAfterFixtureUnlocked = fixtureUnlocked
+        })
+        // Give Postgres time to actually receive and queue-block the gate's
+        // request before we proceed to unlock — otherwise the request might
+        // not have reached the server yet and the "after" signal would be
+        // true by accident, not by genuine blocking.
+        await new Promise((resolve) => setTimeout(resolve, 100))
+      },
+    )
+    // The fixture's `finally` block (inside withIsolatedOffCurrencyRow) has
+    // now fully completed, including its `pg_advisory_unlock` round-trip —
+    // `await` above does not return until that happens.
+    fixtureUnlocked = true
+
+    await gatePromise
+    // Postgres cannot grant the gate's lock request until it has PROCESSED
+    // the fixture's unlock — a server-side causal dependency, not a race.
+    // So by the time the gate's continuation ran, `fixtureUnlocked` was
+    // necessarily already `true`.
+    expect(gateAcquiredAfterFixtureUnlocked).toBe(true)
   })
 })
