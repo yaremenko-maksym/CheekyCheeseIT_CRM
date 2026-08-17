@@ -48,6 +48,48 @@
 # precondition-check usage (plain human-readable stdout, no env vars set)
 # is completely unchanged — this is an additive extension, not a rewrite.
 #
+# security review (PR #557, 2026-08-18, HIGH): the ORIGINAL version of this
+# script treated ANY successful, non-empty HTTP response as a valid range
+# list — it never checked that the body actually looked like CIDRs of the
+# right family, and never checked that the count was plausible. Two
+# real-run-reproduced failure modes followed directly from that:
+#   (a) the endpoint answers 200 with an HTML error/redirect page instead of
+#       the text list (proxy hiccup, WAF page, etc.) — every "line" of that
+#       HTML fails to match anything in the repo file, so ALL real ranges
+#       for that family show up as "extra" (Cloudflare no longer publishes
+#       them) — a scheduled run would have opened a PR/issue instructing the
+#       owner to strip their ENTIRE IPv6 allow-list from the firewall.
+#   (b) the response is truncated by exactly ONE line (a dropped connection
+#       mid-transfer that curl's own `--fail`/Content-Length check did not
+#       catch, or a caching layer serving a stale partial object) — every
+#       remaining line is a perfectly well-formed CIDR, so format alone
+#       cannot distinguish this from Cloudflare genuinely retiring one
+#       range. The dangerous direction is IDENTICAL either way: the file's
+#       one legitimately-still-active range reads as "safe to remove", and
+#       cleanup framing (AC2) makes it look unhurried and certain — the
+#       exact shape a human skims past.
+# Two independent checks close these, in order:
+#   1. FORMAT — every non-blank line of the raw response must match a CIDR
+#      shape for the family being fetched (see CIDR_V4_RE/CIDR_V6_RE below).
+#      Closes (a): an HTML body fails on line one.
+#   2. COUNT FLOOR — the fetched count for a family must not be LOWER than
+#      what the repo file currently records for that family (LOCAL_TRUSTED
+#      excluded). Closes (b). This is deliberately a ZERO-tolerance floor,
+#      not a "the drop looked large enough" percentage threshold: a
+#      genuine single-range Cloudflare retirement and a single-line
+#      truncation produce the EXACT SAME numeric signature (one family's
+#      count goes down by one) — there is no way to tell them apart from
+#      the CIDR list content alone, so a percentage threshold tuned to
+#      "obviously wrong" would never catch a one-line drop, which is
+#      exactly the case that matters. The accepted cost: a genuine
+#      Cloudflare range retirement now also fails this check (exit 2,
+#      loud) instead of being auto-detected as a cleanup PR — a human has
+#      to notice, re-verify by hand, and edit the repo file once. That
+#      cost is a single failed scheduled run; the alternative cost is
+#      telling the owner to remove a range that is still live. See PR #557
+#      review: "ложная тревога здесь стоит одного письма, ложное «удали» —
+#      простоя" — the asymmetry is deliberate, not an oversight.
+#
 # Its behaviour in all three directions — fresh, drifted, and "could not
 # check" — is proven by
 # scripts/devops/tests/test-check-cloudflare-ips-freshness.sh.
@@ -69,8 +111,11 @@
 #   1   drifted — comparison SUCCEEDED and found a real difference. This is
 #       the "act on it" case, not a broken sentinel.
 #   2   could not verify at all (file missing, fetch failed, empty response,
-#       or REPO_FILE argument invalid) — the sentinel itself is down. A
-#       caller must treat this as loud failure, never as "no drift".
+#       response body does not look like CIDRs of the right family, fetched
+#       count below the repo's current count for that family, or REPO_FILE
+#       argument invalid) — the sentinel itself is down, or cannot be
+#       trusted. A caller must treat this as loud failure, never as "no
+#       drift" and never as "safe to remove".
 #
 # Usage:
 #   scripts/devops/check-cloudflare-ips-freshness.sh
@@ -106,26 +151,6 @@ echo
 
 FAIL=0
 
-fetch() {
-  local url="$1" out="$2"
-  if ! curl -sS --max-time 15 --fail "$url" -o "$out" 2>"$WORKDIR/curl-err.log"; then
-    echo "ERROR: could not fetch $url — freshness NOT verified (fail-closed, this is not a PASS)." >&2
-    cat "$WORKDIR/curl-err.log" >&2
-    return 1
-  fi
-  if [ ! -s "$out" ]; then
-    echo "ERROR: $url returned an empty response — freshness NOT verified (fail-closed, this is not a PASS)." >&2
-    return 1
-  fi
-}
-
-if ! fetch 'https://www.cloudflare.com/ips-v4' "$WORKDIR/live-v4.txt"; then
-  exit 2
-fi
-if ! fetch 'https://www.cloudflare.com/ips-v6' "$WORKDIR/live-v6.txt"; then
-  exit 2
-fi
-
 # LOCAL_TRUSTED — subnets that legitimately live in nginx/cloudflare-ips.txt
 # (or a future revision of it) WITHOUT coming from Cloudflare, so their
 # absence from cloudflare.com/ips-v4|v6 is not drift. Today's actual repo
@@ -139,19 +164,26 @@ fi
 # list, which is separately baked into the generated nginx config, not
 # sourced from this file) — same "two descriptions of one zone" risk that
 # constant's own header warns about; keep them equal by hand until one can
-# be generated from the other.
+# be generated from the other. Checked by
+# scripts/devops/tests/test-cloudflare-local-trusted-sync.sh — a shared data
+# file was the first choice (security review PR #557, informational) but
+# generate-cloudflare-nginx-snippets.sh runs inside the nginx Docker build
+# stage, which COPYs only that one script in, not a shared file alongside
+# it; changing that COPY line is nginx/Dockerfile, outside this task's zone.
 LOCAL_TRUSTED='127.0.0.1
 ::1
 172.30.0.0/23'
 
+# ── repo-side parsing FIRST — pure local file work, no network involved ────────
+# Computed before any fetch so the count-floor guard inside fetch() below has
+# a trusted prior state to anchor against.
+#
 # nginx/cloudflare-ips.txt interleaves IPv4/IPv6 (`#`-prefixed comments and
 # blank lines ignored, same convention the generator script itself uses) —
 # split by presence of a `:` (IPv6) vs not (IPv4), same distinction
 # Cloudflare's own two separate live endpoints already make.
 grep -v '^[[:space:]]*#' "$CF_IPS_FILE" | grep -v '^[[:space:]]*$' | grep -v ':' | sort >"$WORKDIR/repo-v4.txt"
 grep -v '^[[:space:]]*#' "$CF_IPS_FILE" | grep -v '^[[:space:]]*$' | grep ':' | sort >"$WORKDIR/repo-v6.txt"
-sort "$WORKDIR/live-v4.txt" >"$WORKDIR/live-v4-sorted.txt"
-sort "$WORKDIR/live-v6.txt" >"$WORKDIR/live-v6-sorted.txt"
 
 # Exclude LOCAL_TRUSTED lines from BOTH repo-side files before diffing, so
 # they can never surface as "extra" (Cloudflare no longer publishes them) —
@@ -160,6 +192,88 @@ printf '%s\n' "$LOCAL_TRUSTED" | grep -v ':' | sort >"$WORKDIR/local-trusted-v4.
 printf '%s\n' "$LOCAL_TRUSTED" | grep ':' | sort >"$WORKDIR/local-trusted-v6.txt"
 comm -23 "$WORKDIR/repo-v4.txt" "$WORKDIR/local-trusted-v4.txt" >"$WORKDIR/repo-v4-cf-only.txt"
 comm -23 "$WORKDIR/repo-v6.txt" "$WORKDIR/local-trusted-v6.txt" >"$WORKDIR/repo-v6-cf-only.txt"
+
+# count_lines: `grep -c '^'`, NOT `wc -l`. Found by running this script
+# against the REAL cloudflare.com/ips-v4 response while verifying the fix
+# below (not by reading it): Cloudflare's actual body has NO trailing
+# newline after the last CIDR. `wc -l` counts newline CHARACTERS, so it
+# silently undercounts by exactly one on that real response — which would
+# have made the brand-new count-floor guard permanently misfire on
+# perfectly fresh data (every scheduled run believing the live fetch was
+# truncated by one line, because it always was, by this counting method).
+# The very guard meant to stop the sentinel from causing an outage would
+# have caused one. `grep -c '^'` counts LINES (a trailing newline is not
+# required for the last one to count) and is used for every count in this
+# file from here on, including the repo-side counts, for the same reason —
+# not because repo-side files are currently at risk (they pass through
+# `sort`/`comm`, which do terminate their last line), but because "this
+# specific file happens to be safe today" is exactly the kind of assumption
+# that already broke once here.
+# `|| true`: this script only runs under `set -u` (no `-e`), so `grep`
+# exiting 1 on a zero-line file would not itself abort anything here — but
+# cloudflare-ips-watch.sh's OWN copy of this idiom runs under `set -e`,
+# where that exit code silently kills the whole script on the most common
+# input (an empty ADDED/REMOVED file — see that script's count_lines()).
+# Keeping the same defensive `|| true` in both, rather than "this file
+# happens to be fine without it", is the whole point after getting bitten
+# by "safe today" once already in this same file (see LOCAL_TRUSTED above).
+count_lines() { grep -c '^' "$1" || true; }
+
+REPO_V4_COUNT="$(count_lines "$WORKDIR/repo-v4-cf-only.txt")"
+REPO_V6_COUNT="$(count_lines "$WORKDIR/repo-v6-cf-only.txt")"
+
+# ── fetch + validate (format AND count) — see the HIGH writeup above ───────────
+CIDR_V4_RE='^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}/[0-9]{1,2}$'
+CIDR_V6_RE='^[0-9A-Fa-f:]+/[0-9]{1,3}$'
+
+fetch() {
+  local family="$1" url="$2" out="$3" repo_count="$4"
+  local cidr_re
+  case "$family" in
+    v4) cidr_re="$CIDR_V4_RE" ;;
+    v6) cidr_re="$CIDR_V6_RE" ;;
+  esac
+
+  if ! curl -sS --max-time 15 --fail "$url" -o "$out" 2>"$WORKDIR/curl-err.log"; then
+    echo "ERROR: could not fetch $url — freshness NOT verified (fail-closed, this is not a PASS)." >&2
+    cat "$WORKDIR/curl-err.log" >&2
+    return 1
+  fi
+  if [ ! -s "$out" ]; then
+    echo "ERROR: $url returned an empty response — freshness NOT verified (fail-closed, this is not a PASS)." >&2
+    return 1
+  fi
+
+  # CHECK 1 — format. Every non-blank line must look like a CIDR of the
+  # right family. Rejects an HTML error/redirect body outright (Case A).
+  local bad
+  bad="$(grep -v '^[[:space:]]*$' "$out" | grep -vE "$cidr_re" || true)"
+  if [ -n "$bad" ]; then
+    echo "ERROR: $url did not return a clean list of $family CIDR ranges — found line(s) that are not $family CIDRs (HTML error page / redirect body / garbage response — fail-closed, this is not a PASS):" >&2
+    echo "$bad" | sed 's/^/  /' >&2
+    return 1
+  fi
+
+  # CHECK 2 — count floor. The fetched count must not be LOWER than what the
+  # repo already trusts for this family. See the header's HIGH writeup for
+  # why this is zero-tolerance rather than a percentage threshold (Case B).
+  local live_count
+  live_count="$(count_lines "$out")"
+  if [ "$repo_count" -gt 0 ] && [ "$live_count" -lt "$repo_count" ]; then
+    echo "ERROR: $url returned only $live_count $family range(s) — fewer than the $repo_count this repo currently trusts. This looks like a truncated/incomplete fetch, not a genuine Cloudflare change (fail-closed, this is not a PASS). If Cloudflare genuinely retired a range, re-run this check and inspect the result by hand before trusting a drop — do not let an automated caller act on it." >&2
+    return 1
+  fi
+}
+
+if ! fetch v4 'https://www.cloudflare.com/ips-v4' "$WORKDIR/live-v4.txt" "$REPO_V4_COUNT"; then
+  exit 2
+fi
+if ! fetch v6 'https://www.cloudflare.com/ips-v6' "$WORKDIR/live-v6.txt" "$REPO_V6_COUNT"; then
+  exit 2
+fi
+
+sort "$WORKDIR/live-v4.txt" >"$WORKDIR/live-v4-sorted.txt"
+sort "$WORKDIR/live-v6.txt" >"$WORKDIR/live-v6-sorted.txt"
 
 : >"$WORKDIR/added-all.txt"
 : >"$WORKDIR/removed-all.txt"
@@ -176,7 +290,7 @@ check_set() {
   [ -n "$extra" ] && printf '%s\n' "$extra" >>"$WORKDIR/removed-all.txt"
 
   if [ -z "$missing" ] && [ -z "$extra" ]; then
-    echo "PASS  $label — $(wc -l <"$repo" | tr -d ' ') range(s), matches Cloudflare exactly"
+    echo "PASS  $label — $(count_lines "$repo") range(s), matches Cloudflare exactly"
   else
     FAIL=1
     echo "FAIL  $label — MISMATCH"

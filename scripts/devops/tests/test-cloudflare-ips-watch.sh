@@ -27,6 +27,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 WATCH="$GUARD_DIR/cloudflare-ips-watch.sh"
 FRESHNESS="$GUARD_DIR/check-cloudflare-ips-freshness.sh"
+FAKE_FRESHNESS="$SELF_DIR/lib/fake-freshness-check.sh"
 
 WS="$(guard_test_workspace)"
 trap 'rm -rf "$WS"' EXIT
@@ -72,7 +73,10 @@ cat >"$WS/repo-both-directions.txt" <<'EOF'
 EOF
 
 # repo file with ONLY a stale/extra range — nothing added. Proves the
-# cleanup framing is used (not urgent) when there is nothing urgent.
+# cleanup framing is used (not urgent) when there is nothing urgent. This is
+# also the fixture shape that reproduced the MED count bug (security review
+# PR #557): ADDED_FILE ends up EMPTY here, which is exactly the input the
+# old `grep -c . || echo 0` idiom mishandled.
 cat >"$WS/repo-removed-only.txt" <<'EOF'
 # Cloudflare edge ranges — canonical source for set_real_ip_from AND the
 # origin gate allow-list. Regenerate from cloudflare.com/ips-v4 + /ips-v6.
@@ -80,6 +84,16 @@ cat >"$WS/repo-removed-only.txt" <<'EOF'
 103.21.244.0/22
 198.41.128.0/17
 9.9.9.0/24
+2400:cb00::/32
+2606:4700::/32
+EOF
+
+# The mirror-image single-direction case — REMOVED_FILE ends up empty here.
+cat >"$WS/repo-added-only.txt" <<'EOF'
+# Cloudflare edge ranges — canonical source for set_real_ip_from AND the
+# origin gate allow-list. Regenerate from cloudflare.com/ips-v4 + /ips-v6.
+173.245.48.0/20
+103.21.244.0/22
 2400:cb00::/32
 2606:4700::/32
 EOF
@@ -137,6 +151,27 @@ run_watch() {
     bash "$WATCH"
 }
 
+# Same idea, but FRESHNESS_CHECK points at lib/fake-freshness-check.sh
+# instead of the real curl-backed sub-check — see that fake's own header for
+# why: the real sub-check's count-floor guard (HIGH fix) makes a PURE
+# single-direction removal structurally unable to reach FRESH_RC=1 anymore,
+# which is correct FOR THE GUARD but means the watcher's own "cleanup"
+# classification code can only be exercised end-to-end via a controlled
+# stand-in. $1 = repo file, $2 = FAKE_ADDED, $3 = FAKE_REMOVED, remaining =
+# extra env.
+run_watch_fake() {
+  local repo_file="$1" fake_added="$2" fake_removed="$3"
+  shift 3
+  local extra_env=("$@")
+  env \
+    REPO="acme/crm" OWNER_LOGIN="test-owner" \
+    CF_IPS_FILE="$repo_file" FRESHNESS_CHECK="$FAKE_FRESHNESS" \
+    DRY_RUN=1 FAKE_ADDED="$fake_added" FAKE_REMOVED="$fake_removed" FAKE_RC=1 \
+    PR_BRANCH="infra/cloudflare-ips-auto-update" \
+    ${extra_env[@]+"${extra_env[@]}"} \
+    bash "$WATCH"
+}
+
 echo "== test-cloudflare-ips-watch.sh =="
 echo
 
@@ -173,10 +208,33 @@ else
 fi
 
 # ── SCENARIO 2b (AC2): removed-only drift -> cleanup, NOT urgent ───────────────
+# Via run_watch_fake (see its header + fake-freshness-check.sh's own header
+# for why): a pure removal cannot reach FRESH_RC=1 through the REAL
+# sub-check anymore (correct — that is the HIGH fix), so the watcher's own
+# cleanup-framing logic is exercised here in isolation instead.
 assert_green "removed-only drift -> cleanup framing, not urgent" \
   --contains "severity=cleanup" \
   --not-contains "СРОЧНО" \
-  -- run_watch "$WS/repo-removed-only.txt"
+  -- run_watch_fake "$WS/repo-removed-only.txt" "" "9.9.9.0/24"
+
+# ── security review PR #557 (MED) regression — the count bug ───────────────────
+# `--contains "severity=cleanup"` above ALSO passed with the old buggy
+# `grep -c . || echo 0` idiom (a broken "0\n0" value happens to fail the
+# `-gt 0` test the same way a clean "0" does — same outcome, silently, for
+# the wrong reason) — this is exactly the "test that cannot fail" class the
+# review flagged: it never looked at the COUNT text itself. These do, on
+# BOTH single-direction shapes (added-only leaves REMOVED_FILE empty;
+# removed-only leaves ADDED_FILE empty — the bug only ever struck an empty
+# file, so both directions have to be exercised, not just one).
+assert_green "removed-only: added=0 is a clean single line, not '0\\n0' (MED regression)" \
+  --contains "drift found — added=0 removed=1 severity=cleanup" \
+  --contains "sync Cloudflare IP ranges (auto, added=0 removed=1)" \
+  -- run_watch_fake "$WS/repo-removed-only.txt" "" "9.9.9.0/24"
+
+assert_green "added-only: removed=0 is a clean single line, not '0\\n0' (MED regression)" \
+  --contains "drift found — added=1 removed=0 severity=urgent" \
+  --contains "sync Cloudflare IP ranges (auto, added=1 removed=0)" \
+  -- run_watch "$WS/repo-added-only.txt"
 
 # ── SCENARIO 5 (AC3): an already-open PR/issue is UPDATED, not duplicated ──────
 assert_green "existing open PR/issue -> edit, never a second create" \

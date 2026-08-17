@@ -175,8 +175,31 @@ esac
 # ── 2. classify ────────────────────────────────────────────────────────────────
 ADDED_LIST="$(cat "$ADDED_FILE" 2>/dev/null || true)"
 REMOVED_LIST="$(cat "$REMOVED_FILE" 2>/dev/null || true)"
-ADDED_COUNT="$([ -f "$ADDED_FILE" ] && grep -c . "$ADDED_FILE" || echo 0)"
-REMOVED_COUNT="$([ -f "$REMOVED_FILE" ] && grep -c . "$REMOVED_FILE" || echo 0)"
+
+# security review PR #557 (MED): `[ -f "$ADDED_FILE" ] && grep -c . "$ADDED_FILE"
+# || echo 0` looked reasonable and broke on the MOST COMMON real case — an
+# empty file (pure "removed-only" or pure "added-only" drift, i.e. exactly
+# ONE of the two files has zero entries). `grep -c .` on zero matches prints
+# "0" to stdout AND exits 1 (its normal "nothing matched" signal) — the `&&`
+# chain sees that exit 1 as failure and ALSO runs `|| echo 0`, so the
+# variable ends up holding TWO lines ("0\n0"), not one. `[ "$ADDED_COUNT"
+# -gt 0 ]` then errors ("integer expression expected", caught by actually
+# running this against a removed-only fixture, not by reading the code) and
+# the count leaks a literal newline into the git commit subject
+# ("...auto, added=0\n0 removed=1)").
+#
+# `grep -c '^'` (same idiom the paired check-cloudflare-ips-freshness.sh now
+# uses, for the same reason) always prints exactly ONE line — but this
+# script runs under `set -euo pipefail` (that one does not), so grep's exit
+# 1 on zero matches would otherwise abort the whole watcher right here,
+# silently, on the most common input (confirmed by actually running a bare
+# `x=$(grep -c '^' <empty-file>)` under `set -e` — it exits before the next
+# line ever runs, no error message, nothing). The trailing `|| true` is not
+# decorative: it is what keeps the exit-1-on-zero-matches case from being
+# `set -e`'s problem instead of this function's.
+count_lines() { grep -c '^' "$1" || true; }
+ADDED_COUNT="$(count_lines "$ADDED_FILE")"
+REMOVED_COUNT="$(count_lines "$REMOVED_FILE")"
 
 if [ "$ADDED_COUNT" -gt 0 ]; then
   SEVERITY="urgent"
