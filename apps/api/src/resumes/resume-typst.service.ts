@@ -101,9 +101,11 @@ const MAX_STDERR_BYTES = 8 * 1024
  *
  * `ulimit` failures are swallowed: macOS honours neither reliably, and a dev
  * machine refusing to set a limit must not fail the render. The limits that
- * matter in production (Linux container) do apply there, and `describeLimits`
- * reports what was requested so the spec can assert on the command rather than
- * on the platform.
+ * matter in production (Linux container) do apply there; a spec that wants to
+ * assert on the requested rlimits without a platform check can do so directly
+ * against `RENDER_ADDRESS_SPACE_KB` / `RENDER_CPU_SECONDS` above — both are
+ * already exported for that (backlog #47: no separate accessor exists to keep
+ * in sync with them).
  */
 const RLIMIT_WRAPPER = 'ulimit -v "$1" 2>/dev/null; ulimit -t "$2" 2>/dev/null; shift 2; exec "$@"'
 
@@ -432,11 +434,6 @@ export function renderEnv(): NodeJS.ProcessEnv {
     PATH: process.env['PATH'] ?? '/usr/local/bin:/usr/bin:/bin',
     SOURCE_DATE_EPOCH: '0',
   }
-}
-
-/** The rlimits requested, so a test can assert them without a platform check. */
-export function describeLimits(): { addressSpaceKb: number; cpuSeconds: number } {
-  return { addressSpaceKb: RENDER_ADDRESS_SPACE_KB, cpuSeconds: RENDER_CPU_SECONDS }
 }
 
 /**

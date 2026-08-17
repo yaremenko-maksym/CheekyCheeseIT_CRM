@@ -32,3 +32,35 @@ export class JobSourceBudgetExhaustedError extends Error {
     this.name = 'JobSourceBudgetExhaustedError'
   }
 }
+
+/**
+ * Raised when `chargeBudget`'s bounded compare-and-set retry (backlog #53)
+ * outlives `CHARGE_BUDGET_MAX_ATTEMPTS` WITHOUT the row actually being spent
+ * — backlog #61.
+ *
+ * Deliberately a DIFFERENT type from {@link JobSourceBudgetExhaustedError}.
+ * The tail of the retry loop used to throw the exhausted error unconditionally
+ * whenever attempts ran out, whether or not a fresh re-read actually showed the
+ * budget spent. That told the operator "лимит исчерпан" when the real cause
+ * was several writers hammering the SAME row faster than the bounded retry
+ * could win a compare-and-set — a fact that sends whoever reads the log
+ * looking at the wrong number (the budget) instead of the right one
+ * (concurrent load on one source). The outcome stays identical either way —
+ * `collectSource` still refuses and the paid provider is never called (AC5,
+ * this is not a retry fix) — only the REASON told to the operator changes.
+ */
+export class JobSourceBudgetContentionError extends Error {
+  readonly budgetExhausted = false
+
+  constructor(
+    readonly sourceType: JobSourceType,
+    readonly attempts: number,
+  ) {
+    super(
+      `Источник ${sourceType}: не удалось начислить бюджет за ${attempts} попыток — ` +
+        'конкуренция за строку, а не исчерпание лимита. Сбор отменён (запрос к ' +
+        'провайдеру не выполнялся); попробуйте ещё раз.',
+    )
+    this.name = 'JobSourceBudgetContentionError'
+  }
+}
