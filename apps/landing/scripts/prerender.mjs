@@ -1168,13 +1168,38 @@ function buildSitemapXml(vacancies, buildTime, perLocaleVacancies = {}) {
       alternates: buildXhtmlAlternates('/careers', []),
     })
     for (const v of vacancies ?? []) {
+      const excludeLocales = vacancyHreflangExcludes(v.slug, perLocaleVacancies)
+      // task-sitemap-hreflang-clusters.md AC2/AC5 — a locale plan §3/A10
+      // already excludes from THIS vacancy's hreflang cluster (fallback/
+      // untranslated copy, "no hreflang points AT it" — duplicate-content
+      // guard) must not be ADVERTISED as its own sitemap <url> either.
+      // Before this check, the outer `for (const locale of LOCALES)` loop
+      // pushed a <loc> for EVERY locale unconditionally, while
+      // `buildXhtmlAlternates` below (fed the SAME excludeLocales for every
+      // one of those <url> blocks, since it is a pure function of
+      // `v.slug`/`perLocaleVacancies` only) never lists the excluded
+      // locale's OWN href as an alternate — not even on ITS OWN <url>
+      // block. The result was an address sitting in sitemap.xml with a
+      // hreflang cluster that does not contain itself, and that no other
+      // cluster member points back at either: reachable, but not
+      // discoverable as a language variant of anything (Search Console
+      // "discovered — currently not indexed", 2026-08-08 report). Skipping
+      // the <url> entry here does NOT remove the page from the index — it
+      // stays a real, indexable (`index, follow`), self-canonical page
+      // (see `captureRoute`'s `expectNoindex: false` for every route) that
+      // Google can still reach organically via the SAME locale's own
+      // `/careers` list, which links to `/careers/<slug>` for every
+      // PUBLISHED vacancy regardless of translation status
+      // (`careers-page-content.tsx` → `CareersList` → `VacancyCard`).
+      // Sitemap presence is an explicit "please crawl/prioritize this"
+      // signal, not the only discovery path — AC5 is satisfied because no
+      // indexable page disappears, only the sitemap's OWN promise to only
+      // list addresses that belong to a real, reciprocal hreflang cluster.
+      if (excludeLocales.includes(locale)) continue
       urls.push({
         loc: localizedUrl(locale, `/careers/${v.slug}`),
         lastmod: v.publishedAt,
-        alternates: buildXhtmlAlternates(
-          `/careers/${v.slug}`,
-          vacancyHreflangExcludes(v.slug, perLocaleVacancies),
-        ),
+        alternates: buildXhtmlAlternates(`/careers/${v.slug}`, excludeLocales),
       })
     }
   }
@@ -1190,6 +1215,108 @@ function buildSitemapXml(vacancies, buildTime, perLocaleVacancies = {}) {
     `${body}\n` +
     '</urlset>\n'
   )
+}
+
+// ---------------------------------------------------------------------------
+// 4. task-sitemap-hreflang-clusters.md (backlog #39, Search Console
+//    "обнаружена — не проиндексирована", 2026-08-08) — every address
+//    sitemap.xml advertises must belong to a REAL, reciprocal hreflang
+//    cluster: it must declare itself, every locale it points at as an
+//    alternate must itself be a <loc> IN this sitemap whose OWN cluster
+//    points straight back, and x-default must resolve to the same address
+//    (the `en` member) everywhere in the cluster. `assertSitemapMatchesDist`
+//    above (task-soft-404-and-noindex.md AC3/AC4, "INDEX-4") checks a
+//    DIFFERENT thing — that every ADVERTISED address is reachable/indexable
+//    — never that the hreflang graph it advertises is internally
+//    consistent; a dangling or one-directional hreflang link passes INDEX-4
+//    outright (see this task's own instructions: "по устройству не
+//    поймает"). This is the gate that closes that gap.
+// ---------------------------------------------------------------------------
+
+/**
+ * @typedef {{ hreflang: string, href: string }} SitemapAlternate
+ */
+
+/**
+ * @param {string} sitemapXml
+ * @returns {Map<string, SitemapAlternate[]>} `<loc>` -> its own `<xhtml:link
+ *   rel="alternate">` entries, in document order.
+ */
+function parseSitemapClusters(sitemapXml) {
+  const byLoc = new Map()
+  for (const match of sitemapXml.matchAll(/<url>([\s\S]*?)<\/url>/g)) {
+    const block = match[1]
+    const loc = block.match(/<loc>([^<]+)<\/loc>/)?.[1]
+    if (!loc) continue
+    const alternates = [...block.matchAll(/hreflang="([^"]+)"\s+href="([^"]+)"/g)].map(
+      ([, hreflang, href]) => ({ hreflang, href }),
+    )
+    byLoc.set(loc, alternates)
+  }
+  return byLoc
+}
+
+/**
+ * Every `<url>` block's hreflang cluster must (AC2):
+ *   1. Declare ITSELF — a self-referencing alternate whose `href` equals
+ *      this block's own `<loc>` (otherwise nothing in the sitemap can ever
+ *      reciprocate it — see the AC1 root-cause comment on `buildSitemapXml`
+ *      above).
+ *   2. Carry an `x-default` entry pointing at the SAME address as the
+ *      cluster's own `en` entry (every cluster's default is always `en` —
+ *      `DEFAULT_LOCALE`).
+ *   3. Be RECIPROCAL — every alternate href it declares must itself be a
+ *      `<loc>` present in this same sitemap, and THAT `<loc>`'s own cluster
+ *      must declare an alternate pointing straight back at this block's
+ *      `<loc>` (A ссылается на B ⇒ B ссылается на A, plan §1).
+ *
+ * @param {string} sitemapXml
+ * @returns {void}
+ */
+function assertSitemapHreflangClusters(sitemapXml) {
+  const byLoc = parseSitemapClusters(sitemapXml)
+  if (byLoc.size === 0) {
+    throw new Error(
+      'prerender: sitemap.xml has zero <url> entries — nothing for the hreflang-cluster gate ' +
+        'to verify (task-sitemap-hreflang-clusters.md AC3).',
+    )
+  }
+  for (const [loc, alternates] of byLoc) {
+    const selfEntry = alternates.find((a) => a.href === loc)
+    if (!selfEntry) {
+      throw new Error(
+        `prerender: sitemap ${loc} does not appear in its own hreflang cluster — every address ` +
+          'sitemap.xml advertises must declare itself as one of its own alternates, otherwise no ' +
+          'other page in the cluster can reciprocate it (task-sitemap-hreflang-clusters.md AC2).',
+      )
+    }
+    const enEntry = alternates.find((a) => a.hreflang === DEFAULT_LOCALE)
+    const defaultEntry = alternates.find((a) => a.hreflang === 'x-default')
+    if (!defaultEntry || !enEntry || defaultEntry.href !== enEntry.href) {
+      throw new Error(
+        `prerender: sitemap ${loc}'s x-default href ("${defaultEntry?.href ?? '(missing)'}") does ` +
+          `not match its own en href ("${enEntry?.href ?? '(missing)'}") — x-default must resolve ` +
+          'to the SAME address as en across the whole cluster (task-sitemap-hreflang-clusters.md AC2).',
+      )
+    }
+    for (const alt of alternates) {
+      const targetAlternates = byLoc.get(alt.href)
+      if (!targetAlternates) {
+        throw new Error(
+          `prerender: sitemap ${loc} declares hreflang="${alt.hreflang}" href="${alt.href}", but ` +
+            `${alt.href} is not itself a <loc> in sitemap.xml — a dangling cluster member ` +
+            '(task-sitemap-hreflang-clusters.md AC2).',
+        )
+      }
+      if (!targetAlternates.some((a) => a.href === loc)) {
+        throw new Error(
+          `prerender: sitemap ${loc} declares ${alt.href} as an alternate, but ${alt.href}'s own ` +
+            `cluster does not declare ${loc} back — hreflang clusters must be reciprocal ` +
+            '(task-sitemap-hreflang-clusters.md AC2, plan-landing-i18n-seo.md §1 "взаимность").',
+        )
+      }
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1323,6 +1450,17 @@ async function main() {
       'and carries its own canonical (AC3/AC4).',
   )
 
+  // task-sitemap-hreflang-clusters.md AC3/AC4 — runs on EVERY prerender
+  // build (dev + CI's `Build landing (prerender)` step, ci.yml, which
+  // already seeds a non-empty, partially-translated vacancy set beforehand
+  // — "Seed landing vacancy fixtures") right alongside the existing
+  // INDEX-4 gate above, so no separate workflow wiring is needed.
+  assertSitemapHreflangClusters(sitemapXml)
+  console.log(
+    'prerender: sitemap.xml hreflang clusters verified — every address belongs to a reciprocal ' +
+      'cluster with a consistent x-default (task-sitemap-hreflang-clusters.md AC3).',
+  )
+
   // Sanity echo — lets a CI log reader see at a glance whether vacancy pages
   // were actually produced this run (0 is a valid, non-failing outcome).
   // `routes.length` = (2 + N vacancies) * LOCALES.length (task-landing-i18n.md).
@@ -1372,6 +1510,8 @@ export {
   assertNoHomeJsonLdLeak,
   assertNotFoundDoesNotImpersonateHome,
   assertSitemapMatchesDist,
+  assertSitemapHreflangClusters,
+  parseSitemapClusters,
   computeAlternateHrefs,
   vacancyHreflangExcludes,
   LOCALES,
