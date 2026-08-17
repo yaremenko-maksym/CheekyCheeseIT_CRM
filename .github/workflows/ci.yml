@@ -166,6 +166,17 @@ jobs:
       - if: steps.scope.outputs.code == 'true'
         run: pnpm install --frozen-lockfile
 
+      # task-prod-runtime-vulns (2026-08-16): `pnpm audit` had no automated
+      # check at all before this — 21 high-severity findings accumulated on
+      # main unnoticed. Gates on moderate+ severity; a finding is either fixed
+      # or covered by a reasoned, GHSA-id-keyed exception in
+      # scripts/devops/pnpm-audit-exceptions.json (see that file's `_comment`
+      # and the guard's own module doc). An unlisted or reasonless exception
+      # fails the build — see scripts/devops/check-pnpm-audit.mjs.
+      - name: pnpm audit gate (moderate+, reasoned exceptions)
+        if: steps.scope.outputs.code == 'true'
+        run: node scripts/devops/check-pnpm-audit.mjs
+
       # Full build needed so vite generates routeTree.gen.ts before tsc runs.
       # Turbo cache makes this a no-op on subsequent runs for unchanged packages.
       - if: steps.scope.outputs.code == 'true'

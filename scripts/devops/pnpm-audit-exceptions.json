@@ -1,0 +1,25 @@
+{
+  "_comment": "Accepted pnpm-audit exceptions — task-prod-runtime-vulns (2026-08-16/17, round 3 per security-review PR #536). Read scripts/devops/check-pnpm-audit.mjs's module doc before editing. Every group below is keyed by exact GHSA id (not just a package name) — a NEW advisory id for an already-listed package is NOT covered and will gate CI red until it is triaged and either fixed or added here with its own reason. Every group MUST carry a `reason` of meaningful length (enforced by the guard, not just convention) — an empty or placeholder reason makes the guard treat the whole group as unaccepted regardless of severity. Round 2: vite/postcss/nanoid/@babel/core/js-yaml/qs/brace-expansion were ALL genuinely fixed (not just documented) after security-review found the earlier 'no fix below a major' reasons factually wrong for several of them — dependency bump + `pnpm dedupe`, or a root pnpm.overrides entry, none crossing a version-pins.md pin. Round 3: `esbuild` (round 2's remaining exception) is ALSO genuinely fixed now — a naive blanket `esbuild` override broke `pnpm build` (Vite's OWN internal esbuild@0.25.12 dependency, itself never vulnerable to either GHSA, conflicts with a forced newer version underneath it), but a SELECTOR override scoped to only the two actually-vulnerable consumers (`\"tsx>esbuild\"`, `\"@esbuild-kit/core-utils>esbuild\"` in root package.json) resolves both without ever touching Vite's own untouched, unaffected esbuild edge. Only `undici` remains, and it is test-only (see its own reason below) — this file currently has exactly one group.",
+  "audit_level": "moderate",
+  "exceptions": [
+    {
+      "module": "undici",
+      "tier": "tests",
+      "reason": "npm package `undici` is reachable ONLY through apps/web's devDependency chain vitest -> jsdom -> undici (jsdom's fetch/WebSocket polyfill for the jsdom Vitest test environment). Verified with `pnpm why undici -r`: zero paths through apps/api, zero paths through any apps/web PRODUCTION dependency — jsdom is a devDependency, never bundled by Vite for the shipped SPA (jsdom is Node-only and is not imported by any apps/web/app/** source file). Security-review (PR #536, round 2) independently confirmed this with a stronger method: a full production-dependency closure computed straight from the lockfile, not just `pnpm why`. apps/api does not depend on the undici npm package AT ALL. EVERY apps/api outbound `fetch()` call site (verified exhaustively, not a sample): finance/nbu-currency.service.ts (NBU exchange rate), finance/etherscan.service.ts (blockchain deposit/tx verification), job-sourcing/dou.provider.ts (DOU vacancy scraping), vacancies/turnstile.service.ts (Cloudflare Turnstile captcha verification), vacancies/google-indexing.service.ts (Google Indexing API), resumes/resume-ai.service.ts (Cloudflare Workers AI resume extraction), contact/resend-mailer.service.ts (Resend transactional email), and auth/auth.service.ts's TWO calls — the OAuth authorization-code-for-token exchange (`https://oauth2.googleapis.com/token`) and the OIDC userinfo lookup (`https://openidconnect.googleapis.com/v1/userinfo`), the most sensitive pair in this whole list since they carry the session-issuing credential exchange — all use Node's built-in global `fetch()`, which is powered by Node 20's OWN internal bundled undici (`process.versions.undici == '6.13.0'` on the pinned Node 20 image) — a wholly separate artifact from the npm package pnpm audit is reporting on here, and OUTSIDE every one of these advisories' documented vulnerable range (all start at >=7.0.0; Node's internal copy is major version 6). Two further apps/api outbound egress paths do not go through `fetch()`/undici AT ALL, as a second independent line of defence even if the reasoning above were ever wrong: google-auth-library's own ID-token verification (auth.service.ts) resolves to `gaxios@7.1.5` -> `node-fetch@3.3.2` (confirmed via `pnpm why gaxios --filter @crm/api` / `pnpm why node-fetch --filter @crm/api` — real, separate production dependencies, not undici); and `@aws-sdk/client-s3` (documents/s3.service.ts, R2/S3 object storage) ships its own HTTP client stack, independent of both fetch() and the npm undici package. Fix path that would close this for good: bump apps/web's `jsdom` devDependency 29.1.1 -> 30.0.1 (jsdom@30 pulls undici ^8.9.0, patched) -- a MAJOR version bump of a test-only tool, deliberately deferred to a follow-up PR so this security-fix PR does not also have to revalidate every jsdom-reliant unit test in apps/web.",
+      "ghsa_ids": [
+        "GHSA-vmh5-mc38-953g",
+        "GHSA-p88m-4jfj-68fv",
+        "GHSA-vxpw-j846-p89q",
+        "GHSA-hm92-r4w5-c3mj",
+        "GHSA-g8m3-5g58-fq7m",
+        "GHSA-pr7r-676h-xcf6",
+        "GHSA-8xcm-r25x-g524",
+        "GHSA-4cwx-7wf7-3272",
+        "GHSA-m8rv-5g2x-5cg5",
+        "GHSA-jr45-8vmc-qm54",
+        "GHSA-v3r7-h72x-cjcm",
+        "GHSA-35p6-xmwp-9g52"
+      ]
+    }
+  ]
+}
