@@ -51,6 +51,7 @@ import { deriveProjectExclusions, findMatchingExclusion } from './filtering'
 import {
   JobSourceBudgetContentionError,
   JobSourceBudgetExhaustedError,
+  JobSourceDeliberateStopError,
 } from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
 import type { JobSourceProvider, NormalizedPosting } from './job-source.provider'
@@ -980,12 +981,23 @@ export class JobSourcingService {
         // A budget stop is flagged so the UI can tell the two apart: "we chose
         // to stop, it comes back on the 1st" is not an incident, and dressing it
         // up as one trains the operator to ignore real incidents.
-        const budgetExhausted = err instanceof JobSourceBudgetExhaustedError
-        failures.push({ sourceType: source.type, message, budgetExhausted })
-        if (budgetExhausted) {
+        //
+        // PR #544 review, H1: this used to branch on
+        // `instanceof JobSourceBudgetExhaustedError` alone, which routed
+        // `JobSourceBudgetContentionError` (backlog #61 — ALSO a deliberate
+        // stop, deliberately a DIFFERENT class, see source-budget.error.ts) to
+        // the `logger.error` + stack-trace branch below: exactly the "dressed
+        // up as an incident" outcome this comment warns against. Branching on
+        // the shared `JobSourceDeliberateStopError` base keeps every
+        // deliberate stop off the error-log path, while `err.budgetExhausted`
+        // — read straight off the instance, not re-derived — keeps the DTO
+        // flag honest per subclass (`true` only for genuine exhaustion).
+        if (err instanceof JobSourceDeliberateStopError) {
+          failures.push({ sourceType: source.type, message, budgetExhausted: err.budgetExhausted })
           this.logger.warn(`Job collection skipped for source ${source.type}: ${message}`)
           continue
         }
+        failures.push({ sourceType: source.type, message, budgetExhausted: false })
         this.logger.error(
           `Job collection failed for source ${source.type} (${source.id})`,
           err instanceof Error ? err.stack : String(err),

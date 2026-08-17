@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
+import { Logger } from '@nestjs/common'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { budgetWindowStart } from '@crm/shared'
 import type { DatabaseService } from '../database/database.service'
 import type { HrAccessService } from '../common/hr-access.service'
@@ -57,6 +58,40 @@ function makeSelectSequenceMock(rows: BudgetedSource[]) {
   return vi.fn().mockImplementation(() => {
     const row = rows[Math.min(call, rows.length - 1)]
     call += 1
+    return {
+      from: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          limit: vi.fn().mockReturnValue(Promise.resolve([row])),
+        }),
+      }),
+    }
+  })
+}
+
+/**
+ * `collectAll`'s FIRST `select()` is a different shape from `chargeBudget`'s
+ * re-read: `collectAll` does `.select().from(jobSources).where(...)` and awaits
+ * the result of `.where()` directly (no `.limit()`), returning the full list of
+ * enabled sources. Every call AFTER that first one is `chargeBudget`'s re-read
+ * (`.select().from().where().limit()`, one row). Modelling both shapes on the
+ * SAME mock is what lets a test drive `collectAll` end to end instead of only
+ * `collectSource`/`chargeBudget` directly — needed for the H1 regression test
+ * below, which asserts on `collectAll`'s own classification branch.
+ */
+function makeCollectAllSelectMock(listRows: BudgetedSource[], rereadRows: BudgetedSource[]) {
+  let call = 0
+  return vi.fn().mockImplementation(() => {
+    const isListCall = call === 0
+    const rereadIndex = call - 1
+    call += 1
+    if (isListCall) {
+      return {
+        from: vi.fn().mockReturnValue({
+          where: vi.fn().mockResolvedValue(listRows),
+        }),
+      }
+    }
+    const row = rereadRows[Math.min(rereadIndex, rereadRows.length - 1)]
     return {
       from: vi.fn().mockReturnValue({
         where: vi.fn().mockReturnValue({
@@ -180,5 +215,123 @@ describe('Job sourcing — chargeBudget names its refusal honestly (#61)', () =>
 
     expect(updateMock).toHaveBeenCalledTimes(3)
     expect(provider.collect).not.toHaveBeenCalled()
+  })
+})
+
+/**
+ * PR #544 review, H1: the sibling suite above proves `chargeBudget` throws the
+ * right ERROR TYPE. It does NOT prove `collectAll` — the only caller that
+ * decides what happens to that error — treats it correctly. Before this fix,
+ * `collectAll` classified failures with `err instanceof
+ * JobSourceBudgetExhaustedError` alone, which does NOT match
+ * `JobSourceBudgetContentionError` (a deliberately separate class): contention
+ * fell through to the `logger.error` + stack-trace branch, i.e. exactly the
+ * "this looks like an incident" outcome backlog #61 exists to prevent. This
+ * suite drives `collectAll` itself (via `makeCollectAllSelectMock`, not
+ * `collectSource` directly) so the classification branch is actually exercised.
+ *
+ * PROVEN TO CATCH THE REGRESSION: reverting `collectAll`'s
+ * `JobSourceDeliberateStopError` branch back to
+ * `err instanceof JobSourceBudgetExhaustedError` alone turns the CONTENTION
+ * test below red — `errorSpy` gets called (stack-trace incident path) and
+ * `warnSpy` does not, which is precisely the bug H1 reports. Restoring the fix
+ * turns it green again. The CONTROL test stays green in both cases — a real
+ * `Error` from a broken provider must keep going to `logger.error` regardless.
+ */
+describe('Job sourcing — collectAll classifies budget refusals honestly (H1, PR #544 review)', () => {
+  // Restored unconditionally, even when an assertion above throws mid-test —
+  // a spy left dangling after a failed assertion would silently pollute the
+  // NEXT test's call count, masking the very regression this suite exists to
+  // catch.
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('CONTENTION: collectAll logs it as warn+continue (never logger.error/stack), and budgetExhausted stays false in the DTO', async () => {
+    const windowStartedAt = budgetWindowStart(new Date(), 'DAY')
+    const neverExhaustedRow: BudgetedSource & { triggerMode: 'SCHEDULED'; enabled: true } = {
+      id: SOURCE_ID,
+      type: 'DOU_RSS',
+      config: {},
+      budgetLimit: BUDGET_LIMIT,
+      budgetWindow: 'DAY',
+      budgetUsed: 3,
+      budgetWindowStartedAt: windowStartedAt,
+      triggerMode: 'SCHEDULED',
+      enabled: true,
+    }
+
+    const updateMock = makeAlwaysLosingUpdateMock()
+    const selectMock = makeCollectAllSelectMock(
+      [neverExhaustedRow],
+      [neverExhaustedRow, neverExhaustedRow, neverExhaustedRow],
+    )
+    const provider = makeProviderStub()
+    const service = makeService(updateMock, selectMock, provider)
+
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    const { results, failures } = await service.collectAll('SCHEDULED')
+
+    expect(results).toHaveLength(0)
+    expect(failures).toHaveLength(1)
+    expect(failures[0]?.sourceType).toBe('DOU_RSS')
+    // The literal `false` — contention is NOT exhaustion; the DTO must not
+    // lie about which one happened (this is what M1 asked to keep true after
+    // H1's fix: the flag is read straight off the error instance below, not
+    // re-derived from a second `instanceof` check).
+    expect(failures[0]?.budgetExhausted).toBe(false)
+
+    // THE REGRESSION THIS TEST CATCHES: a deliberate stop must never reach
+    // logger.error (stack-trace incident path).
+    expect(errorSpy).not.toHaveBeenCalled()
+    expect(warnSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy.mock.calls[0]?.[0]).toContain('конкуренция за строку')
+
+    expect(provider.collect).not.toHaveBeenCalled()
+  })
+
+  it('CONTROL — a genuine provider failure (not a budget stop) still goes to logger.error, not warn', async () => {
+    const windowStartedAt = budgetWindowStart(new Date(), 'DAY')
+    // Budget has plenty of room and the CAS wins immediately — chargeBudget
+    // returns normally, so the failure below can only come from the provider.
+    const roomyRow: BudgetedSource & { triggerMode: 'SCHEDULED'; enabled: true } = {
+      id: SOURCE_ID,
+      type: 'DOU_RSS',
+      config: {},
+      budgetLimit: BUDGET_LIMIT,
+      budgetWindow: 'DAY',
+      budgetUsed: 0,
+      budgetWindowStartedAt: windowStartedAt,
+      triggerMode: 'SCHEDULED',
+      enabled: true,
+    }
+
+    const updateMock = vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({
+        where: vi.fn().mockReturnValue({
+          returning: vi.fn().mockResolvedValue([{ id: SOURCE_ID }]), // CAS wins
+        }),
+      }),
+    })
+    const selectMock = makeCollectAllSelectMock([roomyRow], [])
+    const provider = {
+      type: 'DOU_RSS',
+      collect: vi.fn().mockRejectedValue(new Error('feed timed out')),
+    } as unknown as DouRssProvider
+    const service = makeService(updateMock, selectMock, provider)
+
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+
+    const { results, failures } = await service.collectAll('SCHEDULED')
+
+    expect(results).toHaveLength(0)
+    expect(failures).toHaveLength(1)
+    expect(failures[0]?.budgetExhausted).toBe(false)
+
+    expect(errorSpy).toHaveBeenCalledTimes(1)
+    expect(warnSpy).not.toHaveBeenCalled()
   })
 })
