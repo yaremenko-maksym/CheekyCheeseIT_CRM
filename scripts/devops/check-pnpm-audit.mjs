@@ -96,6 +96,32 @@
  * missing `advisories` key, and one with a fabricated unknown severity
  * string), proving the OLD code went green on them and the NEW code goes red.
  *
+ * REGISTRY UNREACHABLE vs. OUTPUT SHAPE UNRECOGNIZED (security-review PR #536
+ * round 3, MED-B) — two DIFFERENT failure modes, now with two DIFFERENT
+ * messages, not one generic "could not verify":
+ *   - `pnpm audit` is a network call, and this guard sits on the required
+ *     merge path — a single registry blip used to fail the WHOLE repo's CI on
+ *     the first hiccup, with a message ("output shape unrecognized") that
+ *     diagnoses the wrong problem for the far more likely cause. Now
+ *     `runRealAudit()` retries up to AUDIT_MAX_ATTEMPTS times (with a fixed
+ *     delay) before giving up, and ONLY treats an attempt as a genuine
+ *     network/registry failure — not as "got JSON, shape is wrong" — when the
+ *     command produced no parseable JSON at all (empty stdout, a timeout, a
+ *     non-JSON error page, etc.). A `pnpm audit` invocation that legitimately
+ *     exits non-zero BECAUSE it found vulnerabilities still returns
+ *     immediately on the first attempt — that is real data, not a failure to
+ *     retry away.
+ *   - If every attempt is exhausted without ever getting parseable JSON, the
+ *     message says "could not reach" — a transient/network problem — never
+ *     the MED-2 "shape unrecognized" wording, which is reserved for the case
+ *     where a `pnpm audit` invocation DID succeed and DID return JSON, but
+ *     that JSON does not have the `advisories` shape this guard expects.
+ *
+ * The real command is configurable via `PNPM_AUDIT_CMD` (space-separated,
+ * default `pnpm audit --json`) ONLY so this guard's own test can point the
+ * retry loop at a fake, deterministic, offline script instead of a real
+ * network call — see test-check-pnpm-audit.sh's "registry unreachable" cases.
+ *
  * Tests: scripts/devops/tests/test-check-pnpm-audit.sh (positive AND negative
  * cases, including a deliberately-vulnerable unlisted package and a
  * deliberately-reasonless exception entry — task AC7: "внесена заведомо
@@ -114,28 +140,108 @@ const SEVERITY_RANK = { info: 0, low: 1, moderate: 2, high: 3, critical: 4 }
 const DEFAULT_AUDIT_LEVEL = 'moderate'
 const MIN_REASON_LENGTH = 20
 
+// MED-B: retry budget for the network call. 3 attempts with a 5s delay is
+// enough to ride out a short registry blip without turning a required merge
+// check into a multi-minute wait on a genuinely dead registry. The delay is
+// env-overridable ONLY so this guard's own test can shrink it from seconds to
+// milliseconds — the retry COUNT and the failure classification are what the
+// test verifies, not real wall-clock backoff timing.
+const AUDIT_MAX_ATTEMPTS = 3
+const AUDIT_RETRY_DELAY_MS = Number(process.env.PNPM_AUDIT_RETRY_DELAY_MS ?? 5_000)
+const AUDIT_TIMEOUT_MS = 60_000
+
 const AUDIT_FIXTURE_ARG = process.argv[2]
 const EXCEPTIONS_FIXTURE_ARG = process.argv[3]
 
-function runRealAudit() {
+// Marker so `loadAuditJson()` can tell "every retry attempt produced nothing
+// parseable" apart from any other kind of thrown error.
+const AUDIT_UNREACHABLE = Symbol('pnpm-audit-unreachable')
+
+function looksLikeJson(str) {
+  if (typeof str !== 'string' || str.trim() === '') return false
   try {
-    return execFileSync('pnpm', ['audit', '--json'], {
-      cwd: REPO_ROOT,
-      encoding: 'utf8',
-      maxBuffer: 64 * 1024 * 1024,
-    })
-  } catch (err) {
-    // `pnpm audit` exits non-zero whenever it finds ANY vulnerability at or
-    // above ITS OWN default threshold — that is expected, not a script
-    // failure, and it still writes the full JSON report to stdout. Only a
-    // missing stdout (pnpm itself failed to run) is a real error here.
-    if (err.stdout) return err.stdout
-    throw err
+    JSON.parse(str)
+    return true
+  } catch {
+    return false
   }
 }
 
+// Synchronous sleep — execFileSync is already synchronous top-to-bottom, and
+// this script has no event loop work to yield to in between retries. The
+// SharedArrayBuffer + Atomics.wait idiom is the standard way to block
+// synchronously in Node without a busy-wait loop.
+function sleepSync(ms) {
+  const sab = new SharedArrayBuffer(4)
+  Atomics.wait(new Int32Array(sab), 0, 0, ms)
+}
+
+function attemptRealAudit() {
+  const [cmd, ...args] = (process.env.PNPM_AUDIT_CMD ?? 'pnpm audit --json').split(' ')
+  return execFileSync(cmd, args, {
+    cwd: REPO_ROOT,
+    encoding: 'utf8',
+    maxBuffer: 64 * 1024 * 1024,
+    timeout: AUDIT_TIMEOUT_MS,
+  })
+}
+
+function runRealAudit() {
+  for (let attempt = 1; attempt <= AUDIT_MAX_ATTEMPTS; attempt++) {
+    try {
+      return attemptRealAudit()
+    } catch (err) {
+      // `pnpm audit` exits non-zero whenever it finds ANY vulnerability at or
+      // above ITS OWN default threshold — that is expected, not a failure,
+      // and it still writes the full JSON report to stdout. That is real
+      // data: return it immediately, no retry needed.
+      if (looksLikeJson(err.stdout)) return err.stdout
+
+      // Anything else (empty stdout, a timeout, a non-JSON error page from a
+      // registry proxy, connection refused, ...) is treated as a possibly-
+      // transient network/registry problem — retry before giving up.
+      const reason = err.signal
+        ? `killed by ${err.signal} (timeout after ${AUDIT_TIMEOUT_MS}ms)`
+        : (err.message ?? String(err))
+      if (attempt < AUDIT_MAX_ATTEMPTS) {
+        console.log(
+          `   pnpm audit attempt ${attempt}/${AUDIT_MAX_ATTEMPTS} produced no usable output (${reason}) — retrying in ${AUDIT_RETRY_DELAY_MS}ms...`,
+        )
+        sleepSync(AUDIT_RETRY_DELAY_MS)
+      }
+    }
+  }
+  const err = new Error('pnpm audit did not produce parseable output after all retries')
+  err[AUDIT_UNREACHABLE] = true
+  throw err
+}
+
 function loadAuditJson() {
-  const raw = AUDIT_FIXTURE_ARG ? readFileSync(AUDIT_FIXTURE_ARG, 'utf8') : runRealAudit()
+  if (AUDIT_FIXTURE_ARG) {
+    return JSON.parse(readFileSync(AUDIT_FIXTURE_ARG, 'utf8'))
+  }
+  let raw
+  try {
+    raw = runRealAudit()
+  } catch (err) {
+    if (err[AUDIT_UNREACHABLE]) {
+      console.log('== check-pnpm-audit.mjs ==')
+      console.log('')
+      console.log(`FAIL: could not reach the package registry after ${AUDIT_MAX_ATTEMPTS} attempts.`)
+      console.log(
+        '`pnpm audit` never produced parseable output — this looks like a transient network or',
+      )
+      console.log(
+        'registry problem, NOT an unrecognized output shape (that is a different, separate',
+      )
+      console.log(
+        'failure — see this guard\'s other message for it). Re-run the job; if this persists,',
+      )
+      console.log('check registry status before assuming the dependency tree itself is at fault.')
+      process.exit(1)
+    }
+    throw err
+  }
   return JSON.parse(raw)
 }
 

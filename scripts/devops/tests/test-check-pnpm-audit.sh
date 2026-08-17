@@ -169,6 +169,49 @@ assert_red "an advisory with an unrecognized severity string fails loud, not sil
   --contains "mystery-pkg" \
   -- node "$GUARD" "$UNKNOWN_SEVERITY_AUDIT" "$EMPTY_EXCEPTIONS"
 
+# ── Cases: registry unreachable — retries, and gives up with a DISTINCT ──────
+# ── message from "output shape unrecognized" (security-review PR #536 ────────
+# ── round 3, MED-B). These invoke the guard with NO fixture args, so it goes ──
+# ── through the real `runRealAudit()` retry path — PNPM_AUDIT_CMD points that ──
+# ── path at fake-pnpm-audit.mjs (offline, deterministic) instead of a real ───
+# ── network call. PNPM_AUDIT_RETRY_DELAY_MS shrinks the backoff from seconds ──
+# ── to milliseconds so this test suite stays fast. ───────────────────────────
+FAKE_AUDIT="$SELF_DIR/lib/fake-pnpm-audit.mjs"
+
+# A registry that is down for the first 2 attempts and recovers on the 3rd
+# (this guard's own AUDIT_MAX_ATTEMPTS) must still succeed — retrying IS the
+# point, not merely detecting failure.
+RECOVERS_STATE="$WS/recovers-state"
+assert_green "registry down for 2 attempts, recovers on the 3rd (within retry budget) -> still succeeds" \
+  --contains "attempt 1/3" \
+  --contains "attempt 2/3" \
+  --contains "OK: no unaccepted advisory" \
+  -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $RECOVERS_STATE --fail-count 2" \
+     "PNPM_AUDIT_RETRY_DELAY_MS=10" \
+     node "$GUARD"
+
+# A healthy registry on the very first attempt must NOT be retried at all —
+# proves the retry loop does not waste time/attempts on the happy path.
+HEALTHY_STATE="$WS/healthy-state"
+assert_green "healthy registry on the first attempt is not retried at all" \
+  --not-contains "attempt 1/3" \
+  --contains "OK: no unaccepted advisory" \
+  -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $HEALTHY_STATE --fail-count 0" \
+     "PNPM_AUDIT_RETRY_DELAY_MS=10" \
+     node "$GUARD"
+
+# A registry that never recovers must be given up on with the DISTINCT
+# "could not reach" message — never the MED-2 "output shape unrecognized"
+# wording, which means something different (got JSON, wrong shape).
+DEAD_STATE="$WS/dead-state"
+assert_red "registry never recovers -> gives up after the retry budget with the DISTINCT 'could not reach' message" \
+  --contains "could not reach the package registry after 3 attempts" \
+  --contains "NOT an unrecognized output shape" \
+  --not-contains "no \`advisories\` object" \
+  -- env "PNPM_AUDIT_CMD=node $FAKE_AUDIT --state-file $DEAD_STATE --always-fail" \
+     "PNPM_AUDIT_RETRY_DELAY_MS=10" \
+     node "$GUARD"
+
 # ── Sanity: the REAL exceptions file this repo ships must itself be well-formed ──
 # (every group has a real reason) — run against an empty audit so this case
 # only exercises the exceptions-file validation, not the live `pnpm audit`
