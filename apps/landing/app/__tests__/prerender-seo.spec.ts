@@ -13,6 +13,7 @@ import {
   assertNoHomeJsonLdLeak,
   assertNotFoundDoesNotImpersonateHome,
   assertRobotsMeta,
+  assertSitemapHreflangClusters,
   assertSitemapMatchesDist,
   buildRobotsTxt,
   buildRoutes,
@@ -207,10 +208,26 @@ describe('assertHtmlLang', () => {
 })
 
 describe('buildSitemapXml', () => {
-  it('task-landing-i18n.md A7 — includes / and /careers for every locale with the build time, and one <url> per vacancy per locale with its own publishedAt', () => {
+  it('task-landing-i18n.md A7 — includes / and /careers for every locale with the build time, and one <url> per vacancy per TRANSLATED locale with its own publishedAt', () => {
+    // task-sitemap-hreflang-clusters.md AC2/AC5 — `pt` is genuinely
+    // translated here (perLocaleVacancies), unlike the old version of this
+    // test which asserted a `pt` vacancy <url> with NO perLocaleVacancies
+    // argument at all (defaults to `{}`, i.e. every non-default locale
+    // conservatively treated as untranslated) — that address must NOT be in
+    // the sitemap any more (see the dedicated 'excludes an untranslated
+    // locale's vacancy URL from the sitemap entirely' test below).
     const xml = buildSitemapXml(
       [{ slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false }],
       '2026-07-23T00:00:00.000Z',
+      {
+        pt: [
+          {
+            slug: 'senior-ml-engineer',
+            publishedAt: '2026-07-01T00:00:00.000Z',
+            isFallback: false,
+          },
+        ],
+      },
     )
     expect(xml).toContain('<loc>https://cheekycheese.tech/</loc>')
     expect(xml).toContain('<loc>https://cheekycheese.tech/ru/</loc>')
@@ -269,10 +286,185 @@ describe('buildSitemapXml', () => {
     expect(block).not.toContain('hreflang="pt"')
   })
 
+  it(
+    'task-sitemap-hreflang-clusters.md AC1/AC2 — excludes an UNTRANSLATED locale vacancy URL ' +
+      "from the sitemap's own <loc> set entirely, not just from other blocks' clusters",
+    () => {
+      // Bug repro (backlog #39, Search Console 2026-08-08 "обнаружена — не
+      // проиндексирована"): before this fix, `/uk/careers/senior-ml-
+      // engineer/` (and es/pt) still got their OWN <loc> entry even though
+      // no cluster (not even their own) ever pointed back at them — six
+      // such addresses on origin/main at measurement time. This asserts the
+      // <loc> itself is gone now, on top of the pre-existing sibling test
+      // above (which only checked the EN block's own alternates).
+      const xml = buildSitemapXml(
+        [
+          {
+            slug: 'senior-ml-engineer',
+            publishedAt: '2026-07-01T00:00:00.000Z',
+            isFallback: false,
+          },
+        ],
+        '2026-07-23T00:00:00.000Z',
+        {
+          ru: [
+            {
+              slug: 'senior-ml-engineer',
+              publishedAt: '2026-07-01T00:00:00.000Z',
+              isFallback: false,
+            },
+          ],
+          uk: [
+            {
+              slug: 'senior-ml-engineer',
+              publishedAt: '2026-07-01T00:00:00.000Z',
+              isFallback: true,
+            },
+          ],
+          es: [
+            {
+              slug: 'senior-ml-engineer',
+              publishedAt: '2026-07-01T00:00:00.000Z',
+              isFallback: true,
+            },
+          ],
+          pt: [
+            {
+              slug: 'senior-ml-engineer',
+              publishedAt: '2026-07-01T00:00:00.000Z',
+              isFallback: true,
+            },
+          ],
+        },
+      )
+      expect(xml).toContain('<loc>https://cheekycheese.tech/careers/senior-ml-engineer/</loc>')
+      expect(xml).toContain('<loc>https://cheekycheese.tech/ru/careers/senior-ml-engineer/</loc>')
+      expect(xml).not.toContain(
+        '<loc>https://cheekycheese.tech/uk/careers/senior-ml-engineer/</loc>',
+      )
+      expect(xml).not.toContain(
+        '<loc>https://cheekycheese.tech/es/careers/senior-ml-engineer/</loc>',
+      )
+      expect(xml).not.toContain(
+        '<loc>https://cheekycheese.tech/pt/careers/senior-ml-engineer/</loc>',
+      )
+      // Home/careers-list <loc>s for uk/es/pt are UNCHANGED — those pages
+      // are not vacancy-specific fallback content, only the vacancy URL is
+      // dropped (AC5 — no locale disappears from the sitemap wholesale).
+      expect(xml).toContain('<loc>https://cheekycheese.tech/uk/careers/</loc>')
+      expect(xml).toContain('<loc>https://cheekycheese.tech/es/careers/</loc>')
+      expect(xml).toContain('<loc>https://cheekycheese.tech/pt/careers/</loc>')
+    },
+  )
+
   it('is valid XML with no vacancies — 2 <url> entries per locale (home + careers-list)', () => {
     const xml = buildSitemapXml(null, '2026-07-23T00:00:00.000Z')
     const urlCount = xml.match(/<url>/g)?.length ?? 0
     expect(urlCount).toBe(LOCALES.length * 2)
+  })
+})
+
+describe('assertSitemapHreflangClusters (task-sitemap-hreflang-clusters.md AC2/AC3)', () => {
+  /** A realistic, partially-translated multi-vacancy sitemap — the exact shape that produced 6 orphaned addresses pre-fix (see `buildSitemapXml`'s AC1 comment). */
+  function realisticSitemap() {
+    const vacancies = [
+      { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+      { slug: 'backend-dev', publishedAt: '2026-07-05T00:00:00.000Z', isFallback: false },
+    ]
+    const perLocaleVacancies = {
+      en: vacancies,
+      uk: [
+        { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+        { slug: 'backend-dev', publishedAt: '2026-07-05T00:00:00.000Z', isFallback: true },
+      ],
+      ru: [
+        { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true },
+        { slug: 'backend-dev', publishedAt: '2026-07-05T00:00:00.000Z', isFallback: false },
+      ],
+      es: [
+        { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true },
+        { slug: 'backend-dev', publishedAt: '2026-07-05T00:00:00.000Z', isFallback: true },
+      ],
+      pt: [
+        { slug: 'senior-ml-engineer', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: true },
+        { slug: 'backend-dev', publishedAt: '2026-07-05T00:00:00.000Z', isFallback: true },
+      ],
+    }
+    return buildSitemapXml(vacancies, '2026-08-17T00:00:00.000Z', perLocaleVacancies)
+  }
+
+  it('passes for the real, unmutated generator output (post-fix — every address in a reciprocal cluster)', () => {
+    expect(() => assertSitemapHreflangClusters(realisticSitemap())).not.toThrow()
+  })
+
+  it('throws when zero <url> entries are present', () => {
+    expect(() =>
+      assertSitemapHreflangClusters(
+        '<?xml version="1.0" encoding="UTF-8"?>\n' +
+          '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9" xmlns:xhtml="http://www.w3.org/1999/xhtml">\n' +
+          '</urlset>\n',
+      ),
+    ).toThrow(/zero <url> entries/)
+  })
+
+  it(
+    'AC3 mutation A (REDNESS PROOF — "удаление одного hreflang из кластера") — throws when one ' +
+      "hreflang link is stripped from a cluster member's own block; passes again once restored",
+    () => {
+      const xml = realisticSitemap()
+      // Remove the RU alternate from the `/careers/backend-dev/` (en) block
+      // ONLY — breaks reciprocity (ru's own block still points back at en,
+      // but en no longer points at ru) without touching any other block.
+      const target =
+        '  <url>\n' +
+        '    <loc>https://cheekycheese.tech/careers/backend-dev/</loc>\n' +
+        '    <lastmod>2026-07-05T00:00:00.000Z</lastmod>\n' +
+        '    <xhtml:link rel="alternate" hreflang="en" href="https://cheekycheese.tech/careers/backend-dev/" />\n' +
+        '    <xhtml:link rel="alternate" hreflang="ru" href="https://cheekycheese.tech/ru/careers/backend-dev/" />\n' +
+        '    <xhtml:link rel="alternate" hreflang="x-default" href="https://cheekycheese.tech/careers/backend-dev/" />\n' +
+        '  </url>'
+      expect(xml).toContain(target)
+      const mutated = xml.replace(
+        target,
+        target.replace(
+          '    <xhtml:link rel="alternate" hreflang="ru" href="https://cheekycheese.tech/ru/careers/backend-dev/" />\n',
+          '',
+        ),
+      )
+      expect(() => assertSitemapHreflangClusters(mutated)).toThrow(/reciprocal/)
+      // Restored (the original, unmutated sitemap) passes again — proves
+      // the failure above was caused by the mutation, not a broken gate.
+      expect(() => assertSitemapHreflangClusters(xml)).not.toThrow()
+    },
+  )
+
+  it(
+    'AC3 mutation B (REDNESS PROOF — "добавление адреса в карту без кластера") — throws when a ' +
+      'new <url> is added with no cluster (no alternates at all); passes again once removed',
+    () => {
+      const xml = realisticSitemap()
+      const orphanUrl =
+        '  <url>\n' +
+        '    <loc>https://cheekycheese.tech/ru/careers/orphan-vacancy/</loc>\n' +
+        '    <lastmod>2026-08-17T00:00:00.000Z</lastmod>\n' +
+        '  </url>\n'
+      const mutated = xml.replace('</urlset>', `${orphanUrl}</urlset>`)
+      expect(() => assertSitemapHreflangClusters(mutated)).toThrow(
+        /does not appear in its own hreflang cluster/,
+      )
+      // Restored (the original, unmutated sitemap) passes again.
+      expect(() => assertSitemapHreflangClusters(xml)).not.toThrow()
+    },
+  )
+
+  it('throws when x-default points at a different address than the cluster’s own en entry', () => {
+    const xml = realisticSitemap()
+    const mutated = xml.replace(
+      '<xhtml:link rel="alternate" hreflang="x-default" href="https://cheekycheese.tech/" />',
+      '<xhtml:link rel="alternate" hreflang="x-default" href="https://cheekycheese.tech/careers/" />',
+    )
+    expect(mutated).not.toBe(xml)
+    expect(() => assertSitemapHreflangClusters(mutated)).toThrow(/x-default href/)
   })
 })
 
