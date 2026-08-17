@@ -145,6 +145,20 @@ class LedgerTestModule {}
 // explorer url keeps every call site deterministic.
 const RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xcompanyledgerspec' }
 
+// SEC-1 (mega-audit wave 2, round 5) — the off-currency guard's own thrown
+// message is deliberately count-only (SEC-2: no sums, no ids, no names), so
+// a fixture row inserted to trip it carries NO marker anywhere the error
+// text reaches. If glimpsed directly (a stray `SELECT * FROM transactions`,
+// a DB browser open mid-debug) by another agent or the owner, the
+// reasonable read is "we have corrupted money in prod" — not "a test
+// forgot to clean up". Stamped on both fixture rows below (the two that
+// cannot use `withIsolatedOffCurrencyRow`'s own auto-stamped notes — see
+// that helper's docstring for why) so the row explains itself.
+const OFF_CURRENCY_FIXTURE_NOTES =
+  'TEST FIXTURE (company-account-ledger.integration.spec.ts) — safe to delete, not real ' +
+  'company money. Inserted to prove createExpense/paySalary still reject on the C-3/SEC-1 ' +
+  "off-currency guard; deleted in the same test's `finally`."
+
 describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
   let txSvc: TransactionsService
   let caSvc: CompanyAccountService
@@ -416,6 +430,7 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
         senderId: ADMIN.id,
         fundingSource: 'COMPANY_ACCOUNT',
         createdBy: ADMIN.id,
+        notes: OFF_CURRENCY_FIXTURE_NOTES,
       })
       try {
         // Baseline captured AFTER the fixture row is committed (the fixture
@@ -597,6 +612,7 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
         senderId: ADMIN.id,
         fundingSource: 'COMPANY_ACCOUNT',
         createdBy: ADMIN.id,
+        notes: OFF_CURRENCY_FIXTURE_NOTES,
       })
       try {
         await expect(

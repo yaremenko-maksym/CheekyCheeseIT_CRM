@@ -210,16 +210,51 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
     )
   })
 
-  // SEC-1 (mega-audit wave 2, round 4) — proves `withIsolatedOffCurrencyRow`
-  // actually ISOLATES, not just that it happens to pass. Fires a REAL
-  // gate-style `lockCompanyAccount` acquisition (on a separate connection)
-  // WHILE the fixture holds its session lock, then proves — via a causal
-  // ordering signal, not wall-clock timing — that the gate-style call could
-  // only complete AFTER the fixture released. Postgres itself guarantees
-  // the ordering: the gate's blocked lock request cannot be granted until
-  // the session lock is released, so its response physically cannot reach
-  // this process before the fixture's unlock does.
-  it('SEC-1 (round 4): the isolation lock genuinely BLOCKS a concurrent gate-style lock acquisition', async () => {
+  // SEC-1 (mega-audit wave 2, round 5) — polls `pg_locks` until a backend is
+  // OBSERVED waiting (`granted = false`) on `pg_advisory_xact_lock`, instead
+  // of assuming a fixed sleep was long enough. Round 4's version slept a
+  // fixed 100ms and then trusted that the gate's request had, by then,
+  // reached Postgres and started waiting — but that is an ASSUMPTION, not an
+  // observation: under scheduling jank the gate's query can simply be slow
+  // to be ISSUED, arrive at Postgres only after the fixture already
+  // unlocked, and be granted immediately (no wait at all) — the exact false
+  // GREEN the review round flagged (the causal claim held for the SECOND
+  // half of the test — "the grant cannot precede our unlock" — but not the
+  // FIRST half, which never verified the gate had actually started waiting
+  // BEHIND our lock in the first place). Directly observing `granted =
+  // false` closes that gap: once seen, the gate is PROVABLY queued behind
+  // our still-held lock, so any later grant is provably caused by our
+  // unlock, not coincidental timing.
+  async function waitUntilBlockedOnAdvisoryLock(pool: Pool, timeoutMs = 5000): Promise<void> {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const res = await pool.query(
+        `SELECT 1 FROM pg_locks l JOIN pg_stat_activity a ON a.pid = l.pid
+         WHERE l.locktype = 'advisory' AND l.granted = false
+           AND a.query ILIKE '%pg_advisory_xact_lock%'
+         LIMIT 1`,
+      )
+      if ((res.rowCount ?? 0) > 0) return
+      if (Date.now() >= deadline) {
+        throw new Error(
+          `waitUntilBlockedOnAdvisoryLock: no backend observed WAITING on ` +
+            `pg_advisory_xact_lock within ${timeoutMs}ms — the causal-ordering ` +
+            `proof below cannot proceed safely (it would silently degrade back ` +
+            `into the same false-GREEN risk this poll exists to close).`,
+        )
+      }
+      await new Promise((resolve) => setTimeout(resolve, 20))
+    }
+  }
+
+  // Proves `withIsolatedOffCurrencyRow` actually ISOLATES, not just that it
+  // happens to pass. Fires a REAL gate-style `lockCompanyAccount` acquisition
+  // (on a separate connection) WHILE the fixture holds its session lock,
+  // waits for Postgres to confirm that call is genuinely QUEUED behind it
+  // (not merely "not yet issued"), THEN proves — via a causal ordering
+  // signal, not wall-clock timing — that the gate-style call could only
+  // complete AFTER the fixture released.
+  it('SEC-1 (round 4/5): the isolation lock genuinely BLOCKS a concurrent gate-style lock acquisition', async () => {
     if (!dbAvailable) return
     let fixtureUnlocked = false
     let gateAcquiredAfterFixtureUnlocked: boolean | undefined
@@ -247,11 +282,9 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
           await lockCompanyAccount(dbtx)
           gateAcquiredAfterFixtureUnlocked = fixtureUnlocked
         })
-        // Give Postgres time to actually receive and queue-block the gate's
-        // request before we proceed to unlock — otherwise the request might
-        // not have reached the server yet and the "after" signal would be
-        // true by accident, not by genuine blocking.
-        await new Promise((resolve) => setTimeout(resolve, 100))
+        // Do NOT proceed to unlock until Postgres itself confirms the gate's
+        // request is queued and waiting — an OBSERVATION, not a guess.
+        await waitUntilBlockedOnAdvisoryLock(_pool!)
       },
     )
     // The fixture's `finally` block (inside withIsolatedOffCurrencyRow) has
@@ -260,10 +293,11 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
     fixtureUnlocked = true
 
     await gatePromise
-    // Postgres cannot grant the gate's lock request until it has PROCESSED
-    // the fixture's unlock — a server-side causal dependency, not a race.
-    // So by the time the gate's continuation ran, `fixtureUnlocked` was
-    // necessarily already `true`.
+    // The gate was PROVEN queued behind our lock (the poll above only
+    // returns once Postgres reports it waiting) — so Postgres cannot grant
+    // it until it has PROCESSED the fixture's unlock. By the time the
+    // gate's continuation ran, `fixtureUnlocked` was necessarily already
+    // `true`.
     expect(gateAcquiredAfterFixtureUnlocked).toBe(true)
   })
 })

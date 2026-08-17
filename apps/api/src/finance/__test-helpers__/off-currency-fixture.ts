@@ -48,6 +48,24 @@ import * as schema from '../../database/schema'
 type Db = ReturnType<typeof drizzle<typeof schema>>
 
 /**
+ * SEC-1 (mega-audit wave 2, round 5) — self-explanatory even out of context.
+ * The guard's own thrown message is deliberately count-only (SEC-2 — no
+ * sums, no ids, no names), so a row inserted by this fixture carries NO
+ * marker of its own anywhere the guard's error text reaches. If it were ever
+ * glimpsed directly (a stray `SELECT * FROM transactions`, a screen-share, a
+ * DB browser open during a live debugging session) by another agent or the
+ * owner, the reasonable read is "we have corrupted money in prod" — not "a
+ * test forgot to clean up". This prefix is FORCED onto every row this
+ * fixture inserts (not merely suggested to callers) so that read is never
+ * possible: the row explains itself without anyone having to find and read
+ * this file first.
+ */
+const TEST_FIXTURE_NOTES_PREFIX =
+  'TEST FIXTURE (off-currency-fixture.ts) — safe to delete, ' +
+  'not real company money. Inserted by an automated integration spec to prove the C-3/SEC-1 ' +
+  "off-currency guard; deleted in the same test run's `finally`."
+
+/**
  * Inserts a single row (`rowValues`, MUST carry an explicit `id`) while
  * holding the shared company-account advisory lock, runs `run()`, then
  * deletes the row and releases the lock — in a `finally`, so a thrown
@@ -66,7 +84,7 @@ export async function withIsolatedOffCurrencyRow(
   const lockClient = await pool.connect()
   try {
     await lockClient.query('SELECT pg_advisory_lock($1)', [COMPANY_ACCOUNT_LOCK_KEY.toString()])
-    await db.insert(transactions).values(rowValues)
+    await db.insert(transactions).values({ ...rowValues, notes: TEST_FIXTURE_NOTES_PREFIX })
     await run()
   } finally {
     await db.delete(transactions).where(eq(transactions.id, rowValues.id))
