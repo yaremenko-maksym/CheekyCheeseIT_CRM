@@ -111,13 +111,20 @@ reading it, which is how #422 happened in the first place):
   idiom (`steps.X.outputs.Y`) on the COPY side. `build_zones()` now accumulates
   a `var_files` dict per JOB (not per step), in file order, across every step
   of that job — resolution stops at job boundaries because GitHub Actions env
-  vars do not cross them (each job is a fresh runner). Test: "cross-step
-  $GITHUB_ENV apply assignment" case. Does NOT change today's real deploy.yml
-  behavior: its apply side is still one monolithic `run:` block per the module
-  docstring above, so every assignment and every psql call already shared one
-  Step; this fix only matters if that block is ever split into named steps —
-  which the copy side already is, making it the more natural refactor to
-  expect eventually, not a hypothetical.
+  vars do not cross them (each job is a fresh runner). Positive test:
+  "cross-step $GITHUB_ENV apply assignment" case (same job, resolves —
+  proves the false-red is closed). Negative test: "$GITHUB_ENV assignment in
+  a DIFFERENT job does not propagate" case (same assignment shape, but the
+  psql call is in a different JOB — must stay red, proving the fix stops at
+  the job boundary instead of over-correcting into "resolve anywhere in the
+  file", which would trade this false-red for a false-green — the wrong
+  direction for this guard, same reasoning as the two tests above it). Does
+  NOT change today's real deploy.yml behavior: its apply side is still one
+  monolithic `run:` block per the module docstring above, so every assignment
+  and every psql call already shared one Step; this fix only matters if that
+  block is ever split into named steps — which the copy side already is,
+  making it the more natural refactor to expect eventually, not a
+  hypothetical.
 
 REVERSE INVARIANT (security-review, PR #517) — apps/api/drizzle/manual-private/
 ---------------------------------------------------------------------------------
