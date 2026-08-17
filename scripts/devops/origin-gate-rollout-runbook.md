@@ -110,6 +110,17 @@ exit — это НЕ рекомендация "иногда запускать",
 устаревание бьёт УЖЕ СЕГОДНЯ, в `observe`, через `set_real_ip_from`,
 независимо от `ORIGIN_GATE_MODE`).
 
+**task-cloudflare-ips-watch (2026-08-18):** с того же дня, когда владелец
+включил файрвол Hetzner (§1 шаг зависит от этого файла НАПРЯМУЮ — файрвол
+фильтрует по этим же диапазонам), сам факт свежести списка перестал быть
+чем-то, что нужно ПОМНИТЬ запускать вручную — `.github/workflows/
+cloudflare-ips-watch.yml` гоняет этот же скрипт дважды в сутки и сам
+открывает PR + issue при расхождении (см. `scripts/devops/
+cloudflare-ips-watch.sh`). Предусловие §5 шаг 1 из этого не исчезает — перед
+самим флипом `ORIGIN_GATE_MODE` всё равно стоит прогнать команду выше вручную
+и увидеть чистый результат СВОИМИ глазами, а не полагаться на «последний
+scheduled-прогон был зелёным N часов назад».
+
 ### 3.3 Регресс-проверка переменной гейта (MED-3)
 
 `scripts/devops/check-nginx-perimeter.sh`'s `check_gate_keyed_on_realip` —
@@ -188,11 +199,17 @@ $binary_remote_addr` (считается ПОСЛЕ realip-подстановк�
   заголовка с пира внутри CF-диапазона обходит nginx-уровневый rate-limit).
   Единственный реальный контроль — Cloudflare Authenticated Origin Pulls
   (mTLS), не диапазонный фильтр — операционная задача владельца, вне кода.
-- **Freshness — ручная операция.** `check-cloudflare-ips-freshness.sh`
-  автоматизирует ПРОВЕРКУ, не САМО обновление — намеренно НЕ заведена как
-  scheduled CI job (DevOps golden rule — нет лишних recurring jobs, см.
-  `.claude/agents/devops.md` §"Golden rules" #4); это MANDATORY шаг
-  процедуры флипа (§5 шаг 1), запускаемый по требованию, не по расписанию.
+- **Freshness — теперь и по расписанию, и по требованию.** Этот раздел
+  раньше утверждал, что `check-cloudflare-ips-freshness.sh` намеренно НЕ
+  заведена как scheduled job (DevOps golden rule — нет лишних recurring
+  jobs). С task-cloudflare-ips-watch (2026-08-18) это больше не так: файрвол
+  Hetzner (§1) сделал устаревание списка способным ронять реальных
+  посетителей, а не только шуметь в логах, и это перевесило golden rule
+  #4 — `.github/workflows/cloudflare-ips-watch.yml` гоняет ту же проверку
+  дважды в сутки (см. `scripts/devops/cloudflare-ips-watch.sh`). Как MANDATORY
+  шаг процедуры флипа (§5 шаг 1, §3.2 выше) команда всё равно запускается
+  РУКАМИ прямо перед флипом — scheduled-прогон покрывает "не забыть в
+  среднем", а не заменяет "проверено прямо сейчас, своими глазами".
 
 ## 8. Связанные файлы
 
@@ -211,6 +228,11 @@ $binary_remote_addr` (считается ПОСЛЕ realip-подстановк�
 - `scripts/devops/check-nginx-perimeter.sh` — включает body-limit +
   default_server + real-visitor + gate-variable (MED-3) проверки.
 - `scripts/devops/check-cloudflare-ips-freshness.sh` — MED-4 freshness gate.
+- `.github/workflows/cloudflare-ips-watch.yml` +
+  `scripts/devops/cloudflare-ips-watch.sh` — task-cloudflare-ips-watch
+  (2026-08-18), дважды в сутки гоняет проверку выше и сам открывает PR
+  (обновление `cloudflare-ips.txt`) + issue (шаги для файрвола Hetzner) при
+  расхождении.
 - `.github/workflows/deploy.yml` — top-level `env: ORIGIN_GATE_MODE:`
   (single source of truth) + nginx build-arg + `NGINX_EXEC_CMD` + FATAL
   post-deploy smoke-test.
