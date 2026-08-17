@@ -11,6 +11,9 @@ import {
   assertHtmlLang,
   assertJsonLd,
   assertNoHomeJsonLdLeak,
+  assertNotFoundDoesNotImpersonateHome,
+  assertRobotsMeta,
+  assertSitemapMatchesDist,
   buildRobotsTxt,
   buildRoutes,
   buildSitemapXml,
@@ -92,6 +95,42 @@ describe('buildRoutes', () => {
     expect(routes.length).toBe(LOCALES.length * 2)
     expect(routes.every((r) => !r.url.includes('/careers/a'))).toBe(true)
   })
+
+  it(
+    'task-soft-404-and-noindex.md AC2 — a vacancy present in an EARLIER build call is gone from a ' +
+      'LATER call whose vacancies list no longer includes it (review round 1: the original version of ' +
+      'this test asserted the absence of a slug that was never in the input to begin with — ' +
+      'structurally unable to go red. This one first proves the slug DOES produce a route/sitemap ' +
+      'entry when it IS published, then proves a later call — same functions, no fresh import — ' +
+      'drops it once it no longer is; a regression that made either function leak state across calls ' +
+      '(e.g. an accidental module-level cache keyed by slug) would turn the second half red)',
+    () => {
+      const priorVacancies = [
+        { slug: 'still-open', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+        { slug: 'retired-role', publishedAt: '2026-06-01T00:00:00.000Z', isFallback: false },
+      ]
+      const priorRoutes = buildRoutes(priorVacancies)
+      expect(priorRoutes.some((r) => r.url.includes('retired-role'))).toBe(true)
+      const priorSitemap = buildSitemapXml(priorVacancies, '2026-07-01T00:00:00.000Z')
+      expect(priorSitemap).toContain('careers/retired-role/')
+
+      // "the current build" — retired-role is now unpublished/removed, so
+      // this run's vacancies list (what the API actually returns) no
+      // longer includes it. Its stale URL is a dead file on disk with
+      // nothing advertising it — the routing fix (nginx `=404`) is what a
+      // request to it actually hits.
+      const currentVacancies = [
+        { slug: 'still-open', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+      ]
+      const currentRoutes = buildRoutes(currentVacancies)
+      expect(currentRoutes.some((r) => r.url.includes('retired-role'))).toBe(false)
+      expect(currentRoutes.some((r) => r.url.includes('still-open'))).toBe(true)
+
+      const currentSitemap = buildSitemapXml(currentVacancies, '2026-08-17T00:00:00.000Z')
+      expect(currentSitemap).not.toContain('retired-role')
+      expect(currentSitemap).toContain('careers/still-open/')
+    },
+  )
 
   it('marks every locale/careers-list route as requiring ItemList JSON-LD only when there are vacancies to list', () => {
     const withVacancies = buildRoutes([
@@ -586,6 +625,160 @@ describe('assertNoHomeJsonLdLeak', () => {
     const html = jsonLdHtml([{ '@type': 'Organization' }, { '@type': 'WebSite' }])
     expect(() => assertNoHomeJsonLdLeak(html, ruCareersRoute)).toThrow(
       /\/ru\/careers \(pageType=careers\) carries Organization\/WebSite JSON-LD/,
+    )
+  })
+})
+
+// -----------------------------------------------------------------------
+// task-soft-404-and-noindex.md — Google Search Console 2026-08-16
+// "Indexing forbidden by noindex tag". Root cause: a nonexistent address
+// answered `200` with the HOME page's markup BEFORE the SPA hydrated into
+// the honest `noindex` 404 — one URL told a crawler three different things
+// in sequence. The real fix is the HTTP status code
+// (nginx/conf.d/landing.conf); these two functions are the two build-time-
+// checkable halves of the contract that fix protects (AC4 requires BOTH
+// mutation directions proven independently — "проверять обе половины по
+// отдельности, иначе неизвестно, какая работает").
+// -----------------------------------------------------------------------
+describe('assertNotFoundDoesNotImpersonateHome (AC1)', () => {
+  const homeHtml =
+    '<html><head><title>CheekyCheeseIT — Senior engineers for AI, EdTech, E-Commerce</title>' +
+    '<link rel="canonical" href="https://cheekycheese.tech/"></head></html>'
+  const notFoundHtml =
+    '<html><head><title>Page not found — CheekyCheeseIT</title>' +
+    '<link rel="canonical" href="https://cheekycheese.tech/404/"></head></html>'
+
+  it('passes for the real, correctly-distinct 404 document', () => {
+    expect(() => assertNotFoundDoesNotImpersonateHome(notFoundHtml, homeHtml)).not.toThrow()
+  })
+
+  it('throws — bug repro: 404.html carries the SAME title as home (soft-404 signature)', () => {
+    const impersonating = notFoundHtml.replace(
+      'Page not found — CheekyCheeseIT',
+      'CheekyCheeseIT — Senior engineers for AI, EdTech, E-Commerce',
+    )
+    expect(() => assertNotFoundDoesNotImpersonateHome(impersonating, homeHtml)).toThrow(
+      /must be present and must not equal the home page's/,
+    )
+  })
+
+  it('throws — bug repro: 404.html canonical points at home ("/") instead of /404/', () => {
+    const impersonating = notFoundHtml.replace(
+      'https://cheekycheese.tech/404/',
+      'https://cheekycheese.tech/',
+    )
+    expect(() => assertNotFoundDoesNotImpersonateHome(impersonating, homeHtml)).toThrow(
+      /404.html canonical is "https:\/\/cheekycheese\.tech\/", expected "https:\/\/cheekycheese\.tech\/404\/"/,
+    )
+  })
+
+  it('throws when the 404 document has no canonical at all', () => {
+    const noCanonical = notFoundHtml.replace(
+      '<link rel="canonical" href="https://cheekycheese.tech/404/">',
+      '',
+    )
+    expect(() => assertNotFoundDoesNotImpersonateHome(noCanonical, homeHtml)).toThrow(/\(missing\)/)
+  })
+})
+
+describe('assertSitemapMatchesDist (AC3/AC4)', () => {
+  const sitemapXml =
+    '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+    '<url><loc>https://cheekycheese.tech/</loc></url>' +
+    '<url><loc>https://cheekycheese.tech/careers/</loc></url>' +
+    '</urlset>'
+
+  const indexableSelfCanonical = (loc: string) =>
+    `<html><head><meta name="robots" content="index, follow">` +
+    `<link rel="canonical" href="${loc}"></head></html>`
+
+  /** A `readFileFn` backed by a plain in-memory map — mirrors the real
+   * caller's `fs.readFileSync` wrapper (prerender.mjs `main()`) without
+   * touching a real filesystem. */
+  const distFrom = (files: Record<string, string>) => (relPath: string) => files[relPath] ?? null
+
+  it('passes when every sitemap URL has a matching, indexable, self-canonical dist file', () => {
+    const dist = distFrom({
+      'index.html': indexableSelfCanonical('https://cheekycheese.tech/'),
+      'careers/index.html': indexableSelfCanonical('https://cheekycheese.tech/careers/'),
+    })
+    expect(() => assertSitemapMatchesDist(sitemapXml, dist)).not.toThrow()
+  })
+
+  it('throws when sitemap.xml has zero <loc> entries', () => {
+    const empty =
+      '<?xml version="1.0" encoding="UTF-8"?>' +
+      '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"></urlset>'
+    expect(() => assertSitemapMatchesDist(empty, distFrom({}))).toThrow(/zero <loc> entries/)
+  })
+
+  it('AC4 mutation A — throws when a sitemap URL carries noindex; passes again once removed', () => {
+    const noindexDist = distFrom({
+      'index.html': indexableSelfCanonical('https://cheekycheese.tech/'),
+      'careers/index.html':
+        '<html><head><meta name="robots" content="noindex, nofollow">' +
+        '<link rel="canonical" href="https://cheekycheese.tech/careers/"></head></html>',
+    })
+    expect(() => assertSitemapMatchesDist(sitemapXml, noindexDist)).toThrow(
+      /does not match expected noindex=false/,
+    )
+
+    // "снять — зеленеет": the SAME sitemap, with noindex removed, is green.
+    const fixedDist = distFrom({
+      'index.html': indexableSelfCanonical('https://cheekycheese.tech/'),
+      'careers/index.html': indexableSelfCanonical('https://cheekycheese.tech/careers/'),
+    })
+    expect(() => assertSitemapMatchesDist(sitemapXml, fixedDist)).not.toThrow()
+  })
+
+  it('AC4 mutation B — throws when a sitemap URL has no backing dist file (dead address); passes once added', () => {
+    const missingDist = distFrom({
+      'index.html': indexableSelfCanonical('https://cheekycheese.tech/'),
+      // 'careers/index.html' intentionally absent — a dead sitemap entry.
+    })
+    expect(() => assertSitemapMatchesDist(sitemapXml, missingDist)).toThrow(
+      /sitemap\.xml advertises https:\/\/cheekycheese\.tech\/careers\/ but dist\/careers\/index\.html does not exist/,
+    )
+
+    // "снять — зеленеет": adding the missing file turns the gate green.
+    const fixedDist = distFrom({
+      'index.html': indexableSelfCanonical('https://cheekycheese.tech/'),
+      'careers/index.html': indexableSelfCanonical('https://cheekycheese.tech/careers/'),
+    })
+    expect(() => assertSitemapMatchesDist(sitemapXml, fixedDist)).not.toThrow()
+  })
+
+  it('throws when a dist file exists but its canonical points elsewhere', () => {
+    const wrongCanonical = distFrom({
+      'index.html': indexableSelfCanonical('https://cheekycheese.tech/'),
+      'careers/index.html': indexableSelfCanonical('https://cheekycheese.tech/'),
+    })
+    expect(() => assertSitemapMatchesDist(sitemapXml, wrongCanonical)).toThrow(
+      /has canonical "https:\/\/cheekycheese\.tech\/", expected "https:\/\/cheekycheese\.tech\/careers\/"/,
+    )
+  })
+})
+
+describe('assertRobotsMeta', () => {
+  it('passes when expectNoindex matches the actual meta', () => {
+    expect(() =>
+      assertRobotsMeta('<meta name="robots" content="index, follow">', false, '/'),
+    ).not.toThrow()
+    expect(() =>
+      assertRobotsMeta('<meta name="robots" content="noindex, nofollow">', true, '/404'),
+    ).not.toThrow()
+  })
+
+  it('throws when a page expected to be indexable carries noindex', () => {
+    expect(() =>
+      assertRobotsMeta('<meta name="robots" content="noindex, nofollow">', false, '/careers'),
+    ).toThrow(/does not match expected noindex=false/)
+  })
+
+  it('throws when the 404 marker is missing noindex entirely', () => {
+    expect(() => assertRobotsMeta('<html></html>', true, '/404')).toThrow(
+      /does not match expected noindex=true/,
     )
   })
 })
