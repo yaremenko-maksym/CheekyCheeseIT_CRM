@@ -226,6 +226,20 @@ input[type='number'] {
    * naturally covered by its matching fade once that edge is scrolled into
    * view, so it self-hides at the start/end without any scroll listener —
    * and stays correct if tabs are added/removed (no width to keep in sync).
+   *
+   * Two undeclared assumptions, safe for the only current caller
+   * (UserProfileShell's tab bar, inside `PageHeader`, which sets an opaque
+   * `bg-background`) but worth checking before reusing this utility
+   * elsewhere:
+   *   - The fade colour is hardcoded to `var(--background)` (the page
+   *     background token), not the scroll container's own background. Apply
+   *     this to an element sitting on `bg-card` / `bg-muted` / any other
+   *     surface and the fade will show a visible seam at the edge instead of
+   *     blending — swap the gradient stop colour to match that container.
+   *   - `background-position`/gradient direction use physical `left`/`right`,
+   *     not logical `inline-start`/`inline-end`. Fine while the CRM is
+   *     `ru`-only (LTR); under a future RTL locale the hint would point the
+   *     wrong way.
    */
   .scroll-fade-x {
     background:
