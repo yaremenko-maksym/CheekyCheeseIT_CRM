@@ -26,8 +26,8 @@
  */
 import { preview } from 'vite'
 import { chromium } from 'playwright'
-import { mkdir, writeFile } from 'node:fs/promises'
-import { existsSync } from 'node:fs'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { existsSync, readFileSync } from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -939,6 +939,132 @@ function assertNoHomeJsonLdLeak(html, route) {
 }
 
 // ---------------------------------------------------------------------------
+// 2c. task-soft-404-and-noindex.md — build-time regression gate for the
+//     "soft 404" defect (Google Search Console, 2026-08-16: "Indexing
+//     forbidden by noindex tag"). The bug was never in the `noindex` tag
+//     itself — it was that the STATIC (pre-hydration) response for a
+//     nonexistent address answered `200` with the HOME page's own markup,
+//     which only turned into the honest `noindex` 404 AFTER the SPA
+//     hydrated. `curl` (no JS) only ever saw the first, misleading half —
+//     which is why the first pass at this investigation found nothing (see
+//     this task's own PM brief). The real fix is the HTTP status code
+//     (nginx/conf.d/landing.conf, `@locale_fallback`'s `try_files ... =404`
+//     + `error_page 404 /404.html`) — these two functions are the two
+//     independent, build-time-checkable HALVES of that contract (AC4:
+//     "проверять обе половины по отдельности"), re-derived from the
+//     ACTUALLY WRITTEN dist/ output (not from `buildRoutes()`'s in-memory
+//     route list) so a future change that lets generation drift from the
+//     written artifacts still gets caught.
+// ---------------------------------------------------------------------------
+
+/**
+ * AC1 half — the static 404 document must not present itself as the home
+ * page: distinct `<title>` AND a canonical that is neither missing nor
+ * equal to home's own. Complements the nginx-level routing fix (which
+ * stops home's OWN static file from ever being served AT a nonexistent
+ * URL) by pinning that the FALLBACK document itself — `dist/404.html`,
+ * served for exactly that case — could never masquerade as home even if
+ * some future refactor of `routes/__root.tsx`'s `notFoundComponent`
+ * accidentally reused home's copy.
+ *
+ * @param {string} notFoundHtml
+ * @param {string} homeHtml
+ * @returns {void}
+ */
+function assertNotFoundDoesNotImpersonateHome(notFoundHtml, homeHtml) {
+  const titleOf = (html) => html.match(/<title>([^<]*)<\/title>/)?.[1]
+  const canonicalOf = (html) => html.match(/<link rel="canonical" href="([^"]*)"/)?.[1]
+  const notFoundTitle = titleOf(notFoundHtml)
+  const homeTitle = titleOf(homeHtml)
+  if (!notFoundTitle || notFoundTitle === homeTitle) {
+    throw new Error(
+      `prerender: 404.html's <title> ("${notFoundTitle ?? '(missing)'}") must be present and must ` +
+        `not equal the home page's ("${homeTitle ?? '(missing)'}") — a nonexistent address must never ` +
+        'present itself as the home page (task-soft-404-and-noindex.md AC1).',
+    )
+  }
+  const expectedNotFoundCanonical = `${SITE_ORIGIN}/404/`
+  const notFoundCanonical = canonicalOf(notFoundHtml)
+  if (notFoundCanonical !== expectedNotFoundCanonical) {
+    throw new Error(
+      `prerender: 404.html canonical is "${notFoundCanonical ?? '(missing)'}", expected ` +
+        `"${expectedNotFoundCanonical}" (task-soft-404-and-noindex.md AC1).`,
+    )
+  }
+  if (notFoundCanonical === canonicalOf(homeHtml)) {
+    throw new Error(
+      "prerender: 404.html's canonical must not equal the home page's canonical " +
+        '(task-soft-404-and-noindex.md AC1).',
+    )
+  }
+}
+
+/**
+ * AC3/AC4 half — every URL sitemap.xml advertises must (a) have a REAL
+ * backing file under `dist/` (a `<loc>` with no file behind it is exactly
+ * the "мёртвый адрес в карте" AC4 tests for — a crawler following it would
+ * 404, same as the "запрещено тегом noindex" mechanism this task fixes,
+ * just discovered via the sitemap instead of a stray external link), and
+ * (b) that file's ALREADY-CAPTURED (fully hydrated, see this script's
+ * module doc) content is indexable (`assertRobotsMeta`, `expectNoindex:
+ * false`) and self-canonical. Runs over the WHOLE sitemap (AC3: "по всей
+ * карте, а не по образцу") because it iterates every `<loc>` the just-
+ * written sitemap.xml string actually contains, not a hardcoded sample.
+ *
+ * Deliberately independent of `buildRoutes()`/`captureRoute()`'s OWN
+ * per-route assertions (which already run during generation, against the
+ * in-memory `routes` array): this function re-derives its expectations
+ * from the WRITTEN sitemap.xml and reads the WRITTEN dist files via
+ * `readFileFn` — a future change that lets sitemap generation and route
+ * capture drift apart (a hand-added `<url>`, a write that silently failed,
+ * ...) is still caught here even though it would not be caught by
+ * `captureRoute()`'s in-flight checks alone.
+ *
+ * @param {string} sitemapXml
+ * @param {(relPath: string) => string | null} readFileFn - returns a dist-
+ *   relative file's content, or `null` if it does not exist. Injectable so
+ *   unit tests (prerender-seo.spec.ts) can run this against an in-memory
+ *   fixture instead of the real filesystem — see that spec for both
+ *   mutation directions AC4 asks for (noindex introduced/removed; a dead
+ *   sitemap entry added/removed).
+ * @returns {void}
+ */
+function assertSitemapMatchesDist(sitemapXml, readFileFn) {
+  const locs = [...sitemapXml.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => m[1])
+  if (locs.length === 0) {
+    throw new Error(
+      'prerender: sitemap.xml has zero <loc> entries — nothing for this gate to verify ' +
+        '(task-soft-404-and-noindex.md AC3/AC4).',
+    )
+  }
+  for (const loc of locs) {
+    if (!loc.startsWith(SITE_ORIGIN)) {
+      throw new Error(`prerender: sitemap <loc>${loc}</loc> is not under ${SITE_ORIGIN}.`)
+    }
+    const urlPath = loc.slice(SITE_ORIGIN.length) // '/', '/careers/', '/uk/careers/foo/', ...
+    const trimmed = urlPath.replace(/^\/+|\/+$/g, '')
+    const file = trimmed === '' ? 'index.html' : `${trimmed}/index.html`
+    const html = readFileFn(file)
+    if (html === null) {
+      throw new Error(
+        `prerender: sitemap.xml advertises ${loc} but dist/${file} does not exist — a dead ` +
+          'sitemap entry a crawler would 404 on (task-soft-404-and-noindex.md AC4, "мёртвый адрес ' +
+          'в карте").',
+      )
+    }
+    assertRobotsMeta(html, false, loc)
+    const canonical = html.match(/<link rel="canonical" href="([^"]*)"/)?.[1]
+    if (canonical !== loc) {
+      throw new Error(
+        `prerender: dist/${file} (sitemap URL ${loc}) has canonical "${canonical ?? '(missing)'}", ` +
+          `expected "${loc}" — a sitemap entry must carry its own canonical ` +
+          '(task-soft-404-and-noindex.md AC3).',
+      )
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // 3. robots.txt + sitemap.xml (task §2) — plain static files, no React page
 //    exists for these, so they are generated directly here.
 // ---------------------------------------------------------------------------
@@ -1137,6 +1263,16 @@ async function main() {
     )
     await writeFile(path.join(DIST, '404.html'), notFoundHtml, 'utf8')
     console.log('prerender: wrote 404.html')
+
+    // AC1 (task-soft-404-and-noindex.md) — belt-and-suspenders alongside
+    // the nginx-level routing fix (nginx/conf.d/landing.conf): the 404
+    // document itself must never be able to pass as home. Reads
+    // `dist/index.html` back rather than closing over a variable from the
+    // loop above, so this checks the exact bytes that were actually
+    // written to disk (what a client would actually receive), not an
+    // in-memory value that might have drifted from it.
+    const homeHtml = await readFile(path.join(DIST, 'index.html'), 'utf8')
+    assertNotFoundDoesNotImpersonateHome(notFoundHtml, homeHtml)
   } finally {
     // Guarded with `?.`/truthiness checks on purpose — this must run (and
     // succeed) no matter which of `chromium.launch()` / `preview()` / the
@@ -1152,13 +1288,26 @@ async function main() {
   }
 
   const buildTime = new Date().toISOString()
+  const sitemapXml = buildSitemapXml(vacancies, buildTime, perLocaleVacancies)
   await writeFile(path.join(DIST, 'robots.txt'), buildRobotsTxt(), 'utf8')
-  await writeFile(
-    path.join(DIST, 'sitemap.xml'),
-    buildSitemapXml(vacancies, buildTime, perLocaleVacancies),
-    'utf8',
-  )
+  await writeFile(path.join(DIST, 'sitemap.xml'), sitemapXml, 'utf8')
   console.log('prerender: wrote robots.txt, sitemap.xml')
+
+  // AC3/AC4 (task-soft-404-and-noindex.md) — independent post-build gate,
+  // re-reading the files that were ACTUALLY written above rather than
+  // trusting the generation step that just ran. See
+  // `assertSitemapMatchesDist`'s own doc for what this catches and why.
+  assertSitemapMatchesDist(sitemapXml, (relPath) => {
+    try {
+      return readFileSync(path.join(DIST, relPath), 'utf8')
+    } catch {
+      return null
+    }
+  })
+  console.log(
+    'prerender: sitemap.xml verified against dist/ — every advertised URL exists, is indexable, ' +
+      'and carries its own canonical (AC3/AC4).',
+  )
 
   // Sanity echo — lets a CI log reader see at a glance whether vacancy pages
   // were actually produced this run (0 is a valid, non-failing outcome).
@@ -1202,10 +1351,13 @@ export {
   buildRoutes,
   extractJsonLd,
   assertJsonLd,
+  assertRobotsMeta,
   assertHtmlLang,
   assertCanonicalSelf,
   assertAlternatesMatch,
   assertNoHomeJsonLdLeak,
+  assertNotFoundDoesNotImpersonateHome,
+  assertSitemapMatchesDist,
   computeAlternateHrefs,
   vacancyHreflangExcludes,
   LOCALES,
