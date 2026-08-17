@@ -11,15 +11,29 @@
  *   got a fresh PENDING salary, and the finance page does not hide it: paying it
  *   was one ordinary ADMIN click.
  *
- * THE RULE BEING ENFORCED (round-2 correction, MED-4 — both reviewers caught
- * the first version of this paragraph citing `manualConfirmPayout`, which does
- * NOT check archival and whose receiver is the company):
- *   a NEW ACCRUAL to a named person refuses an archived receiver — nobody starts
- *   owing a dismissed employee something new (this cron, createSalary, and the
- *   precedents createAdminIncome / declareUsdtProjectIncome / confirmPayout);
- *   SETTLING AN ALREADY-EARNED DEBT does not (payPayoutRequest,
- *   manualConfirmPayout, settleByCompany — dismissal forfeits nothing already
- *   earned, and refusing would strand the payment).
+ * THE RULE BEING ENFORCED (kept verbatim-equivalent to the block above
+ * `if (receiver.archivedAt)` in transactions.service.ts — if you change one,
+ * change both, because the two drifting apart IS the defect this task spent two
+ * review rounds correcting):
+ *   the question is whether the write CREATES an entitlement not yet EARNED, or
+ *   merely RECORDS one already earned. A salary accrues against a period of
+ *   employment a dismissed person will not work → refuse. Writes that record
+ *   something already earned must not grow the barrier even when they insert new
+ *   rows naming a person — `bookCompanyObligations` inserts
+ *   SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT with the senior's / drop's own
+ *   `receiverId`, and that is their share of income already received; refusing
+ *   would strand money that is owed.
+ *   PAYING a salary sits on neither side, deliberately: a PENDING row is a
+ *   reminder, so it may be a month genuinely worked before dismissal (earned) or
+ *   one the cron minted after it (not earned), and the row cannot tell you
+ *   which. `paySalary` refuses as a stop-loss on an irreversible payment —
+ *   refusing is recoverable (un-archive, then pay), paying is not. Whether the
+ *   barrier should key on the PERIOD rather than the receiver's current state is
+ *   an open question with the owner (round-2 MED-2), not decided here.
+ *   Round-2 correction: this paragraph first cited `manualConfirmPayout` as the
+ *   precedent (it never reads receiver archival). Round-3 correction: its
+ *   replacement — "new accrual to a NAMED person → refuse" — reads like an
+ *   executable test and literally catches those obligation rows.
  *
  * WHY THESE ARE UNIT TESTS (and why the WHERE clause is asserted as SQL):
  *   the mutation gate (`scripts/devops/mutation-gate.mjs --changed`) mutates the

@@ -3628,29 +3628,51 @@ export class TransactionsService {
         'Salary can only be created for JUNIOR, HR, ACCOUNTANT, SENIOR, or DROP',
       )
     }
-    // task-finance-fix-wave1 (E-1). The rule this follows is NOT "some money
-    // paths check archival" — it is WHICH KIND of money movement is happening:
+    // task-finance-fix-wave1 (E-1). Why a salary refuses an archived receiver,
+    // and how to decide whether the next money path should:
     //
-    //   NEW ACCRUAL to a named person  → refuse an archived receiver.
-    //     Nobody starts owing a dismissed employee something new. This method
-    //     and the salary cron are accruals; so are createAdminIncome and
-    //     declareUsdtProjectIncome, which credit a named ADMIN's balance, and
-    //     confirmPayout, which credits a chosen ADMIN — all three refuse.
+    //   The question is whether the write CREATES an entitlement that has not
+    //   been EARNED yet, or merely RECORDS one that already has been. A monthly
+    //   salary is the first kind — it accrues against a period of employment,
+    //   and a dismissed person will not work it. Refuse.
     //
-    //   SETTLING AN ALREADY-EARNED DEBT → do NOT refuse on archival.
-    //     Being dismissed does not forfeit what someone already earned;
-    //     refusing there would strand the payment. payPayoutRequest,
-    //     manualConfirmPayout and settleByCompany are settlements (their
-    //     receiver is the company or an existing obligation), which is why they
-    //     carry no archival barrier and should not grow one.
+    //   Writes that record something ALREADY earned must NOT grow this barrier,
+    //   even when they insert brand-new rows addressed to a person by name. The
+    //   live counter-example is `bookCompanyObligations` (~:4370, the shared
+    //   engine under payPayoutRequest / manualConfirmPayout): it inserts NEW
+    //   SENIOR_PENDING_PAYOUT / DROP_PENDING_PAYOUT rows whose `receiverId` IS
+    //   the senior or the drop — and that is their share of income the company
+    //   has already received. Refusing there would strand money that is owed.
+    //   Dismissal stops future accrual; it forfeits nothing already earned.
     //
-    // Round-2 correction (MED-4, found by both reviewers): the first version of
-    // this comment cited `manualConfirmPayout` as the precedent. It is not one —
-    // it never reads receiver archival, and its receiver is the company. The
-    // actual precedent is `confirmPayout` (~line 3357). Stating the PRINCIPLE
-    // rather than a list of call sites is deliberate: a list goes stale silently,
-    // and a comment that has gone stale is exactly what AC8 of this same task
-    // was cleaning up one file over.
+    //   And where does PAYING a salary fall? On neither side cleanly — saying so
+    //   is the point. A PENDING salary row is a reminder, not a debit (see the
+    //   next comment down: no funding source, no balance impact until
+    //   `paySalary`), so one such row can mean two different things: a month the
+    //   person really worked before being dismissed — earned, owed — or a month
+    //   the cron minted AFTER the dismissal for work nobody did, which is the
+    //   defect this task fixed. The row carries nothing that tells those apart.
+    //   `paySalary` therefore refuses on the same barrier, and NOT as a deduction
+    //   from the rule above: it is a deliberate stop-loss on an irreversible
+    //   outward payment. Refusing costs nothing unrecoverable — the row stays
+    //   PENDING and becomes payable the moment an ADMIN un-archives someone
+    //   dismissed by mistake — while a wrong payment cannot be un-paid. The
+    //   deeper question this exposes (the barrier reads the receiver's CURRENT
+    //   state, not the period being paid for, so un-archiving makes every
+    //   accumulated month payable at once) is with the owner as review-round-2
+    //   MED-2, and is deliberately NOT settled in code here.
+    //
+    // Two corrections' worth of history, kept because it is cheaper than
+    // repeating them. Round 2: this comment named `manualConfirmPayout` as the
+    // precedent — it is not one, it never reads receiver archival. Round 3: the
+    // replacement said "new accrual to a NAMED person → refuse", which reads
+    // like an executable test and, applied literally, catches exactly the
+    // `bookCompanyObligations` rows above. The paths that do refuse are
+    // createAdminIncome / declareUsdtProjectIncome / confirmPayout, and their
+    // reason is adjacent rather than identical: a booking needs an ACTIVE ADMIN
+    // as its party. So decide with the entitlement question above — do not
+    // pattern-match against this list, and do not treat either sentence as a
+    // predicate you can evaluate mechanically.
     if (receiver.archivedAt) {
       throw new BadRequestException('Получатель архивирован — зарплата не начисляется')
     }
@@ -6096,10 +6118,22 @@ export class TransactionsService {
    * on `transactions` (label-only counterparties exist for other types), a row
    * with no receiver has no archival to check, and a null id must never reach
    * the query.
+   *
+   * `db` is the executor to read through, and it is a REQUIRED parameter rather
+   * than a default of `this.db.db` (round 3, LOW): one of the callers runs inside
+   * `db.transaction()`, and reaching for `this.db.db` there would check out a
+   * SECOND pooled connection while the first is still held by the transaction.
+   * On a saturated pool that is not a failure, it is a wait for a connection
+   * that only frees when the transaction it is nested in finishes — which is
+   * waiting on itself. Making the parameter explicit means a caller has to name
+   * its executor, so the nesting cannot reappear by omission.
    */
-  private async assertSalaryReceiverNotArchived(receiverId: string | null): Promise<void> {
+  private async assertSalaryReceiverNotArchived(
+    db: DatabaseService['db'] | DrizzleTx,
+    receiverId: string | null,
+  ): Promise<void> {
     if (!receiverId) return
-    const receiver = await this.db.db.query.users.findFirst({ where: eq(users.id, receiverId) })
+    const receiver = await db.query.users.findFirst({ where: eq(users.id, receiverId) })
     if (receiver && receiver.archivedAt) {
       throw new BadRequestException('Получатель зарплаты архивирован — выплата невозможна')
     }
@@ -6112,12 +6146,44 @@ export class TransactionsService {
    * security-review round 2 (MED-3): the up-front gate alone is a TOCTOU
    * window — the receiver is read before the transaction opens, and an archive
    * committing in between would let the salary go out to a dismissed employee.
-   * The window is milliseconds, but this file already answered that exact
-   * argument once: PR #456 (MED-1) refused to rely on a pre-read for
-   * `deleted_at` and moved the condition into the write. This is the same move
-   * for `archived_at`, and it fails CLOSED — a correlated `NOT EXISTS` is
-   * evaluated by Postgres as part of the UPDATE itself, so there is no instant
-   * between the check and the write for an archive to land in.
+   * That window is not microscopic: between the pre-read and the write sit the
+   * receipt validation, the amount checks, opening the transaction and WAITING
+   * on the company-account advisory lock (i.e. possibly behind another payment).
+   * This file already answered the same argument once — PR #456 (MED-1) refused
+   * to trust a pre-read for `deleted_at` and moved the condition into the write.
+   * Same move here, and it fails CLOSED.
+   *
+   * WHAT THIS DOES AND DOES NOT GUARANTEE (round 3 — the earlier wording claimed
+   * "no instant between check and write", which is half a step stronger than the
+   * mechanics, and this PR is the wrong place to leave an absolute that is
+   * subtly false). The correlated sub-query reads `users` under the statement's
+   * own snapshot; Postgres's re-check-on-lock (EvalPlanQual) applies to the
+   * LOCKED row — the `transactions` row — not to `users`. So an archive that
+   * commits DURING this UPDATE is not seen by the sub-query. The window
+   * therefore shrinks from "several awaits plus a lock wait" to "the duration of
+   * one statement", which is the real gain; it does not become zero.
+   *
+   * Why no row lock on the receiver. `FOR KEY SHARE` — the obvious candidate —
+   * does NOT help: measured on Postgres 15, a holder taking `FOR KEY SHARE` on
+   * the users row does not block `UPDATE users SET archived_at = now()`, because
+   * that UPDATE touches no key column and so takes FOR NO KEY UPDATE, which
+   * `FOR KEY SHARE` does not conflict with. `FOR SHARE` and `FOR UPDATE` do
+   * block it (also measured). We deliberately take neither:
+   *   - it would only cover this path. The ADMIN_PERSONAL flip below runs in NO
+   *     transaction by design (nothing to serialise — the company balance is not
+   *     touched), and its write already IS a single statement; adding a lock
+   *     there means wrapping it in a transaction and changing that contract.
+   *   - `FOR SHARE` on a `users` row makes paying a salary serialise against
+   *     every ordinary write to that person's row — a display-name edit, an
+   *     avatar, a salary-figure change — for as long as this transaction holds,
+   *     advisory-lock wait included.
+   *   - the residual exposure is qualitatively unlike the bug being fixed:
+   *     settling an accrual that already existed before the dismissal (a row an
+   *     ADMIN can soft-delete), versus the original defect, which minted a FRESH
+   *     accrual every month and left it silently payable forever.
+   * The durable fix belongs at the other end — voiding PENDING salaries when a
+   * user is archived, in `UsersService.archive`. That is a different zone and a
+   * separate task (backlog 88 follow-up), deliberately not smuggled in here.
    *
    * `NOT EXISTS (SELECT id FROM users WHERE users.id = transactions.receiver_id
    * AND users.archived_at IS NOT NULL)` — note this is TRUE when the receiver
@@ -6186,8 +6252,9 @@ export class TransactionsService {
     // This is the FAST gate (and the one whose message the operator sees). It is
     // not the whole guard: the same condition is re-asserted inside both write
     // paths below — see `salaryReceiverNotArchivedFilter` for why a pre-read on
-    // its own is not enough (MED-3).
-    await this.assertSalaryReceiverNotArchived(tx.receiverId)
+    // its own is not enough (MED-3). No transaction is open here, so the base
+    // connection is the right executor.
+    await this.assertSalaryReceiverNotArchived(this.db.db, tx.receiverId)
 
     const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
 
@@ -6388,8 +6455,10 @@ export class TransactionsService {
           .returning({ id: transactions.id })
         if (updated.length === 0) {
           // Zero rows now has two possible causes (a racing delete/pay, or a
-          // racing archive). Name the real one instead of guessing.
-          await this.assertSalaryReceiverNotArchived(tx.receiverId)
+          // racing archive). Name the real one instead of guessing. Read through
+          // `dbtx` — the transaction still owns a connection here, and going via
+          // `this.db.db` would check out a second one (round 3, LOW).
+          await this.assertSalaryReceiverNotArchived(dbtx, tx.receiverId)
           throw new BadRequestException('Transaction is not PENDING')
         }
       })
@@ -6419,8 +6488,9 @@ export class TransactionsService {
         .returning({ id: transactions.id })
       if (flipped.length !== 1) {
         // A concurrent paySalary already flipped this row — or a concurrent
-        // archive of the receiver made the guard above reject it.
-        await this.assertSalaryReceiverNotArchived(tx.receiverId)
+        // archive of the receiver made the guard above reject it. This path runs
+        // in no transaction, so the base connection is correct here.
+        await this.assertSalaryReceiverNotArchived(this.db.db, tx.receiverId)
         throw new BadRequestException('Transaction is not PENDING')
       }
     }
