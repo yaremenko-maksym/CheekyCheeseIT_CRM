@@ -15,8 +15,9 @@
  *   5. 1:1 invariant: old documents row is removed (no orphan FK).
  *
  * DB-SKIP-GUARD:
- *   `dbAvailable = false` when DATABASE_URL is unreachable (CI unit job
- *   without Postgres service). Every test checks the flag and returns early.
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * S3 STRATEGY:
  *   S3Service is replaced with a spy-stub. This avoids needing a real MinIO
@@ -51,6 +52,7 @@ import type { HrAccessService } from '../common/hr-access.service'
 import { InvoicesService } from '../invoices/invoices.service'
 import { documents, transactions } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -130,7 +132,6 @@ const TX_IDOR_ID = 'f1000001-0000-4000-b000-000000000003'
 // DB-skip-guard
 // ---------------------------------------------------------------------------
 
-let dbAvailable = true
 let _pool: Pool | null = null
 
 // ---------------------------------------------------------------------------
@@ -168,440 +169,432 @@ let documentsService: DocumentsService
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('PR-3 receipt replace-with-delete — real backend integration', () => {
-  beforeAll(async () => {
-    // ── DB availability probe ────────────────────────────────────────────────
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[pr3-receipt integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+describe.skipIf(!hasDatabaseUrl())(
+  'PR-3 receipt replace-with-delete — real backend integration',
+  () => {
+    beforeAll(async () => {
+      // ── DB availability probe ────────────────────────────────────────────────
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[pr3-receipt integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
+      }
+
+      // ── Build real DB + services ─────────────────────────────────────────────
+      _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      db = drizzle(_pool, { schema })
+
+      // Build DatabaseService instance (mirrors PR-2 integration spec pattern)
+      const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool: _pool, db })
+
+      // DocumentsService with spy S3
+      // task-file-storage-hardening HIGH-1: HrAccessService injected —
+      // unused by the receipt-replace path this suite exercises, stubbed to
+      // satisfy the constructor signature.
+      const stubHrAccess = { getActiveTeamPeers: async () => [] } as unknown as HrAccessService
+      documentsService = new DocumentsService(
+        dbSvc,
+        stubS3 as S3Service,
+        stubCompression as CompressionService,
+        stubHrAccess,
       )
-      dbAvailable = false
-      return
-    }
 
-    // ── Build real DB + services ─────────────────────────────────────────────
-    _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    db = drizzle(_pool, { schema })
+      // TransactionsService — real, wired to spy DocumentsService
+      // invoices not exercised here — factory default (no-op stub) is fine
+      transactionsService = makeTransactionsService({ db: dbSvc, documentsService })
 
-    // Build DatabaseService instance (mirrors PR-2 integration spec pattern)
-    const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool: _pool, db })
+      // ── Insert test rows ─────────────────────────────────────────────────────
+      // Doc A — the OLD receipt (will be deleted on resubmit)
+      await db
+        .insert(documents)
+        .values({
+          id: DOC_A_ID,
+          ownerId: ARTEM.id,
+          projectId: null,
+          category: 'RECEIPT',
+          name: `${TAG}-receipt-a.pdf`,
+          originalName: `${TAG}-receipt-a.pdf`,
+          s3Key: DOC_A_S3_KEY,
+          thumbnailS3Key: null,
+          sizeBytes: 512,
+          mimeType: 'application/pdf',
+          uploadedBy: ARTEM.id,
+        })
+        .onConflictDoNothing()
 
-    // DocumentsService with spy S3
-    // task-file-storage-hardening HIGH-1: HrAccessService injected —
-    // unused by the receipt-replace path this suite exercises, stubbed to
-    // satisfy the constructor signature.
-    const stubHrAccess = { getActiveTeamPeers: async () => [] } as unknown as HrAccessService
-    documentsService = new DocumentsService(
-      dbSvc,
-      stubS3 as S3Service,
-      stubCompression as CompressionService,
-      stubHrAccess,
-    )
+      // Doc B — the NEW receipt (replaces A)
+      await db
+        .insert(documents)
+        .values({
+          id: DOC_B_ID,
+          ownerId: ARTEM.id,
+          projectId: null,
+          category: 'RECEIPT',
+          name: `${TAG}-receipt-b.pdf`,
+          originalName: `${TAG}-receipt-b.pdf`,
+          s3Key: DOC_B_S3_KEY,
+          thumbnailS3Key: null,
+          sizeBytes: 512,
+          mimeType: 'application/pdf',
+          uploadedBy: ARTEM.id,
+        })
+        .onConflictDoNothing()
 
-    // TransactionsService — real, wired to spy DocumentsService
-    // invoices not exercised here — factory default (no-op stub) is fine
-    transactionsService = makeTransactionsService({ db: dbSvc, documentsService })
+      // Doc C — belongs to DMYTRO (victim); used for IDOR exploit tests
+      await db
+        .insert(documents)
+        .values({
+          id: DOC_C_ID,
+          ownerId: DMYTRO.id,
+          projectId: null,
+          category: 'RECEIPT',
+          name: `${TAG}-receipt-c-victim.pdf`,
+          originalName: `${TAG}-receipt-c-victim.pdf`,
+          s3Key: DOC_C_S3_KEY,
+          thumbnailS3Key: null,
+          sizeBytes: 512,
+          mimeType: 'application/pdf',
+          uploadedBy: DMYTRO.id,
+        })
+        .onConflictDoNothing()
 
-    // ── Insert test rows ─────────────────────────────────────────────────────
-    // Doc A — the OLD receipt (will be deleted on resubmit)
-    await db
-      .insert(documents)
-      .values({
-        id: DOC_A_ID,
-        ownerId: ARTEM.id,
-        projectId: null,
-        category: 'RECEIPT',
-        name: `${TAG}-receipt-a.pdf`,
-        originalName: `${TAG}-receipt-a.pdf`,
-        s3Key: DOC_A_S3_KEY,
-        thumbnailS3Key: null,
-        sizeBytes: 512,
-        mimeType: 'application/pdf',
-        uploadedBy: ARTEM.id,
-      })
-      .onConflictDoNothing()
+      // Doc D — belongs to ARTEM; used in IDOR happy-path test exclusively
+      // (separate from DOC_B which is consumed/rebound by AC1 test)
+      await db
+        .insert(documents)
+        .values({
+          id: DOC_D_ID,
+          ownerId: ARTEM.id,
+          projectId: null,
+          category: 'RECEIPT',
+          name: `${TAG}-receipt-d-artem-happy.pdf`,
+          originalName: `${TAG}-receipt-d-artem-happy.pdf`,
+          s3Key: DOC_D_S3_KEY,
+          thumbnailS3Key: null,
+          sizeBytes: 512,
+          mimeType: 'application/pdf',
+          uploadedBy: ARTEM.id,
+        })
+        .onConflictDoNothing()
 
-    // Doc B — the NEW receipt (replaces A)
-    await db
-      .insert(documents)
-      .values({
-        id: DOC_B_ID,
-        ownerId: ARTEM.id,
-        projectId: null,
-        category: 'RECEIPT',
-        name: `${TAG}-receipt-b.pdf`,
-        originalName: `${TAG}-receipt-b.pdf`,
-        s3Key: DOC_B_S3_KEY,
-        thumbnailS3Key: null,
-        sizeBytes: 512,
-        mimeType: 'application/pdf',
-        uploadedBy: ARTEM.id,
-      })
-      .onConflictDoNothing()
-
-    // Doc C — belongs to DMYTRO (victim); used for IDOR exploit tests
-    await db
-      .insert(documents)
-      .values({
-        id: DOC_C_ID,
-        ownerId: DMYTRO.id,
-        projectId: null,
-        category: 'RECEIPT',
-        name: `${TAG}-receipt-c-victim.pdf`,
-        originalName: `${TAG}-receipt-c-victim.pdf`,
-        s3Key: DOC_C_S3_KEY,
-        thumbnailS3Key: null,
-        sizeBytes: 512,
-        mimeType: 'application/pdf',
-        uploadedBy: DMYTRO.id,
-      })
-      .onConflictDoNothing()
-
-    // Doc D — belongs to ARTEM; used in IDOR happy-path test exclusively
-    // (separate from DOC_B which is consumed/rebound by AC1 test)
-    await db
-      .insert(documents)
-      .values({
-        id: DOC_D_ID,
-        ownerId: ARTEM.id,
-        projectId: null,
-        category: 'RECEIPT',
-        name: `${TAG}-receipt-d-artem-happy.pdf`,
-        originalName: `${TAG}-receipt-d-artem-happy.pdf`,
-        s3Key: DOC_D_S3_KEY,
-        thumbnailS3Key: null,
-        sizeBytes: 512,
-        mimeType: 'application/pdf',
-        uploadedBy: ARTEM.id,
-      })
-      .onConflictDoNothing()
-
-    // IDOR test tx — REJECTED, owned by ARTEM; no receipt initially
-    await db
-      .insert(transactions)
-      .values({
-        id: TX_IDOR_ID,
-        type: 'SENIOR_INCOME',
-        status: 'REJECTED',
-        amount: '1000',
-        currency: 'USD',
-        senderId: ARTEM.id,
-        receiverId: ARTEM.id,
-        receiptDocumentId: null,
-        rejectionReason: 'No receipt',
-        validatedBy: ADMIN.id,
-        validatedAt: new Date('2026-01-01'),
-        createdBy: ADMIN.id,
-      })
-      .onConflictDoUpdate({
-        target: transactions.id,
-        set: {
+      // IDOR test tx — REJECTED, owned by ARTEM; no receipt initially
+      await db
+        .insert(transactions)
+        .values({
+          id: TX_IDOR_ID,
+          type: 'SENIOR_INCOME',
           status: 'REJECTED',
+          amount: '1000',
+          currency: 'USD',
+          senderId: ARTEM.id,
+          receiverId: ARTEM.id,
           receiptDocumentId: null,
           rejectionReason: 'No receipt',
-        },
-      })
+          validatedBy: ADMIN.id,
+          validatedAt: new Date('2026-01-01'),
+          createdBy: ADMIN.id,
+        })
+        .onConflictDoUpdate({
+          target: transactions.id,
+          set: {
+            status: 'REJECTED',
+            receiptDocumentId: null,
+            rejectionReason: 'No receipt',
+          },
+        })
 
-    // Transaction — REJECTED, links Doc A as receipt.
-    // onConflictDoUpdate forces REJECTED status even if the row already exists
-    // from a previous run that left it in VALIDATED (i.e. afterAll cleanup
-    // failed on a prior run). This makes the spec re-runnable.
-    await db
-      .insert(transactions)
-      .values({
-        id: TX_ID,
-        type: 'SENIOR_INCOME',
-        status: 'REJECTED',
-        amount: '2000',
-        currency: 'USD',
-        senderId: ARTEM.id,
-        receiverId: ARTEM.id,
-        receiptDocumentId: DOC_A_ID,
-        rejectionReason: 'Bad quality receipt',
-        validatedBy: ADMIN.id,
-        validatedAt: new Date('2026-01-01'),
-        createdBy: ADMIN.id,
-      })
-      .onConflictDoUpdate({
-        target: transactions.id,
-        set: {
+      // Transaction — REJECTED, links Doc A as receipt.
+      // onConflictDoUpdate forces REJECTED status even if the row already exists
+      // from a previous run that left it in VALIDATED (i.e. afterAll cleanup
+      // failed on a prior run). This makes the spec re-runnable.
+      await db
+        .insert(transactions)
+        .values({
+          id: TX_ID,
+          type: 'SENIOR_INCOME',
+          status: 'REJECTED',
+          amount: '2000',
+          currency: 'USD',
+          senderId: ARTEM.id,
+          receiverId: ARTEM.id,
+          receiptDocumentId: DOC_A_ID,
+          rejectionReason: 'Bad quality receipt',
+          validatedBy: ADMIN.id,
+          validatedAt: new Date('2026-01-01'),
+          createdBy: ADMIN.id,
+        })
+        .onConflictDoUpdate({
+          target: transactions.id,
+          set: {
+            status: 'REJECTED',
+            receiptDocumentId: DOC_A_ID,
+            rejectionReason: 'Bad quality receipt',
+            validatedBy: ADMIN.id,
+            validatedAt: new Date('2026-01-01'),
+          },
+        })
+    })
+
+    afterAll(async () => {
+      if (!db)
+        throw new Error(
+          '[require-real-db] db not initialized — beforeAll should have thrown already',
+        )
+      // Clean up in reverse FK order
+      await db
+        .delete(transactions)
+        .where(eq(transactions.id, TX_IDOR_ID))
+        .catch(() => undefined)
+      await db.delete(transactions).where(eq(transactions.id, TX_ID))
+      // Doc A may already be deleted by the test — ignore if gone
+      await db
+        .delete(documents)
+        .where(eq(documents.id, DOC_A_ID))
+        .catch(() => undefined)
+      await db
+        .delete(documents)
+        .where(eq(documents.id, DOC_B_ID))
+        .catch(() => undefined)
+      await db
+        .delete(documents)
+        .where(eq(documents.id, DOC_C_ID))
+        .catch(() => undefined)
+      await db
+        .delete(documents)
+        .where(eq(documents.id, DOC_D_ID))
+        .catch(() => undefined)
+      await _pool?.end()
+    })
+
+    it('AC1 — resubmit replaces receipt: old doc A deleted, tx links doc B, status PENDING', async () => {
+      // Re-seed doc A and tx state in case a previous run left them in a
+      // partially mutated state. This makes the spec idempotent.
+      await db
+        .insert(documents)
+        .values({
+          id: DOC_A_ID,
+          ownerId: ARTEM.id,
+          projectId: null,
+          category: 'RECEIPT',
+          name: `${TAG}-receipt-a.pdf`,
+          originalName: `${TAG}-receipt-a.pdf`,
+          s3Key: DOC_A_S3_KEY,
+          thumbnailS3Key: null,
+          sizeBytes: 512,
+          mimeType: 'application/pdf',
+          uploadedBy: ARTEM.id,
+        })
+        .onConflictDoUpdate({
+          target: documents.id,
+          set: { s3Key: DOC_A_S3_KEY, deletedAt: null },
+        })
+
+      await db
+        .update(transactions)
+        .set({
           status: 'REJECTED',
           receiptDocumentId: DOC_A_ID,
           rejectionReason: 'Bad quality receipt',
           validatedBy: ADMIN.id,
           validatedAt: new Date('2026-01-01'),
-        },
+        })
+        .where(eq(transactions.id, TX_ID))
+
+      // Reset spy before this test
+      s3DeleteSpy.mockClear()
+
+      await transactionsService.updateSeniorIncome(TX_ID, { receiptDocumentId: DOC_B_ID }, ARTEM)
+
+      // Verify tx was updated
+      const txRow = await db.query.transactions.findFirst({
+        where: eq(transactions.id, TX_ID),
       })
-  })
+      expect(txRow).toBeDefined()
+      expect(txRow?.status).toBe('PENDING')
+      expect(txRow?.receiptDocumentId).toBe(DOC_B_ID)
+      expect(txRow?.rejectionReason).toBeNull()
+      expect(txRow?.validatedBy).toBeNull()
+      expect(txRow?.validatedAt).toBeNull()
 
-  afterAll(async () => {
-    if (!dbAvailable || !db) return
-    // Clean up in reverse FK order
-    await db
-      .delete(transactions)
-      .where(eq(transactions.id, TX_IDOR_ID))
-      .catch(() => undefined)
-    await db.delete(transactions).where(eq(transactions.id, TX_ID))
-    // Doc A may already be deleted by the test — ignore if gone
-    await db
-      .delete(documents)
-      .where(eq(documents.id, DOC_A_ID))
-      .catch(() => undefined)
-    await db
-      .delete(documents)
-      .where(eq(documents.id, DOC_B_ID))
-      .catch(() => undefined)
-    await db
-      .delete(documents)
-      .where(eq(documents.id, DOC_C_ID))
-      .catch(() => undefined)
-    await db
-      .delete(documents)
-      .where(eq(documents.id, DOC_D_ID))
-      .catch(() => undefined)
-    await _pool?.end()
-  })
-
-  it('AC1 — resubmit replaces receipt: old doc A deleted, tx links doc B, status PENDING', async () => {
-    if (!dbAvailable) return
-
-    // Re-seed doc A and tx state in case a previous run left them in a
-    // partially mutated state. This makes the spec idempotent.
-    await db
-      .insert(documents)
-      .values({
-        id: DOC_A_ID,
-        ownerId: ARTEM.id,
-        projectId: null,
-        category: 'RECEIPT',
-        name: `${TAG}-receipt-a.pdf`,
-        originalName: `${TAG}-receipt-a.pdf`,
-        s3Key: DOC_A_S3_KEY,
-        thumbnailS3Key: null,
-        sizeBytes: 512,
-        mimeType: 'application/pdf',
-        uploadedBy: ARTEM.id,
+      // Verify old doc A row is gone (1:1 invariant — no orphan)
+      const docARow = await db.query.documents.findFirst({
+        where: eq(documents.id, DOC_A_ID),
       })
-      .onConflictDoUpdate({
-        target: documents.id,
-        set: { s3Key: DOC_A_S3_KEY, deletedAt: null },
-      })
+      expect(docARow).toBeUndefined()
 
-    await db
-      .update(transactions)
-      .set({
-        status: 'REJECTED',
-        receiptDocumentId: DOC_A_ID,
-        rejectionReason: 'Bad quality receipt',
-        validatedBy: ADMIN.id,
-        validatedAt: new Date('2026-01-01'),
-      })
-      .where(eq(transactions.id, TX_ID))
-
-    // Reset spy before this test
-    s3DeleteSpy.mockClear()
-
-    await transactionsService.updateSeniorIncome(TX_ID, { receiptDocumentId: DOC_B_ID }, ARTEM)
-
-    // Verify tx was updated
-    const txRow = await db.query.transactions.findFirst({
-      where: eq(transactions.id, TX_ID),
+      // Verify S3 delete was called for doc A's key
+      expect(s3DeleteSpy).toHaveBeenCalledWith(DOC_A_S3_KEY)
     })
-    expect(txRow).toBeDefined()
-    expect(txRow?.status).toBe('PENDING')
-    expect(txRow?.receiptDocumentId).toBe(DOC_B_ID)
-    expect(txRow?.rejectionReason).toBeNull()
-    expect(txRow?.validatedBy).toBeNull()
-    expect(txRow?.validatedAt).toBeNull()
 
-    // Verify old doc A row is gone (1:1 invariant — no orphan)
-    const docARow = await db.query.documents.findFirst({
-      where: eq(documents.id, DOC_A_ID),
-    })
-    expect(docARow).toBeUndefined()
-
-    // Verify S3 delete was called for doc A's key
-    expect(s3DeleteSpy).toHaveBeenCalledWith(DOC_A_S3_KEY)
-  })
-
-  it('AC2 — RBAC: only receiverId SENIOR can resubmit (DMYTRO → ForbiddenException)', async () => {
-    if (!dbAvailable) return
-
-    // At this point tx is PENDING (from AC1). To test RBAC we need REJECTED again
-    // — but since we can't reset easily, we test with the PENDING tx (wrong status
-    // check fires before RBAC). Instead, seed a second minimal REJECTED tx inline.
-    const TX_RBAC_ID = 'f1000001-0000-4000-b000-000000000002'
-    await db
-      .insert(transactions)
-      .values({
-        id: TX_RBAC_ID,
-        type: 'SENIOR_INCOME',
-        status: 'REJECTED',
-        amount: '500',
-        currency: 'USD',
-        senderId: ARTEM.id,
-        receiverId: ARTEM.id,
-        receiptDocumentId: null,
-        createdBy: ADMIN.id,
-      })
-      .onConflictDoNothing()
-
-    try {
-      await expect(
-        transactionsService.updateSeniorIncome(
-          TX_RBAC_ID,
-          { receiptDocumentId: DOC_B_ID },
-          DMYTRO, // not the receiverId
-        ),
-      ).rejects.toBeInstanceOf(ForbiddenException)
-    } finally {
-      // Cleanup the RBAC test tx
+    it('AC2 — RBAC: only receiverId SENIOR can resubmit (DMYTRO → ForbiddenException)', async () => {
+      // At this point tx is PENDING (from AC1). To test RBAC we need REJECTED again
+      // — but since we can't reset easily, we test with the PENDING tx (wrong status
+      // check fires before RBAC). Instead, seed a second minimal REJECTED tx inline.
+      const TX_RBAC_ID = 'f1000001-0000-4000-b000-000000000002'
       await db
-        .delete(transactions)
-        .where(eq(transactions.id, TX_RBAC_ID))
-        .catch(() => undefined)
-    }
-  })
+        .insert(transactions)
+        .values({
+          id: TX_RBAC_ID,
+          type: 'SENIOR_INCOME',
+          status: 'REJECTED',
+          amount: '500',
+          currency: 'USD',
+          senderId: ARTEM.id,
+          receiverId: ARTEM.id,
+          receiptDocumentId: null,
+          createdBy: ADMIN.id,
+        })
+        .onConflictDoNothing()
 
-  it('AC3 — validate still works after resubmit (confirmation unchanged)', async () => {
-    if (!dbAvailable) return
-
-    // tx is now PENDING (from AC1). ACCOUNTANT validates it.
-    await transactionsService.validateTransaction(TX_ID, 'validate', null, ACCOUNTANT)
-
-    const txRow = await db.query.transactions.findFirst({
-      where: eq(transactions.id, TX_ID),
+      try {
+        await expect(
+          transactionsService.updateSeniorIncome(
+            TX_RBAC_ID,
+            { receiptDocumentId: DOC_B_ID },
+            DMYTRO, // not the receiverId
+          ),
+        ).rejects.toBeInstanceOf(ForbiddenException)
+      } finally {
+        // Cleanup the RBAC test tx
+        await db
+          .delete(transactions)
+          .where(eq(transactions.id, TX_RBAC_ID))
+          .catch(() => undefined)
+      }
     })
-    expect(txRow?.status).toBe('VALIDATED')
-    expect(txRow?.validatedBy).toBe(ACCOUNTANT.id)
-    expect(txRow?.validatedAt).toBeDefined()
-  })
 
-  it('AC4 — S3 delete was invoked for old receipt S3 key (AC1 already covers this)', () => {
-    if (!dbAvailable) return
-    // AC1 already verified this — adding explicit assertion for traceability.
-    expect(s3DeleteSpy).toHaveBeenCalledWith(DOC_A_S3_KEY)
-  })
+    it('AC3 — validate still works after resubmit (confirmation unchanged)', async () => {
+      // tx is now PENDING (from AC1). ACCOUNTANT validates it.
+      await transactionsService.validateTransaction(TX_ID, 'validate', null, ACCOUNTANT)
 
-  // ── HIGH-1 IDOR exploit regression ──────────────────────────────────────────
-
-  it("HIGH-1 — IDOR blocked: ARTEM cannot bind DMYTRO's receipt doc (ForbiddenException)", async () => {
-    if (!dbAvailable) return
-    // Exploit attempt: SENIOR-ARTEM passes receiptDocumentId = DOC_C (owned by DMYTRO)
-    // into their own REJECTED tx. Without the guard this would bind DMYTRO's doc as FK.
-    await expect(
-      transactionsService.updateSeniorIncome(
-        TX_IDOR_ID,
-        { receiptDocumentId: DOC_C_ID }, // DOC_C belongs to DMYTRO, not ARTEM
-        ARTEM,
-      ),
-    ).rejects.toBeInstanceOf(ForbiddenException)
-
-    // Verify doc C was NOT touched — still exists under DMYTRO's ownership
-    const docC = await db.query.documents.findFirst({ where: eq(documents.id, DOC_C_ID) })
-    expect(docC).toBeDefined()
-    expect(docC?.ownerId).toBe(DMYTRO.id)
-
-    // Verify TX_IDOR still in REJECTED — no FK mutation occurred
-    const txRow = await db.query.transactions.findFirst({
-      where: eq(transactions.id, TX_IDOR_ID),
-    })
-    expect(txRow?.status).toBe('REJECTED')
-    expect(txRow?.receiptDocumentId).toBeNull()
-  })
-
-  it('HIGH-1 — IDOR 2-step exploit blocked: bind→reject→resubmit cannot delete victim doc', async () => {
-    if (!dbAvailable) return
-    // This test verifies the exploit described in PR-3 security review:
-    // Step 1: Attacker ARTEM tries to bind DMYTRO's doc (→ should be blocked at bind).
-    // Step 2: If step 1 were allowed, a subsequent resubmit would delete DOC_C.
-    // We verify that after step 1 is blocked, DOC_C remains intact.
-
-    // Step 1 — bind attempt (must be blocked)
-    await expect(
-      transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: DOC_C_ID }, ARTEM),
-    ).rejects.toBeInstanceOf(ForbiddenException)
-
-    // Step 2 — even attempting a second resubmit with own doc must not delete DOC_C
-    // (confirm by checking DOC_C is still present and owned by DMYTRO)
-    const docC = await db.query.documents.findFirst({ where: eq(documents.id, DOC_C_ID) })
-    expect(docC).toBeDefined()
-    expect(docC?.ownerId).toBe(DMYTRO.id)
-    // And S3 delete was never called for DOC_C's key
-    expect(s3DeleteSpy).not.toHaveBeenCalledWith(DOC_C_S3_KEY)
-  })
-
-  it('HIGH-1 — non-RECEIPT doc is rejected (BadRequestException)', async () => {
-    if (!dbAvailable) return
-    // Insert a SCAN doc owned by ARTEM — trying to bind it as receipt must fail.
-    // Uses ...000000000005 to avoid UUID collision with DOC_D_ID (...000000000004).
-    const SCAN_DOC_ID = 'f0000001-0000-4000-a000-000000000005'
-    await db
-      .insert(documents)
-      .values({
-        id: SCAN_DOC_ID,
-        ownerId: ARTEM.id,
-        projectId: null,
-        category: 'SCAN',
-        name: `${TAG}-scan.pdf`,
-        originalName: `${TAG}-scan.pdf`,
-        s3Key: `${TAG}/scan.pdf`,
-        thumbnailS3Key: null,
-        sizeBytes: 512,
-        mimeType: 'application/pdf',
-        uploadedBy: ARTEM.id,
+      const txRow = await db.query.transactions.findFirst({
+        where: eq(transactions.id, TX_ID),
       })
-      .onConflictDoNothing()
+      expect(txRow?.status).toBe('VALIDATED')
+      expect(txRow?.validatedBy).toBe(ACCOUNTANT.id)
+      expect(txRow?.validatedAt).toBeDefined()
+    })
 
-    try {
+    it('AC4 — S3 delete was invoked for old receipt S3 key (AC1 already covers this)', () => {
+      // AC1 already verified this — adding explicit assertion for traceability.
+      expect(s3DeleteSpy).toHaveBeenCalledWith(DOC_A_S3_KEY)
+    })
+
+    // ── HIGH-1 IDOR exploit regression ──────────────────────────────────────────
+
+    it("HIGH-1 — IDOR blocked: ARTEM cannot bind DMYTRO's receipt doc (ForbiddenException)", async () => {
+      // Exploit attempt: SENIOR-ARTEM passes receiptDocumentId = DOC_C (owned by DMYTRO)
+      // into their own REJECTED tx. Without the guard this would bind DMYTRO's doc as FK.
       await expect(
         transactionsService.updateSeniorIncome(
           TX_IDOR_ID,
-          { receiptDocumentId: SCAN_DOC_ID },
+          { receiptDocumentId: DOC_C_ID }, // DOC_C belongs to DMYTRO, not ARTEM
           ARTEM,
         ),
-      ).rejects.toBeInstanceOf(BadRequestException)
-    } finally {
-      await db
-        .delete(documents)
-        .where(eq(documents.id, SCAN_DOC_ID))
-        .catch(() => undefined)
-    }
-  })
+      ).rejects.toBeInstanceOf(ForbiddenException)
 
-  it('HIGH-1 — nonexistent docId is rejected (NotFoundException)', async () => {
-    if (!dbAvailable) return
-    const FAKE_ID = 'f0000001-0000-4000-a000-000000000099'
-    await expect(
-      transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: FAKE_ID }, ARTEM),
-    ).rejects.toBeInstanceOf(NotFoundException)
-  })
+      // Verify doc C was NOT touched — still exists under DMYTRO's ownership
+      const docC = await db.query.documents.findFirst({ where: eq(documents.id, DOC_C_ID) })
+      expect(docC).toBeDefined()
+      expect(docC?.ownerId).toBe(DMYTRO.id)
 
-  it('HIGH-1 — ARTEM can bind their own RECEIPT doc (happy path)', async () => {
-    if (!dbAvailable) return
-    // Reset IDOR tx to REJECTED + no receipt before this test.
-    // We use DOC_D (seeded in beforeAll, owned by ARTEM, never bound to another tx)
-    // rather than DOC_B which: (a) was physically deleted by AC1, and (b) is now
-    // bound to TX_ID — trying to rebind it would violate the unique index.
-    await db
-      .update(transactions)
-      .set({ status: 'REJECTED', receiptDocumentId: null, rejectionReason: 'test reset' })
-      .where(eq(transactions.id, TX_IDOR_ID))
-
-    // DOC_D is owned by ARTEM and not bound to any tx — guard must allow this
-    await expect(
-      transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: DOC_D_ID }, ARTEM),
-    ).resolves.toBeDefined()
-
-    const txRow = await db.query.transactions.findFirst({
-      where: eq(transactions.id, TX_IDOR_ID),
+      // Verify TX_IDOR still in REJECTED — no FK mutation occurred
+      const txRow = await db.query.transactions.findFirst({
+        where: eq(transactions.id, TX_IDOR_ID),
+      })
+      expect(txRow?.status).toBe('REJECTED')
+      expect(txRow?.receiptDocumentId).toBeNull()
     })
-    expect(txRow?.receiptDocumentId).toBe(DOC_D_ID)
-    expect(txRow?.status).toBe('PENDING')
-  })
-})
+
+    it('HIGH-1 — IDOR 2-step exploit blocked: bind→reject→resubmit cannot delete victim doc', async () => {
+      // This test verifies the exploit described in PR-3 security review:
+      // Step 1: Attacker ARTEM tries to bind DMYTRO's doc (→ should be blocked at bind).
+      // Step 2: If step 1 were allowed, a subsequent resubmit would delete DOC_C.
+      // We verify that after step 1 is blocked, DOC_C remains intact.
+
+      // Step 1 — bind attempt (must be blocked)
+      await expect(
+        transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: DOC_C_ID }, ARTEM),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+
+      // Step 2 — even attempting a second resubmit with own doc must not delete DOC_C
+      // (confirm by checking DOC_C is still present and owned by DMYTRO)
+      const docC = await db.query.documents.findFirst({ where: eq(documents.id, DOC_C_ID) })
+      expect(docC).toBeDefined()
+      expect(docC?.ownerId).toBe(DMYTRO.id)
+      // And S3 delete was never called for DOC_C's key
+      expect(s3DeleteSpy).not.toHaveBeenCalledWith(DOC_C_S3_KEY)
+    })
+
+    it('HIGH-1 — non-RECEIPT doc is rejected (BadRequestException)', async () => {
+      // Insert a SCAN doc owned by ARTEM — trying to bind it as receipt must fail.
+      // Uses ...000000000005 to avoid UUID collision with DOC_D_ID (...000000000004).
+      const SCAN_DOC_ID = 'f0000001-0000-4000-a000-000000000005'
+      await db
+        .insert(documents)
+        .values({
+          id: SCAN_DOC_ID,
+          ownerId: ARTEM.id,
+          projectId: null,
+          category: 'SCAN',
+          name: `${TAG}-scan.pdf`,
+          originalName: `${TAG}-scan.pdf`,
+          s3Key: `${TAG}/scan.pdf`,
+          thumbnailS3Key: null,
+          sizeBytes: 512,
+          mimeType: 'application/pdf',
+          uploadedBy: ARTEM.id,
+        })
+        .onConflictDoNothing()
+
+      try {
+        await expect(
+          transactionsService.updateSeniorIncome(
+            TX_IDOR_ID,
+            { receiptDocumentId: SCAN_DOC_ID },
+            ARTEM,
+          ),
+        ).rejects.toBeInstanceOf(BadRequestException)
+      } finally {
+        await db
+          .delete(documents)
+          .where(eq(documents.id, SCAN_DOC_ID))
+          .catch(() => undefined)
+      }
+    })
+
+    it('HIGH-1 — nonexistent docId is rejected (NotFoundException)', async () => {
+      const FAKE_ID = 'f0000001-0000-4000-a000-000000000099'
+      await expect(
+        transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: FAKE_ID }, ARTEM),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    it('HIGH-1 — ARTEM can bind their own RECEIPT doc (happy path)', async () => {
+      // Reset IDOR tx to REJECTED + no receipt before this test.
+      // We use DOC_D (seeded in beforeAll, owned by ARTEM, never bound to another tx)
+      // rather than DOC_B which: (a) was physically deleted by AC1, and (b) is now
+      // bound to TX_ID — trying to rebind it would violate the unique index.
+      await db
+        .update(transactions)
+        .set({ status: 'REJECTED', receiptDocumentId: null, rejectionReason: 'test reset' })
+        .where(eq(transactions.id, TX_IDOR_ID))
+
+      // DOC_D is owned by ARTEM and not bound to any tx — guard must allow this
+      await expect(
+        transactionsService.updateSeniorIncome(TX_IDOR_ID, { receiptDocumentId: DOC_D_ID }, ARTEM),
+      ).resolves.toBeDefined()
+
+      const txRow = await db.query.transactions.findFirst({
+        where: eq(transactions.id, TX_IDOR_ID),
+      })
+      expect(txRow?.receiptDocumentId).toBe(DOC_D_ID)
+      expect(txRow?.status).toBe('PENDING')
+    })
+  },
+)

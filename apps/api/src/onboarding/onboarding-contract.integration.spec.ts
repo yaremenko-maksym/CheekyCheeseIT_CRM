@@ -23,6 +23,7 @@ import { OnboardingService } from './onboarding.service'
 import { PdfModule } from '../common/pdf/pdf.module'
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * A3-4 — Real-backend integration spec for onboarding personal-contract flow.
@@ -155,7 +156,6 @@ let _testPool: Pool | null = null
  *
  * Locally (docker-compose up) the flag stays true and all 7 tests run.
  */
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -289,211 +289,204 @@ async function deleteDmytroSignedContracts(dbSvc: DatabaseService): Promise<void
   await dbSvc.db.delete(schema.signedContracts).where(eq(schema.signedContracts.userId, DMYTRO.id))
 }
 
-describe('A3-4 onboarding personal-contract — real backend integration', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
+describe.skipIf(!hasDatabaseUrl())(
+  'A3-4 onboarding personal-contract — real backend integration',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
 
-  beforeAll(async () => {
-    // ── DB availability probe ─────────────────────────────────────────────────
-    // Probe DB connectivity before spinning up the NestJS module. In the CI
-    // "Typecheck · Lint · Unit Tests" job there is no Postgres service, so the
-    // Pool connection will ECONNREFUSED. We catch the error, set dbAvailable=false,
-    // and return early so the suite is skipped instead of failing the job.
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[a3-4 integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
-
-    const moduleRef = await Test.createTestingModule({
-      imports: [OnboardingContractTestModule],
-    }).compile()
-
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'integration-test-cookie-secret-32c' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-
-    jwt = moduleRef.get(JwtService)
-
-    // ── Idempotent DB setup ───────────────────────────────────────────────────
-    // Ensure DMYTRO has a READY_TO_SIGN contract regardless of prior test runs.
-    // The state machine is:
-    //   SIGNED → revert() → DRAFT → markReady() → READY_TO_SIGN
-    //   DRAFT            →          markReady() → READY_TO_SIGN
-    //   READY_TO_SIGN    → already correct (markReady() would 409, skip)
-    const ecSvc = app.get(EmployeeContractsService)
-    let dmytroContract = await ecSvc.getActiveForUser(DMYTRO.id)
-    if (dmytroContract.status === 'SIGNED') {
-      dmytroContract = await ecSvc.revert(DMYTRO.id, ADMIN)
-    }
-    if (dmytroContract.status === 'DRAFT') {
-      await ecSvc.markReady(DMYTRO.id, ADMIN)
-    }
-    // If already READY_TO_SIGN — nothing to do.
-
-    // Residue self-heal (task-integration-spec-cleanup): test 4a below calls
-    // the REAL SignedContractsService.sign(), which — by production design —
-    // creates an immutable `signed_contracts` audit row
-    // (employee-contracts.service.ts revert() docstring: "signed_contracts row
-    // is immutable audit — NOT deleted"). That invariant is correct for
-    // PRODUCTION but leaves ONE new row in the scratch DB on every test run
-    // (confirmed empirically via a before/after row-count diff on crm_qa — 17
-    // signed_contracts baseline → 18 after a single run, forever). Cleaning it
-    // up here is a TEST-only action (bypasses the service layer, same pattern
-    // every other *.integration.spec.ts uses for its own fixtures) — it does
-    // NOT touch or weaken the production immutability guarantee. Runs in
-    // beforeAll too so a DB that already carries stale rows from before this
-    // fix self-heals on the next run.
-    await deleteDmytroSignedContracts(app.get(DatabaseService))
-  }, 30_000)
-
-  afterAll(async () => {
-    // When DB was unreachable, beforeAll returned early and `app` was never
-    // initialised — nothing to clean up.
-    if (!dbAvailable) return
-
-    // Restore DMYTRO's contract to READY_TO_SIGN so the suite is idempotent
-    // on re-run. Same logic as beforeAll — handles any state the tests left.
-    try {
-      const ecSvc = app.get(EmployeeContractsService)
-      let contract = await ecSvc.getActiveForUser(DMYTRO.id)
-      if (contract.status === 'SIGNED') {
-        contract = await ecSvc.revert(DMYTRO.id, ADMIN)
+    beforeAll(async () => {
+      // ── DB availability probe ─────────────────────────────────────────────────
+      // Probe DB connectivity before spinning up the NestJS module. In the CI
+      // "Typecheck · Lint · Unit Tests" job there is no Postgres service, so the
+      // Pool connection will ECONNREFUSED. We catch the error, set dbAvailable=false,
+      // and return early so the suite is skipped instead of failing the job.
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[a3-4 integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-      if (contract.status === 'DRAFT') {
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [OnboardingContractTestModule],
+      }).compile()
+
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'integration-test-cookie-secret-32c' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
+
+      jwt = moduleRef.get(JwtService)
+
+      // ── Idempotent DB setup ───────────────────────────────────────────────────
+      // Ensure DMYTRO has a READY_TO_SIGN contract regardless of prior test runs.
+      // The state machine is:
+      //   SIGNED → revert() → DRAFT → markReady() → READY_TO_SIGN
+      //   DRAFT            →          markReady() → READY_TO_SIGN
+      //   READY_TO_SIGN    → already correct (markReady() would 409, skip)
+      const ecSvc = app.get(EmployeeContractsService)
+      let dmytroContract = await ecSvc.getActiveForUser(DMYTRO.id)
+      if (dmytroContract.status === 'SIGNED') {
+        dmytroContract = await ecSvc.revert(DMYTRO.id, ADMIN)
+      }
+      if (dmytroContract.status === 'DRAFT') {
         await ecSvc.markReady(DMYTRO.id, ADMIN)
       }
-    } catch {
-      // Ignore cleanup failures — they don't affect test results.
-    }
+      // If already READY_TO_SIGN — nothing to do.
 
-    // Residue cleanup (task-integration-spec-cleanup) — see beforeAll comment.
-    try {
+      // Residue self-heal (task-integration-spec-cleanup): test 4a below calls
+      // the REAL SignedContractsService.sign(), which — by production design —
+      // creates an immutable `signed_contracts` audit row
+      // (employee-contracts.service.ts revert() docstring: "signed_contracts row
+      // is immutable audit — NOT deleted"). That invariant is correct for
+      // PRODUCTION but leaves ONE new row in the scratch DB on every test run
+      // (confirmed empirically via a before/after row-count diff on crm_qa — 17
+      // signed_contracts baseline → 18 after a single run, forever). Cleaning it
+      // up here is a TEST-only action (bypasses the service layer, same pattern
+      // every other *.integration.spec.ts uses for its own fixtures) — it does
+      // NOT touch or weaken the production immutability guarantee. Runs in
+      // beforeAll too so a DB that already carries stale rows from before this
+      // fix self-heals on the next run.
       await deleteDmytroSignedContracts(app.get(DatabaseService))
-    } catch {
-      // Non-fatal — next run's beforeAll self-heals regardless.
+    }, 30_000)
+
+    afterAll(async () => {
+      // When DB was unreachable, beforeAll returned early and `app` was never
+      // initialised — nothing to clean up.
+
+      // Restore DMYTRO's contract to READY_TO_SIGN so the suite is idempotent
+      // on re-run. Same logic as beforeAll — handles any state the tests left.
+      try {
+        const ecSvc = app.get(EmployeeContractsService)
+        let contract = await ecSvc.getActiveForUser(DMYTRO.id)
+        if (contract.status === 'SIGNED') {
+          contract = await ecSvc.revert(DMYTRO.id, ADMIN)
+        }
+        if (contract.status === 'DRAFT') {
+          await ecSvc.markReady(DMYTRO.id, ADMIN)
+        }
+      } catch {
+        // Ignore cleanup failures — they don't affect test results.
+      }
+
+      // Residue cleanup (task-integration-spec-cleanup) — see beforeAll comment.
+      try {
+        await deleteDmytroSignedContracts(app.get(DatabaseService))
+      } catch {
+        // Non-fatal — next run's beforeAll self-heals regardless.
+      }
+
+      await app.close()
+      // Pool torn down by factory-registered onModuleDestroy.
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
 
-    await app.close()
-    // Pool torn down by factory-registered onModuleDestroy.
-  }, 15_000)
+    // ── 1. Status checks ──────────────────────────────────────────────────────
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
+    it('1a. READY_TO_SIGN user: status → requiresContract:true, contractReady:true (A3-4 AC1)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/onboarding/status',
+        cookies: { jwt: tokenFor(DMYTRO) },
+      })
 
-  // ── 1. Status checks ──────────────────────────────────────────────────────
-
-  it('1a. READY_TO_SIGN user: status → requiresContract:true, contractReady:true (A3-4 AC1)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/onboarding/status',
-      cookies: { jwt: tokenFor(DMYTRO) },
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { requiresContract: boolean; contractReady: boolean }
+      expect(body.requiresContract).toBe(true)
+      expect(body.contractReady).toBe(true)
     })
 
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { requiresContract: boolean; contractReady: boolean }
-    expect(body.requiresContract).toBe(true)
-    expect(body.contractReady).toBe(true)
-  })
+    it('1b. DRAFT-only user: status → requiresContract:true, contractReady:false (A3-4 wait state)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/onboarding/status',
+        cookies: { jwt: tokenFor(QA_FIX3) },
+      })
 
-  it('1b. DRAFT-only user: status → requiresContract:true, contractReady:false (A3-4 wait state)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/onboarding/status',
-      cookies: { jwt: tokenFor(QA_FIX3) },
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { requiresContract: boolean; contractReady: boolean }
+      expect(body.requiresContract).toBe(true)
+      expect(body.contractReady).toBe(false)
     })
 
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { requiresContract: boolean; contractReady: boolean }
-    expect(body.requiresContract).toBe(true)
-    expect(body.contractReady).toBe(false)
-  })
+    // ── 2. Guard 403 assertion (the gap that mocked E2E missed) ───────────────
 
-  // ── 2. Guard 403 assertion (the gap that mocked E2E missed) ───────────────
+    it('2. Un-onboarded SENIOR: GET /api/teams → 403 ONBOARDING_REQUIRED (real guard, real DB)', async () => {
+      // KEY assertion: OnboardingGuard calls real OnboardingService.getStatus()
+      // against real DB. requiresContract:true (no SIGNED) → ForbiddenException.
+      // This is what route-mocked E2E could never verify (feedback_mocked_e2e_guards).
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/teams',
+        cookies: { jwt: tokenFor(DMYTRO) },
+      })
 
-  it('2. Un-onboarded SENIOR: GET /api/teams → 403 ONBOARDING_REQUIRED (real guard, real DB)', async () => {
-    if (!dbAvailable) return
-    // KEY assertion: OnboardingGuard calls real OnboardingService.getStatus()
-    // against real DB. requiresContract:true (no SIGNED) → ForbiddenException.
-    // This is what route-mocked E2E could never verify (feedback_mocked_e2e_guards).
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/teams',
-      cookies: { jwt: tokenFor(DMYTRO) },
+      expect(res.statusCode).toBe(403)
+      const body = res.json() as { error?: string; missing?: string[] }
+      expect(body.error).toBe('ONBOARDING_REQUIRED')
+      expect(body.missing).toContain('contract')
     })
 
-    expect(res.statusCode).toBe(403)
-    const body = res.json() as { error?: string; missing?: string[] }
-    expect(body.error).toBe('ONBOARDING_REQUIRED')
-    expect(body.missing).toContain('contract')
-  })
+    // ── 3. DRAFT-only user: sign → 409 ────────────────────────────────────────
 
-  // ── 3. DRAFT-only user: sign → 409 ────────────────────────────────────────
+    it('3. DRAFT-only user: service confirms no READY_TO_SIGN contract (sign would → 409 CONTRACT_NOT_READY)', async () => {
+      // NOTE: SignedContractsController is not registered in OnboardingContractTestModule
+      // (adding it would require the full audit/notification infrastructure). Instead we
+      // assert the precondition directly via the service layer: no READY_TO_SIGN row
+      // → SignedContractsService.sign() would throw ConflictException('CONTRACT_NOT_READY').
+      // The HTTP-level 409 is covered by signed-contracts.service.spec.ts unit tests.
+      const employeeContractsSvc = app.get(EmployeeContractsService)
+      const hasReady = await employeeContractsSvc.hasReadyContract(QA_FIX3.id)
+      expect(hasReady).toBe(false)
 
-  it('3. DRAFT-only user: service confirms no READY_TO_SIGN contract (sign would → 409 CONTRACT_NOT_READY)', async () => {
-    if (!dbAvailable) return
-    // NOTE: SignedContractsController is not registered in OnboardingContractTestModule
-    // (adding it would require the full audit/notification infrastructure). Instead we
-    // assert the precondition directly via the service layer: no READY_TO_SIGN row
-    // → SignedContractsService.sign() would throw ConflictException('CONTRACT_NOT_READY').
-    // The HTTP-level 409 is covered by signed-contracts.service.spec.ts unit tests.
-    const employeeContractsSvc = app.get(EmployeeContractsService)
-    const hasReady = await employeeContractsSvc.hasReadyContract(QA_FIX3.id)
-    expect(hasReady).toBe(false)
-
-    // Confirm hasSignedContract is also false (no SIGNED row)
-    const hasSigned = await employeeContractsSvc.hasSignedContract(QA_FIX3.id)
-    expect(hasSigned).toBe(false)
-  })
-
-  // ── 4. Sign flow: READY_TO_SIGN → SIGNED → status flips ──────────────────
-
-  it('4a. SignedContractsService.sign() transitions READY_TO_SIGN → SIGNED (A3-4 AC1)', async () => {
-    if (!dbAvailable) return
-    // Directly test the sign transition via service (avoids needing full
-    // SignedContractsController + audit infrastructure in the test module).
-    const signedSvc = app.get(SignedContractsService)
-    const result = await signedSvc.sign({
-      userId: DMYTRO.id,
-      userRole: DMYTRO.role,
-      typedName: 'Марченко Дмитро Олексійович',
-      ip: '127.0.0.1',
-      userAgent: 'vitest-integration',
+      // Confirm hasSignedContract is also false (no SIGNED row)
+      const hasSigned = await employeeContractsSvc.hasSignedContract(QA_FIX3.id)
+      expect(hasSigned).toBe(false)
     })
 
-    expect(result.contractNumber).toBeTruthy()
-    expect(typeof result.contractNumber).toBe('string')
-  })
+    // ── 4. Sign flow: READY_TO_SIGN → SIGNED → status flips ──────────────────
 
-  it('4b. After sign: status → requiresContract:false (A3-4 AC1 — gate flips)', async () => {
-    if (!dbAvailable) return
-    // Must run after 4a — sign mutated DB state (SIGNED personal contract).
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/onboarding/status',
-      cookies: { jwt: tokenFor(DMYTRO) },
+    it('4a. SignedContractsService.sign() transitions READY_TO_SIGN → SIGNED (A3-4 AC1)', async () => {
+      // Directly test the sign transition via service (avoids needing full
+      // SignedContractsController + audit infrastructure in the test module).
+      const signedSvc = app.get(SignedContractsService)
+      const result = await signedSvc.sign({
+        userId: DMYTRO.id,
+        userRole: DMYTRO.role,
+        typedName: 'Марченко Дмитро Олексійович',
+        ip: '127.0.0.1',
+        userAgent: 'vitest-integration',
+      })
+
+      expect(result.contractNumber).toBeTruthy()
+      expect(typeof result.contractNumber).toBe('string')
     })
 
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { requiresContract: boolean }
-    expect(body.requiresContract).toBe(false)
-  })
+    it('4b. After sign: status → requiresContract:false (A3-4 AC1 — gate flips)', async () => {
+      // Must run after 4a — sign mutated DB state (SIGNED personal contract).
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/onboarding/status',
+        cookies: { jwt: tokenFor(DMYTRO) },
+      })
 
-  it('4c. After sign: hasSignedContract returns true (A3-4 AC2 — hasSignedContract method)', async () => {
-    if (!dbAvailable) return
-    const employeeContractsSvc = app.get(EmployeeContractsService)
-    const hasSigned = await employeeContractsSvc.hasSignedContract(DMYTRO.id)
-    expect(hasSigned).toBe(true)
-  })
-})
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { requiresContract: boolean }
+      expect(body.requiresContract).toBe(false)
+    })
+
+    it('4c. After sign: hasSignedContract returns true (A3-4 AC2 — hasSignedContract method)', async () => {
+      const employeeContractsSvc = app.get(EmployeeContractsService)
+      const hasSigned = await employeeContractsSvc.hasSignedContract(DMYTRO.id)
+      expect(hasSigned).toBe(true)
+    })
+  },
+)

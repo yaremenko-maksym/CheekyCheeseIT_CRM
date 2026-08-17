@@ -52,6 +52,7 @@ import { UsersService } from '../users/users.service'
 import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { UsersAccessService } from '../users/users-access.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 const JWT_SECRET = 'senior-drop-mask-rbac-secret-32char'
 
@@ -122,7 +123,6 @@ class SentinelProjectsController {
 // ── TestDatabaseModule ─────────────────────────────────────────────────────────
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -206,7 +206,7 @@ class SeniorDropMaskTestModule {}
 
 // ── Suite ──────────────────────────────────────────────────────────────────────
 
-describe('SENIOR drop-identity masking — real DB integration', () => {
+describe.skipIf(!hasDatabaseUrl())('SENIOR drop-identity masking — real DB integration', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
   let dbSvc: DatabaseService
@@ -217,11 +217,9 @@ describe('SENIOR drop-identity masking — real DB integration', () => {
       await probePool.query('SELECT 1')
       await probePool.end()
     } catch {
-      console.warn(
-        '[senior-drop-mask integration] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
+      throw new Error(
+        '[senior-drop-mask integration] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
       )
-      dbAvailable = false
-      return
     }
 
     const moduleRef = await Test.createTestingModule({
@@ -307,7 +305,6 @@ describe('SENIOR drop-identity masking — real DB integration', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       const db = dbSvc.db
       await db.delete(projectMembers).where(inArray(projectMembers.id, [MEMBER_J1_ID]))
@@ -328,7 +325,6 @@ describe('SENIOR drop-identity masking — real DB integration', () => {
   // ── SI-1: SENIOR → drop identity masked ───────────────────────────────────
 
   it('SI-1. SENIOR (S1, project owner) → effectiveTeam.drop=null, dropName=null, dropId=present', async () => {
-    if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${DROP_PROJ_A_ID}`,
@@ -358,7 +354,6 @@ describe('SENIOR drop-identity masking — real DB integration', () => {
   // ── SI-2: ADMIN → full visibility (positive control) ──────────────────────
 
   it('SI-2. ADMIN → effectiveTeam.drop present, dropName=real displayName', async () => {
-    if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${DROP_PROJ_A_ID}`,
@@ -386,7 +381,6 @@ describe('SENIOR drop-identity masking — real DB integration', () => {
   // ── SI-3: DROP viewer (own project) → full visibility ─────────────────────
 
   it('SI-3. DROP (D1, own project) → effectiveTeam.drop present', async () => {
-    if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${DROP_PROJ_A_ID}`,
@@ -404,7 +398,6 @@ describe('SENIOR drop-identity masking — real DB integration', () => {
   // ── SI-4: JUNIOR → full mask (regression guard) ───────────────────────────
 
   it('SI-4. JUNIOR (J1, project member) → dropId=null, dropName=null (regression)', async () => {
-    if (!dbAvailable) return
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${DROP_PROJ_A_ID}`,
@@ -422,7 +415,6 @@ describe('SENIOR drop-identity masking — real DB integration', () => {
   // ── SI-5: SENIOR list path → dropName null ────────────────────────────────
 
   it('SI-5. GET /projects list as SENIOR → drop-project has dropName=null', async () => {
-    if (!dbAvailable) return
     const svc = app.get(ProjectsService)
     const list = await svc.findAll(S1)
 

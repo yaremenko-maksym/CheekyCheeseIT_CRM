@@ -24,6 +24,7 @@ import { TransactionsService } from './transactions.service'
 import type { InvoicesService } from '../invoices/invoices.service'
 import { projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-accountant-create-transaction — real-backend RBAC integration spec
@@ -55,9 +56,10 @@ import * as schema from '../database/schema'
  *   - ADMIN_TRANSFER created by ACCOUNTANT books a transfer between two ADMINs
  *     (accountant is never a party). createdBy = accountant.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR the
- * `transactions` table is absent → every test returns early and stays green
- * (so the CI unit job without a DB is unaffected).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against a scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_acct_create \
@@ -194,7 +196,6 @@ class SentinelTransactionsController {
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -259,394 +260,379 @@ class TestDatabaseModule {}
 class CreateAcctRbacTestModule {}
 
 // ── Suite ───────────────────────────────────────────────────────────────────
-describe('transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
-  const createdTxIds: string[] = []
+describe.skipIf(!hasDatabaseUrl())(
+  'transactions create — ACCOUNTANT/ADMIN parity RBAC (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
+    const createdTxIds: string[] = []
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      const schemaCheck = await probePool.query(
-        `SELECT table_name FROM information_schema.tables
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        const schemaCheck = await probePool.query(
+          `SELECT table_name FROM information_schema.tables
          WHERE table_name='transactions' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn('[create-acct-rbac integration] SKIPPED — transactions table not found')
-        dbAvailable = false
-        return
+        )
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error('[create-acct-rbac integration] FAILED — transactions table not found')
+        }
+      } catch {
+        throw new Error(
+          '[create-acct-rbac integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[create-acct-rbac integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [CreateAcctRbacTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [CreateAcctRbacTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'create-acct-rbac-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'create-acct-rbac-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // Surgical cleanup of leftover rows from a previous run BEFORE seeding.
-    await db
-      .delete(transactions)
-      .where(inArray(transactions.receiverId, [ADMIN.id, ADMIN2.id, JUNIOR.id]))
-    await db
-      .delete(transactions)
-      .where(inArray(transactions.senderId, [ADMIN.id, ADMIN2.id, ACCOUNTANT.id]))
-    await db.delete(projects).where(inArray(projects.id, TEST_PROJECT_IDS))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-
-    await db
-      .insert(users)
-      .values(
-        ALL_PERSONAS.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // Admin-owned project (senior = ADMIN). Used by both ADMIN_INCOME cases.
-    await db
-      .insert(projects)
-      .values({
-        id: ADMIN_PROJECT_ID,
-        name: 'Create Acct Admin Project',
-        companyName: 'Acct Income Corp',
-        domain: 'ai',
-        startDate: new Date('2025-01-01'),
-        seniorId: ADMIN.id,
-        currency: 'USDT',
-        rate: 1000,
-      })
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
-      if (createdTxIds.length) {
-        await db.delete(transactions).where(inArray(transactions.id, createdTxIds))
-      }
+
+      // Surgical cleanup of leftover rows from a previous run BEFORE seeding.
+      await db
+        .delete(transactions)
+        .where(inArray(transactions.receiverId, [ADMIN.id, ADMIN2.id, JUNIOR.id]))
+      await db
+        .delete(transactions)
+        .where(inArray(transactions.senderId, [ADMIN.id, ADMIN2.id, ACCOUNTANT.id]))
       await db.delete(projects).where(inArray(projects.id, TEST_PROJECT_IDS))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
+
+      await db
+        .insert(users)
+        .values(
+          ALL_PERSONAS.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      // Admin-owned project (senior = ADMIN). Used by both ADMIN_INCOME cases.
+      await db
+        .insert(projects)
+        .values({
+          id: ADMIN_PROJECT_ID,
+          name: 'Create Acct Admin Project',
+          companyName: 'Acct Income Corp',
+          domain: 'ai',
+          startDate: new Date('2025-01-01'),
+          seniorId: ADMIN.id,
+          currency: 'USDT',
+          rate: 1000,
+        })
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        if (createdTxIds.length) {
+          await db.delete(transactions).where(inArray(transactions.id, createdTxIds))
+        }
+        await db.delete(projects).where(inArray(projects.id, TEST_PROJECT_IDS))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  async function post(
-    url: string,
-    user: SessionUser,
-    payload: Record<string, unknown>,
-  ): Promise<{ status: number; json: unknown }> {
-    const res = await app.inject({
-      method: 'POST',
-      url,
-      cookies: { jwt: tokenFor(user) },
-      payload,
-    })
-    let json: unknown = null
-    try {
-      json = res.json()
-    } catch {
-      json = null
+    async function post(
+      url: string,
+      user: SessionUser,
+      payload: Record<string, unknown>,
+    ): Promise<{ status: number; json: unknown }> {
+      const res = await app.inject({
+        method: 'POST',
+        url,
+        cookies: { jwt: tokenFor(user) },
+        payload,
+      })
+      let json: unknown = null
+      try {
+        json = res.json()
+      } catch {
+        json = null
+      }
+      // Track created rows for surgical cleanup.
+      if (res.statusCode === 201 && json && typeof json === 'object' && 'id' in json) {
+        createdTxIds.push((json as { id: string }).id)
+      }
+      return { status: res.statusCode, json }
     }
-    // Track created rows for surgical cleanup.
-    if (res.statusCode === 201 && json && typeof json === 'object' && 'id' in json) {
-      createdTxIds.push((json as { id: string }).id)
-    }
-    return { status: res.statusCode, json }
-  }
 
-  // task-receipts-backend (review round 1): receipt is now MANDATORY on these
-  // create endpoints (currency='USDT' → explorer-only, MED-2 defense-in-depth).
-  // This spec is pure RBAC (who can call the endpoint) — a fixed valid explorer
-  // receipt keeps every role assertion (201/403) deterministic and unrelated to
-  // the receipt gate itself (covered by finance.receipts.spec.ts).
-  const RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xcreateacctrbacspec' }
+    // task-receipts-backend (review round 1): receipt is now MANDATORY on these
+    // create endpoints (currency='USDT' → explorer-only, MED-2 defense-in-depth).
+    // This spec is pure RBAC (who can call the endpoint) — a fixed valid explorer
+    // receipt keeps every role assertion (201/403) deterministic and unrelated to
+    // the receipt gate itself (covered by finance.receipts.spec.ts).
+    const RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xcreateacctrbacspec' }
 
-  // Payload builders — minimal valid bodies per endpoint.
-  const adminIncomePayload = () => ({
-    projectId: ADMIN_PROJECT_ID,
-    amount: 1000,
-    currency: 'USDT',
-    ...RECEIPT,
-  })
-  const expensePayload = () => ({
-    amount: 50,
-    currency: 'USDT',
-    category: 'Прочее',
-    ...RECEIPT,
-  })
-  // task-salary-pay-flow: this spec is pure RBAC (who can call the endpoint).
-  // createSalary now creates a NEUTRAL PENDING reminder — no funding source, no
-  // balance gate at creation — so the role assertions (201/403) are deterministic
-  // regardless of the company-account balance. No funding fields needed here.
-  // Audit 2026-06-27 (LOW #5): the partial unique index
-  // `uq_transactions_salary_receiver_month` now allows at most ONE SALARY per
-  // (receiver, month). The two success cases (ACCOUNTANT + ADMIN) must therefore
-  // target DISTINCT months — otherwise the second would correctly hit the unique
-  // constraint (400). RBAC parity is unchanged: both privileged roles get 201,
-  // forbidden roles get 403 (they never reach the insert, so month is irrelevant).
-  const salaryPayload = (salaryMonth = '2025-03') => ({
-    receiverId: JUNIOR.id,
-    amount: 500,
-    currency: 'USD',
-    salaryMonth,
-  })
-  // ACCOUNTANT must pass an explicit ADMIN sender; ADMIN may omit it (defaults
-  // to self). Receiver is always the other admin.
-  const adminTransferPayload = (senderId?: string) => ({
-    ...(senderId !== undefined ? { senderId } : {}),
-    receiverId: ADMIN2.id,
-    amount: 200,
-    currency: 'USDT',
-    ...RECEIPT,
-  })
-
-  // ── admin-income ────────────────────────────────────────────────────────────
-  describe('POST /transactions/admin-income', () => {
-    it('ACCOUNTANT → 201, income credited to the admin OWNER (not the accountant)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await post(
-        '/api/transactions/admin-income',
-        ACCOUNTANT,
-        adminIncomePayload(),
-      )
-      expect(status).toBe(201)
-      const tx = json as { id: string; type: string }
-      expect(tx.type).toBe('ADMIN_INCOME')
-      // Verify the persisted row credits the admin owner + records the accountant.
-      const row = await dbSvc.db.query.transactions.findFirst({
-        where: (t, { eq }) => eq(t.id, tx.id),
-      })
-      expect(row?.receiverId).toBe(ADMIN.id)
-      expect(row?.createdBy).toBe(ACCOUNTANT.id)
+    // Payload builders — minimal valid bodies per endpoint.
+    const adminIncomePayload = () => ({
+      projectId: ADMIN_PROJECT_ID,
+      amount: 1000,
+      currency: 'USDT',
+      ...RECEIPT,
+    })
+    const expensePayload = () => ({
+      amount: 50,
+      currency: 'USDT',
+      category: 'Прочее',
+      ...RECEIPT,
+    })
+    // task-salary-pay-flow: this spec is pure RBAC (who can call the endpoint).
+    // createSalary now creates a NEUTRAL PENDING reminder — no funding source, no
+    // balance gate at creation — so the role assertions (201/403) are deterministic
+    // regardless of the company-account balance. No funding fields needed here.
+    // Audit 2026-06-27 (LOW #5): the partial unique index
+    // `uq_transactions_salary_receiver_month` now allows at most ONE SALARY per
+    // (receiver, month). The two success cases (ACCOUNTANT + ADMIN) must therefore
+    // target DISTINCT months — otherwise the second would correctly hit the unique
+    // constraint (400). RBAC parity is unchanged: both privileged roles get 201,
+    // forbidden roles get 403 (they never reach the insert, so month is irrelevant).
+    const salaryPayload = (salaryMonth = '2025-03') => ({
+      receiverId: JUNIOR.id,
+      amount: 500,
+      currency: 'USD',
+      salaryMonth,
+    })
+    // ACCOUNTANT must pass an explicit ADMIN sender; ADMIN may omit it (defaults
+    // to self). Receiver is always the other admin.
+    const adminTransferPayload = (senderId?: string) => ({
+      ...(senderId !== undefined ? { senderId } : {}),
+      receiverId: ADMIN2.id,
+      amount: 200,
+      currency: 'USDT',
+      ...RECEIPT,
     })
 
-    it('ADMIN → 201 (regression, credited to self)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await post(
-        '/api/transactions/admin-income',
-        ADMIN,
-        adminIncomePayload(),
-      )
-      expect(status).toBe(201)
-      const row = await dbSvc.db.query.transactions.findFirst({
-        where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
-      })
-      expect(row?.receiverId).toBe(ADMIN.id)
-    })
-
-    // task-admin-income-unified (§2, owner decision 2026-08-12). ADMIN may now
-    // pick a DIFFERENT active admin as the receiver — the same "who gets
-    // credited" freedom `declareUsdtProjectIncome` already had, extended to
-    // this non-USDT path (see the schema/service doc comments).
-    it('ADMIN with an explicit receiverId → 201, credits THAT admin (not self)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await post('/api/transactions/admin-income', ADMIN, {
-        ...adminIncomePayload(),
-        receiverId: ADMIN2.id,
-      })
-      expect(status).toBe(201)
-      const row = await dbSvc.db.query.transactions.findFirst({
-        where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
-      })
-      expect(row?.receiverId).toBe(ADMIN2.id)
-      expect(row?.createdBy).toBe(ADMIN.id)
-    })
-
-    // AC10: the accountant has never been a router of funds — the server
-    // hard-credits the project's admin owner for this role. A payload that
-    // disagrees (an explicit receiverId, even the caller's own admin-owner
-    // target) is a contract violation, not a preference to honour — the web
-    // dialog's selector never offers this choice for ACCOUNTANT either.
-    it('ACCOUNTANT with an explicit receiverId → 403 (no routing freedom, AC10)', async () => {
-      if (!dbAvailable) return
-      const { status } = await post('/api/transactions/admin-income', ACCOUNTANT, {
-        ...adminIncomePayload(),
-        receiverId: ADMIN.id,
-      })
-      expect(status).toBe(403)
-    })
-
-    // The COMPANY_ACCOUNT sentinel is NOT "picking a specific admin" — it
-    // stays available to the accountant (unchanged capability, just expressed
-    // through the new field name).
-    it('ACCOUNTANT with receiverId=COMPANY_ACCOUNT → 201 (still allowed — not a specific-admin choice)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await post('/api/transactions/admin-income', ACCOUNTANT, {
-        ...adminIncomePayload(),
-        receiverId: 'COMPANY_ACCOUNT',
-      })
-      expect(status).toBe(201)
-      const row = await dbSvc.db.query.transactions.findFirst({
-        where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
-      })
-      expect(row?.fundingSource).toBe('COMPANY_ACCOUNT')
-      expect(row?.receiverId).toBe(ACCOUNTANT.id)
-    })
-
-    for (const [label, persona] of FORBIDDEN) {
-      it(`${label} → 403`, async () => {
-        if (!dbAvailable) return
-        const { status } = await post(
+    // ── admin-income ────────────────────────────────────────────────────────────
+    describe('POST /transactions/admin-income', () => {
+      it('ACCOUNTANT → 201, income credited to the admin OWNER (not the accountant)', async () => {
+        const { status, json } = await post(
           '/api/transactions/admin-income',
-          persona,
+          ACCOUNTANT,
           adminIncomePayload(),
         )
+        expect(status).toBe(201)
+        const tx = json as { id: string; type: string }
+        expect(tx.type).toBe('ADMIN_INCOME')
+        // Verify the persisted row credits the admin owner + records the accountant.
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: (t, { eq }) => eq(t.id, tx.id),
+        })
+        expect(row?.receiverId).toBe(ADMIN.id)
+        expect(row?.createdBy).toBe(ACCOUNTANT.id)
+      })
+
+      it('ADMIN → 201 (regression, credited to self)', async () => {
+        const { status, json } = await post(
+          '/api/transactions/admin-income',
+          ADMIN,
+          adminIncomePayload(),
+        )
+        expect(status).toBe(201)
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
+        })
+        expect(row?.receiverId).toBe(ADMIN.id)
+      })
+
+      // task-admin-income-unified (§2, owner decision 2026-08-12). ADMIN may now
+      // pick a DIFFERENT active admin as the receiver — the same "who gets
+      // credited" freedom `declareUsdtProjectIncome` already had, extended to
+      // this non-USDT path (see the schema/service doc comments).
+      it('ADMIN with an explicit receiverId → 201, credits THAT admin (not self)', async () => {
+        const { status, json } = await post('/api/transactions/admin-income', ADMIN, {
+          ...adminIncomePayload(),
+          receiverId: ADMIN2.id,
+        })
+        expect(status).toBe(201)
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
+        })
+        expect(row?.receiverId).toBe(ADMIN2.id)
+        expect(row?.createdBy).toBe(ADMIN.id)
+      })
+
+      // AC10: the accountant has never been a router of funds — the server
+      // hard-credits the project's admin owner for this role. A payload that
+      // disagrees (an explicit receiverId, even the caller's own admin-owner
+      // target) is a contract violation, not a preference to honour — the web
+      // dialog's selector never offers this choice for ACCOUNTANT either.
+      it('ACCOUNTANT with an explicit receiverId → 403 (no routing freedom, AC10)', async () => {
+        const { status } = await post('/api/transactions/admin-income', ACCOUNTANT, {
+          ...adminIncomePayload(),
+          receiverId: ADMIN.id,
+        })
         expect(status).toBe(403)
       })
-    }
-  })
 
-  // ── expense ───────────────────────────────────────────────────────────────
-  describe('POST /transactions/expense', () => {
-    it('ACCOUNTANT → 201', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await post('/api/transactions/expense', ACCOUNTANT, expensePayload())
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('EXPENSE')
-    })
-
-    it('ADMIN → 201 (regression)', async () => {
-      if (!dbAvailable) return
-      const { status } = await post('/api/transactions/expense', ADMIN, expensePayload())
-      expect(status).toBe(201)
-    })
-
-    for (const [label, persona] of FORBIDDEN) {
-      it(`${label} → 403`, async () => {
-        if (!dbAvailable) return
-        const { status } = await post('/api/transactions/expense', persona, expensePayload())
-        expect(status).toBe(403)
+      // The COMPANY_ACCOUNT sentinel is NOT "picking a specific admin" — it
+      // stays available to the accountant (unchanged capability, just expressed
+      // through the new field name).
+      it('ACCOUNTANT with receiverId=COMPANY_ACCOUNT → 201 (still allowed — not a specific-admin choice)', async () => {
+        const { status, json } = await post('/api/transactions/admin-income', ACCOUNTANT, {
+          ...adminIncomePayload(),
+          receiverId: 'COMPANY_ACCOUNT',
+        })
+        expect(status).toBe(201)
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
+        })
+        expect(row?.fundingSource).toBe('COMPANY_ACCOUNT')
+        expect(row?.receiverId).toBe(ACCOUNTANT.id)
       })
-    }
-  })
 
-  // ── salary ──────────────────────────────────────────────────────────────────
-  describe('POST /transactions/salary', () => {
-    it('ACCOUNTANT → 201', async () => {
-      if (!dbAvailable) return
-      // Distinct month from the ADMIN case so both 201 under the (receiver,month)
-      // unique index (audit #5). '2025-03' window namespaced to ACCOUNTANT.
-      const { status, json } = await post(
-        '/api/transactions/salary',
-        ACCOUNTANT,
-        salaryPayload('2025-03'),
-      )
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('SALARY')
+      for (const [label, persona] of FORBIDDEN) {
+        it(`${label} → 403`, async () => {
+          const { status } = await post(
+            '/api/transactions/admin-income',
+            persona,
+            adminIncomePayload(),
+          )
+          expect(status).toBe(403)
+        })
+      }
     })
 
-    it('ADMIN → 201 (regression)', async () => {
-      if (!dbAvailable) return
-      // Distinct month from the ACCOUNTANT case (unique index, audit #5).
-      const { status } = await post('/api/transactions/salary', ADMIN, salaryPayload('2025-04'))
-      expect(status).toBe(201)
-    })
-
-    it('duplicate (receiver, month) → 400 (unique index, audit #5)', async () => {
-      if (!dbAvailable) return
-      // First create for a fresh month succeeds; a second create for the SAME
-      // (receiver, month) is rejected with a clean 400 (not a raw 500).
-      const dupMonth = '2025-05'
-      const first = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
-      expect(first.status).toBe(201)
-      const second = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
-      expect(second.status).toBe(400)
-    })
-
-    for (const [label, persona] of FORBIDDEN) {
-      it(`${label} → 403`, async () => {
-        if (!dbAvailable) return
-        const { status } = await post('/api/transactions/salary', persona, salaryPayload())
-        expect(status).toBe(403)
+    // ── expense ───────────────────────────────────────────────────────────────
+    describe('POST /transactions/expense', () => {
+      it('ACCOUNTANT → 201', async () => {
+        const { status, json } = await post(
+          '/api/transactions/expense',
+          ACCOUNTANT,
+          expensePayload(),
+        )
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('EXPENSE')
       })
-    }
-  })
 
-  // ── admin-transfer ──────────────────────────────────────────────────────────
-  describe('POST /transactions/admin-transfer', () => {
-    it('ACCOUNTANT → 201, transfer is between two ADMINs (accountant not a party)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await post(
-        '/api/transactions/admin-transfer',
-        ACCOUNTANT,
-        adminTransferPayload(ADMIN.id),
-      )
-      expect(status).toBe(201)
-      const tx = json as { id: string; type: string }
-      expect(tx.type).toBe('ADMIN_TRANSFER')
-      const row = await dbSvc.db.query.transactions.findFirst({
-        where: (t, { eq }) => eq(t.id, tx.id),
+      it('ADMIN → 201 (regression)', async () => {
+        const { status } = await post('/api/transactions/expense', ADMIN, expensePayload())
+        expect(status).toBe(201)
       })
-      expect(row?.senderId).toBe(ADMIN.id)
-      expect(row?.receiverId).toBe(ADMIN2.id)
-      expect(row?.createdBy).toBe(ACCOUNTANT.id)
+
+      for (const [label, persona] of FORBIDDEN) {
+        it(`${label} → 403`, async () => {
+          const { status } = await post('/api/transactions/expense', persona, expensePayload())
+          expect(status).toBe(403)
+        })
+      }
     })
 
-    it('ACCOUNTANT without an ADMIN sender → 400 (accountant is never a transfer party)', async () => {
-      if (!dbAvailable) return
-      // Omitting senderId must NOT implicitly make the accountant the sender.
-      const { status } = await post(
-        '/api/transactions/admin-transfer',
-        ACCOUNTANT,
-        adminTransferPayload(),
-      )
-      expect(status).toBe(400)
-    })
-
-    it('ADMIN → 201 (regression, self as sender)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await post(
-        '/api/transactions/admin-transfer',
-        ADMIN,
-        adminTransferPayload(),
-      )
-      expect(status).toBe(201)
-      const row = await dbSvc.db.query.transactions.findFirst({
-        where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
+    // ── salary ──────────────────────────────────────────────────────────────────
+    describe('POST /transactions/salary', () => {
+      it('ACCOUNTANT → 201', async () => {
+        // Distinct month from the ADMIN case so both 201 under the (receiver,month)
+        // unique index (audit #5). '2025-03' window namespaced to ACCOUNTANT.
+        const { status, json } = await post(
+          '/api/transactions/salary',
+          ACCOUNTANT,
+          salaryPayload('2025-03'),
+        )
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('SALARY')
       })
-      expect(row?.senderId).toBe(ADMIN.id)
-      expect(row?.receiverId).toBe(ADMIN2.id)
+
+      it('ADMIN → 201 (regression)', async () => {
+        // Distinct month from the ACCOUNTANT case (unique index, audit #5).
+        const { status } = await post('/api/transactions/salary', ADMIN, salaryPayload('2025-04'))
+        expect(status).toBe(201)
+      })
+
+      it('duplicate (receiver, month) → 400 (unique index, audit #5)', async () => {
+        // First create for a fresh month succeeds; a second create for the SAME
+        // (receiver, month) is rejected with a clean 400 (not a raw 500).
+        const dupMonth = '2025-05'
+        const first = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
+        expect(first.status).toBe(201)
+        const second = await post('/api/transactions/salary', ADMIN, salaryPayload(dupMonth))
+        expect(second.status).toBe(400)
+      })
+
+      for (const [label, persona] of FORBIDDEN) {
+        it(`${label} → 403`, async () => {
+          const { status } = await post('/api/transactions/salary', persona, salaryPayload())
+          expect(status).toBe(403)
+        })
+      }
     })
 
-    for (const [label, persona] of FORBIDDEN) {
-      it(`${label} → 403`, async () => {
-        if (!dbAvailable) return
-        const { status } = await post(
+    // ── admin-transfer ──────────────────────────────────────────────────────────
+    describe('POST /transactions/admin-transfer', () => {
+      it('ACCOUNTANT → 201, transfer is between two ADMINs (accountant not a party)', async () => {
+        const { status, json } = await post(
           '/api/transactions/admin-transfer',
-          persona,
+          ACCOUNTANT,
           adminTransferPayload(ADMIN.id),
         )
-        expect(status).toBe(403)
+        expect(status).toBe(201)
+        const tx = json as { id: string; type: string }
+        expect(tx.type).toBe('ADMIN_TRANSFER')
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: (t, { eq }) => eq(t.id, tx.id),
+        })
+        expect(row?.senderId).toBe(ADMIN.id)
+        expect(row?.receiverId).toBe(ADMIN2.id)
+        expect(row?.createdBy).toBe(ACCOUNTANT.id)
       })
-    }
-  })
-})
+
+      it('ACCOUNTANT without an ADMIN sender → 400 (accountant is never a transfer party)', async () => {
+        // Omitting senderId must NOT implicitly make the accountant the sender.
+        const { status } = await post(
+          '/api/transactions/admin-transfer',
+          ACCOUNTANT,
+          adminTransferPayload(),
+        )
+        expect(status).toBe(400)
+      })
+
+      it('ADMIN → 201 (regression, self as sender)', async () => {
+        const { status, json } = await post(
+          '/api/transactions/admin-transfer',
+          ADMIN,
+          adminTransferPayload(),
+        )
+        expect(status).toBe(201)
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: (t, { eq }) => eq(t.id, (json as { id: string }).id),
+        })
+        expect(row?.senderId).toBe(ADMIN.id)
+        expect(row?.receiverId).toBe(ADMIN2.id)
+      })
+
+      for (const [label, persona] of FORBIDDEN) {
+        it(`${label} → 403`, async () => {
+          const { status } = await post(
+            '/api/transactions/admin-transfer',
+            persona,
+            adminTransferPayload(ADMIN.id),
+          )
+          expect(status).toBe(403)
+        })
+      }
+    })
+  },
+)

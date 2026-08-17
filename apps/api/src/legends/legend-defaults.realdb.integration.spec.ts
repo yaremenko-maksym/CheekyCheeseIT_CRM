@@ -41,6 +41,7 @@ import {
   users,
 } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ---------------------------------------------------------------------------
 // Test IDs — stable namespace ld8-
@@ -77,7 +78,6 @@ const TEST_USER_IDS = [SUBJECT_SENIOR_ID, JUNIOR_MEMBER_ID, HR_MEMBER_ID]
 // ---------------------------------------------------------------------------
 // DB availability flag
 // ---------------------------------------------------------------------------
-let dbAvailable = true
 let _pool: Pool | null = null
 let legendsSvc: LegendsService
 
@@ -102,184 +102,182 @@ const HR_SESSION: SessionUser = {
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
-describe('LegendsService.getLegend — defaults RBAC, real DB (AC8)', () => {
-  beforeAll(async () => {
-    // DB availability probe
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      // Also verify legends.project_id column exists (migration check from legends.rbac spec)
-      const schemaCheck = await probePool.query(
-        `SELECT column_name FROM information_schema.columns
+describe.skipIf(!hasDatabaseUrl())(
+  'LegendsService.getLegend — defaults RBAC, real DB (AC8)',
+  () => {
+    beforeAll(async () => {
+      // DB availability probe
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        // Also verify legends.project_id column exists (migration check from legends.rbac spec)
+        const schemaCheck = await probePool.query(
+          `SELECT column_name FROM information_schema.columns
          WHERE table_name='legends' AND column_name='project_id' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn(
-          '[legend-defaults-realdb] SKIPPED — legends.project_id column not found (run migration against this DB)',
         )
-        dbAvailable = false
-        return
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error(
+            '[legend-defaults-realdb] FAILED — legends.project_id column not found (run migration against this DB)',
+          )
+        }
+      } catch {
+        throw new Error(
+          '[legend-defaults-realdb] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[legend-defaults-realdb] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
 
-    _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(_pool, { schema })
-    const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool: _pool, db })
-
-    legendsSvc = new LegendsService(dbSvc, new HrAccessService(dbSvc))
-
-    // ── Seed users
-    await db
-      .insert(users)
-      .values([
-        {
-          id: SUBJECT_SENIOR_ID,
-          email: SUBJECT_SENIOR_EMAIL,
-          displayName: 'LD8 Senior Subject',
-          role: 'SENIOR',
-          googleId: `test-google-${SUBJECT_SENIOR_ID}`,
-          legalFullName: SUBJECT_SENIOR_LEGAL_NAME,
-          registrationAddress: SUBJECT_SENIOR_ADDRESS,
-        },
-        {
-          id: JUNIOR_MEMBER_ID,
-          email: JUNIOR_MEMBER_EMAIL,
-          displayName: 'LD8 Junior Member',
-          role: 'JUNIOR',
-          googleId: `test-google-${JUNIOR_MEMBER_ID}`,
-        },
-        {
-          id: HR_MEMBER_ID,
-          email: HR_MEMBER_EMAIL,
-          displayName: 'LD8 HR Member',
-          role: 'HR',
-          googleId: `test-google-${HR_MEMBER_ID}`,
-        },
-      ])
-      .onConflictDoNothing()
-
-    // ── Seed project (seniorId = SUBJECT_SENIOR, no drop)
-    await db
-      .insert(projects)
-      .values([
-        {
-          id: PROJECT_ID,
-          name: 'LD8 Defaults Test Project',
-          companyName: 'LD8 Test Corp',
-          domain: 'e-commerce',
-          startDate: new Date('2025-01-01'),
-          seniorId: SUBJECT_SENIOR_ID,
-          dropId: null,
-          currency: 'USDT',
-          rate: '100',
-        },
-      ])
-      .onConflictDoNothing()
-
-    // ── Seed legend for the project
-    await db
-      .insert(legends)
-      .values([
-        {
-          id: LEGEND_ID,
-          projectId: PROJECT_ID,
-          fullName: 'LD8 Test Persona',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ])
-      .onConflictDoNothing()
-
-    // ── Seed project_member: JUNIOR is active member
-    await db
-      .insert(projectMembers)
-      .values([
-        {
-          id: PROJECT_MEMBER_ID,
-          projectId: PROJECT_ID,
-          userId: JUNIOR_MEMBER_ID,
-          joinedAt: new Date(),
-        },
-      ])
-      .onConflictDoNothing()
-
-    // ── Seed team: HR + SENIOR in same team → HR can access
-    await db
-      .insert(teams)
-      .values([{ id: TEAM_ID, name: 'LD8 Test Team' }])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: TEAM_ID, userId: HR_MEMBER_ID, joinedAt: new Date() },
-        { teamId: TEAM_ID, userId: SUBJECT_SENIOR_ID, joinedAt: new Date() },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable || !_pool) return
-    try {
+      _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
       const db = drizzle(_pool, { schema })
-      // Clean up FK-safe order
-      await db.delete(legendEntries).where(eq(legendEntries.legendId, LEGEND_ID))
-      await db.delete(legends).where(eq(legends.id, LEGEND_ID))
-      await db.delete(projectMembers).where(eq(projectMembers.id, PROJECT_MEMBER_ID))
-      await db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
-      await db.delete(projects).where(eq(projects.id, PROJECT_ID))
-      await db.delete(teams).where(eq(teams.id, TEAM_ID))
-      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } finally {
-      await _pool.end()
-    }
-  }, 15_000)
+      const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool: _pool, db })
 
-  it('AC8a: JUNIOR viewer (active member) → defaults === null (identity NOT leaked)', async () => {
-    if (!dbAvailable) return
-    /**
-     * CRITICAL assertion (bug class #157/#158):
-     * JUNIOR can see the legend (200) but MUST NOT receive
-     * the real legal_full_name / registration_address of the subject.
-     * defaults field must be null for JUNIOR viewers.
-     */
-    const legend = await legendsSvc.getLegend(JUNIOR_SESSION, PROJECT_ID)
-    expect(legend.defaults).toBeNull()
-  })
+      legendsSvc = new LegendsService(dbSvc, new HrAccessService(dbSvc))
 
-  it('AC8b: ADMIN viewer → defaults.fullName = subject legal_full_name', async () => {
-    if (!dbAvailable) return
-    const legend = await legendsSvc.getLegend(ADMIN_SESSION, PROJECT_ID)
-    expect(legend.defaults).not.toBeNull()
-    expect(legend.defaults!.fullName).toBe(SUBJECT_SENIOR_LEGAL_NAME)
-    expect(legend.defaults!.address).toBe(SUBJECT_SENIOR_ADDRESS)
-  })
+      // ── Seed users
+      await db
+        .insert(users)
+        .values([
+          {
+            id: SUBJECT_SENIOR_ID,
+            email: SUBJECT_SENIOR_EMAIL,
+            displayName: 'LD8 Senior Subject',
+            role: 'SENIOR',
+            googleId: `test-google-${SUBJECT_SENIOR_ID}`,
+            legalFullName: SUBJECT_SENIOR_LEGAL_NAME,
+            registrationAddress: SUBJECT_SENIOR_ADDRESS,
+          },
+          {
+            id: JUNIOR_MEMBER_ID,
+            email: JUNIOR_MEMBER_EMAIL,
+            displayName: 'LD8 Junior Member',
+            role: 'JUNIOR',
+            googleId: `test-google-${JUNIOR_MEMBER_ID}`,
+          },
+          {
+            id: HR_MEMBER_ID,
+            email: HR_MEMBER_EMAIL,
+            displayName: 'LD8 HR Member',
+            role: 'HR',
+            googleId: `test-google-${HR_MEMBER_ID}`,
+          },
+        ])
+        .onConflictDoNothing()
 
-  it('AC8c: HR viewer (same-team scoped) → defaults.fullName non-null (same as ADMIN)', async () => {
-    if (!dbAvailable) return
-    const legend = await legendsSvc.getLegend(HR_SESSION, PROJECT_ID)
-    expect(legend.defaults).not.toBeNull()
-    expect(legend.defaults!.fullName).toBe(SUBJECT_SENIOR_LEGAL_NAME)
-  })
+      // ── Seed project (seniorId = SUBJECT_SENIOR, no drop)
+      await db
+        .insert(projects)
+        .values([
+          {
+            id: PROJECT_ID,
+            name: 'LD8 Defaults Test Project',
+            companyName: 'LD8 Test Corp',
+            domain: 'e-commerce',
+            startDate: new Date('2025-01-01'),
+            seniorId: SUBJECT_SENIOR_ID,
+            dropId: null,
+            currency: 'USDT',
+            rate: '100',
+          },
+        ])
+        .onConflictDoNothing()
 
-  it('AC8d: subject (SENIOR = seniorId) → getLegend throws 403 (subject excluded)', async () => {
-    if (!dbAvailable) return
-    const subjectSession: SessionUser = {
-      id: SUBJECT_SENIOR_ID,
-      email: SUBJECT_SENIOR_EMAIL,
-      displayName: 'LD8 Senior Subject',
-      avatarUrl: null,
-      role: 'SENIOR',
-      seniorSharePercent: 26,
-    }
-    await expect(legendsSvc.getLegend(subjectSession, PROJECT_ID)).rejects.toThrow()
-  })
-})
+      // ── Seed legend for the project
+      await db
+        .insert(legends)
+        .values([
+          {
+            id: LEGEND_ID,
+            projectId: PROJECT_ID,
+            fullName: 'LD8 Test Persona',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ])
+        .onConflictDoNothing()
+
+      // ── Seed project_member: JUNIOR is active member
+      await db
+        .insert(projectMembers)
+        .values([
+          {
+            id: PROJECT_MEMBER_ID,
+            projectId: PROJECT_ID,
+            userId: JUNIOR_MEMBER_ID,
+            joinedAt: new Date(),
+          },
+        ])
+        .onConflictDoNothing()
+
+      // ── Seed team: HR + SENIOR in same team → HR can access
+      await db
+        .insert(teams)
+        .values([{ id: TEAM_ID, name: 'LD8 Test Team' }])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: TEAM_ID, userId: HR_MEMBER_ID, joinedAt: new Date() },
+          { teamId: TEAM_ID, userId: SUBJECT_SENIOR_ID, joinedAt: new Date() },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      if (!_pool)
+        throw new Error(
+          '[require-real-db] _pool not initialized — beforeAll should have thrown already',
+        )
+      try {
+        const db = drizzle(_pool, { schema })
+        // Clean up FK-safe order
+        await db.delete(legendEntries).where(eq(legendEntries.legendId, LEGEND_ID))
+        await db.delete(legends).where(eq(legends.id, LEGEND_ID))
+        await db.delete(projectMembers).where(eq(projectMembers.id, PROJECT_MEMBER_ID))
+        await db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
+        await db.delete(projects).where(eq(projects.id, PROJECT_ID))
+        await db.delete(teams).where(eq(teams.id, TEAM_ID))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } finally {
+        await _pool.end()
+      }
+    }, 15_000)
+
+    it('AC8a: JUNIOR viewer (active member) → defaults === null (identity NOT leaked)', async () => {
+      /**
+       * CRITICAL assertion (bug class #157/#158):
+       * JUNIOR can see the legend (200) but MUST NOT receive
+       * the real legal_full_name / registration_address of the subject.
+       * defaults field must be null for JUNIOR viewers.
+       */
+      const legend = await legendsSvc.getLegend(JUNIOR_SESSION, PROJECT_ID)
+      expect(legend.defaults).toBeNull()
+    })
+
+    it('AC8b: ADMIN viewer → defaults.fullName = subject legal_full_name', async () => {
+      const legend = await legendsSvc.getLegend(ADMIN_SESSION, PROJECT_ID)
+      expect(legend.defaults).not.toBeNull()
+      expect(legend.defaults!.fullName).toBe(SUBJECT_SENIOR_LEGAL_NAME)
+      expect(legend.defaults!.address).toBe(SUBJECT_SENIOR_ADDRESS)
+    })
+
+    it('AC8c: HR viewer (same-team scoped) → defaults.fullName non-null (same as ADMIN)', async () => {
+      const legend = await legendsSvc.getLegend(HR_SESSION, PROJECT_ID)
+      expect(legend.defaults).not.toBeNull()
+      expect(legend.defaults!.fullName).toBe(SUBJECT_SENIOR_LEGAL_NAME)
+    })
+
+    it('AC8d: subject (SENIOR = seniorId) → getLegend throws 403 (subject excluded)', async () => {
+      const subjectSession: SessionUser = {
+        id: SUBJECT_SENIOR_ID,
+        email: SUBJECT_SENIOR_EMAIL,
+        displayName: 'LD8 Senior Subject',
+        avatarUrl: null,
+        role: 'SENIOR',
+        seniorSharePercent: 26,
+      }
+      await expect(legendsSvc.getLegend(subjectSession, PROJECT_ID)).rejects.toThrow()
+    })
+  },
+)

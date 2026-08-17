@@ -18,6 +18,7 @@ import {
   transactions,
 } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * BIZ-22 — upsertProjectFinanceSettings must mirror seniorSharePercentOverride
@@ -63,172 +64,176 @@ const PROJECT_ID = 'a5b6c7d8-0e1f-4a5b-cc00-000000000020'
 
 const TEST_USER_IDS = [ADMIN.id, SENIOR.id]
 
-describe('BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real DB)', () => {
-  let pool: Pool
-  let dbSvc: DatabaseService
-  let txSvc: TransactionsService
-  let dbAvailable = true
+describe.skipIf(!hasDatabaseUrl())(
+  'BIZ-22 — upsertProjectFinanceSettings syncs to projects table (real DB)',
+  () => {
+    let pool: Pool
+    let dbSvc: DatabaseService
+    let txSvc: TransactionsService
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      await probe.end()
-    } catch {
-      console.warn(
-        '[finance-settings-override integration] SKIPPED — no DB reachable at DATABASE_URL',
-      )
-      dbAvailable = false
-      return
-    }
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        await probe.end()
+      } catch {
+        throw new Error(
+          '[finance-settings-override integration] FAILED — no DB reachable at DATABASE_URL',
+        )
+      }
 
-    pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(pool, { schema })
-    dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool, db })
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      const db = drizzle(pool, { schema })
+      dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool, db })
 
-    // Build minimal service stubs — only upsertProjectFinanceSettings path tested
-    const teamAuditSvc = { record: async () => {} } as unknown as TeamAuditLogService
-    const projectAuditSvc = { record: async () => {} } as unknown as ProjectAuditLogService
-    const projectsSvc = Object.create(ProjectsService.prototype) as ProjectsService
-    Object.assign(projectsSvc, {
-      db: dbSvc,
-      teamAuditLogService: teamAuditSvc,
-      projectAuditLogService: projectAuditSvc,
-    })
-    txSvc = Object.create(TransactionsService.prototype) as TransactionsService
-    Object.assign(txSvc, { db: dbSvc })
-
-    // Seed users + team + project
-    await db
-      .insert(users)
-      .values([
-        {
-          id: ADMIN.id,
-          email: ADMIN.email,
-          displayName: ADMIN.displayName,
-          role: 'ADMIN',
-          googleId: `test-fso-${ADMIN.id}`,
-        },
-        {
-          id: SENIOR.id,
-          email: SENIOR.email,
-          displayName: SENIOR.displayName,
-          role: 'SENIOR',
-          googleId: `test-fso-${SENIOR.id}`,
-        },
-      ])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teams)
-      .values([{ id: TEAM_ID, name: 'FSO Team' }])
-      .onConflictDoNothing()
-    await db
-      .insert(teamMembers)
-      .values([{ teamId: TEAM_ID, userId: SENIOR.id }])
-      .onConflictDoNothing()
-
-    await db
-      .insert(projects)
-      .values({
-        id: PROJECT_ID,
-        name: 'FSO Project',
-        companyName: 'FSO Corp',
-        domain: 'Other',
-        startDate: new Date('2024-01-01'),
-        seniorId: SENIOR.id,
-        rate: 100,
-        currency: 'USDT' as never,
-        seniorSharePercentOverride: null,
+      // Build minimal service stubs — only upsertProjectFinanceSettings path tested
+      const teamAuditSvc = { record: async () => {} } as unknown as TeamAuditLogService
+      const projectAuditSvc = { record: async () => {} } as unknown as ProjectAuditLogService
+      const projectsSvc = Object.create(ProjectsService.prototype) as ProjectsService
+      Object.assign(projectsSvc, {
+        db: dbSvc,
+        teamAuditLogService: teamAuditSvc,
+        projectAuditLogService: projectAuditSvc,
       })
-      .onConflictDoNothing()
-  }, 30_000)
+      txSvc = Object.create(TransactionsService.prototype) as TransactionsService
+      Object.assign(txSvc, { db: dbSvc })
 
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
-      await dbSvc.db.delete(transactions).where(eq(transactions.projectId, PROJECT_ID))
+      // Seed users + team + project
+      await db
+        .insert(users)
+        .values([
+          {
+            id: ADMIN.id,
+            email: ADMIN.email,
+            displayName: ADMIN.displayName,
+            role: 'ADMIN',
+            googleId: `test-fso-${ADMIN.id}`,
+          },
+          {
+            id: SENIOR.id,
+            email: SENIOR.email,
+            displayName: SENIOR.displayName,
+            role: 'SENIOR',
+            googleId: `test-fso-${SENIOR.id}`,
+          },
+        ])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teams)
+        .values([{ id: TEAM_ID, name: 'FSO Team' }])
+        .onConflictDoNothing()
+      await db
+        .insert(teamMembers)
+        .values([{ teamId: TEAM_ID, userId: SENIOR.id }])
+        .onConflictDoNothing()
+
+      await db
+        .insert(projects)
+        .values({
+          id: PROJECT_ID,
+          name: 'FSO Project',
+          companyName: 'FSO Corp',
+          domain: 'Other',
+          startDate: new Date('2024-01-01'),
+          seniorId: SENIOR.id,
+          rate: 100,
+          currency: 'USDT' as never,
+          seniorSharePercentOverride: null,
+        })
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await dbSvc.db.delete(transactions).where(eq(transactions.projectId, PROJECT_ID))
+        await dbSvc.db
+          .delete(projectFinanceSettings)
+          .where(eq(projectFinanceSettings.projectId, PROJECT_ID))
+        await dbSvc.db.delete(projects).where(eq(projects.id, PROJECT_ID))
+        await dbSvc.db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
+        await dbSvc.db.delete(teams).where(eq(teams.id, TEAM_ID))
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await pool.end()
+    }, 15_000)
+
+    beforeEach(async () => {
+      // Reset both tables to null override
+      await dbSvc.db
+        .update(projects)
+        .set({ seniorSharePercentOverride: null })
+        .where(eq(projects.id, PROJECT_ID))
       await dbSvc.db
         .delete(projectFinanceSettings)
         .where(eq(projectFinanceSettings.projectId, PROJECT_ID))
-      await dbSvc.db.delete(projects).where(eq(projects.id, PROJECT_ID))
-      await dbSvc.db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
-      await dbSvc.db.delete(teams).where(eq(teams.id, TEAM_ID))
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
-    }
-    await pool.end()
-  }, 15_000)
-
-  beforeEach(async () => {
-    if (!dbAvailable) return
-    // Reset both tables to null override
-    await dbSvc.db
-      .update(projects)
-      .set({ seniorSharePercentOverride: null })
-      .where(eq(projects.id, PROJECT_ID))
-    await dbSvc.db
-      .delete(projectFinanceSettings)
-      .where(eq(projectFinanceSettings.projectId, PROJECT_ID))
-  })
-
-  it('upsertProjectFinanceSettings mirrors seniorSharePercentOverride into projects table', async () => {
-    if (!dbAvailable) return
-
-    await txSvc.upsertProjectFinanceSettings(PROJECT_ID, { seniorSharePercentOverride: 30 }, ADMIN)
-
-    // BOTH tables must have the updated value
-    const fsRow = await dbSvc.db.query.projectFinanceSettings.findFirst({
-      where: eq(projectFinanceSettings.projectId, PROJECT_ID),
     })
-    expect(fsRow?.seniorSharePercentOverride).toBe(30)
 
-    const projectRow = await dbSvc.db.query.projects.findFirst({
-      where: eq(projects.id, PROJECT_ID),
+    it('upsertProjectFinanceSettings mirrors seniorSharePercentOverride into projects table', async () => {
+      await txSvc.upsertProjectFinanceSettings(
+        PROJECT_ID,
+        { seniorSharePercentOverride: 30 },
+        ADMIN,
+      )
+
+      // BOTH tables must have the updated value
+      const fsRow = await dbSvc.db.query.projectFinanceSettings.findFirst({
+        where: eq(projectFinanceSettings.projectId, PROJECT_ID),
+      })
+      expect(fsRow?.seniorSharePercentOverride).toBe(30)
+
+      const projectRow = await dbSvc.db.query.projects.findFirst({
+        where: eq(projects.id, PROJECT_ID),
+      })
+      expect(projectRow?.seniorSharePercentOverride).toBe(30)
     })
-    expect(projectRow?.seniorSharePercentOverride).toBe(30)
-  })
 
-  it('upsertProjectFinanceSettings clears override in BOTH tables when set to null', async () => {
-    if (!dbAvailable) return
+    it('upsertProjectFinanceSettings clears override in BOTH tables when set to null', async () => {
+      // First set a value
+      await txSvc.upsertProjectFinanceSettings(
+        PROJECT_ID,
+        { seniorSharePercentOverride: 35 },
+        ADMIN,
+      )
 
-    // First set a value
-    await txSvc.upsertProjectFinanceSettings(PROJECT_ID, { seniorSharePercentOverride: 35 }, ADMIN)
+      // Then clear it
+      await txSvc.upsertProjectFinanceSettings(
+        PROJECT_ID,
+        { seniorSharePercentOverride: null },
+        ADMIN,
+      )
 
-    // Then clear it
-    await txSvc.upsertProjectFinanceSettings(
-      PROJECT_ID,
-      { seniorSharePercentOverride: null },
-      ADMIN,
-    )
+      const fsRow = await dbSvc.db.query.projectFinanceSettings.findFirst({
+        where: eq(projectFinanceSettings.projectId, PROJECT_ID),
+      })
+      expect(fsRow?.seniorSharePercentOverride).toBeNull()
 
-    const fsRow = await dbSvc.db.query.projectFinanceSettings.findFirst({
-      where: eq(projectFinanceSettings.projectId, PROJECT_ID),
+      const projectRow = await dbSvc.db.query.projects.findFirst({
+        where: eq(projects.id, PROJECT_ID),
+      })
+      expect(projectRow?.seniorSharePercentOverride).toBeNull()
     })
-    expect(fsRow?.seniorSharePercentOverride).toBeNull()
 
-    const projectRow = await dbSvc.db.query.projects.findFirst({
-      where: eq(projects.id, PROJECT_ID),
+    it('upsertProjectFinanceSettings in senior-share resolver path: override set via finance-settings endpoint is picked up by createSeniorIncome resolver', async () => {
+      // Set override to 40% via the finance-settings path
+      await txSvc.upsertProjectFinanceSettings(
+        PROJECT_ID,
+        { seniorSharePercentOverride: 40 },
+        ADMIN,
+      )
+
+      // The resolver reads from project.seniorSharePercentOverride — verify it is 40
+      const projectRow = await dbSvc.db.query.projects.findFirst({
+        where: eq(projects.id, PROJECT_ID),
+        with: { financeSettings: true },
+      })
+      // After the fix, projects.senior_share_percent_override must equal 40
+      expect(projectRow?.seniorSharePercentOverride).toBe(40)
+      // And the finance settings mirror must also be 40
+      expect(projectRow?.financeSettings?.seniorSharePercentOverride).toBe(40)
     })
-    expect(projectRow?.seniorSharePercentOverride).toBeNull()
-  })
-
-  it('upsertProjectFinanceSettings in senior-share resolver path: override set via finance-settings endpoint is picked up by createSeniorIncome resolver', async () => {
-    if (!dbAvailable) return
-
-    // Set override to 40% via the finance-settings path
-    await txSvc.upsertProjectFinanceSettings(PROJECT_ID, { seniorSharePercentOverride: 40 }, ADMIN)
-
-    // The resolver reads from project.seniorSharePercentOverride — verify it is 40
-    const projectRow = await dbSvc.db.query.projects.findFirst({
-      where: eq(projects.id, PROJECT_ID),
-      with: { financeSettings: true },
-    })
-    // After the fix, projects.senior_share_percent_override must equal 40
-    expect(projectRow?.seniorSharePercentOverride).toBe(40)
-    // And the finance settings mirror must also be 40
-    expect(projectRow?.financeSettings?.seniorSharePercentOverride).toBe(40)
-  })
-})
+  },
+)

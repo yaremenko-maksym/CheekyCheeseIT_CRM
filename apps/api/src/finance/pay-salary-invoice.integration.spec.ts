@@ -15,6 +15,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-review-followup #2b — invoice auto-create on BOTH paySalary funding paths.
@@ -97,7 +98,6 @@ const fakeEtherscan = {
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -147,196 +147,191 @@ class TestDatabaseModule {}
 })
 class PaySalaryInvoiceTestModule {}
 
-describe('paySalary invoice auto-create — both funding paths (real DB, spy on invoicesService)', () => {
-  let svc: TransactionsService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'paySalary invoice auto-create — both funding paths (real DB, spy on invoicesService)',
+  () => {
+    let svc: TransactionsService
+    let dbSvc: DatabaseService
 
-  async function cleanup() {
-    await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
-    await dbSvc.db.delete(transactions).where(inArray(transactions.id, [DEPOSIT_ID]))
-  }
-
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT column_name FROM information_schema.columns
-         WHERE table_name='transactions' AND column_name='funding_source' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[pay-salary-invoice] SKIPPED — funding_source column not found')
-        dbAvailable = false
-        return
-      }
-    } catch {
-      console.warn('[pay-salary-invoice] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+    async function cleanup() {
+      await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+      await dbSvc.db.delete(transactions).where(inArray(transactions.id, [DEPOSIT_ID]))
     }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [PaySalaryInvoiceTestModule],
-    }).compile()
-    await moduleRef.init()
-    svc = moduleRef.get(TransactionsService)
-    dbSvc = moduleRef.get(DatabaseService)
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT column_name FROM information_schema.columns
+         WHERE table_name='transactions' AND column_name='funding_source' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[pay-salary-invoice] FAILED — funding_source column not found')
+        }
+      } catch {
+        throw new Error('[pay-salary-invoice] FAILED — no DB reachable at DATABASE_URL')
+      }
 
-    await cleanup()
-    await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    await dbSvc.db
-      .insert(users)
-      .values(
-        ALL.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-  }, 30_000)
+      const moduleRef = await Test.createTestingModule({
+        imports: [PaySalaryInvoiceTestModule],
+      }).compile()
+      await moduleRef.init()
+      svc = moduleRef.get(TransactionsService)
+      dbSvc = moduleRef.get(DatabaseService)
 
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
       await cleanup()
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
+      await dbSvc.db
+        .insert(users)
+        .values(
+          ALL.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await cleanup()
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await _pool?.end()
+    }, 15_000)
+
+    // Reset spy call counts between tests so assertions are per-case.
+    // We cannot use beforeEach because the DB setup runs once in beforeAll.
+    function resetSpies() {
+      invoiceAutoCreateSpy.mockClear()
     }
-    await _pool?.end()
-  }, 15_000)
 
-  // Reset spy call counts between tests so assertions are per-case.
-  // We cannot use beforeEach because the DB setup runs once in beforeAll.
-  function resetSpies() {
-    invoiceAutoCreateSpy.mockClear()
-  }
-
-  // Helper: seed a company deposit so the balance covers `amount`.
-  async function seedCompanyDeposit(amount: number) {
-    const existing = await dbSvc.db.query.companyAccount.findFirst()
-    if (!existing) {
-      // Ensure company account row exists for balance ledger.
-      await dbSvc.db.insert(companyAccount).values({
+    // Helper: seed a company deposit so the balance covers `amount`.
+    async function seedCompanyDeposit(amount: number) {
+      const existing = await dbSvc.db.query.companyAccount.findFirst()
+      if (!existing) {
+        // Ensure company account row exists for balance ledger.
+        await dbSvc.db.insert(companyAccount).values({
+          id: DEPOSIT_ID,
+          walletAddress: '0x000000000000000000000000000000000000dead',
+          confirmationThreshold: 12,
+          updatedBy: ADMIN.id,
+        })
+      }
+      await dbSvc.db.insert(transactions).values({
         id: DEPOSIT_ID,
-        walletAddress: '0x000000000000000000000000000000000000dead',
-        confirmationThreshold: 12,
-        updatedBy: ADMIN.id,
+        type: 'COMPANY_DEPOSIT',
+        status: 'PAID',
+        amount: String(amount),
+        currency: 'USDT',
+        senderId: ADMIN.id,
+        createdBy: ADMIN.id,
       })
     }
-    await dbSvc.db.insert(transactions).values({
-      id: DEPOSIT_ID,
-      type: 'COMPANY_DEPOSIT',
-      status: 'PAID',
-      amount: String(amount),
-      currency: 'USDT',
-      senderId: ADMIN.id,
-      createdBy: ADMIN.id,
-    })
-  }
 
-  async function liveBalance(): Promise<number> {
-    return computeCompanyAccountBalanceFromLedger(dbSvc.db)
-  }
-
-  // ── AC: COMPANY_ACCOUNT path triggers invoice auto-create ──────────────────
-  it('paySalary COMPANY_ACCOUNT → autoCreateForSalary called once with the tx id', async () => {
-    if (!dbAvailable) return
-    resetSpies()
-    await cleanup()
-
-    // Need sufficient balance for the company-account gate.
-    const balance = await liveBalance()
-    const salaryAmount = 100
-    if (balance < salaryAmount) {
-      await seedCompanyDeposit(salaryAmount * 2)
+    async function liveBalance(): Promise<number> {
+      return computeCompanyAccountBalanceFromLedger(dbSvc.db)
     }
 
-    const pending = await svc.createSalary(
-      { receiverId: JUNIOR.id, amount: salaryAmount, currency: 'USDT', salaryMonth: '2026-06' },
-      ADMIN,
-    )
+    // ── AC: COMPANY_ACCOUNT path triggers invoice auto-create ──────────────────
+    it('paySalary COMPANY_ACCOUNT → autoCreateForSalary called once with the tx id', async () => {
+      resetSpies()
+      await cleanup()
 
-    // task-receipts-backend (review round 1): pay-time proof now MANDATORY
-    // (COMPANY_ACCOUNT → USDT → explorer-only).
-    const paid = await svc.paySalary(
-      pending.id,
-      {
-        fundingSource: 'COMPANY_ACCOUNT',
-        currency: 'USDT',
-        receiptExternalUrl: 'https://etherscan.io/tx/0xpaysalaryinvoicespec',
-      },
-      ADMIN,
-    )
+      // Need sufficient balance for the company-account gate.
+      const balance = await liveBalance()
+      const salaryAmount = 100
+      if (balance < salaryAmount) {
+        await seedCompanyDeposit(salaryAmount * 2)
+      }
 
-    expect(paid.status).toBe('PAID')
-    // safeAutoCreateInvoice('SALARY', id) must have forwarded to autoCreateForSalary.
-    expect(invoiceAutoCreateSpy).toHaveBeenCalledTimes(1)
-    expect(invoiceAutoCreateSpy).toHaveBeenCalledWith(paid.id)
-  })
+      const pending = await svc.createSalary(
+        { receiverId: JUNIOR.id, amount: salaryAmount, currency: 'USDT', salaryMonth: '2026-06' },
+        ADMIN,
+      )
 
-  // ── AC: ADMIN_PERSONAL path also triggers invoice auto-create ──────────────
-  it('paySalary ADMIN_PERSONAL → autoCreateForSalary called once with the tx id', async () => {
-    if (!dbAvailable) return
-    resetSpies()
-    await cleanup()
+      // task-receipts-backend (review round 1): pay-time proof now MANDATORY
+      // (COMPANY_ACCOUNT → USDT → explorer-only).
+      const paid = await svc.paySalary(
+        pending.id,
+        {
+          fundingSource: 'COMPANY_ACCOUNT',
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xpaysalaryinvoicespec',
+        },
+        ADMIN,
+      )
 
-    const pending = await svc.createSalary(
-      { receiverId: JUNIOR.id, amount: 150, currency: 'USD', salaryMonth: '2026-06' },
-      ADMIN,
-    )
+      expect(paid.status).toBe('PAID')
+      // safeAutoCreateInvoice('SALARY', id) must have forwarded to autoCreateForSalary.
+      expect(invoiceAutoCreateSpy).toHaveBeenCalledTimes(1)
+      expect(invoiceAutoCreateSpy).toHaveBeenCalledWith(paid.id)
+    })
 
-    // ADMIN_PERSONAL: payer = ADMIN2 (a valid ADMIN user in the DB).
-    // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
-    const paid = await svc.paySalary(
-      pending.id,
-      {
-        fundingSource: 'ADMIN_PERSONAL',
-        payerAdminId: ADMIN2.id,
-        currency: 'USD',
-        receiptExternalUrl: 'https://drive.google.com/file/paysalaryinvoicespec',
-      },
-      ADMIN,
-    )
+    // ── AC: ADMIN_PERSONAL path also triggers invoice auto-create ──────────────
+    it('paySalary ADMIN_PERSONAL → autoCreateForSalary called once with the tx id', async () => {
+      resetSpies()
+      await cleanup()
 
-    expect(paid.status).toBe('PAID')
-    // The invoice trigger must fire on the ADMIN_PERSONAL path too — this is
-    // the coverage gap identified in the code-review (#254 code MED).
-    expect(invoiceAutoCreateSpy).toHaveBeenCalledTimes(1)
-    expect(invoiceAutoCreateSpy).toHaveBeenCalledWith(paid.id)
-  })
+      const pending = await svc.createSalary(
+        { receiverId: JUNIOR.id, amount: 150, currency: 'USD', salaryMonth: '2026-06' },
+        ADMIN,
+      )
 
-  // ── Sanity: safeAutoCreateInvoice is fire-and-forget (errors are swallowed) ──
-  it('paySalary succeeds even when autoCreateForSalary throws (fire-and-forget)', async () => {
-    if (!dbAvailable) return
-    resetSpies()
-    await cleanup()
+      // ADMIN_PERSONAL: payer = ADMIN2 (a valid ADMIN user in the DB).
+      // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
+      const paid = await svc.paySalary(
+        pending.id,
+        {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN2.id,
+          currency: 'USD',
+          receiptExternalUrl: 'https://drive.google.com/file/paysalaryinvoicespec',
+        },
+        ADMIN,
+      )
 
-    // Override to simulate an invoice-creation failure.
-    invoiceAutoCreateSpy.mockRejectedValueOnce(new Error('S3 outage'))
+      expect(paid.status).toBe('PAID')
+      // The invoice trigger must fire on the ADMIN_PERSONAL path too — this is
+      // the coverage gap identified in the code-review (#254 code MED).
+      expect(invoiceAutoCreateSpy).toHaveBeenCalledTimes(1)
+      expect(invoiceAutoCreateSpy).toHaveBeenCalledWith(paid.id)
+    })
 
-    const pending = await svc.createSalary(
-      { receiverId: JUNIOR.id, amount: 200, currency: 'USD', salaryMonth: '2026-06' },
-      ADMIN,
-    )
-    // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
-    const paid = await svc.paySalary(
-      pending.id,
-      {
-        fundingSource: 'ADMIN_PERSONAL',
-        payerAdminId: ADMIN2.id,
-        currency: 'USD',
-        receiptExternalUrl: 'https://drive.google.com/file/paysalaryinvoicespec2',
-      },
-      ADMIN,
-    )
-    // paySalary must succeed despite the invoice error (safeAutoCreateInvoice swallows).
-    expect(paid.status).toBe('PAID')
-    // Restore the default (resolve) for subsequent tests.
-    invoiceAutoCreateSpy.mockResolvedValue(undefined)
-  })
-})
+    // ── Sanity: safeAutoCreateInvoice is fire-and-forget (errors are swallowed) ──
+    it('paySalary succeeds even when autoCreateForSalary throws (fire-and-forget)', async () => {
+      resetSpies()
+      await cleanup()
+
+      // Override to simulate an invoice-creation failure.
+      invoiceAutoCreateSpy.mockRejectedValueOnce(new Error('S3 outage'))
+
+      const pending = await svc.createSalary(
+        { receiverId: JUNIOR.id, amount: 200, currency: 'USD', salaryMonth: '2026-06' },
+        ADMIN,
+      )
+      // task-receipts-backend (review round 1): pay-time proof now MANDATORY.
+      const paid = await svc.paySalary(
+        pending.id,
+        {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN2.id,
+          currency: 'USD',
+          receiptExternalUrl: 'https://drive.google.com/file/paysalaryinvoicespec2',
+        },
+        ADMIN,
+      )
+      // paySalary must succeed despite the invoice error (safeAutoCreateInvoice swallows).
+      expect(paid.status).toBe('PAID')
+      // Restore the default (resolve) for subsequent tests.
+      invoiceAutoCreateSpy.mockResolvedValue(undefined)
+    })
+  },
+)

@@ -22,8 +22,10 @@
  *     fails" dummy secret) responds 422, a DISTINCT status from the 400 Zod
  *     field-validation uses — own dedicated app instance/env.
  *
- * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable or
- * the `users` table is missing — every test bails early and stays green.
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against the scratch DB:
  *   pnpm --filter @crm/api exec vitest run contact.integration
@@ -49,6 +51,7 @@ import { ZodExceptionFilter } from '../zod-exception.filter'
 import { ContactController } from './contact.controller'
 import { ContactService } from './contact.service'
 import { ResendMailerService, type SendEmailInput } from './resend-mailer.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 const NS = 'c1d2e3f4-a5b6-4003' // dedicated namespace for THIS spec — no collision
 const TEST_ADMIN_EMAIL = `contact-integration-admin-${NS}@test.spec`
@@ -81,8 +84,6 @@ function fakeEnv(overrides: Record<string, unknown> = {}): Record<string, unknow
 // shared file-level pool reference risks a cross-instance double `pool.end()`,
 // same rationale as vacancies.integration.spec.ts).
 // ---------------------------------------------------------------------------
-
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -195,17 +196,24 @@ async function buildApp(
   return app
 }
 
-async function probeDb(): Promise<boolean> {
+/**
+ * Throws if the `users` table is missing at DATABASE_URL. Deliberately does
+ * NOT catch connection errors (wrong host, wrong credentials, DB does not
+ * exist) — those propagate on their own, which fails `beforeAll` loudly with
+ * Postgres's own error text instead of being swallowed into a silent skip.
+ */
+async function assertUsersTableExists(): Promise<void> {
+  const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
   try {
-    const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
     await probePool.query('SELECT 1')
     const check = await probePool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_name='users' LIMIT 1`,
     )
+    if (check.rowCount === 0) {
+      throw new Error('[contact integration] FAILED — users table not found at this DATABASE_URL')
+    }
+  } finally {
     await probePool.end()
-    return check.rowCount !== 0
-  } catch {
-    return false
   }
 }
 
@@ -213,19 +221,13 @@ async function probeDb(): Promise<boolean> {
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('Contact — real backend integration', () => {
+describe.skipIf(!hasDatabaseUrl())('Contact — real backend integration', () => {
   let app: NestFastifyApplication
   let mailer: ResendMailerService
   let dbSvc: DatabaseService
 
   beforeAll(async () => {
-    dbAvailable = await probeDb()
-    if (!dbAvailable) {
-      console.warn(
-        '[contact integration] SKIPPED — no DB reachable at DATABASE_URL, or users table missing',
-      )
-      return
-    }
+    await assertUsersTableExists()
 
     // Relax the REAL per-route @RelaxableThrottle(CONTACT_SUBMIT_LIMIT=3) for
     // every test EXCEPT the dedicated "AC3 — rate limit" describe block below
@@ -255,7 +257,6 @@ describe('Contact — real backend integration', () => {
 
   afterAll(async () => {
     delete process.env['THROTTLE_RELAXED']
-    if (!dbAvailable) return
     try {
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
     } catch {
@@ -265,7 +266,6 @@ describe('Contact — real backend integration', () => {
   }, 20_000)
 
   it('honeypot: non-empty website field mimics 201 success WITHOUT calling the mailer', async () => {
-    if (!dbAvailable) return
     const sendCallsBefore = (mailer.send as ReturnType<typeof vi.fn>).mock.calls.length
     const res = await app.inject({
       method: 'POST',
@@ -277,7 +277,6 @@ describe('Contact — real backend integration', () => {
   })
 
   it('happy path: real ADMIN lookup feeds the stubbed mailer, replyTo = visitor email', async () => {
-    if (!dbAvailable) return
     const res = await app.inject({
       method: 'POST',
       url: '/api/public/contact',
@@ -293,7 +292,6 @@ describe('Contact — real backend integration', () => {
   })
 
   it('empty turnstileToken → 400 via Zod (`.min(1)`), never reaches Turnstile at all', async () => {
-    if (!dbAvailable) return
     const res = await app.inject({
       method: 'POST',
       url: '/api/public/contact',
@@ -308,7 +306,6 @@ describe('Contact — real backend integration', () => {
   })
 
   it('malformed body (message too short) → 400 via ZodExceptionFilter', async () => {
-    if (!dbAvailable) return
     const res = await app.inject({
       method: 'POST',
       url: '/api/public/contact',
@@ -321,7 +318,6 @@ describe('Contact — real backend integration', () => {
 
   describe('AC5 — Resend not configured', () => {
     it('responds 503 with the CONTACT_PUBLIC_EMAIL fallback, never calls the mailer', async () => {
-      if (!dbAvailable) return
       const unconfiguredMailer = makeStubMailer({ isConfigured: false })
       const noKeyApp = await buildApp(unconfiguredMailer)
       try {
@@ -352,7 +348,6 @@ describe('Contact — real backend integration', () => {
 
   describe('AC-turnstile-422 — Turnstile verification failure', () => {
     it('a token rejected by the REAL Cloudflare siteverify call → 422, mailer never called', async () => {
-      if (!dbAvailable) return
       const mailer = makeStubMailer()
       const alwaysFailApp = await buildApp(
         mailer,
@@ -377,7 +372,6 @@ describe('Contact — real backend integration', () => {
 
   describe('AC3 — rate limit', () => {
     it('returns 429 once CONTACT_SUBMIT_LIMIT is exceeded within the window', async () => {
-      if (!dbAvailable) return
       // Un-relax for THIS test only (see the outer `beforeAll` comment) — the
       // real prod cap (CONTACT_SUBMIT_LIMIT=3, see contact.controller.ts)
       // must actually apply here; the module-level ThrottlerModule.forRoot

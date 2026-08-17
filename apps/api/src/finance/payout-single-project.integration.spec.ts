@@ -14,6 +14,7 @@ import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Audit 2026-06-28 (#5) — REAL-DB integration: a DROP payout must bundle incomes
@@ -83,7 +84,6 @@ const stubInvoices = {
 } as never
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -133,140 +133,137 @@ class TestDatabaseModule {}
 })
 class PspTestModule {}
 
-describe('createPayoutRequest — #5: DROP payout must be single-project (real DB)', () => {
-  let svc: TransactionsService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'createPayoutRequest — #5: DROP payout must be single-project (real DB)',
+  () => {
+    let svc: TransactionsService
+    let dbSvc: DatabaseService
 
-  async function clearLedger() {
-    await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
-    await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
-    await dbSvc.db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
-  }
+    async function clearLedger() {
+      await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+      await dbSvc.db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
+      await dbSvc.db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
+    }
 
-  // Seed a VALIDATED DROP_INCOME for DROP on the given project.
-  async function seedValidatedDropIncome(projectId: string, amount: string): Promise<string> {
-    await dbSvc.db
-      .insert(projects)
-      .values({
-        id: projectId,
-        name: `PSP ${projectId.slice(-4)}`,
-        companyName: 'PSP Corp',
-        domain: 'fintech',
-        startDate: new Date('2025-01-01'),
-        seniorId: SENIOR.id,
-        dropId: DROP.id,
-        currency: 'USDT',
-        rate: 1000,
-      })
-      .onConflictDoNothing()
+    // Seed a VALIDATED DROP_INCOME for DROP on the given project.
+    async function seedValidatedDropIncome(projectId: string, amount: string): Promise<string> {
+      await dbSvc.db
+        .insert(projects)
+        .values({
+          id: projectId,
+          name: `PSP ${projectId.slice(-4)}`,
+          companyName: 'PSP Corp',
+          domain: 'fintech',
+          startDate: new Date('2025-01-01'),
+          seniorId: SENIOR.id,
+          dropId: DROP.id,
+          currency: 'USDT',
+          rate: 1000,
+        })
+        .onConflictDoNothing()
 
-    const [income] = await dbSvc.db
-      .insert(transactions)
-      .values({
-        type: 'DROP_INCOME',
-        status: 'VALIDATED',
-        amount,
-        currency: 'USDT',
-        senderId: null,
-        senderLabel: 'PSP Corp',
-        receiverId: DROP.id,
-        recipientId: DROP.id,
-        projectId,
-        createdBy: DROP.id,
-      })
-      .returning()
-    return income!.id
-  }
+      const [income] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'DROP_INCOME',
+          status: 'VALIDATED',
+          amount,
+          currency: 'USDT',
+          senderId: null,
+          senderLabel: 'PSP Corp',
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId,
+          createdBy: DROP.id,
+        })
+        .returning()
+      return income!.id
+    }
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT table_name FROM information_schema.tables WHERE table_name='payout_requests' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[payout-single-project] SKIPPED — payout_requests not found')
-        dbAvailable = false
-        return
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_name='payout_requests' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[payout-single-project] FAILED — payout_requests not found')
+        }
+      } catch {
+        throw new Error('[payout-single-project] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[payout-single-project] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({ imports: [PspTestModule] }).compile()
-    await moduleRef.init()
-    svc = moduleRef.get(TransactionsService)
-    dbSvc = moduleRef.get(DatabaseService)
+      const moduleRef = await Test.createTestingModule({ imports: [PspTestModule] }).compile()
+      await moduleRef.init()
+      svc = moduleRef.get(TransactionsService)
+      dbSvc = moduleRef.get(DatabaseService)
 
-    const db = dbSvc.db
-    await db.delete(projects).where(inArray(projects.id, PROJECT_IDS))
-    await clearLedger()
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    await db
-      .insert(users)
-      .values(
-        TEST_USERS.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.seniorSharePercent,
-          ...(u.role === 'DROP' ? { dropSharePercent: 5 } : {}),
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    const existing = await db.query.companyAccount.findFirst()
-    if (!existing) {
-      await db.insert(companyAccount).values({
-        id: ACCOUNT_ID,
-        walletAddress: WALLET,
-        confirmationThreshold: 12,
-        updatedBy: SENIOR.id,
-      })
-    }
-  }, 30_000)
-
-  beforeEach(async () => {
-    if (!dbAvailable) return
-    await clearLedger()
-  })
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      const db = dbSvc.db
+      await db.delete(projects).where(inArray(projects.id, PROJECT_IDS))
       await clearLedger()
-      await dbSvc.db.delete(projects).where(inArray(projects.id, PROJECT_IDS))
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
-    }
-    await _pool?.end()
-  }, 15_000)
+      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      await db
+        .insert(users)
+        .values(
+          TEST_USERS.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.seniorSharePercent,
+            ...(u.role === 'DROP' ? { dropSharePercent: 5 } : {}),
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
 
-  it('DROP bundling DROP_INCOME from TWO projects → BadRequest (400)', async () => {
-    if (!dbAvailable) return
-    const a = await seedValidatedDropIncome(PROJECT_A, '500')
-    const b = await seedValidatedDropIncome(PROJECT_B, '300')
-    await expect(svc.createPayoutRequest([a, b], DROP)).rejects.toBeInstanceOf(BadRequestException)
-    // No payout_request must have been created.
-    const pr = await dbSvc.db.query.payoutRequests.findFirst({
-      where: (tbl, { eq }) => eq(tbl.seniorId, DROP.id),
+      const existing = await db.query.companyAccount.findFirst()
+      if (!existing) {
+        await db.insert(companyAccount).values({
+          id: ACCOUNT_ID,
+          walletAddress: WALLET,
+          confirmationThreshold: 12,
+          updatedBy: SENIOR.id,
+        })
+      }
+    }, 30_000)
+
+    beforeEach(async () => {
+      await clearLedger()
     })
-    expect(pr).toBeUndefined()
-  }, 30_000)
 
-  it('DROP bundling DROP_INCOME from the SAME project → OK (payout created)', async () => {
-    if (!dbAvailable) return
-    const a = await seedValidatedDropIncome(PROJECT_A, '500')
-    const b = await seedValidatedDropIncome(PROJECT_A, '300')
-    const pr = await svc.createPayoutRequest([a, b], DROP)
-    expect(pr).toBeDefined()
-    expect(pr.status).toBe('PENDING')
-  }, 30_000)
-})
+    afterAll(async () => {
+      try {
+        await clearLedger()
+        await dbSvc.db.delete(projects).where(inArray(projects.id, PROJECT_IDS))
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await _pool?.end()
+    }, 15_000)
+
+    it('DROP bundling DROP_INCOME from TWO projects → BadRequest (400)', async () => {
+      const a = await seedValidatedDropIncome(PROJECT_A, '500')
+      const b = await seedValidatedDropIncome(PROJECT_B, '300')
+      await expect(svc.createPayoutRequest([a, b], DROP)).rejects.toBeInstanceOf(
+        BadRequestException,
+      )
+      // No payout_request must have been created.
+      const pr = await dbSvc.db.query.payoutRequests.findFirst({
+        where: (tbl, { eq }) => eq(tbl.seniorId, DROP.id),
+      })
+      expect(pr).toBeUndefined()
+    }, 30_000)
+
+    it('DROP bundling DROP_INCOME from the SAME project → OK (payout created)', async () => {
+      const a = await seedValidatedDropIncome(PROJECT_A, '500')
+      const b = await seedValidatedDropIncome(PROJECT_A, '300')
+      const pr = await svc.createPayoutRequest([a, b], DROP)
+      expect(pr).toBeDefined()
+      expect(pr.status).toBe('PENDING')
+    }, 30_000)
+  },
+)

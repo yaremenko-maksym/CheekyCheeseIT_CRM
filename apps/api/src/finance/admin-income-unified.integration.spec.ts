@@ -16,6 +16,7 @@ import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { pendingObligations, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-admin-income-unified — real-DB proof of the task's core invariant and
@@ -132,7 +133,6 @@ const stubInvoices = {
 const stubDocuments = {} as never
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -183,260 +183,254 @@ class TestDatabaseModule {}
 })
 class UnifiedTestModule {}
 
-describe('admin-income-unified — createAdminIncome refuses USDT, declareUsdtProjectIncome books it, prediction == result (real DB)', () => {
-  let svc: TransactionsService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'admin-income-unified — createAdminIncome refuses USDT, declareUsdtProjectIncome books it, prediction == result (real DB)',
+  () => {
+    let svc: TransactionsService
+    let dbSvc: DatabaseService
 
-  // Same idempotency-key-per-call convention as the sibling USDT specs — each
-  // declaration in this file is a distinct income.
-  function declare(
-    body: Omit<Parameters<TransactionsService['declareUsdtProjectIncome']>[0], 'idempotencyKey'>,
-    user: SessionUser,
-  ) {
-    return svc.declareUsdtProjectIncome(
-      {
-        receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspec',
-        ...body,
-        idempotencyKey: randomUUID(),
-      },
-      user,
-    )
-  }
-
-  async function clearLedger() {
-    await dbSvc.db
-      .delete(pendingObligations)
-      .where(inArray(pendingObligations.creditorUserId, [...TEST_OWN_USER_IDS, MAKSYM_ID]))
-    await dbSvc.db.delete(transactions).where(inArray(transactions.projectId, MY_PROJECT_IDS))
-    await sweepOrphanConsumedTxHashes(dbSvc)
-  }
-
-  async function obligationsFor(
-    creditorId: string,
-  ): Promise<{ id: string; amount: string; sourceType: string | null }[]> {
-    const rows = await dbSvc.db
-      .select({
-        id: pendingObligations.id,
-        amount: pendingObligations.amount,
-        sourceType: transactions.type,
-      })
-      .from(pendingObligations)
-      .leftJoin(transactions, eq(pendingObligations.sourceTransactionId, transactions.id))
-      .where(eq(pendingObligations.creditorUserId, creditorId))
-    return rows
-  }
-
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT 1 FROM pg_type WHERE typname='project_payment_type' LIMIT 1`,
+    // Same idempotency-key-per-call convention as the sibling USDT specs — each
+    // declaration in this file is a distinct income.
+    function declare(
+      body: Omit<Parameters<TransactionsService['declareUsdtProjectIncome']>[0], 'idempotencyKey'>,
+      user: SessionUser,
+    ) {
+      return svc.declareUsdtProjectIncome(
+        {
+          receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspec',
+          ...body,
+          idempotencyKey: randomUUID(),
+        },
+        user,
       )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[admin-income-unified] SKIPPED — project_payment_type enum not found')
-        dbAvailable = false
-        return
+    }
+
+    async function clearLedger() {
+      await dbSvc.db
+        .delete(pendingObligations)
+        .where(inArray(pendingObligations.creditorUserId, [...TEST_OWN_USER_IDS, MAKSYM_ID]))
+      await dbSvc.db.delete(transactions).where(inArray(transactions.projectId, MY_PROJECT_IDS))
+      await sweepOrphanConsumedTxHashes(dbSvc)
+    }
+
+    async function obligationsFor(
+      creditorId: string,
+    ): Promise<{ id: string; amount: string; sourceType: string | null }[]> {
+      const rows = await dbSvc.db
+        .select({
+          id: pendingObligations.id,
+          amount: pendingObligations.amount,
+          sourceType: transactions.type,
+        })
+        .from(pendingObligations)
+        .leftJoin(transactions, eq(pendingObligations.sourceTransactionId, transactions.id))
+        .where(eq(pendingObligations.creditorUserId, creditorId))
+      return rows
+    }
+
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT 1 FROM pg_type WHERE typname='project_payment_type' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[admin-income-unified] FAILED — project_payment_type enum not found')
+        }
+      } catch {
+        throw new Error('[admin-income-unified] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[admin-income-unified] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({ imports: [UnifiedTestModule] }).compile()
-    await moduleRef.init()
-    svc = moduleRef.get(TransactionsService)
-    dbSvc = moduleRef.get(DatabaseService)
+      const moduleRef = await Test.createTestingModule({ imports: [UnifiedTestModule] }).compile()
+      await moduleRef.init()
+      svc = moduleRef.get(TransactionsService)
+      dbSvc = moduleRef.get(DatabaseService)
 
-    const db = dbSvc.db
-    await db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
-    await clearLedger()
-    // Only ever delete OUR OWN synthetic users (TEST_OWN_USER_IDS). MAKSYM_ID
-    // / KOSTYA_ID are the real canonical admins already seeded in crm_qa and
-    // referenced from other tables (e.g. vacancies.created_by) — deleting
-    // them 23503s and would corrupt shared fixture data for every other spec.
-    await db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
-    await db
-      .insert(users)
-      .values(
-        [...TEST_OWN_USERS, ADMIN_MAKSYM, ADMIN_KOSTYA].map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.seniorSharePercent,
-          ...(u.role === 'DROP' ? { dropSharePercent: DROP_SHARE } : {}),
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    await db
-      .insert(projects)
-      .values([
-        {
-          id: ADMIN_OWN_USDT_PROJECT,
-          name: 'Unified Admin-Own USDT Project',
-          companyName: 'Unified AdminCorp',
-          domain: 'ai',
-          startDate: new Date('2025-01-01'),
-          seniorId: MAKSYM_ID,
-          dropId: DROP.id,
-          currency: 'USDT',
-          rate: 1000,
-          paymentType: 'USDT',
-        },
-        {
-          id: THIRD_PARTY_USDT_PROJECT,
-          name: 'Unified Third-Party USDT Project',
-          companyName: 'Unified ThirdPartyCorp',
-          domain: 'fintech',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR.id,
-          dropId: DROP.id,
-          currency: 'USDT',
-          rate: 1000,
-          paymentType: 'USDT',
-          dropSharePercentOverride: DROP_OVERRIDE,
-        },
-        {
-          id: ADMIN_OWN_FOP_PROJECT,
-          name: 'Unified Admin-Own FOP Project',
-          companyName: 'Unified FopCorp',
-          domain: 'ai',
-          startDate: new Date('2025-01-01'),
-          seniorId: MAKSYM_ID,
-          dropId: DROP.id,
-          currency: 'USD',
-          rate: 1000,
-          paymentType: 'FOP',
-        },
-      ])
-      .onConflictDoNothing()
-  })
-
-  beforeEach(async () => {
-    if (!dbAvailable) return
-    await clearLedger()
-  })
-
-  afterAll(async () => {
-    if (dbAvailable && dbSvc) {
+      const db = dbSvc.db
+      await db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
       await clearLedger()
-      await dbSvc.db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
-    }
-    if (_pool) await _pool.end()
-  })
+      // Only ever delete OUR OWN synthetic users (TEST_OWN_USER_IDS). MAKSYM_ID
+      // / KOSTYA_ID are the real canonical admins already seeded in crm_qa and
+      // referenced from other tables (e.g. vacancies.created_by) — deleting
+      // them 23503s and would corrupt shared fixture data for every other spec.
+      await db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
+      await db
+        .insert(users)
+        .values(
+          [...TEST_OWN_USERS, ADMIN_MAKSYM, ADMIN_KOSTYA].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.seniorSharePercent,
+            ...(u.role === 'DROP' ? { dropSharePercent: DROP_SHARE } : {}),
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
 
-  // ── AC4: createAdminIncome refuses ANY USDT-payment project ────────────────
-  it('AC4: createAdminIncome refuses a USDT-payment project — no request reaches the writer that skips obligations', async () => {
-    if (!dbAvailable) return
-    await expect(
-      svc.createAdminIncome(
+      await db
+        .insert(projects)
+        .values([
+          {
+            id: ADMIN_OWN_USDT_PROJECT,
+            name: 'Unified Admin-Own USDT Project',
+            companyName: 'Unified AdminCorp',
+            domain: 'ai',
+            startDate: new Date('2025-01-01'),
+            seniorId: MAKSYM_ID,
+            dropId: DROP.id,
+            currency: 'USDT',
+            rate: 1000,
+            paymentType: 'USDT',
+          },
+          {
+            id: THIRD_PARTY_USDT_PROJECT,
+            name: 'Unified Third-Party USDT Project',
+            companyName: 'Unified ThirdPartyCorp',
+            domain: 'fintech',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR.id,
+            dropId: DROP.id,
+            currency: 'USDT',
+            rate: 1000,
+            paymentType: 'USDT',
+            dropSharePercentOverride: DROP_OVERRIDE,
+          },
+          {
+            id: ADMIN_OWN_FOP_PROJECT,
+            name: 'Unified Admin-Own FOP Project',
+            companyName: 'Unified FopCorp',
+            domain: 'ai',
+            startDate: new Date('2025-01-01'),
+            seniorId: MAKSYM_ID,
+            dropId: DROP.id,
+            currency: 'USD',
+            rate: 1000,
+            paymentType: 'FOP',
+          },
+        ])
+        .onConflictDoNothing()
+    })
+
+    beforeEach(async () => {
+      await clearLedger()
+    })
+
+    afterAll(async () => {
+      if (dbSvc) {
+        await clearLedger()
+        await dbSvc.db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
+      }
+      if (_pool) await _pool.end()
+    })
+
+    // ── AC4: createAdminIncome refuses ANY USDT-payment project ────────────────
+    it('AC4: createAdminIncome refuses a USDT-payment project — no request reaches the writer that skips obligations', async () => {
+      await expect(
+        svc.createAdminIncome(
+          {
+            projectId: ADMIN_OWN_USDT_PROJECT,
+            amount: 500,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspecguard',
+          },
+          ADMIN_MAKSYM,
+        ),
+      ).rejects.toThrow(/declareUsdtProjectIncome/)
+
+      // ACCOUNTANT hits the exact same guard (defense-in-depth for BOTH callers
+      // of createAdminIncome — the accountant is also an admin-owned-project
+      // recorder and could otherwise reach the same hole).
+      await expect(
+        svc.createAdminIncome(
+          {
+            projectId: ADMIN_OWN_USDT_PROJECT,
+            amount: 500,
+            currency: 'USDT',
+            receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspecguard2',
+          },
+          ACCOUNTANT,
+        ),
+      ).rejects.toThrow(/declareUsdtProjectIncome/)
+
+      // No transaction, no obligation — the rejected calls left no trace.
+      const rows = await dbSvc.db.query.transactions.findMany({
+        where: (t, { eq }) => eq(t.projectId, ADMIN_OWN_USDT_PROJECT),
+      })
+      expect(rows).toHaveLength(0)
+    })
+
+    // ── AC2 + AC6 (PRIMARY): admin-own USDT project — drop share only ─────────
+    it('AC2/AC6: admin-owned USDT project — drop IOU booked, amount matches roundShareAmount EXACTLY (real prod incident amount)', async () => {
+      const incomeAmount = 4708.69 // the exact amount from the GamingTec incident
+
+      const income = await declare(
         {
           projectId: ADMIN_OWN_USDT_PROJECT,
-          amount: 500,
-          currency: 'USDT',
-          receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspecguard',
+          amount: incomeAmount,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
         },
         ADMIN_MAKSYM,
-      ),
-    ).rejects.toThrow(/declareUsdtProjectIncome/)
+      )
+      expect(income.type).toBe('ADMIN_INCOME')
 
-    // ACCOUNTANT hits the exact same guard (defense-in-depth for BOTH callers
-    // of createAdminIncome — the accountant is also an admin-owned-project
-    // recorder and could otherwise reach the same hole).
-    await expect(
-      svc.createAdminIncome(
-        {
-          projectId: ADMIN_OWN_USDT_PROJECT,
-          amount: 500,
-          currency: 'USDT',
-          receiptExternalUrl: 'https://etherscan.io/tx/0xadminincomeunifiedspecguard2',
-        },
-        ACCOUNTANT,
-      ),
-    ).rejects.toThrow(/declareUsdtProjectIncome/)
+      // No senior IOU — MAKSYM (the senior) is an ADMIN.
+      expect(await obligationsFor(MAKSYM_ID)).toHaveLength(0)
 
-    // No transaction, no obligation — the rejected calls left no trace.
-    const rows = await dbSvc.db.query.transactions.findMany({
-      where: (t, { eq }) => eq(t.projectId, ADMIN_OWN_USDT_PROJECT),
+      // The drop IOU — this IS the "плашка" prediction, computed with the SAME
+      // shared function the web banner imports, not a re-derivation.
+      const predicted = roundShareAmount(incomeAmount, DROP_SHARE)
+      const dropObls = await obligationsFor(DROP.id)
+      expect(dropObls).toHaveLength(1)
+      expect(dropObls[0]!.sourceType).toBe('DROP_PENDING_PAYOUT')
+      // toBe, not toBeCloseTo — AC6 demands EXACT agreement, to the last decimal.
+      expect(parseFloat(dropObls[0]!.amount)).toBe(predicted)
     })
-    expect(rows).toHaveLength(0)
-  })
 
-  // ── AC2 + AC6 (PRIMARY): admin-own USDT project — drop share only ─────────
-  it('AC2/AC6: admin-owned USDT project — drop IOU booked, amount matches roundShareAmount EXACTLY (real prod incident amount)', async () => {
-    if (!dbAvailable) return
-    const incomeAmount = 4708.69 // the exact amount from the GamingTec incident
+    // ── AC2 continued: third-party USDT project — BOTH IOUs ────────────────────
+    it('AC2/AC11: third-party USDT project (reachable only via the unified pool) — both IOUs match roundShareAmount exactly', async () => {
+      const incomeAmount = 1000
 
-    const income = await declare(
-      {
-        projectId: ADMIN_OWN_USDT_PROJECT,
-        amount: incomeAmount,
-        receiverId: COMPANY_ACCOUNT_RECEIVER,
-      },
-      ADMIN_MAKSYM,
-    )
-    expect(income.type).toBe('ADMIN_INCOME')
+      await declare(
+        {
+          projectId: THIRD_PARTY_USDT_PROJECT,
+          amount: incomeAmount,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+        },
+        ADMIN_MAKSYM,
+      )
 
-    // No senior IOU — MAKSYM (the senior) is an ADMIN.
-    expect(await obligationsFor(MAKSYM_ID)).toHaveLength(0)
+      const predictedSenior = roundShareAmount(incomeAmount, SENIOR_SHARE)
+      const seniorObls = await obligationsFor(SENIOR.id)
+      expect(seniorObls).toHaveLength(1)
+      expect(seniorObls[0]!.sourceType).toBe('SENIOR_PENDING_PAYOUT')
+      expect(parseFloat(seniorObls[0]!.amount)).toBe(predictedSenior)
 
-    // The drop IOU — this IS the "плашка" prediction, computed with the SAME
-    // shared function the web banner imports, not a re-derivation.
-    const predicted = roundShareAmount(incomeAmount, DROP_SHARE)
-    const dropObls = await obligationsFor(DROP.id)
-    expect(dropObls).toHaveLength(1)
-    expect(dropObls[0]!.sourceType).toBe('DROP_PENDING_PAYOUT')
-    // toBe, not toBeCloseTo — AC6 demands EXACT agreement, to the last decimal.
-    expect(parseFloat(dropObls[0]!.amount)).toBe(predicted)
-  })
+      const predictedDrop = roundShareAmount(incomeAmount, DROP_OVERRIDE)
+      const dropObls = await obligationsFor(DROP.id)
+      expect(dropObls).toHaveLength(1)
+      expect(dropObls[0]!.sourceType).toBe('DROP_PENDING_PAYOUT')
+      expect(parseFloat(dropObls[0]!.amount)).toBe(predictedDrop)
+    })
 
-  // ── AC2 continued: third-party USDT project — BOTH IOUs ────────────────────
-  it('AC2/AC11: third-party USDT project (reachable only via the unified pool) — both IOUs match roundShareAmount exactly', async () => {
-    if (!dbAvailable) return
-    const incomeAmount = 1000
-
-    await declare(
-      {
-        projectId: THIRD_PARTY_USDT_PROJECT,
-        amount: incomeAmount,
-        receiverId: COMPANY_ACCOUNT_RECEIVER,
-      },
-      ADMIN_MAKSYM,
-    )
-
-    const predictedSenior = roundShareAmount(incomeAmount, SENIOR_SHARE)
-    const seniorObls = await obligationsFor(SENIOR.id)
-    expect(seniorObls).toHaveLength(1)
-    expect(seniorObls[0]!.sourceType).toBe('SENIOR_PENDING_PAYOUT')
-    expect(parseFloat(seniorObls[0]!.amount)).toBe(predictedSenior)
-
-    const predictedDrop = roundShareAmount(incomeAmount, DROP_OVERRIDE)
-    const dropObls = await obligationsFor(DROP.id)
-    expect(dropObls).toHaveLength(1)
-    expect(dropObls[0]!.sourceType).toBe('DROP_PENDING_PAYOUT')
-    expect(parseFloat(dropObls[0]!.amount)).toBe(predictedDrop)
-  })
-
-  // ── AC3: non-USDT project books NOTHING, even with a drop bound ────────────
-  it('AC3: createAdminIncome on a non-USDT project books NO obligation — even though the project has a drop bound', async () => {
-    if (!dbAvailable) return
-    const income = await svc.createAdminIncome(
-      {
-        projectId: ADMIN_OWN_FOP_PROJECT,
-        amount: 500,
-        currency: 'USD',
-        receiptExternalUrl: 'https://example.com/receipt.png',
-      },
-      ADMIN_MAKSYM,
-    )
-    expect(income.type).toBe('ADMIN_INCOME')
-    expect(await obligationsFor(DROP.id)).toHaveLength(0)
-    expect(await obligationsFor(MAKSYM_ID)).toHaveLength(0)
-  })
-})
+    // ── AC3: non-USDT project books NOTHING, even with a drop bound ────────────
+    it('AC3: createAdminIncome on a non-USDT project books NO obligation — even though the project has a drop bound', async () => {
+      const income = await svc.createAdminIncome(
+        {
+          projectId: ADMIN_OWN_FOP_PROJECT,
+          amount: 500,
+          currency: 'USD',
+          receiptExternalUrl: 'https://example.com/receipt.png',
+        },
+        ADMIN_MAKSYM,
+      )
+      expect(income.type).toBe('ADMIN_INCOME')
+      expect(await obligationsFor(DROP.id)).toHaveLength(0)
+      expect(await obligationsFor(MAKSYM_ID)).toHaveLength(0)
+    })
+  },
+)

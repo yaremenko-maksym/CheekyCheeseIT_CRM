@@ -19,6 +19,7 @@ import { ProjectsService } from './projects.service'
 import { UsersService } from '../users/users.service'
 import * as schema from '../database/schema'
 import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * GET /api/projects/:id/hr-contact — real-DB integration spec.
@@ -124,7 +125,6 @@ class SentinelProjectsController {
 // ── TestDatabaseModule ─────────────────────────────────────────────────────────
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -201,237 +201,235 @@ class ProjectsHrContactTestModule {}
 
 // ── Suite ──────────────────────────────────────────────────────────────────────
 
-describe('GET /projects/:id/hr-contact — real DB RBAC integration', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'GET /projects/:id/hr-contact — real DB RBAC integration',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  function cookieAuth(user: SessionUser) {
-    return { jwt: jwt.sign(user) }
-  }
-
-  beforeAll(async () => {
-    // DB availability probe
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[projects.hr-contact integration] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
+    function cookieAuth(user: SessionUser) {
+      return { jwt: jwt.sign(user) }
     }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [ProjectsHrContactTestModule],
-    }).compile()
+    beforeAll(async () => {
+      // DB availability probe
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[projects.hr-contact integration] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
+        )
+      }
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'hr-contact-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      const moduleRef = await Test.createTestingModule({
+        imports: [ProjectsHrContactTestModule],
+      }).compile()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'hr-contact-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    // ── Seed ──────────────────────────────────────────────────────────────────
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
+      const db = dbSvc.db
 
-    // 1. Users
-    await db
-      .insert(users)
-      .values([
-        {
-          id: SENIOR1.id,
-          email: SENIOR1.email,
-          displayName: SENIOR1.displayName,
-          role: 'SENIOR',
-          googleId: `test-hrc-${SENIOR1.id}`,
-        },
-        {
-          id: J1.id,
-          email: J1.email,
-          displayName: J1.displayName,
-          role: 'JUNIOR',
-          googleId: `test-hrc-${J1.id}`,
-        },
-        {
-          id: J2.id,
-          email: J2.email,
-          displayName: J2.displayName,
-          role: 'JUNIOR',
-          googleId: `test-hrc-${J2.id}`,
-        },
-        {
-          id: HR1.id,
-          email: HR1.email,
-          displayName: HR1.displayName,
-          role: 'HR',
-          googleId: `test-hrc-${HR1.id}`,
-          telegram: '@hr1testhandle',
-          phone: '+380501234567',
-        },
-        {
-          id: HR2.id,
-          email: HR2.email,
-          displayName: HR2.displayName,
-          role: 'HR',
-          googleId: `test-hrc-${HR2.id}`,
-        },
-      ])
-      .onConflictDoNothing()
+      // ── Seed ──────────────────────────────────────────────────────────────────
 
-    // 2. Team (HR1 + SENIOR1 share this team — leftAt=null means active)
-    await db
-      .insert(teams)
-      .values({ id: TEAM_ID, name: 'HR Contact Test Team' })
-      .onConflictDoNothing()
+      // 1. Users
+      await db
+        .insert(users)
+        .values([
+          {
+            id: SENIOR1.id,
+            email: SENIOR1.email,
+            displayName: SENIOR1.displayName,
+            role: 'SENIOR',
+            googleId: `test-hrc-${SENIOR1.id}`,
+          },
+          {
+            id: J1.id,
+            email: J1.email,
+            displayName: J1.displayName,
+            role: 'JUNIOR',
+            googleId: `test-hrc-${J1.id}`,
+          },
+          {
+            id: J2.id,
+            email: J2.email,
+            displayName: J2.displayName,
+            role: 'JUNIOR',
+            googleId: `test-hrc-${J2.id}`,
+          },
+          {
+            id: HR1.id,
+            email: HR1.email,
+            displayName: HR1.displayName,
+            role: 'HR',
+            googleId: `test-hrc-${HR1.id}`,
+            telegram: '@hr1testhandle',
+            phone: '+380501234567',
+          },
+          {
+            id: HR2.id,
+            email: HR2.email,
+            displayName: HR2.displayName,
+            role: 'HR',
+            googleId: `test-hrc-${HR2.id}`,
+          },
+        ])
+        .onConflictDoNothing()
 
-    // 3. Team members: SENIOR1 + HR1 active (leftAt null = active)
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: TEAM_ID, userId: SENIOR1.id },
-        { teamId: TEAM_ID, userId: HR1.id },
-      ])
-      .onConflictDoNothing()
+      // 2. Team (HR1 + SENIOR1 share this team — leftAt=null means active)
+      await db
+        .insert(teams)
+        .values({ id: TEAM_ID, name: 'HR Contact Test Team' })
+        .onConflictDoNothing()
 
-    // 4. Project owned by SENIOR1
-    await db
-      .insert(projects)
-      .values({
-        id: PROJ_ID,
-        name: 'HR Contact Test Project',
-        companyName: 'HC Corp',
-        domain: 'AI',
-        seniorId: SENIOR1.id,
-        rate: '3000',
-        currency: 'USD',
-        startDate: new Date(),
+      // 3. Team members: SENIOR1 + HR1 active (leftAt null = active)
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: TEAM_ID, userId: SENIOR1.id },
+          { teamId: TEAM_ID, userId: HR1.id },
+        ])
+        .onConflictDoNothing()
+
+      // 4. Project owned by SENIOR1
+      await db
+        .insert(projects)
+        .values({
+          id: PROJ_ID,
+          name: 'HR Contact Test Project',
+          companyName: 'HC Corp',
+          domain: 'AI',
+          seniorId: SENIOR1.id,
+          rate: '3000',
+          currency: 'USD',
+          startDate: new Date(),
+        })
+        .onConflictDoNothing()
+
+      // 5. J1 is an active project member (leftAt null = active)
+      await db
+        .insert(projectMembers)
+        .values({ projectId: PROJ_ID, userId: J1.id })
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      if (!dbSvc)
+        throw new Error(
+          '[require-real-db] dbSvc not initialized — beforeAll should have thrown already',
+        )
+      const db = dbSvc.db
+      // Clean up in reverse dependency order
+      await db.delete(projectMembers).where(inArray(projectMembers.userId, [J1.id, J2.id]))
+      await db.delete(teamMembers).where(inArray(teamMembers.userId, [SENIOR1.id, HR1.id]))
+      await db.delete(projects).where(inArray(projects.id, [PROJ_ID]))
+      await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
+      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      await app?.close()
+    })
+
+    // ── HC-1: ADMIN gets 200 with allowlist fields ─────────────────────────────
+
+    it('HC-1: ADMIN → 200 with {displayName, telegram, phone} allowlist only', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_ID}/hr-contact`,
+        cookies: cookieAuth(ADMIN),
       })
-      .onConflictDoNothing()
-
-    // 5. J1 is an active project member (leftAt null = active)
-    await db
-      .insert(projectMembers)
-      .values({ projectId: PROJ_ID, userId: J1.id })
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable || !dbSvc) return
-    const db = dbSvc.db
-    // Clean up in reverse dependency order
-    await db.delete(projectMembers).where(inArray(projectMembers.userId, [J1.id, J2.id]))
-    await db.delete(teamMembers).where(inArray(teamMembers.userId, [SENIOR1.id, HR1.id]))
-    await db.delete(projects).where(inArray(projects.id, [PROJ_ID]))
-    await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    await app?.close()
-  })
-
-  // ── HC-1: ADMIN gets 200 with allowlist fields ─────────────────────────────
-
-  it('HC-1: ADMIN → 200 with {displayName, telegram, phone} allowlist only', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_ID}/hr-contact`,
-      cookies: cookieAuth(ADMIN),
+      expect(res.statusCode).toBe(200)
+      const body = res.json<Record<string, unknown>>()
+      // Allowlist check: exactly these four keys (avatarUrl added round5)
+      const keys = Object.keys(body)
+      expect(keys).toContain('displayName')
+      expect(keys).toContain('telegram')
+      expect(keys).toContain('phone')
+      expect(keys).toContain('avatarUrl')
+      // Must NOT leak identifiers or finance
+      expect(keys).not.toContain('id')
+      expect(keys).not.toContain('role')
+      expect(keys).not.toContain('email')
+      // HR1 seeded with telegram + phone
+      expect(body['displayName']).toBe(HR1.displayName)
+      expect(body['telegram']).toBe('@hr1testhandle')
+      expect(body['phone']).toBe('+380501234567')
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json<Record<string, unknown>>()
-    // Allowlist check: exactly these four keys (avatarUrl added round5)
-    const keys = Object.keys(body)
-    expect(keys).toContain('displayName')
-    expect(keys).toContain('telegram')
-    expect(keys).toContain('phone')
-    expect(keys).toContain('avatarUrl')
-    // Must NOT leak identifiers or finance
-    expect(keys).not.toContain('id')
-    expect(keys).not.toContain('role')
-    expect(keys).not.toContain('email')
-    // HR1 seeded with telegram + phone
-    expect(body['displayName']).toBe(HR1.displayName)
-    expect(body['telegram']).toBe('@hr1testhandle')
-    expect(body['phone']).toBe('+380501234567')
-  })
 
-  // ── HC-2: active JUNIOR member → 200 ──────────────────────────────────────
+    // ── HC-2: active JUNIOR member → 200 ──────────────────────────────────────
 
-  it('HC-2: active JUNIOR project member (J1) → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_ID}/hr-contact`,
-      cookies: cookieAuth(J1),
+    it('HC-2: active JUNIOR project member (J1) → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_ID}/hr-contact`,
+        cookies: cookieAuth(J1),
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json<Record<string, unknown>>()
+      expect(body['displayName']).toBe(HR1.displayName)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json<Record<string, unknown>>()
-    expect(body['displayName']).toBe(HR1.displayName)
-  })
 
-  // ── HC-3: non-member JUNIOR → 403 (IDOR guard) ────────────────────────────
+    // ── HC-3: non-member JUNIOR → 403 (IDOR guard) ────────────────────────────
 
-  it('HC-3: non-member JUNIOR (J2) → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_ID}/hr-contact`,
-      cookies: cookieAuth(J2),
+    it('HC-3: non-member JUNIOR (J2) → 403', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_ID}/hr-contact`,
+        cookies: cookieAuth(J2),
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  // ── HC-4: HR in the senior's team → 200 ───────────────────────────────────
+    // ── HC-4: HR in the senior's team → 200 ───────────────────────────────────
 
-  it('HC-4: HR in the project team (HR1) → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_ID}/hr-contact`,
-      cookies: cookieAuth(HR1),
-    })
-    expect(res.statusCode).toBe(200)
-  })
-
-  // ── HC-5: HR not in the senior's team → 403 ───────────────────────────────
-
-  it('HC-5: HR outside the project team (HR2) → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_ID}/hr-contact`,
-      cookies: cookieAuth(HR2),
-    })
-    expect(res.statusCode).toBe(403)
-  })
-
-  // ── HC-6: HR who left the team (leftAt set) → 403 ─────────────────────────
-
-  it('HC-6: HR1 who left the team (leftAt set) → 403; active again → 200', async () => {
-    if (!dbAvailable) return
-    const db = dbSvc.db
-    const hr1Membership = and(eq(teamMembers.teamId, TEAM_ID), eq(teamMembers.userId, HR1.id))
-    await db.update(teamMembers).set({ leftAt: new Date() }).where(hr1Membership)
-    try {
+    it('HC-4: HR in the project team (HR1) → 200', async () => {
       const res = await app.inject({
         method: 'GET',
         url: `/api/projects/${PROJ_ID}/hr-contact`,
         cookies: cookieAuth(HR1),
       })
-      expect(res.statusCode, 'HR who left the team must lose hr-contact access').toBe(403)
-    } finally {
-      await db.update(teamMembers).set({ leftAt: null }).where(hr1Membership)
-    }
-    const restored = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_ID}/hr-contact`,
-      cookies: cookieAuth(HR1),
+      expect(res.statusCode).toBe(200)
     })
-    expect(restored.statusCode, 'restored membership regains access').toBe(200)
-  })
-})
+
+    // ── HC-5: HR not in the senior's team → 403 ───────────────────────────────
+
+    it('HC-5: HR outside the project team (HR2) → 403', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_ID}/hr-contact`,
+        cookies: cookieAuth(HR2),
+      })
+      expect(res.statusCode).toBe(403)
+    })
+
+    // ── HC-6: HR who left the team (leftAt set) → 403 ─────────────────────────
+
+    it('HC-6: HR1 who left the team (leftAt set) → 403; active again → 200', async () => {
+      const db = dbSvc.db
+      const hr1Membership = and(eq(teamMembers.teamId, TEAM_ID), eq(teamMembers.userId, HR1.id))
+      await db.update(teamMembers).set({ leftAt: new Date() }).where(hr1Membership)
+      try {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/projects/${PROJ_ID}/hr-contact`,
+          cookies: cookieAuth(HR1),
+        })
+        expect(res.statusCode, 'HR who left the team must lose hr-contact access').toBe(403)
+      } finally {
+        await db.update(teamMembers).set({ leftAt: null }).where(hr1Membership)
+      }
+      const restored = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_ID}/hr-contact`,
+        cookies: cookieAuth(HR1),
+      })
+      expect(restored.statusCode, 'restored membership regains access').toBe(200)
+    })
+  },
+)

@@ -20,6 +20,7 @@ import { ProjectAuditLogService } from './project-audit-log.service'
 import { UsersService } from '../users/users.service'
 import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * dropId create RBAC integration spec — real DB.
@@ -50,7 +51,10 @@ import * as schema from '../database/schema'
  *   (distinct from 4000/4002/4003/4010/4020 used by other integration specs —
  *   verified via `grep -rho a9b8c7d6-e5f4-[0-9a-f]\{4\} apps/api/src` at write time)
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * CLEANUP NOTE: unlike the update() spec (single PATCH target, reset between
  * tests), create() inserts a brand-new `projects` row on every successful
@@ -199,7 +203,6 @@ class SentinelProjectsController {
 // ---------------------------------------------------------------------------
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -276,439 +279,421 @@ class DropIdCreateTestModule {}
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('ProjectsService.create dropId validation — real DB integration', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'ProjectsService.create dropId validation — real DB integration',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  /** Every successfully-created project id — deleted in afterAll. */
-  const createdProjectIds: string[] = []
+    /** Every successfully-created project id — deleted in afterAll. */
+    const createdProjectIds: string[] = []
 
-  beforeAll(async () => {
-    // DB availability probe — graceful skip when DATABASE_URL is unset/unreachable
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[drop-id-create integration] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
-
-    const moduleRef = await Test.createTestingModule({
-      imports: [DropIdCreateTestModule],
-    }).compile()
-
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'drop-crt-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    app.useGlobalFilters(new ZodExceptionFilter())
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // ── Seed test data ────────────────────────────────────────────────────────
-
-    // 1. Test users
-    await db
-      .insert(users)
-      .values([
-        {
-          id: SENIOR1.id,
-          email: SENIOR1.email,
-          displayName: SENIOR1.displayName,
-          role: 'SENIOR',
-          googleId: `test-drop-crt-${SENIOR1.id}`,
-          seniorSharePercent: 26,
-        },
-        {
-          id: JUNIOR1.id,
-          email: JUNIOR1.email,
-          displayName: JUNIOR1.displayName,
-          role: 'JUNIOR',
-          googleId: `test-drop-crt-${JUNIOR1.id}`,
-        },
-        {
-          id: DROP1.id,
-          email: DROP1.email,
-          displayName: DROP1.displayName,
-          role: 'DROP',
-          googleId: `test-drop-crt-${DROP1.id}`,
-        },
-        {
-          id: DROP2_ARCHIVED.id,
-          email: DROP2_ARCHIVED.email,
-          displayName: DROP2_ARCHIVED.displayName,
-          role: 'DROP',
-          googleId: `test-drop-crt-${DROP2_ARCHIVED.id}`,
-          // archivedAt set → this user is archived
-          archivedAt: new Date('2025-01-01'),
-        },
-        {
-          id: HR_OWN.id,
-          email: HR_OWN.email,
-          displayName: HR_OWN.displayName,
-          role: 'HR',
-          googleId: `test-drop-crt-${HR_OWN.id}`,
-        },
-        {
-          id: HR_FOREIGN.id,
-          email: HR_FOREIGN.email,
-          displayName: HR_FOREIGN.displayName,
-          role: 'HR',
-          googleId: `test-drop-crt-${HR_FOREIGN.id}`,
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 2. Teams: OWN_TEAM (SENIOR1 + HR_OWN), FOREIGN_TEAM (HR_FOREIGN only)
-    await db
-      .insert(teams)
-      .values([
-        { id: OWN_TEAM_ID, name: 'DropCrt Own Team' },
-        { id: FOREIGN_TEAM_ID, name: 'DropCrt Foreign Team' },
-      ])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: OWN_TEAM_ID, userId: SENIOR1.id, joinedAt: new Date() },
-        { teamId: OWN_TEAM_ID, userId: HR_OWN.id, joinedAt: new Date() },
-        { teamId: FOREIGN_TEAM_ID, userId: HR_FOREIGN.id, joinedAt: new Date() },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
-      const db = dbSvc.db
-      // FK-safe cleanup order: members → projects (created by tests) → teams → users
-      if (createdProjectIds.length) {
-        await db.delete(projectMembers).where(inArray(projectMembers.projectId, createdProjectIds))
-        await db.delete(projects).where(inArray(projects.id, createdProjectIds))
+    beforeAll(async () => {
+      // DB availability probe — graceful skip when DATABASE_URL is unset/unreachable
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[drop-id-create integration] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
+        )
       }
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [DropIdCreateTestModule],
+      }).compile()
+
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'drop-crt-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      app.useGlobalFilters(new ZodExceptionFilter())
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
+
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
+      const db = dbSvc.db
+
+      // ── Seed test data ────────────────────────────────────────────────────────
+
+      // 1. Test users
       await db
-        .delete(teamMembers)
-        .where(inArray(teamMembers.teamId, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
-      await db.delete(teams).where(inArray(teams.id, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
-      await db.delete(users).where(inArray(users.id, ALL_TEST_USER_IDS))
-    } catch {
-      // Non-fatal cleanup — don't mask test failures
+        .insert(users)
+        .values([
+          {
+            id: SENIOR1.id,
+            email: SENIOR1.email,
+            displayName: SENIOR1.displayName,
+            role: 'SENIOR',
+            googleId: `test-drop-crt-${SENIOR1.id}`,
+            seniorSharePercent: 26,
+          },
+          {
+            id: JUNIOR1.id,
+            email: JUNIOR1.email,
+            displayName: JUNIOR1.displayName,
+            role: 'JUNIOR',
+            googleId: `test-drop-crt-${JUNIOR1.id}`,
+          },
+          {
+            id: DROP1.id,
+            email: DROP1.email,
+            displayName: DROP1.displayName,
+            role: 'DROP',
+            googleId: `test-drop-crt-${DROP1.id}`,
+          },
+          {
+            id: DROP2_ARCHIVED.id,
+            email: DROP2_ARCHIVED.email,
+            displayName: DROP2_ARCHIVED.displayName,
+            role: 'DROP',
+            googleId: `test-drop-crt-${DROP2_ARCHIVED.id}`,
+            // archivedAt set → this user is archived
+            archivedAt: new Date('2025-01-01'),
+          },
+          {
+            id: HR_OWN.id,
+            email: HR_OWN.email,
+            displayName: HR_OWN.displayName,
+            role: 'HR',
+            googleId: `test-drop-crt-${HR_OWN.id}`,
+          },
+          {
+            id: HR_FOREIGN.id,
+            email: HR_FOREIGN.email,
+            displayName: HR_FOREIGN.displayName,
+            role: 'HR',
+            googleId: `test-drop-crt-${HR_FOREIGN.id}`,
+          },
+        ])
+        .onConflictDoNothing()
+
+      // 2. Teams: OWN_TEAM (SENIOR1 + HR_OWN), FOREIGN_TEAM (HR_FOREIGN only)
+      await db
+        .insert(teams)
+        .values([
+          { id: OWN_TEAM_ID, name: 'DropCrt Own Team' },
+          { id: FOREIGN_TEAM_ID, name: 'DropCrt Foreign Team' },
+        ])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: OWN_TEAM_ID, userId: SENIOR1.id, joinedAt: new Date() },
+          { teamId: OWN_TEAM_ID, userId: HR_OWN.id, joinedAt: new Date() },
+          { teamId: FOREIGN_TEAM_ID, userId: HR_FOREIGN.id, joinedAt: new Date() },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        // FK-safe cleanup order: members → projects (created by tests) → teams → users
+        if (createdProjectIds.length) {
+          await db
+            .delete(projectMembers)
+            .where(inArray(projectMembers.projectId, createdProjectIds))
+          await db.delete(projects).where(inArray(projects.id, createdProjectIds))
+        }
+        await db
+          .delete(teamMembers)
+          .where(inArray(teamMembers.teamId, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
+        await db.delete(teams).where(inArray(teams.id, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
+        await db.delete(users).where(inArray(users.id, ALL_TEST_USER_IDS))
+      } catch {
+        // Non-fatal cleanup — don't mask test failures
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  /**
-   * Builds a valid `createProjectSchema` payload. `dropId`:
-   *   - omitted (undefined arg) → key absent from the payload (regular project)
-   *   - `null` → explicit null (regular project)
-   *   - string → drop reference under test
-   */
-  function buildPayload(dropId?: string | null): Record<string, unknown> {
-    const base: Record<string, unknown> = {
-      name: 'DropCrt Test Project',
-      companyName: 'DropCrt Corp',
-      domain: 'AI / ML',
-      startDate: '2026-01-01T00:00:00.000Z',
-      seniorId: SENIOR1.id,
-      rate: 5000,
-      currency: 'USDT',
+    /**
+     * Builds a valid `createProjectSchema` payload. `dropId`:
+     *   - omitted (undefined arg) → key absent from the payload (regular project)
+     *   - `null` → explicit null (regular project)
+     *   - string → drop reference under test
+     */
+    function buildPayload(dropId?: string | null): Record<string, unknown> {
+      const base: Record<string, unknown> = {
+        name: 'DropCrt Test Project',
+        companyName: 'DropCrt Corp',
+        domain: 'AI / ML',
+        startDate: '2026-01-01T00:00:00.000Z',
+        seniorId: SENIOR1.id,
+        rate: 5000,
+        currency: 'USDT',
+      }
+      if (dropId !== undefined) {
+        base['dropId'] = dropId
+      }
+      return base
     }
-    if (dropId !== undefined) {
-      base['dropId'] = dropId
-    }
-    return base
-  }
 
-  // ── DROP-CRT-1: ADMIN sets valid active DROP → 201/200, column written ──────
+    // ── DROP-CRT-1: ADMIN sets valid active DROP → 201/200, column written ──────
 
-  it('DROP-CRT-1. ADMIN POST {dropId: validActiveDrop} → 201/200, projects.dropId written to DB', async () => {
-    if (!dbAvailable) return
+    it('DROP-CRT-1. ADMIN POST {dropId: validActiveDrop} → 201/200, projects.dropId written to DB', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: buildPayload(DROP1.id),
+      })
+      expect([200, 201], 'ADMIN POST with valid dropId must return 200/201').toContain(
+        res.statusCode,
+      )
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: buildPayload(DROP1.id),
+      const body = res.json() as { id: string; dropId: string | null }
+      createdProjectIds.push(body.id)
+      expect(body.dropId, 'response dropId must equal DROP1.id').toBe(DROP1.id)
+
+      // Verify the column was actually written in the DB
+      const row = await dbSvc.db.query.projects.findFirst({ where: eq(projects.id, body.id) })
+      expect(row?.dropId, 'projects.dropId must be set to DROP1.id in DB after 200/201').toBe(
+        DROP1.id,
+      )
     })
-    expect([200, 201], 'ADMIN POST with valid dropId must return 200/201').toContain(res.statusCode)
 
-    const body = res.json() as { id: string; dropId: string | null }
-    createdProjectIds.push(body.id)
-    expect(body.dropId, 'response dropId must equal DROP1.id').toBe(DROP1.id)
+    // ── DROP-CRT-2: Non-existent UUID → 404 'Drop not found' ────────────────────
 
-    // Verify the column was actually written in the DB
-    const row = await dbSvc.db.query.projects.findFirst({ where: eq(projects.id, body.id) })
-    expect(row?.dropId, 'projects.dropId must be set to DROP1.id in DB after 200/201').toBe(
-      DROP1.id,
-    )
-  })
+    it('DROP-CRT-2. ADMIN POST {dropId: nonExistentUUID} → 404 Drop not found', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: buildPayload(NONEXISTENT_UUID),
+      })
+      expect(res.statusCode, 'Non-existent dropId UUID must return 404').toBe(404)
 
-  // ── DROP-CRT-2: Non-existent UUID → 404 'Drop not found' ────────────────────
-
-  it('DROP-CRT-2. ADMIN POST {dropId: nonExistentUUID} → 404 Drop not found', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: buildPayload(NONEXISTENT_UUID),
+      const body = res.json() as { message?: string }
+      expect(body.message, "404 body must contain 'Drop not found'").toContain('Drop not found')
     })
-    expect(res.statusCode, 'Non-existent dropId UUID must return 404').toBe(404)
 
-    const body = res.json() as { message?: string }
-    expect(body.message, "404 body must contain 'Drop not found'").toContain('Drop not found')
-  })
+    // ── DROP-CRT-3: User with role≠DROP (JUNIOR) → 400 'User is not a DROP' ─────
 
-  // ── DROP-CRT-3: User with role≠DROP (JUNIOR) → 400 'User is not a DROP' ─────
+    it('DROP-CRT-3. ADMIN POST {dropId: JUNIOR.id} → 400 User is not a DROP', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: buildPayload(JUNIOR1.id),
+      })
+      expect(res.statusCode, 'dropId pointing to a non-DROP user must return 400').toBe(400)
 
-  it('DROP-CRT-3. ADMIN POST {dropId: JUNIOR.id} → 400 User is not a DROP', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: buildPayload(JUNIOR1.id),
+      const body = res.json() as { message?: string }
+      expect(body.message, "400 body must contain 'User is not a DROP'").toContain(
+        'User is not a DROP',
+      )
     })
-    expect(res.statusCode, 'dropId pointing to a non-DROP user must return 400').toBe(400)
 
-    const body = res.json() as { message?: string }
-    expect(body.message, "400 body must contain 'User is not a DROP'").toContain(
-      'User is not a DROP',
-    )
-  })
+    // ── DROP-CRT-4: Archived DROP user → 400 'Drop is archived' ──────────────────
 
-  // ── DROP-CRT-4: Archived DROP user → 400 'Drop is archived' ──────────────────
+    it('DROP-CRT-4. ADMIN POST {dropId: archivedDrop} → 400 Drop is archived', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: buildPayload(DROP2_ARCHIVED.id),
+      })
+      expect(res.statusCode, 'Archived DROP user as dropId must return 400').toBe(400)
 
-  it('DROP-CRT-4. ADMIN POST {dropId: archivedDrop} → 400 Drop is archived', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: buildPayload(DROP2_ARCHIVED.id),
+      const body = res.json() as { message?: string }
+      expect(body.message, "400 body must contain 'Drop is archived'").toContain('Drop is archived')
     })
-    expect(res.statusCode, 'Archived DROP user as dropId must return 400').toBe(400)
 
-    const body = res.json() as { message?: string }
-    expect(body.message, "400 body must contain 'Drop is archived'").toContain('Drop is archived')
-  })
+    // ── DROP-CRT-5a: dropId: null → 201/200, column NULL ─────────────────────────
 
-  // ── DROP-CRT-5a: dropId: null → 201/200, column NULL ─────────────────────────
+    it('DROP-CRT-5a. ADMIN POST {dropId: null} → 201/200, projects.dropId is NULL in DB', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: buildPayload(null),
+      })
+      expect([200, 201], 'ADMIN POST {dropId: null} must return 200/201').toContain(res.statusCode)
 
-  it('DROP-CRT-5a. ADMIN POST {dropId: null} → 201/200, projects.dropId is NULL in DB', async () => {
-    if (!dbAvailable) return
+      const body = res.json() as { id: string; dropId: string | null }
+      createdProjectIds.push(body.id)
+      expect(body.dropId, 'response dropId must be null').toBeNull()
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: buildPayload(null),
+      const row = await dbSvc.db.query.projects.findFirst({ where: eq(projects.id, body.id) })
+      expect(
+        row?.dropId,
+        'projects.dropId must be null in DB when payload.dropId is null',
+      ).toBeNull()
     })
-    expect([200, 201], 'ADMIN POST {dropId: null} must return 200/201').toContain(res.statusCode)
 
-    const body = res.json() as { id: string; dropId: string | null }
-    createdProjectIds.push(body.id)
-    expect(body.dropId, 'response dropId must be null').toBeNull()
+    // ── DROP-CRT-5b: absent dropId key → 201/200, column NULL ────────────────────
 
-    const row = await dbSvc.db.query.projects.findFirst({ where: eq(projects.id, body.id) })
-    expect(row?.dropId, 'projects.dropId must be null in DB when payload.dropId is null').toBeNull()
-  })
+    it('DROP-CRT-5b. ADMIN POST without dropId key → 201/200, projects.dropId is NULL in DB', async () => {
+      const payload = buildPayload()
+      expect('dropId' in payload, 'sanity: payload must NOT contain a dropId key').toBe(false)
 
-  // ── DROP-CRT-5b: absent dropId key → 201/200, column NULL ────────────────────
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload,
+      })
+      expect([200, 201], 'ADMIN POST without dropId key must return 200/201').toContain(
+        res.statusCode,
+      )
 
-  it('DROP-CRT-5b. ADMIN POST without dropId key → 201/200, projects.dropId is NULL in DB', async () => {
-    if (!dbAvailable) return
+      const body = res.json() as { id: string; dropId: string | null }
+      createdProjectIds.push(body.id)
+      expect(body.dropId, 'response dropId must be null when key is absent').toBeNull()
 
-    const payload = buildPayload()
-    expect('dropId' in payload, 'sanity: payload must NOT contain a dropId key').toBe(false)
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload,
+      const row = await dbSvc.db.query.projects.findFirst({ where: eq(projects.id, body.id) })
+      expect(
+        row?.dropId,
+        'projects.dropId must be null in DB when the dropId key is absent from payload',
+      ).toBeNull()
     })
-    expect([200, 201], 'ADMIN POST without dropId key must return 200/201').toContain(
-      res.statusCode,
-    )
 
-    const body = res.json() as { id: string; dropId: string | null }
-    createdProjectIds.push(body.id)
-    expect(body.dropId, 'response dropId must be null when key is absent').toBeNull()
+    // ── DROP-CRT-6: invalid (non-RFC-4122) UUID string → 400 from Zod schema ────
+    //
+    // Zod v4 enforces strict RFC 4122 UUID format on dropId before the service
+    // layer is reached — pinned as a regression guard (see DROP-UPD-9 in the
+    // sibling update() spec, PR #362, for the identical contract on that path).
 
-    const row = await dbSvc.db.query.projects.findFirst({ where: eq(projects.id, body.id) })
-    expect(
-      row?.dropId,
-      'projects.dropId must be null in DB when the dropId key is absent from payload',
-    ).toBeNull()
-  })
+    it('DROP-CRT-6. ADMIN POST {dropId: "invalid-uuid"} → 400 from createProjectSchema.parse (Zod v4 UUID validation)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: buildPayload('invalid-uuid'),
+      })
+      expect(
+        res.statusCode,
+        'Non-RFC-4122 dropId string must be rejected by Zod schema with 400',
+      ).toBe(400)
 
-  // ── DROP-CRT-6: invalid (non-RFC-4122) UUID string → 400 from Zod schema ────
-  //
-  // Zod v4 enforces strict RFC 4122 UUID format on dropId before the service
-  // layer is reached — pinned as a regression guard (see DROP-UPD-9 in the
-  // sibling update() spec, PR #362, for the identical contract on that path).
-
-  it('DROP-CRT-6. ADMIN POST {dropId: "invalid-uuid"} → 400 from createProjectSchema.parse (Zod v4 UUID validation)', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: buildPayload('invalid-uuid'),
+      // ZodExceptionFilter (registered via app.useGlobalFilters) handles ZodError on
+      // non-finance routes: { statusCode: 400, message: 'Validation failed', errors: [...] }
+      const body = res.json() as { message?: string; errors?: unknown[] }
+      expect(body.message, "400 body message must be 'Validation failed'").toBe('Validation failed')
+      expect(Array.isArray(body.errors), '400 body must contain errors array from Zod').toBe(true)
     })
-    expect(
-      res.statusCode,
-      'Non-RFC-4122 dropId string must be rejected by Zod schema with 400',
-    ).toBe(400)
 
-    // ZodExceptionFilter (registered via app.useGlobalFilters) handles ZodError on
-    // non-finance routes: { statusCode: 400, message: 'Validation failed', errors: [...] }
-    const body = res.json() as { message?: string; errors?: unknown[] }
-    expect(body.message, "400 body message must be 'Validation failed'").toBe('Validation failed')
-    expect(Array.isArray(body.errors), '400 body must contain errors array from Zod').toBe(true)
-  })
+    // ── DROP-CRT-7: RBAC denials — outer role gate ──────────────────────────────
+    //
+    // `create()` rejects any caller whose role is not ADMIN/HR BEFORE the dropId
+    // branch is ever reached (`role !== 'ADMIN' && role !== 'HR'` → 403 with the
+    // NestJS default ForbiddenException message).
 
-  // ── DROP-CRT-7: RBAC denials — outer role gate ──────────────────────────────
-  //
-  // `create()` rejects any caller whose role is not ADMIN/HR BEFORE the dropId
-  // branch is ever reached (`role !== 'ADMIN' && role !== 'HR'` → 403 with the
-  // NestJS default ForbiddenException message).
-
-  it('DROP-CRT-7a. SENIOR POST {dropId: validDrop} → 403 Forbidden', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(SENIOR1) },
-      payload: buildPayload(DROP1.id),
+    it('DROP-CRT-7a. SENIOR POST {dropId: validDrop} → 403 Forbidden', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(SENIOR1) },
+        payload: buildPayload(DROP1.id),
+      })
+      expect(res.statusCode, 'SENIOR must be denied (403) when trying to create with dropId').toBe(
+        403,
+      )
+      const body = res.json() as { message?: string }
+      expect(body.message, "SENIOR 403 body must contain 'Forbidden'").toContain('Forbidden')
     })
-    expect(res.statusCode, 'SENIOR must be denied (403) when trying to create with dropId').toBe(
-      403,
-    )
-    const body = res.json() as { message?: string }
-    expect(body.message, "SENIOR 403 body must contain 'Forbidden'").toContain('Forbidden')
-  })
 
-  it('DROP-CRT-7b. JUNIOR POST {dropId: validDrop} → 403 Forbidden', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(JUNIOR1) },
-      payload: buildPayload(DROP1.id),
+    it('DROP-CRT-7b. JUNIOR POST {dropId: validDrop} → 403 Forbidden', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(JUNIOR1) },
+        payload: buildPayload(DROP1.id),
+      })
+      expect(res.statusCode, 'JUNIOR must be denied (403) when trying to create with dropId').toBe(
+        403,
+      )
+      // Same outer role gate as DROP-CRT-7a (`role !== 'ADMIN' && role !== 'HR'`) —
+      // pin the body so a 403 from a *different* layer (e.g. a future per-field
+      // check with its own message) cannot silently satisfy this assertion.
+      const body = res.json() as { message?: string }
+      expect(body.message, "JUNIOR 403 body must contain 'Forbidden'").toContain('Forbidden')
     })
-    expect(res.statusCode, 'JUNIOR must be denied (403) when trying to create with dropId').toBe(
-      403,
-    )
-    // Same outer role gate as DROP-CRT-7a (`role !== 'ADMIN' && role !== 'HR'`) —
-    // pin the body so a 403 from a *different* layer (e.g. a future per-field
-    // check with its own message) cannot silently satisfy this assertion.
-    const body = res.json() as { message?: string }
-    expect(body.message, "JUNIOR 403 body must contain 'Forbidden'").toContain('Forbidden')
-  })
 
-  it('DROP-CRT-7c. DROP POST {dropId: validDrop} → 403 Forbidden', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(DROP1) },
-      payload: buildPayload(DROP1.id),
+    it('DROP-CRT-7c. DROP POST {dropId: validDrop} → 403 Forbidden', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(DROP1) },
+        payload: buildPayload(DROP1.id),
+      })
+      expect(
+        res.statusCode,
+        'DROP role must be denied (403) when trying to create with dropId',
+      ).toBe(403)
+      const body = res.json() as { message?: string }
+      expect(body.message, "DROP 403 body must contain 'Forbidden'").toContain('Forbidden')
     })
-    expect(res.statusCode, 'DROP role must be denied (403) when trying to create with dropId').toBe(
-      403,
-    )
-    const body = res.json() as { message?: string }
-    expect(body.message, "DROP 403 body must contain 'Forbidden'").toContain('Forbidden')
-  })
 
-  it('DROP-CRT-7d. ACCOUNTANT POST {dropId: validDrop} → 403 Forbidden', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
-      payload: buildPayload(DROP1.id),
+    it('DROP-CRT-7d. ACCOUNTANT POST {dropId: validDrop} → 403 Forbidden', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+        payload: buildPayload(DROP1.id),
+      })
+      expect(
+        res.statusCode,
+        'ACCOUNTANT must be denied (403) when trying to create with dropId',
+      ).toBe(403)
+      const body = res.json() as { message?: string }
+      expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
     })
-    expect(
-      res.statusCode,
-      'ACCOUNTANT must be denied (403) when trying to create with dropId',
-    ).toBe(403)
-    const body = res.json() as { message?: string }
-    expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
-  })
 
-  // ── DROP-CRT-8: RBAC positive — HR scoping via assertHrCanManageProject ─────
+    // ── DROP-CRT-8: RBAC positive — HR scoping via assertHrCanManageProject ─────
 
-  it('DROP-CRT-8a. HR of senior own team POST {dropId: validDrop} → 201/200 (assertHrCanManageProject passes)', async () => {
-    if (!dbAvailable) return
+    it('DROP-CRT-8a. HR of senior own team POST {dropId: validDrop} → 201/200 (assertHrCanManageProject passes)', async () => {
+      // HR_OWN is in OWN_TEAM which contains SENIOR1 (the target seniorId),
+      // so assertHrCanManageProject must pass.
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(HR_OWN) },
+        payload: buildPayload(DROP1.id),
+      })
+      expect(
+        res.statusCode,
+        'HR of the target senior own team must be allowed (200/201) to create with a valid dropId',
+      ).toBeGreaterThanOrEqual(200)
+      expect([200, 201]).toContain(res.statusCode)
 
-    // HR_OWN is in OWN_TEAM which contains SENIOR1 (the target seniorId),
-    // so assertHrCanManageProject must pass.
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(HR_OWN) },
-      payload: buildPayload(DROP1.id),
+      const body = res.json() as { id: string; dropId: string | null }
+      createdProjectIds.push(body.id)
+      expect(body.dropId, 'response dropId must be DROP1.id when HR of own team creates it').toBe(
+        DROP1.id,
+      )
     })
-    expect(
-      res.statusCode,
-      'HR of the target senior own team must be allowed (200/201) to create with a valid dropId',
-    ).toBeGreaterThanOrEqual(200)
-    expect([200, 201]).toContain(res.statusCode)
 
-    const body = res.json() as { id: string; dropId: string | null }
-    createdProjectIds.push(body.id)
-    expect(body.dropId, 'response dropId must be DROP1.id when HR of own team creates it').toBe(
-      DROP1.id,
-    )
-  })
-
-  it('DROP-CRT-8b. HR of foreign team POST {dropId: validDrop} → 403 (assertHrCanManageProject)', async () => {
-    if (!dbAvailable) return
-
-    // HR_FOREIGN is in FOREIGN_TEAM which does not contain SENIOR1 (the target
-    // seniorId), so assertHrCanManageProject rejects with 403.
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/projects',
-      cookies: { jwt: tokenFor(HR_FOREIGN) },
-      payload: buildPayload(DROP1.id),
+    it('DROP-CRT-8b. HR of foreign team POST {dropId: validDrop} → 403 (assertHrCanManageProject)', async () => {
+      // HR_FOREIGN is in FOREIGN_TEAM which does not contain SENIOR1 (the target
+      // seniorId), so assertHrCanManageProject rejects with 403.
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/projects',
+        cookies: { jwt: tokenFor(HR_FOREIGN) },
+        payload: buildPayload(DROP1.id),
+      })
+      expect(
+        res.statusCode,
+        'HR of a foreign team must be denied (403) — target senior not in their teams',
+      ).toBe(403)
+      // Distinct from the DROP-CRT-7a-d outer role gate: this 403 comes from
+      // `assertHrCanManageProject`'s own message, NOT the bare ForbiddenException()
+      // default. Pinning it proves the rejection is really the HR-scoping branch
+      // and not a false-positive from some other 403 path with the same status.
+      const body = res.json() as { message?: string }
+      expect(
+        body.message,
+        "HR-foreign 403 body must contain 'Проект не в ваших командах' (assertHrCanManageProject)",
+      ).toContain('Проект не в ваших командах')
     })
-    expect(
-      res.statusCode,
-      'HR of a foreign team must be denied (403) — target senior not in their teams',
-    ).toBe(403)
-    // Distinct from the DROP-CRT-7a-d outer role gate: this 403 comes from
-    // `assertHrCanManageProject`'s own message, NOT the bare ForbiddenException()
-    // default. Pinning it proves the rejection is really the HR-scoping branch
-    // and not a false-positive from some other 403 path with the same status.
-    const body = res.json() as { message?: string }
-    expect(
-      body.message,
-      "HR-foreign 403 body must contain 'Проект не в ваших командах' (assertHrCanManageProject)",
-    ).toContain('Проект не в ваших командах')
-  })
-})
+  },
+)

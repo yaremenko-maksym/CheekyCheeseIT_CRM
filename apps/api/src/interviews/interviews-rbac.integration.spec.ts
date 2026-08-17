@@ -39,6 +39,7 @@ import { InterviewsService } from './interviews.service'
 import { ProjectsService } from '../projects/projects.service'
 import { interviews, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Interviews RBAC — real-backend integration spec (HR-2 hardening).
@@ -295,7 +296,6 @@ const projectsServiceStub = {
 
 // ── TestDatabaseModule — wraps a real Pool/drizzle as DatabaseService ──────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -371,699 +371,658 @@ class InterviewsRbacTestModule {}
 
 // ── Suite ──────────────────────────────────────────────────────────────────────
 
-describe('Interviews RBAC — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'Interviews RBAC — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[interviews-rbac integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[interviews-rbac integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
+      }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [InterviewsRbacTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [InterviewsRbacTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'interviews-rbac-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'interviews-rbac-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // ── Seed ──────────────────────────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values([
-        {
-          id: ADMIN.id,
-          email: ADMIN.email,
-          displayName: ADMIN.displayName,
-          role: 'ADMIN',
-          googleId: `test-iv-${ADMIN.id}`,
-        },
-        {
-          id: SENIOR_A.id,
-          email: SENIOR_A.email,
-          displayName: SENIOR_A.displayName,
-          role: 'SENIOR',
-          googleId: `test-iv-${SENIOR_A.id}`,
-        },
-        {
-          id: SENIOR_B.id,
-          email: SENIOR_B.email,
-          displayName: SENIOR_B.displayName,
-          role: 'SENIOR',
-          googleId: `test-iv-${SENIOR_B.id}`,
-        },
-        {
-          id: HR_A.id,
-          email: HR_A.email,
-          displayName: HR_A.displayName,
-          role: 'HR',
-          googleId: `test-iv-${HR_A.id}`,
-        },
-        {
-          id: HR_LEFT.id,
-          email: HR_LEFT.email,
-          displayName: HR_LEFT.displayName,
-          role: 'HR',
-          googleId: `test-iv-${HR_LEFT.id}`,
-        },
-        {
-          id: SENIOR_C.id,
-          email: SENIOR_C.email,
-          displayName: SENIOR_C.displayName,
-          role: 'SENIOR',
-          googleId: `test-iv-${SENIOR_C.id}`,
-        },
-        {
-          id: JUNIOR.id,
-          email: JUNIOR.email,
-          displayName: JUNIOR.displayName,
-          role: 'JUNIOR',
-          googleId: `test-iv-${JUNIOR.id}`,
-        },
-        {
-          id: ACCOUNTANT.id,
-          email: ACCOUNTANT.email,
-          displayName: ACCOUNTANT.displayName,
-          role: 'ACCOUNTANT',
-          googleId: `test-iv-${ACCOUNTANT.id}`,
-        },
-        {
-          id: DROP.id,
-          email: DROP.email,
-          displayName: DROP.displayName,
-          role: 'DROP',
-          googleId: `test-iv-${DROP.id}`,
-        },
-      ])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teams)
-      .values([
-        { id: TEAM_A_ID, name: 'IV RBAC Team A' },
-        { id: TEAM_B_ID, name: 'IV RBAC Team B' },
-      ])
-      .onConflictDoNothing()
-
-    // TEAM_A: SENIOR_A + HR_A (HR_A's accessible senior = SENIOR_A)
-    // TEAM_B: SENIOR_B only (HR_A has no access; cross-team)
-    // SENIOR_C: deliberately NOT a member of any team (teamless guard)
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: TEAM_A_ID, userId: SENIOR_A.id },
-        { teamId: TEAM_A_ID, userId: HR_A.id },
-        { teamId: TEAM_B_ID, userId: SENIOR_B.id },
-        // Audit (MEDIUM): HR_LEFT was in TEAM_A with SENIOR_A but has LEFT
-        // (leftAt set). getAccessibleSeniorIds must exclude this membership.
-        { teamId: TEAM_A_ID, userId: HR_LEFT.id, leftAt: new Date('2025-01-01T00:00:00Z') },
-      ])
-      .onConflictDoNothing()
-
-    // Cards: CARD_A on SENIOR_A board, CARD_B on SENIOR_B board.
-    await db
-      .insert(interviews)
-      .values([
-        {
-          id: CARD_A_ID,
-          seniorId: SENIOR_A.id,
-          companyName: 'IV RBAC Co A',
-          stage: 'HR_SCREEN',
-          position: 0,
-        },
-        {
-          id: CARD_B_ID,
-          seniorId: SENIOR_B.id,
-          companyName: 'IV RBAC Co B',
-          stage: 'HR_SCREEN',
-          position: 0,
-        },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
-      await db.delete(interviews).where(inArray(interviews.id, TEST_CARD_IDS))
-      // Also remove any cards created by create-tests (seniorId-scoped cleanup).
-      await db.delete(interviews).where(inArray(interviews.seniorId, [SENIOR_A.id, SENIOR_B.id]))
-      await db.delete(teamMembers).where(inArray(teamMembers.teamId, TEST_TEAM_IDS))
-      await db.delete(teams).where(inArray(teams.id, TEST_TEAM_IDS))
-      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // Non-fatal cleanup — do not mask test results.
+
+      // ── Seed ──────────────────────────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values([
+          {
+            id: ADMIN.id,
+            email: ADMIN.email,
+            displayName: ADMIN.displayName,
+            role: 'ADMIN',
+            googleId: `test-iv-${ADMIN.id}`,
+          },
+          {
+            id: SENIOR_A.id,
+            email: SENIOR_A.email,
+            displayName: SENIOR_A.displayName,
+            role: 'SENIOR',
+            googleId: `test-iv-${SENIOR_A.id}`,
+          },
+          {
+            id: SENIOR_B.id,
+            email: SENIOR_B.email,
+            displayName: SENIOR_B.displayName,
+            role: 'SENIOR',
+            googleId: `test-iv-${SENIOR_B.id}`,
+          },
+          {
+            id: HR_A.id,
+            email: HR_A.email,
+            displayName: HR_A.displayName,
+            role: 'HR',
+            googleId: `test-iv-${HR_A.id}`,
+          },
+          {
+            id: HR_LEFT.id,
+            email: HR_LEFT.email,
+            displayName: HR_LEFT.displayName,
+            role: 'HR',
+            googleId: `test-iv-${HR_LEFT.id}`,
+          },
+          {
+            id: SENIOR_C.id,
+            email: SENIOR_C.email,
+            displayName: SENIOR_C.displayName,
+            role: 'SENIOR',
+            googleId: `test-iv-${SENIOR_C.id}`,
+          },
+          {
+            id: JUNIOR.id,
+            email: JUNIOR.email,
+            displayName: JUNIOR.displayName,
+            role: 'JUNIOR',
+            googleId: `test-iv-${JUNIOR.id}`,
+          },
+          {
+            id: ACCOUNTANT.id,
+            email: ACCOUNTANT.email,
+            displayName: ACCOUNTANT.displayName,
+            role: 'ACCOUNTANT',
+            googleId: `test-iv-${ACCOUNTANT.id}`,
+          },
+          {
+            id: DROP.id,
+            email: DROP.email,
+            displayName: DROP.displayName,
+            role: 'DROP',
+            googleId: `test-iv-${DROP.id}`,
+          },
+        ])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teams)
+        .values([
+          { id: TEAM_A_ID, name: 'IV RBAC Team A' },
+          { id: TEAM_B_ID, name: 'IV RBAC Team B' },
+        ])
+        .onConflictDoNothing()
+
+      // TEAM_A: SENIOR_A + HR_A (HR_A's accessible senior = SENIOR_A)
+      // TEAM_B: SENIOR_B only (HR_A has no access; cross-team)
+      // SENIOR_C: deliberately NOT a member of any team (teamless guard)
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: TEAM_A_ID, userId: SENIOR_A.id },
+          { teamId: TEAM_A_ID, userId: HR_A.id },
+          { teamId: TEAM_B_ID, userId: SENIOR_B.id },
+          // Audit (MEDIUM): HR_LEFT was in TEAM_A with SENIOR_A but has LEFT
+          // (leftAt set). getAccessibleSeniorIds must exclude this membership.
+          { teamId: TEAM_A_ID, userId: HR_LEFT.id, leftAt: new Date('2025-01-01T00:00:00Z') },
+        ])
+        .onConflictDoNothing()
+
+      // Cards: CARD_A on SENIOR_A board, CARD_B on SENIOR_B board.
+      await db
+        .insert(interviews)
+        .values([
+          {
+            id: CARD_A_ID,
+            seniorId: SENIOR_A.id,
+            companyName: 'IV RBAC Co A',
+            stage: 'HR_SCREEN',
+            position: 0,
+          },
+          {
+            id: CARD_B_ID,
+            seniorId: SENIOR_B.id,
+            companyName: 'IV RBAC Co B',
+            stage: 'HR_SCREEN',
+            position: 0,
+          },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(interviews).where(inArray(interviews.id, TEST_CARD_IDS))
+        // Also remove any cards created by create-tests (seniorId-scoped cleanup).
+        await db.delete(interviews).where(inArray(interviews.seniorId, [SENIOR_A.id, SENIOR_B.id]))
+        await db.delete(teamMembers).where(inArray(teamMembers.teamId, TEST_TEAM_IDS))
+        await db.delete(teams).where(inArray(teams.id, TEST_TEAM_IDS))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // Non-fatal cleanup — do not mask test results.
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
+    // ════════════════════════════════════════════════════════════════════════════
+    // GET /api/interviews — findBySenior
+    // ════════════════════════════════════════════════════════════════════════════
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // GET /api/interviews — findBySenior
-  // ════════════════════════════════════════════════════════════════════════════
-
-  it('LIST 1. ADMIN → 200, can read any senior board', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
-      cookies: { jwt: tokenFor(ADMIN) },
+    it('LIST 1. ADMIN → 200, can read any senior board', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as Array<{ id: string; seniorId: string }>
+      expect(body.every((c) => c.seniorId === SENIOR_A.id)).toBe(true)
+      expect(body.map((c) => c.id)).toContain(CARD_A_ID)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ id: string; seniorId: string }>
-    expect(body.every((c) => c.seniorId === SENIOR_A.id)).toBe(true)
-    expect(body.map((c) => c.id)).toContain(CARD_A_ID)
-  })
 
-  it('LIST 2. SENIOR_A → 200, own board (seniorId ignored, scoped to self)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      // even if SENIOR asks for SENIOR_B's board, service overrides to self
-      url: `/api/interviews?seniorId=${SENIOR_B.id}`,
-      cookies: { jwt: tokenFor(SENIOR_A) },
+    it('LIST 2. SENIOR_A → 200, own board (seniorId ignored, scoped to self)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        // even if SENIOR asks for SENIOR_B's board, service overrides to self
+        url: `/api/interviews?seniorId=${SENIOR_B.id}`,
+        cookies: { jwt: tokenFor(SENIOR_A) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as Array<{ seniorId: string }>
+      expect(body.every((c) => c.seniorId === SENIOR_A.id)).toBe(true)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ seniorId: string }>
-    expect(body.every((c) => c.seniorId === SENIOR_A.id)).toBe(true)
-  })
 
-  it('LIST 3. HR_A → 200 for own team-senior (SENIOR_A)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
-      cookies: { jwt: tokenFor(HR_A) },
+    it('LIST 3. HR_A → 200 for own team-senior (SENIOR_A)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+        cookies: { jwt: tokenFor(HR_A) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as Array<{ seniorId: string }>
+      expect(body.every((c) => c.seniorId === SENIOR_A.id)).toBe(true)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ seniorId: string }>
-    expect(body.every((c) => c.seniorId === SENIOR_A.id)).toBe(true)
-  })
 
-  it('LIST 4. HR_A → 403 for cross-team senior (SENIOR_B, not in HR_A teams)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews?seniorId=${SENIOR_B.id}`,
-      cookies: { jwt: tokenFor(HR_A) },
+    it('LIST 4. HR_A → 403 for cross-team senior (SENIOR_B, not in HR_A teams)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_B.id}`,
+        cookies: { jwt: tokenFor(HR_A) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('LIST 5. HR_A → 403 when seniorId omitted', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(HR_A) },
+    it('LIST 5. HR_A → 403 when seniorId omitted', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(HR_A) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('LIST 6. JUNIOR → 403 (juniors cannot access interviews)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
-      cookies: { jwt: tokenFor(JUNIOR) },
+    it('LIST 6. JUNIOR → 403 (juniors cannot access interviews)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+        cookies: { jwt: tokenFor(JUNIOR) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('LIST 7. DROP → 403 (assertNotDrop, no seniorId)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(DROP) },
+    it('LIST 7. DROP → 403 (assertNotDrop, no seniorId)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(DROP) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('LIST 8. DROP → 403 even with a valid seniorId', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
-      cookies: { jwt: tokenFor(DROP) },
+    it('LIST 8. DROP → 403 even with a valid seniorId', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+        cookies: { jwt: tokenFor(DROP) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('LIST 9. SENIOR_C (teamless) → 403 (active-team guard)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(SENIOR_C) },
+    it('LIST 9. SENIOR_C (teamless) → 403 (active-team guard)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(SENIOR_C) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('LIST 10. No JWT → 401', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({ method: 'GET', url: `/api/interviews?seniorId=${SENIOR_A.id}` })
-    expect(res.statusCode).toBe(401)
-  })
-
-  // ── ACCOUNTANT gap closure (HR-2): @Roles excludes ACCOUNTANT from boards ────
-  // Before HR-2 the service had no else-branch for ACCOUNTANT, so an ACCOUNTANT
-  // with a valid seniorId fell through to the query and got 200 (front-only
-  // gating — the sidebar hid the link, the API did not). docs/business/modules/
-  // interviews.md restricts boards to ADMIN/HR/SENIOR; @Roles now enforces it.
-
-  it('LIST 11. ACCOUNTANT → 403 with a valid seniorId (closed gap; was 200)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    it('LIST 10. No JWT → 401', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+      })
+      expect(res.statusCode).toBe(401)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('LIST 12. ACCOUNTANT → 403 without seniorId', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    // ── ACCOUNTANT gap closure (HR-2): @Roles excludes ACCOUNTANT from boards ────
+    // Before HR-2 the service had no else-branch for ACCOUNTANT, so an ACCOUNTANT
+    // with a valid seniorId fell through to the query and got 200 (front-only
+    // gating — the sidebar hid the link, the API did not). docs/business/modules/
+    // interviews.md restricts boards to ADMIN/HR/SENIOR; @Roles now enforces it.
+
+    it('LIST 11. ACCOUNTANT → 403 with a valid seniorId (closed gap; was 200)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  // ── ex-HR access revocation (audit MEDIUM) ───────────────────────────────────
-  // HR_LEFT used to be in TEAM_A with SENIOR_A but left (teamMembers.leftAt set).
-  // getAccessibleSeniorIds now filters left memberships, so SENIOR_A is no longer
-  // accessible → 403 (same as a cross-team HR). Before the fix this returned 200.
-
-  it('LIST 13. ex-HR (left team) → 403 for former team-senior (was 200 before fix)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/interviews?seniorId=${SENIOR_A.id}`,
-      cookies: { jwt: tokenFor(HR_LEFT) },
+    it('LIST 12. ACCOUNTANT → 403 without seniorId', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // POST /api/interviews — create
-  // ════════════════════════════════════════════════════════════════════════════
+    // ── ex-HR access revocation (audit MEDIUM) ───────────────────────────────────
+    // HR_LEFT used to be in TEAM_A with SENIOR_A but left (teamMembers.leftAt set).
+    // getAccessibleSeniorIds now filters left memberships, so SENIOR_A is no longer
+    // accessible → 403 (same as a cross-team HR). Before the fix this returned 200.
 
-  it('CREATE 11. HR_A → 201/200 for own team-senior (SENIOR_A)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(HR_A) },
-      payload: { seniorId: SENIOR_A.id, companyName: 'HR Created Co' },
+    it('LIST 13. ex-HR (left team) → 403 for former team-senior (was 200 before fix)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/interviews?seniorId=${SENIOR_A.id}`,
+        cookies: { jwt: tokenFor(HR_LEFT) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect([200, 201]).toContain(res.statusCode)
-    const body = res.json() as { seniorId: string; hrId: string | null }
-    expect(body.seniorId).toBe(SENIOR_A.id)
-    expect(body.hrId).toBe(HR_A.id)
-  })
 
-  it('CREATE 12. HR_A → 403 for cross-team senior (SENIOR_B)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(HR_A) },
-      payload: { seniorId: SENIOR_B.id, companyName: 'Cross Team Co' },
+    // ════════════════════════════════════════════════════════════════════════════
+    // POST /api/interviews — create
+    // ════════════════════════════════════════════════════════════════════════════
+
+    it('CREATE 11. HR_A → 201/200 for own team-senior (SENIOR_A)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(HR_A) },
+        payload: { seniorId: SENIOR_A.id, companyName: 'HR Created Co' },
+      })
+      expect([200, 201]).toContain(res.statusCode)
+      const body = res.json() as { seniorId: string; hrId: string | null }
+      expect(body.seniorId).toBe(SENIOR_A.id)
+      expect(body.hrId).toBe(HR_A.id)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('CREATE 13. SENIOR_A → 201/200, card lands on own board (seniorId overridden)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(SENIOR_A) },
-      // tries to plant on SENIOR_B's board; service forces own id
-      payload: { seniorId: SENIOR_B.id, companyName: 'Senior Created Co' },
+    it('CREATE 12. HR_A → 403 for cross-team senior (SENIOR_B)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(HR_A) },
+        payload: { seniorId: SENIOR_B.id, companyName: 'Cross Team Co' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect([200, 201]).toContain(res.statusCode)
-    const body = res.json() as { seniorId: string }
-    expect(body.seniorId).toBe(SENIOR_A.id)
-  })
 
-  it('CREATE 14. ADMIN → 201/200 for any senior', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { seniorId: SENIOR_B.id, companyName: 'Admin Created Co' },
+    it('CREATE 13. SENIOR_A → 201/200, card lands on own board (seniorId overridden)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(SENIOR_A) },
+        // tries to plant on SENIOR_B's board; service forces own id
+        payload: { seniorId: SENIOR_B.id, companyName: 'Senior Created Co' },
+      })
+      expect([200, 201]).toContain(res.statusCode)
+      const body = res.json() as { seniorId: string }
+      expect(body.seniorId).toBe(SENIOR_A.id)
     })
-    expect([200, 201]).toContain(res.statusCode)
-    const body = res.json() as { seniorId: string }
-    expect(body.seniorId).toBe(SENIOR_B.id)
-  })
 
-  it('CREATE 15. JUNIOR → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(JUNIOR) },
-      payload: { seniorId: SENIOR_A.id, companyName: 'Junior Created Co' },
+    it('CREATE 14. ADMIN → 201/200 for any senior', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { seniorId: SENIOR_B.id, companyName: 'Admin Created Co' },
+      })
+      expect([200, 201]).toContain(res.statusCode)
+      const body = res.json() as { seniorId: string }
+      expect(body.seniorId).toBe(SENIOR_B.id)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('CREATE 16. ACCOUNTANT → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
-      payload: { seniorId: SENIOR_A.id, companyName: 'Acc Created Co' },
+    it('CREATE 15. JUNIOR → 403', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(JUNIOR) },
+        payload: { seniorId: SENIOR_A.id, companyName: 'Junior Created Co' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('CREATE 17. DROP → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      cookies: { jwt: tokenFor(DROP) },
-      payload: { seniorId: SENIOR_A.id, companyName: 'Drop Created Co' },
+    it('CREATE 16. ACCOUNTANT → 403', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+        payload: { seniorId: SENIOR_A.id, companyName: 'Acc Created Co' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('CREATE 18. No JWT → 401', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/interviews`,
-      payload: { seniorId: SENIOR_A.id, companyName: 'NoAuth Co' },
+    it('CREATE 17. DROP → 403', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        cookies: { jwt: tokenFor(DROP) },
+        payload: { seniorId: SENIOR_A.id, companyName: 'Drop Created Co' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(401)
-  })
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // PATCH /api/interviews/:id — update
-  // ════════════════════════════════════════════════════════════════════════════
-
-  it('UPDATE 19. ADMIN → 200 on any card', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_B_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { companyName: 'Admin Updated' },
+    it('CREATE 18. No JWT → 401', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/interviews`,
+        payload: { seniorId: SENIOR_A.id, companyName: 'NoAuth Co' },
+      })
+      expect(res.statusCode).toBe(401)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('UPDATE 20. SENIOR_A → 200 on own card (CARD_A)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(SENIOR_A) },
-      payload: { companyName: 'Senior A Updated' },
+    // ════════════════════════════════════════════════════════════════════════════
+    // PATCH /api/interviews/:id — update
+    // ════════════════════════════════════════════════════════════════════════════
+
+    it('UPDATE 19. ADMIN → 200 on any card', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_B_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { companyName: 'Admin Updated' },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it("UPDATE 21. SENIOR_A → 403 on another senior's card (CARD_B)", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_B_ID}`,
-      cookies: { jwt: tokenFor(SENIOR_A) },
-      payload: { companyName: 'Hijack Attempt' },
+    it('UPDATE 20. SENIOR_A → 200 on own card (CARD_A)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(SENIOR_A) },
+        payload: { companyName: 'Senior A Updated' },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('UPDATE 22. HR_A → 200 on own team-senior card (CARD_A)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(HR_A) },
-      payload: { companyName: 'HR A Updated' },
+    it("UPDATE 21. SENIOR_A → 403 on another senior's card (CARD_B)", async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_B_ID}`,
+        cookies: { jwt: tokenFor(SENIOR_A) },
+        payload: { companyName: 'Hijack Attempt' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('UPDATE 23. HR_A → 403 on cross-team card (CARD_B)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_B_ID}`,
-      cookies: { jwt: tokenFor(HR_A) },
-      payload: { companyName: 'HR Cross Update' },
+    it('UPDATE 22. HR_A → 200 on own team-senior card (CARD_A)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(HR_A) },
+        payload: { companyName: 'HR A Updated' },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('UPDATE 24. JUNIOR → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(JUNIOR) },
-      payload: { companyName: 'Junior Update' },
+    it('UPDATE 23. HR_A → 403 on cross-team card (CARD_B)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_B_ID}`,
+        cookies: { jwt: tokenFor(HR_A) },
+        payload: { companyName: 'HR Cross Update' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('UPDATE 25. ACCOUNTANT → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
-      payload: { companyName: 'Acc Update' },
+    it('UPDATE 24. JUNIOR → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(JUNIOR) },
+        payload: { companyName: 'Junior Update' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('UPDATE 26. DROP → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(DROP) },
-      payload: { companyName: 'Drop Update' },
+    it('UPDATE 25. ACCOUNTANT → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+        payload: { companyName: 'Acc Update' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('UPDATE 26b. ex-HR (left team) → 403 on former team-senior card (CARD_A)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(HR_LEFT) },
-      payload: { companyName: 'Ex-HR Update' },
+    it('UPDATE 26. DROP → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(DROP) },
+        payload: { companyName: 'Drop Update' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  // ── stage cannot be changed via PATCH /:id (audit HIGH) ───────────────────────
-  // `updateInterviewSchema` no longer carries `stage`; Zod strips the stray key,
-  // so even an ADMIN PATCHing { stage: 'HIRED' } leaves the stage untouched.
-  // Stage transitions are owned exclusively by PATCH /:id/move. This pins that a
-  // client can never set HIRED (bypassing project creation) or roll back a
-  // terminal stage through the plain update endpoint.
-
-  it('UPDATE 26c. ADMIN PATCH { stage: HIRED } → 200 but stage UNCHANGED (stripped by Zod)', async () => {
-    if (!dbAvailable) return
-    // Ensure a known starting stage on CARD_B.
-    await dbSvc.db
-      .update(interviews)
-      .set({ stage: 'HR_SCREEN' })
-      .where(inArray(interviews.id, [CARD_B_ID]))
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_B_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { companyName: 'Stage Hijack Attempt', stage: 'HIRED' },
+    it('UPDATE 26b. ex-HR (left team) → 403 on former team-senior card (CARD_A)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(HR_LEFT) },
+        payload: { companyName: 'Ex-HR Update' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { stage: string; companyName: string }
-    // The legitimate field was applied…
-    expect(body.companyName).toBe('Stage Hijack Attempt')
-    // …but the smuggled stage was ignored — still HR_SCREEN, never HIRED.
-    expect(body.stage).toBe('HR_SCREEN')
 
-    // Confirm at the DB level too (no side-effect / no project created).
-    const row = await dbSvc.db.query.interviews.findFirst({
-      where: inArray(interviews.id, [CARD_B_ID]),
+    // ── stage cannot be changed via PATCH /:id (audit HIGH) ───────────────────────
+    // `updateInterviewSchema` no longer carries `stage`; Zod strips the stray key,
+    // so even an ADMIN PATCHing { stage: 'HIRED' } leaves the stage untouched.
+    // Stage transitions are owned exclusively by PATCH /:id/move. This pins that a
+    // client can never set HIRED (bypassing project creation) or roll back a
+    // terminal stage through the plain update endpoint.
+
+    it('UPDATE 26c. ADMIN PATCH { stage: HIRED } → 200 but stage UNCHANGED (stripped by Zod)', async () => {
+      // Ensure a known starting stage on CARD_B.
+      await dbSvc.db
+        .update(interviews)
+        .set({ stage: 'HR_SCREEN' })
+        .where(inArray(interviews.id, [CARD_B_ID]))
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_B_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { companyName: 'Stage Hijack Attempt', stage: 'HIRED' },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { stage: string; companyName: string }
+      // The legitimate field was applied…
+      expect(body.companyName).toBe('Stage Hijack Attempt')
+      // …but the smuggled stage was ignored — still HR_SCREEN, never HIRED.
+      expect(body.stage).toBe('HR_SCREEN')
+
+      // Confirm at the DB level too (no side-effect / no project created).
+      const row = await dbSvc.db.query.interviews.findFirst({
+        where: inArray(interviews.id, [CARD_B_ID]),
+      })
+      expect(row?.stage).toBe('HR_SCREEN')
     })
-    expect(row?.stage).toBe('HR_SCREEN')
-  })
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // PATCH /api/interviews/:id/move — move (non-HIRED stages only)
-  // ════════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════════
+    // PATCH /api/interviews/:id/move — move (non-HIRED stages only)
+    // ════════════════════════════════════════════════════════════════════════════
 
-  it('MOVE 27. SENIOR_A → 200 on own card (HR_SCREEN → TECH_INTERVIEW)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}/move`,
-      cookies: { jwt: tokenFor(SENIOR_A) },
-      payload: { stage: 'TECH_INTERVIEW', position: 0 },
+    it('MOVE 27. SENIOR_A → 200 on own card (HR_SCREEN → TECH_INTERVIEW)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}/move`,
+        cookies: { jwt: tokenFor(SENIOR_A) },
+        payload: { stage: 'TECH_INTERVIEW', position: 0 },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('MOVE 28. HR_A → 403 on cross-team card (CARD_B)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_B_ID}/move`,
-      cookies: { jwt: tokenFor(HR_A) },
-      payload: { stage: 'TECH_INTERVIEW', position: 0 },
+    it('MOVE 28. HR_A → 403 on cross-team card (CARD_B)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_B_ID}/move`,
+        cookies: { jwt: tokenFor(HR_A) },
+        payload: { stage: 'TECH_INTERVIEW', position: 0 },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('MOVE 29. HR_A → 200 on own team-senior card (CARD_A)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}/move`,
-      cookies: { jwt: tokenFor(HR_A) },
-      payload: { stage: 'ENGLISH_CHECK', position: 0 },
+    it('MOVE 29. HR_A → 200 on own team-senior card (CARD_A)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}/move`,
+        cookies: { jwt: tokenFor(HR_A) },
+        payload: { stage: 'ENGLISH_CHECK', position: 0 },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('MOVE 30. JUNIOR → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}/move`,
-      cookies: { jwt: tokenFor(JUNIOR) },
-      payload: { stage: 'TECH_INTERVIEW', position: 0 },
+    it('MOVE 30. JUNIOR → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}/move`,
+        cookies: { jwt: tokenFor(JUNIOR) },
+        payload: { stage: 'TECH_INTERVIEW', position: 0 },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('MOVE 31. DROP → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}/move`,
-      cookies: { jwt: tokenFor(DROP) },
-      payload: { stage: 'TECH_INTERVIEW', position: 0 },
+    it('MOVE 31. DROP → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}/move`,
+        cookies: { jwt: tokenFor(DROP) },
+        payload: { stage: 'TECH_INTERVIEW', position: 0 },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('MOVE 32. No JWT → 401', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/interviews/${CARD_A_ID}/move`,
-      payload: { stage: 'TECH_INTERVIEW', position: 0 },
+    it('MOVE 32. No JWT → 401', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/interviews/${CARD_A_ID}/move`,
+        payload: { stage: 'TECH_INTERVIEW', position: 0 },
+      })
+      expect(res.statusCode).toBe(401)
     })
-    expect(res.statusCode).toBe(401)
-  })
 
-  // ════════════════════════════════════════════════════════════════════════════
-  // DELETE /api/interviews/:id — remove (ADMIN + HR only; SENIOR cannot)
-  // ════════════════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════════════════
+    // DELETE /api/interviews/:id — remove (ADMIN + HR only; SENIOR cannot)
+    // ════════════════════════════════════════════════════════════════════════════
 
-  it('REMOVE 33. SENIOR_A → 403 on own card (remove is ADMIN/HR only)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(SENIOR_A) },
+    it('REMOVE 33. SENIOR_A → 403 on own card (remove is ADMIN/HR only)', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(SENIOR_A) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('REMOVE 34. HR_A → 403 on cross-team card (CARD_B)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/interviews/${CARD_B_ID}`,
-      cookies: { jwt: tokenFor(HR_A) },
+    it('REMOVE 34. HR_A → 403 on cross-team card (CARD_B)', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/interviews/${CARD_B_ID}`,
+        cookies: { jwt: tokenFor(HR_A) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('REMOVE 35. JUNIOR → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(JUNIOR) },
+    it('REMOVE 35. JUNIOR → 403', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(JUNIOR) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('REMOVE 36. ACCOUNTANT → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    it('REMOVE 36. ACCOUNTANT → 403', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('REMOVE 37. DROP → 403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(DROP) },
+    it('REMOVE 37. DROP → 403', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(DROP) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('REMOVE 38. HR_A → 200/204 on own team-senior card (CARD_A) — destructive, runs last', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/interviews/${CARD_A_ID}`,
-      cookies: { jwt: tokenFor(HR_A) },
+    it('REMOVE 38. HR_A → 200/204 on own team-senior card (CARD_A) — destructive, runs last', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/interviews/${CARD_A_ID}`,
+        cookies: { jwt: tokenFor(HR_A) },
+      })
+      expect([200, 204]).toContain(res.statusCode)
     })
-    expect([200, 204]).toContain(res.statusCode)
-  })
 
-  it('REMOVE 39. ADMIN → 200/204 on any card (CARD_B) — destructive, runs last', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'DELETE',
-      url: `/api/interviews/${CARD_B_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
+    it('REMOVE 39. ADMIN → 200/204 on any card (CARD_B) — destructive, runs last', async () => {
+      const res = await app.inject({
+        method: 'DELETE',
+        url: `/api/interviews/${CARD_B_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect([200, 204]).toContain(res.statusCode)
     })
-    expect([200, 204]).toContain(res.statusCode)
-  })
-})
+  },
+)

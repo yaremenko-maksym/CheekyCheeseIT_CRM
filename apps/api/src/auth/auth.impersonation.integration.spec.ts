@@ -19,6 +19,7 @@ import { AuthController } from './auth.controller'
 import { AuthService } from './auth.service'
 import { JwtAuthGuard } from './jwt.guard'
 import { RolesGuard } from '../common/guards/roles.guard'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Admin impersonation — security invariants integration spec.
@@ -34,7 +35,10 @@ import { RolesGuard } from '../common/guards/roles.guard'
  *   I7  token without impersonatorId → POST /stop-impersonating = 400
  *   I8  GET /me during impersonation → impersonating:true, id=target
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * SEED namespace: a9e10001-**** (distinct from all other integration suites).
  */
@@ -116,311 +120,307 @@ function signImpersonationToken(
   return jwtSvc.sign(opts)
 }
 
-describe('AuthController — impersonation security invariants (real DB)', () => {
-  let dbAvailable = true
-  let pool: Pool
-  let dbSvc: DatabaseService
-  let app: NestFastifyApplication
-  let jwtSvc: JwtService
+describe.skipIf(!hasDatabaseUrl())(
+  'AuthController — impersonation security invariants (real DB)',
+  () => {
+    let pool: Pool
+    let dbSvc: DatabaseService
+    let app: NestFastifyApplication
+    let jwtSvc: JwtService
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      await probe.end()
-    } catch {
-      console.warn('[auth.impersonation integration] SKIPPED — no DB at DATABASE_URL (CI unit job)')
-      dbAvailable = false
-      return
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        await probe.end()
+      } catch {
+        throw new Error(
+          '[auth.impersonation integration] FAILED — no DB at DATABASE_URL (CI unit job)',
+        )
+      }
+
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      const db = drizzle(pool, { schema })
+      dbSvc = Object.assign(Object.create(DatabaseService.prototype) as DatabaseService, {
+        pool,
+        db,
+      })
+
+      const usersService = Object.assign(Object.create(UsersService.prototype) as UsersService, {
+        db: dbSvc,
+      })
+
+      const authService = Object.assign(Object.create(AuthService.prototype) as AuthService, {
+        config: makeConfig(),
+      })
+
+      // Re-declare design:paramtypes — vitest esbuild drops decorator metadata
+      // (same pattern as auth.oauth-callback.integration.spec.ts).
+      Reflect.defineMetadata(
+        'design:paramtypes',
+        [AuthService, UsersService, JwtService, ConfigService],
+        AuthController,
+      )
+
+      @Module({
+        imports: [JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '7d' } })],
+        controllers: [AuthController],
+        providers: [
+          Reflector,
+          { provide: AuthService, useValue: authService },
+          { provide: UsersService, useValue: usersService },
+          { provide: ConfigService, useValue: makeConfig() },
+          {
+            provide: APP_GUARD,
+            useFactory: (jwt: JwtService, reflector: Reflector) =>
+              new JwtAuthGuard(jwt, reflector, usersService),
+            inject: [JwtService, Reflector],
+          },
+        ],
+      })
+      class TestImpersonationModule {}
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [TestImpersonationModule],
+      })
+        .overrideGuard(RolesGuard)
+        .useValue(new RolesGuard(new Reflector()))
+        .compile()
+
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'integration-test-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
+
+      jwtSvc = moduleRef.get<JwtService>(JwtService)
+
+      // ── Seed ──────────────────────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values([
+          makeRow({ id: ADMIN_ID, email: ADMIN_EMAIL, displayName: 'Admin Imp', role: 'ADMIN' }),
+          makeRow({
+            id: SENIOR_ID,
+            email: SENIOR_EMAIL,
+            displayName: 'Senior Imp',
+            role: 'SENIOR',
+          }),
+          makeRow({
+            id: JUNIOR_ID,
+            email: JUNIOR_EMAIL,
+            displayName: 'Junior Imp',
+            role: 'JUNIOR',
+          }),
+          makeRow({ id: ADMIN2_ID, email: ADMIN2_EMAIL, displayName: 'Admin2 Imp', role: 'ADMIN' }),
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await app?.close()
+      } catch {
+        // ignore
+      }
+      try {
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // Non-fatal cleanup failure.
+      }
+      await pool?.end()
+    }, 15_000)
+
+    // ── Helpers ──────────────────────────────────────────────────────────────
+
+    function jwtCookie(token: string): string {
+      return `jwt=${token}`
     }
 
-    pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(pool, { schema })
-    dbSvc = Object.assign(Object.create(DatabaseService.prototype) as DatabaseService, { pool, db })
-
-    const usersService = Object.assign(Object.create(UsersService.prototype) as UsersService, {
-      db: dbSvc,
-    })
-
-    const authService = Object.assign(Object.create(AuthService.prototype) as AuthService, {
-      config: makeConfig(),
-    })
-
-    // Re-declare design:paramtypes — vitest esbuild drops decorator metadata
-    // (same pattern as auth.oauth-callback.integration.spec.ts).
-    Reflect.defineMetadata(
-      'design:paramtypes',
-      [AuthService, UsersService, JwtService, ConfigService],
-      AuthController,
-    )
-
-    @Module({
-      imports: [JwtModule.register({ secret: JWT_SECRET, signOptions: { expiresIn: '7d' } })],
-      controllers: [AuthController],
-      providers: [
-        Reflector,
-        { provide: AuthService, useValue: authService },
-        { provide: UsersService, useValue: usersService },
-        { provide: ConfigService, useValue: makeConfig() },
-        {
-          provide: APP_GUARD,
-          useFactory: (jwt: JwtService, reflector: Reflector) =>
-            new JwtAuthGuard(jwt, reflector, usersService),
-          inject: [JwtService, Reflector],
-        },
-      ],
-    })
-    class TestImpersonationModule {}
-
-    const moduleRef = await Test.createTestingModule({
-      imports: [TestImpersonationModule],
-    })
-      .overrideGuard(RolesGuard)
-      .useValue(new RolesGuard(new Reflector()))
-      .compile()
-
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'integration-test-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-
-    jwtSvc = moduleRef.get<JwtService>(JwtService)
-
-    // ── Seed ──────────────────────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values([
-        makeRow({ id: ADMIN_ID, email: ADMIN_EMAIL, displayName: 'Admin Imp', role: 'ADMIN' }),
-        makeRow({ id: SENIOR_ID, email: SENIOR_EMAIL, displayName: 'Senior Imp', role: 'SENIOR' }),
-        makeRow({ id: JUNIOR_ID, email: JUNIOR_EMAIL, displayName: 'Junior Imp', role: 'JUNIOR' }),
-        makeRow({ id: ADMIN2_ID, email: ADMIN2_EMAIL, displayName: 'Admin2 Imp', role: 'ADMIN' }),
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
-      await app?.close()
-    } catch {
-      // ignore
+    function adminToken(): string {
+      return signImpersonationToken(jwtSvc, {
+        id: ADMIN_ID,
+        email: ADMIN_EMAIL,
+        role: 'ADMIN',
+      })
     }
-    try {
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // Non-fatal cleanup failure.
+
+    function seniorToken(): string {
+      return signImpersonationToken(jwtSvc, {
+        id: SENIOR_ID,
+        email: SENIOR_EMAIL,
+        role: 'SENIOR',
+      })
     }
-    await pool?.end()
-  }, 15_000)
 
-  // ── Helpers ──────────────────────────────────────────────────────────────
+    function impersonatingToken(targetId: string, targetEmail: string, targetRole: string): string {
+      return signImpersonationToken(jwtSvc, {
+        id: targetId,
+        email: targetEmail,
+        role: targetRole,
+        impersonatorId: ADMIN_ID,
+      })
+    }
 
-  function jwtCookie(token: string): string {
-    return `jwt=${token}`
-  }
+    // ── I1: non-ADMIN → POST /impersonate = 403 ──────────────────────────────
 
-  function adminToken(): string {
-    return signImpersonationToken(jwtSvc, {
-      id: ADMIN_ID,
-      email: ADMIN_EMAIL,
-      role: 'ADMIN',
-    })
-  }
+    it('I1: non-ADMIN (SENIOR) → POST /impersonate = 403', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/impersonate',
+        headers: { cookie: jwtCookie(seniorToken()) },
+        payload: { userId: JUNIOR_ID },
+      })
 
-  function seniorToken(): string {
-    return signImpersonationToken(jwtSvc, {
-      id: SENIOR_ID,
-      email: SENIOR_EMAIL,
-      role: 'SENIOR',
-    })
-  }
-
-  function impersonatingToken(targetId: string, targetEmail: string, targetRole: string): string {
-    return signImpersonationToken(jwtSvc, {
-      id: targetId,
-      email: targetEmail,
-      role: targetRole,
-      impersonatorId: ADMIN_ID,
-    })
-  }
-
-  // ── I1: non-ADMIN → POST /impersonate = 403 ──────────────────────────────
-
-  it('I1: non-ADMIN (SENIOR) → POST /impersonate = 403', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/impersonate',
-      headers: { cookie: jwtCookie(seniorToken()) },
-      payload: { userId: JUNIOR_ID },
+      expect(res.statusCode).toBe(403)
     })
 
-    expect(res.statusCode).toBe(403)
-  })
+    // ── I2: ADMIN → impersonate non-admin = 200, cookie set, token correct ───
 
-  // ── I2: ADMIN → impersonate non-admin = 200, cookie set, token correct ───
+    it('I2: ADMIN → impersonate SENIOR = 200, cookie set, decoded token contains impersonatorId', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/impersonate',
+        headers: { cookie: jwtCookie(adminToken()) },
+        payload: { userId: SENIOR_ID },
+      })
 
-  it('I2: ADMIN → impersonate SENIOR = 200, cookie set, decoded token contains impersonatorId', async () => {
-    if (!dbAvailable) return
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toMatchObject({ ok: true })
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/impersonate',
-      headers: { cookie: jwtCookie(adminToken()) },
-      payload: { userId: SENIOR_ID },
+      // Cookie must be set.
+      const cookieHeader = res.headers['set-cookie']
+      const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join(';') : (cookieHeader ?? '')
+      expect(cookieStr).toContain('jwt=')
+
+      // Decode the issued token and verify the payload.
+      const rawCookieValue = cookieStr.match(/jwt=([^;]+)/)?.[1]
+      expect(rawCookieValue).toBeTruthy()
+      const decoded = jwtSvc.verify<{
+        id: string
+        role: string
+        impersonatorId?: string
+      }>(rawCookieValue!)
+      expect(decoded.id).toBe(SENIOR_ID)
+      expect(decoded.role).toBe('SENIOR')
+      expect(decoded.impersonatorId).toBe(ADMIN_ID)
     })
 
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ ok: true })
+    // ── I3: ADMIN → impersonate ADMIN = 403 ──────────────────────────────────
 
-    // Cookie must be set.
-    const cookieHeader = res.headers['set-cookie']
-    const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join(';') : (cookieHeader ?? '')
-    expect(cookieStr).toContain('jwt=')
+    it('I3: ADMIN → impersonate another ADMIN = 403', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/impersonate',
+        headers: { cookie: jwtCookie(adminToken()) },
+        payload: { userId: ADMIN2_ID },
+      })
 
-    // Decode the issued token and verify the payload.
-    const rawCookieValue = cookieStr.match(/jwt=([^;]+)/)?.[1]
-    expect(rawCookieValue).toBeTruthy()
-    const decoded = jwtSvc.verify<{
-      id: string
-      role: string
-      impersonatorId?: string
-    }>(rawCookieValue!)
-    expect(decoded.id).toBe(SENIOR_ID)
-    expect(decoded.role).toBe('SENIOR')
-    expect(decoded.impersonatorId).toBe(ADMIN_ID)
-  })
-
-  // ── I3: ADMIN → impersonate ADMIN = 403 ──────────────────────────────────
-
-  it('I3: ADMIN → impersonate another ADMIN = 403', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/impersonate',
-      headers: { cookie: jwtCookie(adminToken()) },
-      payload: { userId: ADMIN2_ID },
+      expect(res.statusCode).toBe(403)
     })
 
-    expect(res.statusCode).toBe(403)
-  })
+    // ── I4: ADMIN → impersonate self = 400 ───────────────────────────────────
 
-  // ── I4: ADMIN → impersonate self = 400 ───────────────────────────────────
+    it('I4: ADMIN → impersonate self = 400', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/impersonate',
+        headers: { cookie: jwtCookie(adminToken()) },
+        payload: { userId: ADMIN_ID },
+      })
 
-  it('I4: ADMIN → impersonate self = 400', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/impersonate',
-      headers: { cookie: jwtCookie(adminToken()) },
-      payload: { userId: ADMIN_ID },
+      expect(res.statusCode).toBe(400)
     })
 
-    expect(res.statusCode).toBe(400)
-  })
+    // ── I5: token with impersonatorId → POST /impersonate = 403 (no nesting) ─
 
-  // ── I5: token with impersonatorId → POST /impersonate = 403 (no nesting) ─
+    it('I5: token with impersonatorId → POST /impersonate = 403 (nesting blocked)', async () => {
+      const nestedToken = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
 
-  it('I5: token with impersonatorId → POST /impersonate = 403 (nesting blocked)', async () => {
-    if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/impersonate',
+        headers: { cookie: jwtCookie(nestedToken) },
+        payload: { userId: JUNIOR_ID },
+      })
 
-    const nestedToken = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/impersonate',
-      headers: { cookie: jwtCookie(nestedToken) },
-      payload: { userId: JUNIOR_ID },
+      // RolesGuard blocks at ADMIN role check — returns 403.
+      expect(res.statusCode).toBe(403)
     })
 
-    // RolesGuard blocks at ADMIN role check — returns 403.
-    expect(res.statusCode).toBe(403)
-  })
+    // ── I6: token with impersonatorId → POST /stop-impersonating = 200 ───────
 
-  // ── I6: token with impersonatorId → POST /stop-impersonating = 200 ───────
+    it('I6: token with impersonatorId → POST /stop-impersonating = 200, admin session restored', async () => {
+      const token = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
 
-  it('I6: token with impersonatorId → POST /stop-impersonating = 200, admin session restored', async () => {
-    if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/stop-impersonating',
+        headers: { cookie: jwtCookie(token) },
+      })
 
-    const token = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body)).toMatchObject({ ok: true })
 
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/stop-impersonating',
-      headers: { cookie: jwtCookie(token) },
+      // Cookie must be set with admin's JWT (no impersonatorId).
+      const cookieHeader = res.headers['set-cookie']
+      const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join(';') : (cookieHeader ?? '')
+      expect(cookieStr).toContain('jwt=')
+
+      const rawCookieValue = cookieStr.match(/jwt=([^;]+)/)?.[1]
+      expect(rawCookieValue).toBeTruthy()
+      const decoded = jwtSvc.verify<{
+        id: string
+        role: string
+        impersonatorId?: string
+      }>(rawCookieValue!)
+      // Restored to the original admin.
+      expect(decoded.id).toBe(ADMIN_ID)
+      expect(decoded.role).toBe('ADMIN')
+      expect(decoded.impersonatorId).toBeUndefined()
     })
 
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body)).toMatchObject({ ok: true })
+    // ── I7: token without impersonatorId → POST /stop-impersonating = 400 ────
 
-    // Cookie must be set with admin's JWT (no impersonatorId).
-    const cookieHeader = res.headers['set-cookie']
-    const cookieStr = Array.isArray(cookieHeader) ? cookieHeader.join(';') : (cookieHeader ?? '')
-    expect(cookieStr).toContain('jwt=')
+    it('I7: regular token (no impersonatorId) → POST /stop-impersonating = 400', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/auth/stop-impersonating',
+        headers: { cookie: jwtCookie(seniorToken()) },
+      })
 
-    const rawCookieValue = cookieStr.match(/jwt=([^;]+)/)?.[1]
-    expect(rawCookieValue).toBeTruthy()
-    const decoded = jwtSvc.verify<{
-      id: string
-      role: string
-      impersonatorId?: string
-    }>(rawCookieValue!)
-    // Restored to the original admin.
-    expect(decoded.id).toBe(ADMIN_ID)
-    expect(decoded.role).toBe('ADMIN')
-    expect(decoded.impersonatorId).toBeUndefined()
-  })
-
-  // ── I7: token without impersonatorId → POST /stop-impersonating = 400 ────
-
-  it('I7: regular token (no impersonatorId) → POST /stop-impersonating = 400', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/auth/stop-impersonating',
-      headers: { cookie: jwtCookie(seniorToken()) },
+      expect(res.statusCode).toBe(400)
     })
 
-    expect(res.statusCode).toBe(400)
-  })
+    // ── I8: GET /me during impersonation → impersonating:true, id=target ──────
 
-  // ── I8: GET /me during impersonation → impersonating:true, id=target ──────
+    it('I8: GET /me with impersonating token → impersonating:true, id=target', async () => {
+      const token = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
 
-  it('I8: GET /me with impersonating token → impersonating:true, id=target', async () => {
-    if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/auth/me',
+        headers: { cookie: jwtCookie(token) },
+      })
 
-    const token = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
-
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/auth/me',
-      headers: { cookie: jwtCookie(token) },
+      expect(res.statusCode).toBe(200)
+      const body = JSON.parse(res.body) as { id: string; impersonating?: boolean }
+      expect(body.id).toBe(SENIOR_ID)
+      expect(body.impersonating).toBe(true)
     })
 
-    expect(res.statusCode).toBe(200)
-    const body = JSON.parse(res.body) as { id: string; impersonating?: boolean }
-    expect(body.id).toBe(SENIOR_ID)
-    expect(body.impersonating).toBe(true)
-  })
+    // ── Extra: jwt.guard preserves impersonatorId in decoded payload ──────────
 
-  // ── Extra: jwt.guard preserves impersonatorId in decoded payload ──────────
-
-  it('guard: impersonatorId passes through Zod jwtPayloadSchema validation', async () => {
-    if (!dbAvailable) return
-
-    // Any authenticated endpoint — /me is convenient.
-    const token = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/auth/me',
-      headers: { cookie: jwtCookie(token) },
+    it('guard: impersonatorId passes through Zod jwtPayloadSchema validation', async () => {
+      // Any authenticated endpoint — /me is convenient.
+      const token = impersonatingToken(SENIOR_ID, SENIOR_EMAIL, 'SENIOR')
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/auth/me',
+        headers: { cookie: jwtCookie(token) },
+      })
+      // 200 means the guard accepted the token — did NOT reject it despite extra impersonatorId field.
+      expect(res.statusCode).toBe(200)
     })
-    // 200 means the guard accepted the token — did NOT reject it despite extra impersonatorId field.
-    expect(res.statusCode).toBe(200)
-  })
-})
+  },
+)

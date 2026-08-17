@@ -20,6 +20,7 @@ import { CompanyAccountService } from './company-account.service'
 import { EtherscanService } from './etherscan.service'
 import { companyAccount, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ── REAL controller under test (green-wash fix H2) ──────────────────────────
 // We exercise the PRODUCTION `CompanyAccountController` directly — NOT a sentinel
@@ -106,7 +107,6 @@ const ACCOUNT_ID = 'ca111111-0000-4000-cc00-000000000001'
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -169,294 +169,275 @@ class TestDatabaseModule {}
 })
 class CompanyAccountRbacTestModule {}
 
-describe('company-account — real backend RBAC integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'company-account — real backend RBAC integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT table_name FROM information_schema.tables WHERE table_name='company_account' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[company-account rbac] SKIPPED — company_account table not found')
-        dbAvailable = false
-        return
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_name='company_account' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[company-account rbac] FAILED — company_account table not found')
+        }
+      } catch {
+        throw new Error('[company-account rbac] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[company-account rbac] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({ imports: [CompanyAccountRbacTestModule] })
-      // The real CompanyAccountController is decorated with
-      // `@UseGuards(RolesGuard)`. In a standalone Test module the controller-
-      // scoped guard is not auto-wired with a Reflector, so we override it with
-      // a fully-constructed instance — this exercises the REAL RolesGuard logic
-      // (getAllAndOverride(@Roles) → 403) against the live JWT request.
-      .overrideGuard(RolesGuard)
-      .useValue(new RolesGuard(new Reflector()))
-      .compile()
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'company-account-rbac-cookie-secret' })
-    app.setGlobalPrefix('api')
-    // Mirror prod (main.ts): map ZodError → 400 so schema-validation failures
-    // (e.g. requisites over the length cap) return 400, not a raw 500.
-    app.useGlobalFilters(new ZodExceptionFilter())
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      const moduleRef = await Test.createTestingModule({ imports: [CompanyAccountRbacTestModule] })
+        // The real CompanyAccountController is decorated with
+        // `@UseGuards(RolesGuard)`. In a standalone Test module the controller-
+        // scoped guard is not auto-wired with a Reflector, so we override it with
+        // a fully-constructed instance — this exercises the REAL RolesGuard logic
+        // (getAllAndOverride(@Roles) → 403) against the live JWT request.
+        .overrideGuard(RolesGuard)
+        .useValue(new RolesGuard(new Reflector()))
+        .compile()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'company-account-rbac-cookie-secret' })
+      app.setGlobalPrefix('api')
+      // Mirror prod (main.ts): map ZodError → 400 so schema-validation failures
+      // (e.g. requisites over the length cap) return 400, not a raw 500.
+      app.useGlobalFilters(new ZodExceptionFilter())
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // Surgical cleanup of leftover rows.
-    await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
-    await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    // task-onchain-payment-integrity: this suite POSTs deposits with fixed
-    // hashes; the consumed-hash registry outlives the deleted deposit rows by
-    // design, so without this sweep the SECOND run of the suite would get a
-    // legitimate 400 «хеш уже использован» instead of the expected 201.
-    await sweepOrphanConsumedTxHashes(dbSvc)
-
-    await db
-      .insert(users)
-      .values(
-        ALL.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // Ensure a single company_account row exists with a configured wallet so the
-    // happy-path 200s work; if the seed already created one, update it instead.
-    const existing = await db.query.companyAccount.findFirst()
-    if (existing) {
-      await db
-        .update(companyAccount)
-        .set({ walletAddress: WALLET })
-        .where(inArray(companyAccount.id, [existing.id]))
-    } else {
-      await db.insert(companyAccount).values({
-        id: ACCOUNT_ID,
-        walletAddress: WALLET,
-        confirmationThreshold: 12,
-        updatedBy: ADMIN.id,
-      })
-    }
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
+
+      // Surgical cleanup of leftover rows.
       await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
       await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
-    }
-    await app.close()
-  }, 15_000)
+      // task-onchain-payment-integrity: this suite POSTs deposits with fixed
+      // hashes; the consumed-hash registry outlives the deleted deposit rows by
+      // design, so without this sweep the SECOND run of the suite would get a
+      // legitimate 400 «хеш уже использован» instead of the expected 201.
+      await sweepOrphanConsumedTxHashes(dbSvc)
 
-  const tokenFor = (u: SessionUser) => jwt.sign(u)
+      await db
+        .insert(users)
+        .values(
+          ALL.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
 
-  async function status(
-    method: 'GET' | 'PATCH' | 'POST',
-    url: string,
-    user: SessionUser,
-    payload?: unknown,
-  ): Promise<number> {
-    const res = await app.inject({
-      method,
-      url,
-      cookies: { jwt: tokenFor(user) },
-      ...(payload !== undefined && { payload }),
-    })
-    return res.statusCode
-  }
+      // Ensure a single company_account row exists with a configured wallet so the
+      // happy-path 200s work; if the seed already created one, update it instead.
+      const existing = await db.query.companyAccount.findFirst()
+      if (existing) {
+        await db
+          .update(companyAccount)
+          .set({ walletAddress: WALLET })
+          .where(inArray(companyAccount.id, [existing.id]))
+      } else {
+        await db.insert(companyAccount).values({
+          id: ACCOUNT_ID,
+          walletAddress: WALLET,
+          confirmationThreshold: 12,
+          updatedBy: ADMIN.id,
+        })
+      }
+    }, 30_000)
 
-  // ── GET /company-account — ADMIN/ACCOUNTANT 200, others 403 ─────────────────
-  it('GET /company-account — ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    expect(await status('GET', '/api/company-account', ADMIN)).toBe(200)
-  })
-  it('GET /company-account — ACCOUNTANT → 200', async () => {
-    if (!dbAvailable) return
-    expect(await status('GET', '/api/company-account', ACCOUNTANT)).toBe(200)
-  })
-  for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
-    it(`GET /company-account — ${persona.role} → 403`, async () => {
-      if (!dbAvailable) return
-      expect(await status('GET', '/api/company-account', persona)).toBe(403)
-    })
-  }
-
-  // ── PATCH /company-account/wallet — ADMIN only ──────────────────────────────
-  it('PATCH wallet — ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    expect(
-      await status('PATCH', '/api/company-account/wallet', ADMIN, { walletAddress: WALLET }),
-    ).toBe(200)
-  })
-  for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
-    it(`PATCH wallet — ${persona.role} → 403`, async () => {
-      if (!dbAvailable) return
-      expect(
-        await status('PATCH', '/api/company-account/wallet', persona, { walletAddress: WALLET }),
-      ).toBe(403)
-    })
-  }
-
-  // ── PATCH /company-account/requisites — ADMIN only ──────────────────────────
-  it('PATCH requisites — ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    expect(
-      await status('PATCH', '/api/company-account/requisites', ADMIN, {
-        requisitesMarkdown: '## Реквизиты\n\nООО «Тест»',
-      }),
-    ).toBe(200)
-  })
-  for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
-    it(`PATCH requisites — ${persona.role} → 403`, async () => {
-      if (!dbAvailable) return
-      expect(
-        await status('PATCH', '/api/company-account/requisites', persona, {
-          requisitesMarkdown: 'x',
-        }),
-      ).toBe(403)
-    })
-  }
-  it('PATCH requisites — ADMIN, body over the length cap → 400', async () => {
-    if (!dbAvailable) return
-    expect(
-      await status('PATCH', '/api/company-account/requisites', ADMIN, {
-        requisitesMarkdown: 'a'.repeat(10001),
-      }),
-    ).toBe(400)
-  })
-  it('GET /company-account returns the requisitesMarkdown set by ADMIN', async () => {
-    if (!dbAvailable) return
-    const marker = '## Реквизиты\n\nIBAN UA00 0000 — round-trip marker'
-    await status('PATCH', '/api/company-account/requisites', ADMIN, { requisitesMarkdown: marker })
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/company-account',
-      cookies: { jwt: tokenFor(ADMIN) },
-    })
-    expect(res.statusCode).toBe(200)
-    expect(JSON.parse(res.body).requisitesMarkdown).toBe(marker)
-  })
-
-  // ── POST /company-account/deposits — SENIOR/DROP only ───────────────────────
-  it('POST deposits — SENIOR → 201/200', async () => {
-    if (!dbAvailable) return
-    const code = await status('POST', '/api/company-account/deposits', SENIOR, {
-      txHashOrLink: '0x' + '1'.repeat(64),
-    })
-    expect([200, 201]).toContain(code)
-  })
-  it('POST deposits — DROP → 201/200', async () => {
-    if (!dbAvailable) return
-    const code = await status('POST', '/api/company-account/deposits', DROP, {
-      txHashOrLink: '0x' + '2'.repeat(64),
-    })
-    expect([200, 201]).toContain(code)
-  })
-  for (const persona of [ADMIN, ACCOUNTANT, JUNIOR, HR]) {
-    it(`POST deposits — ${persona.role} → 403`, async () => {
-      if (!dbAvailable) return
-      expect(
-        await status('POST', '/api/company-account/deposits', persona, {
-          txHashOrLink: '0x' + '3'.repeat(64),
-        }),
-      ).toBe(403)
-    })
-  }
-
-  // ── POST /company-account/dividends — ADMIN only ────────────────────────────
-  // MED-2: idempotencyKey is now REQUIRED in createDividendSchema; every test
-  // that hits this endpoint must supply a valid UUID or it gets a 400 from Zod
-  // (which would mask the 403 we're asserting). Use a stable UUID per test so
-  // ADMIN-201 succeeds cleanly and non-ADMIN callers still hit the RolesGuard
-  // (403) before the service even sees the body.
-  // task-receipts-backend (review round 1): a dividend now also requires a
-  // mandatory explorer-link receipt (USDT-only withdrawal) — the ADMIN-success
-  // case needs one to reach 200/201; the 403 cases are rejected by RolesGuard
-  // before Zod ever runs, so they are unaffected.
-  it('POST dividends — ADMIN → 201/200', async () => {
-    if (!dbAvailable) return
-    const code = await status('POST', '/api/company-account/dividends', ADMIN, {
-      amount: 100,
-      idempotencyKey: 'ca000000-0000-4000-aa00-000000000099',
-      receiptExternalUrl: 'https://etherscan.io/tx/0xcompanyaccountrbacspec',
-    })
-    expect([200, 201]).toContain(code)
-  })
-  for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
-    it(`POST dividends — ${persona.role} → 403`, async () => {
-      if (!dbAvailable) return
-      expect(
-        await status('POST', '/api/company-account/dividends', persona, {
-          amount: 100,
-          idempotencyKey: 'ca000000-0000-4000-aa00-000000000099',
-        }),
-      ).toBe(403)
-    })
-  }
-
-  // ── GET deposits/:id/status — owner-isolation (M1) ──────────────────────────
-  // The @Roles guard admits SENIOR/DROP/ADMIN/ACCOUNTANT; the SERVICE then
-  // enforces owner-vs-privileged. A SENIOR/DROP who is NOT the depositor must
-  // get 403 even though their ROLE is admitted — this is the data-access check
-  // a role-only test would miss. Real controller + real service, real DB.
-  describe('GET deposits/:id/status — owner-isolation', () => {
-    const DEPOSIT_ID = 'ca111111-0000-4000-dd00-000000000001'
-    const url = `/api/company-account/deposits/${DEPOSIT_ID}/status`
-
-    beforeAll(async () => {
-      if (!dbAvailable) return
-      const db = dbSvc.db
-      await db.delete(transactions).where(inArray(transactions.id, [DEPOSIT_ID]))
-      // A PENDING deposit OWNED by SENIOR (senderId = SENIOR.id).
-      await db.insert(transactions).values({
-        id: DEPOSIT_ID,
-        type: 'COMPANY_DEPOSIT',
-        status: 'PENDING',
-        amount: '0',
-        currency: 'USDT',
-        senderId: SENIOR.id,
-        senderLabel: SENIOR.displayName,
-        txHash: '0x' + 'a'.repeat(64),
-        createdBy: SENIOR.id,
-      })
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
+        await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
     }, 15_000)
 
-    it('owner (SENIOR) → 200', async () => {
-      if (!dbAvailable) return
-      expect(await status('GET', url, SENIOR)).toBe(200)
+    const tokenFor = (u: SessionUser) => jwt.sign(u)
+
+    async function status(
+      method: 'GET' | 'PATCH' | 'POST',
+      url: string,
+      user: SessionUser,
+      payload?: unknown,
+    ): Promise<number> {
+      const res = await app.inject({
+        method,
+        url,
+        cookies: { jwt: tokenFor(user) },
+        ...(payload !== undefined && { payload }),
+      })
+      return res.statusCode
+    }
+
+    // ── GET /company-account — ADMIN/ACCOUNTANT 200, others 403 ─────────────────
+    it('GET /company-account — ADMIN → 200', async () => {
+      expect(await status('GET', '/api/company-account', ADMIN)).toBe(200)
     })
-    it('non-owner (DROP, role admitted) → 403', async () => {
-      if (!dbAvailable) return
-      expect(await status('GET', url, DROP)).toBe(403)
+    it('GET /company-account — ACCOUNTANT → 200', async () => {
+      expect(await status('GET', '/api/company-account', ACCOUNTANT)).toBe(200)
     })
-    it('privileged (ADMIN) → 200', async () => {
-      if (!dbAvailable) return
-      expect(await status('GET', url, ADMIN)).toBe(200)
+    for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
+      it(`GET /company-account — ${persona.role} → 403`, async () => {
+        expect(await status('GET', '/api/company-account', persona)).toBe(403)
+      })
+    }
+
+    // ── PATCH /company-account/wallet — ADMIN only ──────────────────────────────
+    it('PATCH wallet — ADMIN → 200', async () => {
+      expect(
+        await status('PATCH', '/api/company-account/wallet', ADMIN, { walletAddress: WALLET }),
+      ).toBe(200)
     })
-    it('privileged (ACCOUNTANT) → 200', async () => {
-      if (!dbAvailable) return
-      expect(await status('GET', url, ACCOUNTANT)).toBe(200)
+    for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+      it(`PATCH wallet — ${persona.role} → 403`, async () => {
+        expect(
+          await status('PATCH', '/api/company-account/wallet', persona, { walletAddress: WALLET }),
+        ).toBe(403)
+      })
+    }
+
+    // ── PATCH /company-account/requisites — ADMIN only ──────────────────────────
+    it('PATCH requisites — ADMIN → 200', async () => {
+      expect(
+        await status('PATCH', '/api/company-account/requisites', ADMIN, {
+          requisitesMarkdown: '## Реквизиты\n\nООО «Тест»',
+        }),
+      ).toBe(200)
     })
-  })
-})
+    for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+      it(`PATCH requisites — ${persona.role} → 403`, async () => {
+        expect(
+          await status('PATCH', '/api/company-account/requisites', persona, {
+            requisitesMarkdown: 'x',
+          }),
+        ).toBe(403)
+      })
+    }
+    it('PATCH requisites — ADMIN, body over the length cap → 400', async () => {
+      expect(
+        await status('PATCH', '/api/company-account/requisites', ADMIN, {
+          requisitesMarkdown: 'a'.repeat(10001),
+        }),
+      ).toBe(400)
+    })
+    it('GET /company-account returns the requisitesMarkdown set by ADMIN', async () => {
+      const marker = '## Реквизиты\n\nIBAN UA00 0000 — round-trip marker'
+      await status('PATCH', '/api/company-account/requisites', ADMIN, {
+        requisitesMarkdown: marker,
+      })
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/company-account',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+      expect(JSON.parse(res.body).requisitesMarkdown).toBe(marker)
+    })
+
+    // ── POST /company-account/deposits — SENIOR/DROP only ───────────────────────
+    it('POST deposits — SENIOR → 201/200', async () => {
+      const code = await status('POST', '/api/company-account/deposits', SENIOR, {
+        txHashOrLink: '0x' + '1'.repeat(64),
+      })
+      expect([200, 201]).toContain(code)
+    })
+    it('POST deposits — DROP → 201/200', async () => {
+      const code = await status('POST', '/api/company-account/deposits', DROP, {
+        txHashOrLink: '0x' + '2'.repeat(64),
+      })
+      expect([200, 201]).toContain(code)
+    })
+    for (const persona of [ADMIN, ACCOUNTANT, JUNIOR, HR]) {
+      it(`POST deposits — ${persona.role} → 403`, async () => {
+        expect(
+          await status('POST', '/api/company-account/deposits', persona, {
+            txHashOrLink: '0x' + '3'.repeat(64),
+          }),
+        ).toBe(403)
+      })
+    }
+
+    // ── POST /company-account/dividends — ADMIN only ────────────────────────────
+    // MED-2: idempotencyKey is now REQUIRED in createDividendSchema; every test
+    // that hits this endpoint must supply a valid UUID or it gets a 400 from Zod
+    // (which would mask the 403 we're asserting). Use a stable UUID per test so
+    // ADMIN-201 succeeds cleanly and non-ADMIN callers still hit the RolesGuard
+    // (403) before the service even sees the body.
+    // task-receipts-backend (review round 1): a dividend now also requires a
+    // mandatory explorer-link receipt (USDT-only withdrawal) — the ADMIN-success
+    // case needs one to reach 200/201; the 403 cases are rejected by RolesGuard
+    // before Zod ever runs, so they are unaffected.
+    it('POST dividends — ADMIN → 201/200', async () => {
+      const code = await status('POST', '/api/company-account/dividends', ADMIN, {
+        amount: 100,
+        idempotencyKey: 'ca000000-0000-4000-aa00-000000000099',
+        receiptExternalUrl: 'https://etherscan.io/tx/0xcompanyaccountrbacspec',
+      })
+      expect([200, 201]).toContain(code)
+    })
+    for (const persona of [ACCOUNTANT, SENIOR, JUNIOR, HR, DROP]) {
+      it(`POST dividends — ${persona.role} → 403`, async () => {
+        expect(
+          await status('POST', '/api/company-account/dividends', persona, {
+            amount: 100,
+            idempotencyKey: 'ca000000-0000-4000-aa00-000000000099',
+          }),
+        ).toBe(403)
+      })
+    }
+
+    // ── GET deposits/:id/status — owner-isolation (M1) ──────────────────────────
+    // The @Roles guard admits SENIOR/DROP/ADMIN/ACCOUNTANT; the SERVICE then
+    // enforces owner-vs-privileged. A SENIOR/DROP who is NOT the depositor must
+    // get 403 even though their ROLE is admitted — this is the data-access check
+    // a role-only test would miss. Real controller + real service, real DB.
+    describe('GET deposits/:id/status — owner-isolation', () => {
+      const DEPOSIT_ID = 'ca111111-0000-4000-dd00-000000000001'
+      const url = `/api/company-account/deposits/${DEPOSIT_ID}/status`
+
+      beforeAll(async () => {
+        const db = dbSvc.db
+        await db.delete(transactions).where(inArray(transactions.id, [DEPOSIT_ID]))
+        // A PENDING deposit OWNED by SENIOR (senderId = SENIOR.id).
+        await db.insert(transactions).values({
+          id: DEPOSIT_ID,
+          type: 'COMPANY_DEPOSIT',
+          status: 'PENDING',
+          amount: '0',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          senderLabel: SENIOR.displayName,
+          txHash: '0x' + 'a'.repeat(64),
+          createdBy: SENIOR.id,
+        })
+      }, 15_000)
+
+      it('owner (SENIOR) → 200', async () => {
+        expect(await status('GET', url, SENIOR)).toBe(200)
+      })
+      it('non-owner (DROP, role admitted) → 403', async () => {
+        expect(await status('GET', url, DROP)).toBe(403)
+      })
+      it('privileged (ADMIN) → 200', async () => {
+        expect(await status('GET', url, ADMIN)).toBe(200)
+      })
+      it('privileged (ACCOUNTANT) → 200', async () => {
+        expect(await status('GET', url, ACCOUNTANT)).toBe(200)
+      })
+    })
+  },
+)

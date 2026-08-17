@@ -30,6 +30,7 @@ import { UsersAccessService } from '../users/users-access.service'
 import { LegendsService } from '../legends/legends.service'
 import { legends, projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Admin-as-Senior RBAC integration spec — real DB.
@@ -206,7 +207,6 @@ class SentinelUsersController {
 // ---------------------------------------------------------------------------
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -292,7 +292,7 @@ class AdminSrTestModule {}
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('Admin-as-Senior RBAC — real DB integration', () => {
+describe.skipIf(!hasDatabaseUrl())('Admin-as-Senior RBAC — real DB integration', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
   let dbSvc: DatabaseService
@@ -304,11 +304,9 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
       await probePool.query('SELECT 1')
       await probePool.end()
     } catch {
-      console.warn(
-        '[admin-as-senior integration] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
+      throw new Error(
+        '[admin-as-senior integration] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
       )
-      dbAvailable = false
-      return
     }
 
     const moduleRef = await Test.createTestingModule({
@@ -424,7 +422,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       const db = dbSvc.db
       // FK-safe cleanup order
@@ -447,8 +444,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // ── ADMIN-SR-1: JUNIOR on admin-project sees persona, NOT real admin PII ───
 
   it('ADMIN-SR-1. JUNIOR (active member) → seniorId=null, no email in payload, seniorName=persona.fullName', async () => {
-    if (!dbAvailable) return
-
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${ADMIN_PROJ_ID}`,
@@ -496,8 +491,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   //   through a 200 response was ложное покрытие (false coverage) — H1a finding.
 
   it('ADMIN-SR-2a. SENIOR viewer → 403 on GET admin-project (not a member of seniorId project)', async () => {
-    if (!dbAvailable) return
-
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${ADMIN_PROJ_ID}`,
@@ -510,8 +503,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   })
 
   it('ADMIN-SR-2b. HR viewer → 403 on GET admin-project (ADMIN not in getHrSeniorIds because role≠SENIOR)', async () => {
-    if (!dbAvailable) return
-
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${ADMIN_PROJ_ID}`,
@@ -528,8 +519,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // ── ADMIN-SR-3: ADMIN viewer → full visibility ─────────────────────────────
 
   it('ADMIN-SR-3. ADMIN viewer → seniorId=ADMIN.id, effectiveTeam.senior.email present, profileNavigable=true', async () => {
-    if (!dbAvailable) return
-
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${ADMIN_PROJ_ID}`,
@@ -568,8 +557,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // ── ADMIN-SR-4: ACCOUNTANT viewer → same as ADMIN ─────────────────────────
 
   it('ADMIN-SR-4. ACCOUNTANT viewer → seniorId=ADMIN.id, effectiveTeam.senior full, profileNavigable=true', async () => {
-    if (!dbAvailable) return
-
     const res = await app.inject({
       method: 'GET',
       url: `/api/projects/${ADMIN_PROJ_ID}`,
@@ -598,8 +585,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // (requires role=SENIOR|DROP), so tabs=[] → 403.
 
   it('ADMIN-SR-5. JUNIOR → GET /api/users/:adminId = 403 (HTTP, real guard, real DB)', async () => {
-    if (!dbAvailable) return
-
     const res = await app.inject({
       method: 'GET',
       url: `/api/users/${ADMIN.id}`,
@@ -618,8 +603,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // accidentally widens the permission logic, this fires even without HTTP overhead.
 
   it('ADMIN-SR-5b. JUNIOR → UsersAccessService.getViewPermissions(JUNIOR, ADMIN) → tabs=[] (defense-in-depth)', async () => {
-    if (!dbAvailable) return
-
     const db = dbSvc.db
 
     const juniorRow = await db.query.users.findFirst({
@@ -646,8 +629,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // ── ADMIN-SR-6: Legend canAccess — ADMIN as subject → true ────────────────
 
   it('ADMIN-SR-6. Legend canAccess: ADMIN as subject (seniorId=ADMIN.id) + viewer=ADMIN → true (reorder fix)', async () => {
-    if (!dbAvailable) return
-
     const db = dbSvc.db
     const legendsSvc = new LegendsService(db as never, new HrAccessService(dbSvc))
 
@@ -664,8 +645,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // ── ADMIN-SR-7: SENIOR-subject still excluded (regression guard) ────────────
 
   it('ADMIN-SR-7. Legend canAccess: SENIOR as subject (seniorId=SENIOR1) + viewer=SENIOR1 → false (subject-exclusion still works)', async () => {
-    if (!dbAvailable) return
-
     const db = dbSvc.db
     const legendsSvc = new LegendsService(db as never, new HrAccessService(dbSvc))
 
@@ -687,8 +666,6 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
   // are not real assertions (they can pass even when the guard is removed).
 
   it('ADMIN-SR-8. Finance regression: POST /api/transactions/senior-income by ADMIN → 403 (role guard enforced)', async () => {
-    if (!dbAvailable) return
-
     // We call createSeniorIncome via the service directly (bypassing HTTP) to avoid
     // standing up a full TransactionsModule (would require Redis/PaymentChannel deps).
     // Direct service call is the minimum sufficient proof: if the role guard at line 910
@@ -728,42 +705,43 @@ describe('Admin-as-Senior RBAC — real DB integration', () => {
 // (faster, can run in any environment where just the LegendsService is available)
 // ---------------------------------------------------------------------------
 
-describe('Legend canAccess admin-as-subject — unit (calls real DB if available)', () => {
-  it('ADMIN-subject-1. canAccess returns true for ADMIN viewer regardless of being seniorId', async () => {
-    if (!dbAvailable) return
+describe.skipIf(!hasDatabaseUrl())(
+  'Legend canAccess admin-as-subject — unit (calls real DB if available)',
+  () => {
+    it('ADMIN-subject-1. canAccess returns true for ADMIN viewer regardless of being seniorId', async () => {
+      // Direct service call (no HTTP overhead)
+      const pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      try {
+        await pool.query('SELECT 1')
+      } catch {
+        await pool.end()
+        return // Skip if DB not available
+      }
 
-    // Direct service call (no HTTP overhead)
-    const pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    try {
-      await pool.query('SELECT 1')
-    } catch {
+      const dbInstance = drizzle(pool, { schema })
+      const dbSvcInstance = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvcInstance, { pool, db: dbInstance })
+
+      const legendsSvc = new LegendsService(
+        dbSvcInstance as never,
+        new HrAccessService(dbSvcInstance),
+      )
+
+      // ADMIN as subject (viewer.id === project.seniorId) → must return true
+      const resultAdminSelf = await legendsSvc.canAccess(
+        { ...ADMIN },
+        { id: 'any-project-id', seniorId: ADMIN.id, dropId: null },
+      )
+      expect(resultAdminSelf, 'ADMIN as subject → canAccess must be true').toBe(true)
+
+      // ADMIN as non-subject (normal project) → must also be true
+      const resultAdminOther = await legendsSvc.canAccess(
+        { ...ADMIN },
+        { id: 'any-project-id', seniorId: SENIOR1.id, dropId: null },
+      )
+      expect(resultAdminOther, 'ADMIN as non-subject → canAccess must also be true').toBe(true)
+
       await pool.end()
-      return // Skip if DB not available
-    }
-
-    const dbInstance = drizzle(pool, { schema })
-    const dbSvcInstance = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvcInstance, { pool, db: dbInstance })
-
-    const legendsSvc = new LegendsService(
-      dbSvcInstance as never,
-      new HrAccessService(dbSvcInstance),
-    )
-
-    // ADMIN as subject (viewer.id === project.seniorId) → must return true
-    const resultAdminSelf = await legendsSvc.canAccess(
-      { ...ADMIN },
-      { id: 'any-project-id', seniorId: ADMIN.id, dropId: null },
-    )
-    expect(resultAdminSelf, 'ADMIN as subject → canAccess must be true').toBe(true)
-
-    // ADMIN as non-subject (normal project) → must also be true
-    const resultAdminOther = await legendsSvc.canAccess(
-      { ...ADMIN },
-      { id: 'any-project-id', seniorId: SENIOR1.id, dropId: null },
-    )
-    expect(resultAdminOther, 'ADMIN as non-subject → canAccess must also be true').toBe(true)
-
-    await pool.end()
-  })
-})
+    })
+  },
+)

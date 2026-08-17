@@ -70,6 +70,7 @@ import { TurnstileService } from './turnstile.service'
 import { VacanciesController } from './vacancies.controller'
 import { VacanciesRetentionCronService } from './vacancies-retention.cron'
 import { VacanciesService } from './vacancies.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 const JWT_SECRET = 'vacancies-integration-secret-32-chars!!'
 const DUMMY_TURNSTILE_SECRET = '1x0000000000000000000000000000000AA'
@@ -275,8 +276,6 @@ const stubS3 = {
 // caused a "Called end on pool more than once" cross-instance double-close.
 // ---------------------------------------------------------------------------
 
-let dbAvailable = true
-
 @Global()
 @Module({
   providers: [
@@ -464,7 +463,7 @@ function buildMultipartBody(
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('Vacancies — real backend integration', () => {
+describe.skipIf(!hasDatabaseUrl())('Vacancies — real backend integration', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
   let dbSvc: DatabaseService
@@ -479,14 +478,10 @@ describe('Vacancies — real backend integration', () => {
       )
       await probePool.end()
       if (check.rowCount === 0) {
-        console.warn('[vacancies integration] SKIPPED — vacancies table not found (run db:push)')
-        dbAvailable = false
-        return
+        throw new Error('[vacancies integration] FAILED — vacancies table not found (run db:push)')
       }
     } catch {
-      console.warn('[vacancies integration] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[vacancies integration] FAILED — no DB reachable at DATABASE_URL')
     }
 
     app = await buildApp()
@@ -536,7 +531,6 @@ describe('Vacancies — real backend integration', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       const db = dbSvc.db
       if (createdVacancyIds.length > 0) {
@@ -585,7 +579,6 @@ describe('Vacancies — real backend integration', () => {
 
   describe('AC3 — admin CRUD', () => {
     it('ADMIN creates a vacancy (DRAFT, applicationsCount=0)', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -612,7 +605,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('create → 409 on duplicate slug', async () => {
-      if (!dbAvailable) return
       const slug = `dup-slug-${Date.now()}`
       const payload = {
         title: 'Role A',
@@ -644,7 +636,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('status transitions: DRAFT → PUBLISHED → CLOSED → PUBLISHED (re-open)', async () => {
-      if (!dbAvailable) return
       const create = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -704,7 +695,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('invalid transition (DRAFT → CLOSED) → 409', async () => {
-      if (!dbAvailable) return
       const create = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -734,7 +724,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('delete guard: 409 while PUBLISHED; succeeds once CLOSED with 0 applications (task-vacancy-delete-closed)', async () => {
-      if (!dbAvailable) return
       const create = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -819,7 +808,6 @@ describe('Vacancies — real backend integration', () => {
 
   describe('AC1/AC2/AC3 — mandatory salary range (task-vacancy-salary-range)', () => {
     it('AC1: POST /api/vacancies without a salary range → 400 (real Zod validation via the controller)', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -839,7 +827,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('AC1: rejects a zero/negative salaryMin even with the other 3 fields present', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -862,7 +849,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('AC2: cannot publish (DRAFT → PUBLISHED) a vacancy created without a salary range', async () => {
-      if (!dbAvailable) return
       // Created directly against the DB (bypassing the create endpoint's own
       // AC1 gate) — reproduces exactly the 3 legacy prod rows this task
       // shipped alongside: already in the DB, no salary columns filled.
@@ -898,7 +884,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('AC2: publishing succeeds once the SAME PATCH fills in the salary range (fixing up a legacy vacancy)', async () => {
-      if (!dbAvailable) return
       const [row] = await dbSvc.db
         .insert(vacancies)
         .values({
@@ -937,7 +922,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('AC3: a legacy PUBLISHED vacancy without a salary range keeps serving on the public detail/list endpoints (salary fields simply null)', async () => {
-      if (!dbAvailable) return
       // Insert DIRECTLY as already-PUBLISHED (bypassing the publish-gate
       // entirely) — this is EXACTLY the state of the 3 real prod rows this
       // task shipped alongside (published before this change existed).
@@ -999,7 +983,6 @@ describe('Vacancies — real backend integration', () => {
     let rbacApplicationId: string
 
     beforeAll(async () => {
-      if (!dbAvailable) return
       const create = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -1034,7 +1017,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('GET /api/vacancies — ADMIN 200, HR 200', async () => {
-      if (!dbAvailable) return
       for (const user of [ADMIN, HR]) {
         const res = await app.inject({
           method: 'GET',
@@ -1046,7 +1028,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it.each(DISALLOWED)('GET /api/vacancies — %s 403', async (user) => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: '/api/vacancies',
@@ -1056,7 +1037,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it.each(DISALLOWED)('POST /api/vacancies — %s 403', async (user) => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'POST',
         url: '/api/vacancies',
@@ -1079,7 +1059,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it.each(DISALLOWED)('PATCH /api/vacancies/:id — %s 403', async (user) => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'PATCH',
         url: `/api/vacancies/${rbacVacancyId}`,
@@ -1090,7 +1069,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it.each(DISALLOWED)('DELETE /api/vacancies/:id — %s 403', async (user) => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'DELETE',
         url: `/api/vacancies/${rbacVacancyId}`,
@@ -1100,7 +1078,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it.each(DISALLOWED)('GET /api/vacancies/:id/applications — %s 403', async (user) => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/vacancies/${rbacVacancyId}/applications`,
@@ -1110,7 +1087,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('GET /api/vacancies/:id/applications — ADMIN 200, HR 200', async () => {
-      if (!dbAvailable) return
       for (const user of [ADMIN, HR]) {
         const res = await app.inject({
           method: 'GET',
@@ -1122,7 +1098,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it.each(DISALLOWED)('PATCH /api/vacancies/:id/applications/:appId — %s 403', async (user) => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'PATCH',
         url: `/api/vacancies/${rbacVacancyId}/applications/00000000-0000-4000-8000-000000000000`,
@@ -1133,7 +1108,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it.each(DISALLOWED)('DELETE /api/vacancies/:id/applications/:appId — %s 403', async (user) => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'DELETE',
         url: `/api/vacancies/${rbacVacancyId}/applications/00000000-0000-4000-8000-000000000000`,
@@ -1145,7 +1119,6 @@ describe('Vacancies — real backend integration', () => {
     it.each(DISALLOWED)(
       'GET /api/vacancies/:id/applications/:appId/resume-url — %s 403',
       async (user) => {
-        if (!dbAvailable) return
         const res = await app.inject({
           method: 'GET',
           url: `/api/vacancies/${rbacVacancyId}/applications/00000000-0000-4000-8000-000000000000/resume-url`,
@@ -1170,7 +1143,6 @@ describe('Vacancies — real backend integration', () => {
     it.each(DISALLOWED)(
       'GET /api/vacancies/:id/applications/:appId/resume-preview-url — %s 404 on a REAL application (not 403)',
       async (user) => {
-        if (!dbAvailable) return
         const res = await app.inject({
           method: 'GET',
           url: `/api/vacancies/${rbacVacancyId}/applications/${rbacApplicationId}/resume-preview-url`,
@@ -1181,7 +1153,6 @@ describe('Vacancies — real backend integration', () => {
     )
 
     it('GET /api/vacancies/:id/applications/:appId/resume-preview-url — ADMIN and HR 200 on the SAME real application', async () => {
-      if (!dbAvailable) return
       for (const user of [ADMIN, HR]) {
         const res = await app.inject({
           method: 'GET',
@@ -1193,7 +1164,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('No JWT → 401 on a private endpoint', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({ method: 'GET', url: '/api/vacancies' })
       expect(res.statusCode).toBe(401)
     })
@@ -1203,7 +1173,6 @@ describe('Vacancies — real backend integration', () => {
 
   describe('AC5 — public visibility', () => {
     it('public list only includes PUBLISHED vacancies; detail 404 for DRAFT/missing, 410 for CLOSED (task C5)', async () => {
-      if (!dbAvailable) return
       const draftSlug = `public-draft-${Date.now()}`
       const publishedSlug = `public-published-${Date.now()}`
 
@@ -1305,7 +1274,6 @@ describe('Vacancies — real backend integration', () => {
 
   describe('C2/C8 — locale resolution + related vacancies', () => {
     it('?locale= resolves translated title/description with isFallback=false; falls back to EN + isFallback=true when untranslated; defaults to en', async () => {
-      if (!dbAvailable) return
       const slug = `locale-${Date.now()}`
       const create = await app.inject({
         method: 'POST',
@@ -1406,7 +1374,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('relatedVacancies: up to 3 other PUBLISHED same-domain vacancies, excluding self, resolved to the requested locale', async () => {
-      if (!dbAvailable) return
       const ts = Date.now()
       const mainSlug = `related-main-${ts}`
       const domain = 'ECOMMERCE'
@@ -1464,7 +1431,6 @@ describe('Vacancies — real backend integration', () => {
 
   describe('AC6 — apply happy path', () => {
     it('POST /api/public/vacancies/:slug/apply → 201, DB row, stub-S3 object, ADMIN+HR notified', async () => {
-      if (!dbAvailable) return
       const slug = `apply-happy-${Date.now()}`
       const create = await app.inject({
         method: 'POST',
@@ -1566,17 +1532,14 @@ describe('Vacancies — real backend integration', () => {
     let rsApp: NestFastifyApplication
 
     beforeAll(async () => {
-      if (!dbAvailable) return
       rsApp = await buildApp()
     }, 20_000)
 
     afterAll(async () => {
-      if (!dbAvailable) return
       if (rsApp) await rsApp.close()
     })
 
     it('same-email resubmission: row updated in place, NEW file present, OLD file genuinely gone, response identical to the first submission', async () => {
-      if (!dbAvailable) return
       const slug = `resubmit-happy-${Date.now()}`
       const create = await rsApp.inject({
         method: 'POST',
@@ -1694,7 +1657,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('when the old-file delete fails: the row keeps pointing at the OLD (still-existing) file, the just-uploaded NEW file is compensated away — never "record updated, both files present"', async () => {
-      if (!dbAvailable) return
       const slug = `resubmit-delete-fail-${Date.now()}`
       const create = await rsApp.inject({
         method: 'POST',
@@ -1806,7 +1768,6 @@ describe('Vacancies — real backend integration', () => {
 
   describe('AC10 — resume-url + delete removes the R2 object', () => {
     it('resume-url returns a presigned URL with ~600s TTL; DELETE removes DB row + R2 object', async () => {
-      if (!dbAvailable) return
       const slug = `resume-url-${Date.now()}`
       const create = await app.inject({
         method: 'POST',
@@ -1907,7 +1868,6 @@ describe('Vacancies — real backend integration', () => {
 
   describe('resume-preview-url — attachment disposition, ADMIN + HR allowed', () => {
     it('returns 200 with an attachment-disposition presigned URL for ADMIN and HR', async () => {
-      if (!dbAvailable) return
       const slug = `resume-preview-${Date.now()}`
       const create = await app.inject({
         method: 'POST',
@@ -1983,7 +1943,6 @@ describe('Vacancies — real backend integration', () => {
     let rlApp: NestFastifyApplication
 
     beforeAll(async () => {
-      if (!dbAvailable) return
       delete process.env.THROTTLE_RELAXED
       const savedNodeEnv = process.env.NODE_ENV
       process.env.NODE_ENV = 'test'
@@ -1992,12 +1951,10 @@ describe('Vacancies — real backend integration', () => {
     })
 
     afterAll(async () => {
-      if (!dbAvailable) return
       if (rlApp) await rlApp.close()
     })
 
     it('returns 429 on the 6th apply request within the window (VACANCY_APPLY_LIMIT=5)', async () => {
-      if (!dbAvailable) return
       // Guards run BEFORE the handler consumes the body — a non-existent slug
       // with no body still counts toward the throttle bucket, and lets this
       // test stay DB-write-free (each call 404s inside the handler after the
@@ -2035,7 +1992,6 @@ describe('Vacancies — real backend integration', () => {
     }
 
     beforeAll(async () => {
-      if (!dbAvailable) return
       const db = dbSvc.db
 
       const openCreate = await app.inject({
@@ -2164,7 +2120,6 @@ describe('Vacancies — real backend integration', () => {
     }, 20_000)
 
     it('deletes only the >90-day-expired rows (91d REJECTED + closed>90d vacancy), keeps 89d/90d', async () => {
-      if (!dbAvailable) return
       const cron = app.get(VacanciesRetentionCronService)
       const deleted = await cron.purgeExpiredApplications(NOW)
       expect(deleted).toBe(2)
@@ -2181,7 +2136,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('idempotency: running the cron again for the same instant deletes nothing more', async () => {
-      if (!dbAvailable) return
       const cron = app.get(VacanciesRetentionCronService)
       const deletedSecondRun = await cron.purgeExpiredApplications(NOW)
       expect(deletedSecondRun).toBe(0)
@@ -2206,7 +2160,6 @@ describe('Vacancies — real backend integration', () => {
     }
 
     beforeAll(async () => {
-      if (!dbAvailable) return
       const db = dbSvc.db
 
       const create = await app.inject({
@@ -2274,7 +2227,6 @@ describe('Vacancies — real backend integration', () => {
     }, 20_000)
 
     it('clears resumeS3Key/resumeSizeBytes only for the >180-day row, keeps 179d/180d untouched; the ROW always survives', async () => {
-      if (!dbAvailable) return
       const cron = app.get(VacanciesRetentionCronService)
       const purged = await cron.purgeExpiredResumeFiles(NOW)
       expect(purged).toBe(1)
@@ -2294,14 +2246,12 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('idempotency: running the purge again for the same instant clears nothing more', async () => {
-      if (!dbAvailable) return
       const cron = app.get(VacanciesRetentionCronService)
       const purgedSecondRun = await cron.purgeExpiredResumeFiles(NOW)
       expect(purgedSecondRun).toBe(0)
     })
 
     it('getResumeUrl 404s for the file-purged application (admin/HR endpoint)', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/vacancies/${vacancyEvergreenId}/applications/${appIds.d181}/resume-url`,
@@ -2313,7 +2263,6 @@ describe('Vacancies — real backend integration', () => {
     // task-candidate-card-resume AC2: the preview endpoint 404s the same way
     // once the file-only retention purge has cleared the object.
     it('getResumePreviewUrl 404s for the file-purged application (admin/HR endpoint)', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/vacancies/${vacancyEvergreenId}/applications/${appIds.d181}/resume-preview-url`,
@@ -2336,7 +2285,6 @@ describe('Vacancies — real backend integration', () => {
     let mpSlug: string
 
     beforeAll(async () => {
-      if (!dbAvailable) return
       mpApp = await buildApp()
       const create = await mpApp.inject({
         method: 'POST',
@@ -2368,12 +2316,10 @@ describe('Vacancies — real backend integration', () => {
     }, 20_000)
 
     afterAll(async () => {
-      if (!dbAvailable) return
       if (mpApp) await mpApp.close()
     })
 
     it('1. resume file > 5MB → 413 (per-route fileSize cap rejects it via RequestFileTooLargeError before ApplicationsService is ever called)', async () => {
-      if (!dbAvailable) return
       const oversized = Buffer.alloc(RESUME_MAX_BYTES + 1024, 'a')
       const { body, contentType } = buildMultipartBody(
         {
@@ -2398,7 +2344,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('2. a second `resume` file part → 413 — the per-route `files: 1` limit rejects the WHOLE request at the busboy layer (FilesLimitError) before the controller\'s own "drain a duplicate file part" branch is ever reached', async () => {
-      if (!dbAvailable) return
       const pdf = await makeValidPdfBuffer()
       const { body, contentType } = buildMultipartBody(
         {
@@ -2430,7 +2375,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('3. field parts beyond the fields:12 cap → the request is aborted — empirically a 500 ("Premature close") via app.inject(), NOT a clean 413: busboy stops consuming the body as soon as the 13th field part hits the limit, and the injected request stream errors on the unread trailing bytes', async () => {
-      if (!dbAvailable) return
       const pdf = await makeValidPdfBuffer()
       const fields: Record<string, string> = {
         fullName: 'Extra Fields Candidate',
@@ -2459,7 +2403,6 @@ describe('Vacancies — real backend integration', () => {
     })
 
     it('4. a field value beyond the fieldSize (8 KiB) cap is silently TRUNCATED by @fastify/multipart (no multipart-level rejection — busboy just truncates and sets valueTruncated), then rejected downstream by the real Zod validation (coverLetter max 2000 chars) → 400', async () => {
-      if (!dbAvailable) return
       const pdf = await makeValidPdfBuffer()
       const { body, contentType } = buildMultipartBody(
         {

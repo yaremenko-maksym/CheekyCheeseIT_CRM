@@ -12,6 +12,7 @@ import { CompanyAccountService } from './company-account.service'
 import type { EtherscanService } from './etherscan.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * BIZ-19 — createDividend idempotency: duplicate submission with the same
@@ -66,7 +67,6 @@ const DIV_RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xdividendide
 const stubEtherscan = {} as unknown as EtherscanService
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -110,7 +110,7 @@ class TestDatabaseModule {}
 })
 class DividendIdemTestModule {}
 
-describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
+describe.skipIf(!hasDatabaseUrl())('BIZ-19 — createDividend idempotency-key (real DB)', () => {
   let svc: CompanyAccountService
   let dbSvc: DatabaseService
 
@@ -156,16 +156,12 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
       )
       await probe.end()
       if (col.rowCount === 0) {
-        console.warn(
-          '[dividend-idempotency integration] SKIPPED — idempotency_key column not yet migrated',
+        throw new Error(
+          '[dividend-idempotency integration] FAILED — idempotency_key column not yet migrated',
         )
-        dbAvailable = false
-        return
       }
     } catch {
-      console.warn('[dividend-idempotency integration] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[dividend-idempotency integration] FAILED — no DB reachable at DATABASE_URL')
     }
 
     const moduleRef = await Test.createTestingModule({
@@ -193,7 +189,6 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       await cleanup()
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
@@ -204,12 +199,10 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
   }, 15_000)
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     await cleanup()
   })
 
   it('same idempotency-key submitted twice → only ONE dividend row, second call returns existing id', async () => {
-    if (!dbAvailable) return
     await seedDeposit(100_000)
 
     const res1 = await svc.createDividend(
@@ -229,7 +222,6 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
   }, 30_000)
 
   it('different idempotency-keys create independent rows', async () => {
-    if (!dbAvailable) return
     await seedDeposit(100_000)
 
     await svc.createDividend({ amount: 100, idempotencyKey: IDEM_KEY_1, ...DIV_RECEIPT }, ADMIN)
@@ -250,7 +242,6 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
   })
 
   it('idempotency check ignores amount mismatch — returns existing row without error', async () => {
-    if (!dbAvailable) return
     await seedDeposit(100_000)
 
     const res1 = await svc.createDividend(
@@ -274,7 +265,6 @@ describe('BIZ-19 — createDividend idempotency-key (real DB)', () => {
     // advisory lock they serialize: A inserts, B hits the unique index (23505),
     // the catch block re-reads and returns the committed row.
     // Expected: Promise.allSettled resolves BOTH as fulfilled, exactly 1 row.
-    if (!dbAvailable) return
     await seedDeposit(100_000)
 
     const RACE_KEY = 'f4a5b6c7-0d1e-4f4a-ae00-000000000001'

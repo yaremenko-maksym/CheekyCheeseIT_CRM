@@ -17,6 +17,7 @@ import { TeamAuditLogService } from './team-audit-log.service'
 import { TeamsService } from './teams.service'
 import { teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Teams HR RBAC — real-backend integration spec.
@@ -32,8 +33,9 @@ import * as schema from '../database/schema'
  *       cleaned up in afterAll.
  *
  * DB-SKIP-GUARD:
- *   dbAvailable=false when DATABASE_URL unreachable (CI unit job).
- *   Every test calls `if (!dbAvailable) return` and stays green.
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Pattern from teams.drop.rbac.integration.spec.ts.
  */
@@ -97,7 +99,6 @@ class SentinelTeamsController {
 // ── TestDatabaseModule ────────────────────────────────────────────────────────
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -171,146 +172,142 @@ function tokenFor(jwt: JwtService, user: SessionUser): string {
 
 // ── Test suite ────────────────────────────────────────────────────────────────
 
-describe('Teams HR RBAC — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'Teams HR RBAC — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  const allTestUserIds = [HR_USER.id, SENIOR_USER.id, ADMIN.id]
-  const allTestTeamIds = [SENIOR_TEAM_ID, DROP_TEAM_ID]
+    const allTestUserIds = [HR_USER.id, SENIOR_USER.id, ADMIN.id]
+    const allTestTeamIds = [SENIOR_TEAM_ID, DROP_TEAM_ID]
 
-  beforeAll(async () => {
-    // DB availability probe
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[teams-hr-rbac integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
+    beforeAll(async () => {
+      // DB availability probe
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[teams-hr-rbac integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
+      }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [TeamsHrRbacTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [TeamsHrRbacTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'teams-hr-rbac-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'teams-hr-rbac-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
+      const db = dbSvc.db
 
-    // ── Seed ──────────────────────────────────────────────────────────────────
+      // ── Seed ──────────────────────────────────────────────────────────────────
 
-    // Users
-    await db.insert(users).values([
-      {
-        id: HR_USER.id,
-        email: HR_USER.email,
-        displayName: HR_USER.displayName,
-        role: 'HR',
-        googleId: `test-google-${HR_USER.id}`,
-      },
-      {
-        id: SENIOR_USER.id,
-        email: SENIOR_USER.email,
-        displayName: SENIOR_USER.displayName,
-        role: 'SENIOR',
-        googleId: `test-google-${SENIOR_USER.id}`,
-      },
-      {
-        id: ADMIN.id,
-        email: ADMIN.email,
-        displayName: ADMIN.displayName,
-        role: 'ADMIN',
-        googleId: `test-google-${ADMIN.id}`,
-      },
-    ])
+      // Users
+      await db.insert(users).values([
+        {
+          id: HR_USER.id,
+          email: HR_USER.email,
+          displayName: HR_USER.displayName,
+          role: 'HR',
+          googleId: `test-google-${HR_USER.id}`,
+        },
+        {
+          id: SENIOR_USER.id,
+          email: SENIOR_USER.email,
+          displayName: SENIOR_USER.displayName,
+          role: 'SENIOR',
+          googleId: `test-google-${SENIOR_USER.id}`,
+        },
+        {
+          id: ADMIN.id,
+          email: ADMIN.email,
+          displayName: ADMIN.displayName,
+          role: 'ADMIN',
+          googleId: `test-google-${ADMIN.id}`,
+        },
+      ])
 
-    // Teams: one SENIOR-type, one DROP-type
-    await db.insert(teams).values([
-      { id: SENIOR_TEAM_ID, name: 'HR RBAC Test — Senior Team', type: 'SENIOR' },
-      { id: DROP_TEAM_ID, name: 'HR RBAC Test — Drop Team', type: 'DROP' },
-    ])
+      // Teams: one SENIOR-type, one DROP-type
+      await db.insert(teams).values([
+        { id: SENIOR_TEAM_ID, name: 'HR RBAC Test — Senior Team', type: 'SENIOR' },
+        { id: DROP_TEAM_ID, name: 'HR RBAC Test — Drop Team', type: 'DROP' },
+      ])
 
-    // Memberships: HR in BOTH teams (simulates real scenario); SENIOR in SENIOR_TEAM
-    await db.insert(teamMembers).values([
-      { teamId: SENIOR_TEAM_ID, userId: HR_USER.id },
-      { teamId: SENIOR_TEAM_ID, userId: SENIOR_USER.id },
-      // HR is also a member of the DROP team — must be excluded from HR's view
-      { teamId: DROP_TEAM_ID, userId: HR_USER.id },
-    ])
-  })
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    const db = dbSvc.db
-
-    // Clean up: team_members → teams → users (FK order)
-    await db.delete(teamMembers).where(inArray(teamMembers.teamId, allTestTeamIds))
-    await db.delete(teams).where(inArray(teams.id, allTestTeamIds))
-    await db.delete(users).where(inArray(users.id, allTestUserIds))
-
-    await app?.close()
-  })
-
-  it('LIST 1. HR sees ONLY SENIOR-type teams — DROP-type excluded even if member', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/teams',
-      cookies: { jwt: tokenFor(jwt, HR_USER) },
+      // Memberships: HR in BOTH teams (simulates real scenario); SENIOR in SENIOR_TEAM
+      await db.insert(teamMembers).values([
+        { teamId: SENIOR_TEAM_ID, userId: HR_USER.id },
+        { teamId: SENIOR_TEAM_ID, userId: SENIOR_USER.id },
+        // HR is also a member of the DROP team — must be excluded from HR's view
+        { teamId: DROP_TEAM_ID, userId: HR_USER.id },
+      ])
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ id: string; type: string }>
-    // No DROP-type teams at all
-    const dropTeams = body.filter((t) => t.type === 'DROP')
-    expect(dropTeams).toHaveLength(0)
-  })
 
-  it('LIST 2. HR sees their own SENIOR-type team (isHrOfTeam membership preserved)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/teams',
-      cookies: { jwt: tokenFor(jwt, HR_USER) },
+    afterAll(async () => {
+      const db = dbSvc.db
+
+      // Clean up: team_members → teams → users (FK order)
+      await db.delete(teamMembers).where(inArray(teamMembers.teamId, allTestTeamIds))
+      await db.delete(teams).where(inArray(teams.id, allTestTeamIds))
+      await db.delete(users).where(inArray(users.id, allTestUserIds))
+
+      await app?.close()
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ id: string }>
-    const ids = body.map((t) => t.id)
-    // SENIOR team is visible
-    expect(ids).toContain(SENIOR_TEAM_ID)
-    // DROP team is not visible — even though HR is a member
-    expect(ids).not.toContain(DROP_TEAM_ID)
-  })
 
-  it('LIST 3. ADMIN sees ALL teams including DROP-type (regression guard)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/teams',
-      cookies: { jwt: tokenFor(jwt, ADMIN) },
+    it('LIST 1. HR sees ONLY SENIOR-type teams — DROP-type excluded even if member', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/teams',
+        cookies: { jwt: tokenFor(jwt, HR_USER) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as Array<{ id: string; type: string }>
+      // No DROP-type teams at all
+      const dropTeams = body.filter((t) => t.type === 'DROP')
+      expect(dropTeams).toHaveLength(0)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as Array<{ id: string; type: string }>
-    const ids = body.map((t) => t.id)
-    // ADMIN must see both test teams
-    expect(ids).toContain(SENIOR_TEAM_ID)
-    expect(ids).toContain(DROP_TEAM_ID)
-    // Specifically the DROP team is visible to ADMIN with type='DROP'
-    expect(body.some((t) => t.id === DROP_TEAM_ID && t.type === 'DROP')).toBe(true)
-  })
 
-  it('LIST 4. No JWT → 401', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({ method: 'GET', url: '/api/teams' })
-    expect(res.statusCode).toBe(401)
-  })
-})
+    it('LIST 2. HR sees their own SENIOR-type team (isHrOfTeam membership preserved)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/teams',
+        cookies: { jwt: tokenFor(jwt, HR_USER) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as Array<{ id: string }>
+      const ids = body.map((t) => t.id)
+      // SENIOR team is visible
+      expect(ids).toContain(SENIOR_TEAM_ID)
+      // DROP team is not visible — even though HR is a member
+      expect(ids).not.toContain(DROP_TEAM_ID)
+    })
+
+    it('LIST 3. ADMIN sees ALL teams including DROP-type (regression guard)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/teams',
+        cookies: { jwt: tokenFor(jwt, ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as Array<{ id: string; type: string }>
+      const ids = body.map((t) => t.id)
+      // ADMIN must see both test teams
+      expect(ids).toContain(SENIOR_TEAM_ID)
+      expect(ids).toContain(DROP_TEAM_ID)
+      // Specifically the DROP team is visible to ADMIN with type='DROP'
+      expect(body.some((t) => t.id === DROP_TEAM_ID && t.type === 'DROP')).toBe(true)
+    })
+
+    it('LIST 4. No JWT → 401', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/teams' })
+      expect(res.statusCode).toBe(401)
+    })
+  },
+)

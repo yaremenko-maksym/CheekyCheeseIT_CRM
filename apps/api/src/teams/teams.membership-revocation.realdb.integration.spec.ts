@@ -35,6 +35,7 @@ import { TeamsService } from './teams.service'
 import { TeamAuditLogService } from './team-audit-log.service'
 import { teamAuditLog, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ── Test IDs — stable namespace tmrv- ──────────────────────────────────────
 const TEAM_ID = '5a100003-0000-4000-aa00-000000000001'
@@ -80,177 +81,175 @@ const revokedJuniorActor: SessionUser = {
   seniorSharePercent: 0,
 }
 
-let dbAvailable = true
 let pool: Pool | null = null
 let service: TeamsService
 
-describe('TeamsService — HIGH-1: revoked membership must not keep access (real DB)', () => {
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      await probe.end()
-    } catch {
-      console.warn('[teams-membership-revocation] SKIPPED — no DB at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
+describe.skipIf(!hasDatabaseUrl())(
+  'TeamsService — HIGH-1: revoked membership must not keep access (real DB)',
+  () => {
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        await probe.end()
+      } catch {
+        throw new Error('[teams-membership-revocation] FAILED — no DB at DATABASE_URL')
+      }
 
-    pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(pool, { schema })
-    const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool, db })
-
-    const auditLog = new TeamAuditLogService(dbSvc)
-    // usersService is not exercised by the methods under test — stub.
-    service = new TeamsService(dbSvc, {} as never, auditLog)
-
-    await db
-      .insert(users)
-      .values([
-        {
-          id: SENIOR_ID,
-          email: 'tmrv-senior@test.spec',
-          displayName: 'TMRV Senior',
-          role: 'SENIOR',
-          googleId: `g-${SENIOR_ID}`,
-        },
-        {
-          id: HR1_ID,
-          email: 'tmrv-hr1@test.spec',
-          displayName: 'TMRV HR Active',
-          role: 'HR',
-          googleId: `g-${HR1_ID}`,
-        },
-        {
-          id: REVOKED_HR_ID,
-          email: 'tmrv-hr-revoked@test.spec',
-          displayName: 'TMRV HR Revoked',
-          role: 'HR',
-          googleId: `g-${REVOKED_HR_ID}`,
-        },
-        {
-          id: JUNIOR_ID,
-          email: 'tmrv-junior@test.spec',
-          displayName: 'TMRV Junior',
-          role: 'JUNIOR',
-          googleId: `g-${JUNIOR_ID}`,
-        },
-      ])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teams)
-      .values([{ id: TEAM_ID, name: 'TMRV Team', type: 'SENIOR' }])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  beforeEach(async () => {
-    if (!dbAvailable || !pool) return
-    const db = drizzle(pool, { schema })
-    // Reset to a known baseline before each test: senior + 2 HR + 1 junior, all active.
-    await db.delete(teamAuditLog).where(eq(teamAuditLog.targetId, TEAM_ID))
-    await db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
-    await db.insert(teamMembers).values([
-      { teamId: TEAM_ID, userId: SENIOR_ID },
-      { teamId: TEAM_ID, userId: HR1_ID },
-      { teamId: TEAM_ID, userId: REVOKED_HR_ID },
-      { teamId: TEAM_ID, userId: JUNIOR_ID },
-    ])
-  })
-
-  afterAll(async () => {
-    if (!dbAvailable || !pool) return
-    try {
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
       const db = drizzle(pool, { schema })
+      const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool, db })
+
+      const auditLog = new TeamAuditLogService(dbSvc)
+      // usersService is not exercised by the methods under test — stub.
+      service = new TeamsService(dbSvc, {} as never, auditLog)
+
+      await db
+        .insert(users)
+        .values([
+          {
+            id: SENIOR_ID,
+            email: 'tmrv-senior@test.spec',
+            displayName: 'TMRV Senior',
+            role: 'SENIOR',
+            googleId: `g-${SENIOR_ID}`,
+          },
+          {
+            id: HR1_ID,
+            email: 'tmrv-hr1@test.spec',
+            displayName: 'TMRV HR Active',
+            role: 'HR',
+            googleId: `g-${HR1_ID}`,
+          },
+          {
+            id: REVOKED_HR_ID,
+            email: 'tmrv-hr-revoked@test.spec',
+            displayName: 'TMRV HR Revoked',
+            role: 'HR',
+            googleId: `g-${REVOKED_HR_ID}`,
+          },
+          {
+            id: JUNIOR_ID,
+            email: 'tmrv-junior@test.spec',
+            displayName: 'TMRV Junior',
+            role: 'JUNIOR',
+            googleId: `g-${JUNIOR_ID}`,
+          },
+        ])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teams)
+        .values([{ id: TEAM_ID, name: 'TMRV Team', type: 'SENIOR' }])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    beforeEach(async () => {
+      if (!pool)
+        throw new Error(
+          '[require-real-db] pool not initialized — beforeAll should have thrown already',
+        )
+      const db = drizzle(pool, { schema })
+      // Reset to a known baseline before each test: senior + 2 HR + 1 junior, all active.
       await db.delete(teamAuditLog).where(eq(teamAuditLog.targetId, TEAM_ID))
       await db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
-      await db.delete(teams).where(eq(teams.id, TEAM_ID))
-      for (const id of TEST_USER_IDS) await db.delete(users).where(eq(users.id, id))
-    } finally {
-      await pool.end()
-    }
-  }, 30_000)
+      await db.insert(teamMembers).values([
+        { teamId: TEAM_ID, userId: SENIOR_ID },
+        { teamId: TEAM_ID, userId: HR1_ID },
+        { teamId: TEAM_ID, userId: REVOKED_HR_ID },
+        { teamId: TEAM_ID, userId: JUNIOR_ID },
+      ])
+    })
 
-  it('AC1: revoked HR gets 403 on findOne (assertAccess) after removeMember', async () => {
-    if (!dbAvailable) return
-    await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
+    afterAll(async () => {
+      if (!pool)
+        throw new Error(
+          '[require-real-db] pool not initialized — beforeAll should have thrown already',
+        )
+      try {
+        const db = drizzle(pool, { schema })
+        await db.delete(teamAuditLog).where(eq(teamAuditLog.targetId, TEAM_ID))
+        await db.delete(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
+        await db.delete(teams).where(eq(teams.id, TEAM_ID))
+        for (const id of TEST_USER_IDS) await db.delete(users).where(eq(users.id, id))
+      } finally {
+        await pool.end()
+      }
+    }, 30_000)
 
-    await expect(service.findOne(TEAM_ID, revokedHrActor)).rejects.toThrow(ForbiddenException)
-  })
+    it('AC1: revoked HR gets 403 on findOne (assertAccess) after removeMember', async () => {
+      await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
 
-  it('AC2: revoked HR gets 403 on update (isHrOfTeam) after removeMember', async () => {
-    if (!dbAvailable) return
-    await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
+      await expect(service.findOne(TEAM_ID, revokedHrActor)).rejects.toThrow(ForbiddenException)
+    })
 
-    await expect(
-      service.update(TEAM_ID, 'Renamed by revoked HR', undefined, undefined, revokedHrActor),
-    ).rejects.toThrow(ForbiddenException)
-  })
+    it('AC2: revoked HR gets 403 on update (isHrOfTeam) after removeMember', async () => {
+      await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
 
-  it('AC3: revoked HR gets 403 re-adding themselves via addMember (isHrOfTeam)', async () => {
-    if (!dbAvailable) return
-    await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
+      await expect(
+        service.update(TEAM_ID, 'Renamed by revoked HR', undefined, undefined, revokedHrActor),
+      ).rejects.toThrow(ForbiddenException)
+    })
 
-    // The attack chain from the finding: the removed HR calls
-    // POST /api/teams/:id/members {userId: <self>} to reactivate their own
-    // soft-deleted row and restore access.
-    await expect(service.addMember(TEAM_ID, REVOKED_HR_ID, revokedHrActor)).rejects.toThrow(
-      ForbiddenException,
-    )
+    it('AC3: revoked HR gets 403 re-adding themselves via addMember (isHrOfTeam)', async () => {
+      await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
 
-    // The row must stay soft-deleted — no silent reactivation happened.
-    const db = drizzle(pool!, { schema })
-    const rows = await db.select().from(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
-    const revokedRow = rows.find((r) => r.userId === REVOKED_HR_ID)
-    expect(revokedRow?.leftAt).not.toBeNull()
-  })
+      // The attack chain from the finding: the removed HR calls
+      // POST /api/teams/:id/members {userId: <self>} to reactivate their own
+      // soft-deleted row and restore access.
+      await expect(service.addMember(TEAM_ID, REVOKED_HR_ID, revokedHrActor)).rejects.toThrow(
+        ForbiddenException,
+      )
 
-  it('AC4: revoked HR gets 403 removing another member (isHrOfTeam) after removeMember', async () => {
-    if (!dbAvailable) return
-    await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
+      // The row must stay soft-deleted — no silent reactivation happened.
+      const db = drizzle(pool!, { schema })
+      const rows = await db.select().from(teamMembers).where(eq(teamMembers.teamId, TEAM_ID))
+      const revokedRow = rows.find((r) => r.userId === REVOKED_HR_ID)
+      expect(revokedRow?.leftAt).not.toBeNull()
+    })
 
-    await expect(service.removeMember(TEAM_ID, JUNIOR_ID, revokedHrActor)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
+    it('AC4: revoked HR gets 403 removing another member (isHrOfTeam) after removeMember', async () => {
+      await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
 
-  it('AC5: revoked HR no longer sees the team in findAll (isHrOfTeam)', async () => {
-    if (!dbAvailable) return
-    await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
+      await expect(service.removeMember(TEAM_ID, JUNIOR_ID, revokedHrActor)).rejects.toThrow(
+        ForbiddenException,
+      )
+    })
 
-    const result = await service.findAll(revokedHrActor)
-    expect(result.map((t) => t.id)).not.toContain(TEAM_ID)
-  })
+    it('AC5: revoked HR no longer sees the team in findAll (isHrOfTeam)', async () => {
+      await service.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
 
-  it('AC6: revoked JUNIOR gets 403 on findOne (assertAccess general branch)', async () => {
-    if (!dbAvailable) return
-    await service.removeMember(TEAM_ID, JUNIOR_ID, adminActor)
+      const result = await service.findAll(revokedHrActor)
+      expect(result.map((t) => t.id)).not.toContain(TEAM_ID)
+    })
 
-    await expect(service.findOne(TEAM_ID, revokedJuniorActor)).rejects.toThrow(ForbiddenException)
-  })
+    it('AC6: revoked JUNIOR gets 403 on findOne (assertAccess general branch)', async () => {
+      await service.removeMember(TEAM_ID, JUNIOR_ID, adminActor)
 
-  it('AC7: revoked JUNIOR no longer sees the team in findAll (SENIOR/JUNIOR branch)', async () => {
-    if (!dbAvailable) return
-    await service.removeMember(TEAM_ID, JUNIOR_ID, adminActor)
+      await expect(service.findOne(TEAM_ID, revokedJuniorActor)).rejects.toThrow(ForbiddenException)
+    })
 
-    const result = await service.findAll(revokedJuniorActor)
-    expect(result.map((t) => t.id)).not.toContain(TEAM_ID)
-  })
+    it('AC7: revoked JUNIOR no longer sees the team in findAll (SENIOR/JUNIOR branch)', async () => {
+      await service.removeMember(TEAM_ID, JUNIOR_ID, adminActor)
 
-  it('REGRESSION: an ACTIVE HR retains full access (findOne/update/addMember/removeMember/findAll)', async () => {
-    if (!dbAvailable) return
-    // HR1 was never removed — must keep working exactly as before the fix.
-    await expect(service.findOne(TEAM_ID, activeHrActor)).resolves.toBeDefined()
-    await expect(
-      service.update(TEAM_ID, 'Renamed by active HR', undefined, undefined, activeHrActor),
-    ).resolves.toBeDefined()
+      const result = await service.findAll(revokedJuniorActor)
+      expect(result.map((t) => t.id)).not.toContain(TEAM_ID)
+    })
 
-    const listResult = await service.findAll(activeHrActor)
-    expect(listResult.map((t) => t.id)).toContain(TEAM_ID)
+    it('REGRESSION: an ACTIVE HR retains full access (findOne/update/addMember/removeMember/findAll)', async () => {
+      // HR1 was never removed — must keep working exactly as before the fix.
+      await expect(service.findOne(TEAM_ID, activeHrActor)).resolves.toBeDefined()
+      await expect(
+        service.update(TEAM_ID, 'Renamed by active HR', undefined, undefined, activeHrActor),
+      ).resolves.toBeDefined()
 
-    // Active HR removing then re-adding the junior — full round trip still works.
-    await service.removeMember(TEAM_ID, JUNIOR_ID, activeHrActor)
-    await expect(service.addMember(TEAM_ID, JUNIOR_ID, activeHrActor)).resolves.toBeUndefined()
-  })
-})
+      const listResult = await service.findAll(activeHrActor)
+      expect(listResult.map((t) => t.id)).toContain(TEAM_ID)
+
+      // Active HR removing then re-adding the junior — full round trip still works.
+      await service.removeMember(TEAM_ID, JUNIOR_ID, activeHrActor)
+      await expect(service.addMember(TEAM_ID, JUNIOR_ID, activeHrActor)).resolves.toBeUndefined()
+    })
+  },
+)

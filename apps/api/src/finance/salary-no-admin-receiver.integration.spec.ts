@@ -19,6 +19,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import type { InvoicesService } from '../invoices/invoices.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-salary-no-admin-receiver (security-MED #222) — real-DB integration spec.
@@ -34,8 +35,10 @@ import * as schema from '../database/schema'
  *   POST /transactions/salary  receiver=HR         → 201 OK (regression)
  *   POST /transactions/salary  receiver=DROP       → 201 OK
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable or
- * `transactions` table absent → all tests skip gracefully (CI unit job).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
@@ -146,7 +149,6 @@ class SentinelTransactionsController {
 
 // ── TestDatabaseModule ─────────────────────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -209,268 +211,255 @@ class TestDatabaseModule {}
 class NarTestModule {}
 
 // ── Suite ──────────────────────────────────────────────────────────────────────
-describe('createSalary — ADMIN receiver guard (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
-  const createdTxIds: string[] = []
+describe.skipIf(!hasDatabaseUrl())(
+  'createSalary — ADMIN receiver guard (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
+    const createdTxIds: string[] = []
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      const schemaCheck = await probePool.query(
-        `SELECT table_name FROM information_schema.tables
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        const schemaCheck = await probePool.query(
+          `SELECT table_name FROM information_schema.tables
          WHERE table_name='transactions' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn('[nar integration] SKIPPED — transactions table not found')
-        dbAvailable = false
-        return
+        )
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error('[nar integration] FAILED — transactions table not found')
+        }
+      } catch {
+        throw new Error(
+          '[nar integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[nar integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [NarTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [NarTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'nar-integration-cookie-secret-32chars' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'nar-integration-cookie-secret-32chars' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // Surgical cleanup before seeding.
-    await db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
-    await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
-    await db.delete(transactions).where(inArray(transactions.id, [NAR_DEPOSIT_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-
-    await db
-      .insert(users)
-      .values(
-        ALL_PERSONAS.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // task-salary-company-account: large company deposit so company-funded
-    // salaries (the new default) pass the balance gate. The salary amounts in
-    // this suite total well under 1e6.
-    await db.insert(transactions).values({
-      id: NAR_DEPOSIT_ID,
-      type: 'COMPANY_DEPOSIT',
-      status: 'PAID',
-      amount: '1000000',
-      currency: 'USDT',
-      senderId: SENIOR_RECEIVER.id,
-      createdBy: ADMIN_CALLER.id,
-    })
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
-      if (createdTxIds.length) {
-        await db.delete(transactions).where(inArray(transactions.id, createdTxIds))
-      }
+
+      // Surgical cleanup before seeding.
+      await db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
+      await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
       await db.delete(transactions).where(inArray(transactions.id, [NAR_DEPOSIT_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal cleanup
+
+      await db
+        .insert(users)
+        .values(
+          ALL_PERSONAS.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      // task-salary-company-account: large company deposit so company-funded
+      // salaries (the new default) pass the balance gate. The salary amounts in
+      // this suite total well under 1e6.
+      await db.insert(transactions).values({
+        id: NAR_DEPOSIT_ID,
+        type: 'COMPANY_DEPOSIT',
+        status: 'PAID',
+        amount: '1000000',
+        currency: 'USDT',
+        senderId: SENIOR_RECEIVER.id,
+        createdBy: ADMIN_CALLER.id,
+      })
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        if (createdTxIds.length) {
+          await db.delete(transactions).where(inArray(transactions.id, createdTxIds))
+        }
+        await db.delete(transactions).where(inArray(transactions.id, [NAR_DEPOSIT_ID]))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal cleanup
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  async function postSalary(
-    caller: SessionUser,
-    payload: Record<string, unknown>,
-  ): Promise<{ status: number; json: unknown }> {
-    const res = await app.inject({
-      method: 'POST',
-      url: '/api/transactions/salary',
-      cookies: { jwt: tokenFor(caller) },
-      payload,
-    })
-    let json: unknown = null
-    try {
-      json = res.json()
-    } catch {
-      json = null
+    async function postSalary(
+      caller: SessionUser,
+      payload: Record<string, unknown>,
+    ): Promise<{ status: number; json: unknown }> {
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/transactions/salary',
+        cookies: { jwt: tokenFor(caller) },
+        payload,
+      })
+      let json: unknown = null
+      try {
+        json = res.json()
+      } catch {
+        json = null
+      }
+      if (res.statusCode === 201 && json && typeof json === 'object' && 'id' in json) {
+        createdTxIds.push((json as { id: string }).id)
+      }
+      return { status: res.statusCode, json }
     }
-    if (res.statusCode === 201 && json && typeof json === 'object' && 'id' in json) {
-      createdTxIds.push((json as { id: string }).id)
-    }
-    return { status: res.statusCode, json }
-  }
 
-  // ── ADMIN receiver → must be rejected ───────────────────────────────────────
-  describe('receiver = ADMIN', () => {
-    it('ADMIN caller + ADMIN receiver → 400 (ADMIN не отримує зарплату)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await postSalary(ADMIN_CALLER, {
-        receiverId: ADMIN_RECEIVER.id,
-        amount: 1000,
-        currency: 'USD',
-        salaryMonth: '2025-06',
+    // ── ADMIN receiver → must be rejected ───────────────────────────────────────
+    describe('receiver = ADMIN', () => {
+      it('ADMIN caller + ADMIN receiver → 400 (ADMIN не отримує зарплату)', async () => {
+        const { status, json } = await postSalary(ADMIN_CALLER, {
+          receiverId: ADMIN_RECEIVER.id,
+          amount: 1000,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(400)
+        expect(JSON.stringify(json)).toContain('ADMIN')
       })
-      expect(status).toBe(400)
-      expect(JSON.stringify(json)).toContain('ADMIN')
+
+      it('ACCOUNTANT caller + ADMIN receiver → 400', async () => {
+        const { status } = await postSalary(ACCOUNTANT, {
+          receiverId: ADMIN_RECEIVER.id,
+          amount: 1000,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(400)
+      })
     })
 
-    it('ACCOUNTANT caller + ADMIN receiver → 400', async () => {
-      if (!dbAvailable) return
-      const { status } = await postSalary(ACCOUNTANT, {
-        receiverId: ADMIN_RECEIVER.id,
-        amount: 1000,
-        currency: 'USD',
-        salaryMonth: '2025-06',
+    // ── Allowed receivers → 201 ──────────────────────────────────────────────────
+    describe('receiver = ACCOUNTANT (incl. self-pay)', () => {
+      it('ADMIN caller + ACCOUNTANT receiver → 201', async () => {
+        const { status, json } = await postSalary(ADMIN_CALLER, {
+          receiverId: ACCOUNTANT.id,
+          amount: 800,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('SALARY')
       })
-      expect(status).toBe(400)
-    })
-  })
 
-  // ── Allowed receivers → 201 ──────────────────────────────────────────────────
-  describe('receiver = ACCOUNTANT (incl. self-pay)', () => {
-    it('ADMIN caller + ACCOUNTANT receiver → 201', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await postSalary(ADMIN_CALLER, {
-        receiverId: ACCOUNTANT.id,
-        amount: 800,
-        currency: 'USD',
-        salaryMonth: '2025-06',
+      it('ACCOUNTANT self-pay → 201 (separation-of-duties NOT applied to accountant)', async () => {
+        const { status, json } = await postSalary(ACCOUNTANT, {
+          receiverId: ACCOUNTANT.id,
+          amount: 800,
+          currency: 'USD',
+          salaryMonth: '2025-07',
+        })
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('SALARY')
       })
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('SALARY')
-    })
-
-    it('ACCOUNTANT self-pay → 201 (separation-of-duties NOT applied to accountant)', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await postSalary(ACCOUNTANT, {
-        receiverId: ACCOUNTANT.id,
-        amount: 800,
-        currency: 'USD',
-        salaryMonth: '2025-07',
-      })
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('SALARY')
-    })
-  })
-
-  describe('receiver = SENIOR', () => {
-    it('ADMIN caller + SENIOR receiver → 201', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await postSalary(ADMIN_CALLER, {
-        receiverId: SENIOR_RECEIVER.id,
-        amount: 1200,
-        currency: 'USD',
-        salaryMonth: '2025-06',
-      })
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('SALARY')
-    })
-  })
-
-  describe('receiver = JUNIOR (regression)', () => {
-    it('ADMIN caller + JUNIOR receiver → 201', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await postSalary(ADMIN_CALLER, {
-        receiverId: JUNIOR_RECEIVER.id,
-        amount: 600,
-        currency: 'USD',
-        salaryMonth: '2025-06',
-      })
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('SALARY')
-    })
-  })
-
-  describe('receiver = HR (regression)', () => {
-    it('ADMIN caller + HR receiver → 201', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await postSalary(ADMIN_CALLER, {
-        receiverId: HR_RECEIVER.id,
-        amount: 700,
-        currency: 'USD',
-        salaryMonth: '2025-06',
-      })
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('SALARY')
-    })
-  })
-
-  describe('receiver = DROP', () => {
-    it('ADMIN caller + DROP receiver → 201', async () => {
-      if (!dbAvailable) return
-      const { status, json } = await postSalary(ADMIN_CALLER, {
-        receiverId: DROP_RECEIVER.id,
-        amount: 500,
-        currency: 'USD',
-        salaryMonth: '2025-06',
-      })
-      expect(status).toBe(201)
-      expect((json as { type: string }).type).toBe('SALARY')
-    })
-  })
-
-  // ── Caller RBAC gate — only ADMIN/ACCOUNTANT may create salary ───────────────
-  // code LOW (review MED#1 followup): verify non-privileged callers (SENIOR, JUNIOR, HR)
-  // are blocked at the caller-role guard (ForbiddenException → 403) before receiver
-  // validation even runs. Ensures the caller-gate is not accidentally removed by
-  // refactoring that only touches the receiver allow-list path.
-  describe('caller role gate — SENIOR/JUNIOR/HR → 403', () => {
-    it('SENIOR caller → 403 (caller gate, not receiver check)', async () => {
-      if (!dbAvailable) return
-      const { status } = await postSalary(SENIOR_RECEIVER, {
-        receiverId: JUNIOR_RECEIVER.id,
-        amount: 500,
-        currency: 'USD',
-        salaryMonth: '2025-06',
-      })
-      expect(status).toBe(403)
     })
 
-    it('JUNIOR caller → 403', async () => {
-      if (!dbAvailable) return
-      const { status } = await postSalary(JUNIOR_RECEIVER, {
-        receiverId: HR_RECEIVER.id,
-        amount: 500,
-        currency: 'USD',
-        salaryMonth: '2025-06',
+    describe('receiver = SENIOR', () => {
+      it('ADMIN caller + SENIOR receiver → 201', async () => {
+        const { status, json } = await postSalary(ADMIN_CALLER, {
+          receiverId: SENIOR_RECEIVER.id,
+          amount: 1200,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('SALARY')
       })
-      expect(status).toBe(403)
     })
 
-    it('HR caller → 403', async () => {
-      if (!dbAvailable) return
-      const { status } = await postSalary(HR_RECEIVER, {
-        receiverId: JUNIOR_RECEIVER.id,
-        amount: 500,
-        currency: 'USD',
-        salaryMonth: '2025-06',
+    describe('receiver = JUNIOR (regression)', () => {
+      it('ADMIN caller + JUNIOR receiver → 201', async () => {
+        const { status, json } = await postSalary(ADMIN_CALLER, {
+          receiverId: JUNIOR_RECEIVER.id,
+          amount: 600,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('SALARY')
       })
-      expect(status).toBe(403)
     })
-  })
-})
+
+    describe('receiver = HR (regression)', () => {
+      it('ADMIN caller + HR receiver → 201', async () => {
+        const { status, json } = await postSalary(ADMIN_CALLER, {
+          receiverId: HR_RECEIVER.id,
+          amount: 700,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('SALARY')
+      })
+    })
+
+    describe('receiver = DROP', () => {
+      it('ADMIN caller + DROP receiver → 201', async () => {
+        const { status, json } = await postSalary(ADMIN_CALLER, {
+          receiverId: DROP_RECEIVER.id,
+          amount: 500,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(201)
+        expect((json as { type: string }).type).toBe('SALARY')
+      })
+    })
+
+    // ── Caller RBAC gate — only ADMIN/ACCOUNTANT may create salary ───────────────
+    // code LOW (review MED#1 followup): verify non-privileged callers (SENIOR, JUNIOR, HR)
+    // are blocked at the caller-role guard (ForbiddenException → 403) before receiver
+    // validation even runs. Ensures the caller-gate is not accidentally removed by
+    // refactoring that only touches the receiver allow-list path.
+    describe('caller role gate — SENIOR/JUNIOR/HR → 403', () => {
+      it('SENIOR caller → 403 (caller gate, not receiver check)', async () => {
+        const { status } = await postSalary(SENIOR_RECEIVER, {
+          receiverId: JUNIOR_RECEIVER.id,
+          amount: 500,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(403)
+      })
+
+      it('JUNIOR caller → 403', async () => {
+        const { status } = await postSalary(JUNIOR_RECEIVER, {
+          receiverId: HR_RECEIVER.id,
+          amount: 500,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(403)
+      })
+
+      it('HR caller → 403', async () => {
+        const { status } = await postSalary(HR_RECEIVER, {
+          receiverId: JUNIOR_RECEIVER.id,
+          amount: 500,
+          currency: 'USD',
+          salaryMonth: '2025-06',
+        })
+        expect(status).toBe(403)
+      })
+    })
+  },
+)
