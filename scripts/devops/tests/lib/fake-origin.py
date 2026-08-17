@@ -407,10 +407,20 @@ class Handler(BaseHTTPRequestHandler):
             return
 
         # Partial-prerender guard: never redirect into a locale where the page
-        # does not exist — that would be a silent language mismatch / 404.
+        # does not exist — that would be a silent language mismatch.
+        #
+        # task-guards-that-do-not-guard (2026-08-17): this used to answer 200
+        # with EN placeholder markup here — correct until PR #539 ("stop
+        # answering 200 with the homepage for pages that do not exist"),
+        # which retired that catch-all. A path outside PRERENDERED is, by
+        # this fixture's own definition, one that exists in NO locale at
+        # all (not "exists in EN, missing in this locale" — this file has
+        # no such third category), so post-#539 the honest, and now correct,
+        # simulated answer is 404 — verified against the real origin in
+        # check-locale-routing.sh's own "partial-prerender" case comment.
         rel = path.lstrip("/")
         if rel not in PRERENDERED and ARGS.flaw != "redirect-into-missing-page":
-            self.send_body(200, "<html>en (no localized page)</html>", headers)
+            self.send_body(404, "<html>404 not found</html>", headers)
             return
 
         if ARGS.flaw == "wrong-locale-redirect":

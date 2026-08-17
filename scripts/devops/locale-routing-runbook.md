@@ -15,6 +15,22 @@ if you're already familiar with the original design. A follow-up
 security-review round 2 (1 additional MED + 4 LOW, 1 explicitly deferred) is
 folded into the same sections — see §12 for the full list.
 
+**Revision note (task-guards-that-do-not-guard, 2026-08-17):** §6's "fast,
+config-only" local dry-run recipe did not actually start — a stock
+`nginx:1.27-alpine` container has neither the custom-built brotli module
+`nginx.conf` loads nor the files `generate-cloudflare-nginx-snippets.sh`
+produces at Docker build time, and the example `curl`/`check-locale-routing.sh`
+invocation never sent a `Host` header matching any `server_name`, so even a
+container that DID start would have been probing the wrong vhost. Rewritten
+below with a recipe that was actually run, from a clean checkout, to a running
+container serving correct redirects — see the recipe's own comments for what
+each extra piece is for. `check-locale-routing.sh` itself also had two bugs
+findable only by running it (not by reading it): a stale assertion expecting
+`200` where PR #539 made the honest answer `404`, and an unescaped-backtick
+description string that ran a bare `return` at the top level of the script on
+every invocation. Both fixed in the same PR; re-verified with the same command
+this section recommends AND against production (39/39).
+
 ---
 
 ## 1. What ships where
@@ -285,28 +301,96 @@ A local dry-run is therefore not a substitute for the post-deploy run against
 **Fast, config-only loop (recommended for iterating on `nginx/conf.d/**`,
 `nginx/njs/**`, `nginx/nginx.conf`):** mount those files directly into a
 stock `nginx:1.27-alpine` container against a small fixture `dist` —
-this is the loop used throughout this PR's development (seconds per
-iteration, no app build). Sketch:
+seconds per iteration, no app build. **A plain "mount the three paths and
+run" sketch does NOT start** — `nginx.conf` `load_module`s a brotli module
+that only exists inside our custom-built image (`nginx/Dockerfile`'s
+`brotli-builder` stage), and two of `conf.d`'s files (`cloudflare-real-ip-
+from.conf`, `origin-gate-geo.conf`) are themselves Docker-build-time output,
+not checked-in source — a stock container has neither. The recipe below
+generates what a stock container is missing and was actually run, from a
+clean checkout, before being written down here:
 
 ```bash
+# 1. `.dryrun/nginx.conf` — the real one, minus the brotli `load_module` and
+#    `brotli_static on;` (the DIRECTIVE only exists once the module is
+#    loaded — leaving it in is a DIFFERENT startup error, not a no-op).
+#    Brotli only affects `.br`/`.gz` static serving, nothing this loop tests.
+mkdir -p .dryrun
+grep -v -e 'load_module modules/ngx_http_brotli_static_module.so;' \
+        -e 'brotli_static on;' \
+  nginx/nginx.conf > .dryrun/nginx.conf
+
+# 2. `.dryrun/conf.d` — a COPY of nginx/conf.d (a container can't create a
+#    new mountpoint file inside an already-read-only DIRECTORY mount, so the
+#    two generated files below have to already be sitting next to the real
+#    ones on the host before the single directory mount below happens) plus
+#    the two files nginx/Dockerfile normally generates at build time from
+#    the one canonical nginx/cloudflare-ips.txt.
+mkdir -p .dryrun/conf.d .dryrun/generated
+cp nginx/conf.d/*.conf .dryrun/conf.d/
+scripts/devops/generate-cloudflare-nginx-snippets.sh nginx/cloudflare-ips.txt .dryrun/conf.d
+# The runtime-discovered trust entry nginx/docker-entrypoint.d/25-origin-
+# gate-runtime-trust.sh normally writes at container start — this stock
+# image doesn't run our entrypoint scripts, so origin-gate-geo.conf's
+# `include` of it needs an empty placeholder (matches nginx/Dockerfile's own
+# build-time placeholder, same reasoning: empty matches no address).
+echo '# empty dry-run placeholder' > .dryrun/generated/origin-gate-runtime-trusted.conf
+
+# 3. Self-signed certs — both vhosts' :443 server blocks get PARSED (and
+#    ssl_certificate stat()'d) even when only :80 is under test; nginx
+#    refuses to start without SOMETHING at these paths.
+mkdir -p .dryrun/certs
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -keyout .dryrun/certs/cheekycheese.tech.key -out .dryrun/certs/cheekycheese.tech.crt \
+  -subj "/CN=cheekycheese.tech"
+openssl req -x509 -newkey rsa:2048 -nodes -days 1 \
+  -keyout .dryrun/certs/app.cheekycheese.tech.key -out .dryrun/certs/app.cheekycheese.tech.crt \
+  -subj "/CN=app.cheekycheese.tech"
+
+# 4. A network + two containers on it: `api` so the api_upstream hostname
+#    resolves (nginx never actually needs to reach it for a routing smoke
+#    test), and the nginx-under-test itself — given the network ALIASES its
+#    own server_names resolve to, so `check-locale-routing.sh` (which sends
+#    no Host header of its own — it relies entirely on $ORIGIN's hostname)
+#    hits the right vhost without editing /etc/hosts or needing sudo.
 docker network create locale-test-net
-docker run -d --name api-stub --network locale-test-net --network-alias api nginx:1.27-alpine
+docker run -d --name api-stub --network locale-test-net --network-alias api \
+  nginx:1.27-alpine
 docker run -d --name nginx-locale-test --network locale-test-net \
+  --network-alias cheekycheese.tech --network-alias app.cheekycheese.tech \
   -p 8080:80 \
-  -v "$PWD/nginx/nginx.conf:/etc/nginx/nginx.conf:ro" \
-  -v "$PWD/nginx/conf.d:/etc/nginx/conf.d:ro" \
+  -v "$PWD/.dryrun/nginx.conf:/etc/nginx/nginx.conf:ro" \
+  -v "$PWD/.dryrun/conf.d:/etc/nginx/conf.d:ro" \
+  -v "$PWD/.dryrun/generated/origin-gate-runtime-trusted.conf:/etc/nginx/origin-gate-runtime-trusted.conf:ro" \
+  -v "$PWD/nginx/snippets:/etc/nginx/snippets:ro" \
   -v "$PWD/nginx/njs:/etc/nginx/njs:ro" \
+  -v "$PWD/.dryrun/certs:/etc/nginx/certs:ro" \
   -v /path/to/a/fixture/landing/dist:/usr/share/nginx/html/landing:ro \
   nginx:1.27-alpine
-scripts/devops/check-locale-routing.sh http://localhost:8080
+
+# 5. The actual check — from a THIRD, throwaway container on the same
+#    network (so its DNS sees the `--network-alias`es above; running
+#    check-locale-routing.sh straight from the host would resolve
+#    `cheekycheese.tech` to the real internet, not this container).
+docker run --rm --network locale-test-net -v "$PWD:/repo:ro" -w /repo \
+  alpine:latest sh -c \
+  'apk add --no-cache bash curl >/dev/null && bash scripts/devops/check-locale-routing.sh http://cheekycheese.tech'
 ```
 
-(`api-stub` only needs to exist so the `api_upstream` hostname resolves —
-nginx never actually needs to reach it for a config/routing smoke test.
-Docker Desktop's bind-mount propagation can lag a couple of seconds after
+Expect real FAILs here unless `/path/to/a/fixture/landing/dist` actually
+contains prerendered `uk/`, `ru/`, `es/`, `pt/`, and `careers/` output — the
+redirect is gated on a real `-f` file-existence check per §4, on purpose, so
+a bare `index.html`-only fixture legitimately gets EN-only, no-redirect
+behaviour for everything. That is the loop working correctly against a
+minimal fixture, not a broken loop — point the mount at a real
+`apps/landing/dist` (or a hand-built fixture with those directories) to
+exercise the redirect paths.
+
+(Docker Desktop's bind-mount propagation can lag a couple of seconds after
 editing a mounted file — if `nginx -t`/curl output looks stale right after
 an edit, recreate the container (`docker rm -f` + `docker run`) rather than
-just `nginx -s reload`, or just wait ~2s and retry.)
+just `nginx -s reload`, or just wait ~2s and retry. Teardown:
+`docker rm -f nginx-locale-test api-stub && docker network rm locale-test-net`.)
 
 **Full build (slower, needed for `nginx/Dockerfile` changes — build-args,
 the verification-file generation logic, the `RUN nginx -t` gate):**
