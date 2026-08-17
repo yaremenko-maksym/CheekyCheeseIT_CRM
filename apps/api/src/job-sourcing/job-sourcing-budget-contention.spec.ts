@@ -164,8 +164,19 @@ describe('Job sourcing — chargeBudget names its refusal honestly (#61)', () =>
     expect(contentionError.sourceType).toBe('DOU_RSS')
     expect(contentionError.attempts).toBe(3)
     expect(contentionError.budgetExhausted).toBe(false)
+    // Round 3 (PR #544 review): each of these covers a DIFFERENT template-literal
+    // chunk of the constructor. Mutation gate proved the two checks below were
+    // missing — deleting either chunk to `''` left the CONTENTION/"не исчерпание
+    // лимита" assertions above still green, because they only ever read the
+    // MIDDLE chunk. The source names, the source type and the attempt count on
+    // purpose (task-vacancy-matching honest-cause requirement) — an empty
+    // opening or closing chunk must fail here.
+    expect(contentionError.message).toContain(
+      'Источник DOU_RSS: не удалось начислить бюджет за 3 попыток',
+    )
     expect(contentionError.message).toContain('конкуренция за строку')
     expect(contentionError.message).toContain('не исчерпание лимита')
+    expect(contentionError.message).toContain('провайдеру не выполнялся); попробуйте ещё раз.')
 
     // AC5 — still conservative: every CAS attempt was actually tried (bounded
     // retry, not an infinite loop) and the provider was NEVER reached, so no
@@ -212,6 +223,20 @@ describe('Job sourcing — chargeBudget names its refusal honestly (#61)', () =>
     // The literal `10` — this fixture's BUDGET_LIMIT, not a value re-derived
     // from `resolveBudget`'s own output (AC6).
     expect(exhaustedError.limit).toBe(10)
+    // Round 3 (PR #544 review, item 4): the sibling CONTENTION test's message
+    // gap ("survives when a template-literal chunk is emptied") turned out to
+    // have no test AT ALL on this side before this round — `.message` was never
+    // read here. Three assertions, one per template-literal chunk in
+    // JobSourceBudgetExhaustedError's constructor: the opening sentence, the
+    // "Обновится …" reset clause (resetsAt is a real Date here — window 'DAY' —
+    // so this branch is exercised, not the null one), and the closing sentence.
+    // No exact ISO timestamp asserted — same "no hardcoded calendar date" rule
+    // as the fixtures above, `resetsAt` is computed at test run time.
+    expect(exhaustedError.message).toContain(
+      'Источник DOU_RSS: бюджет запросов исчерпан (лимит 10, остаток 0).',
+    )
+    expect(exhaustedError.message).toContain('Обновится ')
+    expect(exhaustedError.message).toContain('Сбор не выполнялся.')
 
     expect(updateMock).toHaveBeenCalledTimes(3)
     expect(provider.collect).not.toHaveBeenCalled()
