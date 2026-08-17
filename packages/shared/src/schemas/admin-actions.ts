@@ -10,8 +10,10 @@ export const changeRoleSchema = z.object({
 export const changeSalarySchema = z
   .object({
     // BIZ-14. task-money-floor-and-lying-comments (security-review MED-1) —
-    // THIRD write path to `users.monthly_salary` (numeric(10,2)); see
-    // `./money`'s module comment for the full write-path map this closes.
+    // THIRD write path to `users.monthly_salary` (numeric(10,2)). Closes a
+    // value strictly BELOW one storable unit — an explicit `0` is untouched
+    // by design (`.nonnegative()`); see `./money`'s module comment for the
+    // full write-path map and exactly what does (and does not) reach `0`.
     monthlySalary: withSalaryFloor(z.number().nonnegative().max(500_000)).nullable().optional(), // BIZ-14
     salaryCurrency: currencyEnumSchema.optional(),
     seniorSharePercent: z.number().int().min(0).max(100).optional(),

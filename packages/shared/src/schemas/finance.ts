@@ -1,6 +1,12 @@
 import { z } from 'zod'
 import { mySalaryStatusSchema } from './interviews'
-import { decimalPlacesOf, withSalaryFloor } from './money'
+import {
+  AMOUNT_DECIMAL_PLACES,
+  MIN_TRANSACTION_AMOUNT,
+  decimalPlacesOf,
+  withMoneyFloor,
+  withSalaryFloor,
+} from './money'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -383,9 +389,13 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
  * paths outside this file (`createUserSchema`/`adminUpdateUserSchema` in
  * `users.ts`, `changeSalarySchema` in `admin-actions.ts`) and a SECOND direct
  * cron insert (`amount: emp.monthlySalary`, HR/ACCOUNTANT) that bypasses
- * `createSalarySchema` exactly like the JUNIOR one does. All four are now
- * floored via the SAME shared `withSalaryFloor`/`salaryAmountFloorError` in
- * `./money` — see that file's module comment for the full write-path map.
+ * `createSalarySchema` exactly like the JUNIOR one does. All four now run the
+ * SAME shared `withSalaryFloor`/`salaryAmountFloorError` in `./money` — see
+ * that file's module comment for the full write-path map, AND for exactly
+ * what that floor does and does not close (it rejects a value strictly
+ * BELOW one storable unit; an explicit `0` is unaffected by design, and
+ * still reaches `paySalary` with no further check when `paidAmount` is
+ * omitted — a separate, open business question, not a gap in this floor).
  *
  * HAND-ENTERED — already floored (security-review PR #485, untouched here):
  *   paySalarySchema.paidAmount (`transactionAmountError`).
@@ -426,24 +436,11 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
  */
 export const MAX_TRANSACTION_AMOUNT = 500_000
 
-/**
- * Scale of the money columns (`transactions.amount` — `numeric(18,6)`), and the
- * smallest positive value that column can therefore hold.
- *
- * security-review PR #485 (MED-1). `paidAmount` had a ceiling but no FLOOR and
- * no precision rule, so `1e-7` passed validation and then landed in
- * `numeric(18,6)` as `0.000000` — a salary obligation closed in full by a
- * payment recorded as ZERO. The bug was not the number being small; it was the
- * schema promising to store a value it silently could not. Hence the rule
- * below: a value that cannot be written WITHOUT LOSS is not accepted at all.
- */
-export const AMOUNT_DECIMAL_PLACES = 6
-export const MIN_TRANSACTION_AMOUNT = 1e-6 // 0.000001 — one unit at scale 6
-
-// `decimalPlacesOf` lives in `./money` — shared with the scale-2 salary-floor
-// check below (and, since task-money-floor-and-lying-comments' MED-1 round,
-// with `users.ts`/`admin-actions.ts` too) so the two scales can never define
-// "how many digits does this number have" differently.
+// `AMOUNT_DECIMAL_PLACES` / `MIN_TRANSACTION_AMOUNT` / `decimalPlacesOf` /
+// `moneyFloorAndPrecisionError` / `withMoneyFloor` live in `./money` — see
+// that file's module comment for why (BLOCKER round: the mutation-testing
+// blind spot that made a suppression here unavoidable while the function
+// stayed in THIS file, which consumes it 11 times at module-import time).
 
 /**
  * The ONE definition of "is this a storable money amount", shared verbatim by
@@ -469,73 +466,6 @@ export function transactionAmountError(value: number): string | null {
   }
   return null
 }
-
-/**
- * task-money-floor-and-lying-comments (security-review follow-up to PR #485).
- * `transactionAmountError` fixed the floor for `paidAmount` alone; every OTHER
- * HAND-ENTERED `amount` field in this file that also writes to
- * `transactions.amount` (`numeric(18,6)`) had the identical gap — a value like
- * `1e-7` passed `.positive().max(...)` and then landed in the column as
- * `0.000000` — an obligation recorded as fully paid/booked with ZERO money.
- *
- * This is deliberately NOT "just call `transactionAmountError`" at each call
- * site: that function ALSO enforces `Number.isFinite`, `value > 0`, and the
- * `MAX_TRANSACTION_AMOUNT` ceiling — checks every field below already
- * expresses itself via `.number()` / `.positive()` / `.max(...)`, with ONE
- * exception (`createDividendSchema`, which has NO ceiling — "no balance gate"
- * is a deliberate business decision, see its own comment). Reusing
- * `transactionAmountError` wholesale there would silently ADD a 500k ceiling
- * that was never asked for. This function adds ONLY the floor + precision
- * rule, so a field's own positivity/ceiling checks are never duplicated or
- * overridden.
- *
- * Deliberately does NOT reject non-finite / non-positive values itself
- * (returns `null` for those) — the field's own `.number()` /
- * `.positive()`/`.nonnegative()` already produces a clearer, dedicated issue
- * for them; this only ever needs to ADD an issue for a value that is
- * genuinely positive but too small or too precise to survive the column.
- *
- * Values BELOW the computed sums a schema legitimately receives (e.g. a
- * server-computed share with a long floating-point tail) are OUT OF SCOPE for
- * this helper — see `settledAmountError` in `exchange-rate.util.ts` for the
- * sibling rule that applies to a SERVER-COMPUTED figure instead of a
- * hand-typed one. Every schema this helper is attached to is parsed directly
- * against a raw HTTP request body (verified against every controller call
- * site) — never against a value the server itself derived.
- *
- * Exported (security-review, BLOCKER round) so its own "does not touch
- * 0/NaN/negative" promise can be pinned by a DIRECT unit test — see
- * `finance.money-floor.spec.ts`. That promise was previously untested and a
- * mutant dropping it survived: `amount: 0` gained a SECOND, misleading
- * "слишком мала" issue alongside `.positive()`'s own rejection.
- */
-export function moneyFloorAndPrecisionError(value: number): string | null {
-  if (!Number.isFinite(value) || value <= 0) return null
-  if (value < MIN_TRANSACTION_AMOUNT) {
-    return `Сумма слишком мала — минимум ${MIN_TRANSACTION_AMOUNT.toFixed(AMOUNT_DECIMAL_PLACES)}`
-  }
-  if (decimalPlacesOf(value) > AMOUNT_DECIMAL_PLACES) {
-    return `Не больше ${AMOUNT_DECIMAL_PLACES} знаков после запятой — иначе сумма запишется округлённой`
-  }
-  return null
-}
-
-/** Attaches `moneyFloorAndPrecisionError` to a `z.number()` chain via `.superRefine`. */
-// Stryker disable next-line BlockStatement: emptying this function's body makes it return `undefined` instead of the wrapped schema. Three of its 11 call sites chain `.optional()` directly onto the result (e.g. `updateSeniorIncomeSchema.amount`, line ~944) — evaluated at MODULE-IMPORT time, so `undefined.optional()` throws synchronously the instant `finance.ts` is imported, before any test body runs (verified independently outside Stryker's sandbox: `pnpm --filter @crm/shared test` reports the whole spec file as 0 tests collected, not a per-test failure). Not an equivalent mutant — it is a real, severe regression that breaks every consumer of this module; it just cannot register as "covering" a whole-file crash the way Stryker's per-test coverage model expects, the SAME class of tool blind spot as the `ArrayDeclaration` suppression on `createAdminIncomeSchema`'s `receiverId` union above.
-function withMoneyFloor<T extends z.ZodNumber>(schema: T) {
-  return schema.superRefine((v, ctx) => {
-    const message = moneyFloorAndPrecisionError(v)
-    if (message) ctx.addIssue({ code: 'custom', message })
-  })
-}
-
-// The scale-2 salary-floor (`project_finance_settings.junior_salary_override`,
-// `numeric(10,2)` — a DIFFERENT scale from `transactions.amount` above) now
-// lives in `./money` as `withSalaryFloor`/`salaryAmountFloorError` — MED-1
-// (security-review): the exact same column scale is ALSO `users.monthly_salary`,
-// read by the SAME `createMonthlySalaries` expression
-// (`juniorSalaryOverride ?? user.monthlySalary`), so the floor could not stay
-// private to this file without leaving the other operand exploitable.
 
 /**
  * Receipt payload — uploaded document FK XOR external URL.

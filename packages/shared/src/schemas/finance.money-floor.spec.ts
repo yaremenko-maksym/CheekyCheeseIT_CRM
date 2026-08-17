@@ -30,19 +30,26 @@
  * guard survived undetected: for `amount: 0`, the mutated helper added a
  * SECOND, misleading "слишком мала" issue alongside `.positive()`'s own
  * rejection (`.success` stayed `false` either way, so a plain
- * `.success===false` check could never see the difference). The
- * `moneyFloorAndPrecisionError` describe block below pins the function's
- * EXACT return value (not routed through a schema) for 0/negative/NaN/
- * Infinity — the only test shape that can catch a comparison/logical-operator
- * mutation on that guard regardless of which call site exercises it. A
- * handful of schema-level "amount: 0" checks follow as end-to-end wiring
- * confirmation, mirroring the reviewer's own reproduction.
+ * `.success===false` check could never see the difference). The EXACT
+ * return-value pin for `moneyFloorAndPrecisionError` itself, and the direct
+ * `withMoneyFloor` wiring test, now live in `money.spec.ts` alongside the
+ * function's definition (MED-A, security-review round 3 — `finance.ts`
+ * cannot host that test: it calls `withMoneyFloor` 11 times at its own
+ * module-import time, so a mutant emptying the function's body crashes
+ * finance.ts on import before any finance-side test body runs; `money.ts`
+ * does not consume its own export at its own top level, so a test living
+ * there is not affected by that crash). A handful of schema-level
+ * "amount: 0" checks remain below as end-to-end wiring confirmation,
+ * mirroring the reviewer's own reproduction.
  */
 import { describe, expect, it } from 'vitest'
-import { MIN_SALARY_AMOUNT, SALARY_AMOUNT_DECIMAL_PLACES } from './money'
 import {
   AMOUNT_DECIMAL_PLACES,
+  MIN_SALARY_AMOUNT,
   MIN_TRANSACTION_AMOUNT,
+  SALARY_AMOUNT_DECIMAL_PLACES,
+} from './money'
+import {
   adminUpdateTransactionSchema,
   createAdminIncomeSchema,
   createAdminTransferSchema,
@@ -52,7 +59,6 @@ import {
   createSalarySchema,
   createSeniorIncomeSchema,
   createUsdtIncomeSchema,
-  moneyFloorAndPrecisionError,
   updateDropIncomeSchema,
   updateProjectFinanceSettingsSchema,
   updateSeniorIncomeSchema,
@@ -71,53 +77,6 @@ const EXPLORER_RECEIPT = `https://etherscan.io/tx/0x${'a'.repeat(64)}`
 const TOO_SMALL = 1e-7
 // More than AMOUNT_DECIMAL_PLACES (6) — the column silently rounds the tail.
 const TOO_PRECISE = 1.1234567
-
-// ── BLOCKER (security-review): pin `moneyFloorAndPrecisionError`'s EXACT
-// return value for every branch, directly — not routed through a schema.
-// This is the ONLY test shape that reliably catches a mutation on the guard
-// clause regardless of which of the 11 call sites happens to exercise it:
-// a schema-level `.success===false` check cannot tell "rejected for being
-// too small" apart from "rejected for being non-positive, PLUS a spurious
-// second message" — both parse-fail the same way.
-describe('moneyFloorAndPrecisionError — pure function contract (BLOCKER round)', () => {
-  it('returns null for exactly 0 — must NOT add a second "слишком мала" message alongside .positive()\'s own rejection', () => {
-    expect(moneyFloorAndPrecisionError(0)).toBeNull()
-  })
-
-  it('returns null for a negative value — same reasoning as 0', () => {
-    expect(moneyFloorAndPrecisionError(-1)).toBeNull()
-    expect(moneyFloorAndPrecisionError(-0.0000001)).toBeNull()
-  })
-
-  it('returns null for NaN', () => {
-    expect(moneyFloorAndPrecisionError(Number.NaN)).toBeNull()
-  })
-
-  it('returns null for +Infinity and -Infinity', () => {
-    expect(moneyFloorAndPrecisionError(Number.POSITIVE_INFINITY)).toBeNull()
-    expect(moneyFloorAndPrecisionError(Number.NEGATIVE_INFINITY)).toBeNull()
-  })
-
-  it('returns the "too small" message for a positive value below MIN_TRANSACTION_AMOUNT', () => {
-    expect(moneyFloorAndPrecisionError(TOO_SMALL)).toContain('слишком мала')
-  })
-
-  it('returns null exactly AT the floor boundary — MIN_TRANSACTION_AMOUNT itself is storable', () => {
-    expect(moneyFloorAndPrecisionError(MIN_TRANSACTION_AMOUNT)).toBeNull()
-  })
-
-  it('returns the "too many decimals" message above AMOUNT_DECIMAL_PLACES digits', () => {
-    expect(moneyFloorAndPrecisionError(TOO_PRECISE)).toContain('знаков после запятой')
-  })
-
-  it('returns null for exactly AMOUNT_DECIMAL_PLACES digits — the boundary is inclusive', () => {
-    expect(moneyFloorAndPrecisionError(1.123456)).toBeNull()
-  })
-
-  it('returns null for an ordinary valid amount', () => {
-    expect(moneyFloorAndPrecisionError(100.5)).toBeNull()
-  })
-})
 
 describe('createAdminIncomeSchema.amount — floor (task-money-floor-and-lying-comments)', () => {
   const base = {
@@ -420,9 +379,10 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
 })
 
 // ── BLOCKER (security-review) — end-to-end wiring confirmation. The pure-
-// function block above proves `moneyFloorAndPrecisionError` itself is
-// correct; these mirror the reviewer's OWN reproduction (schema-level
-// `amount: 0`) to confirm `withMoneyFloor` actually wires it in without
+// function pin for `moneyFloorAndPrecisionError` itself (and the direct
+// `withMoneyFloor` wiring test) live in `money.spec.ts` now; these mirror
+// the reviewer's OWN reproduction (schema-level `amount: 0`) to confirm the
+// REAL, exported `finance.ts` schemas wire it in correctly without
 // re-adding a message `.positive()` already owns.
 describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, never a duplicate "слишком мала"', () => {
   it('createAdminIncomeSchema', () => {
