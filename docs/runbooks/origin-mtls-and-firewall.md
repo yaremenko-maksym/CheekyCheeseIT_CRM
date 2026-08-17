@@ -198,12 +198,29 @@ Cloudflare предъявляет нашему nginx клиентский сер
 
    echo ""
    echo "--- sample NONE lines (up to 5) — inspect these to see WHAT presented no cert ---"
-   grep -a 'client_verify=NONE' /tmp/nginx-24h.log | head -5 || echo "(none)"
+   if MATCHES=$(grep -a 'client_verify=NONE' /tmp/nginx-24h.log); then
+     echo "$MATCHES" | head -5
+   else
+     echo "(none)"
+   fi
 
    echo ""
    echo "--- sample FAILED lines (up to 5, if any) — anomalous, see the caveat above ---"
-   grep -a 'client_verify=FAILED' /tmp/nginx-24h.log | head -5 || echo "(none)"
+   if MATCHES=$(grep -a 'client_verify=FAILED' /tmp/nginx-24h.log); then
+     echo "$MATCHES" | head -5
+   else
+     echo "(none)"
+   fi
    ```
+
+   (LOW-1, security review round 2, PR #555: `grep ... | head -5 || echo
+   "(none)"` looks like it prints a fallback on zero matches, but does not —
+   `$?` after a pipe is `head`'s exit code, and `head` exits `0` even after
+   reading nothing from an empty/exhausted pipe. Verified: the old form
+   silently prints NOTHING on zero matches, not `(none)` — the `if
+   MATCHES=$(...)` form above branches on `grep`'s own exit code, which IS
+   `1` on zero matches, and was verified against both an empty-match and a
+   matching case.)
 
    GNU `date`/coreutils (matches the VPS's Ubuntu host — this is NOT meant to
    run on macOS/BSD). `--no-log-prefix` matters: without it, `docker compose
@@ -216,6 +233,14 @@ available` plus zero `FAILED`/`NONE` samples from real visitor traffic
 
 5. По чистому окну я делаю однострочный PR `optional` → `on`. С этого момента
    прямое соединение без сертификата Cloudflare получает `400` на уровне TLS.
+
+   **Чего этот флип НЕ даёт (см. §2б ниже для полного разбора):** зонный AOP
+   использует общий сертификат Cloudflare — один и тот же у всех клиентов
+   Cloudflare, не привязанный к нашей зоне. `on` доказывает «пришло из сети
+   Cloudflare», а не «от края, реально обслуживающего `cheekycheese.tech`» —
+   подделка `CF-Connecting-IP` ДРУГИМ клиентом Cloudflare этим шагом не
+   закрывается. Закрывает её только §2б (свой сертификат, привязанный к
+   хосту).
 
 ### Откат — два независимых режима (лекарства разные)
 
