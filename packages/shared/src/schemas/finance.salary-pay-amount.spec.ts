@@ -15,9 +15,9 @@
  *     while staying silent on an honest bank-rate spread.
  */
 import { describe, expect, it } from 'vitest'
+import { MIN_TRANSACTION_AMOUNT } from './money'
 import {
   MAX_TRANSACTION_AMOUNT,
-  MIN_TRANSACTION_AMOUNT,
   SALARY_PAID_AMOUNT_WARN_THRESHOLD,
   createSalarySchema,
   paySalarySchema,

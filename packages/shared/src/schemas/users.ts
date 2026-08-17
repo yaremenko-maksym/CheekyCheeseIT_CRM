@@ -2,6 +2,7 @@ import { z } from 'zod'
 import type { Role } from '../types/roles'
 import { currencyEnumSchema, paymentMethodSchema } from './payment-requisites'
 import { tabKeySchema, actionKeySchema } from './view-permissions'
+import { withSalaryFloor } from './money'
 
 export const roleSchema = z.enum(['ADMIN', 'SENIOR', 'JUNIOR', 'HR', 'ACCOUNTANT', 'DROP'])
 
@@ -164,7 +165,17 @@ export const createUserSchema = z
     avatarUrl: z.string().url().nullable().optional(),
     techStack: techStackSchema.nullable().optional(),
     seniorSharePercent: z.number().int().min(0).max(100).optional(),
-    monthlySalary: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14
+    // BIZ-14. task-money-floor-and-lying-comments (security-review MED-1):
+    // this is the OTHER operand of `createMonthlySalaries`' `juniorSalaryOverride
+    // ?? user.monthlySalary` — an unfloored value here reached the SAME direct
+    // cron insert (bypassing createSalarySchema) as the now-fixed
+    // `updateProjectFinanceSettingsSchema.juniorSalaryOverride` in `finance.ts`.
+    // The floor rejects a value strictly BELOW one storable unit (numeric
+    // (10,2)) — it does NOT make `0` unreachable: `.nonnegative()` accepts it
+    // by design (a deliberate "no salary yet" value), and an explicit `0`
+    // still reaches `paySalary` unchecked when `paidAmount` is omitted. See
+    // `./money`'s module comment for the full write-path map and that gap.
+    monthlySalary: withSalaryFloor(z.number().nonnegative().max(500_000)).nullable().optional(), // BIZ-14
     salaryCurrency: currencyEnumSchema.optional(),
     hrIds: z.array(z.string().uuid()).optional(),
     accountantId: z.string().uuid().nullable().optional(),
@@ -353,7 +364,9 @@ export const adminUpdateUserSchema = z
      * effective role is DROP (role-scoped write).
      */
     dropSharePercent: z.number().int().min(0).max(100).optional(),
-    monthlySalary: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14
+    // BIZ-14. task-money-floor-and-lying-comments (security-review MED-1) —
+    // see the matching comment on createUserSchema.monthlySalary above.
+    monthlySalary: withSalaryFloor(z.number().nonnegative().max(500_000)).nullable().optional(), // BIZ-14
     salaryCurrency: currencyEnumSchema.optional(),
     // Payment requisites — optional in admin update; when paymentMethod is set,
     // matching fields must also be provided (validated via superRefine).

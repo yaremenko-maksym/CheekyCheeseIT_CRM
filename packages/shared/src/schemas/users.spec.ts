@@ -5,6 +5,7 @@ import {
   createUserSchema,
   createDropSchema,
 } from './users'
+import { MIN_SALARY_AMOUNT } from './money'
 
 /**
  * Avatar storage now lives in the documents table; the profile schemas accept
@@ -267,5 +268,68 @@ describe('createDropSchema — legalFullName/registrationAddress persistence', (
       legalFullName: 'Дропенко Дроп Дропович',
     })
     expect(result.success).toBe(true)
+  })
+})
+
+// ─────────────────────────────────────────────────────────────────────────────
+// task-money-floor-and-lying-comments (security-review MED-1) —
+// `monthlySalary` (`users.monthly_salary`, `numeric(10,2)`) is the OTHER
+// operand of `createMonthlySalaries`' `juniorSalaryOverride ??
+// user.monthlySalary` — the SAME "obligation recorded as zero" bug the task
+// fixed on `finance.ts`'s `juniorSalaryOverride` was still reachable through
+// THIS field via createUserSchema / adminUpdateUserSchema. See `./money`'s
+// module comment for the full write-path map.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const juniorWithLegalName = { ...juniorBase, legalFullName: 'Петренко Петро Петрович' }
+
+describe('createUserSchema.monthlySalary — floor (security-review MED-1)', () => {
+  it('rejects an amount below the smallest storable unit (0.001 would round to 0.00)', () => {
+    const result = createUserSchema.safeParse({ ...juniorWithLegalName, monthlySalary: 0.001 })
+    expect(result.success).toBe(false)
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toContain('слишком мала')
+  })
+
+  it('accepts exactly the smallest storable amount (one cent)', () => {
+    expect(
+      createUserSchema.safeParse({ ...juniorWithLegalName, monthlySalary: MIN_SALARY_AMOUNT })
+        .success,
+    ).toBe(true)
+  })
+
+  it('rejects more decimals than the column keeps', () => {
+    const result = createUserSchema.safeParse({ ...juniorWithLegalName, monthlySalary: 1.001 })
+    expect(result.success).toBe(false)
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toContain('знаков после запятой')
+  })
+
+  it('still accepts 0 — a deliberate "no salary yet" value, and null/omitted', () => {
+    expect(createUserSchema.safeParse({ ...juniorWithLegalName, monthlySalary: 0 }).success).toBe(
+      true,
+    )
+    expect(
+      createUserSchema.safeParse({ ...juniorWithLegalName, monthlySalary: null }).success,
+    ).toBe(true)
+    expect(createUserSchema.safeParse(juniorWithLegalName).success).toBe(true)
+  })
+})
+
+describe('adminUpdateUserSchema.monthlySalary — floor (security-review MED-1)', () => {
+  it('rejects an amount below the smallest storable unit', () => {
+    const result = adminUpdateUserSchema.safeParse({ monthlySalary: 0.001 })
+    expect(result.success).toBe(false)
+    const message = !result.success ? result.error.issues[0]?.message : undefined
+    expect(message).toContain('слишком мала')
+  })
+
+  it('accepts exactly the smallest storable amount', () => {
+    expect(adminUpdateUserSchema.safeParse({ monthlySalary: MIN_SALARY_AMOUNT }).success).toBe(true)
+  })
+
+  it('still accepts 0 and omitted (unchanged behaviour)', () => {
+    expect(adminUpdateUserSchema.safeParse({ monthlySalary: 0 }).success).toBe(true)
+    expect(adminUpdateUserSchema.safeParse({}).success).toBe(true)
   })
 })

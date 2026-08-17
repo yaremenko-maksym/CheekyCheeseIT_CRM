@@ -1,5 +1,12 @@
 import { z } from 'zod'
 import { mySalaryStatusSchema } from './interviews'
+import {
+  AMOUNT_DECIMAL_PLACES,
+  MIN_TRANSACTION_AMOUNT,
+  decimalPlacesOf,
+  withMoneyFloor,
+  withSalaryFloor,
+} from './money'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -353,6 +360,73 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
 // ---------------------------------------------------------------------------
 
 /**
+ * task-money-floor-and-lying-comments — decision ledger for EVERY money
+ * amount in this file (AC1: "по каждой сумме — решение, включая те, где
+ * ничего не меняешь"). Full per-field reasoning lives in the PR body; this is
+ * the durable, in-repo index so a future reader does not have to dig through
+ * PR history to see the classification.
+ *
+ * HAND-ENTERED — floored by this task (a human types the figure; a value
+ * that would silently round to zero/lose digits on write must be rejected,
+ * not accepted and corrupted):
+ *   createAdminIncomeSchema.amount, createUsdtIncomeSchema.amount,
+ *   createSeniorIncomeSchema.amount, createDropIncomeSchema.amount,
+ *   updateSeniorIncomeSchema.amount, updateDropIncomeSchema.amount,
+ *   createExpenseSchema.amount, createSalarySchema.amount (the field named in
+ *   the task — `createSalary(amount: 1e-7)` used to validate and land as
+ *   `0.000000`), createAdminTransferSchema.amount,
+ *   adminUpdateTransactionSchema.amount, createDividendSchema.amount (no
+ *   pre-existing ceiling — the floor does not add one; "no balance gate" is
+ *   an unrelated, untouched business decision), and
+ *   updateProjectFinanceSettingsSchema.juniorSalaryOverride (its OWN floor —
+ *   `numeric(10,2)`, not `(18,6)`; feeds the `createMonthlySalaries` cron
+ *   insert directly, bypassing `createSalarySchema` entirely).
+ *
+ * MED-1 (security-review): `juniorSalaryOverride` is only HALF of
+ * `createMonthlySalaries`' `salaryAmount = juniorSalaryOverride ??
+ * user.monthlySalary` expression — the OTHER operand, `users.monthly_salary`
+ * (same `numeric(10,2)` scale), was reachable via THREE more unguarded write
+ * paths outside this file (`createUserSchema`/`adminUpdateUserSchema` in
+ * `users.ts`, `changeSalarySchema` in `admin-actions.ts`) and a SECOND direct
+ * cron insert (`amount: emp.monthlySalary`, HR/ACCOUNTANT) that bypasses
+ * `createSalarySchema` exactly like the JUNIOR one does. All four now run the
+ * SAME shared `withSalaryFloor`/`salaryAmountFloorError` in `./money` — see
+ * that file's module comment for the full write-path map, AND for exactly
+ * what that floor does and does not close (it rejects a value strictly
+ * BELOW one storable unit; an explicit `0` is unaffected by design, and
+ * still reaches `paySalary` with no further check when `paidAmount` is
+ * omitted — a separate, open business question, not a gap in this floor).
+ *
+ * HAND-ENTERED — already floored (security-review PR #485, untouched here):
+ *   paySalarySchema.paidAmount (`transactionAmountError`).
+ *
+ * COMPUTED or READ-ONLY — deliberately left WITHOUT a floor. A floor here
+ * would reject a legitimate long-tail float (e.g. `income * 0.5` →
+ * `333.33333333333337`) as if it were a typo — the exact trap this task
+ * warns against. Every one of these is either a server-derived aggregate
+ * (income × percent splits, sums, balances) or a plain read-DTO mirror of a
+ * row whose WRITE side is already covered above:
+ *   transactionSchema.{amount,originalAmount,exchangeRate},
+ *   payoutRequestSchema.{incomeAmount,payableAmount},
+ *   projectFinanceSettingsSchema.juniorSalaryOverride (read mirror of the
+ *   now-floored write side), pendingObligationSchema.amount (booked as
+ *   `share% × income` by bookCompanyObligations — see `settledAmountError`'s
+ *   comment in exchange-rate.util.ts for the sibling rule that governs a
+ *   computed figure), cryptoRecipientSchema.amount (Phase 4-B split math),
+ *   balanceSchema.balance, totalEarnedSchema.totalEarned,
+ *   dropSelfSummarySchema.{balance,debtToCompany,pendingObligationAmount},
+ *   dropIncomeDtoSchema.amount, dropPaymentDtoSchema.amount,
+ *   financeSummarySchema.{totalIncome,totalExpenses,totalSalaries,netBalance,
+ *   adminBalances[].balance,dropBalances[].balance,monthly[].*},
+ *   accountantSummarySchema.{pendingValidation,validatedThisMonth,
+ *   paidThisMonth}.amount, seniorMonthlyEarningSchema.amount,
+ *   seniorSummarySchema.seniorShareIncome.{total,thisMonth},
+ *   seniorEarningsStatsSchema.lastMonthIncome, companyAccountSchema.balance,
+ *   companyDepositSchema.amountUsdt, depositStatusSchema.amountUsdt
+ *   (Etherscan-verified on-chain, never typed).
+ */
+
+/**
  * BIZ-13 — the single reasonable ceiling every money amount in this module is
  * capped by. Was a bare `500_000` literal repeated at ~10 call sites (each with
  * its own `// BIZ-13` comment); named here so a new amount field (e.g.
@@ -362,30 +436,11 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
  */
 export const MAX_TRANSACTION_AMOUNT = 500_000
 
-/**
- * Scale of the money columns (`transactions.amount` — `numeric(18,6)`), and the
- * smallest positive value that column can therefore hold.
- *
- * security-review PR #485 (MED-1). `paidAmount` had a ceiling but no FLOOR and
- * no precision rule, so `1e-7` passed validation and then landed in
- * `numeric(18,6)` as `0.000000` — a salary obligation closed in full by a
- * payment recorded as ZERO. The bug was not the number being small; it was the
- * schema promising to store a value it silently could not. Hence the rule
- * below: a value that cannot be written WITHOUT LOSS is not accepted at all.
- */
-export const AMOUNT_DECIMAL_PLACES = 6
-export const MIN_TRANSACTION_AMOUNT = 1e-6 // 0.000001 — one unit at scale 6
-
-/** Decimal places a JS number would need to be written out exactly. */
-function decimalPlacesOf(value: number): number {
-  const s = String(value)
-  // Exponential notation means the value is outside the plain-decimal range JS
-  // prints literally — below 1e-6 (already under MIN) or above 1e20 (already
-  // over MAX). Either way it cannot be written to the column as-is.
-  if (s.includes('e') || s.includes('E')) return Number.POSITIVE_INFINITY
-  const dot = s.indexOf('.')
-  return dot === -1 ? 0 : s.length - dot - 1
-}
+// `AMOUNT_DECIMAL_PLACES` / `MIN_TRANSACTION_AMOUNT` / `decimalPlacesOf` /
+// `moneyFloorAndPrecisionError` / `withMoneyFloor` live in `./money` — see
+// that file's module comment for why (BLOCKER round: the mutation-testing
+// blind spot that made a suppression here unavoidable while the function
+// stayed in THIS file, which consumes it 11 times at module-import time).
 
 /**
  * The ONE definition of "is this a storable money amount", shared verbatim by
@@ -683,7 +738,9 @@ function refineAdminIncomeCompanyAccountUsdt(
 export const createAdminIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // entered by the ADMIN/ACCOUNTANT declaring income — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -738,7 +795,9 @@ export type CreateAdminIncomeDto = z.infer<typeof createAdminIncomeSchema>
 export const createUsdtIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // entered by the ADMIN declaring USDT income — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.literal('USDT'),
     receiverId: z.union([z.string().uuid(), z.literal(COMPANY_ACCOUNT_RECEIVER)]),
     // Security-review PR #367 (MED-1) — idempotencyKey: REQUIRED client-generated
@@ -767,7 +826,9 @@ export type CreateUsdtIncomeDto = z.infer<typeof createUsdtIncomeSchema>
 export const createSeniorIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // entered by the SENIOR registering income — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -795,7 +856,9 @@ export type CreateSeniorIncomeDto = z.infer<typeof createSeniorIncomeSchema>
 export const createDropIncomeSchema = z
   .object({
     projectId: z.string().uuid(),
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // entered by the DROP registering income — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -812,7 +875,9 @@ export type CreateDropIncomeDto = z.infer<typeof createDropIncomeSchema>
 // Update REJECTED senior income (resets to PENDING)
 export const updateSeniorIncomeSchema = z
   .object({
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT).optional(), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // re-entered by the SENIOR editing a rejected income — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)).optional(),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -824,7 +889,9 @@ export type UpdateSeniorIncomeDto = z.infer<typeof updateSeniorIncomeSchema>
 // Parallel to updateSeniorIncomeSchema — DROP role resubmission path.
 export const updateDropIncomeSchema = z
   .object({
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT).optional(), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // re-entered by the DROP editing a rejected income — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)).optional(),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     ...receiptFields,
     notes: z.string().max(1000).optional().nullable(),
@@ -838,7 +905,9 @@ export type UpdateDropIncomeDto = z.infer<typeof updateDropIncomeSchema>
 // balance, gated by available funds). Currency forced to USDT. Absent → legacy.
 export const createExpenseSchema = z
   .object({
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // entered by the ADMIN declaring an expense — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']),
     category: z.string().min(1).max(255),
     notes: z.string().max(1000).optional().nullable(),
@@ -869,7 +938,12 @@ export type CreateExpenseDto = z.infer<typeof createExpenseSchema>
 // nominal of the reminder (default USD); it is overridden by the pay-time choice.
 export const createSalarySchema = z.object({
   receiverId: z.string().uuid(),
-  amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
+  // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments
+  // (security-review follow-up to PR #485): hand-entered by the
+  // ADMIN/ACCOUNTANT creating the reminder — `createSalary(amount: 1e-7)`
+  // used to pass this schema and land in `numeric(18,6)` as `0.000000`, an
+  // obligation created for zero. Floor added.
+  amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
   currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USD'),
   salaryMonth: z.string().regex(/^\d{4}-\d{2}$/, 'Format YYYY-MM'),
   notes: z.string().max(1000).optional().nullable(),
@@ -886,7 +960,9 @@ export const createAdminTransferSchema = z
   .object({
     senderId: z.string().uuid().optional(),
     receiverId: z.string().uuid(),
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // entered by the ADMIN equalizing balances — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).default('USDT'),
     // task-receipts-backend (#8): receipt now MANDATORY + currency-aware (default
     // USDT → explorer-only). The default is applied before the refine runs, so
@@ -1089,14 +1165,27 @@ export type ManualConfirmPayoutDto = z.infer<typeof manualConfirmPayoutSchema>
 // Update project finance settings (ADMIN/ACCOUNTANT)
 export const updateProjectFinanceSettingsSchema = z.object({
   seniorSharePercentOverride: z.number().int().min(0).max(100).nullable().optional(),
-  juniorSalaryOverride: z.number().nonnegative().max(500_000).nullable().optional(), // BIZ-14
+  // BIZ-14. task-money-floor-and-lying-comments: hand-entered by the
+  // ADMIN/ACCOUNTANT — feeds `createMonthlySalaries`' cron insert directly
+  // (bypasses createSalarySchema entirely), so an unfloored override here was
+  // the SAME "obligation recorded as zero" bug at a different column scale
+  // (numeric(10,2), not (18,6) — see `SALARY_AMOUNT_DECIMAL_PLACES` in
+  // `./money`). Floor added via the SHARED `withSalaryFloor` (MED-1:
+  // `users.monthlySalary`, the OTHER operand this cron reads, needed the
+  // identical fix — see `./money`'s module comment); `0` itself stays valid
+  // (a deliberate "no salary on this project" override, unchanged).
+  juniorSalaryOverride: withSalaryFloor(z.number().nonnegative().max(500_000))
+    .nullable()
+    .optional(),
 })
 export type UpdateProjectFinanceSettingsDto = z.infer<typeof updateProjectFinanceSettingsSchema>
 
 // Admin edit any transaction (ADMIN only, blocks PAYOUT/PAYOUT_ADMIN on backend)
 export const adminUpdateTransactionSchema = z
   .object({
-    amount: z.number().positive().max(MAX_TRANSACTION_AMOUNT).optional(), // BIZ-13: reasonable ceiling
+    // BIZ-13: reasonable ceiling. task-money-floor-and-lying-comments: hand-
+    // entered by the ADMIN correcting a transaction — floor added.
+    amount: withMoneyFloor(z.number().positive().max(MAX_TRANSACTION_AMOUNT)).optional(),
     currency: z.enum(['USDT', 'USD', 'EUR', 'UAH']).optional(),
     notes: z.string().max(1000).optional().nullable(),
     ...receiptFields,
@@ -2156,7 +2245,13 @@ export type DepositStatusDto = z.infer<typeof depositStatusSchema>
 // row (no double-debit). Zod rejects requests without the key (400).
 export const createDividendSchema = z
   .object({
-    amount: z.number().positive(),
+    // task-money-floor-and-lying-comments: hand-entered by the ADMIN — writes
+    // straight to `transactions.amount` (`numeric(18,6)`), same as the other
+    // create schemas above, so the same floor applies. Deliberately NOT
+    // `.max(MAX_TRANSACTION_AMOUNT)` — this schema has never had a ceiling
+    // ("no balance gate — owner decision" above); the floor does not change
+    // that.
+    amount: withMoneyFloor(z.number().positive()),
     adminId: z.string().uuid().optional(),
     idempotencyKey: z.string().uuid(),
     // task-receipts-backend (#9): a dividend is a USDT withdrawal from the company
