@@ -3624,6 +3624,14 @@ export class TransactionsService {
         'Salary can only be created for JUNIOR, HR, ACCOUNTANT, SENIOR, or DROP',
       )
     }
+    // task-finance-fix-wave1 (E-1): same barrier as the three other money paths
+    // in this service that credit a named person — createAdminIncome,
+    // declareUsdtProjectIncome and manualConfirmPayout all refuse an archived
+    // receiver. A dismissed employee is not owed a NEW salary; if the dismissal
+    // was a mistake, un-archive first.
+    if (receiver.archivedAt) {
+      throw new BadRequestException('Получатель архивирован — зарплата не начисляется')
+    }
 
     // task-salary-pay-flow: a manually-created salary is a NEUTRAL PENDING
     // reminder — it does NOT pick a funding source, does NOT touch the company
@@ -6047,6 +6055,24 @@ export class TransactionsService {
     if (tx.type !== 'SALARY') throw new BadRequestException('Can only pay SALARY transactions')
     if (tx.status !== 'PENDING') throw new BadRequestException('Transaction is not PENDING')
 
+    // task-finance-fix-wave1 (E-1): refuse to PAY a salary whose receiver has
+    // been dismissed. `assertTransactionWritable` above only knows about
+    // `deletedAt`, and nothing else on this path reads the receiver at all — so
+    // the PENDING rows the cron had already accumulated for archived employees
+    // (before the query filter above existed) stayed payable with one click.
+    // Same shape as the recipient barrier in manualConfirmPayout: fetch the
+    // named user, refuse when `archivedAt` is set.
+    //
+    // The lookup is conditional because `receiverId` is nullable on the table
+    // (label-only counterparties exist for other transaction types) — a row with
+    // no receiver has no archival to check, and we never query a null id.
+    const salaryReceiver = tx.receiverId
+      ? await this.db.db.query.users.findFirst({ where: eq(users.id, tx.receiverId) })
+      : undefined
+    if (salaryReceiver && salaryReceiver.archivedAt) {
+      throw new BadRequestException('Получатель зарплаты архивирован — выплата невозможна')
+    }
+
     const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
 
     // task-receipts-backend (#7): defense-in-depth mandatory-receipt re-check.
@@ -6313,8 +6339,26 @@ export class TransactionsService {
 
   async createMonthlySalaries(month: string) {
     // Create PENDING salary for HR and ACCOUNTANT
+    //
+    // task-finance-fix-wave1 (E-1): the `archivedAt` term is NOT decoration —
+    // without it a DISMISSED employee kept being paid. `UsersService.archive`
+    // does exactly one thing for these two roles beyond stamping `archivedAt`:
+    // it sets `leftAt` on their `team_members` rows. It does NOT zero
+    // `monthlySalary` and does NOT change the role — so a role-only SELECT went
+    // on matching them forever, the `if (!emp.monthlySalary) continue` guard
+    // below waved them through, and the partial unique index only dedupes
+    // WITHIN one month, so every following month produced a fresh PENDING
+    // salary. Those rows are not hidden anywhere in the UI either: paying one
+    // was an ordinary ADMIN click on the finance page.
+    //
+    // The filter belongs in the QUERY, not in the loop: the loop's only guard
+    // is about a MISSING salary figure, and a reader adding the next condition
+    // there would have no reason to suspect archival is handled elsewhere.
+    // (The JUNIOR loop further down needs no equivalent term — it selects
+    // through `projectMembers` with `isNull(projectMembers.leftAt)`, and
+    // archiving a junior sets that `leftAt`. See the comment there.)
     const employees = await this.db.db.query.users.findMany({
-      where: or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')),
+      where: and(or(eq(users.role, 'HR'), eq(users.role, 'ACCOUNTANT')), isNull(users.archivedAt)),
     })
 
     // Find the admin who creates the rows. Used ONLY as `createdBy` for audit —
@@ -6400,6 +6444,13 @@ export class TransactionsService {
     // GONE — juniors always get a PENDING salary regardless of whether the
     // project's senior/drop income has been validated yet. (The
     // unlockJuniorSalaryForProject method + its callers were removed.)
+    //
+    // task-finance-fix-wave1 (E-1) — deliberately NOT given an `archivedAt` term
+    // to match the HR/ACCOUNTANT query above: archiving a JUNIOR sets `leftAt` on
+    // their project memberships, and `isNull(projectMembers.leftAt)` below
+    // already excludes them. Adding a second, redundant condition for symmetry
+    // would change no outcome while suggesting to the next reader that `leftAt`
+    // alone is insufficient here.
     const activeMembers = await this.db.db.query.projectMembers.findMany({
       where: isNull(projectMembers.leftAt),
       with: {
