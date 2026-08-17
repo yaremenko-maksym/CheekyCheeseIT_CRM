@@ -353,6 +353,60 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
 // ---------------------------------------------------------------------------
 
 /**
+ * task-money-floor-and-lying-comments — decision ledger for EVERY money
+ * amount in this file (AC1: "по каждой сумме — решение, включая те, где
+ * ничего не меняешь"). Full per-field reasoning lives in the PR body; this is
+ * the durable, in-repo index so a future reader does not have to dig through
+ * PR history to see the classification.
+ *
+ * HAND-ENTERED — floored by this task (a human types the figure; a value
+ * that would silently round to zero/lose digits on write must be rejected,
+ * not accepted and corrupted):
+ *   createAdminIncomeSchema.amount, createUsdtIncomeSchema.amount,
+ *   createSeniorIncomeSchema.amount, createDropIncomeSchema.amount,
+ *   updateSeniorIncomeSchema.amount, updateDropIncomeSchema.amount,
+ *   createExpenseSchema.amount, createSalarySchema.amount (the field named in
+ *   the task — `createSalary(amount: 1e-7)` used to validate and land as
+ *   `0.000000`), createAdminTransferSchema.amount,
+ *   adminUpdateTransactionSchema.amount, createDividendSchema.amount (no
+ *   pre-existing ceiling — the floor does not add one; "no balance gate" is
+ *   an unrelated, untouched business decision), and
+ *   updateProjectFinanceSettingsSchema.juniorSalaryOverride (its OWN floor —
+ *   `numeric(10,2)`, not `(18,6)`; feeds the `createMonthlySalaries` cron
+ *   insert directly, bypassing `createSalarySchema` entirely, so this was the
+ *   one write-path where the SAME class of bug reached money the schema fix
+ *   above does not cover).
+ *
+ * HAND-ENTERED — already floored (security-review PR #485, untouched here):
+ *   paySalarySchema.paidAmount (`transactionAmountError`).
+ *
+ * COMPUTED or READ-ONLY — deliberately left WITHOUT a floor. A floor here
+ * would reject a legitimate long-tail float (e.g. `income * 0.5` →
+ * `333.33333333333337`) as if it were a typo — the exact trap this task
+ * warns against. Every one of these is either a server-derived aggregate
+ * (income × percent splits, sums, balances) or a plain read-DTO mirror of a
+ * row whose WRITE side is already covered above:
+ *   transactionSchema.{amount,originalAmount,exchangeRate},
+ *   payoutRequestSchema.{incomeAmount,payableAmount},
+ *   projectFinanceSettingsSchema.juniorSalaryOverride (read mirror of the
+ *   now-floored write side), pendingObligationSchema.amount (booked as
+ *   `share% × income` by bookCompanyObligations — see `settledAmountError`'s
+ *   comment in exchange-rate.util.ts for the sibling rule that governs a
+ *   computed figure), cryptoRecipientSchema.amount (Phase 4-B split math),
+ *   balanceSchema.balance, totalEarnedSchema.totalEarned,
+ *   dropSelfSummarySchema.{balance,debtToCompany,pendingObligationAmount},
+ *   dropIncomeDtoSchema.amount, dropPaymentDtoSchema.amount,
+ *   financeSummarySchema.{totalIncome,totalExpenses,totalSalaries,netBalance,
+ *   adminBalances[].balance,dropBalances[].balance,monthly[].*},
+ *   accountantSummarySchema.{pendingValidation,validatedThisMonth,
+ *   paidThisMonth}.amount, seniorMonthlyEarningSchema.amount,
+ *   seniorSummarySchema.seniorShareIncome.{total,thisMonth},
+ *   seniorEarningsStatsSchema.lastMonthIncome, companyAccountSchema.balance,
+ *   companyDepositSchema.amountUsdt, depositStatusSchema.amountUsdt
+ *   (Etherscan-verified on-chain, never typed).
+ */
+
+/**
  * BIZ-13 — the single reasonable ceiling every money amount in this module is
  * capped by. Was a bare `500_000` literal repeated at ~10 call sites (each with
  * its own `// BIZ-13` comment); named here so a new amount field (e.g.
