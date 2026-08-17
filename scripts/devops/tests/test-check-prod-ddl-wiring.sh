@@ -167,6 +167,141 @@ jobs:
               psql -U "\$PGUSER" -d "\$PGDB" -c 'select 1'
 YML
 
+# Item 67 (task-ddl-guard-and-ci-noise, 2026-08-17). The guard's own module
+# docstring named this gap without a test until now: $DDL is genuinely COPIED
+# (real scp source:), and the apply step DOES run psql — but for a DIFFERENT
+# file. $DDL only gets a DEAD assignment (never referenced by any psql
+# invocation) sitting in the same step/script as that real, unrelated apply.
+# Before the item-67 fix, ANY "/opt/crm/....sql" line inside a step that ran
+# psql SOMEWHERE counted as applied, so this dead assignment alone flipped
+# $DDL green with zero actual application.
+read -r -d '' DEAD_ASSIGNMENT_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            DEAD_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+            REAL_FILE="/opt/crm/apps/api/drizzle/manual/2026-01-01_other.sql"
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$REAL_FILE"
+YML
+
+# Review round 2, MED-1. The apply assignment uses SINGLE quotes — ordinary,
+# valid bash, and how this SAME file's scp `source:` values are routinely
+# written — but VAR_ASSIGN_RE originally required double quotes. $DDL is
+# genuinely copied AND applied; a guard that reports it unwired here is a
+# FALSE RED on legitimate wiring.
+read -r -d '' SINGLE_QUOTE_APPLY_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            DDL_FILE='/opt/crm/apps/api/drizzle/manual/$DDL'
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$DDL_FILE"
+YML
+
+# Review round 2, MED-2. Ordinary cross-step GitHub Actions data flow: step 1
+# resolves DDL_FILE and publishes it via \$GITHUB_ENV (the apply-side
+# equivalent of the copy-side's already-tested `steps.X.outputs.Y` idiom —
+# "expr-source" case above), step 2 does the real scp copy, step 3 (a
+# DIFFERENT step in the SAME job) applies it via psql reading \$DDL_FILE it
+# never itself assigned. $DDL is genuinely copied AND applied; scoping var
+# resolution to one Step object made this a false COPIED BUT NEVER APPLIED.
+read -r -d '' CROSS_STEP_GITHUB_ENV_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve DDL file path
+        run: |
+          DDL_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+          echo "DDL_FILE=\$DDL_FILE" >> "\$GITHUB_ENV"
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$DDL_FILE"
+YML
+
+# Negative counterpart to cross-step resolution above: DDL_FILE is assigned
+# in job "copy-compose" and read in job "deploy" — a DIFFERENT job. GitHub
+# Actions env vars do NOT cross job boundaries (each job is a fresh runner),
+# so this must NOT resolve — proving the MED-2 fix stops at job edges rather
+# than becoming "resolve anywhere in the file" (which would trade the
+# false-red MED-2 fixed for a false-green, the wrong direction per this
+# guard's own doctrine).
+read -r -d '' CROSS_JOB_NO_RESOLVE_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Resolve DDL file path (wrong job — does not propagate)
+        run: |
+          DDL_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+          echo "DDL_FILE=\$DDL_FILE" >> "\$GITHUB_ENV"
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$DDL_FILE"
+YML
+
 read -r -d '' APPLY_ONLY_YML <<YML || true
 name: Deploy
 on:
@@ -554,6 +689,24 @@ assert_red "copied to the VPS but never applied -> red" \
 assert_red "applied but never copied (apply step would 'file not found') -> red" \
   --contains "APPLIED BUT NEVER COPIED" \
   -- run_guard "$(make_case apply-only "$APPLY_ONLY_YML")"
+
+assert_red "item 67: a dead \$VAR=/opt/crm/.../\$DDL assignment next to a REAL psql call for a DIFFERENT file -> red" \
+  --contains "COPIED BUT NEVER APPLIED" \
+  --contains "$DDL" \
+  -- run_guard "$(make_case dead-assignment "$DEAD_ASSIGNMENT_YML")"
+
+assert_green "review round 2, MED-1: single-quoted apply assignment (VAR='/opt/crm/...') counts as applied (no false red)" \
+  --contains "Copied AND applied:      1" \
+  -- run_guard "$(make_case single-quote-apply "$SINGLE_QUOTE_APPLY_YML")"
+
+assert_green "review round 2, MED-2: cross-step \$GITHUB_ENV apply assignment (assign step 1, apply step 3, same job) counts as applied (no false red)" \
+  --contains "Copied AND applied:      1" \
+  -- run_guard "$(make_case cross-step-github-env "$CROSS_STEP_GITHUB_ENV_YML")"
+
+assert_red "review round 2, MED-2 boundary: \$GITHUB_ENV assignment in a DIFFERENT job does not propagate -> red (no false green)" \
+  --contains "COPIED BUT NEVER APPLIED" \
+  --contains "$DDL" \
+  -- run_guard "$(make_case cross-job-no-resolve "$CROSS_JOB_NO_RESOLVE_YML")"
 
 assert_red "DDL absent from deploy.yml entirely -> red" \
   --contains "NEVER COPIED, NEVER APPLIED" \
