@@ -48,6 +48,42 @@
 # `nocasematch` shell option (a global, easy-to-forget-to-scope toggle),
 # keeps the fix local to the two comparisons that need it.
 #
+# THE CALL ITSELF IS TIMEOUT-WRAPPED (review round 2, PR #558): a hung
+# `gh pr merge` (network stall, GitHub API slowness) used to have NO cap —
+# this script would just sit inside the `run:` step until GitHub Actions'
+# own default 6-HOUR job timeout finally killed it. That is the exact
+# failure mode this whole task exists to close, only worse than the
+# original bug: `merge-approved` stays on the PR, the job is red for hours
+# without ever finishing, and PR #542's "Explain why auto-merge did not
+# complete" step — the loud, named-reason signal — NEVER FIRES, because it
+# only runs once THIS step reaches a terminal outcome. A silent hang here
+# defeats the very mechanism built to prevent silent hangs.
+#
+# CALL_TIMEOUT_SECONDS default is 60 — reasoning is about ONE call's
+# reasonable latency, not the job's lifetime: `gh pr merge` is a single
+# synchronous GraphQL mutation, and this repo's own
+# check-required-checks-complete.sh already treats 60s as a reasonable cap
+# for a comparable single `gh` API round-trip (see CALL_TIMEOUT_SECONDS
+# there) — reusing the same number keeps one convention instead of two
+# guesses about what "too slow" means for this API.
+#
+# A TIMED-OUT CALL IS RETRIED, not failed fast — deliberately, and this is
+# NOT the same branch as the "Base branch was modified" race (a timeout has
+# no GraphQL error text to match; `gh` was killed before it could print
+# one). The tradeoff considered: retrying costs more wall-clock time per
+# hang (argument against); but a hang is, by nature, MORE likely to be
+# transient (network blip, momentary GitHub slowness) than a deterministic
+# policy answer is to change on a retry (argument for) — and because each
+# attempt is now individually capped at CALL_TIMEOUT_SECONDS, retrying a
+# hang is bounded, not unbounded: worst case is
+# MAX_ATTEMPTS × CALL_TIMEOUT_SECONDS + (MAX_ATTEMPTS-1) × RETRY_SLEEP_SECONDS
+# (≈4 minutes at the defaults below) — a fixed, small ceiling, a world away
+# from the 6-hour ceiling this fix removes. A hung call is explicitly NEVER
+# read as "the base branch policy prohibits the merge": it has no error
+# text at all, so it cannot fall into that `case` pattern by accident
+# (see the dedicated `$rc -eq 124` branch below, checked BEFORE the
+# text-matching `case`).
+#
 # Env:
 #   REPO           owner/repo (required)
 #   PR_NUMBER      pull request number (required)
@@ -55,11 +91,15 @@
 #                  tests/lib/fake-gh.sh.
 #   MAX_ATTEMPTS   total attempts including the first (default: 4)
 #   RETRY_SLEEP_SECONDS  pause between retryable attempts (default: 5)
+#   CALL_TIMEOUT_SECONDS  cap on a SINGLE `gh pr merge` invocation
+#                  (default: 60) — see "THE CALL ITSELF IS TIMEOUT-WRAPPED"
+#                  above.
 #
 # Exit codes:
 #   0  merged (first try or after a retry).
 #   1  gave up — either a non-retryable error (fails on the FIRST attempt),
-#      or the retryable race kept recurring past MAX_ATTEMPTS.
+#      or a retryable condition (the base-branch race, or a hung call) kept
+#      recurring past MAX_ATTEMPTS.
 #
 # The caller (.github/workflows/auto-merge-on-label.yml's "Squash and
 # merge" step) is unchanged in shape: it still just needs this script's
@@ -70,22 +110,43 @@
 # Tests: scripts/devops/tests/test-gh-merge-pr-with-retry.sh
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck source=lib/run-with-timeout.sh
+. "$SCRIPT_DIR/lib/run-with-timeout.sh"
+
 REPO="${REPO:?REPO env var required (owner/repo)}"
 PR_NUMBER="${PR_NUMBER:?PR_NUMBER env var required}"
 GH_BIN="${GH_BIN:-gh}"
 MAX_ATTEMPTS="${MAX_ATTEMPTS:-4}"
 RETRY_SLEEP_SECONDS="${RETRY_SLEEP_SECONDS:-5}"
+CALL_TIMEOUT_SECONDS="${CALL_TIMEOUT_SECONDS:-60}"
 
 attempt=1
 last_out=""
 while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
-  last_out="$("$GH_BIN" pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch 2>&1)"
-  rc=$?
+  run_with_timeout "$CALL_TIMEOUT_SECONDS" "$GH_BIN" pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+  last_out="$_TIMEOUT_OUT"
+  rc="$_TIMEOUT_RC"
 
   if [ "$rc" -eq 0 ]; then
     printf '%s\n' "$last_out"
     echo "Merged PR #$PR_NUMBER on attempt $attempt/$MAX_ATTEMPTS."
     exit 0
+  fi
+
+  # A hung call (see "THE CALL ITSELF IS TIMEOUT-WRAPPED" above) has no
+  # GraphQL error text to match — checked BEFORE the text-based `case`
+  # below so it can never be misread as the policy-refusal branch.
+  if [ "$rc" -eq 124 ]; then
+    if [ "$attempt" -lt "$MAX_ATTEMPTS" ]; then
+      echo "Attempt $attempt/$MAX_ATTEMPTS: 'gh pr merge' did not respond within ${CALL_TIMEOUT_SECONDS}s (hung call, treated as transient) — retrying in ${RETRY_SLEEP_SECONDS}s."
+      [ -n "$last_out" ] && printf '%s\n' "$last_out"
+      sleep "$RETRY_SLEEP_SECONDS"
+      attempt=$((attempt + 1))
+      continue
+    fi
+    echo "::error::gh pr merge did not respond within ${CALL_TIMEOUT_SECONDS}s on any of $MAX_ATTEMPTS attempts — giving up. This is a HUNG CALL (network stall / GitHub API slowness), not a policy refusal and not the base-branch race — the merge's actual outcome is unknown; check the PR and GitHub's status page before re-adding merge-approved."
+    exit 1
   fi
 
   # Bash-3.2 compatible lower-casing (no `${var,,}`, that's bash 4+) — same

@@ -29,6 +29,17 @@
 #     retry mechanism stays in place and does nothing, exactly the silent
 #     failure this whole task exists to close). The call-count assertion is
 #     what actually proves "fast", not just "eventually failed".
+#
+# HUNG-CALL TIMEOUT (PR #558 review, round 3): before this round, a hung
+# `gh pr merge` had NO cap at all — the script would sit inside the caller's
+# `run:` step until GitHub Actions' own default 6-HOUR job timeout finally
+# killed it, and PR #542's "Explain why auto-merge did not complete" step
+# would never even fire (it only runs once this step reaches a terminal
+# outcome). The `*-hang-*` cases below are the actual headline proof for
+# this round: not just "the right words appear in the output" but "the job
+# ACTUALLY FINISHES in bounded wall-clock time" — measured with
+# date +%s around the call, the same way the call-count checks above prove
+# "fast" rather than trusting the printed claim alone.
 set -u
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 . "$SELF_DIR/lib/harness.sh"
@@ -140,5 +151,58 @@ COUNTER5="$WS/counter-unknown"
 assert_red "an unrecognized error fails fast too — unknown is not a license to retry" \
   --contains "neither the known base-branch-moved race nor the known policy refusal" \
   -- run_merge "1" "GraphQL: some brand new error message nobody has seen (mergePullRequest)" "$COUNTER5" MAX_ATTEMPTS=4
+
+# ── GREEN: a hung 'gh pr merge' call is cut off and retried, not left ──────
+# The FIRST call sleeps 3s but CALL_TIMEOUT_SECONDS=1 — run_with_timeout
+# must kill it before it can answer, and the SECOND call (which does not
+# hang) must still merge. rc_seq "0:0" — the first entry is irrelevant
+# (that attempt is killed mid-sleep, never reaches its own exit code); only
+# the second is actually observed.
+COUNTER6="$WS/counter-hang-recovers"
+START6=$(date +%s)
+assert_green "a hung 'gh pr merge' call is killed after CALL_TIMEOUT_SECONDS and retried" \
+  --contains "did not respond within 1s" \
+  --contains "Merged PR #551 on attempt 2/4" \
+  -- run_merge "0:0" "" "$COUNTER6" \
+       CALL_TIMEOUT_SECONDS=1 FAKE_GH_MERGE_SLEEP_ON_FIRST_CALL_SECONDS=3
+END6=$(date +%s)
+DURATION6=$((END6 - START6))
+# Generous bound (CALL_TIMEOUT_SECONDS=1 + a fast second call + process
+# overhead should be a couple of seconds; 8s leaves ample room on a loaded
+# CI runner without weakening the point — this is still two orders of
+# magnitude below "left hanging").
+if [ "$DURATION6" -le 8 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [green] hang-then-recover finished in bounded time (%ss, not left hanging)\n' "$DURATION6"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [green] hang-then-recover took %ss — expected well under 8s (CALL_TIMEOUT_SECONDS=1, RETRY_SLEEP_SECONDS=0)\n' "$DURATION6"
+fi
+
+# ── RED: a call that hangs on EVERY attempt gives up in BOUNDED time ───────
+# THE HEADLINE CASE FOR THIS REVIEW ROUND. Before this round this scenario
+# ran for up to GitHub Actions' 6-hour default job timeout with
+# merge-approved still on the PR and PR #542's "explain why" step never
+# firing. Now: every attempt hangs (FAKE_GH_MERGE_SLEEP_SECONDS, not just
+# ...ON_FIRST_CALL), so the script must give up after MAX_ATTEMPTS,
+# deterministically bounded by MAX_ATTEMPTS x CALL_TIMEOUT_SECONDS — proven
+# by measuring actual wall-clock time, not merely reading the failure
+# message that claims it.
+COUNTER7="$WS/counter-hang-exhausted"
+START7=$(date +%s)
+assert_red "a call that hangs on EVERY attempt gives up after MAX_ATTEMPTS, in bounded time" \
+  --contains "did not respond within 1s on any of 2 attempts" \
+  --contains "HUNG CALL" \
+  -- run_merge "0:0" "" "$COUNTER7" \
+       MAX_ATTEMPTS=2 CALL_TIMEOUT_SECONDS=1 FAKE_GH_MERGE_SLEEP_SECONDS=3
+END7=$(date +%s)
+DURATION7=$((END7 - START7))
+if [ "$DURATION7" -le 6 ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [RED  ] exhausted-hang gave up in %ss — bounded, nowhere near the 6h job default\n' "$DURATION7"
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [RED  ] exhausted-hang took %ss — expected well under 6s (2 attempts x CALL_TIMEOUT_SECONDS=1, RETRY_SLEEP_SECONDS=0)\n' "$DURATION7"
+fi
 
 guard_test_summary "test-gh-merge-pr-with-retry.sh"

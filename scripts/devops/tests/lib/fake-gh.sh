@@ -74,6 +74,23 @@
 #                             anything else).
 #   FAKE_GH_MERGE_CALL_COUNTER  required alongside FAKE_GH_MERGE_RC_SEQUENCE
 #                             — fresh path, same role as FAKE_GH_CALL_COUNTER.
+#   FAKE_GH_MERGE_SLEEP_ON_FIRST_CALL_SECONDS   optional — sleeps this long
+#                             before answering ONLY the FIRST `pr merge`
+#                             call (every later call in the same
+#                             FAKE_GH_MERGE_CALL_COUNTER answers
+#                             immediately), simulating one hung call that
+#                             then recovers. Same role as
+#                             FAKE_GH_CHECKS_SLEEP_ON_FIRST_CALL above, for
+#                             gh-merge-pr-with-retry.sh's own
+#                             run_with_timeout wrapper (PR #558 review round
+#                             2) instead of check-required-checks-complete.sh's.
+#   FAKE_GH_MERGE_SLEEP_SECONDS   optional — sleeps this long before
+#                             answering EVERY `pr merge` call (not just the
+#                             first). Lets a test simulate a call that hangs
+#                             on every attempt, so the caller's retry budget
+#                             is exhausted and it gives up — as opposed to
+#                             ...SLEEP_ON_FIRST_CALL_SECONDS, which proves
+#                             the recovery path instead.
 set -u
 
 # Advances a DELIM-separated list by one entry per call, using a counter
@@ -99,6 +116,18 @@ _fake_gh_next() {
   [ -f "$counter_file" ] && n="$(cat "$counter_file")"
   n=$((n + 1))
   printf '%s' "$n" >"$counter_file"
+  _fake_gh_pick "$seq" "$n" "$delim"
+}
+
+# Non-incrementing counterpart to _fake_gh_next: reads the Nth entry of a
+# DELIM-separated list without touching any counter file itself. Exists
+# separately for the `pr merge` branch below, which — unlike label-delete —
+# needs to know its own call number BEFORE choosing whether to sleep (a
+# simulated hang must be reflected in the counter file BEFORE sleeping, not
+# after, so a caller that kills this process mid-sleep does not replay call
+# #1 forever; see the `merge)` branch's own comment).
+_fake_gh_pick() {
+  local seq="$1" n="$2" delim="${3:-:}"
   local total use_n
   # printf '%s\n' (NOT '%s') — a trailing newline is required for `wc -l` to
   # count a sequence with no delimiter in it as ONE line rather than zero.
@@ -161,10 +190,33 @@ case "${1:-}" in
       merge)
         : "${FAKE_GH_MERGE_RC_SEQUENCE:?FAKE_GH_MERGE_RC_SEQUENCE not set}"
         : "${FAKE_GH_MERGE_CALL_COUNTER:?FAKE_GH_MERGE_CALL_COUNTER not set}"
-        rc="$(_fake_gh_next "$FAKE_GH_MERGE_RC_SEQUENCE" "$FAKE_GH_MERGE_CALL_COUNTER")"
+
+        n=0
+        [ -f "$FAKE_GH_MERGE_CALL_COUNTER" ] && n="$(cat "$FAKE_GH_MERGE_CALL_COUNTER")"
+        was_first_call=0
+        [ "$n" -eq 0 ] && was_first_call=1
+
+        # Record the call BEFORE sleeping, not after — same reasoning as the
+        # `pr checks` branch above: gh-merge-pr-with-retry.sh's
+        # run_with_timeout KILLS this process mid-sleep to simulate a hang,
+        # which would otherwise mean the counter file update below never
+        # runs and every retry re-reads n=0 forever — an infinite hang
+        # disguised as "recovers on retry". Marking the turn used first is
+        # what actually lets a subsequent call see n=1 and behave like the
+        # SECOND call, not a repeat of the first.
+        n=$((n + 1))
+        printf '%s' "$n" >"$FAKE_GH_MERGE_CALL_COUNTER"
+
+        if [ -n "${FAKE_GH_MERGE_SLEEP_SECONDS:-}" ]; then
+          sleep "$FAKE_GH_MERGE_SLEEP_SECONDS"
+        elif [ -n "${FAKE_GH_MERGE_SLEEP_ON_FIRST_CALL_SECONDS:-}" ] && [ "$was_first_call" -eq 1 ]; then
+          sleep "$FAKE_GH_MERGE_SLEEP_ON_FIRST_CALL_SECONDS"
+        fi
+
+        rc="$(_fake_gh_pick "$FAKE_GH_MERGE_RC_SEQUENCE" "$n")"
         msg=""
         if [ -n "${FAKE_GH_MERGE_MSG_SEQUENCE:-}" ]; then
-          msg="$(_fake_gh_next "$FAKE_GH_MERGE_MSG_SEQUENCE" "${FAKE_GH_MERGE_CALL_COUNTER}.msg" '|')"
+          msg="$(_fake_gh_pick "$FAKE_GH_MERGE_MSG_SEQUENCE" "$n" '|')"
         fi
         if [ "$rc" -eq 0 ]; then
           [ -n "$msg" ] && echo "$msg"
