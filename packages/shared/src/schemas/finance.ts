@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { mySalaryStatusSchema } from './interviews'
+import { decimalPlacesOf, withSalaryFloor } from './money'
 
 // ---------------------------------------------------------------------------
 // Enums
@@ -373,9 +374,18 @@ export type ProjectFinanceSettingsDto = z.infer<typeof projectFinanceSettingsSch
  *   an unrelated, untouched business decision), and
  *   updateProjectFinanceSettingsSchema.juniorSalaryOverride (its OWN floor —
  *   `numeric(10,2)`, not `(18,6)`; feeds the `createMonthlySalaries` cron
- *   insert directly, bypassing `createSalarySchema` entirely, so this was the
- *   one write-path where the SAME class of bug reached money the schema fix
- *   above does not cover).
+ *   insert directly, bypassing `createSalarySchema` entirely).
+ *
+ * MED-1 (security-review): `juniorSalaryOverride` is only HALF of
+ * `createMonthlySalaries`' `salaryAmount = juniorSalaryOverride ??
+ * user.monthlySalary` expression — the OTHER operand, `users.monthly_salary`
+ * (same `numeric(10,2)` scale), was reachable via THREE more unguarded write
+ * paths outside this file (`createUserSchema`/`adminUpdateUserSchema` in
+ * `users.ts`, `changeSalarySchema` in `admin-actions.ts`) and a SECOND direct
+ * cron insert (`amount: emp.monthlySalary`, HR/ACCOUNTANT) that bypasses
+ * `createSalarySchema` exactly like the JUNIOR one does. All four are now
+ * floored via the SAME shared `withSalaryFloor`/`salaryAmountFloorError` in
+ * `./money` — see that file's module comment for the full write-path map.
  *
  * HAND-ENTERED — already floored (security-review PR #485, untouched here):
  *   paySalarySchema.paidAmount (`transactionAmountError`).
@@ -430,16 +440,10 @@ export const MAX_TRANSACTION_AMOUNT = 500_000
 export const AMOUNT_DECIMAL_PLACES = 6
 export const MIN_TRANSACTION_AMOUNT = 1e-6 // 0.000001 — one unit at scale 6
 
-/** Decimal places a JS number would need to be written out exactly. */
-function decimalPlacesOf(value: number): number {
-  const s = String(value)
-  // Exponential notation means the value is outside the plain-decimal range JS
-  // prints literally — below 1e-6 (already under MIN) or above 1e20 (already
-  // over MAX). Either way it cannot be written to the column as-is.
-  if (s.includes('e') || s.includes('E')) return Number.POSITIVE_INFINITY
-  const dot = s.indexOf('.')
-  return dot === -1 ? 0 : s.length - dot - 1
-}
+// `decimalPlacesOf` lives in `./money` — shared with the scale-2 salary-floor
+// check below (and, since task-money-floor-and-lying-comments' MED-1 round,
+// with `users.ts`/`admin-actions.ts` too) so the two scales can never define
+// "how many digits does this number have" differently.
 
 /**
  * The ONE definition of "is this a storable money amount", shared verbatim by
@@ -498,8 +502,14 @@ export function transactionAmountError(value: number): string | null {
  * hand-typed one. Every schema this helper is attached to is parsed directly
  * against a raw HTTP request body (verified against every controller call
  * site) — never against a value the server itself derived.
+ *
+ * Exported (security-review, BLOCKER round) so its own "does not touch
+ * 0/NaN/negative" promise can be pinned by a DIRECT unit test — see
+ * `finance.money-floor.spec.ts`. That promise was previously untested and a
+ * mutant dropping it survived: `amount: 0` gained a SECOND, misleading
+ * "слишком мала" issue alongside `.positive()`'s own rejection.
  */
-function moneyFloorAndPrecisionError(value: number): string | null {
+export function moneyFloorAndPrecisionError(value: number): string | null {
   if (!Number.isFinite(value) || value <= 0) return null
   if (value < MIN_TRANSACTION_AMOUNT) {
     return `Сумма слишком мала — минимум ${MIN_TRANSACTION_AMOUNT.toFixed(AMOUNT_DECIMAL_PLACES)}`
@@ -518,32 +528,13 @@ function withMoneyFloor<T extends z.ZodNumber>(schema: T) {
   })
 }
 
-/**
- * Scale of `project_finance_settings.junior_salary_override` — `numeric(10,2)`,
- * DIFFERENT from the scale-6 money columns above (`transactions.amount`).
- * Reusing `MIN_TRANSACTION_AMOUNT`/`AMOUNT_DECIMAL_PLACES` here would be wrong
- * in the OPPOSITE direction: they would happily accept e.g. `0.001`, which
- * THIS column still cannot store without loss (it would round to `0.00`) —
- * the exact same "obligation recorded as zero" bug, just at a different
- * scale. `0` itself stays valid — a deliberate, existing business decision
- * (`.nonnegative()`, not `.positive()`): an ADMIN may explicitly set "this
- * project's junior earns nothing" as an override. The floor below only closes
- * the gap strictly BETWEEN `0` (exclusive) and the smallest amount the column
- * can store (one cent).
- */
-export const SALARY_OVERRIDE_DECIMAL_PLACES = 2
-export const MIN_SALARY_OVERRIDE_AMOUNT = 0.01 // one cent at scale 2
-
-function salaryOverrideFloorError(value: number): string | null {
-  if (!Number.isFinite(value) || value <= 0) return null // 0 is a deliberate override; NaN/negative are `.nonnegative()`'s job
-  if (value < MIN_SALARY_OVERRIDE_AMOUNT) {
-    return `Сумма слишком мала — минимум ${MIN_SALARY_OVERRIDE_AMOUNT.toFixed(SALARY_OVERRIDE_DECIMAL_PLACES)}`
-  }
-  if (decimalPlacesOf(value) > SALARY_OVERRIDE_DECIMAL_PLACES) {
-    return `Не больше ${SALARY_OVERRIDE_DECIMAL_PLACES} знаков после запятой — иначе сумма запишется округлённой`
-  }
-  return null
-}
+// The scale-2 salary-floor (`project_finance_settings.junior_salary_override`,
+// `numeric(10,2)` — a DIFFERENT scale from `transactions.amount` above) now
+// lives in `./money` as `withSalaryFloor`/`salaryAmountFloorError` — MED-1
+// (security-review): the exact same column scale is ALSO `users.monthly_salary`,
+// read by the SAME `createMonthlySalaries` expression
+// (`juniorSalaryOverride ?? user.monthlySalary`), so the floor could not stay
+// private to this file without leaving the other operand exploitable.
 
 /**
  * Receipt payload — uploaded document FK XOR external URL.
@@ -1247,17 +1238,12 @@ export const updateProjectFinanceSettingsSchema = z.object({
   // ADMIN/ACCOUNTANT — feeds `createMonthlySalaries`' cron insert directly
   // (bypasses createSalarySchema entirely), so an unfloored override here was
   // the SAME "obligation recorded as zero" bug at a different column scale
-  // (numeric(10,2), not (18,6) — see SALARY_OVERRIDE_DECIMAL_PLACES). Floor
-  // added; `0` itself stays valid (a deliberate "no salary on this project"
-  // override, unchanged).
-  juniorSalaryOverride: z
-    .number()
-    .nonnegative()
-    .max(500_000)
-    .superRefine((v, ctx) => {
-      const message = salaryOverrideFloorError(v)
-      if (message) ctx.addIssue({ code: 'custom', message })
-    })
+  // (numeric(10,2), not (18,6) — see `SALARY_AMOUNT_DECIMAL_PLACES` in
+  // `./money`). Floor added via the SHARED `withSalaryFloor` (MED-1:
+  // `users.monthlySalary`, the OTHER operand this cron reads, needed the
+  // identical fix — see `./money`'s module comment); `0` itself stays valid
+  // (a deliberate "no salary on this project" override, unchanged).
+  juniorSalaryOverride: withSalaryFloor(z.number().nonnegative().max(500_000))
     .nullable()
     .optional(),
 })

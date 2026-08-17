@@ -10,10 +10,10 @@
  * Each `describe` below pins ONE fixed schema:
  *   - rejects a value below the column's smallest storable unit (the exact
  *     regression this task closes) — removing that schema's
- *     `withMoneyFloor(...)` / `salaryOverrideFloorError` call makes this test
- *     fail (AC4 — "снять пол у починенной схемы — тест обязан упасть", one
- *     test per modified schema, each scoped to only that field so a mutant
- *     dropping ONE call site is caught by exactly one test);
+ *     `withMoneyFloor(...)` call makes this test fail (AC4 — "снять пол у
+ *     починенной схемы — тест обязан упасть", one test per modified schema,
+ *     each scoped to only that field so a mutant dropping ONE call site is
+ *     caught by exactly one test);
  *   - accepts the boundary minimum (so the fix is not overly strict).
  *
  * `createSalarySchema` additionally gets the literal AC2 case
@@ -23,13 +23,26 @@
  * rounded to the column's own scale first — proving the fix does not break
  * the path the task explicitly warns about ("натягивать хелпер вслепую
  * нельзя" — blind uniformity turns one defect into another).
+ *
+ * security-review (BLOCKER round): `moneyFloorAndPrecisionError`'s own
+ * docstring PROMISES it "does not reject non-finite/non-positive values
+ * itself" — that promise was previously untested, and a mutant dropping the
+ * guard survived undetected: for `amount: 0`, the mutated helper added a
+ * SECOND, misleading "слишком мала" issue alongside `.positive()`'s own
+ * rejection (`.success` stayed `false` either way, so a plain
+ * `.success===false` check could never see the difference). The
+ * `moneyFloorAndPrecisionError` describe block below pins the function's
+ * EXACT return value (not routed through a schema) for 0/negative/NaN/
+ * Infinity — the only test shape that can catch a comparison/logical-operator
+ * mutation on that guard regardless of which call site exercises it. A
+ * handful of schema-level "amount: 0" checks follow as end-to-end wiring
+ * confirmation, mirroring the reviewer's own reproduction.
  */
 import { describe, expect, it } from 'vitest'
+import { MIN_SALARY_AMOUNT, SALARY_AMOUNT_DECIMAL_PLACES } from './money'
 import {
   AMOUNT_DECIMAL_PLACES,
-  MIN_SALARY_OVERRIDE_AMOUNT,
   MIN_TRANSACTION_AMOUNT,
-  SALARY_OVERRIDE_DECIMAL_PLACES,
   adminUpdateTransactionSchema,
   createAdminIncomeSchema,
   createAdminTransferSchema,
@@ -39,6 +52,7 @@ import {
   createSalarySchema,
   createSeniorIncomeSchema,
   createUsdtIncomeSchema,
+  moneyFloorAndPrecisionError,
   updateDropIncomeSchema,
   updateProjectFinanceSettingsSchema,
   updateSeniorIncomeSchema,
@@ -57,6 +71,53 @@ const EXPLORER_RECEIPT = `https://etherscan.io/tx/0x${'a'.repeat(64)}`
 const TOO_SMALL = 1e-7
 // More than AMOUNT_DECIMAL_PLACES (6) — the column silently rounds the tail.
 const TOO_PRECISE = 1.1234567
+
+// ── BLOCKER (security-review): pin `moneyFloorAndPrecisionError`'s EXACT
+// return value for every branch, directly — not routed through a schema.
+// This is the ONLY test shape that reliably catches a mutation on the guard
+// clause regardless of which of the 11 call sites happens to exercise it:
+// a schema-level `.success===false` check cannot tell "rejected for being
+// too small" apart from "rejected for being non-positive, PLUS a spurious
+// second message" — both parse-fail the same way.
+describe('moneyFloorAndPrecisionError — pure function contract (BLOCKER round)', () => {
+  it('returns null for exactly 0 — must NOT add a second "слишком мала" message alongside .positive()\'s own rejection', () => {
+    expect(moneyFloorAndPrecisionError(0)).toBeNull()
+  })
+
+  it('returns null for a negative value — same reasoning as 0', () => {
+    expect(moneyFloorAndPrecisionError(-1)).toBeNull()
+    expect(moneyFloorAndPrecisionError(-0.0000001)).toBeNull()
+  })
+
+  it('returns null for NaN', () => {
+    expect(moneyFloorAndPrecisionError(Number.NaN)).toBeNull()
+  })
+
+  it('returns null for +Infinity and -Infinity', () => {
+    expect(moneyFloorAndPrecisionError(Number.POSITIVE_INFINITY)).toBeNull()
+    expect(moneyFloorAndPrecisionError(Number.NEGATIVE_INFINITY)).toBeNull()
+  })
+
+  it('returns the "too small" message for a positive value below MIN_TRANSACTION_AMOUNT', () => {
+    expect(moneyFloorAndPrecisionError(TOO_SMALL)).toContain('слишком мала')
+  })
+
+  it('returns null exactly AT the floor boundary — MIN_TRANSACTION_AMOUNT itself is storable', () => {
+    expect(moneyFloorAndPrecisionError(MIN_TRANSACTION_AMOUNT)).toBeNull()
+  })
+
+  it('returns the "too many decimals" message above AMOUNT_DECIMAL_PLACES digits', () => {
+    expect(moneyFloorAndPrecisionError(TOO_PRECISE)).toContain('знаков после запятой')
+  })
+
+  it('returns null for exactly AMOUNT_DECIMAL_PLACES digits — the boundary is inclusive', () => {
+    expect(moneyFloorAndPrecisionError(1.123456)).toBeNull()
+  })
+
+  it('returns null for an ordinary valid amount', () => {
+    expect(moneyFloorAndPrecisionError(100.5)).toBeNull()
+  })
+})
 
 describe('createAdminIncomeSchema.amount — floor (task-money-floor-and-lying-comments)', () => {
   const base = {
@@ -312,7 +373,7 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
   it('accepts exactly the smallest storable amount (one cent)', () => {
     expect(
       updateProjectFinanceSettingsSchema.safeParse({
-        juniorSalaryOverride: MIN_SALARY_OVERRIDE_AMOUNT,
+        juniorSalaryOverride: MIN_SALARY_AMOUNT,
       }).success,
     ).toBe(true)
   })
@@ -321,7 +382,7 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
     const result = updateProjectFinanceSettingsSchema.safeParse({ juniorSalaryOverride: 1.001 })
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
-    expect(message).toContain(`${SALARY_OVERRIDE_DECIMAL_PLACES} знаков после запятой`)
+    expect(message).toContain(`${SALARY_AMOUNT_DECIMAL_PLACES} знаков после запятой`)
   })
 
   // `0` stays a legitimate, existing override ("this project's junior earns
@@ -347,5 +408,57 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
     expect(
       updateProjectFinanceSettingsSchema.safeParse({ juniorSalaryOverride: null }).success,
     ).toBe(true)
+  })
+})
+
+// ── BLOCKER (security-review) — end-to-end wiring confirmation. The pure-
+// function block above proves `moneyFloorAndPrecisionError` itself is
+// correct; these mirror the reviewer's OWN reproduction (schema-level
+// `amount: 0`) to confirm `withMoneyFloor` actually wires it in without
+// re-adding a message `.positive()` already owns.
+describe('amount: 0 — schema-level wiring: only .positive()\'s own issue, never a duplicate "слишком мала"', () => {
+  it('createAdminIncomeSchema', () => {
+    const result = createAdminIncomeSchema.safeParse({
+      projectId: PROJECT_ID,
+      currency: 'USD' as const,
+      receiptExternalUrl: HTTPS_RECEIPT,
+      amount: 0,
+    })
+    expect(result.success).toBe(false)
+    const messages = !result.success ? result.error.issues.map((i) => i.message) : []
+    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+  })
+
+  it('createSalarySchema (AC2 headline field)', () => {
+    const result = createSalarySchema.safeParse({
+      receiverId: RECEIVER_ID,
+      salaryMonth: '2026-08',
+      amount: 0,
+    })
+    expect(result.success).toBe(false)
+    const messages = !result.success ? result.error.issues.map((i) => i.message) : []
+    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+  })
+
+  // The schema with NO `.max()` — the reviewer's own reproduction used this
+  // exact field ("подмена на transactionAmountError роняет ровно тест про
+  // дивиденд на 10M"); pinning amount:0 here too so the guard fix and the
+  // no-ceiling guarantee are both covered on the same field.
+  it('createDividendSchema', () => {
+    const result = createDividendSchema.safeParse({
+      idempotencyKey: IDEMPOTENCY_KEY,
+      receiptExternalUrl: EXPLORER_RECEIPT,
+      amount: 0,
+    })
+    expect(result.success).toBe(false)
+    const messages = !result.success ? result.error.issues.map((i) => i.message) : []
+    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
+  })
+
+  it('adminUpdateTransactionSchema (optional field, explicitly set to 0)', () => {
+    const result = adminUpdateTransactionSchema.safeParse({ amount: 0 })
+    expect(result.success).toBe(false)
+    const messages = !result.success ? result.error.issues.map((i) => i.message) : []
+    expect(messages.some((m) => m.includes('слишком мала'))).toBe(false)
   })
 })

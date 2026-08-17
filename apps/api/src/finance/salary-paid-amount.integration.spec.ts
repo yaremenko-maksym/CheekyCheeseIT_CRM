@@ -372,15 +372,30 @@ describe.skipIf(!HAS_DB_URL)(
       // ZERO. Pinned here so the floor below can never be dismissed as
       // theoretical.
       //
-      // task-money-floor-and-lying-comments (security-review finding): this
-      // casts a LITERAL to `numeric(18,6)`, not the LIVE `transactions.amount`
-      // column, so it does NOT catch a future column-type change — verified
-      // empirically: narrowing the live column's scale leaves this assertion
-      // green either way, because the cast target here is hard-coded, not
-      // read from the schema. It is the round-trip tests below ("refuses an
-      // amount too small…" / "accepts exactly the smallest storable
-      // amount…"), which insert through the REAL column and read the REAL
-      // value back, that would catch that regression.
+      // task-money-floor-and-lying-comments (security-review finding, MED-2
+      // round): this casts a LITERAL to `numeric(18,6)`, not the LIVE
+      // `transactions.amount` column, so it does NOT catch a future
+      // column-type change — verified empirically (narrowed
+      // `transactions.amount`/`original_amount` to `numeric(18,2)` on a
+      // scratch DB cloned from crm_qa and re-ran this file): this assertion
+      // stays green regardless.
+      //
+      // Two round-trip tests below insert through the REAL column and read
+      // the REAL value back — but ONLY ONE of them is actually sensitive to
+      // the column's scale, and it is not the one the name suggests:
+      //   - "refuses an amount too small to be stored…" ALSO stays green on
+      //     the narrowed column — `paidAmount: 1e-7` is rejected by
+      //     `transactionAmountError` at the Zod boundary (a hardcoded JS
+      //     constant, not read from the DB schema) BEFORE any query runs, so
+      //     it never actually exercises the column's real precision.
+      //   - "accepts exactly the smallest storable amount, and it survives
+      //     the round-trip" DOES turn red on the narrowed column
+      //     (`0.000001` round-trips back as `0` instead) — this is the one
+      //     regression-catching test.
+      //   - "records an unstorable exchange rate as NULL — no raw DB error,
+      //     no false number" ALSO turns red (its `originalAmount: 0.00001`
+      //     round-trips back as `0`) — a genuine second real-column
+      //     regression guard that happened not to be named here before.
       const result = (await dbSvc.db.execute(
         sql`SELECT (0.0000001::numeric(18,6))::text AS stored`,
       )) as unknown as { rows: { stored: string }[] }
