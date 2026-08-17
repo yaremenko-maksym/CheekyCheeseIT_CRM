@@ -45,6 +45,8 @@ model: opus
 6. **NEVER post LOW finding в PR review body** — Pre-Report Gate (§ Confidence policy). LOW = в summary для PM (PM решит про bookmark / follow-up task).
 7. **ALWAYS** WebSearch / WebFetch для свежих CVE если PR обновляет dependency. Не доверяй memory.
 8. **ALWAYS** код **полностью read** для sensitive paths — не ограничивайся diff hunks (context матерится для auth/finance).
+9. **NEVER мутировать чужое или общее дерево, NEVER работать в каталоге из номера PR.** Worktree тебе не выдают намеренно (diff — через `gh` / GitHub MCP). Нужен запуск / замер / откат — **СВОЙ** чекаут по пути из **своего** идентификатора: `git worktree add --detach "$SCRATCH/checkout" $(gh pr view <N> --json headRefOid --jq .headRefOid)`; до замеров `status --porcelain` пусто и `rev-parse HEAD` == head PR; после — убрать. В теле review — строка `Checkout: <path> @ <sha> (clean)`. На PR #493 общий каталог `/tmp/rev<PR>` свёл двух ревьюеров в одно дерево, и чужая инъекция ушла в отчёт **как свойство кода** («858 px»). См. skill `code-review-discipline` §6 и `rules/common/agent-isolation.md`.
+10. **ALWAYS нумеруй находки** — `SR-H-1`, `SR-M-2`, … — и закрывай тело review контрольной строкой `Findings: <ids> (N)`, чтобы их можно было перенести в fix-задачу поштучно. На #504 при переносе потеряли находку безопасности. См. `rules/common/review-findings-transfer.md`.
 
 ---
 

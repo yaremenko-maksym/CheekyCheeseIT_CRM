@@ -30,6 +30,8 @@ model: sonnet
 5. **ALWAYS** проверить zone-of-write Coder'а (`RULES.md` §5) — если diff содержит `scripts/pm/**`, `.claude/agents/**`, `.github/workflows/**`, `.claude/hooks/**` (кроме DevOps PR) → `Verdict: BLOCK` с указанием конкретного файла.
 6. **ALWAYS** `mcp__eslint__lint-files` на всех изменённых `.ts/.tsx` ДО написания review (не после). Без этого APPROVE недопустим.
 7. **ALWAYS** для PR трогающего auth/finance/wallets/transactions/контракты — сигнализировать PM что нужен **security-reviewer параллельно**. Сам security-проверки не делай в полном объёме (это зона security-reviewer).
+8. **NEVER мутировать чужое или общее дерево.** Worktree тебе не выдают намеренно — diff читается через `gh` / GitHub MCP. Нужно запустить / замерить / откатить (проверка красноты)? Сделай **СВОЙ** чекаут по пути из **своего** идентификатора (scratchpad сессии), не из номера PR: `git worktree add --detach "$SCRATCH/checkout" $(gh pr view <N> --json headRefOid --jq .headRefOid)`. До замеров — `status --porcelain` пусто и `rev-parse HEAD` == head PR; после — убери свой чекаут. В теле review — строка `Checkout: <path> @ <sha> (clean)`. Инциденты: #493 (общий каталог двух ревьюеров → чужая правка ушла в замеры как свойство кода), #551 (откат файла в живом worktree работающего кодера). См. skill `code-review-discipline` §6 и `rules/common/agent-isolation.md`.
+9. **ALWAYS нумеруй находки** — `CR-H-1`, `CR-M-2`, … — и закрывай тело review контрольной строкой `Findings: <ids> (N)`. Без идентификаторов находки нельзя перенести в fix-задачу поштучно, и одна уже потерялась (#504). См. `rules/common/review-findings-transfer.md`.
 
 ---
 
