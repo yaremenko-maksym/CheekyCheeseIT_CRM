@@ -2438,6 +2438,44 @@ jobs:
               echo "==> non_deleted_transactions view DDL re-applied successfully"
             fi
 
+            # ── Step 2zz (preflight, task-infra-aop-observation, security review
+            # PR #555 AOP-3): cloudflare-origin-pull-ca.pem must exist on THIS
+            # host BEFORE the container swap below. nginx/conf.d/crm.conf,
+            # landing.conf and default-server.conf all reference this exact
+            # path via ssl_client_certificate (Authenticated Origin Pulls,
+            # observation phase — docs/runbooks/origin-mtls-and-firewall.md
+            # §2а). It is a RUNTIME-mounted file (docker-compose.prod.yml's
+            # `/etc/nginx/certs:/etc/nginx/certs:ro` bind), not baked into the
+            # image — see crm.conf's own comment for why nginx/Dockerfile's
+            # build-time `nginx -t` gate cannot and does not catch this file
+            # being absent on any PARTICULAR host. The earliest nginx itself
+            # would notice a missing file is on container boot, which is
+            # AFTER `up -d --remove-orphans` below has already torn down the
+            # currently-running (working) nginx container — this preflight
+            # exists specifically so that failure surfaces HERE, with the
+            # old container still serving traffic, instead of as a
+            # post-swap outage the smoke test discovers seconds later.
+            # This is the SAME class of risk the two pre-existing origin
+            # certs (app.cheekycheese.tech.crt/key, cheekycheese.tech.crt/key)
+            # already carry — not new — but THOSE were already present on
+            # the host before this pipeline existed, so there was never a
+            # first-deploy gap for them the way there is for a cert the
+            # owner had to add manually as a one-off prerequisite step.
+            CLOUDFLARE_AOP_CA_FILE="/etc/nginx/certs/cloudflare-origin-pull-ca.pem"
+            if [ ! -f "$CLOUDFLARE_AOP_CA_FILE" ]; then
+              echo "ERROR: $CLOUDFLARE_AOP_CA_FILE not found on this VPS host."
+              echo "nginx/conf.d/crm.conf, landing.conf and default-server.conf all"
+              echo "reference this path via ssl_client_certificate (Authenticated"
+              echo "Origin Pulls, observation phase — see"
+              echo "docs/runbooks/origin-mtls-and-firewall.md §2а). nginx will fail"
+              echo "to start without it. Fix: place the Cloudflare origin-pull CA at"
+              echo "this exact path on the host (runbook §2а step 1) then re-run this"
+              echo "deploy. Refusing to proceed with the container swap — the"
+              echo "currently-running containers are untouched."
+              exit 1
+            fi
+            echo "==> Preflight OK: $CLOUDFLARE_AOP_CA_FILE present on host"
+
             # ── Step 3: start / update api + nginx with new GHCR images ──────────────────────
             # DDL is already applied — new api image will see the columns and indexes.
             # --remove-orphans cleans up any containers from old service names.

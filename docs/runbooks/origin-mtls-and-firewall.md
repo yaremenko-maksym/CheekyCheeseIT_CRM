@@ -129,17 +129,132 @@ Cloudflare предъявляет нашему nginx клиентский сер
 
    ```nginx
    ssl_client_certificate /etc/nginx/certs/cloudflare-origin-pull-ca.pem;
-   ssl_verify_client optional;     # НАБЛЮДЕНИЕ: не отвергает, только пишет в лог
+   ssl_verify_client optional;     # НАБЛЮДЕНИЕ: отсутствие/валидный сертификат — не отвергает
    ```
 
    плюс `$ssl_client_verify` в формат лога. Это ровно тот же приём наблюдательной
    фазы, что у нас уже применён к фильтру по источнику и к CSP.
 
+   **Точность формулировки «не отвергает» (сделано в PR #555, security review):**
+   `optional` не отвергает ровно ДВА случая, которые и имеют значение на практике —
+   отсутствие сертификата (`NONE`) и валидный сертификат (`SUCCESS`), оба получают
+   обычный ответ (проверено живыми прогонами). Предъявленный, но НЕ верифицируемый
+   сертификат — исключение: nginx отвечает автоматическим `400` ещё до попадания
+   запроса в любой `location` — это собственное поведение nginx для
+   `ssl_verify_client optional`, не баг конфига. За файрволом (шаг 1) и зонным AOP
+   этот случай не ожидается на реальном трафике (край всегда предъявляет свой
+   валидный сертификат) — полный разбор и живые прогоны см. в комментарии над
+   `log_format main` в `nginx/nginx.conf`.
+
 4. Сутки читаем лог: у **всего** реального трафика должно стоять `SUCCESS`.
    Ни одного `NONE`/`FAILED` от живых посетителей.
 
+   **Команда (добавлено в PR #555, security review AOP-5 — проверена на живом
+   контейнере, не выдумана).** Наивная `docker compose logs | grep client_verify=
+| ... | sort | uniq -c` считает верно, но вводит в заблуждение тремя
+   способами: не показывает, ЧТО конкретно было `NONE` (главный вопрос при
+   решении о флипе); `docker compose logs` видит только ТЕКУЩИЙ контейнер, то
+   есть любая выкатка молча обнуляет окно наблюдения; ротация json-file
+   (`max-size: 10m` × `max-file: 5`, `docker-compose.prod.yml`) может усечь
+   сутки без предупреждения. Команда ниже честно проверяет покрытие ДО того
+   как выводит распределение, и печатает примеры строк `NONE`, а не только
+   счётчик:
+
+   ```bash
+   cd /opt/crm
+   docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml \
+     logs --since 24h --timestamps --no-log-prefix nginx > /tmp/nginx-24h.log 2>&1
+
+   CONTAINER_ID=$(docker compose -f docker-compose.prod.yml -f docker-compose.ghcr.yml \
+     --env-file .env.production ps -q nginx)
+   STARTED_AT=$(docker inspect -f '{{.State.StartedAt}}' "$CONTAINER_ID")
+   FIRST_LINE_TS=$(grep -a 'client_verify=' /tmp/nginx-24h.log | head -n1 | awk '{print $1}')
+
+   echo "nginx container started at: $STARTED_AT"
+   echo "earliest client_verify= log line retrieved: ${FIRST_LINE_TS:-<none>}"
+
+   STARTED_EPOCH=$(date -u -d "$STARTED_AT" +%s)
+   NOW_EPOCH=$(date -u +%s)
+   CONTAINER_AGE_HOURS=$(( (NOW_EPOCH - STARTED_EPOCH) / 3600 ))
+
+   if [ -z "$FIRST_LINE_TS" ]; then
+     echo "WARNING: no client_verify= lines at all in the requested window."
+   elif [ "$CONTAINER_AGE_HOURS" -lt 24 ]; then
+     echo "WARNING: nginx container is only ~${CONTAINER_AGE_HOURS}h old (redeployed since) — observation window is AT MOST ${CONTAINER_AGE_HOURS}h, not the requested 24h. A container swap resets what 'docker compose logs' can see."
+   else
+     FIRST_EPOCH=$(date -u -d "$FIRST_LINE_TS" +%s)
+     COVERAGE_HOURS=$(( (NOW_EPOCH - FIRST_EPOCH) / 3600 ))
+     if [ "$COVERAGE_HOURS" -lt 23 ]; then
+       echo "WARNING: container up >=24h, but earliest available line is only ~${COVERAGE_HOURS}h old — json-file rotation (max-size=10m x5) likely truncated older entries. Treat as PARTIAL window."
+     else
+       echo "Coverage OK: ~${COVERAGE_HOURS}h of log available."
+     fi
+   fi
+
+   echo ""
+   echo "--- client_verify= distribution ---"
+   grep -a 'client_verify=' /tmp/nginx-24h.log \
+     | sed -n 's/.*client_verify=\(.*\)$/\1/p' | cut -d: -f1 | sort | uniq -c | sort -rn
+
+   echo ""
+   echo "--- sample NONE lines (up to 5) — inspect these to see WHAT presented no cert ---"
+   grep -a 'client_verify=NONE' /tmp/nginx-24h.log | head -5 || echo "(none)"
+
+   echo ""
+   echo "--- sample FAILED lines (up to 5, if any) — anomalous, see the caveat above ---"
+   grep -a 'client_verify=FAILED' /tmp/nginx-24h.log | head -5 || echo "(none)"
+   ```
+
+   GNU `date`/coreutils (matches the VPS's Ubuntu host — this is NOT meant to
+   run on macOS/BSD). `--no-log-prefix` matters: without it, `docker compose
+logs` prepends `nginx-1  | ` to every line, which shifts `awk '{print $1}'`
+   onto the wrong field — found by actually running the command, not by
+   reading `docker compose logs --help`. A clean `Coverage OK: ~24h of log
+available` plus zero `FAILED`/`NONE` samples from real visitor traffic
+   (health-checks and internal probes are expected `-`/occasional `NONE` and
+   are not "real traffic") is the precondition for step 5 below.
+
 5. По чистому окну я делаю однострочный PR `optional` → `on`. С этого момента
    прямое соединение без сертификата Cloudflare получает `400` на уровне TLS.
+
+### Откат — два независимых режима (лекарства разные)
+
+Добавлено в PR #555 (security review, AOP-4) — до этого рунбук не описывал откат
+вообще. Симптом решает, какой режим:
+
+**Режим А — трафик получает `400`.** Клиент предъявляет сертификат, который не
+верифицируется против `cloudflare-origin-pull-ca.pem` (см. разбор в шаге 3 выше
+и в `nginx/nginx.conf`'s комментарии над `log_format main`) — это встроенное
+поведение `ssl_verify_client optional`, не отказ старта nginx: сам nginx жив и
+исправно обслуживает всё остальное. **Лекарство — выключить Global Authenticated
+Origin Pulls в панели Cloudflare** (`SSL/TLS` → `Origin Server`): край перестаёт
+предъявлять сертификат вообще, `optional` резолвит запрос в `NONE`, ответ —
+обычный `200`. Ни повторной выкатки, ни отката PR не нужно — чисто зонный
+переключатель на стороне Cloudflare, эффект мгновенный.
+
+**Режим Б — nginx не стартовал.** Причина: файл `cloudflare-origin-pull-ca.pem`
+отсутствует или повреждён НА ХОСТЕ — `ssl_client_certificate` не может его
+прочитать, nginx падает при загрузке конфига, контейнер не поднимается вообще
+(это уже другой класс отказа, чем Режим А — до TLS-рукопожатия дело не доходит).
+Панель Cloudflare здесь не поможет вовсе — проблема на нашей стороне. Два пути:
+
+1. **Ремонт файла на хосте** — переприменить шаг 1 выше (`sudo curl ... -o
+/etc/nginx/certs/cloudflare-origin-pull-ca.pem` + проверочный `openssl x509
+... -subject -dates`), затем `docker compose -f docker-compose.prod.yml -f
+docker-compose.ghcr.yml --env-file .env.production up -d nginx` на VPS.
+   Быстрее, но требует ручного входа владельца на хост.
+2. **`workflow_dispatch` `deploy.yml` с прежним рабочим `image_tag`** —
+   пересобирает и передеплоивает известно-рабочий образ целиком. У ассистента
+   нет интерактивного SSH к VPS (`appleboy/ssh-action` работает только внутри
+   самого workflow-прогона), поэтому на практике это единственный путь,
+   доступный без ручного входа владельца на VPS.
+
+С PR #555 `deploy.yml` также получил preflight-шаг (прямо перед container-swap'ом,
+Step 3): новый деплой падает ДО сноса текущего работающего контейнера, если
+`cloudflare-origin-pull-ca.pem` отсутствует на хосте — это ловит Режим Б РАНЬШЕ
+для будущих деплоев, но НЕ защищает от файла, удалённого/повреждённого на хосте
+ПОСЛЕ последнего успешного деплоя (уже работающий контейнер продолжит падать при
+рестарте) — тот случай всё ещё Режим Б выше, ремонт файла обязателен.
 
 ### 2б. AOP по хосту, со своим сертификатом (полностью закрывает третью строку таблицы)
 
