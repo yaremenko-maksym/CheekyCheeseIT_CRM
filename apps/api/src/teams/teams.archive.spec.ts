@@ -14,7 +14,7 @@ const adminUser: SessionUser = {
   role: 'ADMIN',
   displayName: 'Admin',
   email: 'a@x.com',
-  avatar: null,
+  avatarUrl: null,
   seniorSharePercent: 26,
 }
 const hrUser: SessionUser = {
@@ -22,7 +22,7 @@ const hrUser: SessionUser = {
   role: 'HR',
   displayName: 'HR',
   email: 'h@x.com',
-  avatar: null,
+  avatarUrl: null,
   seniorSharePercent: 26,
 }
 
@@ -133,6 +133,22 @@ function makeDb(opts: { team?: FakeTeam | undefined; teamList?: FakeTeam[] } = {
   }
 }
 
+// review round on #455: `TeamsService`'s real constructor takes THREE
+// arguments (db, usersService, teamAuditLogService) — this file used to
+// construct it with only two, so every test here ran against a shape that
+// cannot exist in production (a live `TeamsService` always has all three).
+// `archive`/`unarchive`/`getArchiveImpact` themselves never call
+// `teamAuditLogService.record` (only `update`/`removeMember`/
+// `archiveDropTeam`/`rotateSenior` do), so the omission never crashed these
+// specific tests — but the NEXT test added to this file that DOES reach one
+// of those paths would explode on `undefined.record(...)`, not on a
+// meaningful assertion. A real `vi.fn()`-backed stub (matching how `db` and
+// `usersService` are already stubbed below) closes that gap instead of just
+// hiding it: any future call is now observable and inert, not a crash.
+function makeTeamAuditLogService() {
+  return { record: vi.fn(async () => undefined), diff: vi.fn(() => ({})), list: vi.fn() }
+}
+
 function buildService(
   opts: {
     team?: FakeTeam | undefined
@@ -156,7 +172,11 @@ function buildService(
         })),
     ),
   }
-  const service = new TeamsService(db as never, usersService as never)
+  const service = new TeamsService(
+    db as never,
+    usersService as never,
+    makeTeamAuditLogService() as never,
+  )
   // Spy on findOne so we don't need to mock the entire chain after pair-archive.
   vi.spyOn(service, 'findOne').mockResolvedValue({
     id: opts.team?.id ?? 't',
@@ -378,7 +398,11 @@ describe('TeamsService.getArchiveImpact', () => {
       unarchive: vi.fn(),
       getArchiveImpact: vi.fn(),
     }
-    const service = new TeamsService({ db } as never, usersService as never)
+    const service = new TeamsService(
+      { db } as never,
+      usersService as never,
+      makeTeamAuditLogService() as never,
+    )
     const impact = await service.getArchiveImpact('team-drop-1', adminUser)
     expect(impact).toMatchObject({
       type: 'team',

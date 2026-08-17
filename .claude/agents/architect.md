@@ -77,9 +77,15 @@ Agent(
 
 ## Zone-of-write
 
-**Можно:** `docs/architecture/**` · `.claude/agents/**` (frontmatter + golden rules) · `.claude/rules/**` ·
-`.claude/hooks/**` · `.claude/skills/**` · `.claude/settings*.json` (hook registration) ·
+**Можно:** `docs/architecture/**` · `.claude/agents/**` (frontmatter + golden rules + `pm-snippets.md`) ·
+`.claude/rules/**` · `.claude/RULES.md` · `.claude/hooks/**` · `.claude/skills/**` ·
+`.claude/settings*.json` (**только** регистрация хуков — не `permissions` / `enabledPlugins` / `env`) ·
 `.github/workflows/**` (additive / process-гейты) · `scripts/architect/**` · `.claude/tasks/task-architect-*.md`.
+
+> Синхронизировано с `.claude/rules/common/zone-of-write.md` 2026-08-17 (PR #553, CR-L-1).
+> До этого канонический rule-файл был **уже́ и старее** этого списка (разрешал агентские
+> доки «только при ECC migration», о `RULES.md` и `settings.json` молчал), хотя практика
+> шла по списку отсюда. Расходятся снова — правь **оба**.
 
 **Нельзя:** `apps/**`, `packages/**` (Coder) · `docs/business/**`, `.claude/briefs/**` (BA) ·
 `.claude/knowledge/legal/**` (Legal) · `.claude/state/pm-state.json` (PM owns, только предлагать event-типы) ·
