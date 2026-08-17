@@ -382,14 +382,13 @@ describe('finance/summary — real backend RBAC integration (real DB, no mocks)'
     }
   })
 
-  // ── task-accountant-summary-balances-rbac: balance arrays narrowed for
-  //    ACCOUNTANT (empty `[]`) while ADMIN keeps them populated ───────────────
-  // The ACCOUNTANT assertion is a hard invariant of the fix — `canSeeBalances`
-  // returns `[]` regardless of seeded data, so it stays deterministic even when
-  // the whole *.integration.spec suite shares one seeded DB (cross-spec
-  // contamination cannot make these arrays non-empty for the accountant). The
-  // ADMIN assertion relies on this spec's own seeded ADMIN + DROP rows, so the
-  // arrays carry at least those entries.
+  // ── task-accountant-sees-admin-balances (2026-08-17, owner decision):
+  //    adminBalances is a DELIBERATE REVERSAL of #214/#215's zeroing for
+  //    ACCOUNTANT (see the comment above `canSeeAdminBalances` in
+  //    transactions.service.ts for the full why — SEC-3 on #551).
+  //    dropBalances is the OTHER half of #214/#215 and is UNCHANGED: still `[]`
+  //    for ACCOUNTANT. The ADMIN assertion relies on this spec's own seeded
+  //    ADMIN + DROP rows, so both arrays carry at least those entries for ADMIN.
   async function summaryBody(user: SessionUser) {
     const res = await app.inject({
       method: 'GET',
@@ -400,12 +399,18 @@ describe('finance/summary — real backend RBAC integration (real DB, no mocks)'
     return balancesSummarySchema.parse(res.json())
   }
 
-  it('ACCOUNTANT payload: adminBalances + dropBalances are EMPTY (no payment-routing leak)', async () => {
+  it('ACCOUNTANT payload: adminBalances is NON-EMPTY (reversal); dropBalances is STILL EMPTY (unchanged)', async () => {
     if (!dbAvailable) return
     const body = await summaryBody(ACCOUNTANT)
-    expect(body.adminBalances).toEqual([])
+    // Reversal: ACCOUNTANT now sees the seeded ADMIN's personal balance here —
+    // the same balance already reachable one-by-one via
+    // GET /balances/admin/:id (assertCanReadAdminBalance already allowed
+    // ACCOUNTANT there; this summary previously disagreed by zeroing it).
+    expect(body.adminBalances.length).toBeGreaterThan(0)
+    expect(body.adminBalances.some((b) => b.userId === ADMIN.id)).toBe(true)
+    // Unchanged half of #214/#215 — drop balances stay hidden from ACCOUNTANT.
     expect(body.dropBalances).toEqual([])
-    // Economic surface still present — narrowing balances did not strip P&L.
+    // Economic surface still present — narrowing dropBalances did not strip P&L.
     expect(Number.isFinite(body.totalIncome)).toBe(true)
     expect(Number.isFinite(body.netBalance)).toBe(true)
   })
@@ -419,5 +424,17 @@ describe('finance/summary — real backend RBAC integration (real DB, no mocks)'
     expect(body.adminBalances.some((b) => b.userId === ADMIN.id)).toBe(true)
     expect(body.dropBalances.length).toBeGreaterThan(0)
     expect(body.dropBalances.some((b) => b.userId === DROP.id)).toBe(true)
+  })
+
+  it('ACCOUNTANT and ADMIN see the SAME adminBalances entry for the seeded admin (two screens no longer disagree)', async () => {
+    if (!dbAvailable) return
+    const [accountantBody, adminBody] = await Promise.all([
+      summaryBody(ACCOUNTANT),
+      summaryBody(ADMIN),
+    ])
+    const accountantEntry = accountantBody.adminBalances.find((b) => b.userId === ADMIN.id)
+    const adminEntry = adminBody.adminBalances.find((b) => b.userId === ADMIN.id)
+    expect(accountantEntry).toBeDefined()
+    expect(accountantEntry).toEqual(adminEntry)
   })
 })
