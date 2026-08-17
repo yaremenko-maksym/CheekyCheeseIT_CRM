@@ -17,6 +17,7 @@ import type { InvoicesService } from '../invoices/invoices.service'
 import type { DocumentsService } from '../documents/documents.service'
 import type { EtherscanService } from './etherscan.service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
+import { withIsolatedOffCurrencyRow } from './__test-helpers__/off-currency-fixture'
 import { companyAccount, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
@@ -143,6 +144,20 @@ class LedgerTestModule {}
 // receipt gate itself (covered by finance.receipts.spec.ts) — a fixed valid
 // explorer url keeps every call site deterministic.
 const RECEIPT = { receiptExternalUrl: 'https://etherscan.io/tx/0xcompanyledgerspec' }
+
+// SEC-1 (mega-audit wave 2, round 5) — the off-currency guard's own thrown
+// message is deliberately count-only (SEC-2: no sums, no ids, no names), so
+// a fixture row inserted to trip it carries NO marker anywhere the error
+// text reaches. If glimpsed directly (a stray `SELECT * FROM transactions`,
+// a DB browser open mid-debug) by another agent or the owner, the
+// reasonable read is "we have corrupted money in prod" — not "a test
+// forgot to clean up". Stamped on both fixture rows below (the two that
+// cannot use `withIsolatedOffCurrencyRow`'s own auto-stamped notes — see
+// that helper's docstring for why) so the row explains itself.
+const OFF_CURRENCY_FIXTURE_NOTES =
+  'TEST FIXTURE (company-account-ledger.integration.spec.ts) — safe to delete, not real ' +
+  'company money. Inserted to prove createExpense/paySalary still reject on the C-3/SEC-1 ' +
+  "off-currency guard; deleted in the same test's `finally`."
 
 describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
   let txSvc: TransactionsService
@@ -372,6 +387,79 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       expect(tx.currency).toBe('USD')
       expect(await myContribution()).toBe(before)
     })
+
+    // SEC-1 (mega-audit wave 2, round 4, MED) — BEHAVIOURAL proof that
+    // createExpense is one of the four gates the off-currency guard protects.
+    // `TransactionsService.computeCompanyAccountBalance` (transactions
+    // .service.ts:3587, out of this task's zone) is a private one-line
+    // delegate to `computeCompanyAccountBalanceFromLedger`; a future edit
+    // that swapped it for `computeCompanyAccountBalanceForDisplay` (looking
+    // like a harmless "unify the two readers" refactor) would make this
+    // gate silently accept a debit against an unreliable balance — no
+    // *structural* test (asserting on which function is imported/called)
+    // exists for that file per this task's zone, so this is the actual
+    // money-movement behaviour, exercised through the real service.
+    //
+    // ACCEPTED RISK (round 4, isolation): this test does NOT use
+    // `withIsolatedOffCurrencyRow` (the session-advisory-lock fixture used
+    // elsewhere in this file/company-account-balance-off-currency
+    // .integration.spec.ts). `createExpense` ITSELF acquires the shared
+    // `COMPANY_ACCOUNT_LOCK_KEY` advisory lock before reading the balance —
+    // holding that SAME lock around this call would deadlock the call
+    // against itself (proven empirically while writing this test: the
+    // process hung with two backends both blocked on
+    // `pg_advisory_xact_lock`, killed and confirmed via `pg_stat_activity`).
+    // The row is therefore visible, briefly, WITHOUT lock protection: insert
+    // → one gate call → delete, no artificial delay, minimising the window.
+    // A concurrent createExpense/paySalary/settleByCompany/createDividend in
+    // another agent's process during that narrow window would also
+    // (correctly, if confusingly) reject — the SAME residual risk every
+    // C-3 test in company-account-balance-off-currency.integration.spec.ts
+    // carried before round 4 added locking for the READ-ONLY cases.
+    it('SEC-1: an off-currency company row BLOCKS createExpense — no EXPENSE row is created, no debit happens', async () => {
+      if (!dbAvailable) return
+      await seedDeposit(1000) // would otherwise easily cover the expense below
+
+      const fixtureId = 'ca110000-0000-4000-ee00-000000000001'
+      await dbSvc.db.insert(transactions).values({
+        id: fixtureId,
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '250',
+        currency: 'UAH',
+        senderId: ADMIN.id,
+        fundingSource: 'COMPANY_ACCOUNT',
+        createdBy: ADMIN.id,
+        notes: OFF_CURRENCY_FIXTURE_NOTES,
+      })
+      try {
+        // Baseline captured AFTER the fixture row is committed (the fixture
+        // itself is EXPENSE/COMPANY_ACCOUNT/createdBy=ADMIN — it inherently
+        // moves `myContribution()`'s own unscoped-by-currency EXPENSE term;
+        // we isolate createExpense's OWN effect against THIS baseline, not
+        // against a pre-fixture one).
+        const before = await myContribution()
+
+        await expect(
+          txSvc.createExpense(
+            {
+              amount: 300,
+              currency: 'USDT',
+              category: 'Blocked by off-currency guard',
+              fundingSource: 'COMPANY_ACCOUNT',
+              ...RECEIPT,
+            },
+            ADMIN,
+          ),
+        ).rejects.toThrow()
+
+        // The debit never happened — no additional movement beyond the
+        // fixture's own already-baselined contribution.
+        expect(await myContribution()).toBe(before)
+      } finally {
+        await dbSvc.db.delete(transactions).where(eq(transactions.id, fixtureId))
+      }
+    })
   })
 
   // ── AC5 — ADMIN_INCOME COMPANY_ACCOUNT ─────────────────────────────────────
@@ -492,6 +580,56 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
 
       // Contribution debited by the salary amount once it flipped to PAID.
       expect(await myContribution()).toBe(before - 400)
+    })
+
+    // SEC-1 (mega-audit wave 2, round 4, MED) — BEHAVIOURAL proof that
+    // paySalary is one of the four gates the off-currency guard protects.
+    // Same private one-line delegate as createExpense
+    // (transactions.service.ts:3587, out of this task's zone) — a future
+    // "unify the two readers" edit there would make this gate silently pay
+    // a salary against an unreliable balance without any test in THIS
+    // zone noticing. Proven through the real service: the PENDING salary
+    // must stay PENDING, not flip to PAID.
+    //
+    // ACCEPTED RISK (round 4, isolation): same reasoning as the createExpense
+    // test above — `paySalary` itself acquires `COMPANY_ACCOUNT_LOCK_KEY`,
+    // so `withIsolatedOffCurrencyRow` would deadlock this call against its
+    // own isolation lock. Plain insert → one gate call → delete, no
+    // artificial delay, minimal window; see the createExpense test's comment
+    // for the full rationale and the empirical proof of the deadlock.
+    it('SEC-1: an off-currency company row BLOCKS paySalary — the salary stays PENDING, no money moves', async () => {
+      if (!dbAvailable) return
+      await seedDeposit(1000) // would otherwise easily cover the salary below
+      const id = await seedPendingCompanySalary(400)
+
+      const fixtureId = 'ca110000-0000-4000-ee00-000000000002'
+      await dbSvc.db.insert(transactions).values({
+        id: fixtureId,
+        type: 'EXPENSE',
+        status: 'PAID',
+        amount: '250',
+        currency: 'UAH',
+        senderId: ADMIN.id,
+        fundingSource: 'COMPANY_ACCOUNT',
+        createdBy: ADMIN.id,
+        notes: OFF_CURRENCY_FIXTURE_NOTES,
+      })
+      try {
+        await expect(
+          txSvc.paySalary(
+            id,
+            { fundingSource: 'COMPANY_ACCOUNT', currency: 'USDT', ...RECEIPT },
+            ADMIN,
+          ),
+        ).rejects.toThrow()
+
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: eq(transactions.id, id),
+        })
+        expect((row as { status: string }).status).toBe('PENDING')
+      } finally {
+        await dbSvc.db.delete(transactions).where(eq(transactions.id, fixtureId))
+      }
     })
   })
 
@@ -624,6 +762,54 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       // salary, legacy expense and legacy admin-income are all ignored by the
       // formula (deterministic regardless of concurrent global activity).
       expect(await myContribution()).toBe(baseline + 500)
+    })
+  })
+
+  // ── SEC-1 (mega-audit wave 2, round 3) — display path survives an ────────
+  //    off-currency row, THROUGH THE REAL SERVICE against REAL Postgres ────
+  describe('SEC-1: getAccount() degrades instead of 500ing on a real off-currency row (round 3)', () => {
+    // Round 4 (isolation): unlike the createExpense/paySalary behavioural
+    // tests above, `gateBalance()` here calls
+    // `computeCompanyAccountBalanceFromLedger` DIRECTLY — not through a gate
+    // — so it never acquires `COMPANY_ACCOUNT_LOCK_KEY` itself. Wrapping this
+    // test in `withIsolatedOffCurrencyRow` is therefore safe (no self-deadlock)
+    // and protects any OTHER concurrently-running agent's REAL gate call from
+    // observing this row.
+    it('a genuine off-currency company row does NOT throw through caSvc.getAccount() — the screen stays alive', async () => {
+      if (!dbAvailable) return
+      await seedDeposit(1000) // ensure a non-trivial ledger baseline
+
+      // A company-funded EXPENSE booked in UAH — the write path is SUPPOSED to
+      // hardcode USDT (createExpense); this row simulates the ONE future-bug
+      // scenario C-3/SEC-1 are about (a write path that forgets to).
+      await withIsolatedOffCurrencyRow(
+        _pool!,
+        dbSvc.db,
+        {
+          id: 'ca110000-0000-4000-ee00-000000000003',
+          type: 'EXPENSE',
+          status: 'PAID',
+          amount: '250',
+          currency: 'UAH',
+          senderId: ADMIN.id,
+          fundingSource: 'COMPANY_ACCOUNT',
+          createdBy: ADMIN.id,
+        },
+        async () => {
+          // The GATE (shared helper, same one createExpense/paySalary/
+          // settleByCompany/createDividend call directly) still throws —
+          // unchanged by round 3.
+          await expect(gateBalance()).rejects.toThrow()
+
+          // getAccount() — the REAL service method behind GET /api/company-account
+          // — does NOT throw. It resolves with a finite, plain-number balance
+          // (CompanyAccountDto.balance stays z.number(); no shape change).
+          const acc = await caSvc.getAccount(ADMIN)
+          expect(typeof acc.balance).toBe('number')
+          expect(Number.isFinite(acc.balance)).toBe(true)
+          expect(acc.walletAddress).toBeDefined()
+        },
+      )
     })
   })
 })

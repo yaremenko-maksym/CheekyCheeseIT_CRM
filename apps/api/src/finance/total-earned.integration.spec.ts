@@ -113,6 +113,14 @@ const TX_HR_SALARY_PAID = 'fe111111-0000-4000-cc00-000000000004' // SALARY PAID 
 const TX_SENIOR_INCOME_PAID = 'fe111111-0000-4000-cc00-000000000005' // SENIOR_INCOME PAID 3000 → senior
 const TX_SENIOR_INCOME_VALIDATED = 'fe111111-0000-4000-cc00-000000000006' // SENIOR_INCOME VALIDATED 4444 → excluded
 const TX_DROP_PAYOUT_PAID = 'fe111111-0000-4000-cc00-000000000007' // PAYOUT_DROP PAID 1500 → drop
+// C-1 (mega-audit wave 2): a self-referential PAYOUT_DROP (senderId ===
+// receiverId === DROP.id — the owner's ruling: bad/legacy data, not a real
+// flow) must NOT double-credit the drop's payout bucket. It nets to zero,
+// mirroring computeDropAggregate's `received − sent` (transactions.service
+// .ts). Amount is deliberately non-zero and not a round default (333.33), so
+// this fixture is a real "before/after" red-then-green anchor for the
+// existing DROP totalEarned assertion below, not a no-op fixture.
+const TX_DROP_PAYOUT_SELF_REF = 'fe111111-0000-4000-cc00-00000000000b' // PAYOUT_DROP PAID 333.33 sender=receiver=drop → nets to 0
 // Audit 2026-06-28 (#2): a gross DROP_INCOME (senderId=null, external client) is
 // NO LONGER counted toward totalEarned — its real slice is the linked PAYOUT_DROP,
 // so counting both double-counts. Kept in the fixture to prove it is excluded.
@@ -131,6 +139,7 @@ const TEST_TX_IDS = [
   TX_SENIOR_INCOME_PAID,
   TX_SENIOR_INCOME_VALIDATED,
   TX_DROP_PAYOUT_PAID,
+  TX_DROP_PAYOUT_SELF_REF,
   TX_DROP_INCOME_GROSS,
   TX_DROP_INCOME_PENDING,
   TX_DROP_INCOME_DIRECT,
@@ -307,6 +316,9 @@ describe('total-earned — real backend integration (real DB, no mocks)', () => 
     // DROP earned = 1500 (PAYOUT_DROP PAID) + 400 (DIRECT DROP_INCOME, senderId set)
     //   = 1900. The GROSS DROP_INCOME (250, senderId=null) is EXCLUDED (audit #2 —
     //   its slice is the PAYOUT_DROP); the PENDING drop income is excluded too.
+    //   The self-referential PAYOUT_DROP (333.33, C-1) nets to ZERO and does NOT
+    //   move this total — see TX_DROP_PAYOUT_SELF_REF above and the dedicated
+    //   C-1 test below.
     await db.insert(transactions).values([
       {
         id: TX_JUNIOR_SALARY_PAID,
@@ -379,6 +391,20 @@ describe('total-earned — real backend integration (real DB, no mocks)', () => 
         amount: '1500',
         currency: 'USD',
         senderId: SENIOR.id,
+        receiverId: DROP.id,
+        recipientId: DROP.id,
+        projectId: PROJ_ID,
+        createdBy: SENIOR.id,
+      },
+      {
+        // C-1: self-referential row — senderId === receiverId === DROP.id.
+        // Must net to zero (parity with computeDropAggregate), NOT add 333.33.
+        id: TX_DROP_PAYOUT_SELF_REF,
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '333.33',
+        currency: 'USD',
+        senderId: DROP.id,
         receiverId: DROP.id,
         recipientId: DROP.id,
         projectId: PROJ_ID,
@@ -520,6 +546,19 @@ describe('total-earned — real backend integration (real DB, no mocks)', () => 
     expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
     // Only the DIRECT income (400) lands in the income bucket — NOT the 250 gross.
     expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(400)
+  })
+
+  // C-1 (mega-audit wave 2), real backend + real Postgres: the self-referential
+  // PAYOUT_DROP fixture (TX_DROP_PAYOUT_SELF_REF, senderId===receiverId===DROP)
+  // must not move the payout bucket. RED before the C-1 fix (would have added
+  // 333.33 → payout=1833.33, totalEarned=2233.33); GREEN after (payout=1500,
+  // totalEarned=1900 — identical to the test above, proving the self-ref row
+  // is a true no-op end-to-end, through the real HTTP route + real DB).
+  it('DROP self-referential PAYOUT_DROP (senderId===receiverId===drop) nets to zero (C-1)', async () => {
+    if (!dbAvailable) return
+    const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
+    expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
+    expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)
   })
 
   it('amounts are always finite numbers (no NULL/NaN leak)', async () => {

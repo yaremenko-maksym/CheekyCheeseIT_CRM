@@ -23,7 +23,10 @@ export default [
     rules: {
       ...tseslint.configs.recommended.rules,
       '@typescript-eslint/no-explicit-any': 'warn',
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' },
+      ],
       '@typescript-eslint/no-require-imports': 'error',
     },
   },
@@ -128,6 +131,56 @@ export default [
             'symbol at all — the import-ban above cannot see it (security-review PR #456 ' +
             'round 3, MED-1). Use `nonDeletedTransactions` via an explicit query-builder ' +
             'select/join instead of the relational query API for this table.',
+        },
+      ],
+    },
+  },
+  {
+    // SEC-1 (mega-audit wave 2, round 4, optional hardening) — makes the
+    // "unify the two readers" mistake IMPOSSIBLE at the AST level, not just
+    // noticed later by a reviewer. `computeCompanyAccountBalanceForDisplay`
+    // (company-account-balance.ts) is display-ONLY: it degrades gracefully
+    // on the known off-currency condition instead of throwing, which is
+    // EXACTLY WRONG for a money-moving gate (createExpense/paySalary/
+    // settleByCompany/createDividend — see that function's docstring). The
+    // one legitimate caller is `CompanyAccountService.computeBalance()`
+    // (company-account.service.ts). `transactions.service.ts` and
+    // `pending-settlement.service.ts` — home to three of the four gates —
+    // are out of THIS task's zone (PR #549), so a future edit there that
+    // swapped the throwing reader for the display-safe one (looking like a
+    // harmless "these two readers should just be one function" refactor)
+    // could not be caught by a runtime test living in this task's files.
+    // Banning the import at the lint level closes that gap regardless of
+    // which finance/** file the edit happens to land in.
+    files: ['src/finance/**/*.ts'],
+    ignores: ['src/finance/company-account.service.ts', '**/*.spec.ts'],
+    plugins: {
+      '@typescript-eslint': tseslint,
+    },
+    languageOptions: {
+      parser: tsparser,
+      parserOptions: {
+        ecmaVersion: 'latest',
+        sourceType: 'module',
+      },
+    },
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            {
+              group: ['**/company-account-balance', './company-account-balance'],
+              importNames: ['computeCompanyAccountBalanceForDisplay'],
+              message:
+                'computeCompanyAccountBalanceForDisplay is display-ONLY (SEC-1, mega-audit ' +
+                'wave 2 round 4) — it degrades instead of throwing on a corrupted balance, ' +
+                'which is exactly wrong for a money-moving gate. Only ' +
+                'CompanyAccountService.computeBalance() may import it. A gate ' +
+                '(createExpense/paySalary/settleByCompany/createDividend) must import ' +
+                'computeCompanyAccountBalanceFromLedger instead, which still throws.',
+            },
+          ],
         },
       ],
     },

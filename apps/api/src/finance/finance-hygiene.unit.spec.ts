@@ -106,7 +106,7 @@ describe('AC2 BIZ-12 — EXPENSE PAID-gating in getAdminBalance', () => {
   it('PENDING EXPENSE does NOT debit admin balance', async () => {
     const svc = makeBalanceService([
       makeTx({
-        type: 'ADMIN_INCOME_CASH',
+        type: 'ADMIN_INCOME', // C-2 fix: this is the real, always-created type
         status: 'PAID',
         amount: '1000',
         currency: 'USD',
@@ -129,7 +129,7 @@ describe('AC2 BIZ-12 — EXPENSE PAID-gating in getAdminBalance', () => {
   it('PAID EXPENSE debits admin balance', async () => {
     const svc = makeBalanceService([
       makeTx({
-        type: 'ADMIN_INCOME_CASH',
+        type: 'ADMIN_INCOME', // C-2 fix: this is the real, always-created type
         status: 'PAID',
         amount: '1000',
         currency: 'USD',

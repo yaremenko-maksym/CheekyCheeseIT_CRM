@@ -10,17 +10,25 @@
  * never touch a real DB.
  *
  * Coverage:
- *   - Admin: empty → 0; +ADMIN_INCOME_CASH; +DIVIDEND_TO_ADMIN; recipientId
- *     fallback; cross-admin attribution does not leak.
+ *   - Admin: empty → 0; +ADMIN_INCOME (C-2 fix — the real type, not the
+ *     never-emitted CASH/CRYPTO ones); +DIVIDEND_TO_ADMIN; recipientId
+ *     fallback; cross-admin attribution does not leak; COMPANY_ACCOUNT-funded
+ *     ADMIN_INCOME excluded (pool money, not personal).
  *   - Senior: SENIOR_PENDING_PAYOUT does NOT credit the balance; SENIOR_PAID
  *     does.
  *   - Multi-currency: USDT + UAH + USD rows are normalized to USD via NBU
  *     rates (admin balance path).
+ *   - DROP getTotalEarned: PAYOUT_DROP self-referential parity with
+ *     computeDropAggregate (C-1, mega-audit wave 2).
  *
  * Removed in the refactor (AC3): TOV balance aggregate + tests.
  */
 import { describe, expect, it } from 'vitest'
 import { BalanceService, convertToBase } from './balance.service'
+// C-1 parity test only — see the "self-referential parity" describe block
+// below. Read-only import of an existing test helper (not a zone-of-write
+// touch on transactions.service.ts itself).
+import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
@@ -42,6 +50,8 @@ interface MockTransactionRow {
   projectId?: string | null
   /** BIZ-04: the senior's share percentage stored per-row (null → default 26). */
   seniorSharePercent?: number | null
+  /** C-2: company-pool routing marker (getAdminBalance's ADMIN_INCOME filter). */
+  fundingSource?: string | null
 }
 
 interface MockObligationRow {
@@ -71,6 +81,7 @@ function makeTx(overrides: Partial<MockTransactionRow>): MockTransactionRow {
     recipientId: null,
     projectId: null,
     seniorSharePercent: null,
+    fundingSource: null,
     type: 'TOV_INCOME',
     ...overrides,
   }
@@ -174,11 +185,16 @@ describe('BalanceService.getAdminBalance', () => {
     expect(result.balance).toBe(0)
   })
 
-  it('ADMIN_INCOME_CASH $500 (recipientId = self) → balance 500', async () => {
+  // C-2 (mega-audit wave 2, AC5/AC6): ADMIN_INCOME_CASH / ADMIN_INCOME_CRYPTO
+  // are never created by any write path — createAdminIncome always writes
+  // 'ADMIN_INCOME'. getAdminBalance now sums that real type instead (with the
+  // SAME company-pool exclusion getSummary's adminBalances already applies —
+  // see transactions.service.ts:5131-5137).
+  it('ADMIN_INCOME $500 (recipientId = self, personal — no fundingSource) → balance 500', async () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '500',
           currency: 'USD',
           recipientId: MAKSYM,
@@ -187,14 +203,67 @@ describe('BalanceService.getAdminBalance', () => {
     })
     const result = await svc.getAdminBalance(MAKSYM, 'USD')
     expect(result.balance).toBeCloseTo(500, 6)
-    expect(result.breakdown.cash_income).toBeCloseTo(500, 6)
+    expect(result.breakdown.income).toBeCloseTo(500, 6)
   })
 
-  it('DIVIDEND_TO_ADMIN $250 stacks on existing cash → balance 750', async () => {
+  // AC6 regression anchor: this is the RED test under the pre-fix code — the
+  // old getAdminBalance summed ADMIN_INCOME_CASH/ADMIN_INCOME_CRYPTO, types no
+  // write path has EVER created, so it would have returned 0 here (silently
+  // blind to real admin income) instead of 500. Fixture amount (777.01) is
+  // deliberately not a round/default number.
+  it('C-2: real ADMIN_INCOME is counted where the phantom CASH/CRYPTO types never fired', async () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
+          amount: '777.01',
+          currency: 'USD',
+          recipientId: MAKSYM,
+        }),
+      ],
+    })
+    const result = await svc.getAdminBalance(MAKSYM, 'USD')
+    expect(result.balance).toBeCloseTo(777.01, 6)
+  })
+
+  it('ADMIN_INCOME_CASH / ADMIN_INCOME_CRYPTO (phantom, never emitted in prod) are no longer counted', async () => {
+    const svc = makeService({
+      transactions: [
+        makeTx({ type: 'ADMIN_INCOME_CASH', amount: '500', currency: 'USD', recipientId: MAKSYM }),
+        makeTx({
+          type: 'ADMIN_INCOME_CRYPTO',
+          amount: '300',
+          currency: 'USDT',
+          recipientId: MAKSYM,
+        }),
+      ],
+    })
+    const result = await svc.getAdminBalance(MAKSYM, 'USD')
+    expect(result.balance).toBe(0)
+  })
+
+  it('ADMIN_INCOME routed to the company account (fundingSource=COMPANY_ACCOUNT) is excluded — pool money, not personal', async () => {
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'ADMIN_INCOME',
+          amount: '700',
+          currency: 'USD',
+          recipientId: MAKSYM,
+          fundingSource: 'COMPANY_ACCOUNT',
+        }),
+      ],
+    })
+    const result = await svc.getAdminBalance(MAKSYM, 'USD')
+    expect(result.balance).toBe(0)
+    expect(result.breakdown.income ?? 0).toBe(0)
+  })
+
+  it('DIVIDEND_TO_ADMIN $250 stacks on existing personal income → balance 750', async () => {
+    const svc = makeService({
+      transactions: [
+        makeTx({
+          type: 'ADMIN_INCOME',
           amount: '500',
           currency: 'USD',
           recipientId: MAKSYM,
@@ -209,7 +278,7 @@ describe('BalanceService.getAdminBalance', () => {
     })
     const result = await svc.getAdminBalance(MAKSYM, 'USD')
     expect(result.balance).toBeCloseTo(750, 6)
-    expect(result.breakdown.cash_income).toBeCloseTo(500, 6)
+    expect(result.breakdown.income).toBeCloseTo(500, 6)
     expect(result.breakdown.dividends).toBeCloseTo(250, 6)
   })
 
@@ -217,7 +286,7 @@ describe('BalanceService.getAdminBalance', () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '500',
           currency: 'USD',
           recipientId: KOSTYA,
@@ -232,7 +301,7 @@ describe('BalanceService.getAdminBalance', () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CRYPTO',
+          type: 'ADMIN_INCOME',
           amount: '300',
           currency: 'USDT',
           recipientId: null,
@@ -243,14 +312,14 @@ describe('BalanceService.getAdminBalance', () => {
     const result = await svc.getAdminBalance(MAKSYM, 'USD')
     // USDT 1:1 USD
     expect(result.balance).toBeCloseTo(300, 6)
-    expect(result.breakdown.crypto_income).toBeCloseTo(300, 6)
+    expect(result.breakdown.income).toBeCloseTo(300, 6)
   })
 
   it('EXPENSE sent by admin debits balance', async () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '1000',
           currency: 'USD',
           recipientId: MAKSYM,
@@ -731,26 +800,205 @@ describe('BalanceService.getTotalEarned — DROP income (#2)', () => {
   })
 })
 
+// ── C-1 (mega-audit wave 2): getTotalEarned/computeDropAggregate parity ───────
+//
+// getTotalEarned's DROP `payout` bucket used to count ONLY the credit leg
+// (recipient === targetUserId), unlike computeDropAggregate
+// (transactions.service.ts), which nets `received − sent`. On a
+// self-referential row (senderId === receiverId === the SAME drop — the
+// owner's ruling: this is bad/legacy data, not a real flow) the two readers
+// disagreed: +amount here, 0 there. See balance.service.ts's `getTotalEarned`
+// DROP branch for the fix and the AC2 no-op proof (git-grep across
+// apps/api/src confirms the only PAYOUT_DROP insert site — pending-settlement
+// .service.ts:773 — stamps senderId as null or an ADMIN's id, never a drop's).
+describe('BalanceService.getTotalEarned — DROP PAYOUT_DROP self-referential parity (C-1)', () => {
+  const DROP_ID = 'drop-parity-1'
+
+  function makeDropEarnedSvc(transactions: MockTransactionRow[]): BalanceService {
+    const drizzleClient = {
+      query: {
+        users: {
+          findFirst: async () => ({ id: DROP_ID, role: 'DROP', displayName: 'Drop' }),
+        },
+      },
+      select: () => ({
+        from: async () => transactions,
+      }),
+    }
+    const db = { db: drizzleClient } as never
+    const nbu = { getRates: async () => makeRates() } as never
+    return new BalanceService(db, nbu)
+  }
+
+  // Deliberately NOT 0 and NOT a round/default value, per the task's
+  // instruction to avoid a fixture that coincides with the "nothing happened"
+  // baseline — a fixture of 0 here would pass both before AND after the fix.
+  const SELF_REF_AMOUNT = '777.77'
+  const LEGIT_AMOUNT = '150'
+
+  const selfRefTx = makeTx({
+    type: 'PAYOUT_DROP',
+    status: 'PAID',
+    amount: SELF_REF_AMOUNT,
+    currency: 'USD',
+    senderId: DROP_ID,
+    receiverId: DROP_ID,
+    recipientId: DROP_ID,
+  })
+  // A legitimate row: senderId=null (COMPANY_ACCOUNT-funded settle) — the only
+  // shape the real write path produces alongside an ADMIN-id sender (AC2).
+  const legitTx = makeTx({
+    type: 'PAYOUT_DROP',
+    status: 'PAID',
+    amount: LEGIT_AMOUNT,
+    currency: 'USD',
+    senderId: null,
+    receiverId: DROP_ID,
+    recipientId: DROP_ID,
+  })
+
+  it('AC3: self-referential row nets to zero — RED before the C-1 fix, GREEN after', async () => {
+    const svc = makeDropEarnedSvc([selfRefTx, legitTx])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    // Before the fix: 777.77 (self-ref, wrongly credited) + 150 (legit) = 927.77.
+    // After the fix: only the 150 legit row counts — the self-ref row cancels.
+    expect(result.breakdown.payout).toBe(150)
+    expect(result.totalEarned).toBe(150)
+  })
+
+  it('AC2: a legit row alone (senderId=null) is unaffected by the debit leg', async () => {
+    const svc = makeDropEarnedSvc([legitTx])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    expect(result.breakdown.payout).toBe(150)
+  })
+
+  // Mutation-gate (task-mutation-gate): proves the CREDIT-leg condition
+  // (`tx.receiverId === targetUserId`) is load-bearing, not a no-op —
+  // without this test, deleting the condition (always-add) is invisible to
+  // every other test here (they only ever use rows that DO target DROP_ID).
+  it('a PAYOUT_DROP row for a DIFFERENT drop does not credit this drop at all', async () => {
+    const otherDropTx = makeTx({
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '999',
+      currency: 'USD',
+      senderId: null,
+      receiverId: 'some-other-drop-id',
+      recipientId: 'some-other-drop-id',
+    })
+    const svc = makeDropEarnedSvc([otherDropTx])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    expect(result.breakdown.payout ?? 0).toBe(0)
+    expect(result.totalEarned).toBe(0)
+  })
+
+  // Review round 2 (LOW, security-review): the credit leg now reads
+  // `tx.receiverId` directly, matching computeDropAggregate's own pointer
+  // (transactions.service.ts:1190) byte-for-byte — NOT the `recipientId ??
+  // receiverId` fallback used elsewhere in this file. These two cases pin
+  // that CHOICE, not just its (currently coincidental-looking) outcome.
+  it('credits on receiverId alone — a mismatched recipientId does NOT block the credit', async () => {
+    const tx = makeTx({
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '210',
+      currency: 'USD',
+      senderId: null,
+      receiverId: DROP_ID,
+      recipientId: 'some-other-id', // deliberately mismatched — must be ignored
+    })
+    const svc = makeDropEarnedSvc([tx])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    expect(result.breakdown.payout).toBe(210)
+  })
+
+  it('does NOT credit on a matching recipientId alone — receiverId is the only pointer that counts', async () => {
+    const tx = makeTx({
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '999',
+      currency: 'USD',
+      senderId: null,
+      receiverId: 'some-other-id', // the actual pointer computeDropAggregate reads
+      recipientId: DROP_ID, // matches target, but must NOT be enough on its own
+    })
+    const svc = makeDropEarnedSvc([tx])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    expect(result.breakdown.payout ?? 0).toBe(0)
+    expect(result.totalEarned).toBe(0)
+  })
+
+  it('AC4: parity with computeDropAggregate (transactions.service.ts) on the SAME row set', async () => {
+    // computeDropAggregate is `private` on TransactionsService — TS enforces
+    // that only at compile time. Reaching it via a typed bracket-cast is the
+    // established pattern in this codebase for testing a pure aggregation
+    // helper without standing up its DB-backed caller (see
+    // transactions.drop-self-summary.spec.ts). It takes ONLY (drop, allTxs,
+    // rates) — no DB access — so calling it directly here, fed the EXACT SAME
+    // row set used above, is the most direct two-reader parity check.
+    const txSvc = makeTransactionsService({ db: {} as never })
+    const computeDropAggregate = (
+      txSvc as unknown as {
+        computeDropAggregate: (
+          drop: { id: string; displayName: string; dropSharePercent: number | null },
+          txs: Array<{
+            type: string
+            status: string
+            amount: string
+            currency?: string
+            senderId: string | null
+            receiverId: string | null
+          }>,
+        ) => { balance: number }
+      }
+    ).computeDropAggregate
+
+    const rows = [selfRefTx, legitTx].map((t) => ({
+      type: t.type,
+      status: t.status ?? 'PAID',
+      amount: t.amount,
+      currency: t.currency,
+      senderId: t.senderId ?? null,
+      receiverId: t.receiverId ?? null,
+    }))
+    const aggregate = computeDropAggregate(
+      { id: DROP_ID, displayName: 'Drop', dropSharePercent: null },
+      rows,
+    )
+
+    const svc = makeDropEarnedSvc([selfRefTx, legitTx])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+
+    // Both readers, same input rows, same number.
+    expect(result.breakdown.payout).toBe(aggregate.balance)
+    // Literal pin — computeDropAggregate is the second reader (AC4's fallback
+    // wording): 150 legit − (777.77 − 777.77 self-ref net) = 150.
+    expect(aggregate.balance).toBe(150)
+  })
+})
+
 describe('BalanceService multi-currency conversion (admin balance)', () => {
   const MAKSYM = '00000000-0000-0000-0000-000000000001'
 
-  it('ADMIN_INCOME_CASH 1000 USDT + 4000 UAH + 100 EUR → USD via NBU rates', async () => {
+  // C-2: uses 'ADMIN_INCOME' (the real, actually-created type) — see the
+  // getAdminBalance describe block above for the CASH/CRYPTO-phantom coverage.
+  it('ADMIN_INCOME 1000 USDT + 4000 UAH + 100 EUR → USD via NBU rates', async () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '1000',
           currency: 'USDT',
           recipientId: MAKSYM,
         }), // = 1000 USD
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '4000',
           currency: 'UAH',
           recipientId: MAKSYM,
         }), // = 100 USD @ 40
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '100',
           currency: 'EUR',
           recipientId: MAKSYM,
@@ -763,11 +1011,11 @@ describe('BalanceService multi-currency conversion (admin balance)', () => {
     expect(result.currency).toBe('USD')
   })
 
-  it('ADMIN_INCOME_CASH 1000 USD returned in UAH → 40000 UAH at rate 40', async () => {
+  it('ADMIN_INCOME 1000 USD returned in UAH → 40000 UAH at rate 40', async () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '1000',
           currency: 'USD',
           recipientId: MAKSYM,
@@ -784,7 +1032,7 @@ describe('BalanceService multi-currency conversion (admin balance)', () => {
     const svc = makeService({
       transactions: [
         makeTx({
-          type: 'ADMIN_INCOME_CASH',
+          type: 'ADMIN_INCOME',
           amount: '500',
           currency: 'USDT',
           recipientId: MAKSYM,

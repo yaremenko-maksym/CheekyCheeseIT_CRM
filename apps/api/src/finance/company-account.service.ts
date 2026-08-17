@@ -24,6 +24,7 @@ import {
 import type { DrizzleTx } from '../database/types'
 import { EtherscanService } from './etherscan.service'
 import {
+  computeCompanyAccountBalanceForDisplay,
   computeCompanyAccountBalanceFromLedger,
   lockCompanyAccount,
 } from './company-account-balance'
@@ -84,15 +85,41 @@ export class CompanyAccountService {
   }
 
   /**
-   * Derived USDT balance — delegates to the SINGLE SOURCE OF TRUTH
-   * `computeCompanyAccountBalanceFromLedger` shared with the salary/expense
-   * balance gate in TransactionsService. See company-account-balance.ts for the
-   * full 6-term ledger formula. Both display (this endpoint) and gate use the
-   * exact same function so they can never disagree (task-salary-company-account
-   * reconciliation).
+   * Derived USDT balance for the read-only display endpoint. Both this and
+   * every money-moving gate (createExpense/paySalary/settleByCompany/
+   * createDividend, in TransactionsService / PendingSettlementService / THIS
+   * service's own createDividend below) read the SAME 8-term ledger formula
+   * (company-account-balance.ts) — display and gate can never disagree on
+   * the NUMBER (task-salary-company-account reconciliation).
+   *
+   * SEC-1 (mega-audit wave 2, round 3) — they now deliberately CAN disagree
+   * on what happens when the off-currency guard trips: the four gates call
+   * `computeCompanyAccountBalanceFromLedger` directly and keep throwing
+   * (unchanged — moving money against an unreliable balance is worse than
+   * refusing). This display path calls `computeCompanyAccountBalanceForDisplay`
+   * instead, which never throws on that SAME condition — before this, ONE
+   * off-currency row 500'd this exact screen, the one an operator would open
+   * to diagnose the incident.
+   *
+   * `reading.balance` is ALWAYS a plain, finite number — a best-effort figure
+   * when `!reliable` (see that function's docstring for why: `CompanyAccountDto
+   * .balance` is `z.number()` in the shared schema, out of this task's zone,
+   * so there is no `null`/flag slot to signal unreliability to the client
+   * without a cross-team schema change). The full detail (including the
+   * off-currency row COUNT) is already logged, loudly, server-side inside
+   * `computeCompanyAccountBalanceForDisplay` — this extra warning adds
+   * SERVICE-level context (which endpoint served a degraded read) on top of
+   * that module-level log, so the two can be correlated.
    */
   private async computeBalance(): Promise<number> {
-    return computeCompanyAccountBalanceFromLedger(this.db.db)
+    const reading = await computeCompanyAccountBalanceForDisplay(this.db.db)
+    if (!reading.reliable) {
+      this.logger.warn(
+        `getAccount served a BEST-EFFORT balance (${reading.offCurrencyCount} off-currency ` +
+          `row(s) detected) — see the company-account-balance error log above for detail.`,
+      )
+    }
+    return reading.balance
   }
 
   /**

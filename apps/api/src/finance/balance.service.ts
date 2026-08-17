@@ -24,6 +24,13 @@
 import { ForbiddenException, Injectable, NotFoundException } from '@nestjs/common'
 import { and, eq } from 'drizzle-orm'
 import type { SessionUser } from '@crm/shared'
+// C-4 (mega-audit wave 2, AC9/AC10): scaled-integer accumulation — the SAME
+// technique `getSummary`/`computeDropAggregate` use (transactions.service.ts)
+// "to avoid JS float accumulation errors". This file's own docstring calls
+// itself parallel to `getSummary`; it should not diverge on HOW it adds when
+// both are summing the same PAID-row ledger. MONEY_SCALE imported from
+// @crm/shared, not redeclared, per AC10.
+import { MONEY_SCALE } from '@crm/shared'
 import { DatabaseService } from '../database/database.service'
 // security-review PR #456 round 2: full-ledger scans read the
 // `nonDeletedTransactions` VIEW, not the raw table — see schema.ts. No
@@ -109,15 +116,57 @@ export class BalanceService {
   ) {}
 
   /**
-   * Personal admin balance — sum of crypto/cash incomes attributed to that
-   * admin via `recipientId` (falling back to `receiverId` for compatibility
-   * with rows authored before the recipient pointer was added), plus
-   * DIVIDEND_TO_ADMIN credit, minus EXPENSE rows where the admin is sender.
+   * Personal admin balance — sum of ADMIN_INCOME attributed to that admin via
+   * `recipientId` (falling back to `receiverId` for compatibility with rows
+   * authored before the recipient pointer was added), plus DIVIDEND_TO_ADMIN
+   * credit, minus EXPENSE rows where the admin is sender.
+   *
+   * C-2 (mega-audit wave 2, AC5/AC6): this method used to sum
+   * `ADMIN_INCOME_CASH` / `ADMIN_INCOME_CRYPTO` — two "Phase 4-B" types that
+   * NO write path in this codebase has ever created (`createAdminIncome`
+   * always writes the type `ADMIN_INCOME`; the CASH/CRYPTO enum values exist
+   * on the schema as not-yet-emitted future infrastructure — see the comment
+   * on `transactionTypeEnum` in schema.ts). A direct call to
+   * `GET /api/balances/admin/:adminId` therefore always returned
+   * "dividends − expenses", silently omitting every admin's real income.
+   * The endpoint has zero live callers (`apps.web`'s `api.getAdminBalance` is
+   * defined but never invoked — grep confirmed, see the PR description), so
+   * this was dormant rather than user-visible, but per the audit's own
+   * standard a machine that LOOKS like it works and doesn't must be fixed or
+   * clearly marked, not left as "may be useful".
+   *
+   * Fix (AC5 option a): sum the type that IS actually created — `ADMIN_INCOME`
+   * — with the SAME company-pool exclusion `getSummary`'s `adminBalances`
+   * already applies (transactions.service.ts, `receivedScaled` filter,
+   * "ADMIN_INCOME routed to the company account… went into the shared pool,
+   * NOT the admin's personal balance"): a row with
+   * `fundingSource==='COMPANY_ACCOUNT'` is pool money, not this admin's
+   * personal credit, so it is excluded here too. This method still does NOT
+   * replicate `getSummary`'s full HOLDING model (PAYOUT_ADMIN /
+   * ADMIN_TRANSFER / PAYOUT_CONFIRMED / debiting EVERY sent transaction type)
+   * — that is a materially different, broader metric belonging to the legacy
+   * company-wide summary, not this narrower Phase 4 personal-credit balance
+   * (see this file's module docstring: "BalanceService reads only the Phase 4
+   * personal-credit types"). Conflating the two would change what this
+   * endpoint MEANS, not just fix what it counts.
    *
    * Why recipientId-first: the recipientId column was added in Phase 2 and
    * Phase 4-A flows always populate it. We still honour receiverId for
    * compatibility — a payment channel migration can route the actual user
    * via either column without invalidating older rows.
+   *
+   * Review round 2 (MED, code-review) — re-verified the `fundingSource`
+   * exclusion means the SAME thing here as in `getSummary`, and that nothing
+   * else was lost:
+   *   - `getSummary`'s comment reads verbatim "ADMIN_INCOME routed to the
+   *     company account (fundingSource='COMPANY_ACCOUNT') went into the
+   *     shared pool, NOT the admin's personal balance — exclude it here.
+   *     Legacy/admin-personal ADMIN_INCOME (NULL funding) still credits the
+   *     admin as before." — identical semantics to the exclusion below.
+   *   - `DIVIDEND_TO_ADMIN` (dividends) and `EXPENSE` (expenses, debit) carry
+   *     NO `fundingSource` condition in either this method or `getSummary` —
+   *     the C-2 diff touches ONLY the income branch; dividends/expenses are
+   *     untouched, not narrowed, not lost.
    */
   async getAdminBalance(
     adminId: string,
@@ -130,36 +179,40 @@ export class BalanceService {
     // `isNull(transactions.deletedAt)` filter).
     const allTxs = await this.db.db.select().from(nonDeletedTransactions)
 
-    let cashIncome = 0
-    let cryptoIncome = 0
-    let dividends = 0
-    let expenses = 0
+    // C-4 (AC9/AC10): scaled-integer accumulation instead of float `+=`.
+    let incomeScaled = 0
+    let dividendsScaled = 0
+    let expensesScaled = 0
     for (const tx of allTxs) {
       const amt = parseFloat(tx.amount)
       if (!Number.isFinite(amt)) continue
       const converted = convertToBase(amt, tx.currency as BalanceCurrency, currency, rates)
       const recipient = tx.recipientId ?? tx.receiverId
-      if (tx.type === 'ADMIN_INCOME_CASH' && recipient === adminId) {
-        cashIncome += converted
-      } else if (tx.type === 'ADMIN_INCOME_CRYPTO' && recipient === adminId) {
-        cryptoIncome += converted
+      if (
+        tx.type === 'ADMIN_INCOME' &&
+        recipient === adminId &&
+        tx.fundingSource !== 'COMPANY_ACCOUNT'
+      ) {
+        incomeScaled += Math.round(converted * MONEY_SCALE)
       } else if (tx.type === 'DIVIDEND_TO_ADMIN' && recipient === adminId) {
-        dividends += converted
+        dividendsScaled += Math.round(converted * MONEY_SCALE)
       } else if (tx.type === 'EXPENSE' && tx.senderId === adminId && tx.status === 'PAID') {
         // BIZ-12: EXPENSE is only a real cash debit once PAID. A PENDING/REJECTED
         // EXPENSE represents an intent that hasn't cleared yet; counting it early
         // would understate the admin's available balance.
-        expenses += converted
+        expensesScaled += Math.round(converted * MONEY_SCALE)
       }
     }
 
-    const balance = cashIncome + cryptoIncome + dividends - expenses
+    const income = incomeScaled / MONEY_SCALE
+    const dividends = dividendsScaled / MONEY_SCALE
+    const expenses = expensesScaled / MONEY_SCALE
+    const balance = (incomeScaled + dividendsScaled - expensesScaled) / MONEY_SCALE
     return {
       balance,
       currency,
       breakdown: {
-        cash_income: cashIncome,
-        crypto_income: cryptoIncome,
+        income,
         dividends,
         expenses,
       },
@@ -185,19 +238,20 @@ export class BalanceService {
     // `isNull(transactions.deletedAt)` filter).
     const allTxs = await this.db.db.select().from(nonDeletedTransactions)
 
-    let cryptoIncome = 0
-    let paidIncome = 0
-    let platformIncome = 0
-    let expenses = 0
+    // C-4 (AC9/AC10): scaled-integer accumulation instead of float `+=`.
+    let cryptoIncomeScaled = 0
+    let paidIncomeScaled = 0
+    let platformIncomeScaled = 0
+    let expensesScaled = 0
     for (const tx of allTxs) {
       const amt = parseFloat(tx.amount)
       if (!Number.isFinite(amt)) continue
       const converted = convertToBase(amt, tx.currency as BalanceCurrency, currency, rates)
       const recipient = tx.recipientId ?? tx.receiverId
       if (tx.type === 'SENIOR_INCOME_CRYPTO' && recipient === seniorId) {
-        cryptoIncome += converted
+        cryptoIncomeScaled += Math.round(converted * MONEY_SCALE)
       } else if (tx.type === 'SENIOR_PAID' && recipient === seniorId) {
-        paidIncome += converted
+        paidIncomeScaled += Math.round(converted * MONEY_SCALE)
       } else if (tx.type === 'SENIOR_INCOME' && tx.status === 'PAID' && recipient === seniorId) {
         // Audit 2026-06-28 (#10): SENIOR_INCOME is the senior's REAL platform
         // earnings (the only senior-credit type actually emitted today — the
@@ -214,15 +268,21 @@ export class BalanceService {
         //     writes the NET senior share directly; use amount as-is (no multiply).
         // Mirrors the authoritative getSeniorSummary pattern (transactions.service.ts)
         // but guards NULL explicitly to avoid applying 26% to already-net rows.
-        platformIncome +=
+        const share =
           tx.seniorSharePercent !== null ? converted * (tx.seniorSharePercent / 100) : converted
+        platformIncomeScaled += Math.round(share * MONEY_SCALE)
       } else if (tx.type === 'EXPENSE' && tx.senderId === seniorId && tx.status === 'PAID') {
         // BIZ-12: mirror the admin-balance guard — only debit settled EXPENSEs.
-        expenses += converted
+        expensesScaled += Math.round(converted * MONEY_SCALE)
       }
     }
 
-    const balance = cryptoIncome + paidIncome + platformIncome - expenses
+    const cryptoIncome = cryptoIncomeScaled / MONEY_SCALE
+    const paidIncome = paidIncomeScaled / MONEY_SCALE
+    const platformIncome = platformIncomeScaled / MONEY_SCALE
+    const expenses = expensesScaled / MONEY_SCALE
+    const balance =
+      (cryptoIncomeScaled + paidIncomeScaled + platformIncomeScaled - expensesScaled) / MONEY_SCALE
     return {
       balance,
       currency,
@@ -254,8 +314,9 @@ export class BalanceService {
    *     SENIOR_INCOME_CRYPTO) are NOT counted here: they have not been emitted
    *     in the current data and belong to a separate payout channel; adding them
    *     to totalEarned would double-count once that channel lands.
-   *   - DROP → PAID PAYOUT_DROP (drop's distribution share) PLUS PAID DROP_INCOME
-   *     where recipient/receiver = drop (income that landed on the drop account).
+   *   - DROP → PAID PAYOUT_DROP (drop's distribution share, net of the sending
+   *     leg — see C-1 below) PLUS PAID DROP_INCOME where recipient/receiver =
+   *     drop (income that landed on the drop account).
    *   - ADMIN → PAID PAYOUT_ADMIN / DIVIDEND_TO_ADMIN / ADMIN_INCOME_CASH /
    *     ADMIN_INCOME_CRYPTO where recipient = admin. (Admins are not a profile
    *     target for this metric per the task, but supporting them keeps the
@@ -292,10 +353,14 @@ export class BalanceService {
     const paidTxs = allTxs.filter((tx) => tx.status === 'PAID')
 
     const role = target.role as 'ADMIN' | 'SENIOR' | 'JUNIOR' | 'HR' | 'ACCOUNTANT' | 'DROP'
-    const breakdown: Record<string, number> = {}
+    // C-4 (AC9/AC10): accumulate in scaled integers (breakdownScaled), convert
+    // to float only once at read time — same technique as every other reader
+    // in this file after the C-4 fix, and as getSummary/computeDropAggregate
+    // in transactions.service.ts.
+    const breakdownScaled: Record<string, number> = {}
 
     const add = (key: string, amount: number) => {
-      breakdown[key] = (breakdown[key] ?? 0) + amount
+      breakdownScaled[key] = (breakdownScaled[key] ?? 0) + Math.round(amount * MONEY_SCALE)
     }
 
     for (const tx of paidTxs) {
@@ -324,8 +389,37 @@ export class BalanceService {
           add('income', seniorShare)
         }
       } else if (role === 'DROP') {
-        if (tx.type === 'PAYOUT_DROP' && recipient === targetUserId) {
-          add('payout', converted)
+        if (tx.type === 'PAYOUT_DROP') {
+          // C-1 (mega-audit wave 2, AC1/AC2): parity with computeDropAggregate
+          // (transactions.service.ts) — `received − sent`, not just `received`.
+          // A self-referential row (senderId === receiverId === this drop —
+          // bad/legacy data per the owner's ruling) must net to ZERO here
+          // exactly as it already does in computeDropAggregate, not silently
+          // credit the drop twice. The new debit leg (`tx.senderId ===
+          // targetUserId`) is a structural no-op for every legitimate row —
+          // the only write path that creates PAYOUT_DROP (settleByCompany's
+          // flip-in-place, pending-settlement.service.ts) stamps senderId as
+          // either `null` (COMPANY_ACCOUNT funding) or the id of the ADMIN who
+          // funded an ADMIN_PERSONAL settle (validated `payer.role ===
+          // 'ADMIN'`) — never the drop's own id, because DROP is RBAC-distinct
+          // from ADMIN. Verified by `git grep "'PAYOUT_DROP'"` across
+          // apps/api/src — the ONLY type-assignment site is
+          // pending-settlement.service.ts:773.
+          //
+          // Review round 2 (LOW, security-review): the credit leg now reads
+          // `tx.receiverId` directly — NOT the shared `recipient` var
+          // (`recipientId ?? receiverId`) used elsewhere in this function.
+          // computeDropAggregate's credit leg keys ONLY on `receiverId`
+          // (transactions.service.ts:1190); before this line the two readers
+          // agreed only because the sole PAYOUT_DROP writer happens to stamp
+          // recipientId === receiverId on every row it creates
+          // (bookCompanyObligations, transactions.service.ts:4387-4388) — a
+          // coincidence, not a guarantee. A future writer that populated only
+          // one of the two columns would silently reopen the exact
+          // disagreement C-1 closes. Reading the SAME column both readers key
+          // on removes that dependency on writer behaviour entirely.
+          if (tx.receiverId === targetUserId) add('payout', converted)
+          if (tx.senderId === targetUserId) add('payout', -converted)
         } else if (
           tx.type === 'DROP_INCOME' &&
           recipient === targetUserId &&
@@ -353,7 +447,11 @@ export class BalanceService {
       }
     }
 
-    const totalEarned = Object.values(breakdown).reduce((sum, v) => sum + v, 0)
+    const totalEarnedScaled = Object.values(breakdownScaled).reduce((sum, v) => sum + v, 0)
+    const totalEarned = totalEarnedScaled / MONEY_SCALE
+    const breakdown: Record<string, number> = Object.fromEntries(
+      Object.entries(breakdownScaled).map(([key, scaled]) => [key, scaled / MONEY_SCALE]),
+    )
 
     return { userId: targetUserId, role, totalEarned, currency, breakdown }
   }

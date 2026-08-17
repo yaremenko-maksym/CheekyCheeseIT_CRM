@@ -1,0 +1,113 @@
+/**
+ * SEC-1 (mega-audit wave 2, round 4) — shared fixture for integration specs
+ * that need a genuine, real-Postgres off-currency company-account row
+ * (the exact shape `assertNoOffCurrencyCompanyRows` in company-account-balance
+ * .ts looks for) WITHOUT corrupting any other spec's concurrent run.
+ *
+ * WHY THIS EXISTS: `assertNoOffCurrencyCompanyRows` scans the `transactions`
+ * table GLOBALLY — there is no per-spec scoping possible for it — and
+ * `crm_qa` is a scratch DB shared by multiple concurrently-running agents. A
+ * naive insert-then-delete would let ANY other process's company-account
+ * gate call (`createExpense` / `paySalary` / `settleByCompany` /
+ * `createDividend`) observe the row for the whole window it exists and fail
+ * with `CompanyAccountOffCurrencyError` — a new, avoidable source of the
+ * exact "shared scratch DB contamination" flakiness this project already
+ * has one instance of (see `admin-income-drop-backfill.integration.spec.ts`'s
+ * own `assertNoForeignCandidateProjects` self-diagnosis).
+ *
+ * THE FIX: hold a SESSION-scoped Postgres advisory lock
+ * (`pg_advisory_lock`), on a DEDICATED connection, on the SAME key every
+ * real company-account gate acquires via `lockCompanyAccount`
+ * (transaction-scoped `pg_advisory_xact_lock`) before reading the balance.
+ * Session- and transaction-scoped advisory locks share ONE key space in
+ * Postgres, so a concurrent `pg_advisory_xact_lock` call — inside this
+ * process or another agent's — BLOCKS (waits) instead of racing past into a
+ * corrupted read. It resumes, against a clean table, only once this fixture
+ * cleans up and unlocks.
+ *
+ * `lockCompanyAccount` itself is NOT reusable here: its lock releases at
+ * COMMIT, but the row only becomes VISIBLE to OTHER connections AT commit —
+ * a single transaction-scoped primitive cannot hold the lock AND have
+ * already committed at the same time, and the guard's read (a plain SELECT
+ * on a different connection, under READ COMMITTED) needs the row committed
+ * to see it at all.
+ *
+ * Read-only callers (`computeCompanyAccountBalanceForDisplay` /
+ * `CompanyAccountService.getAccount`) do NOT acquire this lock and are
+ * intentionally UNAFFECTED by it — a concurrent display read legitimately
+ * observing a degraded balance during this window is exactly the behaviour
+ * SEC-1 exists to make survivable, not a bug to hide.
+ */
+import { eq } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/node-postgres'
+import type { Pool } from 'pg'
+import { COMPANY_ACCOUNT_LOCK_KEY } from '../company-account-balance'
+import { transactions } from '../../database/schema'
+import * as schema from '../../database/schema'
+
+type Db = ReturnType<typeof drizzle<typeof schema>>
+
+/**
+ * SEC-1 (mega-audit wave 2, round 5) — self-explanatory even out of context.
+ * The guard's own thrown message is deliberately count-only (SEC-2 — no
+ * sums, no ids, no names), so a row inserted by this fixture carries NO
+ * marker of its own anywhere the guard's error text reaches. If it were ever
+ * glimpsed directly (a stray `SELECT * FROM transactions`, a screen-share, a
+ * DB browser open during a live debugging session) by another agent or the
+ * owner, the reasonable read is "we have corrupted money in prod" — not "a
+ * test forgot to clean up". This prefix is FORCED onto every row this
+ * fixture inserts (not merely suggested to callers) so that read is never
+ * possible: the row explains itself without anyone having to find and read
+ * this file first.
+ */
+const TEST_FIXTURE_NOTES_PREFIX =
+  'TEST FIXTURE (off-currency-fixture.ts) — safe to delete, ' +
+  'not real company money. Inserted by an automated integration spec to prove the C-3/SEC-1 ' +
+  "off-currency guard; deleted in the same test run's `finally`."
+
+/**
+ * Inserts a single row (`rowValues`, MUST carry an explicit `id`) while
+ * holding the shared company-account advisory lock, runs `run()`, then
+ * deletes the row and releases the lock — in a `finally`, so a thrown
+ * assertion inside `run()` still cleans up and unlocks.
+ *
+ * `pool` MUST be a real `pg.Pool` connected to the SAME database as `db` —
+ * the lock is acquired on a connection checked out from it, independent of
+ * whatever connection(s) `db`'s own queries use internally.
+ *
+ * `onReleasing` (SEC-1, round 6, optional) — fires SYNCHRONOUSLY, immediately
+ * before the `pg_advisory_unlock` query is sent (not after its response
+ * comes back). A caller that needs to record "did some concurrent event
+ * happen after we released" as a fact (not a guess) MUST hook here, not set
+ * its own flag after `withIsolatedOffCurrencyRow` resolves: this helper's own
+ * unlock is one round trip on ITS OWN connection, and a concurrent waiter's
+ * grant arrives on a DIFFERENT connection — Node's event loop gives no
+ * ordering guarantee between two independent sockets' response processing,
+ * so a flag set after our round trip completes can legitimately lose that
+ * race under real scheduling jank (this is exactly what broke
+ * `company-account-balance-off-currency.integration.spec.ts`'s causal-proof
+ * test in CI — passed on every local run, failed in CI, because the flag was
+ * being set too late to be safe by construction, not too late "usually").
+ * Firing the hook before the unlock is even SENT needs no round trip to win:
+ * sending happens-before Postgres can process it, which happens-before any
+ * grant it could cause — there is no race left for the caller to lose.
+ */
+export async function withIsolatedOffCurrencyRow(
+  pool: Pool,
+  db: Db,
+  rowValues: typeof transactions.$inferInsert & { id: string },
+  run: () => Promise<void>,
+  onReleasing?: () => void,
+): Promise<void> {
+  const lockClient = await pool.connect()
+  try {
+    await lockClient.query('SELECT pg_advisory_lock($1)', [COMPANY_ACCOUNT_LOCK_KEY.toString()])
+    await db.insert(transactions).values({ ...rowValues, notes: TEST_FIXTURE_NOTES_PREFIX })
+    await run()
+  } finally {
+    await db.delete(transactions).where(eq(transactions.id, rowValues.id))
+    onReleasing?.()
+    await lockClient.query('SELECT pg_advisory_unlock($1)', [COMPANY_ACCOUNT_LOCK_KEY.toString()])
+    lockClient.release()
+  }
+}
