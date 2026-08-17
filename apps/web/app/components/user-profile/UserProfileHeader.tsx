@@ -51,7 +51,19 @@ export function UserProfileHeader({
   )
 
   return (
-    <div className="flex flex-col gap-3 border-b pb-4 md:flex-row md:items-center md:gap-4">
+    // task-border-reset-and-profile-shell (2026-08-16, defect а): this used to
+    // switch to a row at `md` (768px) — exactly the tablet test width. At 768
+    // the row has avatar + this min-w-0 column + a shrink-0 actions column
+    // (button(s)), but nothing inside the middle column's contact-links row
+    // (email/phone/telegram, each an intrinsically-sized `<a>`) can shrink or
+    // wrap below its own text width, so it silently overflowed UNDER the
+    // actions column instead of wrapping — the "header colliding with
+    // itself" (email text visible through the transparent outline button).
+    // `lg` (1024px) is the first width with enough room for avatar + a full
+    // email address + the action button(s) side by side without that
+    // overflow (verified via Playwright at 768/1024) — below `lg` the header
+    // stays in its already-correct stacked (flex-col) layout instead.
+    <div className="flex flex-col gap-3 border-b pb-4 lg:flex-row lg:items-center lg:gap-4">
       {onAvatarClick ? (
         <button
           type="button"

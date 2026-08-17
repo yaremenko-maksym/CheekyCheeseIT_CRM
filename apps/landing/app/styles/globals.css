@@ -204,10 +204,33 @@
   }
 }
 
+/*
+ * task-border-reset-and-profile-shell (2026-08-16) — this reset used to be
+ * unlayered CSS, which ALWAYS beats `@layer utilities` regardless of source
+ * order (Tailwind v4's own utility classes, including every `border-*` /
+ * `outline-*` color utility below, are generated inside `@layer utilities`).
+ * Consequence, confirmed via computed styles on every colored border/outline
+ * utility this app defines: EVERY one of them silently lost to this reset —
+ * Tag's brand-hue borders, Card/Chip/Button/VacancyCard hover tints,
+ * input/textarea hover+focus-visible borders, the destructive/40 error
+ * border, even the spinner's `border-t-primary-foreground` head (the ring
+ * rendered as one flat grey circle, not spinning-looking). `box-sizing` has
+ * no cascade interaction with color utilities, so it stays outside any layer
+ * (matches Tailwind's own preflight, which also sets it unlayered).
+ * Wrapping in `@layer base` is the intended Tailwind v4 pattern for a
+ * project-wide *default* — `@theme`'s cascade order (theme, base,
+ * components, utilities) then lets any `border-*`/`outline-*` utility win as
+ * expected, without touching a single call site.
+ */
 * {
   box-sizing: border-box;
-  border-color: var(--border);
-  outline-color: var(--ring);
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+    outline-color: var(--ring);
+  }
 }
 
 body {

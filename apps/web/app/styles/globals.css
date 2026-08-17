@@ -210,4 +210,45 @@ input[type='number'] {
   .nav-active-accent[data-status='active'] {
     border-left-color: var(--primary) !important;
   }
+
+  /*
+   * task-border-reset-and-profile-shell (2026-08-16, defect в) — "there's
+   * more to scroll" hint for a horizontally-scrollable row (first use:
+   * UserProfileShell's tab bar, which currently overflows silently on
+   * narrower/laptop widths with no affordance at all). Classic pure-CSS
+   * scroll-shadow technique, no JS/ResizeObserver:
+   *   - two linear-gradients fade OUT to the page background colour and
+   *     scroll WITH the content (`background-attachment: local`);
+   *   - two radial-gradients are the actual "shadow" hint and stay FIXED
+   *     relative to the element's own box (`background-attachment: scroll`
+   *     — despite the name, that's the one that does NOT move with content).
+   * Apply directly to the `overflow-x-auto` element itself. Each shadow is
+   * naturally covered by its matching fade once that edge is scrolled into
+   * view, so it self-hides at the start/end without any scroll listener —
+   * and stays correct if tabs are added/removed (no width to keep in sync).
+   */
+  .scroll-fade-x {
+    background:
+      linear-gradient(to right, var(--background) 30%, transparent) left,
+      linear-gradient(to left, var(--background) 30%, transparent) right,
+      radial-gradient(
+          farthest-side at 0% 50%,
+          color-mix(in oklch, var(--foreground) 25%, transparent),
+          transparent
+        )
+        left,
+      radial-gradient(
+          farthest-side at 100% 50%,
+          color-mix(in oklch, var(--foreground) 25%, transparent),
+          transparent
+        )
+        right;
+    background-repeat: no-repeat;
+    background-size:
+      20px 100%,
+      20px 100%,
+      8px 100%,
+      8px 100%;
+    background-attachment: local, local, scroll, scroll;
+  }
 }
