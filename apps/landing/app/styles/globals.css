@@ -204,10 +204,37 @@
   }
 }
 
-* {
-  box-sizing: border-box;
-  border-color: var(--border);
-  outline-color: var(--ring);
+/*
+ * task-border-reset-and-profile-shell (2026-08-16) — this reset used to be
+ * unlayered CSS, which ALWAYS beats `@layer utilities` regardless of source
+ * order (Tailwind v4's own utility classes, including every `border-*` /
+ * `outline-*` color utility below, are generated inside `@layer utilities`).
+ * Consequence, confirmed via computed styles on every colored border/outline
+ * utility this app defines: EVERY one of them silently lost to this reset —
+ * Tag's brand-hue borders, Card/Chip/Button/VacancyCard hover tints,
+ * input/textarea hover+focus-visible borders, the destructive/40 error
+ * border, even the spinner's `border-t-primary-foreground` head (the ring
+ * rendered as one flat grey circle, not spinning-looking).
+ * `box-sizing` moves into the same block for the identical reason, even
+ * though nothing in this app currently depends on it: Tailwind v4 also
+ * generates `box-content`/`box-border` inside `@layer utilities`, so an
+ * unlayered `box-sizing` here would silently beat either utility the moment
+ * one gets used — same bug class, different property. (There is no
+ * "Tailwind leaves it unlayered too" precedent to lean on here: the
+ * published `tailwindcss@4.2.4` preflight — the version resolved in
+ * `pnpm-lock.yaml` — sets `box-sizing: border-box` inside its own
+ * `@layer base` block alongside the rest of its reset.)
+ * Wrapping everything in `@layer base` is the intended Tailwind v4 pattern
+ * for a project-wide *default* — `@theme`'s cascade order (theme, base,
+ * components, utilities) then lets any `border-*`/`outline-*`/`box-*`
+ * utility win as expected, without touching a single call site.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+    outline-color: var(--ring);
+  }
 }
 
 body {

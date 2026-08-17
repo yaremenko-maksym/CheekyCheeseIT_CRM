@@ -217,7 +217,13 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
           visibleTabs.length > 0 && (
             // Tab bar: horizontal scroll for many tabs on narrow viewports; pb-1
             // keeps the pill's shadow from being clipped by overflow-x-auto.
-            <div className="relative overflow-x-auto pb-1">
+            // task-border-reset-and-profile-shell (2026-08-16, defect в):
+            // `scroll-fade-x` (globals.css) adds a self-hiding "more tabs →"
+            // shadow hint at whichever edge still has overflow — previously
+            // this scrolled with zero visual affordance (confirmed live: the
+            // last tab was silently clipped even at 1024px on an 8-tab
+            // profile, e.g. ADMIN viewing a SENIOR).
+            <div className="relative overflow-x-auto pb-1 scroll-fade-x">
               <AnimatedTabs
                 tabs={visibleTabs.map((t) => ({ value: t, label: tabLabel(t) }))}
                 value={activeTab}
@@ -299,8 +305,21 @@ export function UserProfileShell({ mode, userId, tab, onTabChange }: UserProfile
         </div>
       )}
 
-      {/* Content area: skeleton while loading, real tabs when data arrives */}
-      <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0 px-6">
+      {/* Content area: skeleton while loading, real tabs when data arrives.
+          task-border-reset-and-profile-shell (2026-08-16, defect б):
+          `max-w-6xl` (1152px) caps row width on large screens
+          (foundation.md §10 — "content columns get a max-w cap on ≥1440,
+          tables/dashboards may stay full-width"). Left-aligned on purpose
+          (no `mx-auto`) so it lines up with the header above instead of
+          jumping to a centered column — a block element's used width
+          defaults to its container's start edge, so `max-w` alone (no
+          `mx-auto`) is enough. Sidebar+padding take a fixed ~208px on
+          desktop, so this only *starts* binding past a ~1360px viewport —
+          1024/1280 render byte-for-byte as before (natural content width
+          816px/1072px, both under the cap); 1440 narrows modestly
+          (1232px→1152px) and 1920 substantially (1712px→1152px) — verified
+          via computed layout at all four widths. */}
+      <div className="flex-1 min-h-0 overflow-y-auto pt-4 pb-6 min-w-0 px-6 max-w-6xl">
         {isLoading ? (
           <Skeleton className="h-64 w-full" />
         ) : (
