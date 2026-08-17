@@ -101,6 +101,11 @@ bash_case block "$MINE" "cd $OTHER && git checkout -- apps/api/src/x.ts"    'red
 bash_case block "$MINE" "rm -rf $OTHER/node_modules"                        'rm -rf inside another worktree'
 bash_case block "$MINE" "sed -i '' 's/a/b/' $OTHER/apps/web/src/f.ts"       'sed -i inside another worktree'
 bash_case block "$MINE" "echo hack > $REPO/apps/web/src/x.ts"               'redirect into the shared checkout (MAIN contamination)'
+bash_case block "$MINE" "find $OTHER -name '*.log' | xargs rm"              'CR-M-1: mutator behind xargs (PR #553 review)'
+bash_case block "$MINE" "find $OTHER -name '*.log' -delete"                 'CR-M-1: find -delete'
+bash_case block "$MINE" "find $OTHER -type f -exec rm {} ;"                 'CR-M-1: find -exec rm'
+bash_case block "$MINE" "sudo pkill -f node"                                'CR-M-1: pkill behind sudo'
+bash_case block "$MINE" "timeout 60 rm -rf $OTHER/dist"                     'CR-M-1: mutator behind timeout'
 
 echo "== pre:bash:cross-agent-blast — MUST STAY SILENT =="
 bash_case allow "$MINE" 'kill 12345'                                        'kill <PID> — the prescribed replacement (AC11)'
@@ -116,6 +121,10 @@ bash_case allow "$MINE" "rm -rf $MINE/tmp/scratch"                          'rm 
 bash_case allow "$MINE" 'rm -rf ./node_modules/.cache'                      'rm inside my own worktree, relative path'
 bash_case allow "$MINE" 'pnpm install --frozen-lockfile'                    'ordinary build command'
 bash_case allow "$REPO" 'pkill -f node'                                     "owner's own session is out of scope"
+bash_case allow "$MINE" "grep -rl TODO $OTHER | xargs wc -l"                'read-only payload behind xargs stays silent'
+bash_case allow "$MINE" "find $OTHER -name '*.ts' -exec grep -l foo {} ;"   'find -exec with a read-only payload stays silent'
+bash_case allow "$MINE" "find . -name '*.log' | xargs rm"                   'xargs rm inside MY OWN tree stays silent'
+bash_case allow "$MINE" "find $MINE/dist -type f -delete"                   'find -delete inside MY OWN worktree stays silent'
 
 echo "== pre:agent:dispatch-isolation — MUST BLOCK =="
 agent_case block '{"subagent_type":"coder","prompt":"fix it"}'                          'coder without isolation (PR #497, backlog 36)'

@@ -44,6 +44,66 @@
 # 2026-08-17 while building this hook, and exactly the reflex-to-bypass that
 # backlog 63 warned about.
 #
+# ---------------------------------------------------------------------------
+# SCOPE AND KNOWN GAPS — read this before trusting the hook, and before
+# "hardening" it. Recorded here rather than in a PR comment on purpose: a
+# limitation known only to the people in one review thread survives exactly
+# until the first person who was not in that thread (this repo spent 2026-08-17
+# fixing three guards that failed that way).
+#
+# HOW IT DECIDES: the command is split into segments on `;`, `&&`, `||`, `|`
+# and newlines, and each predicate looks at the FIRST TOKEN of a segment —
+# never at a substring of the raw line. Leading `VAR=value` assignments and
+# command wrappers (`xargs`, `sudo`, `env`, `nice`, `nohup`, `command`,
+# `stdbuf`, `timeout`) are unwrapped first, so the effective command is what
+# gets judged.
+#
+# CAUGHT (each verified by a case in tests/cross-agent-hooks-smoke.sh):
+#   pkill / killall in command position, incl. behind a wrapper (`sudo pkill`)
+#   git worktree remove <path that is not mine> / git worktree prune
+#   rm|mv|cp|tee|truncate|dd|chmod|chown|ln|install|patch|touch|mkdir|rsync
+#     and `sed -i` naming a path inside another agent worktree
+#   the same behind a wrapper: `find <other> -type f | xargs rm`
+#   `find <other> -delete` and `find <other> -exec rm {} \;`
+#   `cd <other worktree> && <mutating command>`
+#   `>`/`>>` redirect into another worktree or into the shared checkout
+#   mutating git subcommands (checkout/restore/reset/clean/stash/...) aimed at
+#     another worktree
+#
+# DELIBERATELY NOT CAUGHT — accepted gaps, not oversights:
+#   1. Indirection through a variable: `D=<other worktree>; rm -rf "$D"`.
+#      The hook matches literal paths; it does not evaluate the shell.
+#   2. Indirection through an interpreter: `eval "$CMD"`, `bash -c '...'`,
+#      `./cleanup.sh`, a python/node one-liner that unlinks files. The inner
+#      program is not parsed.
+#   3. Relative traversal that never spells the marker path:
+#      `cd <my worktree> && rm ../agent-OTHER/f` — the `.claude/worktrees/<seg>`
+#      literal is what identifies a foreign tree.
+#   4. `xargs -I {} rm {}` — the `-I` form puts the command after a
+#      placeholder; only the plain `xargs rm` shape is unwrapped.
+#   5. Symlinks pointing out of the worktree; paths reached through `$TMPDIR`
+#      or similar env indirection.
+#
+# WHY THESE ARE LEFT OPEN: closing them means either evaluating the shell
+# (impossible from a PreToolUse hook) or matching on the raw line, which is
+# precisely what makes a gate fire on legitimate work — `pre:bash:safety` greps
+# the raw line and therefore blocks a plain `echo` that merely quotes a live-DB
+# drop phrase (reproduced three times on 2026-08-17, once on the command that
+# was writing the PR description for this hook). This project's stated
+# priority is explicit: a false positive costs trust in the whole hook layer,
+# a miss costs one incident. Every gap above requires the agent to actively
+# construct indirection; all seven real incidents used the direct forms, which
+# are caught.
+#
+# THEREFORE: this hook is a backstop for the honest mistake, NOT a security
+# boundary against a determined caller. The primary control is structural —
+# every agent gets its own working directory (rules/common/agent-isolation.md),
+# so there is no foreign tree in reach to begin with.
+#
+# IF YOU ADD A PREDICATE: add BOTH a blocking case and at least one legitimate
+# command that must stay silent to tests/cross-agent-hooks-smoke.sh, and run it.
+# ---------------------------------------------------------------------------
+#
 # What stays possible on purpose:
 #   - `kill <PID>` / `kill -TERM <PID>` — the prescribed replacement.
 #   - `pgrep -f '<pattern>' | xargs kill -9` — the owner's documented sweep
@@ -121,6 +181,16 @@ reasons = []
 segments = re.split(r"(?:\|\||&&|[;\n|&])", cmd)
 
 
+# Wrappers that RUN another command. Without unwrapping them, the effective
+# command sits in an argument position and every predicate below misses it:
+# `find <other worktree> | xargs rm` was a real, reproduced miss (CR-M-1 on
+# PR #553). Unwrapping is safe for the false-positive budget because a
+# predicate still additionally requires a foreign path to be referenced.
+WRAPPERS = {"xargs", "sudo", "env", "nice", "nohup", "command", "stdbuf", "timeout"}
+# Wrapper flags that consume the NEXT token as their value.
+VALUE_FLAGS = {"-I", "-i", "-n", "-P", "-d", "-E", "-s", "-L", "-a", "-u", "-p"}
+
+
 def first_token(seg):
     seg = seg.strip()
     if not seg:
@@ -130,9 +200,22 @@ def first_token(seg):
         parts = shlex.split(seg, comments=True)
     except ValueError:
         parts = seg.split()
-    # drop leading env assignments: FOO=bar cmd ...
-    while parts and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", parts[0]):
-        parts.pop(0)
+
+    for _ in range(4):  # bounded: `sudo env xargs rm` and the like
+        # drop leading env assignments: FOO=bar cmd ...
+        while parts and re.match(r"^[A-Za-z_][A-Za-z0-9_]*=", parts[0]):
+            parts.pop(0)
+        if not parts or os.path.basename(parts[0]) not in WRAPPERS:
+            break
+        wrapper = os.path.basename(parts.pop(0))
+        while parts and parts[0].startswith("-"):
+            flag = parts.pop(0)
+            if flag in VALUE_FLAGS and parts:
+                parts.pop(0)
+        # `timeout 60 rm ...` — the duration sits where the command would be
+        if wrapper == "timeout" and parts and re.match(r"^[0-9.]+[smhd]?$", parts[0]):
+            parts.pop(0)
+
     if not parts:
         return "", []
     return os.path.basename(parts[0]), parts[1:]
@@ -200,6 +283,16 @@ def is_mutating(name, args):
         return True
     if name == "sed" and any(a == "-i" or a.startswith("-i") for a in args):
         return True
+    # `find <path> -delete` and `find <path> -exec rm {} \;` — the mutation is
+    # an ARGUMENT of find. Only a mutating -exec payload counts, so
+    # `find <path> -exec grep ...` stays allowed.
+    if name == "find":
+        if "-delete" in args:
+            return True
+        for i, a in enumerate(args):
+            if a in ("-exec", "-execdir", "-ok") and i + 1 < len(args):
+                if os.path.basename(args[i + 1]) in MUTATORS:
+                    return True
     if name == "git":
         for a in args:
             if a.startswith("-"):
