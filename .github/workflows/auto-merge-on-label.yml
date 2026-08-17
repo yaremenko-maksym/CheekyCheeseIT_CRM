@@ -167,6 +167,19 @@ jobs:
           TIMEOUT_SECONDS: '1800'
         run: bash scripts/devops/check-required-checks-complete.sh
 
+      # task-infra-honest-ci-verdicts (2026-08-18, backlog #103): six PRs got
+      # `merge-approved` back to back on 2026-08-17; five squashed within 40
+      # seconds, the sixth hit GitHub's own "Base branch was modified" race
+      # (it landed while a sibling merge was rewriting main) and failed —
+      # re-adding the label merged it on the first retry. That is a harmless
+      # race worth retrying automatically. It must NOT retry the unrelated
+      # "the base branch policy prohibits the merge" case (backlog #40 / PR
+      # #503's failure mode) — see the script's header for exactly how it
+      # tells the two apart (by error TEXT, never by exit code) and why the
+      # "Explain why auto-merge did not complete" step below still works
+      # unchanged after this: it only ever looked at `steps.squash.outcome`,
+      # which this script still sets the same way (failure() iff it exits
+      # non-zero after exhausting its own retry budget).
       - name: Squash and merge
         id: squash
         if: steps.pipeline_files.outputs.touches_workflows == 'false'
@@ -174,8 +187,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: |
-          gh pr merge "$PR_NUMBER" --repo "$REPO" --squash --delete-branch
+        run: bash scripts/devops/gh-merge-pr-with-retry.sh
 
       # Deliberately exits 0 — this is an expected boundary of the
       # automation, not a failure. A red "Squash merge if CI green" check
