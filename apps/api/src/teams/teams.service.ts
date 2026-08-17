@@ -38,10 +38,15 @@ export class TeamsService {
     private teamAuditLogService: TeamAuditLogService,
   ) {}
 
+  // MED-2 (security-review PR #541 follow-up): `currentUser` is REQUIRED, not
+  // optional. Both callers (findAll/findOne) already always supply it — an
+  // optional param here is a fail-open-by-omission footgun: a future caller
+  // that forgets to pass it would silently fall through the SENIOR/JUNIOR
+  // `currentUser?.role` checks below to "unmasked" instead of failing `tsc`.
   private mapTeam(
     team: TeamWithMembers,
     allProjects: ProjectWithMembers[],
-    currentUser?: SessionUser,
+    currentUser: SessionUser,
   ) {
     // Drop role - phase 1: early return for drop-teams keeps the legacy
     // senior-team branch (below) byte-for-byte identical.
@@ -99,9 +104,9 @@ export class TeamsService {
     // JUNIOR viewer: sees only themselves (their own entry), not other JUNIORs.
     // SENIOR viewer: sees NO juniors (junior identity hidden from SENIOR per rule #1).
     let filteredJuniorMembers = juniorMembers
-    if (currentUser?.role === 'JUNIOR') {
+    if (currentUser.role === 'JUNIOR') {
       filteredJuniorMembers = juniorMembers.filter((j) => j.userId === currentUser.id)
-    } else if (currentUser?.role === 'SENIOR') {
+    } else if (currentUser.role === 'SENIOR') {
       filteredJuniorMembers = []
     }
 
@@ -110,7 +115,7 @@ export class TeamsService {
     // (legend), not the real identity. displayName and avatarUrl are safe — they are the
     // persona display fields (kept by #157 single-directional rule).
     // HR, ACCOUNTANT, and other non-legend-subject roles are NOT masked.
-    const isJuniorViewer = currentUser?.role === 'JUNIOR'
+    const isJuniorViewer = currentUser.role === 'JUNIOR'
 
     return {
       id: team.id,
@@ -128,7 +133,24 @@ export class TeamsService {
       updatedAt: team.updatedAt,
       members: [
         ...team.members
-          .filter((m) => m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR' && m.leftAt === null)
+          // security-review PR #541 round 3: `m.user !== null` added — a
+          // dangling/unloaded user relation used to PASS this filter (neither
+          // `undefined !== 'ADMIN'` nor `undefined !== 'JUNIOR'` excludes it)
+          // and then default to role 'SENIOR' below, the fail-OPEN direction.
+          // MEMBER-MASK-5 (senior-junior-member-mask.unit.spec.ts) already
+          // pins the opposite, fail-CLOSED convention for mapProject
+          // (`m.user?.role ?? 'JUNIOR'`) — a dangling identity is treated as
+          // the MOST restricted role, not the least. Excluding it here
+          // (same treatment as ADMIN/JUNIOR) brings this branch to the same
+          // direction; the `?? 'JUNIOR'` default below is belt-and-suspenders
+          // for the same reason.
+          .filter(
+            (m) =>
+              m.user !== null &&
+              m.user.role !== 'ADMIN' &&
+              m.user.role !== 'JUNIOR' &&
+              m.leftAt === null,
+          )
           .map((m) => {
             const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
             // Mask real contacts when JUNIOR views a SENIOR or DROP team member.
@@ -143,7 +165,14 @@ export class TeamsService {
               techStack: m.user?.techStack ?? null,
               phone: maskContacts ? null : (m.user?.phone ?? null),
               telegram: maskContacts ? null : (m.user?.telegram ?? null),
-              role: m.user?.role ?? 'SENIOR',
+              // Equivalence proof: the `.filter(...)` above this `.map(...)` requires
+              // `m.user !== null` for every element that reaches here, so `m.user` is
+              // never null/undefined at this point and `m.user?.role` / `m.user.role`
+              // read the IDENTICAL value. The `?? 'JUNIOR'` fallback (the actually
+              // meaningful half of this expression) is real belt-and-suspenders and
+              // stays unmutated — only the now-redundant `?.` is suppressed.
+              // Stryker disable next-line OptionalChaining: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
+              role: m.user?.role ?? 'JUNIOR',
               joinedAt: m.joinedAt,
               leftAt: m.leftAt ? m.leftAt.toISOString() : null,
             }
@@ -160,13 +189,21 @@ export class TeamsService {
    * drop-project distribution; for now juniors remain a senior-team
    * concept only).
    */
-  private mapDropTeam(team: TeamWithMembers, currentUser?: SessionUser) {
+  // MED-2 (security-review PR #541 follow-up): `currentUser` required here
+  // too — mapTeam (its only caller) now always supplies it; keeping this one
+  // optional would just move the same footgun one level down.
+  private mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
+    // security-review PR #541 round 3: `m.user !== null` added — mirrors the
+    // identical fail-open→fail-closed fix in mapTeam's senior-team branch
+    // just above (same class of bug: a dangling user relation used to pass
+    // this filter and default to role 'DROP' below).
     const activeMembers = team.members.filter(
-      (m) => m.leftAt === null && m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR',
+      (m) =>
+        m.leftAt === null && m.user !== null && m.user.role !== 'ADMIN' && m.user.role !== 'JUNIOR',
     )
     // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP
     // members — same legend-persona boundary as mapTeam (senior-team branch).
-    const isJuniorViewer = currentUser?.role === 'JUNIOR'
+    const isJuniorViewer = currentUser.role === 'JUNIOR'
     return {
       id: team.id,
       name: team.name,
@@ -194,7 +231,17 @@ export class TeamsService {
           techStack: m.user?.techStack ?? null,
           phone: maskContacts ? null : (m.user?.phone ?? null),
           telegram: maskContacts ? null : (m.user?.telegram ?? null),
-          role: m.user?.role ?? 'DROP',
+          // Fail-closed default (belt-and-suspenders — the filter above
+          // already excludes a dangling `user`; this default no longer
+          // matters in practice but keeps the same safe direction if that
+          // filter is ever weakened).
+          // Equivalence proof: same as the identical line in mapTeam above —
+          // `activeMembers` is already filtered to `m.user !== null`, so `m.user`
+          // is never null/undefined here and `m.user?.role` / `m.user.role` read
+          // the IDENTICAL value. The `?? 'JUNIOR'` fallback stays unmutated — only
+          // the now-redundant `?.` is suppressed.
+          // Stryker disable next-line OptionalChaining: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
+          role: m.user?.role ?? 'JUNIOR',
           joinedAt: m.joinedAt,
           leftAt: m.leftAt ? m.leftAt.toISOString() : null,
         }

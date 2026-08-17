@@ -48,7 +48,11 @@ import {
 } from '../database/schema'
 import { DouRssProvider } from './dou.provider'
 import { deriveProjectExclusions, findMatchingExclusion } from './filtering'
-import { JobSourceBudgetExhaustedError } from './source-budget.error'
+import {
+  JobSourceBudgetContentionError,
+  JobSourceBudgetExhaustedError,
+  JobSourceDeliberateStopError,
+} from './source-budget.error'
 import { toSafeFailureMessage } from './safe-failure-message'
 import type { JobSourceProvider, NormalizedPosting } from './job-source.provider'
 
@@ -784,7 +788,10 @@ export class JobSourcingService {
    *     and throws exactly as before. The conservative direction is
    *     unchanged; only the false trigger is removed.
    * Attempts exhausted under real contention still refuse — a gate that keeps
-   * retrying forever under load is its own failure mode.
+   * retrying forever under load is its own failure mode. Backlog #61: that
+   * final refusal re-reads once more before naming a cause, because "the
+   * retries were outrun" and "the budget is spent" are different facts —
+   * see the throw at the bottom of this method.
    *
    * WHY THE CAS ALSO PINS `budgetWindowStartedAt`, NOT JUST `budgetUsed`
    * -----------------------------------------------------------------------
@@ -864,11 +871,20 @@ export class JobSourcingService {
       current = fresh
     }
 
-    // Contention outlived the retry budget. Refuse — the same conservative
-    // outcome a single lost CAS used to mean before this fix.
+    // Contention outlived the retry budget. The outcome is the same refusal
+    // either way (AC5, backlog #61 — not a retry fix), but the REASON told to
+    // the operator must be re-derived from a fresh read, not assumed: the
+    // retries could have been outrun by writers on the SAME row while the
+    // budget itself still has room, and naming that "исчерпан" sends the
+    // operator to the wrong place. Re-read what "outlived" actually means —
+    // genuinely exhausted still throws the old, honest error; anything else
+    // is contention, and says so.
     const state = this.budgetStateOf(current)
     const budget = resolveBudget(state, now)
-    throw new JobSourceBudgetExhaustedError(current.type, budget.limit ?? 0, budget.resetsAt)
+    if (budget.exhausted) {
+      throw new JobSourceBudgetExhaustedError(current.type, budget.limit ?? 0, budget.resetsAt)
+    }
+    throw new JobSourceBudgetContentionError(current.type, CHARGE_BUDGET_MAX_ATTEMPTS)
   }
 
   /** Run one configured source end to end. */
@@ -965,12 +981,23 @@ export class JobSourcingService {
         // A budget stop is flagged so the UI can tell the two apart: "we chose
         // to stop, it comes back on the 1st" is not an incident, and dressing it
         // up as one trains the operator to ignore real incidents.
-        const budgetExhausted = err instanceof JobSourceBudgetExhaustedError
-        failures.push({ sourceType: source.type, message, budgetExhausted })
-        if (budgetExhausted) {
+        //
+        // PR #544 review, H1: this used to branch on
+        // `instanceof JobSourceBudgetExhaustedError` alone, which routed
+        // `JobSourceBudgetContentionError` (backlog #61 — ALSO a deliberate
+        // stop, deliberately a DIFFERENT class, see source-budget.error.ts) to
+        // the `logger.error` + stack-trace branch below: exactly the "dressed
+        // up as an incident" outcome this comment warns against. Branching on
+        // the shared `JobSourceDeliberateStopError` base keeps every
+        // deliberate stop off the error-log path, while `err.budgetExhausted`
+        // — read straight off the instance, not re-derived — keeps the DTO
+        // flag honest per subclass (`true` only for genuine exhaustion).
+        if (err instanceof JobSourceDeliberateStopError) {
+          failures.push({ sourceType: source.type, message, budgetExhausted: err.budgetExhausted })
           this.logger.warn(`Job collection skipped for source ${source.type}: ${message}`)
           continue
         }
+        failures.push({ sourceType: source.type, message, budgetExhausted: false })
         this.logger.error(
           `Job collection failed for source ${source.type} (${source.id})`,
           err instanceof Error ? err.stack : String(err),
