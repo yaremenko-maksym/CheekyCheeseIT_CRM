@@ -1390,159 +1390,181 @@ export class UsersService {
    * the CRM. This method is the data source for a SENIOR's OWN "Команда"
    * profile tab (self-view) — owner decision: RBAC rule #1 ("SENIOR must not
    * see JUNIOR identity anywhere") applies there too, self-view included.
+   *
+   * security-review PR #541 round 3 (single-exit hardening): the method used
+   * to have FIVE exit points, and the viewerRole filter only guarded the
+   * last one — the DROP branch `return`ed its own query result directly,
+   * structurally bypassing the filter. Safe today only via two invariants
+   * OUTSIDE this method (SENIOR can never reach a DROP target's "Команда"
+   * tab per the access matrix; no JUNIOR row can exist in `team_members`),
+   * neither of which this method itself enforces — widen the access matrix
+   * and the bypass opens silently, with no test going red. Refactored so
+   * every branch assigns into `rows` instead of returning; the viewerRole
+   * filter at the bottom is now the ONLY return statement past the
+   * not-found guard, so it cannot be skipped by construction.
    */
   async getTeamMembersForUser(userId: string, viewerRole: AppRole): Promise<TeamMemberPreview[]> {
     const user = await this.findById(userId)
     if (!user) throw new NotFoundException('User not found')
-    if (user.role === 'ADMIN') return []
 
-    // Step 1: Resolve set of seniorIds whose teams this user belongs to
-    let seniorIds: string[] = []
+    let rows: TeamMemberPreview[] = []
 
-    if (user.role === 'SENIOR') {
-      seniorIds = [user.id]
-    } else if (user.role === 'JUNIOR') {
-      const activeProjects = await this.db.db
-        .select({ seniorId: projects.seniorId })
-        .from(projectMembers)
-        .innerJoin(projects, eq(projectMembers.projectId, projects.id))
-        .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
-      seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
-    } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
-      // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
-      // HR/ACCOUNTANT membership must not resolve a team roster anymore.
-      // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
-      const memberships = await this.db.db
-        .select({ teamId: teamMembers.teamId })
-        .from(teamMembers)
-        .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
-      if (memberships.length === 0) return []
-      const teamIds = memberships.map((m) => m.teamId)
-      // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
-      // here too — without it a SENIOR rotated OUT of one of this HR's teams
-      // (team_members.leftAt set, TeamsService.rotateSenior) still resolves
-      // into `seniorIds` below, and their JUNIORs surface in this HR's
-      // roster. No incremental data exposure (the same fields are visible
-      // via the general user list this HR already has), but this brings the
-      // check to the same "leftAt === null is the norm for every membership
-      // check in this file" shape as everywhere else (see HIGH-1 above).
-      const seniorsInTeams = await this.db.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .innerJoin(users, eq(teamMembers.userId, users.id))
-        .where(
-          and(
-            inArray(teamMembers.teamId, teamIds),
-            eq(users.role, 'SENIOR'),
-            isNull(teamMembers.leftAt),
-          ),
-        )
-      seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
-    } else if (user.role === 'DROP') {
+    if (user.role === 'DROP') {
       // Drop role - phase 1: drop's "team members" are the drop-team itself
-      // (HR + accountant + optional active senior). JUNIORs are not surfaced.
+      // (HR + accountant + optional active senior). JUNIORs are not surfaced
+      // (no JUNIOR row can exist in `team_members` — that table only ever
+      // gets SENIOR/HR/ACCOUNTANT/DROP rows). The viewerRole filter below
+      // still applies to whatever this branch produces regardless.
       const dropMemberships = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
-      if (dropMemberships.length === 0) return []
-      const teamIds = dropMemberships.map((m) => m.teamId)
-      const memberRows = await this.db.db
-        .select({
-          id: users.id,
-          displayName: users.displayName,
-          role: users.role,
-          avatarUrl: users.avatarUrl,
-          avatarDocumentId: users.avatarDocumentId,
-        })
-        .from(teamMembers)
-        .innerJoin(users, eq(users.id, teamMembers.userId))
-        .where(
-          and(
-            inArray(teamMembers.teamId, teamIds),
-            isNull(teamMembers.leftAt),
-            ne(users.id, userId),
-          ),
-        )
-      return memberRows
+      if (dropMemberships.length > 0) {
+        const teamIds = dropMemberships.map((m) => m.teamId)
+        rows = await this.db.db
+          .select({
+            id: users.id,
+            displayName: users.displayName,
+            role: users.role,
+            avatarUrl: users.avatarUrl,
+            avatarDocumentId: users.avatarDocumentId,
+          })
+          .from(teamMembers)
+          .innerJoin(users, eq(users.id, teamMembers.userId))
+          .where(
+            and(
+              inArray(teamMembers.teamId, teamIds),
+              isNull(teamMembers.leftAt),
+              ne(users.id, userId),
+            ),
+          )
+      }
+    } else if (user.role !== 'ADMIN') {
+      // Step 1: Resolve set of seniorIds whose teams this user belongs to
+      let seniorIds: string[] = []
+
+      if (user.role === 'SENIOR') {
+        seniorIds = [user.id]
+      } else if (user.role === 'JUNIOR') {
+        const activeProjects = await this.db.db
+          .select({ seniorId: projects.seniorId })
+          .from(projectMembers)
+          .innerJoin(projects, eq(projectMembers.projectId, projects.id))
+          .where(and(eq(projectMembers.userId, userId), isNull(projectMembers.leftAt)))
+        seniorIds = Array.from(new Set(activeProjects.map((p) => p.seniorId)))
+      } else if (user.role === 'HR' || user.role === 'ACCOUNTANT') {
+        // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
+        // HR/ACCOUNTANT membership must not resolve a team roster anymore.
+        // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
+        const memberships = await this.db.db
+          .select({ teamId: teamMembers.teamId })
+          .from(teamMembers)
+          .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
+        if (memberships.length > 0) {
+          const teamIds = memberships.map((m) => m.teamId)
+          // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
+          // here too — without it a SENIOR rotated OUT of one of this HR's teams
+          // (team_members.leftAt set, TeamsService.rotateSenior) still resolves
+          // into `seniorIds` below, and their JUNIORs surface in this HR's
+          // roster. No incremental data exposure (the same fields are visible
+          // via the general user list this HR already has), but this brings the
+          // check to the same "leftAt === null is the norm for every membership
+          // check in this file" shape as everywhere else (see HIGH-1 above).
+          const seniorsInTeams = await this.db.db
+            .select({ userId: teamMembers.userId })
+            .from(teamMembers)
+            .innerJoin(users, eq(teamMembers.userId, users.id))
+            .where(
+              and(
+                inArray(teamMembers.teamId, teamIds),
+                eq(users.role, 'SENIOR'),
+                isNull(teamMembers.leftAt),
+              ),
+            )
+          seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
+        }
+      }
+
+      if (seniorIds.length > 0) {
+        // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
+        // Teams are linked to senior via team_members (the SENIOR is itself a member).
+        // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
+        // a detached (rotated-out) senior's team_members row must not resolve a
+        // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
+        // roster returned to the caller (stale-member leak, distinct from the
+        // team-access class of bug already fixed in teams.service.ts).
+        const seniorMemberships = await this.db.db
+          .select({ teamId: teamMembers.teamId })
+          .from(teamMembers)
+          .innerJoin(users, eq(teamMembers.userId, users.id))
+          .where(
+            and(
+              inArray(teamMembers.userId, seniorIds),
+              eq(users.role, 'SENIOR'),
+              isNull(teamMembers.leftAt),
+            ),
+          )
+        const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
+
+        const memberIds = new Set<string>()
+        if (teamIds.length > 0) {
+          const tmRows = await this.db.db
+            .select({ userId: teamMembers.userId })
+            .from(teamMembers)
+            .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
+          tmRows.forEach((r) => memberIds.add(r.userId))
+        }
+
+        // Step 3: Add active JUNIORs from projects of those seniors.
+        //
+        // MED-3 (security-review round 3, follow-up to #436, reverted same PR):
+        // an earlier round of this fix derived this list from `seniorMemberships`
+        // above (i.e. required an ACTIVE team_members row) instead of the raw
+        // `seniorIds` from Step 1. That silently narrowed the SENIOR self-view
+        // case: rotation/archive-drop-team detaches a senior from their team
+        // WITHOUT archiving their projects (`TeamsService.rotateSenior`,
+        // `archiveDropTeam` — see their own docs), so a teamless senior still
+        // legitimately owns active projects with active JUNIOR members during
+        // that gap, and this method is also how a SENIOR views their OWN "team"
+        // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
+        // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
+        // actually closes). Restored to raw `seniorIds`: the real vulnerability
+        // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
+        // closed at its actual source — the `isNull(teamMembers.leftAt)` filter
+        // added to Step 1's `seniorsInTeams` query above, which is the only
+        // branch that ever populated `seniorIds` with someone other than the
+        // viewer themselves or their own currently-active project seniors.
+        const seniorProjects = await this.db.db
+          .select({ id: projects.id })
+          .from(projects)
+          .where(inArray(projects.seniorId, seniorIds))
+        const projectIds = seniorProjects.map((p) => p.id)
+        if (projectIds.length > 0) {
+          const juniorRows = await this.db.db
+            .select({ userId: projectMembers.userId })
+            .from(projectMembers)
+            .where(
+              and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)),
+            )
+          juniorRows.forEach((r) => memberIds.add(r.userId))
+        }
+
+        memberIds.delete(userId)
+        if (memberIds.size > 0) {
+          rows = await this.db.db
+            .select({
+              id: users.id,
+              displayName: users.displayName,
+              role: users.role,
+              avatarUrl: users.avatarUrl,
+              avatarDocumentId: users.avatarDocumentId,
+            })
+            .from(users)
+            .where(inArray(users.id, Array.from(memberIds)))
+        }
+      }
     }
-
-    if (seniorIds.length === 0) return []
-
-    // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
-    // Teams are linked to senior via team_members (the SENIOR is itself a member).
-    // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
-    // a detached (rotated-out) senior's team_members row must not resolve a
-    // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
-    // roster returned to the caller (stale-member leak, distinct from the
-    // team-access class of bug already fixed in teams.service.ts).
-    const seniorMemberships = await this.db.db
-      .select({ teamId: teamMembers.teamId })
-      .from(teamMembers)
-      .innerJoin(users, eq(teamMembers.userId, users.id))
-      .where(
-        and(
-          inArray(teamMembers.userId, seniorIds),
-          eq(users.role, 'SENIOR'),
-          isNull(teamMembers.leftAt),
-        ),
-      )
-    const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
-
-    const memberIds = new Set<string>()
-    if (teamIds.length > 0) {
-      const tmRows = await this.db.db
-        .select({ userId: teamMembers.userId })
-        .from(teamMembers)
-        .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
-      tmRows.forEach((r) => memberIds.add(r.userId))
-    }
-
-    // Step 3: Add active JUNIORs from projects of those seniors.
-    //
-    // MED-3 (security-review round 3, follow-up to #436, reverted same PR):
-    // an earlier round of this fix derived this list from `seniorMemberships`
-    // above (i.e. required an ACTIVE team_members row) instead of the raw
-    // `seniorIds` from Step 1. That silently narrowed the SENIOR self-view
-    // case: rotation/archive-drop-team detaches a senior from their team
-    // WITHOUT archiving their projects (`TeamsService.rotateSenior`,
-    // `archiveDropTeam` — see their own docs), so a teamless senior still
-    // legitimately owns active projects with active JUNIOR members during
-    // that gap, and this method is also how a SENIOR views their OWN "team"
-    // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
-    // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
-    // actually closes). Restored to raw `seniorIds`: the real vulnerability
-    // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
-    // closed at its actual source — the `isNull(teamMembers.leftAt)` filter
-    // added to Step 1's `seniorsInTeams` query above, which is the only
-    // branch that ever populated `seniorIds` with someone other than the
-    // viewer themselves or their own currently-active project seniors.
-    const seniorProjects = await this.db.db
-      .select({ id: projects.id })
-      .from(projects)
-      .where(inArray(projects.seniorId, seniorIds))
-    const projectIds = seniorProjects.map((p) => p.id)
-    if (projectIds.length > 0) {
-      const juniorRows = await this.db.db
-        .select({ userId: projectMembers.userId })
-        .from(projectMembers)
-        .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)))
-      juniorRows.forEach((r) => memberIds.add(r.userId))
-    }
-
-    memberIds.delete(userId)
-    if (memberIds.size === 0) return []
-
-    const rows = await this.db.db
-      .select({
-        id: users.id,
-        displayName: users.displayName,
-        role: users.role,
-        avatarUrl: users.avatarUrl,
-        avatarDocumentId: users.avatarDocumentId,
-      })
-      .from(users)
-      .where(inArray(users.id, Array.from(memberIds)))
+    // user.role === 'ADMIN': rows stays [] (ADMIN has no teams).
 
     // RBAC rule #1 (security-review PR #541 follow-up, HIGH): SENIOR viewers
     // must not see JUNIOR identity anywhere in the CRM, including their own
@@ -1551,7 +1573,8 @@ export class UsersService {
     // shape TeamsService.mapTeam's `filteredJuniorMembers = []` and
     // ProjectsService.computeEffectiveTeam's `juniors = []` already use for
     // the same viewer role — there is no per-item boolean here a future
-    // refactor could silently drop.
+    // refactor could silently drop. This is the SINGLE return statement for
+    // every branch above (round 3 hardening — see method docblock).
     if (viewerRole === 'SENIOR') {
       return rows.filter((r) => r.role !== 'JUNIOR')
     }

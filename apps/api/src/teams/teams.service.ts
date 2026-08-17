@@ -133,7 +133,24 @@ export class TeamsService {
       updatedAt: team.updatedAt,
       members: [
         ...team.members
-          .filter((m) => m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR' && m.leftAt === null)
+          // security-review PR #541 round 3: `m.user !== null` added — a
+          // dangling/unloaded user relation used to PASS this filter (neither
+          // `undefined !== 'ADMIN'` nor `undefined !== 'JUNIOR'` excludes it)
+          // and then default to role 'SENIOR' below, the fail-OPEN direction.
+          // MEMBER-MASK-5 (senior-junior-member-mask.unit.spec.ts) already
+          // pins the opposite, fail-CLOSED convention for mapProject
+          // (`m.user?.role ?? 'JUNIOR'`) — a dangling identity is treated as
+          // the MOST restricted role, not the least. Excluding it here
+          // (same treatment as ADMIN/JUNIOR) brings this branch to the same
+          // direction; the `?? 'JUNIOR'` default below is belt-and-suspenders
+          // for the same reason.
+          .filter(
+            (m) =>
+              m.user !== null &&
+              m.user.role !== 'ADMIN' &&
+              m.user.role !== 'JUNIOR' &&
+              m.leftAt === null,
+          )
           .map((m) => {
             const memberIsLegendSubject = m.user?.role === 'SENIOR' || m.user?.role === 'DROP'
             // Mask real contacts when JUNIOR views a SENIOR or DROP team member.
@@ -148,7 +165,7 @@ export class TeamsService {
               techStack: m.user?.techStack ?? null,
               phone: maskContacts ? null : (m.user?.phone ?? null),
               telegram: maskContacts ? null : (m.user?.telegram ?? null),
-              role: m.user?.role ?? 'SENIOR',
+              role: m.user?.role ?? 'JUNIOR',
               joinedAt: m.joinedAt,
               leftAt: m.leftAt ? m.leftAt.toISOString() : null,
             }
@@ -169,8 +186,13 @@ export class TeamsService {
   // too — mapTeam (its only caller) now always supplies it; keeping this one
   // optional would just move the same footgun one level down.
   private mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
+    // security-review PR #541 round 3: `m.user !== null` added — mirrors the
+    // identical fail-open→fail-closed fix in mapTeam's senior-team branch
+    // just above (same class of bug: a dangling user relation used to pass
+    // this filter and default to role 'DROP' below).
     const activeMembers = team.members.filter(
-      (m) => m.leftAt === null && m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR',
+      (m) =>
+        m.leftAt === null && m.user !== null && m.user.role !== 'ADMIN' && m.user.role !== 'JUNIOR',
     )
     // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP
     // members — same legend-persona boundary as mapTeam (senior-team branch).
@@ -202,7 +224,11 @@ export class TeamsService {
           techStack: m.user?.techStack ?? null,
           phone: maskContacts ? null : (m.user?.phone ?? null),
           telegram: maskContacts ? null : (m.user?.telegram ?? null),
-          role: m.user?.role ?? 'DROP',
+          // Fail-closed default (belt-and-suspenders — the filter above
+          // already excludes a dangling `user`; this default no longer
+          // matters in practice but keeps the same safe direction if that
+          // filter is ever weakened).
+          role: m.user?.role ?? 'JUNIOR',
           joinedAt: m.joinedAt,
           leftAt: m.leftAt ? m.leftAt.toISOString() : null,
         }

@@ -643,6 +643,82 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
 })
 
 // ────────────────────────────────────────────────────────────────────────────
+// mapTeam / mapDropTeam — dangling `user: null` member (security-review PR
+// #541 round 3). Before this fix a team_members row whose joined `user`
+// relation is null PASSED the ADMIN/JUNIOR exclusion filter (neither
+// `undefined !== 'ADMIN'` nor `undefined !== 'JUNIOR'` excludes it) and then
+// defaulted to role 'SENIOR' (mapTeam) / 'DROP' (mapDropTeam) — the fail-OPEN
+// direction, opposite of the fail-CLOSED convention MEMBER-MASK-5
+// (senior-junior-member-mask.unit.spec.ts) pins for mapProject
+// (`m.user?.role ?? 'JUNIOR'`). Unreachable today while the FK holds, but the
+// direction matters if that ever changes — same defense-in-depth posture as
+// MEMBER-MASK-5 and DROP-BRANCH-MASK-1/2.
+// ────────────────────────────────────────────────────────────────────────────
+describe('TeamsService.mapTeam / mapDropTeam — dangling user: null member is excluded, not defaulted open', () => {
+  it('mapTeam: SENIOR-type team with a dangling member → excluded from members (real SENIOR member stays)', async () => {
+    const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
+    const danglingMember = {
+      id: 'm-dangling',
+      teamId: 'team-1',
+      userId: 'dangling-uuid',
+      leftAt: null,
+      joinedAt: new Date(),
+      user: null,
+    }
+    const team = makeTeam({
+      type: 'SENIOR',
+      seniorSharePercentOverride: null,
+      archivedAt: null,
+      telegram: null,
+      telegramChannel: null,
+      notes: null,
+      members: [seniorMember, danglingMember],
+    })
+    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', adminUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'dangling member must be excluded, not surfaced as a fake SENIOR').not.toContain(
+      'dangling-uuid',
+    )
+    expect(ids, 'the real SENIOR member is unaffected').toContain('senior-1')
+  })
+
+  it('mapDropTeam: DROP-type team with a dangling member → excluded from members (real HR member stays)', async () => {
+    const hrMember = makeMemberWithContacts('hr-1', 'HR')
+    const danglingMember = {
+      id: 'm-dangling-drop',
+      teamId: 'team-1',
+      userId: 'dangling-uuid-drop',
+      leftAt: null,
+      joinedAt: new Date(),
+      user: null,
+    }
+    const team = makeTeam({
+      type: 'DROP',
+      seniorSharePercentOverride: null,
+      archivedAt: null,
+      telegram: null,
+      telegramChannel: null,
+      notes: null,
+      members: [hrMember, danglingMember],
+    })
+    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', adminUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'dangling member must be excluded, not surfaced as a fake DROP').not.toContain(
+      'dangling-uuid-drop',
+    )
+    expect(ids, 'the real HR member is unaffected').toContain('hr-1')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
 // mapDropTeam — JUNIOR viewer: SENIOR/DROP contacts masked (RBAC A01 2026-06-10)
 //
 // Drop-teams render via mapDropTeam (team.type === 'DROP'). A JUNIOR can reach a

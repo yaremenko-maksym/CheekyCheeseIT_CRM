@@ -402,3 +402,34 @@ describe('ProjectsService.findAll — SENIOR/JUNIOR member identity masking (lis
     )
   })
 })
+
+// ---------------------------------------------------------------------------
+// EFFECTIVE-TEAM-JUNIORS-1/2 (security-review PR #541 follow-up, round 3) —
+// closes the PR's OWN audit finding #1: computeEffectiveTeam's SENIOR-viewer
+// `juniors = []` (projects.service.ts, blanket-emptied, same as mapTeam's
+// `filteredJuniorMembers`) was flagged as a follow-up candidate in round 1
+// but stayed untested. Closed here with the same both-directions +
+// mutation-testing rigor as the rest of this file.
+// ---------------------------------------------------------------------------
+
+describe('ProjectsService.findOne — computeEffectiveTeam.juniors masking (own audit finding, closed)', () => {
+  it('EFFECTIVE-TEAM-JUNIORS-1. SENIOR viewer → effectiveTeam.juniors === [] (blanket-emptied)', async () => {
+    const { service } = buildHarness(makeProjectWithMembers())
+    const result = await service.findOne('proj-member-mask-001', seniorViewer)
+
+    expect(result.effectiveTeam, 'effectiveTeam must be present for SENIOR').toBeDefined()
+    const et = result.effectiveTeam as { juniors: unknown[] }
+    expect(et.juniors, 'SENIOR viewer: effectiveTeam.juniors must be empty').toEqual([])
+  })
+
+  it('EFFECTIVE-TEAM-JUNIORS-2. ADMIN viewer → effectiveTeam.juniors contains the real JUNIOR member (positive control)', async () => {
+    const { service } = buildHarness(makeProjectWithMembers())
+    const result = await service.findOne('proj-member-mask-001', adminViewer)
+
+    const et = result.effectiveTeam as { juniors: Array<{ userId: string }> }
+    expect(
+      et.juniors.map((j) => j.userId),
+      'ADMIN viewer: JUNIOR must be present in effectiveTeam.juniors',
+    ).toContain(J1_ID)
+  })
+})
