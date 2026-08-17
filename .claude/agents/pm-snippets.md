@@ -18,6 +18,47 @@ P0 запрет фоновых ожиданий: у субагента НЕТ у
 
 Причина: рецидив 4× за 2026-07-12/13 — агент запускал E2E/vitest в фоне и завершал ход «подожду уведомления»; фон умирал вместе с ходом, спеки оставались незакоммиченными, dev-порты сиротели (lessons autotest #subagent-lifecycle). Шаблоны ниже уже содержат эту строку — при написании ad-hoc промпта добавить вручную.
 
+**P0 — изоляция (ошибка ДИСПЕТЧЕРА, не агента).** Правило:
+`.claude/rules/common/agent-isolation.md`. Гейт: хук `pre:agent:dispatch-isolation`.
+
+- Пишущий агент (`coder` / `autotest` / `devops` / `ui-ux-designer` / `manual-qa` /
+  `legal` / `pm` / `architect`) — **всегда** `isolation="worktree"` (или явный `cwd=`).
+  Без этого он унаследует рабочий каталог оркестратора и будет коммитить/переключать
+  ветки в общем чекауте (PR #497, раунды 2–3: кодер перевёл каталог сессии на
+  `feature/resume-base`). `cd` внутри промпта **не спасает**: рабочий каталог
+  сбрасывается на каталог сессии между вызовами Bash.
+- Read-only агент (`code-reviewer` / `security-reviewer` / `copy-reviewer` /
+  `Explore` / `Plan` / фан-аут `codebase-audit`) — изоляция **не нужна и не
+  навязывается**: лишний worktree стоит дисковых операций, а diff читается через
+  `gh` / GitHub MCP.
+- **Рабочий каталог НИКОГДА не задаётся в промпте общим абсолютным путём**
+  (`/tmp/rev<PR>` и подобные): номер PR одинаков для всех ревьюеров этого PR, и на
+  PR #493 два ревьюера так и оказались в одном каталоге — чужая правка попала в
+  замеры как свойство кода. Каталог агент выводит из **своего** идентификатора сам.
+- **Обязательная строка в КАЖДОМ dispatch-промпте пишущего агента** (шаблоны ниже
+  её уже содержат; в ad-hoc промпт — добавить вручную):
+
+```
+Изоляция: работай ТОЛЬКО внутри своего worktree. Первой командой выполни
+git rev-parse --show-toplevel и сверь с выданным путём. Не совпало или worktree
+исчез — ОСТАНОВИСЬ и сообщи, не продолжай в том каталоге, куда тебя выбросило.
+Все Edit/Write — относительными путями внутри worktree; по абсолютным путям в
+главный чекаут не писать. Чужие worktree не удалять, процессы гасить только свои
+по PID (lsof -ti tcp:<порт> → kill <PID>), pkill -f / killall запрещены.
+В финальном отчёте — строка: Worktree: <path> (verified).
+```
+
+**Проверка после КАЖДОГО завершившегося пишущего агента** (второй эшелон на случай,
+если хук не отработал — см. `agent-isolation.md` «Как узнаем, что нарушено»):
+
+```bash
+git -C <main-repo> status --porcelain apps/ packages/   # пусто = OK
+git -C <main-repo> branch --show-current                # должен быть main
+```
+
+Отчёт агента без строки `Worktree: … (verified)` = сверка не сделана → вернуть на
+доработку, как за отсутствующий вердикт.
+
 ### Coder — новая фича
 
 ```
@@ -55,6 +96,19 @@ Agent(
 Task: .claude/tasks/task-fix-<slug>.md
 target_branch: <pr_branch>
 Ветка уже существует — переключись: git checkout <pr_branch>
+Изоляция: работай ТОЛЬКО внутри своего worktree. Первой командой — git rev-parse --show-toplevel,
+сверь с выданным путём; не совпало или worktree исчез — ОСТАНОВИСЬ и сообщи. Чужие worktree не
+удалять; процессы гасить только свои по PID (pkill -f / killall запрещены). В отчёте — строка
+Worktree: <path> (verified).
+Находки ревью (перенесены ПОЛНЫМ списком, включая те, что решено не делать):
+  CR-H-1 — <кратко>
+  CR-H-2 — <кратко>
+  CR-M-1 — <кратко>
+  SR-H-1 — <кратко>
+Отчитайся по КАЖДОМУ идентификатору отдельной строкой, включая отказы:
+  CR-H-1 done — <что сделано> / CR-M-1 not done — <почему>
+Пропуск строки = незакрытая находка (PR #504: потеряна находка безопасности при переносе).
+Правило: .claude/rules/common/review-findings-transfer.md
 P0 запрет фоновых ожиданий: у субагента НЕТ уведомлений — завершение хода убивает фоновые процессы. Долгие прогоны (тесты/билд) — ОДНОЙ foreground Bash-командой с timeout до 600000 мс; при нехватке — чанковать по файлам/шардам. Перед прогоном — kill своих осиротевших dev-портов. Dev-стек/сервер в worktree поднимать ТОЛЬКО через scripts/devops/dev-ttl.sh -- <команда> (TTL-самоликвидация 4ч; голый nest/vite/pnpm dev заблокирован хуком pre:bash:devserver-ttl-gate); перед бутом проверь порт: lsof -ti tcp:<PORT> | xargs kill -9."""
 )
 ```
@@ -223,6 +277,15 @@ Agent(
 Прочитай .claude/agents/project-state.md (canonical architecture / version pins / RBAC).
 Прочитай .claude/agents/memory/reviewer/lessons.md (legacy общий с security-reviewer до Phase 4 split).
 PR для review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+Рабочий каталог: НЕ задан намеренно. Diff читай через gh / GitHub MCP — worktree тебе не нужен.
+Если понадобится ЗАПУСТИТЬ / замерить / откатить код — сделай СВОЙ чекаут по пути из
+СВОЕГО идентификатора (scratchpad сессии), НЕ из номера PR и НЕ в чужом дереве:
+  SHA=$(gh pr view <N> --json headRefOid --jq .headRefOid)
+  git worktree add --detach "$SCRATCH/checkout" "$SHA"
+До замеров: git -C "$SCRATCH/checkout" status --porcelain (пусто) + rev-parse HEAD (== SHA).
+Закончил — git worktree remove "$SCRATCH/checkout". Чужие worktree не трогать.
+В теле review — строка Checkout: <path> @ <sha> (clean). См. skill code-review-discipline §6.
+Находки нумеруй: CR-H-1 / CR-M-2 / …, в конце контрольная строка Findings: <ids> (N) — §7.
 Sensitive paths flag: <none|list>  # PM передаёт если задеты critical-path zones — это сигнал что security-reviewer диспатчится параллельно""",
   run_in_background=True
 )
@@ -242,6 +305,15 @@ Agent(
 Прочитай .claude/agents/project-state.md (RBAC матрица / shared schemas / auth flow).
 Прочитай .claude/agents/memory/reviewer/lessons.md (legacy общий с code-reviewer до Phase 4 split).
 PR для security review: #<N>, repo: yaremenko-maksym/CheekyCheeseIT_CRM
+Рабочий каталог: НЕ задан намеренно (worktree тебе не нужен — diff через gh / GitHub MCP).
+Нужен запуск / замер / откат — СВОЙ чекаут из СВОЕГО идентификатора, не из номера PR:
+  SHA=$(gh pr view <N> --json headRefOid --jq .headRefOid)
+  git worktree add --detach "$SCRATCH/checkout" "$SHA"
+До замеров: status --porcelain пусто + rev-parse HEAD == SHA. После — worktree remove.
+Code-reviewer работает параллельно в СВОЁМ каталоге: его дерево не трогать, своё не отдавать
+(PR #493 — общий каталог, чужая правка попала в замеры как свойство кода).
+В теле review — строка Checkout: <path> @ <sha> (clean). См. skill code-review-discipline §6.
+Находки нумеруй: SR-H-1 / SR-M-2 / …, в конце контрольная строка Findings: <ids> (N) — §7.
 Sensitive paths которые тригернули dispatch: <list, e.g. apps/api/src/finance/**, packages/shared/src/schemas/finance.ts>
 Code-reviewer параллельно — не дублируй его code/lint checks.""",
   run_in_background=True
