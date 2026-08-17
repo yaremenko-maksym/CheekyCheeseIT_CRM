@@ -96,6 +96,29 @@ describe('buildRoutes', () => {
     expect(routes.every((r) => !r.url.includes('/careers/a'))).toBe(true)
   })
 
+  it(
+    'task-soft-404-and-noindex.md AC2 — a vacancy unpublished/removed since a PRIOR build (present ' +
+      'in dist from that build, absent from the CURRENT vacancies list) gets neither a route nor a ' +
+      'sitemap entry this run — its stale URL is a dead file on disk with nothing advertising it, so ' +
+      'the routing fix (nginx =404) is what a request to it actually hits',
+    () => {
+      // "a previous build" is simulated by simply never including 'retired-role'
+      // in THIS run's vacancies — buildRoutes/buildSitemapXml only ever see the
+      // current list, by construction, so a removed slug cannot leak into
+      // either regardless of what an earlier deploy's dist/ still has on disk.
+      const currentVacancies = [
+        { slug: 'still-open', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+      ]
+      const routes = buildRoutes(currentVacancies)
+      expect(routes.some((r) => r.url.includes('retired-role'))).toBe(false)
+      expect(routes.some((r) => r.url.includes('still-open'))).toBe(true)
+
+      const sitemap = buildSitemapXml(currentVacancies, '2026-08-17T00:00:00.000Z')
+      expect(sitemap).not.toContain('retired-role')
+      expect(sitemap).toContain('careers/still-open/')
+    },
+  )
+
   it('marks every locale/careers-list route as requiring ItemList JSON-LD only when there are vacancies to list', () => {
     const withVacancies = buildRoutes([
       { slug: 'a', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
