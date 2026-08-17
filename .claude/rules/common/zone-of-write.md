@@ -10,20 +10,20 @@
 
 Каждый агент может писать ТОЛЬКО в свою зону. Reviewer выдаёт `Verdict: BLOCK` на diff где агент перетоптал чужие файлы.
 
-| Агент                 | Может писать                                                                                                                                                                                                 | НЕ может                                                                                                                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Coder**             | `apps/api/**`, `apps/web/**`, `apps/landing/**`, `apps/e2e/**`, `packages/**`, `.claude/tasks/<my-task>.progress.md`, `.claude/tasks/<my-task>.blocked.md`                                                   | `scripts/pm/**`, `scripts/devops/**`, `.claude/agents/**`, `docs/business/**`, `.github/workflows/**`, `.claude/hooks/**`, `.claude/settings*.json`, `.gitmessage`, чужие task-файлы |
-| **AutoTest**          | `apps/e2e/tests/*.spec.ts`, `apps/e2e/fixtures/`, `apps/e2e/playwright.config.ts`, `.claude/tasks/<my-task>.blocked.md`                                                                                      | `apps/api/**`, `apps/web/**`, `packages/**`, `docs/business/**`, `.claude/agents/**`, `.github/workflows/**`                                                                         |
-| **DevOps**            | `.github/workflows/`, `docker-compose.yml`, `.env.example`, root `package.json` scripts (`dev:start`, etc.), `scripts/devops/**`                                                                             | `apps/**`, `packages/**`, `docs/business/**`, `.claude/agents/**`, `scripts/pm/**`                                                                                                   |
-| **code-reviewer**     | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                               | Любые файлы в репо                                                                                                                                                                   |
-| **security-reviewer** | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                               | Любые файлы в репо                                                                                                                                                                   |
-| **copy-reviewer**     | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                               | Любые файлы в репо — правки текста вносит автор задачи, не ревьюер                                                                                                                   |
-| **PM**                | `.claude/tasks/`, `.claude/state/pm-state.json`, `.claude/briefs/pm-brief-<slug>.md` (update), `docs/business/` (при резолве блокеров), `.claude/agents/memory/<agent>/lessons.md` (append), `scripts/pm/**` | `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/<X>.md` (кроме memory)                                                                              |
-| **BA**                | `docs/business/`, `.claude/briefs/pm-brief-<slug>.md`                                                                                                                                                        | `.claude/tasks/`, `.github/workflows/`, `apps/**`, `packages/**`, `apps/e2e/**`                                                                                                      |
-| **Architect**         | `docs/architecture/**`, `.claude/agents/<agent>.md` (frontmatter + golden rules) при ECC migration, `rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `.github/workflows/ecc-*.yml` (additive)            | `apps/**`, `packages/**`, `.claude/state/pm-state.json` (LIVE), `.claude/tasks/<active>` (PM owns), `.claude/hooks/**` (legacy, до cleanup)                                          |
-| **ui-ux-designer**    | `apps/web/**` + `apps/landing/**` (cosmetic: classNames / tokens / layout / motion), `docs/design/**`, `.claude/tasks/<my-task>.blocked.md`                                                                  | `apps/api/**`, `packages/**`, бизнес-логика в `.tsx`, `.github/workflows/**`, `.claude/agents/**`                                                                                    |
-| **manual-qa**         | `apps/web/**` + `apps/landing/**` (ТОЛЬКО cosmetic-фиксы: текст / отступ / класс), `.claude/tasks/<my-task>.blocked.md`                                                                                      | `apps/api/**`, `packages/**`, бизнес-логика, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/**`                                                                              |
-| **legal**             | `.claude/tasks/task-legal-*`, `docs/legal/**`, `.claude/knowledge/legal/**`                                                                                                                                  | `apps/**`, `packages/**`, `.claude/agents/**`, прод-код, `.github/workflows/**`                                                                                                      |
+| Агент                 | Может писать                                                                                                                                                                                                                                                                                                | НЕ может                                                                                                                                                                             |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Coder**             | `apps/api/**`, `apps/web/**`, `apps/landing/**`, `apps/e2e/**`, `packages/**`, `.claude/tasks/<my-task>.progress.md`, `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                  | `scripts/pm/**`, `scripts/devops/**`, `.claude/agents/**`, `docs/business/**`, `.github/workflows/**`, `.claude/hooks/**`, `.claude/settings*.json`, `.gitmessage`, чужие task-файлы |
+| **AutoTest**          | `apps/e2e/tests/*.spec.ts`, `apps/e2e/fixtures/`, `apps/e2e/playwright.config.ts`, `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                     | `apps/api/**`, `apps/web/**`, `packages/**`, `docs/business/**`, `.claude/agents/**`, `.github/workflows/**`                                                                         |
+| **DevOps**            | `.github/workflows/`, `docker-compose.yml`, `.env.example`, root `package.json` scripts (`dev:start`, etc.), `scripts/devops/**`                                                                                                                                                                            | `apps/**`, `packages/**`, `docs/business/**`, `.claude/agents/**`, `scripts/pm/**`                                                                                                   |
+| **code-reviewer**     | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                                                                                                                              | Любые файлы в репо                                                                                                                                                                   |
+| **security-reviewer** | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                                                                                                                              | Любые файлы в репо                                                                                                                                                                   |
+| **copy-reviewer**     | `mcp__github__create_pull_request_review` / inline-comments (read-only к коду)                                                                                                                                                                                                                              | Любые файлы в репо — правки текста вносит автор задачи, не ревьюер                                                                                                                   |
+| **PM**                | `.claude/tasks/`, `.claude/state/pm-state.json`, `.claude/briefs/pm-brief-<slug>.md` (update), `docs/business/` (при резолве блокеров), `.claude/agents/memory/<agent>/lessons.md` (append), `scripts/pm/**`                                                                                                | `apps/**`, `packages/**`, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/<X>.md` (кроме memory)                                                                              |
+| **BA**                | `docs/business/`, `.claude/briefs/pm-brief-<slug>.md`                                                                                                                                                                                                                                                       | `.claude/tasks/`, `.github/workflows/`, `apps/**`, `packages/**`, `apps/e2e/**`                                                                                                      |
+| **Architect**         | `docs/architecture/**`, `.claude/rules/**`, `.claude/hooks/**`, `.claude/skills/**`, `.claude/agents/<agent>.md` (frontmatter + golden rules + `pm-snippets.md`), `.claude/RULES.md`, `.claude/settings*.json` (регистрация хуков), `scripts/architect/**`, `.github/workflows/**` (additive process-гейты) | `apps/**`, `packages/**`, `docs/business/**`, `.claude/briefs/**`, `.claude/knowledge/legal/**`, `.claude/state/pm-state.json` (PM owns), `.claude/tasks/<чужие активные>` (PM owns) |
+| **ui-ux-designer**    | `apps/web/**` + `apps/landing/**` (cosmetic: classNames / tokens / layout / motion), `docs/design/**`, `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                 | `apps/api/**`, `packages/**`, бизнес-логика в `.tsx`, `.github/workflows/**`, `.claude/agents/**`                                                                                    |
+| **manual-qa**         | `apps/web/**` + `apps/landing/**` (ТОЛЬКО cosmetic-фиксы: текст / отступ / класс), `.claude/tasks/<my-task>.blocked.md`                                                                                                                                                                                     | `apps/api/**`, `packages/**`, бизнес-логика, `apps/e2e/**`, `.github/workflows/**`, `.claude/agents/**`                                                                              |
+| **legal**             | `.claude/tasks/task-legal-*`, `docs/legal/**`, `.claude/knowledge/legal/**`                                                                                                                                                                                                                                 | `apps/**`, `packages/**`, `.claude/agents/**`, прод-код, `.github/workflows/**`                                                                                                      |
 
 > **Заметки по зонам:** `ui-ux-designer` ↔ `manual-qa` оба пишут cosmetic в `apps/web/**` / `apps/landing/**` — designer по дизайн-spec (Mode B/D conformance/полиш), manual-qa фиксит найденное на live-проходе; разграничение в `contracts.md §5.1/§5.2`. `architect` и `legal` запускаются **USER / Master ad-hoc** (НЕ в авто-PM-dispatch пайплайне) — интенционально (стратегические / по-запросу роли), не пробел.
 
@@ -58,14 +58,56 @@ git -C <main-repo> status --porcelain apps/ packages/   # пусто = OK; ес�
 2. НЕ делать самовольно.
 3. Исключение: PM явно указал в task-файле «обнови `docs/business/modules/<X>.md`» — допустимо.
 
-## Architect-specific notes (для ECC migration)
+## Architect-specific notes
 
-- Architect может писать `.claude/agents/<agent>.md` ТОЛЬКО для:
-  - Добавления YAML frontmatter (Phase 3a–3e).
-  - Обновления mandatory skill tables (Phase 4).
-  - Trimming references при rules extraction (Phase 5).
-- Architect НЕ переписывает business logic / workflow body — это PM's зона через `.claude/tasks/`.
-- Architect НЕ трогает `.claude/state/pm-state.json` (PM owns event stream).
+**Ревизия 2026-08-17 (PR #553, находка CR-L-1).** Прежняя редакция разрешала
+Architect'у трогать `.claude/agents/<agent>.md` **только** в рамках ECC-миграции
+(добавление frontmatter, skill-таблицы, trimming references), а `.claude/RULES.md`
+и `.claude/settings*.json` не упоминала вовсе. ECC-миграция завершилась 2026-06-03 —
+и с тех пор правило описывало не то, что происходит. Прецеденты (проверены
+`gh pr view` / `git log`, а не по памяти):
+
+- **`.claude/settings*.json` — 4 из 4:** #89, #264, #403, #487, каждый добавлял
+  регистрацию хука. Ни один не был отклонён.
+- **`.claude/RULES.md`:** #165, #281, #283, #317, #320, #321, #448.
+- **Golden rules в агентских доках:** #271 (запрет ревьюерам ставить
+  `merge-approved`), #366 (P0 «никаких фоновых ожиданий»), #530, #538 — то есть
+  ровно то, что старая формулировка разрешала «только при ECC migration».
+- **`pm-snippets.md` + `rules/common/**`:\*\* #403.
+
+Правило разошлось с практикой систематически, во всех четырёх категориях.
+
+Приведено в согласие в пользу практики, а не буквы: **пятнадцать «исключений» —
+это норма, которую не записали.** Ровно тот класс дефекта, который этот PR чинит в
+рабочих механиках; оставить его в собственных правилах было бы непоследовательно.
+
+Попутно снято внутреннее противоречие: `.claude/hooks/**` стояло в строке
+Architect'а **одновременно** в «можно» и в «нельзя» (`legacy, до cleanup`).
+Cleanup давно прошёл — колонка «нельзя» вычищена.
+
+Границы новой формулировки:
+
+- **Golden rules и `RULES.md`** — Architect правит, когда меняется межагентная
+  механика (новый хук, новое always-on правило, новый обязательный шаг на старте).
+  Это не «business logic агента», а контракт среды, в которой агент работает.
+- **`.claude/settings*.json`** — зона Architect **по необходимости**: хук,
+  который не зарегистрирован, не существует. Писать туда можно **только**
+  регистрацию хуков; `permissions`, `enabledPlugins`, `env` — не его.
+- **`.github/workflows/**`** — только **additive\*\* процессные гейты. Всё, что
+  трогает деплой, сборку или прод-секреты, остаётся DevOps.
+- **Architect по-прежнему НЕ переписывает** workflow body / бизнес-логику агента
+  (зона PM через `.claude/tasks/`) и НЕ трогает `.claude/state/pm-state.json`
+  (PM owns event stream) — он может лишь предлагать новые типы событий.
+- **Диффы Architect'а по-прежнему проходят review** — расширение зоны меняет то,
+  что не требует `.blocked.md`, а не то, что не требует проверки.
+
+Если правка выходит и за эти границы — `.blocked.md`, как у всех.
+
+**Источник расхождения, чтобы не повторилось.** `.claude/agents/architect.md`
+§Zone-of-write **уже** перечислял `.claude/settings*.json (hook registration)` и
+golden rules — то есть агентский док был точен, а канонический rule-файл (этот)
+отставал. Расходились два описания одной зоны, и агент читает оба. Теперь они
+синхронизированы явной пометкой в обоих; **правишь одно — правь второе.**
 
 ## Связанные правила
 
