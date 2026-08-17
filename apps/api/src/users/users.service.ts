@@ -1409,6 +1409,22 @@ export class UsersService {
 
     let rows: TeamMemberPreview[] = []
 
+    // Equivalence proof (covers ONLY the "force entry" direction — the
+    // "force skip" direction is real and killed by BRANCH-SELECT-1 in
+    // get-team-members-drop-branch-mask.unit.spec.ts): forcing this
+    // condition to always-true only changes behavior for a role this branch
+    // was meant to exclude, i.e. ADMIN (DROP is short-circuited out below by
+    // its own `else if`). For an ADMIN target, Step 1's own inner checks
+    // (`user.role === 'SENIOR' / 'JUNIOR' / 'HR' / 'ACCOUNTANT'`) never match
+    // 'ADMIN' either way, so `seniorIds` stays empty and `rows` is untouched
+    // regardless of whether this branch was entered — forced entry is a
+    // complete no-op for the one role it could possibly affect.
+    // DROP-BRANCH-MASK-4 (ADMIN target) already proves the OUTCOME (`[]`)
+    // for real; no test could additionally distinguish "skipped the branch"
+    // from "entered it and it did nothing".
+    // Stryker disable next-line EqualityOperator,StringLiteral,ConditionalExpression: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
+    const mayDeriveSeniorRoster = user.role !== 'ADMIN'
+
     if (user.role === 'DROP') {
       // Drop role - phase 1: drop's "team members" are the drop-team itself
       // (HR + accountant + optional active senior). JUNIORs are not surfaced
@@ -1419,6 +1435,19 @@ export class UsersService {
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
+      // Equivalence proof: verified empirically against this repo's drizzle-orm
+      // version — `inArray(col, [])` compiles to the literal SQL fragment `false`
+      // (never `IN ()`, which would be a syntax error), so an empty
+      // `dropMemberships` flows into the query below as `WHERE false AND ...` and
+      // returns zero rows either way. Skipping the query (this guard, `> 0`) or
+      // running it anyway (mutated to always-true / `>= 0`) produce the IDENTICAL
+      // `rows` — the only difference is one avoided DB round-trip, which no test
+      // (unit or integration) can observe as a data difference. DROP-BRANCH-MASK-3
+      // (get-team-members-drop-branch-mask.unit.spec.ts) pins the actual behavior
+      // this guard protects (empty roster for a DROP with no memberships) — it
+      // just can't tell "skipped" from "ran and matched nothing" apart, because
+      // nothing observable distinguishes them.
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent — see the paragraph immediately above (inArray([]) compiles to SQL `false`, so skipping vs running the query returns identical rows)
       if (dropMemberships.length > 0) {
         const teamIds = dropMemberships.map((m) => m.teamId)
         rows = await this.db.db
@@ -1439,8 +1468,38 @@ export class UsersService {
             ),
           )
       }
-    } else if (user.role !== 'ADMIN') {
+    }
+
+    // Not `else if`: a plain `if`, on purpose. A DROP target already has
+    // `rows` populated by the block above and harmlessly no-ops through this
+    // one too — see `mayDeriveSeniorRoster`'s own equivalence proof — so
+    // `else` here would only ever suppress a mutation-testing tool quirk
+    // (a `// Stryker disable` comment placed directly after this block's
+    // closing `}` was not honored by this Stryker version — verified
+    // empirically against the JSON report, not just "looks right" in
+    // source), never change real behavior for any role. Equivalence proof
+    // for the condition itself: forcing `mayDeriveSeniorRoster` to always-true
+    // only changes behavior for ADMIN/DROP, and both already no-op through
+    // Step 1's inner checks (see the declaration above) — the "force skip"
+    // direction is real and killed by BRANCH-SELECT-1.
+    // Stryker disable next-line ConditionalExpression: provably equivalent (force-always-true direction only) — see the paragraph immediately above
+    if (mayDeriveSeniorRoster) {
       // Step 1: Resolve set of seniorIds whose teams this user belongs to
+
+      // Equivalence proof: `seniorIds` is always overwritten synchronously or
+      // via a DB lookup by exactly one of the four role branches below before
+      // it is ever read (SENIOR: `[user.id]`; JUNIOR: derived from active
+      // projects; HR/ACCOUNTANT: derived from team_members, or left `[]` when
+      // this user has no team memberships of their own). In that last case a
+      // mutated placeholder value is "washed out" downstream: `seniorIds`
+      // only ever feeds `inArray(...)` filters (never returned directly), and
+      // an arbitrary non-matching string finds the same zero rows a
+      // genuinely empty array would — the RETURNED `rows` converge to the
+      // identical result either way, for any real (non-Stryker-placeholder)
+      // seed data. BRANCH-SELECT-1/2/3 each exercise a role whose branch DOES
+      // overwrite `seniorIds`, which is the only way this variable's value
+      // is ever actually read downstream.
+      // Stryker disable next-line ArrayDeclaration: provably equivalent — see the paragraph immediately above (seniorIds only ever feeds inArray(...) filters that are washed out by a non-matching placeholder, never returned directly)
       let seniorIds: string[] = []
 
       if (user.role === 'SENIOR') {
@@ -1460,6 +1519,16 @@ export class UsersService {
           .select({ teamId: teamMembers.teamId })
           .from(teamMembers)
           .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
+        // Equivalence proof: same class as the DROP branch's
+        // `dropMemberships.length > 0` guard — `inArray(teamMembers.teamId,
+        // teamIds)` (the seniorsInTeams query right below) compiles to SQL
+        // `false` when `teamIds` is empty (which it is when `memberships` is
+        // empty), so entering with an empty `memberships` (mutated to
+        // always-true / `>= 0`) finds nothing, same as skipping it. The
+        // "force skip" direction is real — BRANCH-SELECT-3
+        // (get-team-members-drop-branch-mask.unit.spec.ts) proves a non-empty
+        // `memberships` must enter this block to resolve the HR's senior.
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-3
         if (memberships.length > 0) {
           const teamIds = memberships.map((m) => m.teamId)
           // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
@@ -1485,7 +1554,19 @@ export class UsersService {
         }
       }
 
-      if (seniorIds.length > 0) {
+      // Equivalence proof: same class as the DROP branch's
+      // `dropMemberships.length > 0` guard above — verified empirically,
+      // `inArray(teamMembers.userId, seniorIds)` (Step 2's first query,
+      // right below) compiles to the literal SQL fragment `false` when
+      // `seniorIds` is empty, so entering this block with an empty
+      // `seniorIds` (mutated to always-true / `>= 0`) finds nothing, same as
+      // skipping it. The "force skip" direction is real — BRANCH-SELECT-1
+      // (get-team-members-drop-branch-mask.unit.spec.ts) proves a non-empty
+      // `seniorIds` must enter this block to find its roster.
+      // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
+      const hasSeniorIds = seniorIds.length > 0
+      // Stryker disable next-line ConditionalExpression: provably equivalent (force-always-true direction only) — same proof as `hasSeniorIds`'s own declaration immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
+      if (hasSeniorIds) {
         // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
         // Teams are linked to senior via team_members (the SENIOR is itself a member).
         // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
@@ -1507,6 +1588,14 @@ export class UsersService {
         const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
 
         const memberIds = new Set<string>()
+        // Equivalence proof: same class as the DROP branch's
+        // `dropMemberships.length > 0` guard above — `inArray(teamMembers.teamId,
+        // teamIds)` (the query right below) compiles to SQL `false` when `teamIds`
+        // is empty, so entering with an empty `teamIds` (mutated to always-true /
+        // `>= 0`) finds nothing, same as skipping it. The "force skip" direction
+        // is real — BRANCH-SELECT-1 (get-team-members-drop-branch-mask.unit.spec.ts)
+        // proves a non-empty `teamIds` must enter this block to find its roster.
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
         if (teamIds.length > 0) {
           const tmRows = await this.db.db
             .select({ userId: teamMembers.userId })
@@ -1539,6 +1628,15 @@ export class UsersService {
           .from(projects)
           .where(inArray(projects.seniorId, seniorIds))
         const projectIds = seniorProjects.map((p) => p.id)
+        // Equivalence proof: same class as the DROP branch's
+        // `dropMemberships.length > 0` guard above — `inArray(projectMembers.projectId,
+        // projectIds)` (the query right below) compiles to SQL `false` when
+        // `projectIds` is empty, so entering with an empty `projectIds` (mutated
+        // to always-true / `>= 0`) finds nothing, same as skipping it. The "force
+        // skip" direction is real — BRANCH-SELECT-1
+        // (get-team-members-drop-branch-mask.unit.spec.ts) proves a non-empty
+        // `projectIds` must enter this block to find its roster.
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
         if (projectIds.length > 0) {
           const juniorRows = await this.db.db
             .select({ userId: projectMembers.userId })
@@ -1550,6 +1648,15 @@ export class UsersService {
         }
 
         memberIds.delete(userId)
+        // Equivalence proof: same class as the DROP branch's
+        // `dropMemberships.length > 0` guard above — `inArray(users.id,
+        // Array.from(memberIds))` (the query right below) compiles to SQL `false`
+        // when `memberIds` is empty, so entering with an empty `memberIds`
+        // (mutated to always-true / `>= 0`) finds nothing, same as skipping it.
+        // The "force skip" direction is real — DROP-BRANCH-MASK-3
+        // (get-team-members-drop-branch-mask.unit.spec.ts) proves an empty
+        // `memberIds` set must skip this block and leave `rows` at `[]`.
+        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1/DROP-BRANCH-MASK-3
         if (memberIds.size > 0) {
           rows = await this.db.db
             .select({

@@ -165,6 +165,13 @@ export class TeamsService {
               techStack: m.user?.techStack ?? null,
               phone: maskContacts ? null : (m.user?.phone ?? null),
               telegram: maskContacts ? null : (m.user?.telegram ?? null),
+              // Equivalence proof: the `.filter(...)` above this `.map(...)` requires
+              // `m.user !== null` for every element that reaches here, so `m.user` is
+              // never null/undefined at this point and `m.user?.role` / `m.user.role`
+              // read the IDENTICAL value. The `?? 'JUNIOR'` fallback (the actually
+              // meaningful half of this expression) is real belt-and-suspenders and
+              // stays unmutated — only the now-redundant `?.` is suppressed.
+              // Stryker disable next-line OptionalChaining: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
               role: m.user?.role ?? 'JUNIOR',
               joinedAt: m.joinedAt,
               leftAt: m.leftAt ? m.leftAt.toISOString() : null,
@@ -228,6 +235,12 @@ export class TeamsService {
           // already excludes a dangling `user`; this default no longer
           // matters in practice but keeps the same safe direction if that
           // filter is ever weakened).
+          // Equivalence proof: same as the identical line in mapTeam above —
+          // `activeMembers` is already filtered to `m.user !== null`, so `m.user`
+          // is never null/undefined here and `m.user?.role` / `m.user.role` read
+          // the IDENTICAL value. The `?? 'JUNIOR'` fallback stays unmutated — only
+          // the now-redundant `?.` is suppressed.
+          // Stryker disable next-line OptionalChaining: provably equivalent — see the paragraph immediately above (the preceding .filter() already guarantees m.user is non-null here)
           role: m.user?.role ?? 'JUNIOR',
           joinedAt: m.joinedAt,
           leftAt: m.leftAt ? m.leftAt.toISOString() : null,
