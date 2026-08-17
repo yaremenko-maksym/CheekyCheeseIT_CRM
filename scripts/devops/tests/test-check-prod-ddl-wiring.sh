@@ -167,6 +167,41 @@ jobs:
               psql -U "\$PGUSER" -d "\$PGDB" -c 'select 1'
 YML
 
+# Item 67 (task-ddl-guard-and-ci-noise, 2026-08-17). The guard's own module
+# docstring named this gap without a test until now: $DDL is genuinely COPIED
+# (real scp source:), and the apply step DOES run psql — but for a DIFFERENT
+# file. $DDL only gets a DEAD assignment (never referenced by any psql
+# invocation) sitting in the same step/script as that real, unrelated apply.
+# Before the item-67 fix, ANY "/opt/crm/....sql" line inside a step that ran
+# psql SOMEWHERE counted as applied, so this dead assignment alone flipped
+# $DDL green with zero actual application.
+read -r -d '' DEAD_ASSIGNMENT_YML <<YML || true
+name: Deploy
+on:
+  push:
+    branches: [main]
+jobs:
+  copy-compose:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Copy DDL via SCP
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          source: 'apps/api/drizzle/manual/$DDL'
+          target: '/opt/crm'
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Apply DDL on the VPS
+        uses: appleboy/ssh-action@v1.2.3
+        with:
+          script: |
+            DEAD_FILE="/opt/crm/apps/api/drizzle/manual/$DDL"
+            REAL_FILE="/opt/crm/apps/api/drizzle/manual/2026-01-01_other.sql"
+            docker compose exec -T postgres \\
+              psql -U "\$PGUSER" -d "\$PGDB" -v ON_ERROR_STOP=1 < "\$REAL_FILE"
+YML
+
 read -r -d '' APPLY_ONLY_YML <<YML || true
 name: Deploy
 on:
@@ -554,6 +589,11 @@ assert_red "copied to the VPS but never applied -> red" \
 assert_red "applied but never copied (apply step would 'file not found') -> red" \
   --contains "APPLIED BUT NEVER COPIED" \
   -- run_guard "$(make_case apply-only "$APPLY_ONLY_YML")"
+
+assert_red "item 67: a dead \$VAR=/opt/crm/.../\$DDL assignment next to a REAL psql call for a DIFFERENT file -> red" \
+  --contains "COPIED BUT NEVER APPLIED" \
+  --contains "$DDL" \
+  -- run_guard "$(make_case dead-assignment "$DEAD_ASSIGNMENT_YML")"
 
 assert_red "DDL absent from deploy.yml entirely -> red" \
   --contains "NEVER COPIED, NEVER APPLIED" \

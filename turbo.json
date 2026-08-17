@@ -1,5 +1,41 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  // cacheDir — item 30 (task-ddl-guard-and-ci-noise, 2026-08-17). Setting this
+  // explicitly (even to turbo's own default value) is what turns OFF
+  // Turborepo's automatic "worktree cache sharing": without it, every
+  // `git worktree add` checkout under .claude/worktrees/** silently redirects
+  // its local cache reads/writes to the MAIN worktree's .turbo/cache — by
+  // design, per Turborepo's docs (turborepo.dev/crafting-your-repository/
+  // caching, "Local Filesystem Cache Location"), so that legitimate worktrees
+  // of the same repo can reuse each other's task results.
+  //
+  // Measured, not guessed: `turbo run typecheck --filter=@crm/shared` from a
+  // freshly `pnpm install`-ed agent worktree printed "Remote caching
+  // disabled, using shared worktree cache", replayed a cached log whose own
+  // embedded path read /Users/.../.claude/worktrees/agent-a192b6c6f852f750d/
+  // packages/shared — a DIFFERENT agent's worktree, on a DIFFERENT commit —
+  // and the cache blobs it read from were sitting under the MAIN checkout's
+  // own .turbo/cache/ (7000+ entries), not this worktree's.
+  //
+  // This repo runs many CONCURRENT agent worktrees on independent branches
+  // (see `git worktree list`) — turbo's content-hash keys a task purely by
+  // file contents + declared env, so two worktrees whose watched inputs
+  // happen to hash identically (a package neither branch touched, or a race
+  // where the hash misses a real difference) get each other's cached
+  // stdout/exit-code. That is exactly the failure mode this key closes: a
+  // "green" `pnpm typecheck` that never actually ran against THIS worktree's
+  // tree (2026-08-08, PR #493).
+  //
+  // Cost, weighed rather than assumed: the OWNER's day-to-day work happens
+  // directly in the primary checkout (this repo root, not a
+  // `.claude/worktrees/**` linked worktree) — which is, and remains, its own
+  // cache's natural home regardless of this key, since nothing ever
+  // redirected FROM it, only TO it. Setting cacheDir does not cool the
+  // owner's cache; it only stops OTHER worktrees from reading/writing it.
+  // Agent worktrees lose the (unsafe) warm-cache speedup on packages they
+  // never touched — the correct trade given the alternative is a check that
+  // can report a result it never computed.
+  "cacheDir": ".turbo/cache",
   "tasks": {
     "build": {
       "dependsOn": ["^build"],

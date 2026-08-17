@@ -61,11 +61,32 @@ was forgotten" is a real and differently-diagnosed bug from "nothing at all".
 
 KNOWN LIMITATIONS, stated rather than implied: this proves the two steps EXIST
 and name the file. It does not prove the apply step runs on every deploy (it may
-sit behind an `if:`), that the psql invocation it found is the one that consumes
-THIS file, nor that the SQL itself is correct or idempotent. A shell variable
-holding a psql command string without ever running it would also still count. It
-is a wiring check. The proof that a migration actually applied is deploy.yml's
-own fail-loud apply step and the prod schema afterwards.
+sit behind an `if:`), nor that the SQL itself is correct or idempotent. A shell
+variable holding a psql command STRING without ever running it would also still
+count (no test — the shape does not occur in this repo's deploy.yml, which
+always runs psql directly rather than through an intermediate command
+variable). It is a wiring check. The proof that a migration actually applied is
+deploy.yml's own fail-loud apply step and the prod schema afterwards.
+
+DEAD-ASSIGNMENT FIX (item 67, task-ddl-guard-and-ci-noise, 2026-08-17) — closes
+the limitation this paragraph used to state here ("that the psql invocation it
+found is the one that consumes THIS file") without a test: until this fix, ANY
+`/opt/crm/....sql` path text inside a step that ran psql SOMEWHERE counted as
+applied, so `OTHER_FILE="/opt/crm/.../this.sql"` — assigned, then never fed to
+any psql call — was indistinguishable from a genuine `< "$OTHER_FILE"`
+consumption. `resolve_applied_files()` now requires the path (literal or via a
+variable) to sit on the SAME backslash-joined logical command as the psql
+invocation. Test: scripts/devops/tests/test-check-prod-ddl-wiring.sh
+"dead-assignment" case. Residual, deliberately uncovered gap: if a step
+reassigned the SAME shell variable name to two different `/opt/crm/....sql`
+paths, `resolve_applied_files()` keeps only the LAST assignment seen (no
+line-position-aware scoping) — a real psql call between the two assignments
+using the first value would be mis-attributed to the second path's file. No
+test for this: it requires deploy.yml to reuse a variable name across two
+different DDL files in the same step, which is not this repo's convention
+(every apply step below picks a distinct, file-specific variable name) and
+would itself be a readability smell worth catching in review before it reached
+this guard.
 
 REVERSE INVARIANT (security-review, PR #517) — apps/api/drizzle/manual-private/
 ---------------------------------------------------------------------------------
@@ -370,6 +391,83 @@ def evidence_lines(text):
     return [ln for ln in text.split("\n") if not ANNOTATION_RE.search(ln)]
 
 
+# ---------------------------------------------------------------------------
+# Dead-assignment fix (task-ddl-guard-and-ci-noise, item 67, 2026-08-17)
+# ---------------------------------------------------------------------------
+# `VAR="/opt/crm/.../file.sql"` — a shell variable assignment naming a
+# server-side DDL path. Deploy.yml's real apply step is one long multi-file
+# script (task-guards-teeth's own docstring above documents this shape): many
+# `FOO_FILE="/opt/crm/.../a.sql"` assignments followed, much later in the same
+# STEP, by several independent `docker compose ... psql ... < "$FOO_FILE"`
+# invocations, one per file.
+VAR_ASSIGN_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)="(/opt/crm/[^"]*)"\s*$')
+
+
+def join_logical_commands(lines):
+    """Join `\\`-continued lines into one logical shell command per entry.
+
+    `docker compose \\` / `  -f ... \\` / `  psql ... \\` / `  < "$VAR"` is ONE
+    command as far as the shell (and this guard) is concerned. Reading it
+    line-by-line is what let a psql invocation five lines away make an
+    unrelated `$OTHER_FILE="/opt/crm/.../dead.sql"` assignment look "applied"
+    merely by sharing a STEP with it — see resolve_applied_files below.
+    """
+    logical = []
+    buf = []
+    for ln in lines:
+        if ln.endswith("\\"):
+            buf.append(ln[:-1])
+            continue
+        buf.append(ln)
+        logical.append("\n".join(buf))
+        buf = []
+    if buf:
+        logical.append("\n".join(buf))
+    return logical
+
+
+def resolve_applied_files(step):
+    """Server-side paths this step's psql invocation(s) genuinely consume.
+
+    Until this fix, ANY line containing `/opt/crm` inside a step that ran
+    psql ANYWHERE counted as "applied" — so a dead `OTHER_FILE="/opt/crm/.../
+    dead.sql"` assignment, written and never referenced again, was
+    indistinguishable from the real `DDL_FILE="/opt/crm/.../real.sql"` that a
+    `psql ... < "$DDL_FILE"` call three sections later actually reads. Found
+    on this guard's own known-limitations paragraph (module docstring above),
+    which named the gap but shipped no test for it.
+
+    Fix: a path counts only if it appears on the SAME logical (backslash-
+    joined) command as an actual psql invocation — either directly (a literal
+    `/opt/crm/....sql` argument, e.g. `-f /opt/crm/.../x.sql`) or indirectly
+    through a shell variable referenced on that command (`< "$VAR"`) whose
+    assignment (anywhere earlier in the step) is a `/opt/crm/....sql` path.
+    A variable that is assigned but never referenced by a psql-invoking
+    command resolves to nothing — exactly the dead-assignment case above.
+    """
+    var_files = {}
+    for ln in step.lines:
+        m = VAR_ASSIGN_RE.match(ln)
+        if m:
+            var_files[m.group(1)] = m.group(2)
+
+    applied = set()
+    for cmd in join_logical_commands(step.lines):
+        cmd_lines = cmd.split("\n")
+        runs_psql = any(
+            PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in cmd_lines
+        )
+        if not runs_psql:
+            continue
+        for varname, path in var_files.items():
+            ref_re = re.compile(r"\$\{?" + re.escape(varname) + r"\}?(?![A-Za-z0-9_])")
+            if ref_re.search(cmd):
+                applied.add(path)
+        for m in re.finditer(r"/opt/crm/\S+\.sql", cmd):
+            applied.add(m.group(0).rstrip("\"'),;"))
+    return applied
+
+
 def build_zones(steps):
     """Return (copy_texts, apply_texts): the two zones a file must appear in."""
     by_id = {s.step_id: s for s in steps if s.step_id}
@@ -387,15 +485,7 @@ def build_zones(steps):
                     if producer is not None:
                         copy_texts.extend(evidence_lines(producer.text))
 
-        runs_psql = any(
-            PSQL_INVOCATION_RE.search(ln) and not ECHO_LINE_RE.match(ln) for ln in step.lines
-        )
-        if runs_psql:
-            # Only lines that name the server-side path count — that is the
-            # variable actually fed to psql, not prose about it.
-            for line in evidence_lines(step.text):
-                if "/opt/crm" in line:
-                    apply_texts.append(line)
+        apply_texts.extend(resolve_applied_files(step))
 
     return copy_texts, apply_texts
 
