@@ -2,12 +2,18 @@ name: Auto-Merge on Label
 
 # Лёгкий обработчик `merge-approved` лейбла — НЕ запускает CI заново.
 # Когда PM ставит `merge-approved` на PR с уже зелёным CI:
-#   1. `gh pr checks --watch` exit'ит немедленно (всё уже passed)
+#   1. scripts/devops/check-required-checks-complete.sh exit'ит немедленно
+#      (все required-контексты из branch protection уже присутствуют и pass)
 #   2. `gh pr merge --squash` мерджит без задержки
 #   3. После успешного сквоша: явный dispatch `deploy.yml` на main
 #
-# Если CI ещё бежит — workflow ждёт пока required checks отвердеют,
-# потом мерджит. Если упало — workflow тоже падает, PR не мерджится.
+# Если CI ещё бежит — workflow ждёт, пока КАЖДЫЙ required-контекст из
+# branches/main/protection появится и позеленеет (список берётся из API, не
+# захардкожен), потом мерджит. Если что-то упало, или какой-то required-
+# контекст так и не появился до таймаута — workflow падает, PR не мерджится,
+# И явный `::error::` + комментарий в PR называют причину (task-guards-that-
+# do-not-guard, 2026-08-17 — раньше "один required check зелёный" ошибочно
+# читалось как "все required checks зелёные", см. PR #503).
 #
 # Главный CI (.github/workflows/ci.yml) триггерится на push/synchronize.
 # Этот workflow триггерится ТОЛЬКО на label — typecheck/lint/e2e не дёргаются.
@@ -78,19 +84,77 @@ jobs:
             echo "touches_workflows=false" >> "$GITHUB_OUTPUT"
           fi
 
+      # task-guards-that-do-not-guard (2026-08-17, backlog #40). Checks out
+      # `main` specifically (never the PR's own ref) so the guard script that
+      # gates the merge is always the reviewed, canonical one — a PR cannot
+      # widen its own path to auto-merge by editing the script that checks it.
+      - name: Checkout main (for the required-checks guard script)
+        if: steps.pipeline_files.outputs.touches_workflows == 'false'
+        uses: actions/checkout@v4
+        with:
+          ref: main
+
+      # task-guards-that-do-not-guard (2026-08-17, backlog #40). The required
+      # CONTEXT LIST must come from branch protection itself, never be
+      # hardcoded here — but reading `branches/:branch/protection` needs the
+      # `administration` permission, which is NOT one of the scopes
+      # GITHUB_TOKEN can ever be granted via `permissions:` (verified with
+      # `actionlint`'s known-scope list — this is a GitHub-enforced wall, the
+      # same class as the `workflows` restriction documented below, not an
+      # oversight in this file). `ADMIN_PAT` already exists in this repo's
+      # secrets for exactly this class of admin-only operation (see
+      # e2e-watchdog.yml) — used HERE for exactly one READ call, nothing else
+      # in this job touches it; the merge itself still runs on the ordinary
+      # GITHUB_TOKEN below.
+      - name: Read required status check contexts (owner PAT, read-only)
+        id: required_contexts
+        if: steps.pipeline_files.outputs.touches_workflows == 'false'
+        env:
+          GH_TOKEN: ${{ secrets.ADMIN_PAT }}
+          REPO: ${{ github.repository }}
+        run: |
+          CONTEXTS_JSON=$(gh api "repos/$REPO/branches/main/protection" --jq '.required_status_checks.contexts // []')
+          COUNT=$(printf '%s' "$CONTEXTS_JSON" | jq 'length')
+          if [ "$COUNT" -eq 0 ]; then
+            echo "::error::branches/main/protection reports zero required_status_checks.contexts — refusing to guess what auto-merge should wait for."
+            exit 1
+          fi
+          {
+            echo "list<<REQUIRED_CONTEXTS_EOF"
+            printf '%s' "$CONTEXTS_JSON" | jq -r '.[]'
+            echo "REQUIRED_CONTEXTS_EOF"
+          } >>"$GITHUB_OUTPUT"
+
+      # task-guards-that-do-not-guard (2026-08-17, backlog #40). Replaces
+      # `gh pr checks --watch --required`, which only ever looked at checks
+      # that ALREADY EXIST on the PR — if a required context has not been
+      # created yet (its job has not started/reported), `--required` simply
+      # has nothing to show for it and `--watch` exits 0 on the OTHER
+      # required check going green. 2026-08-08, PR #503: `Typecheck · Lint ·
+      # Unit Tests` finished first, auto-merge declared victory and called
+      # `gh pr merge`, got `the base branch policy prohibits the merge` back
+      # — `E2E Tests` had not reported in yet — and the PR sat unmerged for
+      # two days with a plain red "Squash merge if CI green" step,
+      # indistinguishable from an ordinary CI failure.
+      #
+      # scripts/devops/check-required-checks-complete.sh polls until every
+      # context named by the step above has actually appeared AND passed,
+      # not just whichever ones happened to exist at the moment it looked.
+      # See its header and
+      # scripts/devops/tests/test-check-required-checks-complete.sh (proves
+      # the exact PR #503 shape goes red).
       - name: Wait for required checks
+        id: wait_checks
         if: steps.pipeline_files.outputs.touches_workflows == 'false'
         env:
           GH_TOKEN: ${{ github.token }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
-        run: |
-          # gh pr checks --watch --required:
-          #   - exit 0 если все required checks passed
-          #   - blocks если pending — re-checks каждые --interval сек
-          #   - exit non-0 если any failed → workflow fails → PR не мерджится
-          # Timeout 30 min на случай если E2E застряла.
-          timeout 1800 gh pr checks "$PR_NUMBER" --repo "$REPO" --watch --required --interval 15
+          REQUIRED_CONTEXTS: ${{ steps.required_contexts.outputs.list }}
+          REPORT_FILE: ${{ runner.temp }}/required-checks-report.txt
+          INTERVAL_SECONDS: '15'
+          TIMEOUT_SECONDS: '1800'
+        run: bash scripts/devops/check-required-checks-complete.sh
 
       - name: Squash and merge
         id: squash
@@ -140,6 +204,51 @@ jobs:
           )
           gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
           echo "::notice::PR #$PR_NUMBER touches .github/workflows/** — GITHUB_TOKEN cannot merge these (no 'workflows' permission, not grantable via permissions:). Manual merge required by the repo owner. This is NOT a CI failure."
+
+      # task-guards-that-do-not-guard (2026-08-17, backlog #40, second half).
+      # 2026-08-08, PR #503's failure mode was not just the premature merge
+      # attempt above — it was that the failure was SILENT: a plain red
+      # "Squash merge if CI green" step next to an otherwise-green PR reads
+      # exactly like a random CI hiccup, with `merge-approved` still sitting
+      # on the PR. Nobody noticed for two days. This step is the loud signal
+      # that was missing: whenever "Wait for required checks" or "Squash and
+      # merge" genuinely fails (as opposed to the pipeline-files boundary
+      # case above, which has its own explanation and is NOT a failure), post
+      # a PR comment naming what actually happened and emit an `::error::`
+      # annotation — so the red check has a stated cause next to it instead
+      # of needing someone to open the run and read logs to find out whether
+      # this is "real CI broke" or "auto-merge itself broke".
+      - name: Explain why auto-merge did not complete (checks/merge failed)
+        if: failure() && steps.pipeline_files.outputs.touches_workflows == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          REPORT_FILE: ${{ runner.temp }}/required-checks-report.txt
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          if [ -s "$REPORT_FILE" ]; then
+            REPORT="$(cat "$REPORT_FILE")"
+          else
+            REPORT="(Отчёта стража нет — значит упал не он, а сам шаг 'Squash and merge' после того, как проверки прошли. Смотри лог запуска ниже.)"
+          fi
+
+          # printf-built body — see "pipeline files" step above for why not a
+          # heredoc (markdown code-block indentation).
+          #
+          # shellcheck disable=SC2016  # backticks below are markdown, not
+          #                            # command substitution.
+          BODY=$(
+            printf '🔴 **Автомерж НЕ выполнился, хотя лейбл `merge-approved` стоит.**\n\n'
+            printf 'Это не рутинный красный чек — конкретная, названная причина:\n\n'
+            printf '```\n%s\n```\n\n' "$REPORT"
+            printf 'Лог запуска: %s\n\n' "$RUN_URL"
+            printf 'Лейбл `merge-approved` можно оставить, но повторный запуск требует\n'
+            printf 'снять и снова поставить его (этот workflow триггерится только на\n'
+            printf '`labeled`, не на push) — либо смерджить вручную, когда причина устранена.\n'
+          )
+          gh pr comment "$PR_NUMBER" --repo "$REPO" --body "$BODY"
+          echo "::error::Auto-merge did not complete for PR #$PR_NUMBER while merge-approved is set — see the PR comment for the named cause. This is a genuine auto-merge failure, not the pipeline-files boundary case."
 
       # ВАЖНО (review PR #441, HIGH): оба диспатча ниже гейтятся ЯВНО по
       # результату сквоша, а не по дефолтному `success()` всех предыдущих шагов.

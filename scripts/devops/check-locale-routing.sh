@@ -5,7 +5,28 @@
 # Runs a fixed set of curl cases against ANY origin (local nginx test
 # container during development, staging, or production for a post-deploy
 # smoke check) and reports PASS/FAIL per case. Exit code is non-zero if any
-# case fails — safe to wire into CI or a manual pre/post-deploy check.
+# case fails.
+#
+# STATUS (task-guards-that-do-not-guard, 2026-08-17): deliberately ON-DEMAND,
+# not wired into ci.yml or deploy.yml — same category as
+# check-cloudflare-ips-freshness.sh. NOT dead weight: §6 of the runbook below
+# documents this as the primary local-dry-run AND post-deploy verification
+# tool, and it is what would have caught the 2026-08-08 indexability
+# incident had it been run. Two reasons it stays manual rather than
+# automated, both already true before this note:
+#   - ci.yml has no live `cheekycheese.tech` to point it at — the INDEX-*
+#     sweeps and the deep-path case specifically need the real, current
+#     sitemap.xml (see §6's "what the sweeps can and cannot catch"); a CI
+#     fixture origin would either be vacuous (empty sitemap → the sweeps'
+#     own 0/0-is-not-a-pass guard fires) or need constant hand-maintenance
+#     to track real vacancy content, which is what INDEX-* was written
+#     specifically to avoid depending on.
+#   - deploy.yml wiring is a real, separate follow-up (this script's own
+#     docs already recommend it as "a post-deploy gate") but is OUT OF SCOPE
+#     for this PR — deploy.yml changes here are limited to removing the two
+#     dead DDL steps found in the same audit, nothing additive.
+# Run it by hand after any nginx/** deploy, or point it at a local dry-run
+# container per the runbook while iterating.
 #
 # Tests: scripts/devops/tests/test-check-locale-routing.sh — positive AND
 # negative cases against a controllable stub origin (tests/lib/fake-origin.py):
@@ -341,7 +362,15 @@ check_path_exact "/en/careers/ -> 301 /careers/ (deep path preserved)" \
 # silently lost its attribution.
 check_path_exact "/en/careers/?utm=1 -> 301 keeps the query string" \
   "/en/careers/?utm=1" 301 "/careers/?utm=1"
-check_path_exact "/en?utm=1 -> 301 keeps the query string (the `return` branch)" \
+# task-guards-that-do-not-guard (2026-08-17): the unescaped backticks below
+# used to be read by bash as command substitution (double-quoted strings
+# expand `` `...` `` same as $(...)) — it ran a bare `return` at the
+# script's top level on every single invocation, printing "return: can only
+# \`return' from a function or sourced script" to stderr and silently
+# dropping the word from the description. Harmless to the PASS/FAIL verdict
+# (the substitution's stdout is empty, not the test's), but a scary-looking
+# error on every run of a script that is supposed to prove things work.
+check_path_exact "/en?utm=1 -> 301 keeps the query string (the return branch)" \
   "/en?utm=1" 301 "/?utm=1"
 
 # ── Trailing-slash / deep-path preservation (plan §1) ──────────────────────
@@ -356,8 +385,20 @@ check_path "deep path: $DEEP_PATH + uk -> 302 /uk$DEEP_PATH (from live sitemap)"
 # is guaranteed to never exist on any real origin either, so this is safe
 # to run against production as a permanent regression guard, not just a
 # local-fixture-only case.
-check_path "partial-prerender: nonexistent deep slug + uk -> 200 EN (no silent mismatch)" \
-  "/careers/__check-locale-routing-nonexistent-slug__/" 200 "" \
+#
+# task-guards-that-do-not-guard (2026-08-17): this case originally expected
+# 200 EN here — correct at the time (PR #423), when the SPA fallback served
+# the EN homepage for ANY path it didn't recognise, including a genuinely
+# nonexistent one. PR #539 ("stop answering 200 with the homepage for pages
+# that do not exist") retired that catch-all: an unprefixed path with no
+# matching page now gets an honest 404, verified against production itself
+# (`curl -H 'Accept-Language: uk' https://cheekycheese.tech/careers/__check-
+# locale-routing-nonexistent-slug__/` → 404). The property this case exists
+# to protect is unchanged — a nonexistent path must NOT redirect into a
+# locale-mismatched 200 — it is just now proven by an honest 404 instead of
+# an EN 200, and the assertion below was never updated to match.
+check_path "partial-prerender: nonexistent deep slug + uk -> 404, not a silent locale-mismatched redirect" \
+  "/careers/__check-locale-routing-nonexistent-slug__/" 404 "" \
   -H 'Accept-Language: uk'
 
 # ══════════════════════════════════════════════════════════════════════════
