@@ -5130,15 +5130,38 @@ export class TransactionsService {
     // balances) ONLY. `dropBalances` is a different, still-live #214/#215
     // decision (see `canSeeDropBalances` above) and is UNCHANGED.
     //
-    // Stryker disable next-line ConditionalExpression: equivalent mutant.
-    // Mutating this to `true` cannot be observed by any test because the RBAC
-    // guard at the top of this method already throws ForbiddenException for
-    // every role except ADMIN and ACCOUNTANT — no other role's execution ever
-    // reaches this line, so the condition and a bare `true` are behaviorally
-    // identical here. The role check stays for readability/documentation of
-    // intent (mirrors `canSeeDropBalances`, which is NOT equivalent — see its
-    // own mutation coverage).
-    const canSeeAdminBalances = currentUser.role === 'ADMIN' || currentUser.role === 'ACCOUNTANT'
+    // "Matches it" above is about ACCESS, not VALUES — do not read this as a
+    // promise that the two screens show the same NUMBER. `adminBalances`
+    // below computes the HOLDING model (all received across PAYOUT_ADMIN /
+    // ADMIN_INCOME / ADMIN_TRANSFER / PAYOUT_CONFIRMED, minus ALL paid sends).
+    // `getAdminBalance` (balance.service.ts, untouched here) computes a
+    // narrower phase-4 personal-credit slice (ADMIN_INCOME_CASH/CRYPTO +
+    // DIVIDEND_TO_ADMIN, minus paid EXPENSE) — PR #551 itself calls this a
+    // "materially different, broader metric" than the endpoint. #551 is still
+    // open as of this comment, so if this PR ships first the two figures can
+    // diverge at their widest. Reconciling the two MODELS into one number is
+    // a separate, not-yet-scoped decision — this task only reconciles WHO may
+    // see `adminBalances`, not what it computes.
+    //
+    // Deliberately a bare literal, NOT `currentUser.role === 'ADMIN' ||
+    // currentUser.role === 'ACCOUNTANT'`. That re-check would be an
+    // equivalent-mutant magnet: the RBAC guard at the top of this method
+    // already throws ForbiddenException for every role except ADMIN and
+    // ACCOUNTANT, so a re-check here can never observably differ from `true`
+    // — and a `// Stryker disable next-line ConditionalExpression` comment on
+    // that OR expression does not target the specific `→true` mutant, it
+    // suppresses EVERY ConditionalExpression mutant Stryker generates on that
+    // line: the equivalent `→true` AND the three real, killed mutants
+    // (`→false` on the whole expression, and `→false` on each operand) go
+    // dark together (review round 2 on this task's own PR; the same
+    // line×mutator suppression scope caught 8 mutants for 2 intended ones on
+    // PR #531 — see the mutation-gate backlog item). Writing the guaranteed
+    // value directly removes the equivalent mutant instead of hiding it: the
+    // only mutant left is `true → false` (BooleanLiteral), which IS real —
+    // flipping it empties `adminBalances` for actual ADMIN/ACCOUNTANT
+    // callers, which the `getSummary` unit spec already asserts against — so
+    // it needs no suppression at all.
+    const canSeeAdminBalances = true
 
     // Scaled-integer constant used throughout aggregations below to avoid
     // JS float accumulation errors. Aliased to the module-level `MONEY_SCALE`
@@ -5237,6 +5260,21 @@ export class TransactionsService {
     // ACCOUNTANT now sees this too (see `canSeeAdminBalances` above —
     // deliberate #214/#215 reversal, 2026-08-17). Roles that fail the RBAC
     // guard at the top of this method never reach here at all.
+    //
+    // No `archivedAt` filter here — EXPLICIT, not an oversight (review round
+    // 2, LOW-1): `eq(users.role, 'ADMIN')` alone includes archived admins,
+    // exactly as it already did before this PR for the ADMIN viewer — this
+    // task widens WHO can see the array, it does not change WHAT rows are in
+    // it. An archived admin can still carry a nonzero HOLDING balance the
+    // company owes or holds (departure ≠ automatic zero-out/settlement), so
+    // dropping the row would hide money that still needs reconciling — the
+    // accountant's job. `getAdminBalance` (balance.service.ts) has no
+    // archived check either, so the per-admin endpoint ACCOUNTANT already
+    // used would return the same figure for an archived admin regardless.
+    // If archived admins should ever be hidden from this array, that is a
+    // separate, undocumented-today business decision (nothing in
+    // docs/business/ addresses it) — not bundled into this task's narrow
+    // scope of "who may see `adminBalances`".
     const adminBalances = !canSeeAdminBalances
       ? []
       : (
