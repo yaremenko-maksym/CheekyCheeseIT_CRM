@@ -169,6 +169,14 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
     archivedAt: new Date('2026-03-31T00:00:00.000Z'),
   }
 
+  const NON_JUNIOR_MEMBER = {
+    id: 'senior-1',
+    role: 'SENIOR' as const,
+    email: 'senior@test.spec',
+    monthlySalary: '5000',
+    archivedAt: null,
+  }
+
   it('accrues for the active junior and skips the archived one', async () => {
     const { svc, insertedValues } = makeCronService([
       makeMember(ACTIVE_JUNIOR),
@@ -187,6 +195,35 @@ describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary eit
       amount: '900',
       salaryMonth: '2099-12',
     })
+  })
+
+  it('accrues only for JUNIORs — a SENIOR on the same project gets nothing here', async () => {
+    // The role guard shares the line the archival term was added to, and until
+    // this test existed nothing in the unit suite exercised it: the mutation
+    // gate reported `user.role !== 'JUNIOR'` → `false` as a SURVIVOR. A senior's
+    // money comes through project income and payouts, never through this loop
+    // (which is also why their `monthlySalary` being set must not matter).
+    const { svc, insertedValues } = makeCronService([
+      makeMember(NON_JUNIOR_MEMBER),
+      makeMember(ACTIVE_JUNIOR),
+    ])
+
+    await svc.createMonthlySalaries('2099-12')
+
+    expect(insertedValues.map((v) => v['receiverId'])).toEqual(['jr-active'])
+  })
+
+  it('skips a membership whose user did not resolve, without crashing the run', async () => {
+    // Same reason: the `!user` guard was uncovered, so weakening it survived.
+    // A membership row pointing at a missing user must be skipped quietly — the
+    // whole monthly run must not die on one broken row.
+    const { svc, insertedValues } = makeCronService([
+      { leftAt: null, user: null, project: { id: 'proj-1', financeSettings: null } },
+      makeMember(ACTIVE_JUNIOR),
+    ])
+
+    await expect(svc.createMonthlySalaries('2099-12')).resolves.toBeUndefined()
+    expect(insertedValues.map((v) => v['receiverId'])).toEqual(['jr-active'])
   })
 })
 
@@ -428,14 +465,18 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
     expect(whereArg).toBeDefined()
 
     const { sql } = compileWhere(whereArg)
-    // A pre-read cannot produce these: they only exist if the condition is part
-    // of the write Postgres executes.
-    expect(sql).toContain('not exists')
-    expect(sql).toContain('"archived_at" is not null')
-    // Correlated to THIS row's receiver — not a bare "is anyone archived".
-    expect(sql).toContain('"receiver_id"')
-    // Pins the sub-select's projection (an emptied `{}` select would drop it).
-    expect(sql).toContain('"users"."id"')
+    // A pre-read cannot produce this: it only exists if the condition is part
+    // of the write Postgres executes. Asserted as one contiguous fragment
+    // INCLUDING the projection — the mutation gate showed why: a separate
+    // `toContain('"users"."id"')` looked like it pinned the sub-select's
+    // `select({ id: users.id })`, but that same string also appears in the
+    // correlation below it, so emptying the projection to `{}` changed nothing
+    // the assertion could see. This form fails on both.
+    expect(sql).toContain('not exists (select "id" from "users"')
+    // Correlated to THIS row's receiver — not a bare "is anyone archived" — and
+    // keyed on archival.
+    expect(sql).toContain('"users"."id" = "transactions"."receiver_id"')
+    expect(sql).toContain('"users"."archived_at" is not null')
     // The pre-existing guards must survive the addition.
     expect(sql).toContain('"deleted_at" is null')
   })
