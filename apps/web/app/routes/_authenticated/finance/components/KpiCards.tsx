@@ -68,36 +68,6 @@ export function KpiCard({
   )
 }
 
-export function AdminBalanceCard({ summary }: { summary: FinanceSummaryDto }) {
-  if (!summary.adminBalances.length) return null
-  return (
-    <Card>
-      <CardContent className="pt-5 space-y-3">
-        <p className="text-xs font-semibold text-muted-foreground">Балансы партнёров</p>
-        {summary.adminBalances.map((ab) => (
-          <div key={ab.userId} className="space-y-1">
-            <div className="flex justify-between items-baseline">
-              <span className="text-sm font-medium">{ab.displayName}</span>
-              <span
-                className={cn(
-                  'text-sm font-bold tabular-nums',
-                  ab.balance >= 0 ? 'text-green-500' : 'text-red-500',
-                )}
-              >
-                $
-                {ab.balance.toLocaleString('en-US', {
-                  minimumFractionDigits: 2,
-                  maximumFractionDigits: 2,
-                })}
-              </span>
-            </div>
-          </div>
-        ))}
-      </CardContent>
-    </Card>
-  )
-}
-
 /**
  * Drop role - phase 2. Standalone «Балансы дропов» panel — redesigned in
  * feat/drop-balances-panel: avatar-initial + full name + share% badge +
