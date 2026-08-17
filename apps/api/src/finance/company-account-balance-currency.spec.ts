@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { inspect } from 'util'
+import type { SQL } from 'drizzle-orm'
+import { PgDialect } from 'drizzle-orm/pg-core'
 import type { DatabaseService } from '../database/database.service'
 import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
 
@@ -93,5 +95,105 @@ describe('AC5: computeCompanyAccountBalanceFromLedger — currency=USDT guard on
 
     const balance = await computeCompanyAccountBalanceFromLedger(db)
     expect(balance).toBeCloseTo(910, 2)
+  })
+})
+
+/**
+ * C-3 (mega-audit wave 2, AC7/AC8) — assertNoOffCurrencyCompanyRows unit
+ * coverage. The real-DB behaviour (a genuine off-currency row actually
+ * getting rejected end-to-end) is proven by
+ * company-account-balance-off-currency.integration.spec.ts; THIS suite is
+ * the unit-level, mocked-db coverage the mutation gate needs — Stryker's
+ * non-integration run never executes *.integration.spec.ts files, so the
+ * throw path, its message, and its 9th-query shape must ALSO be pinned here
+ * or every mutant inside `assertNoOffCurrencyCompanyRows` is invisible to it.
+ */
+describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
+  // 8 SUM terms all zero (irrelevant to this guard) + a controllable 9th
+  // (the off-currency COUNT(*) check) whose row/total we vary per test.
+  function makeDb(ninthRows: Array<{ total: string }>) {
+    let callCount = 0
+    let ninthProjection: unknown
+    let ninthWhere: unknown
+    const select = vi.fn((projection: unknown) => {
+      const idx = callCount
+      if (idx === 8) ninthProjection = projection
+      return {
+        from: () => ({
+          where: (clause: unknown) => {
+            if (idx === 8) ninthWhere = clause
+            callCount++
+            if (idx < 8) return Promise.resolve([{ total: '0' }])
+            return Promise.resolve(ninthRows)
+          },
+        }),
+      }
+    })
+    const db = { select } as unknown as DatabaseService['db']
+    return {
+      db,
+      getNinthProjection: () => ninthProjection,
+      getNinthWhere: () => ninthWhere,
+    }
+  }
+
+  it('throws a message naming the count when off-currency company rows exist (count=2)', async () => {
+    const { db } = makeDb([{ total: '2' }])
+    let caught: unknown
+    try {
+      await computeCompanyAccountBalanceFromLedger(db)
+    } catch (e) {
+      caught = e
+    }
+    expect(caught).toBeInstanceOf(Error)
+    const message = (caught as Error).message
+    // Each assertion below pins one of the five concatenated string literals
+    // that make up the thrown message — killing each independently.
+    expect(message).toContain('found 2 PAID company-account')
+    expect(message).toContain('row(s) booked in a currency other than USDT. The company account is')
+    expect(message).toContain(
+      'USDT-only — these rows would silently drop out of the balance instead of',
+    )
+    expect(message).toContain(
+      'being counted or rejected. Fix the offending row(s) (wrong currency label)',
+    )
+    expect(message).toContain('before trusting this balance.')
+  })
+
+  it('does NOT throw when the off-currency check finds zero rows (count=0)', async () => {
+    const { db } = makeDb([{ total: '0' }])
+    await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.not.toThrow()
+  })
+
+  it('treats an empty result set (rows[0] undefined) as zero — no throw, no TypeError', async () => {
+    const { db } = makeDb([])
+    await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.not.toThrow()
+  })
+
+  it('the 9th query selects COUNT(*) and filters status=PAID, currency<>USDT', async () => {
+    const { db, getNinthProjection, getNinthWhere } = makeDb([{ total: '0' }])
+    await computeCompanyAccountBalanceFromLedger(db)
+
+    const projectionStr = inspect(getNinthProjection(), { depth: 20 })
+    expect(projectionStr).toContain('COUNT(*)')
+
+    // NOT a raw inspect()-substring check: `status`/`currency` are Drizzle
+    // pgEnum columns, whose AST node carries a static `enumValues` list (EVERY
+    // value the Postgres enum can ever hold, e.g. status's PENDING/VALIDATED/
+    // PAID/REJECTED) as a plain property alongside the actual bound `Param`.
+    // A substring search over the whole inspected tree would "find" 'PAID' /
+    // 'USDT' via that metadata regardless of what the query actually binds —
+    // empirically confirmed: mutating 'PAID' → '' at the call site left an
+    // inspect()-substring assertion GREEN. A generic AST-walker (this file's
+    // sibling helper, drizzle-where-introspection.ts's collectParamValues)
+    // ALSO breaks here — `nonDeletedTransactions` is a `pgView` whose column
+    // references are alias-proxied, which recurses infinitely under a plain
+    // `Object.values()` walk. `PgDialect#sqlToQuery` is the REAL Postgres
+    // compiler drizzle itself uses (see source-income-drop-link-schema.spec.ts
+    // for the same technique) — it returns the actual bound `params` array,
+    // sidestepping both traps entirely.
+    const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
+    expect(compiled.params).toContain('PAID')
+    expect(compiled.params).toContain('USDT')
   })
 })

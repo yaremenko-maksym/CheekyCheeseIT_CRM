@@ -872,6 +872,26 @@ describe('BalanceService.getTotalEarned — DROP PAYOUT_DROP self-referential pa
     expect(result.breakdown.payout).toBe(150)
   })
 
+  // Mutation-gate (task-mutation-gate): proves the CREDIT-leg condition
+  // (`recipient === targetUserId`) is load-bearing, not a no-op — without
+  // this test, deleting the condition (always-add) is invisible to every
+  // other test here (they only ever use rows that DO target DROP_ID).
+  it('a PAYOUT_DROP row for a DIFFERENT drop does not credit this drop at all', async () => {
+    const otherDropTx = makeTx({
+      type: 'PAYOUT_DROP',
+      status: 'PAID',
+      amount: '999',
+      currency: 'USD',
+      senderId: null,
+      receiverId: 'some-other-drop-id',
+      recipientId: 'some-other-drop-id',
+    })
+    const svc = makeDropEarnedSvc([otherDropTx])
+    const result = await svc.getTotalEarned(DROP_ID, 'USD')
+    expect(result.breakdown.payout ?? 0).toBe(0)
+    expect(result.totalEarned).toBe(0)
+  })
+
   it('AC4: parity with computeDropAggregate (transactions.service.ts) on the SAME row set', async () => {
     // computeDropAggregate is `private` on TransactionsService — TS enforces
     // that only at compile time. Reaching it via a typed bracket-cast is the

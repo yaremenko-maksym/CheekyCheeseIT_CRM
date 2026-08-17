@@ -181,6 +181,11 @@ async function assertNoOffCurrencyCompanyRows(db: Db): Promise<void> {
         ),
       ),
     )
+  // Stryker disable next-line StringLiteral: equivalent mutant — this default
+  // ('0' vs '') is consumed ONLY by the `count > 0` gate two lines below.
+  // parseInt('0',10)=0 and parseInt('',10)=NaN both fail `>0`, so a missing
+  // row row[0] produces the SAME observable outcome (no throw) either way;
+  // no assertion on this fallback's exact string value can ever be written.
   const count = parseInt(rows[0]?.total ?? '0', 10)
   if (count > 0) {
     throw new Error(
