@@ -47,7 +47,7 @@
  * debt); legacy DROP-debt settlements + ordinary senior income leave it NULL and
  * are correctly ignored here.
  */
-import { and, eq, sql } from 'drizzle-orm'
+import { and, eq, inArray, ne, or, sql } from 'drizzle-orm'
 import type { DatabaseService } from '../database/database.service'
 import type { DrizzleTx } from '../database/types'
 // security-review PR #456 round 2: reads the `nonDeletedTransactions` VIEW,
@@ -121,6 +121,76 @@ async function sumAmount(db: Db, where: ReturnType<typeof and>): Promise<number>
     .where(where)
   const total = parseFloat(rows[0]?.total ?? '0')
   return Number.isFinite(total) ? total : 0
+}
+
+/**
+ * C-3 (mega-audit wave 2, AC7/AC8) — the two "company-shaped" types that carry
+ * no `fundingSource` gate: a row of one of these types is company money by
+ * TYPE ALONE (a company deposit, a dividend paid FROM the company).
+ */
+const COMPANY_TERM_TYPES_UNGATED = ['COMPANY_DEPOSIT', 'DIVIDEND_TO_ADMIN'] as const
+
+/**
+ * The remaining six terms are company money only when ALSO stamped
+ * `fundingSource='COMPANY_ACCOUNT'` — mirrors the 8-term SUM below exactly
+ * (same type list, same funding-source gate).
+ */
+const COMPANY_TERM_TYPES_FUNDING_GATED = [
+  'PAYOUT',
+  'ADMIN_INCOME',
+  'SALARY',
+  'EXPENSE',
+  'SENIOR_INCOME',
+  'PAYOUT_DROP',
+] as const
+
+/**
+ * C-3 (mega-audit wave 2): every SUM term below already carries a
+ * `currency='USDT'` guard (AC5/BIZ-23, defence-in-depth on the NUMBER). Its
+ * blind spot: a company-shaped row (any of the twelve type/funding
+ * combinations above) booked in a currency OTHER than USDT is simply
+ * EXCLUDED from every SUM — the balance silently omits money the ledger says
+ * belongs to the company, with no error and no log. There is no DB
+ * constraint tying "this row is company money" to `currency='USDT'` (a
+ * CHECK constraint achieving that is proposed in the PR description — NOT
+ * applied here; prod DDL only lands through `deploy.yml`, by the owner's
+ * decision).
+ *
+ * Until that constraint exists, `computeCompanyAccountBalanceFromLedger`
+ * refuses to hand back a balance it knows might be silently wrong: it checks
+ * for any such off-currency row and throws loudly instead. Every write path
+ * that creates one of these rows hardcodes 'USDT' today (`submitDeposit`,
+ * `createDividend` — see the C-3 audit finding), so in the CURRENT data this
+ * can never fire; it is a trap for a FUTURE write path that forgets to, not
+ * a live bug.
+ */
+async function assertNoOffCurrencyCompanyRows(db: Db): Promise<void> {
+  const rows = await db
+    .select({ total: sql<string>`COUNT(*)` })
+    .from(nonDeletedTransactions)
+    .where(
+      and(
+        eq(nonDeletedTransactions.status, 'PAID'),
+        ne(nonDeletedTransactions.currency, 'USDT'),
+        or(
+          inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_UNGATED),
+          and(
+            inArray(nonDeletedTransactions.type, COMPANY_TERM_TYPES_FUNDING_GATED),
+            eq(nonDeletedTransactions.fundingSource, COMPANY_ACCOUNT),
+          ),
+        ),
+      ),
+    )
+  const count = parseInt(rows[0]?.total ?? '0', 10)
+  if (count > 0) {
+    throw new Error(
+      `computeCompanyAccountBalanceFromLedger: found ${count} PAID company-account ` +
+        `row(s) booked in a currency other than USDT. The company account is ` +
+        `USDT-only — these rows would silently drop out of the balance instead of ` +
+        `being counted or rejected. Fix the offending row(s) (wrong currency label) ` +
+        `before trusting this balance.`,
+    )
+  }
 }
 
 /**
@@ -220,6 +290,12 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
       ),
     ),
   ])
+
+  // C-3 (AC7/AC8): 9th query, run AFTER the 8-term Promise.all above so the
+  // existing 8 SUMs (and their call order, pinned by
+  // company-account-balance-currency.spec.ts) are completely untouched.
+  await assertNoOffCurrencyCompanyRows(db)
+
   return (
     deposits +
     payouts +
