@@ -12,9 +12,11 @@
  *      paid — this is the shape of the rows that accumulated on prod before the
  *      cron filter existed, and the reason the fix needs both halves.
  *
- * Scratch DB only — NEVER crm_db:
- *   DATABASE_URL=postgresql://crm_user:password@127.0.0.1:5432/crm_qa \
- *     pnpm --filter @crm/api exec vitest run salary-archived-receiver.integration
+ * Scratch DB only — NEVER crm_db. The URL comes from `apps/api/.env.test`
+ * (which already points at the scratch database), so no connection string is
+ * spelled out here — a doc-comment credential is the kind of line that gets
+ * copy-pasted into a prod script:
+ *   pnpm --filter @crm/api exec vitest run salary-archived-receiver.integration.spec
  */
 import { Global, Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'

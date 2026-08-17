@@ -9,7 +9,7 @@ import {
   Inject,
 } from '@nestjs/common'
 
-import { and, desc, eq, inArray, isNotNull, isNull, ne, or, sql } from 'drizzle-orm'
+import { and, desc, eq, inArray, isNotNull, isNull, ne, notExists, or, sql } from 'drizzle-orm'
 import type {
   SessionUser,
   DropIncomeDto,
@@ -3624,11 +3624,29 @@ export class TransactionsService {
         'Salary can only be created for JUNIOR, HR, ACCOUNTANT, SENIOR, or DROP',
       )
     }
-    // task-finance-fix-wave1 (E-1): same barrier as the three other money paths
-    // in this service that credit a named person — createAdminIncome,
-    // declareUsdtProjectIncome and manualConfirmPayout all refuse an archived
-    // receiver. A dismissed employee is not owed a NEW salary; if the dismissal
-    // was a mistake, un-archive first.
+    // task-finance-fix-wave1 (E-1). The rule this follows is NOT "some money
+    // paths check archival" — it is WHICH KIND of money movement is happening:
+    //
+    //   NEW ACCRUAL to a named person  → refuse an archived receiver.
+    //     Nobody starts owing a dismissed employee something new. This method
+    //     and the salary cron are accruals; so are createAdminIncome and
+    //     declareUsdtProjectIncome, which credit a named ADMIN's balance, and
+    //     confirmPayout, which credits a chosen ADMIN — all three refuse.
+    //
+    //   SETTLING AN ALREADY-EARNED DEBT → do NOT refuse on archival.
+    //     Being dismissed does not forfeit what someone already earned;
+    //     refusing there would strand the payment. payPayoutRequest,
+    //     manualConfirmPayout and settleByCompany are settlements (their
+    //     receiver is the company or an existing obligation), which is why they
+    //     carry no archival barrier and should not grow one.
+    //
+    // Round-2 correction (MED-4, found by both reviewers): the first version of
+    // this comment cited `manualConfirmPayout` as the precedent. It is not one —
+    // it never reads receiver archival, and its receiver is the company. The
+    // actual precedent is `confirmPayout` (~line 3357). Stating the PRINCIPLE
+    // rather than a list of call sites is deliberate: a list goes stale silently,
+    // and a comment that has gone stale is exactly what AC8 of this same task
+    // was cleaning up one file over.
     if (receiver.archivedAt) {
       throw new BadRequestException('Получатель архивирован — зарплата не начисляется')
     }
@@ -6062,6 +6080,55 @@ export class TransactionsService {
 
   // ── Pay salary manually ───────────────────────────────────────────────────
 
+  /**
+   * Refuse to pay a salary whose receiver has been dismissed.
+   *
+   * task-finance-fix-wave1 (E-1). Used in THREE places inside `paySalary`: as
+   * the up-front gate (so the operator gets this message, not a generic one),
+   * and after each of the two write paths reports zero affected rows — where it
+   * turns "nothing was written" into the actual reason.
+   *
+   * Deliberately keyed on the row's OWN `receiverId`: `receiverId` is nullable
+   * on `transactions` (label-only counterparties exist for other types), a row
+   * with no receiver has no archival to check, and a null id must never reach
+   * the query.
+   */
+  private async assertSalaryReceiverNotArchived(receiverId: string | null): Promise<void> {
+    if (!receiverId) return
+    const receiver = await this.db.db.query.users.findFirst({ where: eq(users.id, receiverId) })
+    if (receiver && receiver.archivedAt) {
+      throw new BadRequestException('Получатель зарплаты архивирован — выплата невозможна')
+    }
+  }
+
+  /**
+   * The same refusal as `assertSalaryReceiverNotArchived`, expressed as a
+   * predicate that lives INSIDE the write statement.
+   *
+   * security-review round 2 (MED-3): the up-front gate alone is a TOCTOU
+   * window — the receiver is read before the transaction opens, and an archive
+   * committing in between would let the salary go out to a dismissed employee.
+   * The window is milliseconds, but this file already answered that exact
+   * argument once: PR #456 (MED-1) refused to rely on a pre-read for
+   * `deleted_at` and moved the condition into the write. This is the same move
+   * for `archived_at`, and it fails CLOSED — a correlated `NOT EXISTS` is
+   * evaluated by Postgres as part of the UPDATE itself, so there is no instant
+   * between the check and the write for an archive to land in.
+   *
+   * `NOT EXISTS (SELECT id FROM users WHERE users.id = transactions.receiver_id
+   * AND users.archived_at IS NOT NULL)` — note this is TRUE when the receiver
+   * row is missing entirely, which matches the up-front gate (an absent user is
+   * not an archived one) instead of silently blocking the payment.
+   */
+  private salaryReceiverNotArchivedFilter() {
+    return notExists(
+      this.db.db
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.id, transactions.receiverId), isNotNull(users.archivedAt))),
+    )
+  }
+
   async paySalary(
     id: string,
     data: {
@@ -6103,15 +6170,11 @@ export class TransactionsService {
     // Same shape as the recipient barrier in manualConfirmPayout: fetch the
     // named user, refuse when `archivedAt` is set.
     //
-    // The lookup is conditional because `receiverId` is nullable on the table
-    // (label-only counterparties exist for other transaction types) — a row with
-    // no receiver has no archival to check, and we never query a null id.
-    const salaryReceiver = tx.receiverId
-      ? await this.db.db.query.users.findFirst({ where: eq(users.id, tx.receiverId) })
-      : undefined
-    if (salaryReceiver && salaryReceiver.archivedAt) {
-      throw new BadRequestException('Получатель зарплаты архивирован — выплата невозможна')
-    }
+    // This is the FAST gate (and the one whose message the operator sees). It is
+    // not the whole guard: the same condition is re-asserted inside both write
+    // paths below — see `salaryReceiverNotArchivedFilter` for why a pre-read on
+    // its own is not enough (MED-3).
+    await this.assertSalaryReceiverNotArchived(tx.receiverId)
 
     const isCompanyFunded = data.fundingSource === 'COMPANY_ACCOUNT'
 
@@ -6301,9 +6364,19 @@ export class TransactionsService {
         const updated = await dbtx
           .update(transactions)
           .set(paidSet)
-          .where(and(eq(transactions.id, id), isNull(transactions.deletedAt)))
+          .where(
+            and(
+              eq(transactions.id, id),
+              isNull(transactions.deletedAt),
+              // MED-3: archival re-asserted in the write, not only pre-read.
+              this.salaryReceiverNotArchivedFilter(),
+            ),
+          )
           .returning({ id: transactions.id })
         if (updated.length === 0) {
+          // Zero rows now has two possible causes (a racing delete/pay, or a
+          // racing archive). Name the real one instead of guessing.
+          await this.assertSalaryReceiverNotArchived(tx.receiverId)
           throw new BadRequestException('Transaction is not PENDING')
         }
       })
@@ -6326,11 +6399,15 @@ export class TransactionsService {
             eq(transactions.id, id),
             eq(transactions.status, 'PENDING'),
             isNull(transactions.deletedAt),
+            // MED-3: same in-write archival re-assertion as the company path.
+            this.salaryReceiverNotArchivedFilter(),
           ),
         )
         .returning({ id: transactions.id })
       if (flipped.length !== 1) {
-        // A concurrent paySalary already flipped this row — no second invoice.
+        // A concurrent paySalary already flipped this row — or a concurrent
+        // archive of the receiver made the guard above reject it.
+        await this.assertSalaryReceiverNotArchived(tx.receiverId)
         throw new BadRequestException('Transaction is not PENDING')
       }
     }
@@ -6485,12 +6562,27 @@ export class TransactionsService {
     // project's senior/drop income has been validated yet. (The
     // unlockJuniorSalaryForProject method + its callers were removed.)
     //
-    // task-finance-fix-wave1 (E-1) — deliberately NOT given an `archivedAt` term
-    // to match the HR/ACCOUNTANT query above: archiving a JUNIOR sets `leftAt` on
-    // their project memberships, and `isNull(projectMembers.leftAt)` below
-    // already excludes them. Adding a second, redundant condition for symmetry
-    // would change no outcome while suggesting to the next reader that `leftAt`
-    // alone is insufficient here.
+    // task-finance-fix-wave1 (E-1), round-2 correction (MED-1). The first
+    // version of this fix left the JUNIOR branch alone, reasoning that
+    // archiving a junior sets `leftAt` on their memberships and
+    // `isNull(projectMembers.leftAt)` below therefore excludes them. A reviewer
+    // showed that holds only AT THE MOMENT of archiving: `ProjectsService`
+    // re-opens a membership (`leftAt = null`) when someone is added to a
+    // project, without consulting `archivedAt` — so an archived junior can be
+    // re-attached and start collecting monthly salaries again. `leftAt` tracks
+    // PROJECT membership; `archivedAt` tracks EMPLOYMENT. They are not
+    // interchangeable, and the salary decision belongs to the second one.
+    //
+    // The archival term sits in the LOOP here, not in the query as it does for
+    // HR/ACCOUNTANT, for a mechanical reason: this query selects
+    // `project_members` and reaches the person through a `with: { user }`
+    // relation, and Drizzle's relational API cannot filter parent rows by a
+    // related table's column. The loop below is already where every USER-level
+    // condition is applied (`user.role !== 'JUNIOR'`), so the check is next to
+    // its siblings rather than in a place a reader would not look.
+    //
+    // Not fixed here (deliberately, different zone + PR #541 in flight): the
+    // re-attach itself in `ProjectsService.addMember`. Tracked separately.
     const activeMembers = await this.db.db.query.projectMembers.findMany({
       where: isNull(projectMembers.leftAt),
       with: {
@@ -6512,7 +6604,9 @@ export class TransactionsService {
         }
       ).project
 
-      if (!user || user.role !== 'JUNIOR' || !project) continue
+      // `user.archivedAt` — see the block above the query: a dismissed junior
+      // whose membership was re-opened must not be accrued a new salary.
+      if (!user || user.role !== 'JUNIOR' || user.archivedAt || !project) continue
 
       // Resolve salary: project override → user default
       const salaryAmount = project.financeSettings?.juniorSalaryOverride ?? user.monthlySalary

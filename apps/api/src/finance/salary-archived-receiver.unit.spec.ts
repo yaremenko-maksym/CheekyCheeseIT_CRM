@@ -9,9 +9,17 @@
  *   `archivedAt` filter, and `UsersService.archive` neither zeroes
  *   `monthlySalary` nor changes the role — so every month a dismissed employee
  *   got a fresh PENDING salary, and the finance page does not hide it: paying it
- *   was one ordinary ADMIN click. Three other money paths in the same service
- *   (createAdminIncome, declareUsdtProjectIncome, manualConfirmPayout) already
- *   check `receiver.archivedAt`; this was a gap, not a decision.
+ *   was one ordinary ADMIN click.
+ *
+ * THE RULE BEING ENFORCED (round-2 correction, MED-4 — both reviewers caught
+ * the first version of this paragraph citing `manualConfirmPayout`, which does
+ * NOT check archival and whose receiver is the company):
+ *   a NEW ACCRUAL to a named person refuses an archived receiver — nobody starts
+ *   owing a dismissed employee something new (this cron, createSalary, and the
+ *   precedents createAdminIncome / declareUsdtProjectIncome / confirmPayout);
+ *   SETTLING AN ALREADY-EARNED DEBT does not (payPayoutRequest,
+ *   manualConfirmPayout, settleByCompany — dismissal forfeits nothing already
+ *   earned, and refusing would strand the payment).
  *
  * WHY THESE ARE UNIT TESTS (and why the WHERE clause is asserted as SQL):
  *   the mutation gate (`scripts/devops/mutation-gate.mjs --changed`) mutates the
@@ -28,6 +36,7 @@
  *   salary-archived-receiver.integration.spec.ts.
  */
 import { BadRequestException } from '@nestjs/common'
+import { QueryBuilder } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -100,6 +109,85 @@ describe('createMonthlySalaries — AC1: the employee SELECT excludes archived u
     // query into selecting nobody would also "exclude archived employees".
     expect(params).toContain('HR')
     expect(params).toContain('ACCOUNTANT')
+  })
+})
+
+// ── MED-1 (round 2): the JUNIOR branch of the same cron ─────────────────────
+
+describe('createMonthlySalaries — MED-1: an archived JUNIOR gets no salary either', () => {
+  // The first version of the fix left this branch alone, on the theory that
+  // archiving a junior sets `projectMembers.leftAt` and the query below already
+  // filters on it. That holds only at the moment of archiving —
+  // `ProjectsService` re-opens a membership without looking at `archivedAt`, so
+  // a dismissed junior can be re-attached and start accruing again. Here the
+  // membership is deliberately OPEN (`leftAt: null`) for both juniors: exactly
+  // the state that theory could not cover.
+  function makeCronService(members: unknown[]) {
+    const insertedValues: Record<string, unknown>[] = []
+    const insert = vi.fn(() => ({
+      values: vi.fn((values: Record<string, unknown>) => {
+        insertedValues.push(values)
+        return { onConflictDoNothing: vi.fn().mockResolvedValue([]) }
+      }),
+    }))
+
+    const db = {
+      db: {
+        query: {
+          users: {
+            findMany: vi.fn().mockResolvedValue([]), // no HR/ACCOUNTANT in this fixture
+            findFirst: vi.fn().mockResolvedValue({ id: 'admin-1', role: 'ADMIN' }),
+          },
+          projectMembers: { findMany: vi.fn().mockResolvedValue(members) },
+        },
+        insert,
+      },
+    } as never
+
+    return { svc: makeTransactionsService({ db }), insertedValues }
+  }
+
+  function makeMember(user: Record<string, unknown>) {
+    return {
+      leftAt: null,
+      user,
+      project: { id: 'proj-1', financeSettings: null },
+    }
+  }
+
+  const ACTIVE_JUNIOR = {
+    id: 'jr-active',
+    role: 'JUNIOR' as const,
+    email: 'jr-active@test.spec',
+    monthlySalary: '900',
+    archivedAt: null,
+  }
+  const ARCHIVED_JUNIOR = {
+    id: 'jr-archived',
+    role: 'JUNIOR' as const,
+    email: 'jr-archived@test.spec',
+    monthlySalary: '900',
+    archivedAt: new Date('2026-03-31T00:00:00.000Z'),
+  }
+
+  it('accrues for the active junior and skips the archived one', async () => {
+    const { svc, insertedValues } = makeCronService([
+      makeMember(ACTIVE_JUNIOR),
+      makeMember(ARCHIVED_JUNIOR),
+    ])
+
+    await svc.createMonthlySalaries('2099-12')
+
+    // Asserted on the receivers actually written, not on a call count: the
+    // point is WHICH junior got the row.
+    expect(insertedValues.map((v) => v['receiverId'])).toEqual(['jr-active'])
+    expect(insertedValues).toHaveLength(1)
+    expect(insertedValues[0]).toMatchObject({
+      type: 'SALARY',
+      status: 'PENDING',
+      amount: '900',
+      salaryMonth: '2099-12',
+    })
   })
 })
 
@@ -246,5 +334,136 @@ describe('paySalary — AC2: a salary of an archived receiver cannot be paid', (
 
     expect(usersFindFirst).not.toHaveBeenCalled()
     expect(rejection).not.toContain('архивирован')
+  })
+})
+
+// ── MED-3 (round 2): the guard is re-asserted INSIDE the write ───────────────
+
+describe('paySalary — MED-3: archival is re-asserted in the write, not only pre-read', () => {
+  const SALARY_ROW = {
+    id: 'sal-1',
+    type: 'SALARY' as const,
+    status: 'PENDING' as const,
+    amount: '1500',
+    currency: 'USD' as const,
+    receiverId: ARCHIVED_HR.id,
+    senderId: null,
+    deletedAt: null,
+    notes: null,
+    createdBy: 'admin-1',
+    createdAt: new Date(),
+    updatedAt: new Date(),
+  }
+
+  const PAYER_ADMIN = {
+    id: 'admin-1',
+    role: 'ADMIN' as const,
+    displayName: 'Payer Admin',
+    email: 'payer@test.spec',
+    archivedAt: null,
+  }
+
+  /**
+   * ADMIN_PERSONAL funding: the flip is one guarded UPDATE on the base
+   * connection, so the statement's own WHERE is observable here. (The
+   * COMPANY_ACCOUNT path applies the SAME predicate from the SAME private
+   * helper, one line apart, but reaching its UPDATE means stubbing the advisory
+   * lock and the balance computation; its real-DB behaviour is covered by
+   * salary-funding-source.integration.spec.ts.)
+   *
+   * `usersFindFirst` is sequenced: call 1 = the receiver (pre-read gate),
+   * call 2 = the payer admin, call 3 = the receiver again (the post-write
+   * disambiguation). That order IS the race window under test.
+   */
+  function makePayService(receiverReads: unknown[], flippedRows: unknown[]) {
+    let call = 0
+    const usersFindFirst = vi.fn().mockImplementation(() => {
+      call += 1
+      if (call === 2) return Promise.resolve(PAYER_ADMIN)
+      // 1st = pre-read gate, 3rd = post-write disambiguation.
+      return Promise.resolve(call === 1 ? receiverReads[0] : receiverReads[1])
+    })
+
+    const updateWhere = vi.fn().mockReturnValue({
+      returning: vi.fn().mockResolvedValue(flippedRows),
+    })
+    const update = vi.fn().mockReturnValue({
+      set: vi.fn().mockReturnValue({ where: updateWhere }),
+    })
+
+    const db = {
+      db: {
+        query: {
+          transactions: { findFirst: vi.fn().mockResolvedValue(SALARY_ROW) },
+          users: { findFirst: usersFindFirst },
+        },
+        // The predicate's correlated sub-select is built through `db.select()`.
+        // This delegates to a REAL Drizzle `QueryBuilder` (client-less by
+        // design — it only builds SQL, it cannot execute), because a mock
+        // returning a dummy object would make the sub-select compile to an
+        // opaque bound parameter and the assertions below could not see inside
+        // it. Proven: with a dummy, the compiled WHERE read `not exists $3`.
+        select: vi
+          .fn()
+          .mockImplementation((fields: Record<string, unknown>) =>
+            new QueryBuilder().select(fields as never),
+          ),
+        update,
+      },
+    } as never
+
+    return { svc: makeTransactionsService({ db }), updateWhere, usersFindFirst }
+  }
+
+  const payData = {
+    fundingSource: 'ADMIN_PERSONAL' as const,
+    payerAdminId: PAYER_ADMIN.id,
+    currency: 'USDT' as const,
+    receiptExternalUrl: 'https://etherscan.io/tx/0x' + 'a'.repeat(64),
+  }
+
+  it('carries the archival term in the UPDATE statement itself', async () => {
+    // Receiver active throughout, but the write reports zero rows so the flow
+    // stops before the invoice side-effects; what matters here is the SQL.
+    const { svc, updateWhere } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
+
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(BadRequestException)
+
+    const whereArg: unknown = updateWhere.mock.calls[0]![0]
+    expect(whereArg).toBeDefined()
+
+    const { sql } = compileWhere(whereArg)
+    // A pre-read cannot produce these: they only exist if the condition is part
+    // of the write Postgres executes.
+    expect(sql).toContain('not exists')
+    expect(sql).toContain('"archived_at" is not null')
+    // Correlated to THIS row's receiver — not a bare "is anyone archived".
+    expect(sql).toContain('"receiver_id"')
+    // Pins the sub-select's projection (an emptied `{}` select would drop it).
+    expect(sql).toContain('"users"."id"')
+    // The pre-existing guards must survive the addition.
+    expect(sql).toContain('"deleted_at" is null')
+  })
+
+  it('names archival as the reason when the receiver was archived mid-payment', async () => {
+    // THE RACE: the pre-read saw an ACTIVE receiver (so the fast gate passed),
+    // the archive committed, and the in-write guard rejected the UPDATE — zero
+    // rows. The operator must be told what actually happened, not «not PENDING».
+    const { svc } = makePayService([ACTIVE_HR, ARCHIVED_HR], [])
+
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
+      'Получатель зарплаты архивирован — выплата невозможна',
+    )
+  })
+
+  it('still reports «not PENDING» when the miss was NOT about archival', async () => {
+    // Same zero-row write, receiver active both times → the other cause (a
+    // racing delete or a concurrent pay). The archival message must not be
+    // borrowed to explain it.
+    const { svc } = makePayService([ACTIVE_HR, ACTIVE_HR], [])
+
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(
+      'Transaction is not PENDING',
+    )
   })
 })
