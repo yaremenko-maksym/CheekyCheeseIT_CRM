@@ -521,6 +521,7 @@ export function moneyFloorAndPrecisionError(value: number): string | null {
 }
 
 /** Attaches `moneyFloorAndPrecisionError` to a `z.number()` chain via `.superRefine`. */
+// Stryker disable next-line BlockStatement: emptying this function's body makes it return `undefined` instead of the wrapped schema. Three of its 11 call sites chain `.optional()` directly onto the result (e.g. `updateSeniorIncomeSchema.amount`, line ~944) — evaluated at MODULE-IMPORT time, so `undefined.optional()` throws synchronously the instant `finance.ts` is imported, before any test body runs (verified independently outside Stryker's sandbox: `pnpm --filter @crm/shared test` reports the whole spec file as 0 tests collected, not a per-test failure). Not an equivalent mutant — it is a real, severe regression that breaks every consumer of this module; it just cannot register as "covering" a whole-file crash the way Stryker's per-test coverage model expects, the SAME class of tool blind spot as the `ArrayDeclaration` suppression on `createAdminIncomeSchema`'s `receiverId` union above.
 function withMoneyFloor<T extends z.ZodNumber>(schema: T) {
   return schema.superRefine((v, ctx) => {
     const message = moneyFloorAndPrecisionError(v)

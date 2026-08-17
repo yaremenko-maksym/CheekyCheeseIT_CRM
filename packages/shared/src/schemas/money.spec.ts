@@ -92,6 +92,10 @@ describe('withSalaryFloor — wiring (a plain schema, independent of users.ts/fi
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
     expect(message).toContain('слишком мала')
+    // Pins the ISSUE SHAPE, not just the message — a mutant that keeps the
+    // message but corrupts `code` ('custom' → '') is otherwise unobserved.
+    const code = !result.success ? result.error.issues[0]?.code : undefined
+    expect(code).toBe('custom')
   })
 
   it('accepts the boundary minimum', () => {

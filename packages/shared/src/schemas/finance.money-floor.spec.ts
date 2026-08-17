@@ -131,6 +131,12 @@ describe('createAdminIncomeSchema.amount — floor (task-money-floor-and-lying-c
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
     expect(message).toContain('слишком мала')
+    // Pins the ISSUE SHAPE `withMoneyFloor` emits, not just its message — a
+    // mutant that keeps the message but corrupts `code` (e.g. 'custom' → '')
+    // is otherwise unobserved (Zod does not validate a custom issue's `code`
+    // against anything, so `.success`/`.message` stay identical either way).
+    const code = !result.success ? result.error.issues[0]?.code : undefined
+    expect(code).toBe('custom')
   })
 
   it('accepts exactly the smallest storable amount', () => {
@@ -368,6 +374,8 @@ describe('updateProjectFinanceSettingsSchema.juniorSalaryOverride — floor at I
     expect(result.success).toBe(false)
     const message = !result.success ? result.error.issues[0]?.message : undefined
     expect(message).toContain('слишком мала')
+    const code = !result.success ? result.error.issues[0]?.code : undefined
+    expect(code).toBe('custom')
   })
 
   it('accepts exactly the smallest storable amount (one cent)', () => {
