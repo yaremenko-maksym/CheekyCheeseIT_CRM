@@ -212,19 +212,20 @@ input[type='number'] {
 
 /*
  * Nav-sidebar active item: left accent border in brand primary colour.
- * Tailwind v4 data-attribute variant border-color rules compete with the
- * global `* { border-color: var(--border) }` base rule — the cascade
- * resolution inside CSS nesting does not guarantee the utility wins in all
- * Chromium builds. An explicit @layer utilities rule with the full selector
- * is the reliable fix (no !important needed — @layer utilities > @layer base).
+ * task-web-border-hack-and-honest-empty-state (2026-08-17, defect 65):
+ * this used to carry `!important` (PR #287) to beat the `* { border-color:
+ * var(--border) }` reset, which back then was unlayered CSS and so won over
+ * any `@layer` rule regardless of source order. #540 moved that reset into
+ * `@layer base` (see above) — now this `@layer utilities` rule wins on plain
+ * layer order, and `!important` is redundant. Confirmed by measurement, not
+ * just reasoning: computed `border-left-color` on the active nav link is the
+ * same brand-yellow (`oklch(0.84 0.183 85.3)`, i.e. `--primary`) with the
+ * rule below written with or without `!important` — see PR body for the
+ * before/after values and screenshots.
  */
 @layer utilities {
-  /* The global `* { border-color: var(--border) }` rule is unlayered CSS,
-     which wins over any @layer per the CSS cascade. !important is the correct
-     and minimal override to restore the design-spec brand-yellow left stripe
-     on the active nav item without restructuring the base reset. */
   .nav-active-accent[data-status='active'] {
-    border-left-color: var(--primary) !important;
+    border-left-color: var(--primary);
   }
 
   /*
