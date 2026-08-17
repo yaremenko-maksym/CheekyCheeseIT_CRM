@@ -2,8 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { inspect } from 'util'
 import type { SQL } from 'drizzle-orm'
 import { PgDialect } from 'drizzle-orm/pg-core'
+import { Logger } from '@nestjs/common'
 import type { DatabaseService } from '../database/database.service'
-import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
+import {
+  CompanyAccountOffCurrencyError,
+  computeCompanyAccountBalanceForDisplay,
+  computeCompanyAccountBalanceFromLedger,
+} from './company-account-balance'
 
 /**
  * AC5 — company-account-balance currency-guard.
@@ -195,5 +200,107 @@ describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
     const compiled = new PgDialect().sqlToQuery(getNinthWhere() as SQL)
     expect(compiled.params).toContain('PAID')
     expect(compiled.params).toContain('USDT')
+  })
+})
+
+/**
+ * SEC-1 (mega-audit wave 2, review round 2) — localization test.
+ *
+ * The security-reviewer flagged a real gap: nothing proved the off-currency
+ * guard's failure mode was actually LOCALIZED — that a money-moving gate
+ * still refuses (fail-closed, correct) while a read-only display path
+ * degrades instead of 500ing (stays alive, also correct). Before this test,
+ * BOTH entry points shared the exact same throw, so an accidental future
+ * regression that made the display path start throwing again — or, just as
+ * bad, made the "safe" wrapper start swallowing genuine DB errors — would
+ * have been invisible to every other test in this file.
+ *
+ * `computeCompanyAccountBalanceFromLedger` stands in for the four money
+ * gates (createExpense/paySalary/settleByCompany/createDividend — all call
+ * it directly, unchanged by this PR); `computeCompanyAccountBalanceForDisplay`
+ * is the display-safe wrapper the diagnostic screen should call. See its
+ * docstring in company-account-balance.ts for the caller-wiring note (out of
+ * this task's zone — company-account.service.ts is not touched here).
+ */
+describe('SEC-1: gate throws / display degrades — localization of the off-currency guard', () => {
+  function makeDb(ninthTotal: string) {
+    let callCount = 0
+    const select = vi.fn(() => ({
+      from: () => ({
+        where: () => {
+          const idx = callCount++
+          if (idx < 8) return Promise.resolve([{ total: '0' }])
+          return Promise.resolve([{ total: ninthTotal }])
+        },
+      }),
+    }))
+    return { select } as unknown as DatabaseService['db']
+  }
+
+  it('the GATE path (computeCompanyAccountBalanceFromLedger) still throws CompanyAccountOffCurrencyError', async () => {
+    const db = makeDb('4')
+    await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toBeInstanceOf(
+      CompanyAccountOffCurrencyError,
+    )
+  })
+
+  it('the DISPLAY path (computeCompanyAccountBalanceForDisplay) does NOT throw on the same condition — degrades instead', async () => {
+    const db = makeDb('4')
+    const reading = await computeCompanyAccountBalanceForDisplay(db)
+    expect(reading.reliable).toBe(false)
+    expect(reading.offCurrencyCount).toBe(4)
+    // No number is safe to show once unreliable — must be null, not e.g. 0
+    // (0 would read as "empty account", a DIFFERENT and misleading claim).
+    expect(reading.balance).toBeNull()
+  })
+
+  it('the DISPLAY path stays reliable and returns the real balance on a clean ledger', async () => {
+    const db = makeDb('0')
+    const reading = await computeCompanyAccountBalanceForDisplay(db)
+    expect(reading.reliable).toBe(true)
+    expect(reading.offCurrencyCount).toBe(0)
+    expect(reading.balance).toBe(0) // all 8 SUM terms mocked to '0' in makeDb
+  })
+
+  it('the DISPLAY path does NOT swallow a genuine (non-off-currency) failure — it must stay loud too', async () => {
+    // A DB error surfacing from one of the 8 SUM terms (e.g. connection drop)
+    // is a DIFFERENT failure mode than "the guard found a bad row" — must
+    // propagate, not get silently mapped to a misleading reliable:false.
+    const select = vi.fn(() => ({
+      from: () => ({
+        where: () => Promise.reject(new Error('connection terminated unexpectedly')),
+      }),
+    }))
+    const db = { select } as unknown as DatabaseService['db']
+    await expect(computeCompanyAccountBalanceForDisplay(db)).rejects.toThrow(
+      /connection terminated unexpectedly/,
+    )
+  })
+
+  it('CompanyAccountOffCurrencyError carries a named, distinguishable .name (not the default "Error")', () => {
+    const err = new CompanyAccountOffCurrencyError(3)
+    expect(err.name).toBe('CompanyAccountOffCurrencyError')
+    expect(err.count).toBe(3)
+    expect(err).toBeInstanceOf(Error)
+  })
+
+  it('the display-degraded log carries the real detail message and the module-scoped logger context', async () => {
+    const errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined)
+    try {
+      const db = makeDb('7')
+      await computeCompanyAccountBalanceForDisplay(db)
+
+      expect(errorSpy).toHaveBeenCalledTimes(1)
+      const [message] = errorSpy.mock.calls[0]!
+      expect(message).toContain('company-account balance display degraded — ')
+      expect(message).toContain('found 7 PAID company-account row(s)')
+
+      // The `this` the spy was invoked on IS the module-level Logger instance
+      // — its bound context is what actually prefixes the printed log line.
+      const boundLogger = errorSpy.mock.instances[0] as unknown as { context?: string }
+      expect(boundLogger.context).toBe('company-account-balance')
+    } finally {
+      errorSpy.mockRestore()
+    }
   })
 })

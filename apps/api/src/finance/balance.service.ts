@@ -154,6 +154,19 @@ export class BalanceService {
    * Phase 4-A flows always populate it. We still honour receiverId for
    * compatibility — a payment channel migration can route the actual user
    * via either column without invalidating older rows.
+   *
+   * Review round 2 (MED, code-review) — re-verified the `fundingSource`
+   * exclusion means the SAME thing here as in `getSummary`, and that nothing
+   * else was lost:
+   *   - `getSummary`'s comment reads verbatim "ADMIN_INCOME routed to the
+   *     company account (fundingSource='COMPANY_ACCOUNT') went into the
+   *     shared pool, NOT the admin's personal balance — exclude it here.
+   *     Legacy/admin-personal ADMIN_INCOME (NULL funding) still credits the
+   *     admin as before." — identical semantics to the exclusion below.
+   *   - `DIVIDEND_TO_ADMIN` (dividends) and `EXPENSE` (expenses, debit) carry
+   *     NO `fundingSource` condition in either this method or `getSummary` —
+   *     the C-2 diff touches ONLY the income branch; dividends/expenses are
+   *     untouched, not narrowed, not lost.
    */
   async getAdminBalance(
     adminId: string,
@@ -382,18 +395,30 @@ export class BalanceService {
           // A self-referential row (senderId === receiverId === this drop —
           // bad/legacy data per the owner's ruling) must net to ZERO here
           // exactly as it already does in computeDropAggregate, not silently
-          // credit the drop twice. AC2: the credit leg (`recipient ===
-          // targetUserId`) is the PRE-EXISTING condition, unchanged. The new
-          // debit leg (`tx.senderId === targetUserId`) is a structural no-op
-          // for every legitimate row — the only write path that creates
-          // PAYOUT_DROP (settleByCompany's flip-in-place, pending-settlement
-          // .service.ts) stamps senderId as either `null` (COMPANY_ACCOUNT
-          // funding) or the id of the ADMIN who funded an ADMIN_PERSONAL
-          // settle (validated `payer.role === 'ADMIN'`) — never the drop's own
-          // id, because DROP is RBAC-distinct from ADMIN. Verified by
-          // `git grep "'PAYOUT_DROP'"` across apps/api/src — the ONLY type-
-          // assignment site is pending-settlement.service.ts:773.
-          if (recipient === targetUserId) add('payout', converted)
+          // credit the drop twice. The new debit leg (`tx.senderId ===
+          // targetUserId`) is a structural no-op for every legitimate row —
+          // the only write path that creates PAYOUT_DROP (settleByCompany's
+          // flip-in-place, pending-settlement.service.ts) stamps senderId as
+          // either `null` (COMPANY_ACCOUNT funding) or the id of the ADMIN who
+          // funded an ADMIN_PERSONAL settle (validated `payer.role ===
+          // 'ADMIN'`) — never the drop's own id, because DROP is RBAC-distinct
+          // from ADMIN. Verified by `git grep "'PAYOUT_DROP'"` across
+          // apps/api/src — the ONLY type-assignment site is
+          // pending-settlement.service.ts:773.
+          //
+          // Review round 2 (LOW, security-review): the credit leg now reads
+          // `tx.receiverId` directly — NOT the shared `recipient` var
+          // (`recipientId ?? receiverId`) used elsewhere in this function.
+          // computeDropAggregate's credit leg keys ONLY on `receiverId`
+          // (transactions.service.ts:1190); before this line the two readers
+          // agreed only because the sole PAYOUT_DROP writer happens to stamp
+          // recipientId === receiverId on every row it creates
+          // (bookCompanyObligations, transactions.service.ts:4387-4388) — a
+          // coincidence, not a guarantee. A future writer that populated only
+          // one of the two columns would silently reopen the exact
+          // disagreement C-1 closes. Reading the SAME column both readers key
+          // on removes that dependency on writer behaviour entirely.
+          if (tx.receiverId === targetUserId) add('payout', converted)
           if (tx.senderId === targetUserId) add('payout', -converted)
         } else if (
           tx.type === 'DROP_INCOME' &&

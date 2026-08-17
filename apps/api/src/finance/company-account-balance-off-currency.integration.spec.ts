@@ -3,7 +3,10 @@ import { inArray } from 'drizzle-orm'
 import { Pool } from 'pg'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 
-import { computeCompanyAccountBalanceFromLedger } from './company-account-balance'
+import {
+  computeCompanyAccountBalanceForDisplay,
+  computeCompanyAccountBalanceFromLedger,
+} from './company-account-balance'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
@@ -151,5 +154,34 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
     })
 
     await expect(computeCompanyAccountBalanceFromLedger(db)).resolves.not.toThrow()
+  })
+
+  // SEC-1 (mega-audit wave 2, review round 2) — real-DB half of the
+  // localization guarantee. company-account-balance-currency.spec.ts proves
+  // this split against a mocked db; this spec proves it against a genuine
+  // Postgres row, end-to-end through the real query path (view, enum
+  // columns, params) that the mocked version cannot exercise.
+  it('SEC-1: the DISPLAY-safe reader degrades instead of throwing on the SAME real off-currency row', async () => {
+    if (!dbAvailable) return
+    await db.insert(transactions).values({
+      id: TX_OFF_CURRENCY_EXPENSE,
+      type: 'EXPENSE',
+      status: 'PAID',
+      amount: '250',
+      currency: 'UAH',
+      senderId: ADMIN_ID,
+      fundingSource: 'COMPANY_ACCOUNT',
+      createdBy: ADMIN_ID,
+    })
+
+    // The GATE-style reader still throws (unchanged — createExpense/
+    // paySalary/settleByCompany/createDividend all call this one directly).
+    await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow()
+
+    // The DISPLAY-style reader does not — it degrades instead.
+    const reading = await computeCompanyAccountBalanceForDisplay(db)
+    expect(reading.reliable).toBe(false)
+    expect(reading.offCurrencyCount).toBeGreaterThan(0)
+    expect(reading.balance).toBeNull()
   })
 })
