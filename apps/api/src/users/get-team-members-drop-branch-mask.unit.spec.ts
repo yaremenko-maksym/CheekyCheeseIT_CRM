@@ -394,12 +394,20 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
     // === 'DROP')` survived a mutation to `if (true)` — DROP-BRANCH-MASK-1..3
     // only ever exercise a DROP target, so they never notice a bypassed
     // branch check. ADMIN_TARGET_ID has an (incidental/legacy) team_members
-    // row alongside a real HR teammate: the CORRECT code takes neither the
-    // DROP branch nor the SENIOR/JUNIOR/HR-ACCOUNTANT branch for an ADMIN
-    // target (`rows` stays its initial `[]`) — but a `if (user.role ===
-    // 'DROP')` mutated to always-true WOULD wrongly enter the DROP branch,
-    // find this team_members row, and leak the HR teammate.
+    // row alongside a real HR teammate AND a real SENIOR teammate in the SAME
+    // team: the CORRECT code takes neither the DROP branch nor the
+    // SENIOR/JUNIOR/HR-ACCOUNTANT branch for an ADMIN target (`rows` stays
+    // its initial `[]`) — but a `if (user.role === 'DROP')` mutated to
+    // always-true WOULD wrongly enter the DROP branch and leak the HR
+    // teammate, and an `else if (user.role === 'HR' || user.role ===
+    // 'ACCOUNTANT')` mutated to always-true (round 5 mutation-gate
+    // follow-up) WOULD wrongly enter the HR/ACCOUNTANT branch, resolve the
+    // SENIOR teammate via `seniorsInTeams`, and leak THEIR JUNIORs/teammates
+    // through Step 2 — an earlier version of this fixture had no SENIOR in
+    // the incidental team, so entering that branch by mistake still resolved
+    // an empty `seniorIds` and the mutation went unnoticed.
     const ADMIN_TARGET_ID = 'admin-target-uuid-8004'
+    const SENIOR_IN_ADMIN_TEAM_ID = 'senior-in-admin-team-uuid-8005'
     const store = {
       users: [
         {
@@ -416,10 +424,18 @@ describe('getTeamMembersForUser — DROP branch is covered by the SAME viewerRol
           avatarUrl: null,
           avatarDocumentId: null,
         },
+        {
+          id: SENIOR_IN_ADMIN_TEAM_ID,
+          displayName: 'Senior In Admin Incidental Team',
+          role: 'SENIOR',
+          avatarUrl: null,
+          avatarDocumentId: null,
+        },
       ],
       teamMembers: [
         { teamId: TEAM_ID, userId: ADMIN_TARGET_ID, leftAt: null },
         { teamId: TEAM_ID, userId: HR_ID, leftAt: null },
+        { teamId: TEAM_ID, userId: SENIOR_IN_ADMIN_TEAM_ID, leftAt: null },
       ],
     }
     const service = buildService(store)

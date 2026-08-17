@@ -1402,89 +1402,104 @@ export class UsersService {
    * every branch assigns into `rows` instead of returning; the viewerRole
    * filter at the bottom is now the ONLY return statement past the
    * not-found guard, so it cannot be skipped by construction.
+   *
+   * security-review PR #541 round 5 (mutation-gate suppression rework): the
+   * round-4 patch wrapped every downstream query in an
+   * `if (x.length > 0)` / `if (x.size > 0)` "skip when empty" guard, each
+   * justified as an equivalence proof (`inArray(col, [])` compiles to SQL
+   * `false`, so entering with an empty collection finds nothing regardless)
+   * and suppressed accordingly. That was correct about the SQL, but wrong
+   * about what a single `// Stryker disable next-line <mutator>` comment
+   * actually silences: Stryker's `IgnoreRule` matches by (line, mutator
+   * name) only, never by which replacement value, so a directive aimed at
+   * "always-true is a no-op" also silenced "always-false", and for most of
+   * these guards the always-false direction was real and had a real test
+   * (BRANCH-SELECT-1/3) — silently swallowed, never executed by the gate.
+   * Fixed by removing the guards outright instead of re-suppressing them:
+   * every one of them was a pure "skip one DB round-trip" optimization with
+   * no observable effect on `rows`, so deleting the condition deletes the
+   * mutant along with it. The one remaining outer gate, `user.role !==
+   * 'DROP'`, is NOT suppressed — unlike the guards it replaced
+   * (`mayDeriveSeniorRoster`), both of its directions are genuine bugs with
+   * genuine tests (see the comment at its `if` above).
    */
   async getTeamMembersForUser(userId: string, viewerRole: AppRole): Promise<TeamMemberPreview[]> {
     const user = await this.findById(userId)
     if (!user) throw new NotFoundException('User not found')
 
+    // Equivalence proof: every reachable path below (the `if` branch AND the
+    // `else` branch, exhaustive on `user.role === 'DROP'`) unconditionally
+    // reassigns `rows` before it is ever read — there is no path left where
+    // this initial value survives to the RBAC filter at the bottom. A
+    // mutated placeholder here can never be observed by any test.
+    // Stryker disable next-line ArrayDeclaration: provably equivalent — see the paragraph immediately above (rows is unconditionally reassigned by every branch of the if/else below before it is ever read)
     let rows: TeamMemberPreview[] = []
 
-    // Equivalence proof (covers ONLY the "force entry" direction — the
-    // "force skip" direction is real and killed by BRANCH-SELECT-1 in
-    // get-team-members-drop-branch-mask.unit.spec.ts): forcing this
-    // condition to always-true only changes behavior for a role this branch
-    // was meant to exclude, i.e. ADMIN (DROP is short-circuited out below by
-    // its own `else if`). For an ADMIN target, Step 1's own inner checks
-    // (`user.role === 'SENIOR' / 'JUNIOR' / 'HR' / 'ACCOUNTANT'`) never match
-    // 'ADMIN' either way, so `seniorIds` stays empty and `rows` is untouched
-    // regardless of whether this branch was entered — forced entry is a
-    // complete no-op for the one role it could possibly affect.
-    // DROP-BRANCH-MASK-4 (ADMIN target) already proves the OUTCOME (`[]`)
-    // for real; no test could additionally distinguish "skipped the branch"
-    // from "entered it and it did nothing".
-    // Stryker disable next-line EqualityOperator,StringLiteral,ConditionalExpression: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
-    const mayDeriveSeniorRoster = user.role !== 'ADMIN'
-
+    // security-review PR #541 round 5 (mutation-gate follow-up): a real
+    // `if/else` here, not the two independent top-level `if`s round 4 used
+    // (`if (user.role === 'DROP')` ... `if (user.role !== 'DROP')`). With two
+    // independent conditions, forcing the FIRST one to always-true was a
+    // no-op for every non-DROP role: the SECOND condition still evaluated
+    // unmutated, Step 1-3 still ran, and its unconditional final assignment
+    // silently overwrote whatever this branch produced — an equivalent
+    // mutant Stryker could not be told apart from the real "force-always-false
+    // skips a real DROP roster" direction (DROP-BRANCH-MASK-1/2), so it could
+    // not be safely suppressed either (see the round-5 note in the method
+    // docblock). Merging into one `if/else` ties both directions to this
+    // SAME condition: force-always-true now means EVERY role — DROP or not —
+    // takes this branch and Step 1-3 never runs at all, which BRANCH-SELECT-
+    // 1/2/3 (non-DROP targets that need Step 1-3's roster) catch; force-
+    // always-false means a DROP target falls through to Step 1-3 instead
+    // (whose inner checks don't match 'DROP', producing `[]`), which DROP-
+    // BRANCH-MASK-1/2 (non-empty DROP rosters) catch. No suppression needed.
     if (user.role === 'DROP') {
       // Drop role - phase 1: drop's "team members" are the drop-team itself
       // (HR + accountant + optional active senior). JUNIORs are not surfaced
       // (no JUNIOR row can exist in `team_members` — that table only ever
       // gets SENIOR/HR/ACCOUNTANT/DROP rows). The viewerRole filter below
       // still applies to whatever this branch produces regardless.
+      //
+      // security-review PR #541 round 5 (mutation-gate suppression rework):
+      // no `if (dropMemberships.length > 0)` guard here on purpose — it used
+      // to exist purely as a DB-round-trip optimization, never a correctness
+      // requirement. Verified empirically against this repo's drizzle-orm
+      // version: `inArray(teamMembers.teamId, [])` compiles to the literal
+      // SQL fragment `false` (never `IN ()`, which would be a syntax error),
+      // so running the query below with an empty `dropTeamIds` returns zero
+      // rows anyway — identical to skipping it. The guard was removed rather
+      // than suppressed because Stryker's `IgnoreRule` matches by (line,
+      // mutator name) only, never by which replacement — it cannot silence
+      // "always-true" without also silencing "always-false", and the
+      // "always-false" direction here is real (killed by
+      // DROP-BRANCH-MASK-3). Removing the condition removes the ambiguity
+      // instead of trying to suppress half of it.
       const dropMemberships = await this.db.db
         .select({ teamId: teamMembers.teamId })
         .from(teamMembers)
         .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
-      // Equivalence proof: verified empirically against this repo's drizzle-orm
-      // version — `inArray(col, [])` compiles to the literal SQL fragment `false`
-      // (never `IN ()`, which would be a syntax error), so an empty
-      // `dropMemberships` flows into the query below as `WHERE false AND ...` and
-      // returns zero rows either way. Skipping the query (this guard, `> 0`) or
-      // running it anyway (mutated to always-true / `>= 0`) produce the IDENTICAL
-      // `rows` — the only difference is one avoided DB round-trip, which no test
-      // (unit or integration) can observe as a data difference. DROP-BRANCH-MASK-3
-      // (get-team-members-drop-branch-mask.unit.spec.ts) pins the actual behavior
-      // this guard protects (empty roster for a DROP with no memberships) — it
-      // just can't tell "skipped" from "ran and matched nothing" apart, because
-      // nothing observable distinguishes them.
-      // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent — see the paragraph immediately above (inArray([]) compiles to SQL `false`, so skipping vs running the query returns identical rows)
-      if (dropMemberships.length > 0) {
-        const teamIds = dropMemberships.map((m) => m.teamId)
-        rows = await this.db.db
-          .select({
-            id: users.id,
-            displayName: users.displayName,
-            role: users.role,
-            avatarUrl: users.avatarUrl,
-            avatarDocumentId: users.avatarDocumentId,
-          })
-          .from(teamMembers)
-          .innerJoin(users, eq(users.id, teamMembers.userId))
-          .where(
-            and(
-              inArray(teamMembers.teamId, teamIds),
-              isNull(teamMembers.leftAt),
-              ne(users.id, userId),
-            ),
-          )
-      }
-    }
-
-    // Not `else if`: a plain `if`, on purpose. A DROP target already has
-    // `rows` populated by the block above and harmlessly no-ops through this
-    // one too — see `mayDeriveSeniorRoster`'s own equivalence proof — so
-    // `else` here would only ever suppress a mutation-testing tool quirk
-    // (a `// Stryker disable` comment placed directly after this block's
-    // closing `}` was not honored by this Stryker version — verified
-    // empirically against the JSON report, not just "looks right" in
-    // source), never change real behavior for any role. Equivalence proof
-    // for the condition itself: forcing `mayDeriveSeniorRoster` to always-true
-    // only changes behavior for ADMIN/DROP, and both already no-op through
-    // Step 1's inner checks (see the declaration above) — the "force skip"
-    // direction is real and killed by BRANCH-SELECT-1.
-    // Stryker disable next-line ConditionalExpression: provably equivalent (force-always-true direction only) — see the paragraph immediately above
-    if (mayDeriveSeniorRoster) {
-      // Step 1: Resolve set of seniorIds whose teams this user belongs to
+      const dropTeamIds = dropMemberships.map((m) => m.teamId)
+      rows = await this.db.db
+        .select({
+          id: users.id,
+          displayName: users.displayName,
+          role: users.role,
+          avatarUrl: users.avatarUrl,
+          avatarDocumentId: users.avatarDocumentId,
+        })
+        .from(teamMembers)
+        .innerJoin(users, eq(users.id, teamMembers.userId))
+        .where(
+          and(
+            inArray(teamMembers.teamId, dropTeamIds),
+            isNull(teamMembers.leftAt),
+            ne(users.id, userId),
+          ),
+        )
+    } else {
+      // Step 1: Resolve set of seniorIds whose teams this user belongs to.
+      // Left at `[]` for ADMIN (none of the branches below match 'ADMIN'),
+      // which is what makes Step 2/3 below resolve nothing for an ADMIN
+      // target — DROP-BRANCH-MASK-4 pins that outcome.
 
       // Equivalence proof: `seniorIds` is always overwritten synchronously or
       // via a DB lookup by exactly one of the four role branches below before
@@ -1515,163 +1530,129 @@ export class UsersService {
         // MED-2 (security-review round 2): `isNull(leftAt)` — a soft-removed
         // HR/ACCOUNTANT membership must not resolve a team roster anymore.
         // Mirrors the HIGH-1 fix in teams.service.ts (isHrOfTeam/assertAccess).
+        //
+        // security-review PR #541 round 5: no `if (memberships.length > 0)`
+        // guard — same "remove, don't suppress" reasoning as the DROP branch
+        // above. `inArray(teamMembers.teamId, [])` -> SQL `false`, so running
+        // the query below with an empty `membershipTeamIds` finds nothing,
+        // same as skipping it; the "force skip" direction is real and killed
+        // by BRANCH-SELECT-3.
         const memberships = await this.db.db
           .select({ teamId: teamMembers.teamId })
           .from(teamMembers)
           .where(and(eq(teamMembers.userId, userId), isNull(teamMembers.leftAt)))
-        // Equivalence proof: same class as the DROP branch's
-        // `dropMemberships.length > 0` guard — `inArray(teamMembers.teamId,
-        // teamIds)` (the seniorsInTeams query right below) compiles to SQL
-        // `false` when `teamIds` is empty (which it is when `memberships` is
-        // empty), so entering with an empty `memberships` (mutated to
-        // always-true / `>= 0`) finds nothing, same as skipping it. The
-        // "force skip" direction is real — BRANCH-SELECT-3
-        // (get-team-members-drop-branch-mask.unit.spec.ts) proves a non-empty
-        // `memberships` must enter this block to resolve the HR's senior.
-        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-3
-        if (memberships.length > 0) {
-          const teamIds = memberships.map((m) => m.teamId)
-          // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
-          // here too — without it a SENIOR rotated OUT of one of this HR's teams
-          // (team_members.leftAt set, TeamsService.rotateSenior) still resolves
-          // into `seniorIds` below, and their JUNIORs surface in this HR's
-          // roster. No incremental data exposure (the same fields are visible
-          // via the general user list this HR already has), but this brings the
-          // check to the same "leftAt === null is the norm for every membership
-          // check in this file" shape as everywhere else (see HIGH-1 above).
-          const seniorsInTeams = await this.db.db
-            .select({ userId: teamMembers.userId })
-            .from(teamMembers)
-            .innerJoin(users, eq(teamMembers.userId, users.id))
-            .where(
-              and(
-                inArray(teamMembers.teamId, teamIds),
-                eq(users.role, 'SENIOR'),
-                isNull(teamMembers.leftAt),
-              ),
-            )
-          seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
-        }
-      }
-
-      // Equivalence proof: same class as the DROP branch's
-      // `dropMemberships.length > 0` guard above — verified empirically,
-      // `inArray(teamMembers.userId, seniorIds)` (Step 2's first query,
-      // right below) compiles to the literal SQL fragment `false` when
-      // `seniorIds` is empty, so entering this block with an empty
-      // `seniorIds` (mutated to always-true / `>= 0`) finds nothing, same as
-      // skipping it. The "force skip" direction is real — BRANCH-SELECT-1
-      // (get-team-members-drop-branch-mask.unit.spec.ts) proves a non-empty
-      // `seniorIds` must enter this block to find its roster.
-      // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
-      const hasSeniorIds = seniorIds.length > 0
-      // Stryker disable next-line ConditionalExpression: provably equivalent (force-always-true direction only) — same proof as `hasSeniorIds`'s own declaration immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
-      if (hasSeniorIds) {
-        // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
-        // Teams are linked to senior via team_members (the SENIOR is itself a member).
-        // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
-        // a detached (rotated-out) senior's team_members row must not resolve a
-        // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
-        // roster returned to the caller (stale-member leak, distinct from the
-        // team-access class of bug already fixed in teams.service.ts).
-        const seniorMemberships = await this.db.db
-          .select({ teamId: teamMembers.teamId })
+        const membershipTeamIds = memberships.map((m) => m.teamId)
+        // LOW (security-review round 3, follow-up to #436): `isNull(leftAt)`
+        // here too — without it a SENIOR rotated OUT of one of this HR's teams
+        // (team_members.leftAt set, TeamsService.rotateSenior) still resolves
+        // into `seniorIds` below, and their JUNIORs surface in this HR's
+        // roster. No incremental data exposure (the same fields are visible
+        // via the general user list this HR already has), but this brings the
+        // check to the same "leftAt === null is the norm for every membership
+        // check in this file" shape as everywhere else (see HIGH-1 above).
+        const seniorsInTeams = await this.db.db
+          .select({ userId: teamMembers.userId })
           .from(teamMembers)
           .innerJoin(users, eq(teamMembers.userId, users.id))
           .where(
             and(
-              inArray(teamMembers.userId, seniorIds),
+              inArray(teamMembers.teamId, membershipTeamIds),
               eq(users.role, 'SENIOR'),
               isNull(teamMembers.leftAt),
             ),
           )
-        const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
-
-        const memberIds = new Set<string>()
-        // Equivalence proof: same class as the DROP branch's
-        // `dropMemberships.length > 0` guard above — `inArray(teamMembers.teamId,
-        // teamIds)` (the query right below) compiles to SQL `false` when `teamIds`
-        // is empty, so entering with an empty `teamIds` (mutated to always-true /
-        // `>= 0`) finds nothing, same as skipping it. The "force skip" direction
-        // is real — BRANCH-SELECT-1 (get-team-members-drop-branch-mask.unit.spec.ts)
-        // proves a non-empty `teamIds` must enter this block to find its roster.
-        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
-        if (teamIds.length > 0) {
-          const tmRows = await this.db.db
-            .select({ userId: teamMembers.userId })
-            .from(teamMembers)
-            .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
-          tmRows.forEach((r) => memberIds.add(r.userId))
-        }
-
-        // Step 3: Add active JUNIORs from projects of those seniors.
-        //
-        // MED-3 (security-review round 3, follow-up to #436, reverted same PR):
-        // an earlier round of this fix derived this list from `seniorMemberships`
-        // above (i.e. required an ACTIVE team_members row) instead of the raw
-        // `seniorIds` from Step 1. That silently narrowed the SENIOR self-view
-        // case: rotation/archive-drop-team detaches a senior from their team
-        // WITHOUT archiving their projects (`TeamsService.rotateSenior`,
-        // `archiveDropTeam` — see their own docs), so a teamless senior still
-        // legitimately owns active projects with active JUNIOR members during
-        // that gap, and this method is also how a SENIOR views their OWN "team"
-        // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
-        // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
-        // actually closes). Restored to raw `seniorIds`: the real vulnerability
-        // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
-        // closed at its actual source — the `isNull(teamMembers.leftAt)` filter
-        // added to Step 1's `seniorsInTeams` query above, which is the only
-        // branch that ever populated `seniorIds` with someone other than the
-        // viewer themselves or their own currently-active project seniors.
-        const seniorProjects = await this.db.db
-          .select({ id: projects.id })
-          .from(projects)
-          .where(inArray(projects.seniorId, seniorIds))
-        const projectIds = seniorProjects.map((p) => p.id)
-        // Equivalence proof: same class as the DROP branch's
-        // `dropMemberships.length > 0` guard above — `inArray(projectMembers.projectId,
-        // projectIds)` (the query right below) compiles to SQL `false` when
-        // `projectIds` is empty, so entering with an empty `projectIds` (mutated
-        // to always-true / `>= 0`) finds nothing, same as skipping it. The "force
-        // skip" direction is real — BRANCH-SELECT-1
-        // (get-team-members-drop-branch-mask.unit.spec.ts) proves a non-empty
-        // `projectIds` must enter this block to find its roster.
-        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1
-        if (projectIds.length > 0) {
-          const juniorRows = await this.db.db
-            .select({ userId: projectMembers.userId })
-            .from(projectMembers)
-            .where(
-              and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)),
-            )
-          juniorRows.forEach((r) => memberIds.add(r.userId))
-        }
-
-        memberIds.delete(userId)
-        // Equivalence proof: same class as the DROP branch's
-        // `dropMemberships.length > 0` guard above — `inArray(users.id,
-        // Array.from(memberIds))` (the query right below) compiles to SQL `false`
-        // when `memberIds` is empty, so entering with an empty `memberIds`
-        // (mutated to always-true / `>= 0`) finds nothing, same as skipping it.
-        // The "force skip" direction is real — DROP-BRANCH-MASK-3
-        // (get-team-members-drop-branch-mask.unit.spec.ts) proves an empty
-        // `memberIds` set must skip this block and leave `rows` at `[]`.
-        // Stryker disable next-line ConditionalExpression,EqualityOperator: provably equivalent (force-always-true direction only) — see the paragraph immediately above; the force-always-false direction is real and killed by BRANCH-SELECT-1/DROP-BRANCH-MASK-3
-        if (memberIds.size > 0) {
-          rows = await this.db.db
-            .select({
-              id: users.id,
-              displayName: users.displayName,
-              role: users.role,
-              avatarUrl: users.avatarUrl,
-              avatarDocumentId: users.avatarDocumentId,
-            })
-            .from(users)
-            .where(inArray(users.id, Array.from(memberIds)))
-        }
+        seniorIds = Array.from(new Set(seniorsInTeams.map((s) => s.userId)))
       }
+
+      // Step 2: Collect team_members (SENIOR + HR + ACCOUNTANT) across those seniors' teams.
+      // Teams are linked to senior via team_members (the SENIOR is itself a member).
+      // MED-2 (security-review round 2): `isNull(leftAt)` on BOTH queries below —
+      // a detached (rotated-out) senior's team_members row must not resolve a
+      // team, and a departed HR/ACCOUNTANT/SENIOR row must not surface in the
+      // roster returned to the caller (stale-member leak, distinct from the
+      // team-access class of bug already fixed in teams.service.ts).
+      //
+      // security-review PR #541 round 5: no `if (seniorIds.length > 0)` guard
+      // around Step 2/3 — same "remove, don't suppress" reasoning. Every
+      // `inArray(..., [])` below compiles to SQL `false`, so an empty
+      // `seniorIds` flows through Step 2 and Step 3 finding nothing at each
+      // stage, converging on the same `rows` as skipping the whole block
+      // would. The "force skip" direction is real and killed by
+      // BRANCH-SELECT-1.
+      const seniorMemberships = await this.db.db
+        .select({ teamId: teamMembers.teamId })
+        .from(teamMembers)
+        .innerJoin(users, eq(teamMembers.userId, users.id))
+        .where(
+          and(
+            inArray(teamMembers.userId, seniorIds),
+            eq(users.role, 'SENIOR'),
+            isNull(teamMembers.leftAt),
+          ),
+        )
+      const teamIds = Array.from(new Set(seniorMemberships.map((m) => m.teamId)))
+
+      const memberIds = new Set<string>()
+      // security-review PR #541 round 5: no `if (teamIds.length > 0)` guard —
+      // `inArray(teamMembers.teamId, [])` -> SQL `false`; the "force skip"
+      // direction is real and killed by BRANCH-SELECT-1.
+      const tmRows = await this.db.db
+        .select({ userId: teamMembers.userId })
+        .from(teamMembers)
+        .where(and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)))
+      tmRows.forEach((r) => memberIds.add(r.userId))
+
+      // Step 3: Add active JUNIORs from projects of those seniors.
+      //
+      // MED-3 (security-review round 3, follow-up to #436, reverted same PR):
+      // an earlier round of this fix derived this list from `seniorMemberships`
+      // above (i.e. required an ACTIVE team_members row) instead of the raw
+      // `seniorIds` from Step 1. That silently narrowed the SENIOR self-view
+      // case: rotation/archive-drop-team detaches a senior from their team
+      // WITHOUT archiving their projects (`TeamsService.rotateSenior`,
+      // `archiveDropTeam` — see their own docs), so a teamless senior still
+      // legitimately owns active projects with active JUNIOR members during
+      // that gap, and this method is also how a SENIOR views their OWN "team"
+      // tab (`seniorIds = [user.id]` in Step 1's SENIOR branch, always exactly
+      // themselves — never contaminated by the HR/ACCOUNTANT leak this PR
+      // actually closes). Restored to raw `seniorIds`: the real vulnerability
+      // (a rotated-out senior surfacing in an HR VIEWER's roster) is already
+      // closed at its actual source — the `isNull(teamMembers.leftAt)` filter
+      // added to Step 1's `seniorsInTeams` query above, which is the only
+      // branch that ever populated `seniorIds` with someone other than the
+      // viewer themselves or their own currently-active project seniors.
+      const seniorProjects = await this.db.db
+        .select({ id: projects.id })
+        .from(projects)
+        .where(inArray(projects.seniorId, seniorIds))
+      const projectIds = seniorProjects.map((p) => p.id)
+      // security-review PR #541 round 5: no `if (projectIds.length > 0)`
+      // guard — `inArray(projectMembers.projectId, [])` -> SQL `false`; the
+      // "force skip" direction is real and killed by BRANCH-SELECT-1.
+      const juniorRows = await this.db.db
+        .select({ userId: projectMembers.userId })
+        .from(projectMembers)
+        .where(and(inArray(projectMembers.projectId, projectIds), isNull(projectMembers.leftAt)))
+      juniorRows.forEach((r) => memberIds.add(r.userId))
+
+      memberIds.delete(userId)
+      // security-review PR #541 round 5: no `if (memberIds.size > 0)` guard —
+      // `inArray(users.id, [])` -> SQL `false`; the "force skip" direction is
+      // real and killed by DROP-BRANCH-MASK-3 (a non-DROP-branch empty roster
+      // must leave `rows` at `[]`, not error or hang on an unbounded query).
+      rows = await this.db.db
+        .select({
+          id: users.id,
+          displayName: users.displayName,
+          role: users.role,
+          avatarUrl: users.avatarUrl,
+          avatarDocumentId: users.avatarDocumentId,
+        })
+        .from(users)
+        .where(inArray(users.id, Array.from(memberIds)))
     }
-    // user.role === 'ADMIN': rows stays [] (ADMIN has no teams).
+    // user.role === 'ADMIN': Step 1's inner checks never match 'ADMIN', so
+    // seniorIds stays [] and Step 2/3 resolve nothing — rows ends up [].
 
     // RBAC rule #1 (security-review PR #541 follow-up, HIGH): SENIOR viewers
     // must not see JUNIOR identity anywhere in the CRM, including their own
