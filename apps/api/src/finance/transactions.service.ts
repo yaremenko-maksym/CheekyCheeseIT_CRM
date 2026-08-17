@@ -10,6 +10,10 @@ import {
 } from '@nestjs/common'
 
 import { and, desc, eq, inArray, isNotNull, isNull, ne, notExists, or, sql } from 'drizzle-orm'
+// QueryBuilder assembles SQL without a client — used by
+// `salaryReceiverNotArchivedFilter` to build a correlated sub-select that some
+// OTHER statement executes. See that method for why it must not go through `db`.
+import { QueryBuilder } from 'drizzle-orm/pg-core'
 import type {
   SessionUser,
   DropIncomeDto,
@@ -6119,10 +6123,19 @@ export class TransactionsService {
    * AND users.archived_at IS NOT NULL)` — note this is TRUE when the receiver
    * row is missing entirely, which matches the up-front gate (an absent user is
    * not an archived one) instead of silently blocking the payment.
+   *
+   * Built with Drizzle's client-less `QueryBuilder`, NOT `this.db.db.select`:
+   * this method only assembles SQL (the enclosing UPDATE is what executes it),
+   * so it has no business needing a connection. The first version did go through
+   * `this.db.db`, and the cost showed up immediately — every existing unit spec
+   * that reaches `paySalary` suddenly had to stub `select` or die with
+   * `this.db.db.select is not a function` (transactions.finance-audit.spec.ts
+   * did, caught by the pre-push suite). A predicate builder that radiates stub
+   * requirements into unrelated specs is the wrong shape.
    */
   private salaryReceiverNotArchivedFilter() {
     return notExists(
-      this.db.db
+      new QueryBuilder()
         .select({ id: users.id })
         .from(users)
         .where(and(eq(users.id, transactions.receiverId), isNotNull(users.archivedAt))),

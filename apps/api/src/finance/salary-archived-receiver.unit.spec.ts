@@ -36,7 +36,6 @@
  *   salary-archived-receiver.integration.spec.ts.
  */
 import { BadRequestException } from '@nestjs/common'
-import { QueryBuilder } from 'drizzle-orm/pg-core'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
@@ -397,17 +396,13 @@ describe('paySalary — MED-3: archival is re-asserted in the write, not only pr
           transactions: { findFirst: vi.fn().mockResolvedValue(SALARY_ROW) },
           users: { findFirst: usersFindFirst },
         },
-        // The predicate's correlated sub-select is built through `db.select()`.
-        // This delegates to a REAL Drizzle `QueryBuilder` (client-less by
-        // design — it only builds SQL, it cannot execute), because a mock
-        // returning a dummy object would make the sub-select compile to an
-        // opaque bound parameter and the assertions below could not see inside
-        // it. Proven: with a dummy, the compiled WHERE read `not exists $3`.
-        select: vi
-          .fn()
-          .mockImplementation((fields: Record<string, unknown>) =>
-            new QueryBuilder().select(fields as never),
-          ),
+        // No `select` stub on purpose: the archival predicate is assembled by
+        // the service through Drizzle's client-less `QueryBuilder`, so the SQL
+        // the assertions below read is the REAL production SQL, not something a
+        // test double shaped. (An earlier iteration built it via `db.select`;
+        // stubbing that returned a dummy object and the sub-select compiled to
+        // an opaque `not exists $3` — invisible. It also broke every other spec
+        // that reaches paySalary, which is what moved it out of `db`.)
         update,
       },
     } as never
