@@ -211,7 +211,7 @@ import { withBuildLock } from './test/build-lock'
  *     manual re-run racing the pre-push hook's own `pnpm test`).
  *
  * ============================================================================
- * A DEAD LOCK HOLDER RECOVERS ON ITS OWN (review rounds on PR #550, MED-2/MED-3)
+ * A DEAD LOCK HOLDER RECOVERS ON ITS OWN (review rounds on PR #550, MED-2/MED-3/MED-4)
  * ============================================================================
  * A process that dies mid-`beforeAll` (session-limit cutoff, `kill -9`, OOM —
  * a real, observed failure mode: four agents hit their session limit
@@ -226,8 +226,11 @@ import { withBuildLock } from './test/build-lock'
  * directory): a waiter only ever sleeps and re-polls for that case, and only
  * gives up (loudly, naming the lock path and a `rm -rf` escape hatch) after
  * its own deadline. Age is consulted only when PID liveness genuinely cannot
- * be determined — full design rationale: `./test/build-lock.ts`'s own file
- * doc.
+ * be determined, and even then only up to a threshold kept strictly (and
+ * tested-directly) below the overall deadline (MED-4 — the two were briefly
+ * inconsistent with each other, making that branch's auto-reclaim
+ * arithmetically unreachable). Full design rationale: `./test/build-lock.ts`'s
+ * own file doc.
  *
  * ============================================================================
  * COST (measured, not the "free reuse" the earlier version of this file claimed)
@@ -344,12 +347,12 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
     ;({ TransactionsService } = req(join(CACHE_DIR, 'finance/transactions.service.js'))) as {
       TransactionsService: typeof TransactionsService
     }
-    // Comfortably above withBuildLock's own DEFAULT_DEADLINE_MS (180s, MED-3)
-    // plus a real build (~5-8s) plus margin — otherwise vitest's own hook
-    // timeout would fire first with a generic "hook timed out" message,
+    // Comfortably above withBuildLock's own DEFAULT_DEADLINE_MS (4 min,
+    // MED-4) plus a real build (~5-8s) plus margin — otherwise vitest's own
+    // hook timeout would fire first with a generic "hook timed out" message,
     // hiding withBuildLock's actual, instructive error (lock path + rm -rf
     // hint).
-  }, 210_000)
+  }, 270_000)
 
   // ── AC1 ────────────────────────────────────────────────────────────────
   it('resolves the ENTIRE real module graph via Test.createTestingModule(...).compile() — no stubs, no reconstruction', async () => {

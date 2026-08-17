@@ -72,6 +72,39 @@
  * age check (there is no `startedAt` to measure). A waiter just retries.
  *
  * ============================================================================
+ * THE TWO DEFAULT TIMEOUTS MUST AGREE WITH EACH OTHER (review round MED-4)
+ * ============================================================================
+ * `DEFAULT_STALE_AGE_MS` and `DEFAULT_DEADLINE_MS` are two independently
+ * "reasonable-looking" numbers that are only actually correct in relation to
+ * EACH OTHER: the `'unknown'`-liveness auto-reclaim branch above can only
+ * ever fire for a lock that is still being waited on, i.e. before the
+ * waiter's own `deadlineMs` gives up. A prior revision set
+ * `DEFAULT_STALE_AGE_MS` (5 min) LARGER than `DEFAULT_DEADLINE_MS` (3 min) —
+ * both individually defensible in isolation, but together the age branch was
+ * arithmetically unreachable for a fresh lock: the deadline always fired
+ * first. Harmless today only because the `'unknown'` branch is *already*
+ * unreachable in this lock's real single-host deployment (see above) — but
+ * this is exactly the backlog class "limits nobody compared against each
+ * other" (opened after a document the size limit itself allowed took longer
+ * than the time limit itself allowed, silently telling the user their file
+ * was unreadable). `build-lock.spec.ts`'s "default timing constants"
+ * `describe` block asserts the relationship directly (`DEFAULT_STALE_AGE_MS
+ * < DEFAULT_DEADLINE_MS`, with a minimum margin) rather than pinning either
+ * number to a literal, so it keeps holding under any future retuning of
+ * either constant on its own.
+ *
+ * Values: `DEFAULT_STALE_AGE_MS` = 2 min — how long an unclassifiable owner
+ * is given the benefit of the doubt before being treated as abandoned,
+ * comfortably above this build's worst measured contention (~17-25 s for 3
+ * concurrent agents) so a merely-unclassifiable-but-alive owner is not
+ * evicted on a technicality. `DEFAULT_DEADLINE_MS` = 4 min — how long a
+ * waiter tolerates ANY holder (live, or unknown-and-not-yet-past-its-own
+ * threshold) before giving up loudly; set so that even in the worst case
+ * (waiting the full stale-age threshold, THEN reclaiming, THEN running a
+ * real build under heavy contention) there is still real headroom left, not
+ * a photo finish.
+ *
+ * ============================================================================
  * ATOMIC RECLAIM (NOT "CHECK, THEN DELETE, THEN CREATE")
  * ============================================================================
  * A naive reclaim — `existsSync` staleness check, then `rmSync`, then
@@ -103,19 +136,25 @@ export interface BuildLockOptions {
   /**
    * Age threshold used ONLY for a holder whose PID liveness is `'unknown'`
    * (see file doc) — a confirmed-alive holder is never evicted on age, no
-   * matter how large this is. Default: 300_000 (5 min) — deliberately
-   * generous: in this branch ownership genuinely cannot be confirmed either
-   * way, and the cost of waiting longer is lower than a wrongful eviction.
+   * matter how large this is. Default: `DEFAULT_STALE_AGE_MS` (2 min).
+   * MUST stay strictly less than `deadlineMs` with real margin, or the
+   * `'unknown'`-branch auto-reclaim becomes arithmetically unreachable (see
+   * file doc, "THE TWO DEFAULT TIMEOUTS MUST AGREE WITH EACH OTHER") —
+   * `build-lock.spec.ts`'s "default timing constants" tests guard the
+   * DEFAULT pairing directly; an override passed here is the caller's own
+   * responsibility to keep consistent.
    */
   staleAgeMs?: number
-  /** Total time a waiter tolerates a live/unknown-but-recent holder before giving up loudly. Default: 180_000. */
+  /** Total time a waiter tolerates a live/unknown-but-recent holder before giving up loudly. Default: `DEFAULT_DEADLINE_MS` (4 min). */
   deadlineMs?: number
   /** Poll interval while waiting on a live holder. Default: 200. */
   pollMs?: number
 }
 
-const DEFAULT_STALE_AGE_MS = 300_000
-const DEFAULT_DEADLINE_MS = 180_000
+/** Exported so build-lock.spec.ts can assert the relationship to `DEFAULT_DEADLINE_MS` directly, not pin either to a literal. */
+export const DEFAULT_STALE_AGE_MS = 120_000
+/** Exported so build-lock.spec.ts can assert the relationship to `DEFAULT_STALE_AGE_MS` directly, not pin either to a literal. */
+export const DEFAULT_DEADLINE_MS = 240_000
 const DEFAULT_POLL_MS = 200
 
 function sleep(ms: number): Promise<void> {

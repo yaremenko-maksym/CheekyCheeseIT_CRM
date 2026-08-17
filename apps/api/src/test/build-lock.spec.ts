@@ -1,5 +1,5 @@
 /**
- * Backlog #42, review rounds MED-2/MED-3 on PR #550.
+ * Backlog #42, review rounds MED-2/MED-3/MED-4 on PR #550.
  *
  * MED-2 — a lock holder that dies mid-build (a real, observed failure mode:
  * four agents hit their session limit mid-work the day this was written, one
@@ -20,20 +20,37 @@
  * `'unknown'` — see `build-lock.ts`'s own file doc for exactly when that is
  * and why it is effectively unreachable in single-host use today).
  *
+ * MED-4 — MED-3's own default numbers (`DEFAULT_STALE_AGE_MS` 5 min,
+ * `DEFAULT_DEADLINE_MS` 3 min) were each defensible in isolation but never
+ * compared against EACH OTHER: with the age threshold larger than the
+ * deadline, the `'unknown'`-liveness auto-reclaim branch was arithmetically
+ * unreachable for a fresh lock — a fresh instance of the exact "limits
+ * nobody compared against each other" backlog class. The "default timing
+ * constants" block below asserts the RELATIONSHIP between the two exported
+ * constants directly, not against literal numbers, so it survives any future
+ * retuning of either one alone.
+ *
  * Both directions matter, and "never evict a live holder" is the more
  * important one to get right — reclaiming a live one is exactly as dangerous
  * as never reclaiming a dead one; it tears down a genuinely in-progress build
  * out from under a live process. Every case here is exercised with short,
  * injected `staleAgeMs`/`deadlineMs` (see `BuildLockOptions`) so this whole
  * spec runs in well under a second rather than needing to wait out the real
- * 300 s / 180 s production defaults.
+ * 2 min / 4 min production defaults.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { isProcessAlive, isStaleHolder, pidLiveness, withBuildLock } from './build-lock'
+import {
+  DEFAULT_DEADLINE_MS,
+  DEFAULT_STALE_AGE_MS,
+  isProcessAlive,
+  isStaleHolder,
+  pidLiveness,
+  withBuildLock,
+} from './build-lock'
 
 let scratchDir: string
 let lockDir: string
@@ -69,6 +86,24 @@ function mockUndeterminableKill() {
     throw err
   })
 }
+
+// ── MED-4: the two default timeouts compared against EACH OTHER, not
+//    against literals — this is the assertion the backlog class "limits
+//    nobody compared against each other" actually calls for. Pinning both
+//    sides to hardcoded numbers (e.g. `expect(DEFAULT_STALE_AGE_MS).toBe(120_000)`)
+//    would drift silently the next time either constant is retuned alone;
+//    asserting the RELATIONSHIP survives that by construction. ──
+describe('default timing constants', () => {
+  it('DEFAULT_STALE_AGE_MS is strictly less than DEFAULT_DEADLINE_MS, with real margin for reclaim + a build afterward', () => {
+    expect(DEFAULT_STALE_AGE_MS).toBeLessThan(DEFAULT_DEADLINE_MS)
+    // Not just "less than" by a hair: the 'unknown'-liveness auto-reclaim
+    // branch needs to fire, THEN evict, THEN let a real build run — under
+    // this build's worst measured contention (~17-25s for 3 concurrent
+    // agents) — before the deadline gives up. A minute of margin is the
+    // floor for that to be more than a photo finish.
+    expect(DEFAULT_DEADLINE_MS - DEFAULT_STALE_AGE_MS).toBeGreaterThanOrEqual(60_000)
+  })
+})
 
 describe('pidLiveness', () => {
   it('reports the current process as alive', () => {
