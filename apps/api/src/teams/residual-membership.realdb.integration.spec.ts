@@ -31,13 +31,20 @@
  *         rotated-out (now teamless) senior in their `getTeamMembersForUser`
  *         roster (Step 1's `seniorsInTeams` query, HR/ACCOUNTANT branch —
  *         the actual leak the round-3 `isNull(leftAt)` fix closes).
- *   AC-H (security-review round 3, MED-3, follow-up to #436): a rotated-out
- *         (teamless) senior viewing their OWN "Команда" tab must STILL see
- *         the JUNIOR of their still-active (non-archived — rotation does
- *         not archive projects) project. An earlier round of the AC-G fix
- *         over-tightened Step 3 to also require an ACTIVE team_members row,
- *         which silently emptied this self-view during the teamless gap;
- *         reverted to pin the restored behavior.
+ *   AC-H (security-review round 3, MED-3, follow-up to #436; REWRITTEN by
+ *         security-review PR #541 follow-up, HIGH): a rotated-out (teamless)
+ *         senior's own "Команда" tab now MASKS the JUNIOR of their still-
+ *         active (non-archived — rotation does not archive projects)
+ *         project — RBAC rule #1 applies to SENIOR self-view too (owner
+ *         decision). Split in two: the SENIOR-viewer case asserts the mask
+ *         (`not.toContain`); an ADMIN-viewer control on the SAME rotated
+ *         data asserts the junior IS still derivable (`toContain`) — this is
+ *         what's left of the original round-3 regression-protection intent
+ *         (Step 3 must still derive the junior during the teamless gap; an
+ *         earlier round of the AC-G fix over-tightened Step 3 to also
+ *         require an ACTIVE team_members row, which silently emptied this
+ *         case — now observed through an unmasked viewer instead of the
+ *         masked one).
  *   AC-I (security-review round 4, MED-1, follow-up to #436): `rotateSenior`
  *         itself (not a hand-seeded fixture) writes the `team_member_removed`
  *         / `role.before='SENIOR'` audit row that
@@ -375,13 +382,13 @@ describe('MED-2 (security-review round 2): residual leftAt-filter gaps (real DB)
     if (!dbAvailable) return
     await teamsService.removeMember(TEAM_ID, REVOKED_HR_ID, adminActor)
 
-    const roster = await usersService.getTeamMembersForUser(REVOKED_HR_ID)
+    const roster = await usersService.getTeamMembersForUser(REVOKED_HR_ID, 'HR')
     expect(roster).toEqual([])
   })
 
   it('AC-B: an active HR roster does NOT leak a previously-departed member', async () => {
     if (!dbAvailable) return
-    const roster = await usersService.getTeamMembersForUser(HR1_ID)
+    const roster = await usersService.getTeamMembersForUser(HR1_ID, 'HR')
     const ids = roster.map((m) => m.id)
     expect(ids).not.toContain(DEPARTED_JUNIOR_ID)
     // Sanity: the active senior IS present (the query still works normally).
@@ -443,18 +450,38 @@ describe('MED-2 (security-review round 2): residual leftAt-filter gaps (real DB)
     if (!dbAvailable) return
     await teamsService.rotateSenior(DROP_TEAM_ID, NEW_SENIOR_ID, adminActor)
 
-    const roster = await usersService.getTeamMembersForUser(DROP_HR_ID)
+    const roster = await usersService.getTeamMembersForUser(DROP_HR_ID, 'HR')
     const ids = roster.map((m) => m.id)
     expect(ids).not.toContain(OLD_SENIOR_ID)
     // Sanity: the NEW (current) senior IS present.
     expect(ids).toContain(NEW_SENIOR_ID)
   })
 
-  it('AC-H: a rotated-out (teamless) senior still sees the JUNIOR of their own active project', async () => {
+  // AC-H was rewritten by security-review PR #541 follow-up (HIGH): the
+  // ORIGINAL version of this test asserted that a rotated-out senior's own
+  // "Команда" tab STILL contains the real JUNIOR_OF_OLD_ID entry — i.e. it
+  // pinned the identity leak as the expected/correct behavior. Now that
+  // getTeamMembersForUser masks JUNIOR identity from a SENIOR viewer (RBAC
+  // rule #1, self-view included per owner decision), that assertion is
+  // backwards. Split into a pair so the original regression-protection
+  // intent (Step 3 of getTeamMembersForUser must still DERIVE the junior
+  // during the post-rotation teamless gap — see that method's docblock)
+  // survives, observed through an unmasked (ADMIN) viewer instead of the
+  // masked (SENIOR self) one.
+  it('AC-H: a rotated-out (teamless) senior viewing their OWN team tab does NOT see the JUNIOR of their active project (masked)', async () => {
     if (!dbAvailable) return
     await teamsService.rotateSenior(DROP_TEAM_ID, NEW_SENIOR_ID, adminActor)
 
-    const roster = await usersService.getTeamMembersForUser(OLD_SENIOR_ID)
+    const roster = await usersService.getTeamMembersForUser(OLD_SENIOR_ID, 'SENIOR')
+    const ids = roster.map((m) => m.id)
+    expect(ids).not.toContain(JUNIOR_OF_OLD_ID)
+  })
+
+  it('AC-H (ADMIN control): ADMIN viewing the same rotated-out senior team tab STILL sees the JUNIOR (proves Step 3 still derives them — only the SENIOR viewer is masked)', async () => {
+    if (!dbAvailable) return
+    await teamsService.rotateSenior(DROP_TEAM_ID, NEW_SENIOR_ID, adminActor)
+
+    const roster = await usersService.getTeamMembersForUser(OLD_SENIOR_ID, 'ADMIN')
     const ids = roster.map((m) => m.id)
     expect(ids).toContain(JUNIOR_OF_OLD_ID)
   })

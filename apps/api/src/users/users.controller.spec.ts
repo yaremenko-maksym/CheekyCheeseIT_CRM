@@ -101,7 +101,10 @@ describe('UsersController.getUserTeam — RBAC guard', () => {
 
     const result = await controller.getUserTeam(target.id, session(viewer))
     expect(result).toEqual([{ id: 'm1', displayName: 'Mate' }])
-    expect(usersService.getTeamMembersForUser).toHaveBeenCalledWith(target.id)
+    // security-review PR #541 follow-up (HIGH): viewer.role is now threaded
+    // through so getTeamMembersForUser can mask JUNIOR identity from a
+    // SENIOR viewer — assert the SECOND argument too, not just the target id.
+    expect(usersService.getTeamMembersForUser).toHaveBeenCalledWith(target.id, viewer.role)
   })
 
   it("HR viewing JUNIOR from own senior's team → 200", async () => {

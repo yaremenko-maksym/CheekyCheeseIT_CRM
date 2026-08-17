@@ -1379,7 +1379,19 @@ export class UsersService {
    *  - HR / ACCOUNTANT: teams where the user is a team_member
    *  - ADMIN: no teams (returns empty)
    */
-  async getTeamMembersForUser(userId: string): Promise<TeamMemberPreview[]> {
+  /**
+   * security-review PR #541 follow-up (HIGH): `viewerRole` is REQUIRED, not
+   * optional. Before this fix the method had no notion of a viewer at all,
+   * so masking JUNIOR identity from a SENIOR was structurally impossible —
+   * `TeamTab.tsx` (GET /users/:id/team, this method's only caller) renders
+   * the real displayName/avatar and a `/profile/$userId` link built from the
+   * real id, the exact identity `ProjectsService.mapProject` and
+   * `TeamsService.mapTeam` already redact for a SENIOR viewer elsewhere in
+   * the CRM. This method is the data source for a SENIOR's OWN "Команда"
+   * profile tab (self-view) — owner decision: RBAC rule #1 ("SENIOR must not
+   * see JUNIOR identity anywhere") applies there too, self-view included.
+   */
+  async getTeamMembersForUser(userId: string, viewerRole: AppRole): Promise<TeamMemberPreview[]> {
     const user = await this.findById(userId)
     if (!user) throw new NotFoundException('User not found')
     if (user.role === 'ADMIN') return []
@@ -1531,6 +1543,18 @@ export class UsersService {
       })
       .from(users)
       .where(inArray(users.id, Array.from(memberIds)))
+
+    // RBAC rule #1 (security-review PR #541 follow-up, HIGH): SENIOR viewers
+    // must not see JUNIOR identity anywhere in the CRM, including their own
+    // "Команда" profile tab (self-view is not exempt — owner decision).
+    // Blanket-filtered rather than per-item redacted, mirroring the safer
+    // shape TeamsService.mapTeam's `filteredJuniorMembers = []` and
+    // ProjectsService.computeEffectiveTeam's `juniors = []` already use for
+    // the same viewer role — there is no per-item boolean here a future
+    // refactor could silently drop.
+    if (viewerRole === 'SENIOR') {
+      return rows.filter((r) => r.role !== 'JUNIOR')
+    }
     return rows
   }
 

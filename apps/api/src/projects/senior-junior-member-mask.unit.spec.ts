@@ -49,11 +49,34 @@
  *   MEMBER-MASK-4  ADMIN viewer, HR member → NOT redacted (trivial positive
  *                  control, completes the 2x2 grid started by 1/2/3).
  *
- * Mutation-testing proof (AC3): both halves of the guard were verified by
- * hand — temporarily deleting each half of the condition in
- * `projects.service.ts`, running `pnpm --filter @crm/api test -- senior-junior-member-mask`,
- * observing the expected test fail, then reverting (source unchanged in this
- * PR — see PR body for the two failing-run transcripts, not committed here).
+ *   MEMBER-MASK-5  (security-review PR #541 follow-up, optional note 2)
+ *                  SENIOR viewer, a member whose `user` relation is a
+ *                  dangling `null` (no matching row loaded) → still
+ *                  redacted. Pins the fail-CLOSED default in
+ *                  `(m.user?.role ?? 'JUNIOR')`: flipping that default to
+ *                  anything that is not 'JUNIOR' (fail-OPEN) would leak this
+ *                  member's real `userId` to a SENIOR viewer, and nothing
+ *                  else in this file's first four scenarios (which all use a
+ *                  populated `user`) would ever exercise that branch.
+ *
+ * LIST-MASK-1/2 (MED-1, security-review PR #541 follow-up): the SAME pair,
+ * exercised through the LIST path (`ProjectsService.findAll`, GET
+ * /api/projects) instead of the single-resource path (`findOne`). `findAll`
+ * calls the identical `mapProject`, but a mutation INSIDE `findAll` itself
+ * (not inside `mapProject`) that breaks the wiring — e.g. hardcoding the
+ * role argument instead of forwarding `currentUser.role` — was NOT caught by
+ * MEMBER-MASK-1..4, because none of them call `findAll`. Reviewer
+ * reproduced exactly that mutation (`currentUser.role` → `'ADMIN'` at the
+ * `filtered.map(...)` call site) and the full `apps/api` unit run stayed
+ * green. LIST-MASK-1/2 close that gap.
+ *
+ * Mutation-testing proof (AC3 + MED-1): every guard pinned in this file was
+ * verified by hand — temporarily breaking the relevant line in
+ * `projects.service.ts`, running
+ * `pnpm --filter @crm/api exec vitest run senior-junior-member-mask`,
+ * observing the expected (and ONLY the expected) test fail, then reverting
+ * (source unchanged in this PR — see PR body for the failing-run
+ * transcripts, not committed here).
  *
  * Fixture note (AC5): the JUNIOR member's raw displayName/userId/email/avatar
  * values are realistic, non-default, non-empty data — deliberately NOT equal
@@ -62,12 +85,14 @@
  * would make "masked by the server" and "forgot to seed the fixture"
  * indistinguishable (see task file AC5 + prior incident referenced there).
  *
- * Harness: pure unit test, no real DB — mirrors the established pattern in
- * `senior-drop-mask.unit.spec.ts` (assertAccess + loadTeamOverridesBySenior
- * stubbed via vi.spyOn so the RBAC gate and the finance-share resolver don't
- * get in the way of exercising the mapping/masking logic under test). Reaches
- * `mapProject` through the PUBLIC `ProjectsService.findOne` — no HTTP layer,
- * no supertest/app.inject, so this cannot be fooled by a mocked response the
+ * Harness: pure unit test, no real DB. `assertAccess` and
+ * `loadTeamOverridesBySenior` are NOT stubbed (security-review PR #541
+ * follow-up, optional note 1) — they run for real against the fixture data,
+ * so these tests exercise the actual RBAC gate end-to-end instead of
+ * assuming it, and don't need to know the names of two private methods that
+ * have nothing to do with member masking. Reaches `mapProject` through the
+ * PUBLIC `ProjectsService.findOne` / `findAll` — no HTTP layer, no
+ * supertest/app.inject, so this cannot be fooled by a mocked response the
  * way the E2E spec was.
  */
 import { describe, expect, it, vi } from 'vitest'
@@ -116,6 +141,13 @@ const J1_AVATAR_DOCUMENT_ID = 'doc-avatar-junior-2077'
 const H1_ID = 'hr-real-uuid-3088'
 const H1_DISPLAY_NAME = 'Ольга HR-івна'
 const H1_EMAIL = 'olga.hr@cheekycheese.dev'
+
+/**
+ * A member whose `user` relation is a dangling `null` (e.g. the joined-user
+ * row wasn't loaded). Real, non-default userId (AC5) distinct from J1/H1 so
+ * a test can locate this exact row and tell "still real" from "redacted".
+ */
+const DANGLING_USER_ID = 'dangling-uuid-4099'
 
 // ---------------------------------------------------------------------------
 // Fixture
@@ -188,6 +220,15 @@ function makeProjectWithMembers() {
           role: 'HR',
         },
       },
+      // Dangling `user: null` — the joined-user row wasn't loaded. Pins the
+      // fail-CLOSED default `(m.user?.role ?? 'JUNIOR')` (MEMBER-MASK-5).
+      {
+        id: 'pm-dangling-001',
+        userId: DANGLING_USER_ID,
+        joinedAt: new Date('2026-01-07'),
+        leftAt: null,
+        user: null,
+      },
     ],
   }
 }
@@ -200,7 +241,12 @@ function buildHarness(project: ReturnType<typeof makeProjectWithMembers>) {
   const db = {
     db: {
       query: {
-        projects: { findFirst: async () => ({ ...project }) },
+        // `findFirst` feeds `findOne` (MEMBER-MASK-*); `findMany` feeds
+        // `findAll` (LIST-MASK-*, MED-1) — same fixture, both list shapes.
+        projects: {
+          findFirst: async () => ({ ...project }),
+          findMany: async () => [{ ...project }],
+        },
         users: { findFirst: async () => null },
         projectFinanceSettings: { findFirst: async () => null },
         teamMembers: { findFirst: async () => null, findMany: async () => [] },
@@ -224,13 +270,16 @@ function buildHarness(project: ReturnType<typeof makeProjectWithMembers>) {
   const usersSvc = { unarchive: vi.fn(), unarchivePairTx: vi.fn() }
   const hrAccess = new HrAccessService(db as never)
 
+  // security-review PR #541 follow-up (optional note 1): no `vi.spyOn` on
+  // `assertAccess` / `loadTeamOverridesBySenior` — both run for REAL. The
+  // fixture data makes them pass on their own merits (seniorViewer.id ===
+  // project.seniorId satisfies assertAccess's SENIOR branch; adminViewer
+  // short-circuits it; the stubbed `teamMembers.findMany` returning `[]`
+  // satisfies loadTeamOverridesBySenior's try/catch without throwing). Not
+  // stubbing them means these tests exercise the REAL RBAC gate end-to-end
+  // instead of assuming it — and they no longer know the names of two
+  // private methods that have nothing to do with member masking.
   const service = new ProjectsService(db as never, auditLog as never, usersSvc as never, hrAccess)
-
-  // Bypass the access gate + team-override load — this spec targets the
-  // mapping/masking logic (mapProject), not the RBAC gate or the finance
-  // share resolver (both already covered elsewhere).
-  vi.spyOn(service as never, 'assertAccess').mockResolvedValue(undefined)
-  vi.spyOn(service as never, 'loadTeamOverridesBySenior').mockResolvedValue(new Map())
 
   return { service }
 }
@@ -303,5 +352,53 @@ describe('mapProject — SENIOR/JUNIOR member identity masking', () => {
     expect(hr.userId).toBe(H1_ID)
     expect(hr.displayName).toBe(H1_DISPLAY_NAME)
     expect(hr.email).toBe(H1_EMAIL)
+  })
+
+  it('MEMBER-MASK-5. SENIOR viewer, dangling member (user relation is null) → still redacted (fail-closed default)', async () => {
+    const { service } = buildHarness(makeProjectWithMembers())
+    const result = await service.findOne('proj-member-mask-001', seniorViewer)
+    const dangling = findMemberById(result.members, 'pm-dangling-001')
+
+    // `(m.user?.role ?? 'JUNIOR')` treats a dangling/unloaded user as JUNIOR
+    // — the safe (fail-closed) default. If that default were flipped to
+    // anything else, this member's real userId would leak to a SENIOR
+    // viewer, and no other scenario in this file would catch it (all other
+    // members have a populated `user`).
+    expect(dangling.userId, 'SENIOR viewer: dangling member userId must be redacted').toBe(
+      '[redacted]',
+    )
+    expect(dangling.displayName, 'SENIOR viewer: dangling member displayName must be empty').toBe(
+      '',
+    )
+  })
+})
+
+// ---------------------------------------------------------------------------
+// LIST-MASK-1/2 (MED-1) — the SAME masking pair, through ProjectsService.findAll
+// ---------------------------------------------------------------------------
+
+describe('ProjectsService.findAll — SENIOR/JUNIOR member identity masking (list path, MED-1)', () => {
+  it('LIST-MASK-1. SENIOR viewer, JUNIOR member in the LIST result → redacted', async () => {
+    const { service } = buildHarness(makeProjectWithMembers())
+    const list = await service.findAll(seniorViewer)
+    const proj = list.find((p) => p.id === 'proj-member-mask-001')
+    if (!proj) throw new Error('project not found in findAll result')
+    const junior = findMemberById(proj.members, 'pm-junior-001')
+
+    expect(junior.userId, 'SENIOR viewer (list): JUNIOR userId must be redacted').toBe('[redacted]')
+    expect(junior.displayName, 'SENIOR viewer (list): JUNIOR displayName must be empty').toBe('')
+  })
+
+  it('LIST-MASK-2. ADMIN viewer, the SAME JUNIOR member in the LIST result → NOT redacted', async () => {
+    const { service } = buildHarness(makeProjectWithMembers())
+    const list = await service.findAll(adminViewer)
+    const proj = list.find((p) => p.id === 'proj-member-mask-001')
+    if (!proj) throw new Error('project not found in findAll result')
+    const junior = findMemberById(proj.members, 'pm-junior-001')
+
+    expect(junior.userId, 'ADMIN viewer (list): JUNIOR userId must be the real id').toBe(J1_ID)
+    expect(junior.displayName, 'ADMIN viewer (list): JUNIOR displayName must be real').toBe(
+      J1_DISPLAY_NAME,
+    )
   })
 })

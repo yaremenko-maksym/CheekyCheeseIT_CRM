@@ -38,10 +38,15 @@ export class TeamsService {
     private teamAuditLogService: TeamAuditLogService,
   ) {}
 
+  // MED-2 (security-review PR #541 follow-up): `currentUser` is REQUIRED, not
+  // optional. Both callers (findAll/findOne) already always supply it — an
+  // optional param here is a fail-open-by-omission footgun: a future caller
+  // that forgets to pass it would silently fall through the SENIOR/JUNIOR
+  // `currentUser?.role` checks below to "unmasked" instead of failing `tsc`.
   private mapTeam(
     team: TeamWithMembers,
     allProjects: ProjectWithMembers[],
-    currentUser?: SessionUser,
+    currentUser: SessionUser,
   ) {
     // Drop role - phase 1: early return for drop-teams keeps the legacy
     // senior-team branch (below) byte-for-byte identical.
@@ -99,9 +104,9 @@ export class TeamsService {
     // JUNIOR viewer: sees only themselves (their own entry), not other JUNIORs.
     // SENIOR viewer: sees NO juniors (junior identity hidden from SENIOR per rule #1).
     let filteredJuniorMembers = juniorMembers
-    if (currentUser?.role === 'JUNIOR') {
+    if (currentUser.role === 'JUNIOR') {
       filteredJuniorMembers = juniorMembers.filter((j) => j.userId === currentUser.id)
-    } else if (currentUser?.role === 'SENIOR') {
+    } else if (currentUser.role === 'SENIOR') {
       filteredJuniorMembers = []
     }
 
@@ -110,7 +115,7 @@ export class TeamsService {
     // (legend), not the real identity. displayName and avatarUrl are safe — they are the
     // persona display fields (kept by #157 single-directional rule).
     // HR, ACCOUNTANT, and other non-legend-subject roles are NOT masked.
-    const isJuniorViewer = currentUser?.role === 'JUNIOR'
+    const isJuniorViewer = currentUser.role === 'JUNIOR'
 
     return {
       id: team.id,
@@ -160,13 +165,16 @@ export class TeamsService {
    * drop-project distribution; for now juniors remain a senior-team
    * concept only).
    */
-  private mapDropTeam(team: TeamWithMembers, currentUser?: SessionUser) {
+  // MED-2 (security-review PR #541 follow-up): `currentUser` required here
+  // too — mapTeam (its only caller) now always supplies it; keeping this one
+  // optional would just move the same footgun one level down.
+  private mapDropTeam(team: TeamWithMembers, currentUser: SessionUser) {
     const activeMembers = team.members.filter(
       (m) => m.leftAt === null && m.user?.role !== 'ADMIN' && m.user?.role !== 'JUNIOR',
     )
     // RBAC A01 (2026-06-10): JUNIOR viewer must NOT see real contacts of SENIOR/DROP
     // members — same legend-persona boundary as mapTeam (senior-team branch).
-    const isJuniorViewer = currentUser?.role === 'JUNIOR'
+    const isJuniorViewer = currentUser.role === 'JUNIOR'
     return {
       id: team.id,
       name: team.name,
