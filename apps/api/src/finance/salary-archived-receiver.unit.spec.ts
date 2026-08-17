@@ -28,11 +28,10 @@
  *   salary-archived-receiver.integration.spec.ts.
  */
 import { BadRequestException } from '@nestjs/common'
-import { PgDialect } from 'drizzle-orm/pg-core'
-import type { SQL } from 'drizzle-orm'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
+import { compileWhere } from './__test-helpers__/drizzle-where-introspection'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 
 const ADMIN_USER: SessionUser = {
@@ -61,12 +60,6 @@ const ACTIVE_HR = {
   email: 'hr-active@test.spec',
   monthlySalary: '1500',
   archivedAt: null,
-}
-
-/** Compile a captured Drizzle `where` into real SQL + bound params (no DB). */
-function compileWhere(where: unknown): { sql: string; params: unknown[] } {
-  const q = new PgDialect().sqlToQuery(where as SQL)
-  return { sql: q.sql, params: q.params }
 }
 
 // ── AC1: the cron's own SELECT excludes archived employees ──────────────────
@@ -200,6 +193,26 @@ describe('paySalary — AC2: a salary of an archived receiver cannot be paid', (
     await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toBeInstanceOf(
       BadRequestException,
     )
+  })
+
+  it('looks up THIS row’s receiver — the lookup is bound to tx.receiverId', async () => {
+    // Caught by the mutation gate: with `findFirst` stubbed, emptying the
+    // lookup's `where` to `{}` changed nothing any assertion could see — the
+    // stub answered with the archived user regardless, so the refusal above
+    // still "passed" while the code was in fact asking the DB for an arbitrary
+    // user. Compiling the predicate is what makes the binding observable.
+    const { svc, usersFindFirst } = makePayService(SALARY_ROW, ARCHIVED_HR)
+
+    await expect(svc.paySalary('sal-1', payData, ADMIN_USER)).rejects.toThrow(BadRequestException)
+
+    const whereArg: unknown = usersFindFirst.mock.calls[0]![0].where
+    // Checked separately so an emptied `where` reads as "no predicate at all"
+    // instead of an opaque TypeError from inside the compiler.
+    expect(whereArg).toBeDefined()
+
+    const { sql, params } = compileWhere(whereArg)
+    expect(sql).toContain('"id" = $1')
+    expect(params).toEqual([ARCHIVED_HR.id])
   })
 
   it('does not fire for an ACTIVE receiver (flow proceeds to receipt validation)', async () => {

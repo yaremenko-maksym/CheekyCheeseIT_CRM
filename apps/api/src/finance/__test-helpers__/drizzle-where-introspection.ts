@@ -15,6 +15,8 @@
  * imported schema tables), so capturing and walking it is possible without
  * a live Postgres connection.
  */
+import { PgDialect } from 'drizzle-orm/pg-core'
+import type { SQL } from 'drizzle-orm'
 
 /**
  * Walk a Drizzle `where` AST and collect the BOUND runtime values it
@@ -36,6 +38,28 @@
  * nodes (`'value' in obj && 'encoder' in obj`, matching the class's real
  * shape) reads only what was actually bound.
  */
+/**
+ * Compile a captured Drizzle `where` into the SQL text + bound params Postgres
+ * would actually receive. `PgDialect.sqlToQuery` is a pure function — no
+ * connection, no query execution — so a mocked-DB unit spec can read the
+ * predicate instead of guessing at it.
+ *
+ * Complements `collectParamValues` above rather than replacing it: params alone
+ * cannot see a term that binds NOTHING. `isNull(users.archivedAt)` compiles to
+ * `"archived_at" is null` with an empty param list, so the only way to observe
+ * its presence (or its removal) is the SQL text.
+ *
+ * Added by task-finance-fix-wave1 after the mutation gate killed the naive
+ * version of that assertion: with `findFirst` stubbed, `where: eq(users.id, x)`
+ * mutated to `{}` changed nothing any test could see. Asserting on the compiled
+ * output closes that blind spot — an emptied `where` arrives here as
+ * `undefined` and fails loudly.
+ */
+export function compileWhere(where: unknown): { sql: string; params: unknown[] } {
+  const compiled = new PgDialect().sqlToQuery(where as SQL)
+  return { sql: compiled.sql, params: compiled.params }
+}
+
 export function collectParamValues(node: unknown, visited = new Set<unknown>()): unknown[] {
   if (node === null) return []
   // Stryker disable next-line EqualityOperator,ConditionalExpression: a PROVABLY equivalent mutant, not an untested one — `typeof node !== 'object'` three lines below already returns `[]` for `undefined` on its own (`typeof undefined === 'undefined'`, never `'object'`), so removing this check changes no observable input/output pair; it stays only so a reader doesn't have to re-derive that JS invariant. The sibling `null` check right above is NOT equivalent (`typeof null === 'object'`, so without it `'value' in null` throws) — see drizzle-where-introspection.spec.ts for both, proven empirically.
