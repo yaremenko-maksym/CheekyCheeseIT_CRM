@@ -147,4 +147,17 @@ assert_green "a required context that appears on the SECOND poll is waited for, 
   -- run_guard "$TWO_CONTEXTS" "$WS/checks-one-missing.json:$WS/checks-both-pass.json" \
        TIMEOUT_SECONDS=5 INTERVAL_SECONDS=1
 
+# ── GREEN: a hung `gh pr checks` call is cut off, not left to block forever ─
+# review round MED-4: the old command this guard replaces ran inside
+# `timeout 1800` around the WHOLE watch, not any one call — a single hung
+# invocation could eat the entire budget silently. Prove the per-attempt
+# wrapper actually cuts a hang off and the poll loop recovers on the very
+# next attempt, rather than hanging until the outer TIMEOUT_SECONDS expires.
+assert_green "a hung 'gh pr checks' call is killed after CALL_TIMEOUT_SECONDS and retried" \
+  --contains "did not respond within 1s this poll" \
+  --contains "OK: every required context is present and passing" \
+  -- run_guard "$TWO_CONTEXTS" "$WS/checks-both-pass.json" \
+       TIMEOUT_SECONDS=10 INTERVAL_SECONDS=1 CALL_TIMEOUT_SECONDS=1 \
+       FAKE_GH_CHECKS_SLEEP_ON_FIRST_CALL=3
+
 guard_test_summary "test-check-required-checks-complete.sh"

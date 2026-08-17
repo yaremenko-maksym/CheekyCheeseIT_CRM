@@ -72,6 +72,15 @@
 #                       this at a fixture stub instead of the real GitHub API.
 #   INTERVAL_SECONDS   poll interval (default: 15)
 #   TIMEOUT_SECONDS    total time to wait before giving up (default: 1800)
+#   CALL_TIMEOUT_SECONDS  cap on a SINGLE `gh pr checks` invocation (default:
+#                       60) — the OLD `gh pr checks --watch` command this
+#                       script replaces ran inside a `timeout 1800` wrapper;
+#                       that capped the WHOLE watch, not any one call, so a
+#                       single hung `gh` invocation could still eat the
+#                       entire budget unnoticed. Each poll attempt here is
+#                       capped individually instead — a hang is reported and
+#                       retried like a transient failure, not left to run out
+#                       the whole clock alone (review round, MED-4).
 #   REPORT_FILE        optional path — the final human-readable report is
 #                       ALSO written here (success or failure), so a later
 #                       workflow step can quote it verbatim in a loud PR
@@ -97,6 +106,7 @@ required="${REQUIRED_CONTEXTS:?REQUIRED_CONTEXTS env var required (one context p
 GH_BIN="${GH_BIN:-gh}"
 INTERVAL_SECONDS="${INTERVAL_SECONDS:-15}"
 TIMEOUT_SECONDS="${TIMEOUT_SECONDS:-1800}"
+CALL_TIMEOUT_SECONDS="${CALL_TIMEOUT_SECONDS:-60}"
 REPORT_FILE="${REPORT_FILE:-}"
 
 report() {
@@ -106,6 +116,47 @@ report() {
   if [ -n "$REPORT_FILE" ]; then
     printf '%s\n' "$1" >>"$REPORT_FILE"
   fi
+}
+
+# Portable per-attempt timeout wrapper (review round, MED-4) — deliberately
+# NOT built on the GNU `timeout` command. `timeout` is coreutils, absent by
+# default on macOS (confirmed: `which timeout` finds nothing on a stock Mac),
+# and this exact, unmodified script is what
+# tests/test-check-required-checks-complete.sh runs locally on a developer's
+# Mac — a hard dependency on `timeout` would make the very call this wrapper
+# times out untestable outside CI. Same class of portability trap this
+# repo's already hit once (see post-merge-alert.sh's "GNU timeout/mktemp"
+# comment). Sets _TIMEOUT_OUT / _TIMEOUT_RC instead of using $(...) capture,
+# because capturing a function's stdout from a caller and ALSO getting a
+# meaningful exit code back out of a backgrounded child is not something
+# $(...) can do at the same time — mirrors tests/lib/harness.sh's own
+# _GT_OUT/_GT_RC side-channel for the identical reason.
+_TIMEOUT_OUT=""
+_TIMEOUT_RC=0
+run_with_timeout() {
+  local secs="$1"
+  shift
+  local tmp waited pid
+  tmp="$(mktemp)"
+  "$@" >"$tmp" 2>&1 &
+  pid=$!
+  waited=0
+  while kill -0 "$pid" 2>/dev/null; do
+    if [ "$waited" -ge "$secs" ]; then
+      kill "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      _TIMEOUT_OUT="$(cat "$tmp")"
+      _TIMEOUT_RC=124
+      rm -f "$tmp"
+      return
+    fi
+    sleep 1
+    waited=$((waited + 1))
+  done
+  wait "$pid"
+  _TIMEOUT_RC=$?
+  _TIMEOUT_OUT="$(cat "$tmp")"
+  rm -f "$tmp"
 }
 
 [ -n "$REPORT_FILE" ] && : >"$REPORT_FILE"
@@ -128,8 +179,13 @@ start_ts=$(date +%s)
 deadline=$((start_ts + TIMEOUT_SECONDS))
 
 while true; do
-  checks_json="$("$GH_BIN" pr checks "$PR_NUMBER" --repo "$REPO" --json name,bucket,state 2>&1)"
-  if ! printf '%s' "$checks_json" | jq -e . >/dev/null 2>&1; then
+  run_with_timeout "$CALL_TIMEOUT_SECONDS" "$GH_BIN" pr checks "$PR_NUMBER" --repo "$REPO" \
+    --json name,bucket,state
+  checks_json="$_TIMEOUT_OUT"
+  if [ "$_TIMEOUT_RC" -eq 124 ]; then
+    report "WARN: 'gh pr checks' did not respond within ${CALL_TIMEOUT_SECONDS}s this poll — treating as transient:"
+    checks_json="[]"
+  elif ! printf '%s' "$checks_json" | jq -e . >/dev/null 2>&1; then
     report "WARN: 'gh pr checks' did not return parseable JSON this poll — treating as transient:"
     report "$checks_json"
     checks_json="[]"
