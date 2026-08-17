@@ -752,6 +752,13 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
   // ── SEC-1 (mega-audit wave 2, round 3) — display path survives an ────────
   //    off-currency row, THROUGH THE REAL SERVICE against REAL Postgres ────
   describe('SEC-1: getAccount() degrades instead of 500ing on a real off-currency row (round 3)', () => {
+    // Round 4 (isolation): unlike the createExpense/paySalary behavioural
+    // tests above, `gateBalance()` here calls
+    // `computeCompanyAccountBalanceFromLedger` DIRECTLY — not through a gate
+    // — so it never acquires `COMPANY_ACCOUNT_LOCK_KEY` itself. Wrapping this
+    // test in `withIsolatedOffCurrencyRow` is therefore safe (no self-deadlock)
+    // and protects any OTHER concurrently-running agent's REAL gate call from
+    // observing this row.
     it('a genuine off-currency company row does NOT throw through caSvc.getAccount() — the screen stays alive', async () => {
       if (!dbAvailable) return
       await seedDeposit(1000) // ensure a non-trivial ledger baseline
@@ -759,37 +766,34 @@ describe('company-account ledger + reconciliation (real DB, no mocks)', () => {
       // A company-funded EXPENSE booked in UAH — the write path is SUPPOSED to
       // hardcode USDT (createExpense); this row simulates the ONE future-bug
       // scenario C-3/SEC-1 are about (a write path that forgets to).
-      //
-      // crm_qa is a shared scratch DB; the off-currency guard scans the WHOLE
-      // table, so this row is briefly visible to any OTHER concurrently
-      // running gate call too. Cleaned up explicitly in `finally` (on top of
-      // the next `beforeEach`'s clearLedger()) to keep that window minimal.
-      await dbSvc.db.insert(transactions).values({
-        type: 'EXPENSE',
-        status: 'PAID',
-        amount: '250',
-        currency: 'UAH',
-        senderId: ADMIN.id,
-        fundingSource: 'COMPANY_ACCOUNT',
-        createdBy: ADMIN.id,
-      })
+      await withIsolatedOffCurrencyRow(
+        _pool!,
+        dbSvc.db,
+        {
+          id: 'ca110000-0000-4000-ee00-000000000003',
+          type: 'EXPENSE',
+          status: 'PAID',
+          amount: '250',
+          currency: 'UAH',
+          senderId: ADMIN.id,
+          fundingSource: 'COMPANY_ACCOUNT',
+          createdBy: ADMIN.id,
+        },
+        async () => {
+          // The GATE (shared helper, same one createExpense/paySalary/
+          // settleByCompany/createDividend call directly) still throws —
+          // unchanged by round 3.
+          await expect(gateBalance()).rejects.toThrow()
 
-      try {
-        // The GATE (shared helper, same one createExpense/paySalary/
-        // settleByCompany/createDividend call directly) still throws —
-        // unchanged by round 3.
-        await expect(gateBalance()).rejects.toThrow()
-
-        // getAccount() — the REAL service method behind GET /api/company-account
-        // — does NOT throw. It resolves with a finite, plain-number balance
-        // (CompanyAccountDto.balance stays z.number(); no shape change).
-        const acc = await caSvc.getAccount(ADMIN)
-        expect(typeof acc.balance).toBe('number')
-        expect(Number.isFinite(acc.balance)).toBe(true)
-        expect(acc.walletAddress).toBeDefined()
-      } finally {
-        await clearLedger()
-      }
+          // getAccount() — the REAL service method behind GET /api/company-account
+          // — does NOT throw. It resolves with a finite, plain-number balance
+          // (CompanyAccountDto.balance stays z.number(); no shape change).
+          const acc = await caSvc.getAccount(ADMIN)
+          expect(typeof acc.balance).toBe('number')
+          expect(Number.isFinite(acc.balance)).toBe(true)
+          expect(acc.walletAddress).toBeDefined()
+        },
+      )
     })
   })
 })

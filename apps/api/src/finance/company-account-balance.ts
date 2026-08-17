@@ -195,6 +195,22 @@ const COMPANY_TERM_TYPES_FUNDING_GATED = [
  * failure reading this ledger (a DB outage, a query bug — which must NOT be
  * silently swallowed anywhere, including the display path). See
  * `computeCompanyAccountBalanceForDisplay` below.
+ *
+ * SEC-1 (review round 4) — STAY A 5xx, if this is ever turned into an
+ * `HttpException`. Today, thrown as a plain `Error` from a GATE
+ * (createExpense/paySalary/settleByCompany/createDividend), NestJS's default
+ * handling reports it as 500 — and `TelemetryExceptionFilter.recordIfEligible`
+ * (telemetry-exception.filter.ts) computes `status = exception instanceof
+ * HttpException ? exception.getStatus() : 500` and does `if (status < 500)
+ * return` BEFORE recording. That 500 is currently the ONLY signal that
+ * reaches the owner at all: the display path's degraded read produces no
+ * client-visible error (SEC-1's whole point) and is not itself telemetered,
+ * so a gate rejection is the sole trip-wire until someone reads server logs.
+ * Wrapping this in `HttpException(..., 4xx)` for a nicer operator-facing
+ * message (as suggested in review) would make `recordIfEligible` skip it —
+ * trading the only signal that currently reaches the owner for a prettier
+ * message in a browser nobody but that same operator is looking at. If this
+ * ever becomes an `HttpException`, keep the status >= 500.
  */
 export class CompanyAccountOffCurrencyError extends Error {
   constructor(readonly count: number) {
