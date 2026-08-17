@@ -49,10 +49,20 @@ export function TeamTab({ userId }: { userId: string }) {
         ROLE_ORDER[a.role] - ROLE_ORDER[b.role] || a.displayName.localeCompare(b.displayName),
     )
   if (members.length === 0) {
+    // task-web-border-hack-and-honest-empty-state (2026-08-17, defect 69):
+    // an empty roster here has two possible causes — the profile genuinely
+    // has no team, OR the roster is non-empty but masked out for this viewer
+    // (getTeamMembersForUser, apps/api/src/users/users.service.ts). The
+    // frontend cannot and must not distinguish the two (owner decision
+    // 2026-08-17: masking hides everywhere, uniformly, for every viewer —
+    // see PR body for the viewer→target matrix). The copy below is written
+    // to stay true in BOTH cases at once: it states only that composition
+    // data isn't showing, never that the team is empty and never that
+    // something is hidden.
     return (
       <Card>
         <CardContent className="py-8 text-center text-sm text-muted-foreground">
-          Не состоит в команде
+          Нет данных о составе команды
         </CardContent>
       </Card>
     )
