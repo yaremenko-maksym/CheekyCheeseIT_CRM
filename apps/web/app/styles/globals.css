@@ -134,10 +134,26 @@
   --tag-ecommerce: oklch(0.8 0.12 320);
 }
 
-* {
-  box-sizing: border-box;
-  border-color: var(--border);
-  outline-color: var(--ring);
+/*
+ * task-crm-border-reset (2026-08-17) — same unlayered-reset bug fixed in
+ * apps/landing (#537). Unlayered CSS always beats `@layer utilities`
+ * regardless of source order, and Tailwind v4 generates every colored
+ * `border-*`/`outline-*` utility inside `@layer utilities` — so this reset
+ * silently won against all of them. Confirmed via computed styles: all six
+ * sampled border utilities (`border-amber-500/40`, `border-amber-500`,
+ * `border-emerald-500`, `border-blue-500`, `border-destructive`,
+ * `border-primary`) resolved to the same `--border` grey as an unclassed
+ * `<div>`. `box-sizing` moves into the same block for the identical reason
+ * (Tailwind v4 generates `box-content`/`box-border` in `@layer utilities`
+ * too), matching the published `tailwindcss@4.2.4` preflight, which sets it
+ * inside its own `@layer base` block.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+    border-color: var(--border);
+    outline-color: var(--ring);
+  }
 }
 
 body {
