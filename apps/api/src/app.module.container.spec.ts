@@ -1,6 +1,7 @@
 import 'reflect-metadata'
 import { execFileSync } from 'node:child_process'
 import { createRequire } from 'node:module'
+import { existsSync, mkdirSync, readdirSync, rmdirSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { Module } from '@nestjs/common'
 import { Test } from '@nestjs/testing'
@@ -89,12 +90,13 @@ import { beforeAll, describe, expect, it } from 'vitest'
  * `scripts/check-di-metadata.cjs` (the #504 fix's own build-time guard) took
  * exactly this position: "the check reads the artefact that actually ships…
  * rather than in a spec that would be structurally blind to it." This test
- * applies the same idea to `.compile()`: `beforeAll` runs the REAL `nest
- * build` (`tsc` with this package's own `tsconfig.build.json`, which has
- * `emitDecoratorMetadata: true` — the exact settings `node dist/main.js`
- * boots from in production) into `dist/`, then `require()`s the COMPILED
- * `dist/app.module.js` — plain Node `require` of already-compiled JS, never
- * touched by vitest's esbuild transform, so it carries the SAME
+ * applies the same idea to `.compile()`: `beforeAll` compiles this package's
+ * real sources with `tsc -p tsconfig.build.json` (the exact `emitDecoratorMetadata:
+ * true` settings `node dist/main.js` boots from in production — the ONLY
+ * thing that differs from a plain `pnpm --filter @crm/api build` is the
+ * output directory, see "WHERE IT BUILDS TO" below) and `require()`s the
+ * compiled `app.module.js` — plain Node `require` of already-compiled JS,
+ * never touched by vitest's esbuild transform, so it carries the SAME
  * `design:paramtypes` metadata production carries. `Test.createTestingModule`
  * then resolves the REAL graph exactly as `nest start`/`node dist/main.js`
  * would: no source-level workarounds, no per-class overrides, no guard
@@ -161,21 +163,160 @@ import { beforeAll, describe, expect, it } from 'vitest'
  * registered anywhere" every time this file runs, not just once by hand.
  *
  * ============================================================================
- * COST
+ * WHERE IT BUILDS TO, AND WHY (review round on PR #550, MED-1)
  * ============================================================================
- * `beforeAll` runs a full `nest build` (~6-7 s locally, measured; this is the
- * SAME `tsc` invocation `pnpm --filter @crm/api build` already pays on every
- * deploy — nothing new is compiled that would not be compiled anyway). The
- * `.compile()` calls themselves are fast (tens of ms once the compiled JS is
- * loaded). Total file run time: ~7 s, dominated entirely by the build step.
- * Wired into the ordinary `pnpm test` (`vitest run`, no filter) like every
- * other `*.spec.ts` in this package — no opt-in flag, no separate script.
- * The one-time cost buys the ONLY test in this package that boots the real,
- * complete, unmodified DI graph the way production actually does.
+ * An earlier version of this file shelled out to `pnpm exec nest build`
+ * unconditionally on every single run and described that in the PR body as
+ * "reusing" the production build. That description was false: `nest build`
+ * runs with this package's `nest-cli.json` `deleteOutDir: true` and no
+ * `incremental` setting, against the SAME `dist/` a developer's `pnpm dev` /
+ * `pnpm build` / the deploy pipeline also write to — so it was a SECOND full
+ * compile on every `pnpm test`, and a real target for a directory-delete race
+ * against any of those other writers (a review-caught defect: the honesty gap
+ * was the actual finding, not just the missing reuse).
+ *
+ * This version fixes both problems together:
+ *
+ *   - Builds via plain `tsc -p tsconfig.build.json` (this package's own
+ *     production compiler settings — `nest build` is @nestjs/cli's wrapper
+ *     around the SAME `tsc` invocation, plus asset-copying this test never
+ *     reads) into a DEDICATED cache directory (`.build-cache/dist/`, see
+ *     `CACHE_DIR` below) that `pnpm dev`/`pnpm build`/deploy never touch — no
+ *     shared-directory collision with them is possible regardless of timing.
+ *   - Before compiling, `isCacheFresh()` compares the cache's newest output
+ *     mtime against the newest mtime across EVERY file this build depends on:
+ *     all of `src/**`, plus `tsconfig.json`, `tsconfig.build.json`, and the
+ *     monorepo root `tsconfig.base.json` `tsconfig.json` extends. Only when
+ *     the cache is strictly newer than ALL of them is the compile skipped —
+ *     a single stale/missing input fails the freshness check and triggers a
+ *     rebuild, so this can under-trust the cache (rebuild when nothing
+ *     actually changed) but can never over-trust it (silently run a stale
+ *     graph). The one gap inherent to any mtime-based cache: a file DELETION
+ *     with no corresponding edit anywhere else touches no mtime this check
+ *     reads — accepted as the same class of limitation `tsc --incremental`'s
+ *     own `.tsbuildinfo` and every other timestamp-based build cache carries.
+ *   - `withBuildLock()` makes concurrent `pnpm test` invocations IN THE SAME
+ *     worktree safe against each other (the scenario the review flagged):
+ *     an exclusive lock via `fs.mkdirSync` (atomic — EEXIST when another
+ *     process holds it), a short poll loop for the holder to finish, and a
+ *     freshness RE-check after acquiring the lock — the second process to
+ *     arrive almost always finds the first process's build already fresh and
+ *     skips its own compile entirely rather than racing it. Two SEPARATE
+ *     agents each get their own git worktree (a separate `apps/api` on a
+ *     separate filesystem path), so cross-agent collision on this literal
+ *     directory does not arise in the first place; this lock exists for the
+ *     narrower, still-real case of two processes in ONE checkout (e.g. a
+ *     manual re-run racing the pre-push hook's own `pnpm test`).
+ *
+ * ============================================================================
+ * COST (measured, not the "free reuse" the earlier version of this file claimed)
+ * ============================================================================
+ * Cold (no cache, or a stale one — the common case on CI, which starts from a
+ * clean checkout every run): ~5 s for the `tsc -p tsconfig.build.json`
+ * compile (measured locally; NOT the same artefact as, and NOT reused from,
+ * `pnpm --filter @crm/api build`'s own `dist/` — this really is a second
+ * compile, spelled out honestly here). Warm (cache fresh — the common case
+ * for a developer or agent re-running `pnpm test` repeatedly against
+ * unchanged sources): the freshness check itself, low tens of ms, no compile
+ * at all. `.compile()` itself is fast either way (tens of ms). Wired into the
+ * ordinary `pnpm test` (`vitest run`, no filter) like every other `*.spec.ts`
+ * in this package — no opt-in flag, no separate script, no `describe.skip`:
+ * the whole point of backlog #42 is that this class of bug is caught by an
+ * ORDINARY run, not an opt-in one.
  */
 
 const API_ROOT = join(__dirname, '..')
 const req = createRequire(join(API_ROOT, 'package.json'))
+const CACHE_DIR = join(API_ROOT, '.build-cache', 'dist')
+const LOCK_DIR = join(API_ROOT, '.build-cache', '.lock')
+const MARKER = join(CACHE_DIR, 'app.module.js')
+
+/** Every file this compile's OUTPUT depends on — walked fresh each run. */
+function inputFiles(): string[] {
+  const files: string[] = []
+  const walk = (dir: string) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name)
+      if (entry.isDirectory()) walk(full)
+      else files.push(full)
+    }
+  }
+  walk(join(API_ROOT, 'src'))
+  files.push(
+    join(API_ROOT, 'tsconfig.json'),
+    join(API_ROOT, 'tsconfig.build.json'),
+    join(API_ROOT, '..', '..', 'tsconfig.base.json'),
+  )
+  return files
+}
+
+/**
+ * Strictly newer than EVERY input, not just one — a single stale/missing
+ * input is enough to force a rebuild (see file doc, "WHERE IT BUILDS TO").
+ */
+function isCacheFresh(): boolean {
+  if (!existsSync(MARKER)) return false
+  const cacheMtime = statSync(MARKER).mtimeMs
+  return inputFiles().every((f) => statSync(f).mtimeMs < cacheMtime)
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Exclusive lock across processes sharing this worktree (see file doc).
+ *
+ * `mkdirSync` is atomic-exclusive ONLY without `{ recursive: true }` — with
+ * it, mkdir is `mkdir -p` semantics and returns success (not EEXIST) even
+ * when the directory already exists, which would make two concurrent
+ * callers BOTH believe they hold the lock (caught live during manual
+ * concurrency verification for this exact function — two `vitest run`
+ * processes launched back to back, second one crashed on `rmdir ENOENT`
+ * because the first had already removed the "shared" lock dir out from
+ * under it). The parent `.build-cache` directory is created separately,
+ * ONCE, with `recursive: true` — safe for multiple processes to race on,
+ * since creating an already-existing directory that way is a no-op, not a
+ * mutual-exclusion operation.
+ */
+async function withBuildLock<T>(fn: () => T): Promise<T> {
+  mkdirSync(join(API_ROOT, '.build-cache'), { recursive: true })
+  const deadline = Date.now() + 55_000
+  for (;;) {
+    try {
+      mkdirSync(LOCK_DIR)
+      break
+    } catch (err) {
+      if ((err as { code?: string }).code !== 'EEXIST') throw err
+      if (Date.now() > deadline) {
+        throw new Error(`[app.module.container.spec] timed out waiting for build lock ${LOCK_DIR}`)
+      }
+      await sleep(200)
+    }
+  }
+  try {
+    return fn()
+  } finally {
+    rmdirSync(LOCK_DIR)
+  }
+}
+
+function buildContainerTestDist(): void {
+  try {
+    execFileSync('pnpm', ['exec', 'tsc', '-p', 'tsconfig.build.json', '--outDir', CACHE_DIR], {
+      cwd: API_ROOT,
+      stdio: 'pipe',
+    })
+  } catch (err) {
+    const e = err as { stdout?: Buffer; stderr?: Buffer }
+    console.error(
+      '[app.module.container.spec] `tsc -p tsconfig.build.json` failed:\n',
+      e.stdout?.toString(),
+      e.stderr?.toString(),
+    )
+    throw err
+  }
+}
 
 describe('AppModule — the real DI container resolves (backlog #42, #504 regression class)', () => {
   let AppModule: new (...args: unknown[]) => object
@@ -184,11 +325,11 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
   let UsersService: new (...args: unknown[]) => object
   let TransactionsService: new (...args: unknown[]) => object
 
-  beforeAll(() => {
+  beforeAll(async () => {
     // Same required-var set `app.module.spec.ts` stubs (ConfigModule.forRoot's
     // `validate: validateEnv` runs the moment `app.module.ts` is evaluated —
-    // i.e. the instant `require('./dist/app.module.js')` below executes, so
-    // every var must exist before that line, not merely before `.compile()`).
+    // i.e. the instant `require(...)` below executes, so every var must exist
+    // before that line, not merely before `.compile()`).
     // `||=` (not `??=`): this repo's git-policy pushes feature branches as
     // `DATABASE_URL= git push` — an explicit EMPTY string the pre-push hook's
     // own `pnpm test` run inherits — and `??=` would leave that empty string
@@ -201,36 +342,23 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
     process.env['JWT_SECRET'] ||= 'x'.repeat(40)
     process.env['SESSION_SECRET'] ||= 'x'.repeat(40)
 
-    // Real `tsc` build (this package's own `tsconfig.build.json`,
-    // `emitDecoratorMetadata: true`) — see the file doc above for why nothing
-    // short of the actual compiled artefact can see this bug class under
-    // vitest. `pnpm exec` resolves the workspace-local `nest` binary the same
-    // way `pnpm --filter @crm/api build` does; `stdio: 'pipe'` keeps a
-    // passing run quiet, the catch block surfaces the real compiler output on
-    // failure instead of a bare non-zero exit code.
-    try {
-      execFileSync('pnpm', ['exec', 'nest', 'build'], { cwd: API_ROOT, stdio: 'pipe' })
-    } catch (err) {
-      const e = err as { stdout?: Buffer; stderr?: Buffer }
-      console.error(
-        '[app.module.container.spec] `nest build` failed:\n',
-        e.stdout?.toString(),
-        e.stderr?.toString(),
-      )
-      throw err
-    }
-
-    ;({ AppModule } = req(join(API_ROOT, 'dist/app.module.js'))) as { AppModule: typeof AppModule }
-    ;({ AdminSummaryService } = req(join(API_ROOT, 'dist/admin/admin-summary.service.js'))) as {
+    await withBuildLock(() => {
+      // Re-check freshness UNDER the lock: another process may have just
+      // finished building while this one was waiting, in which case there is
+      // nothing left to do (see file doc, "WHERE IT BUILDS TO").
+      if (!isCacheFresh()) buildContainerTestDist()
+    })
+    ;({ AppModule } = req(join(CACHE_DIR, 'app.module.js'))) as { AppModule: typeof AppModule }
+    ;({ AdminSummaryService } = req(join(CACHE_DIR, 'admin/admin-summary.service.js'))) as {
       AdminSummaryService: typeof AdminSummaryService
     }
-    ;({ AdminController } = req(join(API_ROOT, 'dist/admin/admin.controller.js'))) as {
+    ;({ AdminController } = req(join(CACHE_DIR, 'admin/admin.controller.js'))) as {
       AdminController: typeof AdminController
     }
-    ;({ UsersService } = req(join(API_ROOT, 'dist/users/users.service.js'))) as {
+    ;({ UsersService } = req(join(CACHE_DIR, 'users/users.service.js'))) as {
       UsersService: typeof UsersService
     }
-    ;({ TransactionsService } = req(join(API_ROOT, 'dist/finance/transactions.service.js'))) as {
+    ;({ TransactionsService } = req(join(CACHE_DIR, 'finance/transactions.service.js'))) as {
       TransactionsService: typeof TransactionsService
     }
   }, 60_000)
@@ -256,10 +384,10 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
     // gap by construction — see the file doc above), so the only way this
     // can fail to resolve is exactly backlog #42's class of bug: a required
     // dependency with no provider anywhere in the graph. A synthetic module
-    // wrapping ONLY the real (dist-compiled) controller — deliberately
-    // omitting `AdminSummaryService` from `providers`, the mistake #42
-    // exists to catch — reproduces that deterministically, every run, with
-    // zero mutation of any shipped file.
+    // wrapping ONLY the real (compiled) controller — deliberately omitting
+    // `AdminSummaryService` from `providers`, the mistake #42 exists to
+    // catch — reproduces that deterministically, every run, with zero
+    // mutation of any shipped file.
     @Module({ controllers: [AdminController as new (...args: never[]) => object] })
     class ProviderMissingProbeModule {}
 
