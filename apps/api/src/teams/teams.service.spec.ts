@@ -643,6 +643,252 @@ describe('TeamsService.mapTeam — JUNIOR viewer: SENIOR/DROP contacts masked', 
 })
 
 // ────────────────────────────────────────────────────────────────────────────
+// mapTeam / mapDropTeam — dangling `user: null` member (security-review PR
+// #541 round 3). Before this fix a team_members row whose joined `user`
+// relation is null PASSED the ADMIN/JUNIOR exclusion filter (neither
+// `undefined !== 'ADMIN'` nor `undefined !== 'JUNIOR'` excludes it) and then
+// defaulted to role 'SENIOR' (mapTeam) / 'DROP' (mapDropTeam) — the fail-OPEN
+// direction, opposite of the fail-CLOSED convention MEMBER-MASK-5
+// (senior-junior-member-mask.unit.spec.ts) pins for mapProject
+// (`m.user?.role ?? 'JUNIOR'`). Unreachable today while the FK holds, but the
+// direction matters if that ever changes — same defense-in-depth posture as
+// MEMBER-MASK-5 and DROP-BRANCH-MASK-1/2.
+// ────────────────────────────────────────────────────────────────────────────
+describe('TeamsService.mapTeam / mapDropTeam — dangling user: null member is excluded, not defaulted open', () => {
+  it('mapTeam: SENIOR-type team with a dangling member → excluded from members (real SENIOR member stays)', async () => {
+    const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
+    const danglingMember = {
+      id: 'm-dangling',
+      teamId: 'team-1',
+      userId: 'dangling-uuid',
+      leftAt: null,
+      joinedAt: new Date(),
+      user: null,
+    }
+    const team = makeTeam({
+      type: 'SENIOR',
+      seniorSharePercentOverride: null,
+      archivedAt: null,
+      telegram: null,
+      telegramChannel: null,
+      notes: null,
+      members: [seniorMember, danglingMember],
+    })
+    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', adminUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'dangling member must be excluded, not surfaced as a fake SENIOR').not.toContain(
+      'dangling-uuid',
+    )
+    expect(ids, 'the real SENIOR member is unaffected').toContain('senior-1')
+  })
+
+  it('mapDropTeam: DROP-type team with a dangling member → excluded from members (real HR member stays)', async () => {
+    const hrMember = makeMemberWithContacts('hr-1', 'HR')
+    const danglingMember = {
+      id: 'm-dangling-drop',
+      teamId: 'team-1',
+      userId: 'dangling-uuid-drop',
+      leftAt: null,
+      joinedAt: new Date(),
+      user: null,
+    }
+    const team = makeTeam({
+      type: 'DROP',
+      seniorSharePercentOverride: null,
+      archivedAt: null,
+      telegram: null,
+      telegramChannel: null,
+      notes: null,
+      members: [hrMember, danglingMember],
+    })
+    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', adminUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'dangling member must be excluded, not surfaced as a fake DROP').not.toContain(
+      'dangling-uuid-drop',
+    )
+    expect(ids, 'the real HR member is unaffected').toContain('hr-1')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// mapTeam — SENIOR/JUNIOR juniors-list masking (security-review PR #541 round 4,
+// mutation-gate follow-up). CI's mutation gate flagged `currentUser.role ===
+// 'JUNIOR'` / `=== 'SENIOR'` (line 107/109) as SURVIVED — this file had contact-
+// masking tests for the SAME method but never asserted on the juniors list
+// itself (which JUNIOR ids appear/disappear per viewer role). Confirmed real
+// (not a gate artifact): re-ran the same gate locally and grepped this whole
+// file for a "juniors" assertion — none existed before this block.
+// ────────────────────────────────────────────────────────────────────────────
+describe('TeamsService.mapTeam — SENIOR/JUNIOR juniors-list masking', () => {
+  // Two JUNIORs active on the same senior's project — junior-1 is `juniorUser`
+  // (the viewer in the "sees only self" case below), junior-2 is a teammate.
+  const projectWithTwoJuniors = {
+    id: 'proj-two-juniors',
+    seniorId: 'senior-1',
+    dropId: null,
+    archivedAt: null,
+    members: [
+      {
+        id: 'pm-junior-1',
+        userId: 'junior-1',
+        projectId: 'proj-two-juniors',
+        leftAt: null,
+        joinedAt: new Date(),
+        user: { id: 'junior-1', role: 'JUNIOR', displayName: 'Junior A', email: 'a@cc.com' },
+      },
+      {
+        id: 'pm-junior-2',
+        userId: 'junior-2',
+        projectId: 'proj-two-juniors',
+        leftAt: null,
+        joinedAt: new Date(),
+        user: { id: 'junior-2', role: 'JUNIOR', displayName: 'Junior B', email: 'b@cc.com' },
+      },
+    ],
+  }
+
+  it('JUNIOR viewer sees only themselves among juniors, not their teammate (pins line 107)', async () => {
+    const seniorMember = makeMember('senior-1', 'SENIOR')
+    const team = makeTeam({ members: [seniorMember] })
+    const db = makeDb({ team, teamList: [team], projectList: [projectWithTwoJuniors] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', juniorUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, "JUNIOR viewer sees their OWN entry ('junior-1' === juniorUser.id)").toContain(
+      'junior-1',
+    )
+    expect(ids, 'JUNIOR viewer does NOT see a teammate JUNIOR').not.toContain('junior-2')
+  })
+
+  it('SENIOR viewer sees ZERO juniors, not even their own project members (pins line 109)', async () => {
+    const seniorMember = makeMember('senior-1', 'SENIOR')
+    const team = makeTeam({ members: [seniorMember] })
+    const db = makeDb({ team, teamList: [team], projectList: [projectWithTwoJuniors] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', seniorUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'SENIOR viewer must not see junior-1').not.toContain('junior-1')
+    expect(ids, 'SENIOR viewer must not see junior-2').not.toContain('junior-2')
+  })
+
+  it('HR viewer sees BOTH juniors (positive control — juniors are not blanket-hidden for every non-JUNIOR role)', async () => {
+    const seniorMember = makeMember('senior-1', 'SENIOR')
+    const hrMember = makeMember('hr-1', 'HR')
+    const team = makeTeam({ members: [seniorMember, hrMember] })
+    const db = makeDb({ team, teamList: [team], projectList: [projectWithTwoJuniors] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', hrUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'HR viewer sees junior-1').toContain('junior-1')
+    expect(ids, 'HR viewer sees junior-2').toContain('junior-2')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
+// mapTeam / mapDropTeam — general members filter + role-field integrity
+// (security-review PR #541 round 4, mutation-gate follow-up). Pins:
+//   - an ADMIN-role static team member is excluded (line 150 / 195)
+//   - a JUNIOR-role static team member is excluded (line 151 / 195 — defense
+//     in depth; JUNIORs are handled exclusively via the derived juniors list)
+//   - a departed (leftAt set) member is excluded (line 152 / 195)
+//   - the `role` field on a surviving member reflects their REAL role, not a
+//     LogicalOperator mutation (`?? 'JUNIOR'` -> `&& 'JUNIOR'`) that would
+//     silently relabel every member as JUNIOR (line 168 / 231)
+// ────────────────────────────────────────────────────────────────────────────
+describe('TeamsService.mapTeam — general members filter (ADMIN/JUNIOR-static/departed excluded)', () => {
+  it('excludes ADMIN/JUNIOR-static/departed members; active SENIOR/HR stay with their REAL role', async () => {
+    const seniorMember = makeMember('senior-1', 'SENIOR')
+    const hrMember = makeMember('hr-1', 'HR')
+    const adminStaticMember = makeMember('admin-static-1', 'ADMIN')
+    const juniorStaticMember = makeMember('junior-static-1', 'JUNIOR')
+    const departedHr = makeMember('hr-departed-1', 'HR', new Date('2026-01-01'))
+    const team = makeTeam({
+      members: [seniorMember, hrMember, adminStaticMember, juniorStaticMember, departedHr],
+    })
+    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', adminUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'ADMIN-role static member excluded').not.toContain('admin-static-1')
+    expect(ids, 'JUNIOR-role static member excluded').not.toContain('junior-static-1')
+    expect(ids, 'departed HR excluded').not.toContain('hr-departed-1')
+    expect(ids, 'active SENIOR stays').toContain('senior-1')
+    expect(ids, 'active HR stays').toContain('hr-1')
+
+    const senior = result.members.find((m: { userId: string }) => m.userId === 'senior-1')
+    const hr = result.members.find((m: { userId: string }) => m.userId === 'hr-1')
+    expect(
+      (senior as Record<string, unknown> | undefined)?.['role'],
+      'SENIOR keeps its real role, not overwritten to JUNIOR',
+    ).toBe('SENIOR')
+    expect(
+      (hr as Record<string, unknown> | undefined)?.['role'],
+      'HR keeps its real role, not overwritten to JUNIOR',
+    ).toBe('HR')
+  })
+})
+
+describe('TeamsService.mapDropTeam — general members filter (ADMIN/JUNIOR-static/departed excluded)', () => {
+  it('excludes ADMIN/JUNIOR-static/departed members; active DROP/SENIOR stay with their REAL role', async () => {
+    const dropMember = makeMemberWithContacts('drop-1', 'DROP')
+    const seniorMember = makeMemberWithContacts('senior-1', 'SENIOR')
+    const adminStaticMember = makeMemberWithContacts('admin-static-1', 'ADMIN')
+    const juniorStaticMember = makeMemberWithContacts('junior-static-1', 'JUNIOR')
+    const departedHr = {
+      ...makeMemberWithContacts('hr-departed-1', 'HR'),
+      leftAt: new Date('2026-01-01'),
+    }
+    const team = makeTeam({
+      type: 'DROP',
+      seniorSharePercentOverride: null,
+      archivedAt: null,
+      telegram: null,
+      telegramChannel: null,
+      notes: null,
+      members: [dropMember, seniorMember, adminStaticMember, juniorStaticMember, departedHr],
+    })
+    const db = makeDb({ team, teamList: [team], projectList: [] })
+    const service = makeService(db)
+
+    const result = await service.findOne('team-1', adminUser)
+    const ids = result.members.map((m: { userId: string }) => m.userId)
+
+    expect(ids, 'ADMIN-role static member excluded').not.toContain('admin-static-1')
+    expect(ids, 'JUNIOR-role static member excluded').not.toContain('junior-static-1')
+    expect(ids, 'departed HR excluded').not.toContain('hr-departed-1')
+    expect(ids, 'active DROP stays').toContain('drop-1')
+    expect(ids, 'active SENIOR stays').toContain('senior-1')
+
+    const drop = result.members.find((m: { userId: string }) => m.userId === 'drop-1')
+    const senior = result.members.find((m: { userId: string }) => m.userId === 'senior-1')
+    expect(
+      (drop as Record<string, unknown> | undefined)?.['role'],
+      'DROP keeps its real role, not overwritten to JUNIOR',
+    ).toBe('DROP')
+    expect(
+      (senior as Record<string, unknown> | undefined)?.['role'],
+      'SENIOR keeps its real role, not overwritten to JUNIOR',
+    ).toBe('SENIOR')
+  })
+})
+
+// ────────────────────────────────────────────────────────────────────────────
 // mapDropTeam — JUNIOR viewer: SENIOR/DROP contacts masked (RBAC A01 2026-06-10)
 //
 // Drop-teams render via mapDropTeam (team.type === 'DROP'). A JUNIOR can reach a

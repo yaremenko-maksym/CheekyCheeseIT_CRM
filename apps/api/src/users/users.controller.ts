@@ -273,7 +273,10 @@ export class UsersController {
     if (!viewer || !target) throw new ForbiddenException()
     const permissions = await this.accessService.getViewPermissions(viewer, target)
     if (!permissions.tabs.includes('team')) throw new ForbiddenException()
-    return this.usersService.getTeamMembersForUser(id)
+    // security-review PR #541 follow-up (HIGH): viewer.role threaded through
+    // so getTeamMembersForUser can mask JUNIOR identity from a SENIOR viewer
+    // (including SENIOR self-view — this is that self-view's data source).
+    return this.usersService.getTeamMembersForUser(id, viewer.role)
   }
 
   @Get(':id/audit-log')
