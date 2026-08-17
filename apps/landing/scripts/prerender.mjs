@@ -967,6 +967,17 @@ function assertNoHomeJsonLdLeak(html, route) {
  * some future refactor of `routes/__root.tsx`'s `notFoundComponent`
  * accidentally reused home's copy.
  *
+ * Two checks, not three (review round 1: a third "notFoundCanonical !==
+ * homeHtml's canonical" check used to sit after this one — dead code,
+ * unreachable in practice and uncovered, because the canonical check
+ * below already pins `notFoundCanonical` to the EXACT literal string
+ * `${SITE_ORIGIN}/404/`; a real home page's canonical is never that
+ * string, so "not equal to home's canonical" was already a guaranteed
+ * consequence of the exact-match check, never an independent condition —
+ * removed rather than given a contrived test for a branch that could only
+ * ever fire if home's OWN canonical generation broke in a way this
+ * function has no business detecting).
+ *
  * @param {string} notFoundHtml
  * @param {string} homeHtml
  * @returns {void}
@@ -989,12 +1000,6 @@ function assertNotFoundDoesNotImpersonateHome(notFoundHtml, homeHtml) {
     throw new Error(
       `prerender: 404.html canonical is "${notFoundCanonical ?? '(missing)'}", expected ` +
         `"${expectedNotFoundCanonical}" (task-soft-404-and-noindex.md AC1).`,
-    )
-  }
-  if (notFoundCanonical === canonicalOf(homeHtml)) {
-    throw new Error(
-      "prerender: 404.html's canonical must not equal the home page's canonical " +
-        '(task-soft-404-and-noindex.md AC1).',
     )
   }
 }
@@ -1266,13 +1271,22 @@ async function main() {
 
     // AC1 (task-soft-404-and-noindex.md) — belt-and-suspenders alongside
     // the nginx-level routing fix (nginx/conf.d/landing.conf): the 404
-    // document itself must never be able to pass as home. Reads
-    // `dist/index.html` back rather than closing over a variable from the
-    // loop above, so this checks the exact bytes that were actually
-    // written to disk (what a client would actually receive), not an
-    // in-memory value that might have drifted from it.
-    const homeHtml = await readFile(path.join(DIST, 'index.html'), 'utf8')
-    assertNotFoundDoesNotImpersonateHome(notFoundHtml, homeHtml)
+    // document itself must never be able to pass as home. Re-reads BOTH
+    // sides off disk (review round 1: the first version re-read only
+    // `homeHtml`, comparing it against the in-memory `notFoundHtml`
+    // variable from `captureRoute()` above — an asymmetry that, however
+    // harmless today, made the gate's whole justification ("checks what
+    // would actually ship") only half true; the value of reading from disk
+    // is exactly that it does not trust an in-memory value some future
+    // refactor could let drift from what actually got written) — this
+    // checks the exact bytes a client would actually receive for BOTH
+    // documents, not values that merely flowed through this function's own
+    // closure.
+    const [writtenNotFoundHtml, homeHtml] = await Promise.all([
+      readFile(path.join(DIST, '404.html'), 'utf8'),
+      readFile(path.join(DIST, 'index.html'), 'utf8'),
+    ])
+    assertNotFoundDoesNotImpersonateHome(writtenNotFoundHtml, homeHtml)
   } finally {
     // Guarded with `?.`/truthiness checks on purpose — this must run (and
     // succeed) no matter which of `chromium.launch()` / `preview()` / the

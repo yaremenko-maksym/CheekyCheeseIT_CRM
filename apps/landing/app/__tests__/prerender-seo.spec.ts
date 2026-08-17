@@ -97,25 +97,38 @@ describe('buildRoutes', () => {
   })
 
   it(
-    'task-soft-404-and-noindex.md AC2 — a vacancy unpublished/removed since a PRIOR build (present ' +
-      'in dist from that build, absent from the CURRENT vacancies list) gets neither a route nor a ' +
-      'sitemap entry this run — its stale URL is a dead file on disk with nothing advertising it, so ' +
-      'the routing fix (nginx =404) is what a request to it actually hits',
+    'task-soft-404-and-noindex.md AC2 — a vacancy present in an EARLIER build call is gone from a ' +
+      'LATER call whose vacancies list no longer includes it (review round 1: the original version of ' +
+      'this test asserted the absence of a slug that was never in the input to begin with — ' +
+      'structurally unable to go red. This one first proves the slug DOES produce a route/sitemap ' +
+      'entry when it IS published, then proves a later call — same functions, no fresh import — ' +
+      'drops it once it no longer is; a regression that made either function leak state across calls ' +
+      '(e.g. an accidental module-level cache keyed by slug) would turn the second half red)',
     () => {
-      // "a previous build" is simulated by simply never including 'retired-role'
-      // in THIS run's vacancies — buildRoutes/buildSitemapXml only ever see the
-      // current list, by construction, so a removed slug cannot leak into
-      // either regardless of what an earlier deploy's dist/ still has on disk.
+      const priorVacancies = [
+        { slug: 'still-open', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
+        { slug: 'retired-role', publishedAt: '2026-06-01T00:00:00.000Z', isFallback: false },
+      ]
+      const priorRoutes = buildRoutes(priorVacancies)
+      expect(priorRoutes.some((r) => r.url.includes('retired-role'))).toBe(true)
+      const priorSitemap = buildSitemapXml(priorVacancies, '2026-07-01T00:00:00.000Z')
+      expect(priorSitemap).toContain('careers/retired-role/')
+
+      // "the current build" — retired-role is now unpublished/removed, so
+      // this run's vacancies list (what the API actually returns) no
+      // longer includes it. Its stale URL is a dead file on disk with
+      // nothing advertising it — the routing fix (nginx `=404`) is what a
+      // request to it actually hits.
       const currentVacancies = [
         { slug: 'still-open', publishedAt: '2026-07-01T00:00:00.000Z', isFallback: false },
       ]
-      const routes = buildRoutes(currentVacancies)
-      expect(routes.some((r) => r.url.includes('retired-role'))).toBe(false)
-      expect(routes.some((r) => r.url.includes('still-open'))).toBe(true)
+      const currentRoutes = buildRoutes(currentVacancies)
+      expect(currentRoutes.some((r) => r.url.includes('retired-role'))).toBe(false)
+      expect(currentRoutes.some((r) => r.url.includes('still-open'))).toBe(true)
 
-      const sitemap = buildSitemapXml(currentVacancies, '2026-08-17T00:00:00.000Z')
-      expect(sitemap).not.toContain('retired-role')
-      expect(sitemap).toContain('careers/still-open/')
+      const currentSitemap = buildSitemapXml(currentVacancies, '2026-08-17T00:00:00.000Z')
+      expect(currentSitemap).not.toContain('retired-role')
+      expect(currentSitemap).toContain('careers/still-open/')
     },
   )
 
