@@ -3900,6 +3900,46 @@ export class TransactionsService {
       // per-tx payable as scaled integer minor units (×1_000_000), convert that
       // integer to USDT minor units, sum, then divide once at the end — one
       // rounding event per income rather than per float op.
+      // ── SECURITY (task-finance-fix-wave1, D-3): never bake a FALLBACK rate
+      // into these amounts. `getRates()` above does not throw when the feed is
+      // down — it returns HARDCODED_FALLBACK with `stale: true` — and the
+      // figures computed below go straight into `payout_requests` by an
+      // irreversible INSERT. They are not a display value that self-corrects on
+      // the next read: `payPayoutRequest` requires the on-chain transfer to
+      // match `payableAmount` EXACTLY (no percentage band), so a made-up rate
+      // makes the payout either unpayable or payable at the wrong amount.
+      //
+      // The two conditions mirror `settleByCompany`
+      // (pending-settlement.service.ts) deliberately, rather than inventing a
+      // stricter rule here:
+      //
+      //   1. `stale && rateDate === undefined` — refuse ONLY a genuine outage.
+      //      A weekend or bank holiday also yields `stale: true`, but WITH a
+      //      real `rateDate` (an actual NBU publication from the nearest prior
+      //      business day) — exact and final. Refusing that would block payouts
+      //      on ordinary non-working days for no gain.
+      //   2. only when a rate is actually APPLIED. `convertToUsdtMinor` is the
+      //      identity for USDT and USD (1:1 peg), so a batch denominated only
+      //      in those needs no rate at all and must go through even with NBU
+      //      completely unavailable — refusing it would break the common case
+      //      while fixing the rare one.
+      //
+      // The caller can retry once NBU recovers; nothing has been written yet
+      // (this throw rolls the surrounding transaction back before any INSERT).
+      //
+      // NOT recorded: which rate produced a stored amount. `payout_requests`
+      // has no column for the rate, its date or a note, so an accepted
+      // conversion leaves no provenance behind — see the task report (AC10);
+      // adding one is a schema change, deliberately out of scope here.
+      const needsRateConversion = lockedRows.some(
+        (tx) => tx.currency !== 'USDT' && tx.currency !== 'USD',
+      )
+      if (needsRateConversion && rateResult.stale && rateResult.rateDate === undefined) {
+        throw new BadRequestException(
+          'Курс НБУ недоступен — сумма выплаты в USDT не может быть рассчитана. Повторите позже.',
+        )
+      }
+
       const SCALE = 1_000_000
       let incomeUsdtMinor = 0
       let payableUsdtMinor = 0

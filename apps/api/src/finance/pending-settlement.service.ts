@@ -576,11 +576,26 @@ export class PendingSettlementService {
         // obtained from a real NBU publication, is exact and final — it is
         // not "stale" in the sense this gate exists to catch, and refusing
         // it would make a past date permanently unsettleable whenever it
-        // happens to land on a bank holiday. Every OTHER `getRates`
-        // consumer only feeds a stale rate into a DISPLAY value that
-        // self-corrects on the next read (a balance, a summary card). This
-        // is the first one to bake it into a PERMANENT, irreversible payout
-        // figure — refuse case (b) rather than silently commit a possibly
+        // happens to land on a bank holiday.
+        //
+        // CORRECTED (task-finance-fix-wave1, D-3): this comment used to claim
+        // that every OTHER `getRates` consumer only feeds a stale rate into a
+        // DISPLAY value that self-corrects on the next read, and that this
+        // settle path was the first to bake one into a permanent figure. That
+        // was FALSE, and the false claim cost real time — an audit read it as
+        // evidence that no other path needed the gate, and only a second look
+        // found the counter-example: `createPayoutRequest`
+        // (transactions.service.ts) converts EUR/UAH incomes to USDT and writes
+        // the result into `payout_requests.incomeAmount/payableAmount` by an
+        // irreversible INSERT, and `payPayoutRequest` then requires the on-chain
+        // transfer to match `payableAmount` EXACTLY. It has the same gate now.
+        // The honest statement is narrower: the rate-consuming paths that write
+        // a PERMANENT amount are this one and `createPayoutRequest`, and both
+        // refuse case (b); the remaining consumers (balances, summary cards)
+        // are display-only. Before adding a consumer, check which group it is
+        // in — do not assume this comment still enumerates them all.
+        //
+        // Refuse case (b) rather than silently commit a possibly
         // wrong amount to money that cannot be un-paid. The ADMIN/ACCOUNTANT
         // can retry once NBU recovers, or settle in the obligation's own
         // currency (USDT) right now, which never needs a rate at all.
