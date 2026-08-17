@@ -88,6 +88,37 @@ different DDL files in the same step, which is not this repo's convention
 would itself be a readability smell worth catching in review before it reached
 this guard.
 
+REVIEW ROUND 2 FIXES (task-ddl-guard-and-ci-noise, 2026-08-17) — two more gaps
+in the item-67 fix above, both found by fixture, both in the direction this
+guard is supposed to lean AWAY from (a guard refusing something LEGITIMATE —
+worse than staying quiet, because a false-red guard trains people to stop
+reading it, which is how #422 happened in the first place):
+
+  MED-1 — VAR_ASSIGN_RE only matched double-quoted assignments
+  (`VAR="/opt/crm/...sql"`). deploy.yml's `..._FILE=` assignments are all
+  double-quoted today (24/24, grepped) but scp `source:` values in this same
+  file routinely use SINGLE quotes, and a single-quoted `..._FILE=` assignment
+  is equally valid bash — a file wired that way reported `COPIED BUT NEVER
+  APPLIED` despite being genuinely applied. VAR_ASSIGN_RE now accepts either
+  quote style. Test: "single-quote apply assignment" case.
+
+  MED-2 — variable resolution was scoped to a single Step object, so
+  `DDL_FILE="/opt/crm/.../x.sql"` in one step followed by `psql ... <
+  "$DDL_FILE"` in a LATER step of the SAME job reported the same false
+  `COPIED BUT NEVER APPLIED` — even though cross-step data flow via
+  `$GITHUB_ENV` (assign in step N, `echo "VAR=$VAR" >> "$GITHUB_ENV"`, read in
+  step N+k) is ordinary GitHub Actions and this file already uses the sibling
+  idiom (`steps.X.outputs.Y`) on the COPY side. `build_zones()` now accumulates
+  a `var_files` dict per JOB (not per step), in file order, across every step
+  of that job — resolution stops at job boundaries because GitHub Actions env
+  vars do not cross them (each job is a fresh runner). Test: "cross-step
+  $GITHUB_ENV apply assignment" case. Does NOT change today's real deploy.yml
+  behavior: its apply side is still one monolithic `run:` block per the module
+  docstring above, so every assignment and every psql call already shared one
+  Step; this fix only matters if that block is ever split into named steps —
+  which the copy side already is, making it the more natural refactor to
+  expect eventually, not a hypothetical.
+
 REVERSE INVARIANT (security-review, PR #517) — apps/api/drizzle/manual-private/
 ---------------------------------------------------------------------------------
 apps/api/drizzle/manual-private/ holds SQL meant to be run BY HAND on the VPS,
@@ -292,11 +323,23 @@ def strip_trailing_comment(line):
     return line
 
 
+# A job-name key: `  <job-id>:` at exactly 2-space indent under top-level
+# `jobs:` (indent 0) — one level shallower than anything inside a job (steps
+# live at indent 6+, job-level keys like `runs-on:`/`env:`/`steps:` at 4).
+# Same "not a full YAML parse, indentation is consistent 2-space, that's
+# enough" reasoning as STEP_START_RE above — used ONLY to scope cross-step
+# variable resolution (resolve_applied_files) to a single JOB, since GitHub
+# Actions env propagation (`$GITHUB_ENV`) does not cross job boundaries (each
+# job is a fresh runner).
+JOB_KEY_RE = re.compile(r"^  [A-Za-z0-9_-]+:\s*$")
+
+
 class Step(object):
-    def __init__(self, indent):
+    def __init__(self, indent, job_id):
         self.indent = indent
         self.lines = []  # comment-only lines dropped, trailing comments stripped
         self.step_id = None
+        self.job_id = job_id  # groups steps for cross-step var resolution
 
     @property
     def text(self):
@@ -313,12 +356,15 @@ def parse_steps(content):
     """
     steps = []
     current = None
+    job_id = 0
     for raw in content.splitlines():
         if COMMENT_LINE_RE.match(raw):
             continue
+        if JOB_KEY_RE.match(raw):
+            job_id += 1
         m = STEP_START_RE.match(raw)
         if m:
-            current = Step(len(m.group(1)))
+            current = Step(len(m.group(1)), job_id)
             steps.append(current)
         elif current is not None:
             stripped = raw.strip()
@@ -400,7 +446,17 @@ def evidence_lines(text):
 # `FOO_FILE="/opt/crm/.../a.sql"` assignments followed, much later in the same
 # STEP, by several independent `docker compose ... psql ... < "$FOO_FILE"`
 # invocations, one per file.
-VAR_ASSIGN_RE = re.compile(r'^\s*([A-Za-z_][A-Za-z0-9_]*)="(/opt/crm/[^"]*)"\s*$')
+# Both quote styles are real: deploy.yml's `..._FILE=` assignments are all
+# double-quoted today (24/24, grepped), but its scp `source:` values are
+# routinely SINGLE-quoted (`source: 'apps/api/drizzle/manual/x.sql'`) — single
+# quotes are ordinary, valid bash for this exact shape. Double-quote-only
+# matching here produced a FALSE `COPIED BUT NEVER APPLIED` on any apply
+# assignment written with single quotes (review round 2, MED-1) — the guard
+# refusing something legitimate, which is worse than staying quiet, because a
+# false-red guard trains people to stop reading it.
+VAR_ASSIGN_RE = re.compile(
+    r"^\s*([A-Za-z_][A-Za-z0-9_]*)=(?:\"(/opt/crm/[^\"]*)\"|'(/opt/crm/[^']*)')\s*$"
+)
 
 
 def join_logical_commands(lines):
@@ -426,12 +482,12 @@ def join_logical_commands(lines):
     return logical
 
 
-def resolve_applied_files(step):
+def resolve_applied_files(step, var_files):
     """Server-side paths this step's psql invocation(s) genuinely consume.
 
-    Until this fix, ANY line containing `/opt/crm` inside a step that ran
-    psql ANYWHERE counted as "applied" — so a dead `OTHER_FILE="/opt/crm/.../
-    dead.sql"` assignment, written and never referenced again, was
+    Until the item-67 fix, ANY line containing `/opt/crm` inside a step that
+    ran psql ANYWHERE counted as "applied" — so a dead `OTHER_FILE="/opt/crm/
+    .../dead.sql"` assignment, written and never referenced again, was
     indistinguishable from the real `DDL_FILE="/opt/crm/.../real.sql"` that a
     `psql ... < "$DDL_FILE"` call three sections later actually reads. Found
     on this guard's own known-limitations paragraph (module docstring above),
@@ -441,15 +497,27 @@ def resolve_applied_files(step):
     joined) command as an actual psql invocation — either directly (a literal
     `/opt/crm/....sql` argument, e.g. `-f /opt/crm/.../x.sql`) or indirectly
     through a shell variable referenced on that command (`< "$VAR"`) whose
-    assignment (anywhere earlier in the step) is a `/opt/crm/....sql` path.
-    A variable that is assigned but never referenced by a psql-invoking
-    command resolves to nothing — exactly the dead-assignment case above.
+    assignment is a `/opt/crm/....sql` path. A variable that is assigned but
+    never referenced by a psql-invoking command resolves to nothing — exactly
+    the dead-assignment case above.
+
+    `var_files` (review round 2, MED-2): a dict the CALLER accumulates and
+    mutates across every step of the same JOB, in file order — not rebuilt
+    fresh per step. deploy.yml's copy side already uses cross-step data flow
+    (`source: '${{ steps.X.outputs.source_list }}'`, handled separately in
+    build_zones via STEPS_EXPR_RE); the apply side's idiomatic equivalent is
+    `echo "VAR=value" >> "$GITHUB_ENV"` in one step making `$VAR` available to
+    every LATER step of the same job. Scoping resolution to a single Step
+    object made that shape (assign in step 1, apply in step 3) a false
+    `COPIED BUT NEVER APPLIED` — the guard refusing legitimate wiring, which
+    is worse than staying quiet (a false-red guard trains people to stop
+    reading it). This function updates `var_files` with THIS step's own
+    assignments before resolving, so later calls in the same job see them.
     """
-    var_files = {}
     for ln in step.lines:
         m = VAR_ASSIGN_RE.match(ln)
         if m:
-            var_files[m.group(1)] = m.group(2)
+            var_files[m.group(1)] = m.group(2) if m.group(2) is not None else m.group(3)
 
     applied = set()
     for cmd in join_logical_commands(step.lines):
@@ -474,6 +542,12 @@ def build_zones(steps):
 
     copy_texts = []
     apply_texts = []
+    # Job-scoped, cumulative var-assignment maps (MED-2 fix — see
+    # resolve_applied_files docstring). Reset whenever job_id changes; steps
+    # is already in file order, so iterating it in order and keying by
+    # job_id reproduces "every step so far in THIS job", never crossing into
+    # a different job (GitHub Actions env vars do not cross job boundaries).
+    job_var_files = {}
     for step in steps:
         if "appleboy/scp-action" in step.text:
             for value in source_values(step):
@@ -485,7 +559,8 @@ def build_zones(steps):
                     if producer is not None:
                         copy_texts.extend(evidence_lines(producer.text))
 
-        apply_texts.extend(resolve_applied_files(step))
+        var_files = job_var_files.setdefault(step.job_id, {})
+        apply_texts.extend(resolve_applied_files(step, var_files))
 
     return copy_texts, apply_texts
 

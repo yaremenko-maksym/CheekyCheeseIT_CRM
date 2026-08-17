@@ -65,16 +65,45 @@ if [ -z "${DATABASE_URL:-}" ] || [ -z "${REDIS_URL:-}" ]; then
   exit 64
 fi
 
-case "$DATABASE_URL" in
-  *"/crm_db"*localhost:5432* | *localhost:5432*"/crm_db"*)
-    if [ "${ALLOW_DEFAULT_DB:-}" != "1" ]; then
-      echo "run-landing-e2e-local: DATABASE_URL looks like the docker-compose DEFAULT (crm_db on :5432)." >&2
-      echo "This script runs db:push + db:seed + a landing fixture seed against it — never point it at your live dev DB." >&2
-      echo "Point DATABASE_URL at a scratch postgres instance, or set ALLOW_DEFAULT_DB=1 to override (not recommended)." >&2
-      exit 64
-    fi
-    ;;
-esac
+# Danger check — MATCH ON DATABASE NAME, NOT HOST SPELLING (review round 2,
+# HIGH-1, 2026-08-17). The original version matched the literal substring
+# "localhost:5432" — `...@127.0.0.1:5432/crm_db` (a completely ordinary way
+# to write "this machine", and how docker-compose's own port mapping is
+# reached from a lot of tooling) sailed straight through. Worse: this
+# machine actually runs TWO live Postgres servers on port 5432 at once
+# (homebrew AND the docker-compose one), and BOTH of them have a database
+# literally named `crm_db` — so no amount of enumerating host spellings
+# (localhost / 127.0.0.1 / ::1 / [::1] / a container name / a bare hostname
+# with no port, meaning the driver default 5432) would have been a complete
+# fix; the host is not actually a useful signal here. What every one of
+# those routes has in common is the DATABASE NAME, which is what `db:push` +
+# `db:seed` below actually write against — so that's what this now checks:
+# the URL's path component (query string stripped), regardless of how the
+# host before it is spelled or whether a port is even present.
+#
+# This is a deliberately ASYMMETRIC check: matching on name alone is enough
+# to call a URL DANGEROUS (any reachable server with a database literally
+# named `crm_db` is treated as live/production-adjacent, full stop), but is
+# NOT proof that any other name is safe (`crm_qa` exists on both of this
+# machine's servers too, and may be a shared, currently-in-use QA database —
+# this check does not vouch for it, it only refuses the one name every
+# default in this repo — docker-compose.yml's POSTGRES_DB, .env.example's
+# DATABASE_URL — actually spells out).
+db_name_from_url() {
+  local url="$1"
+  local no_query="${url%%\?*}"
+  printf '%s' "${no_query##*/}"
+}
+
+DB_NAME="$(db_name_from_url "$DATABASE_URL")"
+if [ "$DB_NAME" = "crm_db" ] && [ "${ALLOW_DEFAULT_DB:-}" != "1" ]; then
+  echo "run-landing-e2e-local: DATABASE_URL's database name is 'crm_db' — the live/default one" >&2
+  echo "(docker-compose.yml POSTGRES_DB, .env.example DATABASE_URL). Host spelling does not matter:" >&2
+  echo "this machine has a 'crm_db' database on BOTH its Postgres servers on :5432 (homebrew AND docker)." >&2
+  echo "This script runs db:push + db:seed + a landing fixture seed against it — never point it at your live dev DB." >&2
+  echo "Point DATABASE_URL at a scratch database (any other name), or set ALLOW_DEFAULT_DB=1 to override (not recommended)." >&2
+  exit 64
+fi
 
 API_PORT="${API_PORT:-3001}"
 THROTTLER_LIMIT="${THROTTLER_LIMIT:-2000}"
@@ -99,6 +128,15 @@ echo "==> db:push + db:seed (scratch DB — $DATABASE_URL)"
 pnpm --filter @crm/api db:push || exit 1
 pnpm --filter @crm/api db:seed || exit 1
 
+# FRONTEND_URL / CORS_ORIGINS below deliberately DIVERGE from ci.yml's
+# landing-shard job-level env (http://localhost:3000 there — the apps/web CRM
+# origin). This script never starts apps/web; the only browser origin that
+# ever calls the API in this run is apps/landing's preview server on :3002
+# (hardcoded — see apps/landing/vite.config.ts). Review round 2, LOW-1:
+# functionally inert either way (the E2E browser reaches the API through
+# apps/landing's own /api proxy — VITE_PROXY_API_TARGET below — not a direct
+# cross-origin fetch, so CORS never actually engages on this path), but
+# :3002 is the value that is actually true for what THIS script starts.
 echo "==> Starting API on :$API_PORT (THROTTLER_LIMIT=$THROTTLER_LIMIT, THROTTLE_RELAXED=true — same as ci.yml's landing shard)"
 DATABASE_URL="$DATABASE_URL" \
   REDIS_URL="$REDIS_URL" \
