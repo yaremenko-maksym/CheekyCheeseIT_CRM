@@ -400,6 +400,12 @@ export class FinanceSummaryController {
     private readonly nbu: NbuCurrencyService,
   ) {}
 
+  // No @Roles here on purpose (see the class-level comment above) — RolesGuard
+  // is effectively a NO-OP for this route (it returns true when no @Roles
+  // metadata is present), so the REAL RBAC gate is the ForbiddenException at
+  // the top of `TransactionsService.getSummary`. Do not "clean up" by
+  // removing that service-side check as a supposed duplicate of the guard —
+  // it is the only gate this route has.
   @Get('summary')
   getSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getSummary(user)

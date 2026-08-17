@@ -5102,15 +5102,66 @@ export class TransactionsService {
     // partner/drop balance arrays expose payment-routing config (partner +
     // DROP display names alongside their accumulated balances). ACCOUNTANT
     // needs the economic P&L surface (income/expenses/salaries/net + monthly)
-    // for /crm/stats + the финансовый хаб, but NOT the per-partner / per-drop
-    // balances — those are ADMIN-only and the ACCOUNTANT UI already hides them
-    // (#214 removed the drop-balances panel; #215 gates the balance sections on
-    // /crm/stats to ADMIN). We therefore stop sending them on the wire too:
-    // ADMIN keeps the full arrays (no regression), ACCOUNTANT gets empty arrays
-    // (`[]`). Empty — not omitted — because `financeSummarySchema.adminBalances`
-    // is a required array, so the existing FinanceSummaryDto parse on the client
-    // stays valid for both roles.
-    const canSeeBalances = currentUser.role === 'ADMIN'
+    // for /crm/stats + the финансовый хаб, but NOT the per-drop balances —
+    // those stay ADMIN-only and the ACCOUNTANT UI still hides that panel
+    // (#214 removed the drop-balances panel; #215 gates it on /crm/stats to
+    // ADMIN). `canSeeDropBalances` still gates on `[]` for anyone but ADMIN.
+    const canSeeDropBalances = currentUser.role === 'ADMIN'
+
+    // task-accountant-sees-admin-balances (2026-08-17, owner decision) — THIS
+    // IS A DELIBERATE REVERSAL of the #214/#215 zeroing above, NOT a
+    // regression. Do not "restore" `adminBalances: []` for ACCOUNTANT without
+    // re-reading this comment.
+    //
+    // What changed: `assertCanReadAdminBalance` (balance.service.ts) already
+    // lets ACCOUNTANT read ANY admin's personal balance via
+    // GET /balances/admin/:id. Until PR #551, that endpoint was structurally
+    // dead for this purpose — `getAdminBalance` summed ADMIN_INCOME_CASH /
+    // ADMIN_INCOME_CRYPTO, transaction types nothing in prod ever creates, so
+    // it always returned 0. #551's fix C-2 corrected that computation, which
+    // made the contradiction live: an ACCOUNTANT can now pull a real, non-zero
+    // personal balance for any admin one-by-one through that endpoint, while
+    // this summary kept zeroing the SAME field (`adminBalances`) — two screens
+    // disagreeing about a decision that was already made in the endpoint's
+    // favor. Flagged by security-review on #551 (SEC-3).
+    //
+    // Owner resolution: keep the endpoint access; stop zeroing here so the
+    // summary matches it. Scope is narrow — `adminBalances` (personal admin
+    // balances) ONLY. `dropBalances` is a different, still-live #214/#215
+    // decision (see `canSeeDropBalances` above) and is UNCHANGED.
+    //
+    // "Matches it" above is about ACCESS, not VALUES — do not read this as a
+    // promise that the two screens show the same NUMBER. `adminBalances`
+    // below computes the HOLDING model (all received across PAYOUT_ADMIN /
+    // ADMIN_INCOME / ADMIN_TRANSFER / PAYOUT_CONFIRMED, minus ALL paid sends).
+    // `getAdminBalance` (balance.service.ts, untouched here) computes a
+    // narrower phase-4 personal-credit slice (ADMIN_INCOME_CASH/CRYPTO +
+    // DIVIDEND_TO_ADMIN, minus paid EXPENSE) — PR #551 itself calls this a
+    // "materially different, broader metric" than the endpoint. #551 is still
+    // open as of this comment, so if this PR ships first the two figures can
+    // diverge at their widest. Reconciling the two MODELS into one number is
+    // a separate, not-yet-scoped decision — this task only reconciles WHO may
+    // see `adminBalances`, not what it computes.
+    //
+    // Deliberately a bare literal, NOT `currentUser.role === 'ADMIN' ||
+    // currentUser.role === 'ACCOUNTANT'`. That re-check would be an
+    // equivalent-mutant magnet: the RBAC guard at the top of this method
+    // already throws ForbiddenException for every role except ADMIN and
+    // ACCOUNTANT, so a re-check here can never observably differ from `true`
+    // — and a `// Stryker disable next-line ConditionalExpression` comment on
+    // that OR expression does not target the specific `→true` mutant, it
+    // suppresses EVERY ConditionalExpression mutant Stryker generates on that
+    // line: the equivalent `→true` AND the three real, killed mutants
+    // (`→false` on the whole expression, and `→false` on each operand) go
+    // dark together (review round 2 on this task's own PR; the same
+    // line×mutator suppression scope caught 8 mutants for 2 intended ones on
+    // PR #531 — see the mutation-gate backlog item). Writing the guaranteed
+    // value directly removes the equivalent mutant instead of hiding it: the
+    // only mutant left is `true → false` (BooleanLiteral), which IS real —
+    // flipping it empties `adminBalances` for actual ADMIN/ACCOUNTANT
+    // callers, which the `getSummary` unit spec already asserts against — so
+    // it needs no suppression at all.
+    const canSeeAdminBalances = true
 
     // Scaled-integer constant used throughout aggregations below to avoid
     // JS float accumulation errors. Aliased to the module-level `MONEY_SCALE`
@@ -5206,10 +5257,25 @@ export class TransactionsService {
     // ТРОГАТЬ — manual flow живёт параллельно"). Senior-only / legacy admin
     // balance values are unchanged because they never produce PAYOUT_CONFIRMED
     // rows.
-    // ACCOUNTANT does not receive the balance arrays (see `canSeeBalances`
-    // above) — skip the extra DB reads + aggregation entirely and return `[]`
-    // for both. ADMIN keeps the full, unchanged computation below.
-    const adminBalances = !canSeeBalances
+    // ACCOUNTANT now sees this too (see `canSeeAdminBalances` above —
+    // deliberate #214/#215 reversal, 2026-08-17). Roles that fail the RBAC
+    // guard at the top of this method never reach here at all.
+    //
+    // No `archivedAt` filter here — EXPLICIT, not an oversight (review round
+    // 2, LOW-1): `eq(users.role, 'ADMIN')` alone includes archived admins,
+    // exactly as it already did before this PR for the ADMIN viewer — this
+    // task widens WHO can see the array, it does not change WHAT rows are in
+    // it. An archived admin can still carry a nonzero HOLDING balance the
+    // company owes or holds (departure ≠ automatic zero-out/settlement), so
+    // dropping the row would hide money that still needs reconciling — the
+    // accountant's job. `getAdminBalance` (balance.service.ts) has no
+    // archived check either, so the per-admin endpoint ACCOUNTANT already
+    // used would return the same figure for an archived admin regardless.
+    // If archived admins should ever be hidden from this array, that is a
+    // separate, undocumented-today business decision (nothing in
+    // docs/business/ addresses it) — not bundled into this task's narrow
+    // scope of "who may see `adminBalances`".
+    const adminBalances = !canSeeAdminBalances
       ? []
       : (
           await this.db.db.query.users.findMany({
@@ -5258,8 +5324,10 @@ export class TransactionsService {
     // away here so `financeSummarySchema.dropBalances` and its existing unit
     // tests stay byte-for-byte identical.
     //
-    // ACCOUNTANT gets `[]` (see `canSeeBalances`); ADMIN keeps the full list.
-    const dropBalances = !canSeeBalances
+    // ACCOUNTANT still gets `[]` here (see `canSeeDropBalances` above — this
+    // half of #214/#215 is UNCHANGED by the adminBalances reversal); ADMIN
+    // keeps the full list.
+    const dropBalances = !canSeeDropBalances
       ? []
       : (
           await this.db.db.query.users.findMany({
