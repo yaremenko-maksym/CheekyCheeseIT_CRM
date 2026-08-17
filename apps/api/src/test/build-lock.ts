@@ -1,6 +1,6 @@
 /**
  * Cross-process exclusive lock for `app.module.container.spec.ts`'s build
- * cache (backlog #42, review round MED-2 on PR #550).
+ * cache (backlog #42, review rounds MED-2/MED-3 on PR #550).
  *
  * Extracted from the spec into its own module (mirrors `integration-run-mode.ts`
  * next to it) so the locking logic has its own dedicated, fast unit spec
@@ -23,38 +23,53 @@
  * one-line `rm -rf` of a directory it has no way to know about on its own.
  *
  * ============================================================================
- * RECLAIM STRATEGY: PID LIVENESS (FAST PATH) + AGE (SAFETY NET), NOT EITHER ALONE
+ * RECLAIM STRATEGY: PID LIVENESS IS AUTHORITATIVE; AGE IS SUBORDINATE, NOT AN OR
  * ============================================================================
+ * (Revised in review round MED-3 — the original design evicted on "PID dead
+ * OR age > threshold", treating the two as independent, either-is-enough
+ * signals. That was wrong FOR THIS LOCK'S ACTUAL DEPLOYMENT: its only real
+ * use is one checkout, one machine, one process table — and in that world
+ * `process.kill(pid, 0)` is ALWAYS authoritative. Under real measured
+ * contention — 12-15 s for two concurrent `tsc` builds, 17-25 s for three,
+ * extrapolating toward the old 60 s age threshold as concurrent agents grow
+ * (this repo has run five in one session) — "age > threshold" stopped
+ * meaning "the recorded PID is probably stale" and started meaning "the
+ * build is alive and just slow", which is exactly the case this mechanism
+ * must NOT evict: doing so hands two live `tsc` invocations the same output
+ * directory at once, the precise class of bug MED-1/MED-2 exist to prevent.)
+ *
  * Every lock directory carries a `holder.json` (`{ pid, startedAt }`),
  * written the instant the directory is created. A waiter that hits `EEXIST`
- * decides whether the existing holder is stale via TWO independent checks,
- * either one being enough:
+ * classifies the existing holder's PID into exactly one of three states via
+ * `pidLiveness`:
  *
- *   - PID liveness (`process.kill(pid, 0)`, throws ESRCH iff no such process)
- *     — precise and immediate: a crashed/killed holder is reclaimed on the
- *     very next poll, not after waiting out an age threshold. Does not
- *     survive a reboot and is meaningless across hosts/containers, and a
- *     reused PID (astronomically unlikely at this build's ~5-8 s timescale,
- *     but not impossible over a long-lived shared worktree) would report a
- *     dead holder as "alive".
- *   - Age (`Date.now() - startedAt > staleAgeMs`, default 60 s — roughly
- *     8-12x this build's real ~5-8 s cost, deliberately generous) — coarser,
- *     but immune to both of PID liveness's blind spots: it does not care
- *     whether the number is a live PID, a reused one, or meaningless because
- *     the check is running on a different host.
+ *   - `'alive'` — `process.kill(pid, 0)` succeeded, or failed with `EPERM`
+ *     (the process exists; this user simply cannot signal it — `EPERM` is
+ *     only raised for a PID that IS present). Respected UNCONDITIONALLY,
+ *     no matter how old `startedAt` is. This is the fix: age can no longer
+ *     override a PID the OS confirms is running.
+ *   - `'dead'` — `process.kill(pid, 0)` failed with `ESRCH` (no such
+ *     process). Reclaimed immediately, regardless of age — the fast path,
+ *     unchanged from MED-2.
+ *   - `'unknown'` — `process.kill` failed with anything else, or the
+ *     `holder.json` itself could not be parsed into a well-formed `{ pid,
+ *     startedAt }`. The ONLY state where age is still consulted: this
+ *     lock's real domain (one checkout, one machine) makes this
+ *     essentially unreachable today (see above), but the code does not
+ *     assume that will always hold — a future cross-host/cross-container
+ *     use, or a genuinely corrupt-but-parseable record, lands here, and
+ *     for THAT case a coarse "probably abandoned" signal is still better
+ *     than either "wait forever" or "evict a possibly-live unknown". The
+ *     age threshold for this branch is deliberately generous (see
+ *     `DEFAULT_STALE_AGE_MS` below) — for an owner that cannot be
+ *     confirmed either way, the cost of waiting longer is lower than the
+ *     cost of a wrongful eviction.
  *
- * Combined, not either alone, because they cover each other's failure mode:
- * PID liveness is the fast, common-case path (dead holder reclaimed in one
- * poll interval, ~200 ms); age is the safety net for exactly the cases PID
- * liveness cannot see. A lock is stale if PID liveness says dead OR age
- * exceeds the threshold — evicting on the FIRST true condition, not waiting
- * for both.
- *
- * An unreadable/missing `holder.json` (the brief window between `mkdirSync`
- * creating the directory and the very next line writing the file) is treated
- * as "unknown, not stale" — a waiter simply retries rather than guessing.
- * Evicting a lock whose ownership cannot be determined would reintroduce
- * exactly the kind of unsafe guess this mechanism exists to avoid.
+ * A missing/unreadable `holder.json` (the brief window between `mkdirSync`
+ * creating the directory and the very next line writing the file, or a
+ * corrupt file) is treated as "unknown ownership, no data to age against" —
+ * `isStaleHolder` returns `false` immediately, never falling through to the
+ * age check (there is no `startedAt` to measure). A waiter just retries.
  *
  * ============================================================================
  * ATOMIC RECLAIM (NOT "CHECK, THEN DELETE, THEN CREATE")
@@ -80,41 +95,55 @@ export interface LockHolder {
   startedAt: number
 }
 
+export type PidLiveness = 'alive' | 'dead' | 'unknown'
+
 export interface BuildLockOptions {
   /** Fixed path this lock lives at — the mutex IS this directory's existence. */
   lockDir: string
-  /** A holder is stale on age alone past this many ms. Default: 60_000. */
+  /**
+   * Age threshold used ONLY for a holder whose PID liveness is `'unknown'`
+   * (see file doc) — a confirmed-alive holder is never evicted on age, no
+   * matter how large this is. Default: 300_000 (5 min) — deliberately
+   * generous: in this branch ownership genuinely cannot be confirmed either
+   * way, and the cost of waiting longer is lower than a wrongful eviction.
+   */
   staleAgeMs?: number
-  /** Total time a waiter tolerates a LIVE, recent holder before giving up loudly. Default: 90_000. */
+  /** Total time a waiter tolerates a live/unknown-but-recent holder before giving up loudly. Default: 180_000. */
   deadlineMs?: number
   /** Poll interval while waiting on a live holder. Default: 200. */
   pollMs?: number
 }
 
-// ~8-15x this build's real ~5-8s cost — generous margin, not a guess: a
-// waiter reaching the age threshold (worst case, PID liveness somehow missed
-// it) still has DEFAULT_DEADLINE_MS - DEFAULT_STALE_AGE_MS = 30s of headroom
-// left to reclaim AND run the real build before giving up itself.
-const DEFAULT_STALE_AGE_MS = 60_000
-const DEFAULT_DEADLINE_MS = 90_000
+const DEFAULT_STALE_AGE_MS = 300_000
+const DEFAULT_DEADLINE_MS = 180_000
 const DEFAULT_POLL_MS = 200
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms))
 }
 
-/** `kill(pid, 0)` sends no signal — only checks whether the pid is reachable. */
-export function isProcessAlive(pid: number): boolean {
+/**
+ * `kill(pid, 0)` sends no signal — only checks whether the pid is reachable.
+ * `ESRCH` (no such process) is the only outcome that is authoritatively
+ * "dead"; `EPERM` (process exists, this user cannot signal it) is
+ * authoritatively "alive"; anything else this platform might throw is
+ * genuinely indeterminate. Exported for its own direct unit coverage.
+ */
+export function pidLiveness(pid: number): PidLiveness {
   try {
     process.kill(pid, 0)
-    return true
+    return 'alive'
   } catch (err) {
     const code = (err as { code?: string }).code
-    // ESRCH = no such process -> definitely dead. Anything else (e.g. EPERM,
-    // meaning the process exists but this user cannot signal it) is treated
-    // as alive: we cannot prove it is dead, so we do not evict it.
-    return code !== 'ESRCH'
+    if (code === 'ESRCH') return 'dead'
+    if (code === 'EPERM') return 'alive'
+    return 'unknown'
   }
+}
+
+/** Convenience boolean form of `pidLiveness` — `false` only for a confirmed-dead PID. */
+export function isProcessAlive(pid: number): boolean {
+  return pidLiveness(pid) !== 'dead'
 }
 
 function readHolder(lockDir: string): LockHolder | null {
@@ -127,15 +156,27 @@ function readHolder(lockDir: string): LockHolder | null {
     return null
   } catch {
     // Missing (brand-new lock, holder.json not written yet) or corrupt —
-    // either way, unknown ownership. Never treated as stale (see file doc).
+    // either way, unknown ownership AND no startedAt to age against. Never
+    // treated as stale (see file doc).
     return null
   }
 }
 
-/** Exported for its own direct unit coverage — see build-lock.spec.ts. */
+/**
+ * Exported for its own direct unit coverage — see build-lock.spec.ts.
+ *
+ * PID liveness is authoritative when it can be determined: `'alive'` is
+ * NEVER overridden by age (the MED-3 fix); `'dead'` is stale immediately,
+ * unaffected by age (unchanged from MED-2). Age is consulted ONLY for
+ * `'unknown'` — see file doc for why that state exists and why it is
+ * effectively unreachable in this lock's actual (single-host) deployment
+ * today without being assumed away.
+ */
 export function isStaleHolder(holder: LockHolder | null, staleAgeMs: number): boolean {
   if (holder === null) return false
-  if (!isProcessAlive(holder.pid)) return true
+  const liveness = pidLiveness(holder.pid)
+  if (liveness === 'alive') return false
+  if (liveness === 'dead') return true
   return Date.now() - holder.startedAt > staleAgeMs
 }
 
@@ -164,9 +205,10 @@ function tryEvict(lockDir: string): void {
 
 /**
  * Run `fn` while holding an exclusive lock at `options.lockDir`, reclaiming
- * it automatically if the previous holder is stale (dead PID or too old —
- * see file doc). Throws a descriptive error naming the lock path and the
- * reason if a LIVE, recent holder never releases it before `deadlineMs`.
+ * it automatically if the previous holder is stale (confirmed-dead PID, or
+ * — only when PID liveness cannot be determined at all — too old; see file
+ * doc). Throws a descriptive error naming the lock path and the reason if a
+ * live (or unknown-but-recent) holder never releases it before `deadlineMs`.
  */
 export async function withBuildLock<T>(fn: () => T, options: BuildLockOptions): Promise<T> {
   const { lockDir } = options
@@ -193,8 +235,8 @@ export async function withBuildLock<T>(fn: () => T, options: BuildLockOptions): 
       if (Date.now() > deadline) {
         throw new Error(
           `[build-lock] gave up waiting for ${lockDir} after ${deadlineMs}ms — another process holds it and ` +
-            `appears alive and recent (younger than ${staleAgeMs}ms). If that is wrong (a crashed/killed process ` +
-            `this check could not detect), remove it manually: rm -rf ${lockDir}`,
+            `the OS reports it as alive (or its liveness could not be determined and it is recent). If that is ` +
+            `wrong (a crashed/killed process this check could not detect), remove it manually: rm -rf ${lockDir}`,
         )
       }
       await sleep(pollMs)

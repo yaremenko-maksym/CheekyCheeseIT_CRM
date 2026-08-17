@@ -1,25 +1,39 @@
 /**
- * Backlog #42, review round MED-2 on PR #550 — a lock holder that dies
- * mid-build (a real, observed failure mode: four agents hit their session
- * limit mid-work the day this was written, one of them mid-`beforeAll`) must
- * not permanently wedge every future run of `app.module.container.spec.ts`
- * in the same worktree. See `build-lock.ts`'s own file doc for the full
- * design rationale (PID + age, why both, why atomic reclaim).
+ * Backlog #42, review rounds MED-2/MED-3 on PR #550.
  *
- * Both directions matter, and the second is the more important one to get
- * right: reclaiming a dead/stale lock too eagerly is exactly as dangerous as
- * never reclaiming one — it would tear down a genuinely in-progress build out
- * from under a live process. Both are covered here, deliberately using
- * short, injected `staleAgeMs`/`deadlineMs` (see `BuildLockOptions`) so this
+ * MED-2 — a lock holder that dies mid-build (a real, observed failure mode:
+ * four agents hit their session limit mid-work the day this was written, one
+ * of them mid-`beforeAll`) must not permanently wedge every future run of
+ * `app.module.container.spec.ts` in the same worktree.
+ *
+ * MED-3 — the original reclaim condition was "PID dead OR age > threshold",
+ * treating both as equally authoritative. Measured contention (2 concurrent
+ * `tsc` builds: 12-15 s; 3: 17-25 s) showed that in THIS lock's real
+ * deployment (one checkout, one machine — `process.kill` is always
+ * authoritative there) the age branch would not fire on its documented case
+ * (a reused PID) but on "the build is alive and just slow under load with
+ * several agents" — evicting exactly the live holder the mechanism must
+ * protect, handing two concurrent `tsc` runs the same output directory (the
+ * precise regression MED-1/MED-2 exist to prevent). Fixed: a confirmed-alive
+ * PID is now respected UNCONDITIONALLY, no matter its age; age is consulted
+ * ONLY when PID liveness cannot be determined at all (`pidLiveness` returns
+ * `'unknown'` — see `build-lock.ts`'s own file doc for exactly when that is
+ * and why it is effectively unreachable in single-host use today).
+ *
+ * Both directions matter, and "never evict a live holder" is the more
+ * important one to get right — reclaiming a live one is exactly as dangerous
+ * as never reclaiming a dead one; it tears down a genuinely in-progress build
+ * out from under a live process. Every case here is exercised with short,
+ * injected `staleAgeMs`/`deadlineMs` (see `BuildLockOptions`) so this whole
  * spec runs in well under a second rather than needing to wait out the real
- * 60 s / 90 s production defaults.
+ * 300 s / 180 s production defaults.
  */
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { isProcessAlive, isStaleHolder, withBuildLock } from './build-lock'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { isProcessAlive, isStaleHolder, pidLiveness, withBuildLock } from './build-lock'
 
 let scratchDir: string
 let lockDir: string
@@ -31,6 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   rmSync(scratchDir, { recursive: true, force: true })
+  vi.restoreAllMocks()
 })
 
 function writeHolder(pid: number, startedAt: number) {
@@ -45,6 +60,30 @@ function aDeadPid(): number {
   if (typeof pid !== 'number') throw new Error('spawnSync did not report a pid')
   return pid
 }
+
+/** Forces `process.kill` to fail with an errno that is neither ESRCH nor EPERM. */
+function mockUndeterminableKill() {
+  vi.spyOn(process, 'kill').mockImplementation(() => {
+    const err = new Error('simulated indeterminate kill(2) failure') as NodeJS.ErrnoException
+    err.code = 'EPLATFORMQUIRK'
+    throw err
+  })
+}
+
+describe('pidLiveness', () => {
+  it('reports the current process as alive', () => {
+    expect(pidLiveness(process.pid)).toBe('alive')
+  })
+
+  it('reports an already-exited process as dead (ESRCH)', () => {
+    expect(pidLiveness(aDeadPid())).toBe('dead')
+  })
+
+  it('reports a process kill(2) cannot classify as unknown (neither ESRCH nor EPERM)', () => {
+    mockUndeterminableKill()
+    expect(pidLiveness(process.pid)).toBe('unknown')
+  })
+})
 
 describe('isProcessAlive', () => {
   it('reports the current process as alive', () => {
@@ -65,11 +104,34 @@ describe('isStaleHolder', () => {
     expect(isStaleHolder({ pid: aDeadPid(), startedAt: Date.now() }, 90_000)).toBe(true)
   })
 
-  it('is stale on age alone, even when the holder pid is alive (self)', () => {
+  it('is NOT stale when the holder pid is alive and within the age threshold', () => {
+    expect(isStaleHolder({ pid: process.pid, startedAt: Date.now() }, 90_000)).toBe(false)
+  })
+
+  // ── MED-3 priority case ──────────────────────────────────────────────
+  it('is NOT stale when the holder pid is alive, EVEN when age exceeds the threshold — a live build is just slow, not stale', () => {
+    // Old original design ("PID dead OR age > threshold") would have called
+    // this stale — see the manual mutation verification in the PR body /
+    // commit for the reverted-logic RED run this exact assertion produces.
+    expect(isStaleHolder({ pid: process.pid, startedAt: Date.now() - 10_000 }, 50)).toBe(false)
+  })
+
+  // ── MED-3 inversion of a previously-passing case (intentional — NOT a
+  //    regression slipping through unnoticed; see file doc "MED-3" above) ──
+  it('[CHANGED BY MED-3, was "is stale on age alone"] an alive holder is never evicted by age alone anymore', () => {
+    // Pre-MED-3 this spec asserted `toBe(true)` for this EXACT input (age
+    // alone, live self pid) — that was the "OR" bug this round fixes. The
+    // input is unchanged; only the expectation is inverted, deliberately.
+    expect(isStaleHolder({ pid: process.pid, startedAt: Date.now() - 1_000 }, 50)).toBe(false)
+  })
+
+  it('DOES fall back to age when PID liveness is unknown (neither confirmed alive nor dead)', () => {
+    mockUndeterminableKill()
     expect(isStaleHolder({ pid: process.pid, startedAt: Date.now() - 1_000 }, 50)).toBe(true)
   })
 
-  it('is NOT stale when the holder pid is alive and within the age threshold', () => {
+  it('does NOT evict on age when PID liveness is unknown but still within the threshold', () => {
+    mockUndeterminableKill()
     expect(isStaleHolder({ pid: process.pid, startedAt: Date.now() }, 90_000)).toBe(false)
   })
 })
@@ -97,8 +159,17 @@ describe('withBuildLock', () => {
     expect(existsSync(lockDir)).toBe(false)
   })
 
-  it('reclaims a lock older than staleAgeMs even though the holder pid is alive (self)', async () => {
-    writeHolder(process.pid, Date.now() - 1_000)
+  // ── MED-3: was "reclaims a lock older than staleAgeMs even though the
+  //    holder pid is alive" (asserted immediate reclaim). Inverted on
+  //    purpose — that WAS the bug. Now proves the opposite: an alive-but-old
+  //    holder is waited on, not torn down, exactly like a fresh live lock. ──
+  it('[CHANGED BY MED-3] does NOT reclaim a lock older than staleAgeMs when the holder pid is alive — waits for real release instead', async () => {
+    writeHolder(process.pid, Date.now() - 10_000) // already "old" by the short threshold below
+    const releaseAfterMs = 300
+
+    const releaseTimer = setTimeout(() => {
+      rmSync(lockDir, { recursive: true, force: true })
+    }, releaseAfterMs)
 
     const start = Date.now()
     let ran = false
@@ -106,12 +177,18 @@ describe('withBuildLock', () => {
       () => {
         ran = true
       },
+      // staleAgeMs deliberately far shorter than the holder's recorded age —
+      // the pre-MED-3 "OR" logic would have reclaimed this on the very first
+      // poll. It must not: the holder is alive (self), full stop.
       { lockDir, staleAgeMs: 50, deadlineMs: 5_000, pollMs: 20 },
     )
     const elapsed = Date.now() - start
+    clearTimeout(releaseTimer)
 
     expect(ran).toBe(true)
-    expect(elapsed).toBeLessThan(1_000)
+    // The assertion that would fail if age were still allowed to override a
+    // confirmed-alive PID — proves it waited for the real release.
+    expect(elapsed).toBeGreaterThanOrEqual(releaseAfterMs - 50)
     expect(existsSync(lockDir)).toBe(false)
   })
 

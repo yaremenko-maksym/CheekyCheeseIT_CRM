@@ -211,20 +211,23 @@ import { withBuildLock } from './test/build-lock'
  *     manual re-run racing the pre-push hook's own `pnpm test`).
  *
  * ============================================================================
- * A DEAD LOCK HOLDER RECOVERS ON ITS OWN (review round on PR #550, MED-2)
+ * A DEAD LOCK HOLDER RECOVERS ON ITS OWN (review rounds on PR #550, MED-2/MED-3)
  * ============================================================================
  * A process that dies mid-`beforeAll` (session-limit cutoff, `kill -9`, OOM —
  * a real, observed failure mode: four agents hit their session limit
- * mid-work the day this review round happened) leaves the lock directory
- * behind. `withBuildLock` does not just fail loudly on that — it reclaims a
- * stale holder automatically: dead PID (fast path, immediate) or older than
- * a generous age threshold (safety net for PID reuse / cross-host cases),
- * evicted via an ATOMIC `rename` so two waiters racing the same stale lock
- * can never both "win" the eviction. A genuinely live, recent holder is
- * never touched — a waiter only ever sleeps and re-polls for that case, and
- * only gives up (loudly, naming the lock path and a `rm -rf` escape hatch)
- * after its own deadline. Full design rationale, and why PID alone or age
- * alone is not enough: `./test/build-lock.ts`'s own file doc.
+ * mid-work the day MED-2 happened) leaves the lock directory behind.
+ * `withBuildLock` does not just fail loudly on that — it reclaims a
+ * confirmed-dead PID immediately (fast path), evicted via an ATOMIC `rename`
+ * so two waiters racing the same stale lock can never both "win" the
+ * eviction. A CONFIRMED-ALIVE holder is never touched, no matter its age
+ * (MED-3 — measured contention under several concurrent agents showed the
+ * original "PID dead OR age > threshold" design could evict a holder that
+ * was alive and simply slow, handing two live `tsc` runs the same output
+ * directory): a waiter only ever sleeps and re-polls for that case, and only
+ * gives up (loudly, naming the lock path and a `rm -rf` escape hatch) after
+ * its own deadline. Age is consulted only when PID liveness genuinely cannot
+ * be determined — full design rationale: `./test/build-lock.ts`'s own file
+ * doc.
  *
  * ============================================================================
  * COST (measured, not the "free reuse" the earlier version of this file claimed)
@@ -341,11 +344,12 @@ describe('AppModule — the real DI container resolves (backlog #42, #504 regres
     ;({ TransactionsService } = req(join(CACHE_DIR, 'finance/transactions.service.js'))) as {
       TransactionsService: typeof TransactionsService
     }
-    // Comfortably above withBuildLock's own DEFAULT_DEADLINE_MS (90s) plus a
-    // real build (~5-8s) plus margin — otherwise vitest's own hook timeout
-    // would fire first with a generic "hook timed out" message, hiding
-    // withBuildLock's actual, instructive error (lock path + rm -rf hint).
-  }, 120_000)
+    // Comfortably above withBuildLock's own DEFAULT_DEADLINE_MS (180s, MED-3)
+    // plus a real build (~5-8s) plus margin — otherwise vitest's own hook
+    // timeout would fire first with a generic "hook timed out" message,
+    // hiding withBuildLock's actual, instructive error (lock path + rm -rf
+    // hint).
+  }, 210_000)
 
   // ── AC1 ────────────────────────────────────────────────────────────────
   it('resolves the ENTIRE real module graph via Test.createTestingModule(...).compile() — no stubs, no reconstruction', async () => {
