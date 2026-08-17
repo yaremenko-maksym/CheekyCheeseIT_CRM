@@ -1,9 +1,11 @@
 import { describe, expect, it, vi } from 'vitest'
-import { BadRequestException, ForbiddenException } from '@nestjs/common'
+import { inspect } from 'util'
+import { BadRequestException, ForbiddenException, Logger } from '@nestjs/common'
 import type { SessionUser } from '@crm/shared'
 import { CompanyAccountService } from './company-account.service'
 import type { DatabaseService } from '../database/database.service'
 import type { EtherscanService } from './etherscan.service'
+import { CompanyAccountOffCurrencyError } from './company-account-balance'
 
 /**
  * task-company-account-backend — CompanyAccountService unit tests.
@@ -124,6 +126,33 @@ function selectReturning(totals: string[]) {
   }))
 }
 
+/**
+ * SEC-1 (mega-audit wave 2, round 3) — a select() stub that ALSO answers the
+ * C-3 off-currency guard's COUNT(*) query, routed by CONTENT (inspecting the
+ * projection object for 'COUNT(*)'), not call position. Position-based
+ * routing breaks the moment `computeCompanyAccountBalanceForDisplay`
+ * recomputes the 8-term sum a second time on the degraded path (once inside
+ * the failed guarded attempt, once for the best-effort fallback) — this one
+ * does not care how many times the 8-term sum runs. `% sumTotals.length`
+ * makes the term sequence CYCLE across repeated invocations (a plain
+ * incrementing index would run off the end of `sumTotals` on the second
+ * invocation and silently fall back to '0' for every remaining term).
+ */
+function selectWithOffCurrencyGuard(sumTotals: string[], guardTotal: string) {
+  let sumCall = 0
+  return vi.fn((projection: unknown) => {
+    const isCountQuery = inspect(projection, { depth: 10 }).includes('COUNT(*)')
+    return {
+      from: () => ({
+        where: () =>
+          isCountQuery
+            ? Promise.resolve([{ total: guardTotal }])
+            : Promise.resolve([{ total: sumTotals[sumCall++ % sumTotals.length] ?? '0' }]),
+      }),
+    }
+  })
+}
+
 describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => {
   // task-salary-company-account — getAccount now delegates to the shared
   // computeCompanyAccountBalanceFromLedger which runs sumAmount 6× IN ORDER:
@@ -174,6 +203,76 @@ describe('CompanyAccountService.getAccount — balance derivation (AC6)', () => 
     const db = makeDb({ select: selectReturning(['0', '0', '0', '0', '0', '0']) })
     const svc = makeService(db)
     await expect(svc.getAccount(JUNIOR)).rejects.toBeInstanceOf(ForbiddenException)
+  })
+})
+
+/**
+ * SEC-1 (mega-audit wave 2, round 3) — localization proof THROUGH THE
+ * SERVICE, not just through the pure company-account-balance.ts function
+ * (already covered by company-account-balance-currency.spec.ts /
+ * company-account-balance-off-currency.integration.spec.ts). This is the
+ * test the security-reviewer's round-2 gap called for: "no test checks that
+ * the guard's firing is actually LOCALIZED — how the display endpoint and
+ * the gates behave when it throws". If `getAccount()` (or a future refactor
+ * of `computeBalance()`) stops calling the display-safe wrapper and reverts
+ * to the throwing one, EVERY test in this block goes red.
+ */
+describe('CompanyAccountService.getAccount — SEC-1 degrades instead of 500ing on an off-currency row (round 3)', () => {
+  it('an off-currency company row does NOT throw through getAccount() — the screen stays alive with a best-effort balance, and logs a service-level warning', async () => {
+    // deposits=1000, payouts=0, adminIncome=0, dividends=200, salary=300,
+    // expense=0, seniorPayout=0, dropPayout=0 → best-effort = 1000-200-300 = 500.
+    // guardTotal='2' → the off-currency guard would trip (2 bad rows), proving
+    // this is a REAL degrade, not a scenario where the guard never fires.
+    const db = makeDb({
+      select: selectWithOffCurrencyGuard(['1000', '0', '0', '200', '300', '0', '0', '0'], '2'),
+    })
+    const svc = makeService(db)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    try {
+      const acc = await svc.getAccount(ADMIN)
+      expect(acc.balance).toBe(500)
+      // The DTO shape is UNCHANGED — still a plain number, no new fields.
+      expect(typeof acc.balance).toBe('number')
+      expect(acc.walletAddress).toBe(WALLET)
+
+      // Service-level correlation log — fires exactly once, names the count.
+      expect(warnSpy).toHaveBeenCalledTimes(1)
+      const [message] = warnSpy.mock.calls[0]!
+      expect(message).toContain('getAccount served a BEST-EFFORT balance (2 off-currency')
+      expect(message).toContain(
+        'row(s) detected) — see the company-account-balance error log above for detail.',
+      )
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('a clean ledger (no off-currency rows) is unaffected by the new wiring, and does NOT log a warning', async () => {
+    const db = makeDb({
+      select: selectWithOffCurrencyGuard(['1000', '0', '0', '200', '300', '0', '0', '0'], '0'),
+    })
+    const svc = makeService(db)
+    const warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => undefined)
+    try {
+      const acc = await svc.getAccount(ADMIN)
+      expect(acc.balance).toBe(500)
+      // The reliable path must NEVER fire the degraded-balance warning.
+      expect(warnSpy).not.toHaveBeenCalled()
+    } finally {
+      warnSpy.mockRestore()
+    }
+  })
+
+  it('a genuine (non-off-currency) DB failure still propagates through getAccount() — not swallowed', async () => {
+    const db = makeDb({
+      select: vi.fn(() => ({
+        from: () => ({
+          where: () => Promise.reject(new Error('connection terminated unexpectedly')),
+        }),
+      })),
+    })
+    const svc = makeService(db)
+    await expect(svc.getAccount(ADMIN)).rejects.toThrow(/connection terminated unexpectedly/)
   })
 })
 
@@ -629,6 +728,37 @@ describe('CompanyAccountService.createDividend (ADMIN only)', () => {
     // invoked — proving the debit is serialized under the shared lock.
     const txMock = db.transaction as ReturnType<typeof vi.fn>
     expect(txMock).toHaveBeenCalledOnce()
+  })
+
+  // SEC-1 (mega-audit wave 2, round 3) — requirement #2: confirm, THROUGH
+  // THE SERVICE, that a money-moving gate is NOT part of the SEC-1 split.
+  // createDividend calls computeCompanyAccountBalanceFromLedger directly
+  // (unchanged by round 3) — an off-currency company row must still refuse
+  // the withdrawal, never silently debit against a best-effort figure.
+  it('an off-currency company row still BLOCKS a dividend — the gate does not degrade (regression guard)', async () => {
+    const inserted = { id: 'div-blocked' }
+    const dbtx = {
+      execute: vi.fn().mockResolvedValue(undefined),
+      select: selectWithOffCurrencyGuard(['5000', '0', '0', '0', '0', '0', '0', '0'], '3'),
+      insert: vi.fn(() => ({ values: () => ({ returning: () => Promise.resolve([inserted]) }) })),
+    }
+    const db = makeDb({
+      query: {
+        companyAccount: { findFirst: vi.fn() },
+        transactions: { findFirst: vi.fn() },
+        users: { findFirst: vi.fn().mockResolvedValue({ id: ADMIN.id, role: 'ADMIN' }) },
+      },
+      transaction: vi.fn((cb: (tx: typeof dbtx) => unknown) => cb(dbtx)),
+    })
+    const svc = makeService(db)
+    await expect(
+      svc.createDividend(
+        { amount: 100, receiptExternalUrl: 'https://etherscan.io/tx/0xabc123' },
+        ADMIN,
+      ),
+    ).rejects.toBeInstanceOf(CompanyAccountOffCurrencyError)
+    // No insert — the debit never happened.
+    expect(dbtx.insert).not.toHaveBeenCalled()
   })
 })
 

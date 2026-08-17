@@ -223,17 +223,22 @@ describe('C-3: assertNoOffCurrencyCompanyRows (9th query, mocked db)', () => {
  * this task's zone — company-account.service.ts is not touched here).
  */
 describe('SEC-1: gate throws / display degrades — localization of the off-currency guard', () => {
-  function makeDb(ninthTotal: string) {
-    let callCount = 0
-    const select = vi.fn(() => ({
-      from: () => ({
-        where: () => {
-          const idx = callCount++
-          if (idx < 8) return Promise.resolve([{ total: '0' }])
-          return Promise.resolve([{ total: ninthTotal }])
-        },
-      }),
-    }))
+  // Routed by CONTENT, not call position: the guard's COUNT(*) query is
+  // distinguished from the 8 SUM-term queries by inspecting the projection
+  // object each `select()` call receives. Round 3 (SEC-1 wiring) made
+  // `computeCompanyAccountBalanceForDisplay` call the 8-term sum TWICE on the
+  // degraded path (once inside the failed guarded attempt, once again for
+  // the best-effort recompute) — a position-based mock (call #9 = the guard)
+  // silently breaks the moment the call COUNT changes; this one does not.
+  function makeDb(ninthTotal: string, sumTotal = '0') {
+    const select = vi.fn((projection: unknown) => {
+      const isCountQuery = inspect(projection, { depth: 10 }).includes('COUNT(*)')
+      return {
+        from: () => ({
+          where: () => Promise.resolve([{ total: isCountQuery ? ninthTotal : sumTotal }]),
+        }),
+      }
+    })
     return { select } as unknown as DatabaseService['db']
   }
 
@@ -244,14 +249,15 @@ describe('SEC-1: gate throws / display degrades — localization of the off-curr
     )
   })
 
-  it('the DISPLAY path (computeCompanyAccountBalanceForDisplay) does NOT throw on the same condition — degrades instead', async () => {
-    const db = makeDb('4')
+  it('the DISPLAY path (computeCompanyAccountBalanceForDisplay) does NOT throw on the same condition — degrades instead, with a best-effort balance', async () => {
+    // sumTotal=100 on every one of the 8 terms → 3 credit terms − 5 debit
+    // terms = 300 − 500 = −200. A non-zero, non-default figure — proves the
+    // degraded `balance` is a REAL recomputation, not a hardcoded 0/null.
+    const db = makeDb('4', '100')
     const reading = await computeCompanyAccountBalanceForDisplay(db)
     expect(reading.reliable).toBe(false)
     expect(reading.offCurrencyCount).toBe(4)
-    // No number is safe to show once unreliable — must be null, not e.g. 0
-    // (0 would read as "empty account", a DIFFERENT and misleading claim).
-    expect(reading.balance).toBeNull()
+    expect(reading.balance).toBe(-200)
   })
 
   it('the DISPLAY path stays reliable and returns the real balance on a clean ledger', async () => {
@@ -266,15 +272,38 @@ describe('SEC-1: gate throws / display degrades — localization of the off-curr
     // A DB error surfacing from one of the 8 SUM terms (e.g. connection drop)
     // is a DIFFERENT failure mode than "the guard found a bad row" — must
     // propagate, not get silently mapped to a misleading reliable:false.
+    //
+    // Mutation-gate (`instanceof CompanyAccountOffCurrencyError` → `true`):
+    // a mock that rejects EVERY call would still reject the same way under
+    // that mutant (the fallback recompute would ALSO fail), so the assertion
+    // alone cannot kill it. This mock instead FAILS the first 8-term cycle
+    // and SUCCEEDS on any later cycle — correct code never reaches a second
+    // cycle (it rethrows immediately); the mutant WOULD reach it (treats the
+    // plain Error as the off-currency case, retries via `sumLedgerTerms`,
+    // and that retry succeeds) — resolving instead of rejecting, and calling
+    // `select` far more than 8 times.
+    let firstCycleDone = false
+    let callsInFirstCycle = 0
     const select = vi.fn(() => ({
       from: () => ({
-        where: () => Promise.reject(new Error('connection terminated unexpectedly')),
+        where: () => {
+          if (!firstCycleDone) {
+            callsInFirstCycle++
+            if (callsInFirstCycle === 8) firstCycleDone = true
+            return Promise.reject(new Error('connection terminated unexpectedly'))
+          }
+          return Promise.resolve([{ total: '0' }])
+        },
       }),
     }))
     const db = { select } as unknown as DatabaseService['db']
     await expect(computeCompanyAccountBalanceForDisplay(db)).rejects.toThrow(
       /connection terminated unexpectedly/,
     )
+    // Exactly the 8-term sum ran once — the off-currency guard's 9th query
+    // never fires (the Promise.all already rejected) AND, crucially, the
+    // best-effort recompute never fires either (that would add MORE calls).
+    expect(select).toHaveBeenCalledTimes(8)
   })
 
   it('CompanyAccountOffCurrencyError carries a named, distinguishable .name (not the default "Error")', () => {

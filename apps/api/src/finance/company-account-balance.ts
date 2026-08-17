@@ -47,7 +47,7 @@
  * debt); legacy DROP-debt settlements + ordinary senior income leave it NULL and
  * are correctly ignored here.
  *
- * SEC-1 (mega-audit wave 2, round 2) — this module exports TWO ways to read
+ * SEC-1 (mega-audit wave 2, round 2/3) — this module exports TWO ways to read
  * the balance, deliberately different on failure:
  *   - `computeCompanyAccountBalanceFromLedger` — throws on a detected
  *     off-currency company row (`CompanyAccountOffCurrencyError`, see C-3
@@ -55,10 +55,12 @@
  *     `paySalary`, `settleByCompany`, `createDividend`) — refusing to move
  *     money against an unreliable balance is correct.
  *   - `computeCompanyAccountBalanceForDisplay` — never throws on that SAME
- *     condition; degrades to `{ balance: null, reliable: false,
- *     offCurrencyCount }` instead, for the read-only diagnostic screen. See
- *     its own docstring for the full rationale and the pending caller-wiring
- *     note (out of this task's zone).
+ *     condition; degrades to a best-effort `balance` + `{ reliable: false,
+ *     offCurrencyCount }` instead, for the read-only diagnostic screen
+ *     (`CompanyAccountService.computeBalance`, wired in round 3). See its own
+ *     docstring for the full rationale, including why `balance` stays a
+ *     plain `number` rather than `null` (the shared `CompanyAccountDto`
+ *     schema is out of this task's zone).
  */
 import { Logger } from '@nestjs/common'
 import { and, eq, inArray, ne, or, sql } from 'drizzle-orm'
@@ -236,11 +238,17 @@ async function assertNoOffCurrencyCompanyRows(db: Db): Promise<void> {
 }
 
 /**
- * Compute the derived company-account USDT balance from the ledger. Used by
- * BOTH the display endpoint and every balance gate (salary / expense). One
- * function → display and gate can never disagree.
+ * The 8-term ledger SUM, WITHOUT the off-currency guard — extracted so
+ * `computeCompanyAccountBalanceForDisplay` can compute the SAME best-effort
+ * figure the guard would otherwise block, for its degraded return (see that
+ * function's docstring for why a best-effort NUMBER, not `null`, is what the
+ * display path needs). Never exported: every external caller goes through
+ * either `computeCompanyAccountBalanceFromLedger` (guarded) or
+ * `computeCompanyAccountBalanceForDisplay` (guarded-with-fallback) — nobody
+ * should read an un-guarded balance without EITHER trusting it (the former)
+ * or knowing explicitly that it might not be trustworthy (the latter).
  */
-export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<number> {
+async function sumLedgerTerms(db: Db): Promise<number> {
   const [
     deposits,
     payouts,
@@ -333,11 +341,6 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
     ),
   ])
 
-  // C-3 (AC7/AC8): 9th query, run AFTER the 8-term Promise.all above so the
-  // existing 8 SUMs (and their call order, pinned by
-  // company-account-balance-currency.spec.ts) are completely untouched.
-  await assertNoOffCurrencyCompanyRows(db)
-
   return (
     deposits +
     payouts +
@@ -350,20 +353,53 @@ export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<nu
   )
 }
 
+/**
+ * Compute the derived company-account USDT balance from the ledger. Used by
+ * the four money-moving GATES (`createExpense`, `paySalary`,
+ * `settleByCompany`, `createDividend`) — see `computeCompanyAccountBalanceForDisplay`
+ * below for the read-only diagnostic-screen variant. One shared formula
+ * (`sumLedgerTerms`) → the two can never disagree on the NUMBER, only on
+ * what happens when the off-currency guard trips.
+ */
+export async function computeCompanyAccountBalanceFromLedger(db: Db): Promise<number> {
+  // C-3 (AC7/AC8): the 8-term SUM (`sumLedgerTerms`) runs FIRST, exactly as
+  // before this function was split out — the guard is still a 9th query run
+  // AFTER it, so the existing 8 SUMs (and their call order, pinned by
+  // company-account-balance-currency.spec.ts) are completely untouched.
+  const total = await sumLedgerTerms(db)
+  await assertNoOffCurrencyCompanyRows(db)
+  return total
+}
+
 /** Result shape for `computeCompanyAccountBalanceForDisplay` — see its docstring. */
 export interface CompanyAccountBalanceReading {
-  /** `null` exactly when `reliable === false` — no number is safe to show. */
-  balance: number | null
+  /**
+   * ALWAYS a number — round 3 (SEC-1 wiring): `CompanyAccountDto.balance` is
+   * `z.number()` in the shared schema (packages/shared/src/schemas/finance.ts,
+   * out of this task's zone — a parallel session owns it, PR #543), so the
+   * display caller has no `null`/flag slot to put an "unreliable" signal in
+   * without a cross-team schema change. When `reliable === false` this is the
+   * BEST-EFFORT figure — `sumLedgerTerms` run WITHOUT the guard, i.e. exactly
+   * the number this endpoint would have silently shown before the C-3 fix
+   * existed at all. That is a deliberate choice: it does not introduce any
+   * NEW form of wrongness beyond the pre-C3 status quo, and pairs it with the
+   * loud server-side log below — before C-3, ops had zero signal; now they
+   * have one, even though the client-visible number is unchanged. A `reliable`
+   * flag surfaced to the client (so the number itself could be replaced by an
+   * explicit "unknown") is a real improvement — tracked separately, requires
+   * the shared-schema change this task must not make.
+   */
+  balance: number
   reliable: boolean
   /** Count of PAID company-account rows in a non-USDT currency, 0 when `reliable`. */
   offCurrencyCount: number
 }
 
 /**
- * SEC-1 (mega-audit wave 2, review round 2) — display-safe variant of
+ * SEC-1 (mega-audit wave 2, review round 2/3) — display-safe variant of
  * `computeCompanyAccountBalanceFromLedger`, for the read-only diagnostic
  * screen (`GET /api/company-account`, the balance KPI on `/stats` and
- * `/admin/wallet`).
+ * `/admin/wallet` — wired in round 3, `CompanyAccountService.computeBalance`).
  *
  * `computeCompanyAccountBalanceFromLedger` is shared by SIX non-spec callers:
  * that one display endpoint AND four money-moving gates (`createExpense`,
@@ -377,27 +413,18 @@ export interface CompanyAccountBalanceReading {
  *     directly (UNCHANGED — this function does not touch that path at all).
  *     Moving money against a balance you know might be wrong is worse than
  *     refusing outright; fail-closed is correct there.
- *   - The DISPLAY path should call THIS function instead. It never throws on
- *     the known off-currency condition: it logs the full detail SERVER-SIDE
- *     (safe — this never crosses the HTTP boundary) and returns
- *     `{ balance: null, reliable: false, offCurrencyCount: N }` so the
- *     screen can render "balance unreliable (N rows)" and stay alive, rather
- *     than a blank 500. Any OTHER error (DB connectivity, a query bug) is
- *     NOT swallowed here — it propagates, because a genuine read failure is
- *     a different, correctly-loud case from "the read succeeded and found a
- *     data-integrity problem".
+ *   - The DISPLAY path calls THIS function instead. It never throws on the
+ *     known off-currency condition: it logs the full detail SERVER-SIDE
+ *     (safe — this never crosses the HTTP boundary) and returns a
+ *     best-effort `balance` + `{ reliable: false, offCurrencyCount: N }` so
+ *     the screen can stay alive rather than a blank 500. Any OTHER error (DB
+ *     connectivity, a query bug) is NOT swallowed here — it propagates,
+ *     because a genuine read failure is a different, correctly-loud case
+ *     from "the read succeeded and found a data-integrity problem".
  *   - Only a COUNT ever leaves this function on the degraded path — no sums,
  *     no row ids, no counterparty names (SEC-2 requirement: if this ever
  *     becomes an `HttpException` surfaced to the client, it must stay
  *     count-only for that same reason).
- *
- * WIRING NOTE (zone-of-write): this task's zone is `balance.service.ts` /
- * `company-account-balance.ts` + specs only — `company-account.service.ts`
- * (which owns `computeBalance()` / `getAccount()`, the actual display
- * caller) is out of zone for this PR. This function is the complete, tested
- * mechanism; swapping `computeBalance()` to call it (and surfacing
- * `reliable`/`balance: number | null` on `CompanyAccountDto`) is a required,
- * narrow follow-up — flagged explicitly in the PR, not silently left undone.
  */
 export async function computeCompanyAccountBalanceForDisplay(
   db: Db,
@@ -408,7 +435,8 @@ export async function computeCompanyAccountBalanceForDisplay(
   } catch (err) {
     if (err instanceof CompanyAccountOffCurrencyError) {
       logger.error(`company-account balance display degraded — ${err.message}`, err.stack)
-      return { balance: null, reliable: false, offCurrencyCount: err.count }
+      const bestEffortBalance = await sumLedgerTerms(db)
+      return { balance: bestEffortBalance, reliable: false, offCurrencyCount: err.count }
     }
     throw err
   }

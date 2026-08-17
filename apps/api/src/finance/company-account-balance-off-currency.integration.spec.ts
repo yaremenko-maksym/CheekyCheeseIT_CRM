@@ -178,10 +178,16 @@ describe('C-3: computeCompanyAccountBalanceFromLedger — off-currency company r
     // paySalary/settleByCompany/createDividend all call this one directly).
     await expect(computeCompanyAccountBalanceFromLedger(db)).rejects.toThrow()
 
-    // The DISPLAY-style reader does not — it degrades instead.
+    // The DISPLAY-style reader does not — it degrades instead. `balance`
+    // stays a plain, finite `number` (round 3: CompanyAccountDto.balance is
+    // z.number() in the shared schema, out of this task's zone) — the
+    // best-effort ledger sum, not a fabricated/default value. crm_qa is a
+    // shared scratch DB with unpredictable pre-existing rows, so we assert
+    // the TYPE/finiteness invariant here, not an exact figure.
     const reading = await computeCompanyAccountBalanceForDisplay(db)
     expect(reading.reliable).toBe(false)
     expect(reading.offCurrencyCount).toBeGreaterThan(0)
-    expect(reading.balance).toBeNull()
+    expect(typeof reading.balance).toBe('number')
+    expect(Number.isFinite(reading.balance)).toBe(true)
   })
 })
