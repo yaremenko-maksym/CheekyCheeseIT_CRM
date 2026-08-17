@@ -30,7 +30,7 @@ import { DatabaseService } from '../database/database.service'
 import { TransactionsService } from './transactions.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import type { InvoicesService } from '../invoices/invoices.service'
-import { transactions, users } from '../database/schema'
+import { transactionAuditLog, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 
 // Far-future month: no live cron data or other spec can collide with it.
@@ -112,6 +112,25 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
   // salary-cron-idempotency.integration.spec.ts). The month is spec-unique, so
   // this deletes everything these runs created and nothing else.
   async function cleanup() {
+    // Audit rows first. `transaction_audit_log.target_id` intentionally carries
+    // NO foreign key — in production the audit trail is meant to OUTLIVE the row
+    // it describes — so nothing removes these on its own and every run would
+    // leave orphans behind. Leaked integration fixtures are not a theoretical
+    // tidiness point in this repo: they are exactly what makes three other specs
+    // in this directory fail on a shared scratch DB. Test fixtures are not
+    // history worth keeping, so this spec removes its own.
+    const mine = await dbSvc.db
+      .select({ id: transactions.id })
+      .from(transactions)
+      .where(eq(transactions.salaryMonth, MONTH))
+    if (mine.length > 0) {
+      await dbSvc.db.delete(transactionAuditLog).where(
+        inArray(
+          transactionAuditLog.targetId,
+          mine.map((r) => r.id),
+        ),
+      )
+    }
     await dbSvc.db.delete(transactions).where(eq(transactions.salaryMonth, MONTH))
   }
 
@@ -267,5 +286,47 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
     const after = await salaryRowsFor(ARCHIVED_HR_ID)
     expect(after).toHaveLength(1)
     expect(after[0]!.status).toBe('PENDING')
+  }, 30_000)
+
+  it('MED-3: the in-write archival guard does NOT block an ACTIVE receiver’s payment', async () => {
+    if (!dbAvailable) return
+
+    // The regression this guards against is the one MED-3's fix could itself
+    // introduce. `salaryReceiverNotArchivedFilter` adds a correlated
+    // `NOT EXISTS` to the UPDATE's WHERE; if the correlation were inverted (or
+    // the sub-select wrong), NO salary would ever be payable again — and a
+    // mocked-DB spec cannot tell, because it never executes the SQL. Only a real
+    // Postgres answers this. The unit spec pins that the term is PRESENT; this
+    // pins that it is CORRECT.
+    const [row] = await dbSvc.db
+      .insert(transactions)
+      .values({
+        type: 'SALARY',
+        status: 'PENDING',
+        amount: '1500',
+        currency: 'USD',
+        senderId: null,
+        senderLabel: 'CheekyCheeseIT',
+        receiverId: ACTIVE_HR_ID,
+        salaryMonth: MONTH,
+        fundingSource: null,
+        createdBy: ADMIN_ID,
+      })
+      .returning()
+
+    await svc.paySalary(
+      row!.id,
+      {
+        fundingSource: 'ADMIN_PERSONAL',
+        payerAdminId: ADMIN_ID,
+        currency: 'USDT',
+        receiptExternalUrl: 'https://etherscan.io/tx/0x' + 'b'.repeat(64),
+      },
+      ADMIN_USER,
+    )
+
+    const after = await salaryRowsFor(ACTIVE_HR_ID)
+    expect(after).toHaveLength(1)
+    expect(after[0]!.status).toBe('PAID')
   }, 30_000)
 })
