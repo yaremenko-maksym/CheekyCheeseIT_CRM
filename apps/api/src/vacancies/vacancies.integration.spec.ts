@@ -34,9 +34,11 @@
  *   pnpm --filter @crm/api exec vitest run vacancies.integration
  * (`.env.test` injects DATABASE_URL=…crm_qa automatically for integration runs.)
  *
- * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable or the
- * vacancies table is missing (CI unit job / DB not yet pushed) — every test
- * bails early and stays green.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable, or a missing `vacancies` table (DB not yet pushed), throws
+ * in beforeAll (reports FAILED) — neither case can look like "passed" with
+ * zero assertions.
  */
 import { Global, Module } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'

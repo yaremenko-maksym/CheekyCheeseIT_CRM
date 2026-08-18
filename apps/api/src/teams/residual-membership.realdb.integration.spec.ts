@@ -59,7 +59,10 @@
  *         would catch a regression that silently dropped this write.
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
- * rmed2-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
+ * rmed2-. DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when
+ * DATABASE_URL is unset (reports SKIPPED). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 import { ForbiddenException } from '@nestjs/common'

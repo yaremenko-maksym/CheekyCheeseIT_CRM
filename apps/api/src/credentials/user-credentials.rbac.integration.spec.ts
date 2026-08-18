@@ -56,8 +56,10 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   J1 (the junior themselves)  → 403 (no self-surface)
  *   + list body contains NO password / ciphertext.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR
- * project_credentials table absent → every test returns early and stays green.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED). A DATABASE_URL that IS set but unreachable, or
+ * a missing `project_credentials` table, throws in beforeAll (reports
+ * FAILED) — neither case can look like "passed" with zero assertions.
  */
 
 const JWT_SECRET = 'user-cred-rbac-integration-secret-32char'

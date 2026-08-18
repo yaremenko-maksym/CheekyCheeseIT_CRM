@@ -13,8 +13,10 @@
  * SEED: inserts isolated test rows in beforeAll, deletes in afterAll.
  * IDs namespaced to this spec run — no collision with other integration specs.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
- * Every test does `if (!dbAvailable) return` and stays green.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 import { Pool } from 'pg'

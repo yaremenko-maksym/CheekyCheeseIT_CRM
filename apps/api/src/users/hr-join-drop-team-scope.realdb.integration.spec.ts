@@ -18,7 +18,10 @@
  *         drop-team, matching pre-fix behavior for ADMIN).
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
- * hrjoin-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
+ * hrjoin-. DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when
+ * DATABASE_URL is unset (reports SKIPPED). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 import { ForbiddenException } from '@nestjs/common'

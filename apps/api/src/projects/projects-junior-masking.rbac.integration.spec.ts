@@ -59,8 +59,10 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   null in JUNIOR response.
  *
  * DB-SKIP-GUARD:
- *   dbAvailable=false when DATABASE_URL unreachable (CI unit job). Every test
- *   returns early — stays green in no-DB environments.
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED, CI unit job). A DATABASE_URL that IS set but unreachable throws
+ *   in beforeAll (reports FAILED) — neither case can look like "passed"
+ *   with zero assertions.
  */
 
 const JWT_SECRET = 'projects-junior-masking-rbac-secret-32c'
@@ -717,7 +719,8 @@ describe.skipIf(!hasDatabaseUrl())(
 //   SENIOR-ISO-2  SENIOR cannot open a DROP's profile
 //   SENIOR-ISO-3  ADMIN/HR behavior unchanged (regression)
 //
-// DB-SKIP-GUARD: dbAvailable=false → early return (CI unit job)
+// DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) → SKIPPED (CI unit job);
+// a set-but-unreachable DATABASE_URL throws in beforeAll (FAILED) instead.
 // ─────────────────────────────────────────────────────────────────────────────
 
 // ── Namespace: a9b8c7d6-e5f4-4003-** ─────────────────────────────────────────

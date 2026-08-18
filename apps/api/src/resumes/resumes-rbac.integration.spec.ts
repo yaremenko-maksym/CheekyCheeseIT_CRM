@@ -28,8 +28,10 @@
  *
  * SEED namespace: 7b3d91c4-2e5f-** (unique to this suite)
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL is unreachable (CI unit
- * job) -> every test returns early and the suite stays green.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 import { ForbiddenException, NotFoundException } from '@nestjs/common'
 import { drizzle } from 'drizzle-orm/node-postgres'

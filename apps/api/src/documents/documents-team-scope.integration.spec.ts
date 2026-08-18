@@ -78,9 +78,10 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *     whole task)                                                      → 404
  *   list() with category=RESUME only returns team+project-scoped rows
  *
- * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable
- * (CI unit job without Postgres) — every test returns early, 0 assertions
- * is acceptable there; the integration job has a Postgres service.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job without Postgres). A DATABASE_URL
+ * that IS set but unreachable throws in beforeAll (reports FAILED) —
+ * neither case can look like "passed" with zero assertions.
  */
 
 const JWT_SECRET = 'documents-team-scope-integration-secret-32c'

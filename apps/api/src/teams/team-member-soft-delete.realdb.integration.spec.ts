@@ -12,7 +12,10 @@
  *   AC2d: a soft-deleted member cannot be removed again (404) / counted as active
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced tmsd-.
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED). A DATABASE_URL that IS set but unreachable
+ * throws in beforeAll (reports FAILED) — neither case can look like
+ * "passed" with zero assertions.
  */
 
 import { Pool } from 'pg'

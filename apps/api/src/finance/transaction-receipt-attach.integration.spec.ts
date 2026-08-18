@@ -16,7 +16,10 @@
  *   - regression: a receiptless (legacy / systemic) row inserts + reads fine;
  *     a mandatory create path (declareUsdtProjectIncome) without a receipt → 400.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL is unreachable (CI unit job).
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  * S3: replaced with a spy-stub (no real MinIO).
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'

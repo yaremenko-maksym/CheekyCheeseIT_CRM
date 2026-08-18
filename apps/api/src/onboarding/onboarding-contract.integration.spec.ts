@@ -298,9 +298,11 @@ describe.skipIf(!hasDatabaseUrl())(
     beforeAll(async () => {
       // ── DB availability probe ─────────────────────────────────────────────────
       // Probe DB connectivity before spinning up the NestJS module. In the CI
-      // "Typecheck · Lint · Unit Tests" job there is no Postgres service, so the
-      // Pool connection will ECONNREFUSED. We catch the error, set dbAvailable=false,
-      // and return early so the suite is skipped instead of failing the job.
+      // "Typecheck · Lint · Unit Tests" job there is no Postgres service and no
+      // DATABASE_URL, so the outer `describe.skipIf(!hasDatabaseUrl())` already
+      // skips this suite before this probe ever runs. If DATABASE_URL IS set
+      // but unreachable (ECONNREFUSED), we throw here instead — a hard FAILED,
+      // not a silent per-test skip.
       try {
         const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
         await probePool.query('SELECT 1')

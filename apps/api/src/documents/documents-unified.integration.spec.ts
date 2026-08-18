@@ -757,22 +757,22 @@ describe.skipIf(!hasDatabaseUrl())(
   () => {
     let app: NestFastifyApplication
     let jwt: JwtService
-    // Local availability flag — this suite is self-contained and does not rely
-    // on the first suite's module-level `dbAvailable` (test ordering / isolation).
-    let dropDbAvailable = true
 
     beforeAll(async () => {
       // ── DB availability probe ────────────────────────────────────────────────
+      // This suite is self-contained and does not rely on the first suite's
+      // outer `describe.skipIf(!hasDatabaseUrl())` beyond gating on
+      // DATABASE_URL being SET — a DATABASE_URL that is set but unreachable
+      // (wrong port, DB down) still needs its OWN hard failure here, not a
+      // silent per-test skip.
       try {
         const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
         await probePool.query('SELECT 1')
         await probePool.end()
       } catch {
-        console.warn(
+        throw new Error(
           '[drop-idor integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
         )
-        dropDbAvailable = false
-        return
       }
 
       const moduleRef = await Test.createTestingModule({
@@ -904,7 +904,6 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 30_000)
 
     afterAll(async () => {
-      if (!dropDbAvailable) return
       try {
         const dbSvc = app.get(DatabaseService)
         const db = dbSvc.db
@@ -936,8 +935,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── 13. DROP without ownerId filter → sees ONLY own docs + own contract ───
 
     it('13. DROP without ownerId filter: list() is hard self-scoped (own docs + own contract only)', async () => {
-      if (!dropDbAvailable) return
-
       const res = await app.inject({
         method: 'GET',
         url: '/api/documents',
@@ -986,8 +983,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── 14. Anti-IDOR: client ownerId pointing at another user is overwritten ──
 
     it('14. DROP with malicious ?ownerId=<otherUser>: force-scope overwrites it — still own docs only', async () => {
-      if (!dropDbAvailable) return
-
       // Attacker passes the OTHER user's id as ownerId to try to enumerate their docs.
       const res = await app.inject({
         method: 'GET',

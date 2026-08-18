@@ -65,7 +65,10 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * SEED namespace: a9b8c7d6-e5f4-4010-**
  *   (distinct from 4000/4002/4003 used by other integration specs)
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 const JWT_SECRET = 'admin-as-senior-rbac-secret-32c'

@@ -18,7 +18,10 @@
  * SEED: inserts isolated test rows in beforeAll, deletes in afterAll.
  * IDs namespaced ld8- (legend-defaults-realdb) — no collision with other specs.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED). A DATABASE_URL that IS set but unreachable
+ * throws in beforeAll (reports FAILED) — neither case can look like
+ * "passed" with zero assertions.
  */
 
 import { Global, Module } from '@nestjs/common'

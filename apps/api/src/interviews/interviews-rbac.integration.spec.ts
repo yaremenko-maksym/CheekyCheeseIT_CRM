@@ -87,8 +87,10 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  * needs 4 collaborators incl. a forwardRef to UsersService) while still
  * exercising the real move() RBAC path (assertUpdateAccess).
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job)
- *   → every test returns early, suite stays green in no-DB environments.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ *   unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ *   unreachable throws in beforeAll (reports FAILED) — neither case can
+ *   look like "passed" with zero assertions.
  */
 
 const JWT_SECRET = 'interviews-rbac-integration-secret-32chars'

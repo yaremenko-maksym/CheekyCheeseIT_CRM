@@ -38,7 +38,10 @@
  *         `rotateSenior` instead of self-service rejoin.
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced
- * rejoin-. DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
+ * rejoin-. DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when
+ * DATABASE_URL is unset (reports SKIPPED). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 import { ForbiddenException } from '@nestjs/common'

@@ -20,7 +20,10 @@
  *      returns true → every one of those calls succeeds (403 expected instead).
  *
  * SEED: isolated rows in beforeAll, deleted in afterAll. IDs namespaced tmrv-.
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 import { ForbiddenException } from '@nestjs/common'

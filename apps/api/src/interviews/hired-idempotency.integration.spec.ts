@@ -23,9 +23,11 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *
  * Seed namespace: e3f4a5b6-0c1d-4e3f-** (distinct from other integration specs).
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL is not reachable or the
- * `created_project_id` column has not been migrated yet → tests are skipped
- * gracefully in CI unit job.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable, or a `created_project_id` column that has not been migrated
+ * yet, throws in beforeAll (reports FAILED) — neither case can look like
+ * "passed" with zero assertions.
  */
 
 const ADMIN: SessionUser = {

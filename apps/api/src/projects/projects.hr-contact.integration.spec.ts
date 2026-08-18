@@ -32,7 +32,10 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   HC-4  HR in the same team as senior → 200
  *   HC-5  HR NOT in the senior's team → 403
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 const JWT_SECRET = 'projects-hr-contact-rbac-secret-32c'

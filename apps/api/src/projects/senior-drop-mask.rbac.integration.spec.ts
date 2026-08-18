@@ -27,8 +27,10 @@
  *   One JUNIOR (J1) active member for regression path.
  *
  * DB-SKIP-GUARD:
- *   dbAvailable=false when DATABASE_URL unreachable (CI unit job). Every test
- *   returns early — stays green in no-DB environments.
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED, CI unit job). A DATABASE_URL that IS set but unreachable throws
+ *   in beforeAll (reports FAILED) — neither case can look like "passed"
+ *   with zero assertions.
  */
 import { Controller, Get, Global, Inject, Module, Param } from '@nestjs/common'
 import { APP_GUARD, Reflector } from '@nestjs/core'
