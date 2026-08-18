@@ -18,9 +18,31 @@
  *      OTHER seniors' SENIOR_INCOME, EXPENSE, SALARY, JUNIOR_PAYMENT, etc.
  *   2. The DROP user never sees PAYOUT_ADMIN rows even when they are
  *      indirectly tied to the payout request that generated them.
- *   3. GET /api/finance/summary works for DROP (200) without crashing on
- *      `summary.dropBalances` being undefined / null.
+ *   3. GET /api/finance/summary REJECTS DROP (403) — the full financial
+ *      summary (adminBalances / dropBalances-for-everyone / totalIncome) is
+ *      ADMIN/ACCOUNTANT only; DROP's own numbers live behind the separate
+ *      self-only `GET /api/finance/drop/me/summary` route. Backlog item 131
+ *      fix (2026-08-18): this used to assert 200, which was wrong since PR
+ *      #158 (10.06.2026) and only caught because the spec was audited for
+ *      being outside the CI shard matrix — see the test body for the full
+ *      history.
  *   4. GET /api/payout-requests as a DROP scoped to their own only.
+ *
+ * Backlog item 131 (second finding, same audit): this file predates the
+ * Phase 6A onboarding gate (`OnboardingGuard`) and never called
+ * `onboardDropViaAPI` after `createDropViaAPI` — every test here 403'd with
+ * `ONBOARDING_REQUIRED` on its FIRST live request (drop-income /
+ * finance/summary / payout-requests) before reaching the RBAC assertions
+ * this file exists to make. All 4 tests now onboard the fresh DROP first,
+ * matching the CI-gated `drop-role-end-to-end.spec.ts` pattern.
+ *
+ * Backlog item 131 (third finding, same audit): tests 3-4 also predate
+ * `task-drop-payout-company-account`, which removed the auto-create-
+ * payout_request-at-validate behaviour for DROP_INCOME (validate now only
+ * flips status to VALIDATED, same as SENIOR_INCOME) — they asserted a
+ * non-null `payoutRequestId` straight off `validateTransactionViaAPI`, which
+ * is always null now. Both now call `createPayoutRequestViaAPI` as the DROP
+ * to bundle the VALIDATED income explicitly, same as the SENIOR flow.
  *
  * Cleanup: cascade-archive the drop.
  */
@@ -34,7 +56,10 @@ import {
   cleanupDropViaAPI,
   createDropProjectViaAPI,
   createDropIncomeViaAPI,
+  onboardDropViaAPI,
+  ensureCompanyWalletViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
   payPayoutRequestViaAPI,
 } from './fixtures'
 
@@ -60,6 +85,18 @@ test.describe('DROP backend RBAC — direct API regression', () => {
     })
 
     try {
+      // Backlog item 131 (second finding): the OnboardingGuard (Phase 6A,
+      // postdates this spec) rejects any non-ADMIN caller with
+      // `403 ONBOARDING_REQUIRED` until they have a SIGNED employee_contract
+      // + a ToS acceptance for the current version — `POST
+      // /transactions/drop-income` below is not in the guard's bypass list.
+      // A freshly `createDropViaAPI`'d user has neither. Without this call
+      // every test in this file failed at the FIRST live request, before
+      // ever reaching the RBAC assertions this file exists to make — see
+      // `drop-role-end-to-end.spec.ts` (CI-gated) for the same required
+      // step on the same helper.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,
@@ -104,15 +141,28 @@ test.describe('DROP backend RBAC — direct API regression', () => {
     }
   })
 
-  test('GET /api/finance/summary as DROP returns 200 and includes dropBalances field', async ({
+  test('GET /api/finance/summary as DROP is rejected (403) — DROP has no access to the full financial summary', async ({
     page,
   }) => {
-    // Regression catcher: in dev round-1 the finance summary frontend
-    // crashed with `Cannot read .length of undefined` when the backend
-    // didn't surface `dropBalances`. Backend contract is to always send
-    // `dropBalances: []` (empty array) — never undefined — so the frontend
-    // can safely `summary.dropBalances?.length` without optional chaining
-    // hacks. This spec verifies the contract directly.
+    // Backlog item 131 fix: this test used to assert `200` for DROP, which was
+    // WRONG the day it was written and stayed wrong, unnoticed, for ~2 months —
+    // `TransactionsService.getSummary` has thrown `ForbiddenException` for any
+    // role other than ADMIN/ACCOUNTANT since PR #158 (10.06.2026, git blame),
+    // i.e. BEFORE this spec (task-e2e-fragile-points-audit) existed. The false
+    // assertion never turned red because this file is not wired into any CI
+    // shard (`scripts/devops/check-e2e-shard-coverage.py` KNOWN_UNSHARDED —
+    // "debt: not gated, migrate to drop shard later").
+    //
+    // Since PR #566 (backlog item 121, security-review on #560) the route also
+    // carries `@Roles('ADMIN','ACCOUNTANT')` as a SECOND, independent guard
+    // layer (`FinanceSummaryController.getSummary` in transactions.controller.ts)
+    // — the class-level `RolesGuard` now rejects DROP BEFORE the handler runs,
+    // so the request never even reaches `TransactionsService.getSummary`
+    // (see transactions.summary.roles-guard.spec.ts for the guard-level unit
+    // proof that the handler is unreached). Both layers agree DROP is
+    // forbidden; this spec pins the live, end-to-end HTTP contract — 403, with
+    // the guard's own message, not the service's — a fresh caller actually
+    // gets.
     const suffix = uniqueSuffix()
     const dropEmail = `drop-api-summary-${suffix}@cheekycheese.dev`
 
@@ -123,21 +173,30 @@ test.describe('DROP backend RBAC — direct API regression', () => {
     })
 
     try {
+      // See the onboarding note in the first test in this file — a fresh
+      // DROP needs a signed contract + ToS acceptance before OnboardingGuard
+      // lets ANY non-bypassed route through, `/finance/summary` included.
+      // Without this the request never even reaches the @Roles guard this
+      // test is pinning — it 403s on ONBOARDING_REQUIRED instead, which
+      // would have made the (fixed) assertion below pass for the WRONG
+      // reason.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+
       await loginViaApi(page, dropEmail)
       const res = await page.request.get(`${REAL_API}/finance/summary`)
-      // The endpoint must respond 200 to DROP. Drop role - phase 1: DROP has
-      // /finance access, so the summary endpoint is open to them.
-      expect(res.status()).toBe(200)
-      const body = (await res.json()) as {
-        totalIncome: number
-        adminBalances: unknown
-        dropBalances: unknown
-      }
-      // `dropBalances` must be present (array — possibly empty) so the
-      // frontend's `summary.dropBalances?.length` check doesn't crash.
-      expect(Array.isArray(body.dropBalances)).toBe(true)
-      // adminBalances is also always an array.
-      expect(Array.isArray(body.adminBalances)).toBe(true)
+      // DROP has NO access to the full financial summary (adminBalances,
+      // dropBalances, totalIncome, dropSharePercent for every drop) — that
+      // surface is ADMIN/ACCOUNTANT only. DROP's own numbers are exposed via
+      // the separate self-only `GET /api/finance/drop/me/summary` route
+      // (untouched by #566, still gated by service-side ownership).
+      expect(res.status()).toBe(403)
+      const body = (await res.json()) as { message: string }
+      // The guard layer runs first and throws its own message (distinct from
+      // the service's "Access denied: finance summary requires ADMIN or
+      // ACCOUNTANT role") — asserting on it pins that the 403 actually comes
+      // from the @Roles guard, not merely from a downstream crash.
+      expect(body.message).toContain('ADMIN')
+      expect(body.message).toContain('ACCOUNTANT')
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)
@@ -157,6 +216,15 @@ test.describe('DROP backend RBAC — direct API regression', () => {
     })
 
     try {
+      // See the onboarding note in the first test in this file.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+
+      // Seed leaves the company wallet unset — POST /payout-requests 400s
+      // ("Кошелёк компании не настроен") without it. onboardDropViaAPI
+      // restores the ADMIN session on exit, matching the golden pattern in
+      // the CI-gated drop-role-end-to-end.spec.ts.
+      await ensureCompanyWalletViaAPI(page)
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,
@@ -166,12 +234,21 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 300 })
 
+      // Backlog item 131 (third finding, same audit): `task-drop-payout-
+      // company-account` REMOVED the auto-create-payout_request-at-validate
+      // behaviour for DROP_INCOME (see `TransactionsService.validateTransaction`
+      // — validate now ONLY flips status to VALIDATED for both SENIOR_INCOME
+      // and DROP_INCOME). The DROP must now explicitly bundle their VALIDATED
+      // income into a payout via `POST /api/payout-requests`, same as SENIOR —
+      // `validateTransactionViaAPI` no longer returns a payoutRequestId.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
       // DROP fetches /api/payout-requests.
-      await loginViaApi(page, dropEmail)
       const res = await page.request.get(`${REAL_API}/payout-requests`)
       expect(res.status()).toBe(200)
       const list = (await res.json()) as Array<{
@@ -213,6 +290,11 @@ test.describe('DROP backend RBAC — direct API regression', () => {
     })
 
     try {
+      // See the onboarding + company-wallet notes on the previous test in
+      // this file.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      await ensureCompanyWalletViaAPI(page)
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,
@@ -220,12 +302,17 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
+      // See the third onboarding/flow note on the previous test in this file:
+      // validate no longer auto-creates the payout_request for DROP_INCOME
+      // either — the DROP bundles their own VALIDATED income explicitly.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
       // DROP pays — direct PATCH so we can assert HTTP 200 explicitly.
-      await loginViaApi(page, dropEmail)
       const payRes = await page.request.patch(
         `${REAL_API}/payout-requests/${payoutRequestId}/pay`,
         { data: { simulateResult: 'success' }, timeout: 60_000 },
