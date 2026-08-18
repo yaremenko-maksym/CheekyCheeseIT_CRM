@@ -1387,16 +1387,44 @@ export class ProjectsService {
     const teamIds = seniorTeamMemberships.map((m) => m.teamId)
 
     if (teamIds.length > 0) {
-      // Find all members of those teams with their user roles
+      // task-archived-user-completeness (AC1, security-review MED-3). This is
+      // the SECOND door into `project_members`, and it was open. `addMember`
+      // now refuses to seat a dismissed person on a live project; seeding a
+      // project from a HIRED interview has to obey the same invariant, or the
+      // rule holds only on the door someone happened to look at.
+      //
+      // TWO filters, because a dismissed teammate could arrive here by two
+      // different routes:
+      //
+      //   • `isNull(leftAt)` — `UsersService.archive` closes an HR's /
+      //     ACCOUNTANT's team memberships by stamping `leftAt`, and this query
+      //     did not look at it. A dismissed HR whose membership had been
+      //     closed months ago was still returned here and handed a fresh
+      //     ACTIVE row on a brand-new project.
+      //   • `archivedAt` — belt and braces for the row that is archived while
+      //     its membership is somehow still open (a cascade that missed, a
+      //     hand-edited row, a future archive path that forgets). `leftAt`
+      //     tracks TEAM membership; `archivedAt` tracks EMPLOYMENT, and the
+      //     question "may this person be seated on a project" belongs to the
+      //     second one — the same split spelled out on `addMember`.
+      //
+      // No money moves through this today (only the JUNIOR branch of
+      // `createMonthlySalaries` mints from project membership, and it re-reads
+      // `user.archivedAt`; HR/ACCOUNTANT salaries come from a separate query
+      // that already filters archived). This is about the invariant being true
+      // wherever it is stated, not about a live leak.
       const teammates = await conn.query.teamMembers.findMany({
-        where: inArray(teamMembers.teamId, teamIds),
-        with: { user: { columns: { id: true, role: true } } },
+        where: and(inArray(teamMembers.teamId, teamIds), isNull(teamMembers.leftAt)),
+        with: { user: { columns: { id: true, role: true, archivedAt: true } } },
       })
 
       const addedUserIds = new Set<string>()
       for (const m of teammates) {
-        const u = (m as typeof m & { user: { id: string; role: string } | null }).user
+        const u = (
+          m as typeof m & { user: { id: string; role: string; archivedAt: Date | null } | null }
+        ).user
         if (!u) continue
+        if (u.archivedAt) continue
         if (u.role !== 'HR' && u.role !== 'ACCOUNTANT') continue
         if (addedUserIds.has(u.id)) continue
         addedUserIds.add(u.id)
