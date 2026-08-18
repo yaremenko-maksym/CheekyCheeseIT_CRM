@@ -175,10 +175,13 @@ describe('MED-3 — createFromInterview does not seat dismissed teammates', () =
     expect(seatedUserIds).toEqual([ACTIVE_HR])
   })
 
-  it('asks the DB for `archivedAt` — without the column the guard cannot fire', async () => {
+  it('asks the DB for exactly the three columns the loop consumes', async () => {
     // Dropping `archivedAt` from the projection leaves the guard syntactically
     // intact and semantically dead: `u.archivedAt` would be `undefined` for
-    // everyone. Assert the projection, not just the outcome.
+    // everyone. `id` and `role` are load-bearing for the same reason — the loop
+    // filters on `role` and inserts `id`. So the WHOLE projection is pinned,
+    // not just the column this task added: each of the three is a silent
+    // failure of a different kind if it goes missing.
     const { db, findManyArgs } = makeInterviewDb([teammate(ACTIVE_HR, null)])
 
     await makeService(db).createFromInterview(interview, ADMIN)
@@ -186,7 +189,11 @@ describe('MED-3 — createFromInterview does not seat dismissed teammates', () =
     const teammateQuery = findManyArgs[1] as
       | { with?: { user?: { columns?: Record<string, boolean> } } }
       | undefined
-    expect(teammateQuery?.with?.user?.columns?.['archivedAt']).toBe(true)
+    expect(teammateQuery?.with?.user?.columns).toEqual({
+      id: true,
+      role: true,
+      archivedAt: true,
+    })
   })
 
   it('asks the DB only for OPEN memberships (`left_at is null`)', async () => {
