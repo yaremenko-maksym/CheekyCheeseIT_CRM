@@ -892,9 +892,17 @@ export class UsersService {
    *
    * The honest limit of a choke point: it protects writers that USE it. A
    * future method reaching for `this.db.db.update(users)` directly is not
-   * covered — which is why this is not the only layer (see below), and why
-   * `archived-entitlement.unit.spec.ts` asserts that every `users` writer in
-   * this service routes through here.
+   * covered — which is why this is not the only layer (see below). Two such
+   * direct writers remain on purpose (`updateProfile`, `updateRequisites`):
+   * they are safe not because they look harmless but because the `set` object
+   * they build contains no entitlement column, and
+   * `archived-entitlement.unit.spec.ts` asserts exactly that property by
+   * capturing what they hand to Drizzle. A third one added later without that
+   * property turns that spec red instead of quietly opening a new door. The
+   * remaining direct writers (`setAdminNote`, `archive`/`unarchive`,
+   * `updateGoogleId`, the DROP archive in `TeamsService`) touch only
+   * `admin_note` / `archived_at` / `google_id`, none of which decide what
+   * anyone is owed.
    *
    * ## Two layers, not one
    *
