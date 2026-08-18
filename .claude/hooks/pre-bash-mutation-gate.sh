@@ -37,31 +37,38 @@
 #     which is the same failure this whole task treats: a check that cannot be
 #     told apart from a check that never ran.
 #
-# HONEST TIME BUDGET (AC1, corrected 2026-08-18 review round 2 — the first
-# version of this comment quoted ONE number, 3.5s-10s, sourced from
+# HONEST TIME BUDGET (AC1, corrected 2026-08-18 review rounds 2 and 3 — the
+# first version of this comment quoted ONE number, 3.5s-10s, sourced from
 # packages/shared/apps/web measurements only. A reviewer measured apps/api
 # directly and got 39-40s for a 2-line/4-mutant diff — TEN TIMES the quoted
-# figure, not noise. A number that lies by 10x is worse than no number, so this
-# is now per-package, not a single promise):
+# figure, not noise. This is now per-package AND a RANGE, not a single
+# promise: round 3 re-measured that SAME 2-line/4-mutant diff a third time and
+# got 53s — three runs of one fixed diff shape spanning 39-53s, a ~1.5x
+# spread. A point estimate here would have been just as dishonest as the
+# original 10x-off number, only by a smaller factor):
 #
-#   packages/shared  ~3.5-8s   for a 1-2 line / 3-5 mutant diff (measured
-#                              2026-08-11 unloaded, and again 2026-08-18 under
-#                              load average ~20 on 8 cores — 8.0s).
-#   apps/web         ~7-10s    similar order to shared; no separate NestJS boot.
-#   apps/api         ~25-40s   for a 1-2 line / 3-4 mutant diff, MEASURED (not
-#                              estimated) 2026-08-18: 24.7s for 1 line/3 mutants
-#                              in this repo, under the SAME load as the shared
-#                              measurement above (same session, same ~20 load
-#                              average) — apps/api cost ~3x shared for an
-#                              equivalently tiny diff. A reviewer separately
-#                              measured 39-40s for a 2-line/4-mutant apps/api
-#                              diff. This gap is STRUCTURAL, not load: Stryker
-#                              boots the full NestJS DI graph once per worker
-#                              before it can run a single mutant (~16-20s of
-#                              the total, by both measurements, independent of
-#                              mutant count) — shared and web have no such
-#                              bootstrap. Load adds a multiplier on TOP of this
-#                              fixed tax; it does not create it.
+#   packages/shared  ~3.5-8s    for a 1-2 line / 3-5 mutant diff (measured
+#                               2026-08-11 unloaded, and again 2026-08-18 under
+#                               load average ~20 on 8 cores — 8.0s).
+#   apps/web         ~7-10s     similar order to shared; no separate NestJS boot.
+#   apps/api         ~25-53s    for a 1-2 line / 3-4 mutant diff. 24.7s
+#                               measured for 1 line/3 mutants (same session,
+#                               same ~20 load average as the shared row above
+#                               — apps/api cost ~3x shared for an equivalently
+#                               tiny diff, confirming the gap is STRUCTURAL:
+#                               Stryker boots the full NestJS DI graph once
+#                               per worker before it can run a single mutant,
+#                               ~16-20s of the total regardless of mutant
+#                               count). A 2-line/4-mutant diff measured 39s,
+#                               40s, and 53s on three separate occasions — the
+#                               dominant variable across those three is NOT
+#                               the diff (identical each time), it is how much
+#                               other concurrent agent work this shared
+#                               machine was running at push time (`uptime`
+#                               load averages of 15-23 on 8 cores are the
+#                               ordinary case here). Treat 25-53s as the
+#                               realistic range, not either endpoint as "the"
+#                               number.
 #
 # apps/api is also the exact package where this task's motivating defects were
 # found three times (task-mutation-gate-mechanical, fact 1) — the push that
@@ -72,12 +79,13 @@
 # The largest recent PR (#504, 4565 changed lines) generates 2220 mutants and
 # lands in budget-exceeded territory regardless of package. This hook sets a
 # LOCAL budget of MUTATION_PREPUSH_BUDGET_SECONDS (default 120s) — real but not
-# huge margin for apps/api specifically (measured cost already ~25-40s before
-# a single extra mutant), well above shared/web's typical case, below "block
-# the developer for 15 minutes on a huge diff" (CI's own budget for `--changed`
-# is 900s). If the budget is exceeded, mutation-gate.mjs's own budgetExceeded()
-# reports exactly how far it got and how long it took — VERIFIED against a
-# REAL apps/api overflow (not a stubbed one), 2026-08-18: a 1-line apps/api
+# huge margin for apps/api specifically (measured range already ~25-53s before
+# a single extra mutant beyond the measured 3-4), well above shared/web's
+# typical case, below "block the developer for 15 minutes on a huge diff"
+# (CI's own budget for `--changed` is 900s). If the budget is exceeded,
+# mutation-gate.mjs's own budgetExceeded() reports exactly how far it got and
+# how long it took — VERIFIED against a REAL apps/api overflow (not a stubbed
+# one), 2026-08-18: a 1-line apps/api
 # diff against a 2s budget produced a loud, correct SKIP naming the exact
 # elapsed time, not a silent pass. This hook relays that as a SKIP with the two
 # ways to narrow: split the push, or `MUTATION_ONLY_FILES=<path> pnpm

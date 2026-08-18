@@ -103,32 +103,48 @@ mutant count, which tracks changed lines.
 **This table has NO `apps/api` row, and that gap was itself the bug** — the
 2026-08-18 pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) shipped
 quoting this table's `packages/shared` number (3.5s-10s) as "the" typical cost,
-without ever having measured `apps/api` specifically. A PR reviewer measured it
-directly and got 39-40s for a 2-line/4-mutant `apps/api` diff — ten times the
-quoted figure, not noise. Filling that gap:
+without ever having measured `apps/api` specifically. Filling that gap, and
+reporting it as a RANGE rather than a point (review round 3 — three
+measurements of the SAME 2-line/4-mutant `apps/api` diff, on different
+occasions, came back 39s, 40s, and 53s: a ~1.5x spread from the SAME diff
+shape, which makes any single number here a coincidence, not a promise):
 
-| Diff                                                                 | Package       | Mutants | Wall clock | Load average during measurement  |
-| -------------------------------------------------------------------- | ------------- | ------: | ---------: | -------------------------------- |
-| 1 changed line (`packages/shared/src/utils/filename.ts`, idempotent) | `@crm/shared` |       3 |       8.0s | ~20-22 (8-core, shared machine)  |
-| 1 changed line (`apps/api/src/users/users.controller.ts`)            | `@crm/api`    |       3 |      24.7s | ~20-22 (same session, same load) |
-| 2 changed lines (reviewer's own measurement, PR #572 review)         | `@crm/api`    |       4 |     39-40s | not stated, comparable range     |
+| Diff                                                                  | Package       | Mutants |       Wall clock | Load average during measurement           |
+| --------------------------------------------------------------------- | ------------- | ------: | ---------------: | ----------------------------------------- |
+| 1 changed line (`packages/shared/src/utils/filename.ts`, idempotent)  | `@crm/shared` |       3 |             8.0s | ~20-22 (8-core, shared machine)           |
+| 1 changed line (`apps/api/src/users/users.controller.ts`)             | `@crm/api`    |       3 |            24.7s | ~20-22 (same session, same load as above) |
+| 2 changed lines (`apps/api`, measured 3 times on different occasions) | `@crm/api`    |       4 | **39-53s range** | 15-23 each time, not identical run to run |
 
-The `@crm/shared` and `@crm/api` rows above are from the SAME session, same
-load, same-shaped diff (1 line, 3 mutants) — the ~3x gap between them is
-therefore **structural, not load noise**: Stryker boots the full NestJS DI
-graph once per worker before it can run a single mutant (roughly 16-20s of the
-`@crm/api` total, present regardless of mutant count), and `@crm/shared` /
-`apps/web` have no such bootstrap. Load adds a multiplier ON TOP of this fixed
-tax — an unloaded machine would show smaller absolute numbers on both rows, but
-the same relative gap.
+The `@crm/shared` / `@crm/api` (1-line) pair above is from the SAME session,
+same load, same-shaped diff — a controlled comparison, not a general
+prediction. The 39-53s range is the general prediction: it is what three
+INDEPENDENT measurements of one fixed diff shape actually produced, and the
+spread between them is the honest answer to "how long will apps/api take" —
+not a single number, because **the dominant variable is not the diff, it is
+how many other agents are running heavy work on this shared machine at push
+time** (this repo's dev environment routinely runs multiple concurrent Coder/
+Reviewer/DevOps sessions; `uptime` load averages of 15-23 on 8 cores are the
+ordinary case here, not an outlier — see `.claude/rules/common/light-track.md`
+"Параллельный диспатч" for the wider pattern). Two effects compound into that
+range: the ~3x structural gap over `@crm/shared`/`apps/web` (Stryker boots the
+full NestJS DI graph once per worker before it can run a single mutant,
+roughly 16-20s of the `@crm/api` total, present regardless of mutant count and
+regardless of load — neither `@crm/shared` nor `apps/web` has this bootstrap),
+and THEN a load multiplier on top of that fixed tax that varies run to run on
+this specific machine. An unloaded, dedicated machine would show smaller
+absolute numbers across the board, but the same ~3x relative gap between
+`@crm/api` and the other two packages.
 
-**Practical consequence for the pre-push hook's 120s budget:** the fixed
-`apps/api` tax alone (~16-20s) already accounts for a sixth to a sixth-and-a-
-half of the budget before a single extra mutant is counted, leaving real but
-not huge headroom — comfortable for the common case (a handful of changed
-lines), tighter than `@crm/shared`/`apps/web` pushes for a genuinely large
-`apps/api` diff. See "Judgment: is ~25-40s per `apps/api` push acceptable?"
-below for the call on whether that is worth narrowing further.
+**Practical consequence for the pre-push hook's 120s budget:** even the low
+end of the observed range (~39s) already spends the fixed `apps/api` tax
+(~16-20s) plus real per-mutant time before a single extra mutant beyond the
+measured 4 is counted; the high end (~53s) is already 44% of the budget on a
+2-line diff. Real but not huge margin for the common case, tighter on a
+genuinely large `apps/api` diff, and load-dependent rather than fixed — a push
+that would comfortably fit the budget on a quiet machine can run noticeably
+closer to it when several other agents are active. See "Judgment: is ~25-53s
+per `apps/api` push acceptable?" below for the call on whether that is worth
+narrowing further.
 
 **The `apps/web` nightly leg is the long pole and its wall clock is NOT known.**
 What was measured: 263 files instrument to 27947 mutants, and its unmutated dry
@@ -143,7 +159,7 @@ comfortable fiction. **Read the first nightly run and set
 cannot finish in one night, split that leg by directory in the matrix rather
 than raising the budget past the 6h job ceiling.
 
-## Judgment: is ~25-40s per `apps/api` push acceptable? (review round 2, 2026-08-18)
+## Judgment: is ~25-53s per `apps/api` push acceptable? (review round 2/3, 2026-08-18)
 
 Asked explicitly by a PR reviewer once the real `apps/api` cost was measured,
 rather than left implicit. The answer here is **yes, as shipped, with one
@@ -155,7 +171,7 @@ EXACT area task-mutation-gate-mechanical's own motivating facts came from
 (three independent "test checks the mock, not the code" defects found there
 in one session). A push that costs more because it is checking the highest-
 risk surface more thoroughly is a real tradeoff paid for real protection, not
-waste. 25-40s is noticeable but not disruptive to a normal push cadence
+waste. 25-53s is noticeable but not disruptive to a normal push cadence
 (compare: `pnpm test` for the whole monorepo already runs on every pre-push
 via the existing husky hook and costs minutes, not seconds — this hook adds a
 fraction of that, and only for pushes that actually touch mutation-relevant
