@@ -175,4 +175,35 @@ assert_green "a passing push still surfaces a multi-mutant suppression count ver
   -- run_hook "$ROOT_CLEAN" "git push"
 unset STUB_EXIT STUB_OUTPUT
 
+# ── real, printed wall-clock time (review round 2, 2026-08-18) ──────────────
+#
+# The header's estimate was quoted as ONE number and measured 10x off for
+# apps/api by a reviewer — the fix is not a better estimate, it is printing
+# the ACTUAL elapsed time on every verdict so nobody has to trust a comment.
+# This proves the number is real (computed via python3's clock), not the "?"
+# fallback that only fires when the clock read itself fails.
+
+STUB_EXIT=0
+STUB_OUTPUT="mutation-gate: no mutable source lines changed vs the base — nothing to mutate."
+export STUB_EXIT STUB_OUTPUT
+assert_green "PASS banner carries the elapsed segment right after branch=, not the '?' fallback" \
+  --contains "[pre:bash:mutation-gate] PASS branch=feature/x (" \
+  --not-contains "(?s)" \
+  -- run_hook "$ROOT_CLEAN" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+STUB_EXIT=1
+STUB_OUTPUT='::error::mutant SURVIVED (ConditionalExpression) — the tests pass with this change applied: true'
+export STUB_EXIT STUB_OUTPUT
+assert_red "BLOCK banner also carries a real elapsed segment, not the '?' fallback" \
+  --contains "[pre:bash:mutation-gate] BLOCK branch=feature/x (" \
+  --not-contains "(?s)" \
+  -- run_hook "$ROOT_SURVIVOR" "git push"
+unset STUB_EXIT STUB_OUTPUT
+
+assert_green "SKIP banner (Stryker missing, no gate ever ran) still carries a real elapsed segment" \
+  --contains "[pre:bash:mutation-gate] SKIP branch=feature/x (" \
+  --not-contains "(?s)" \
+  -- run_hook "$ROOT_NO_STRYKER" "git push"
+
 guard_test_summary "test-pre-bash-mutation-gate.sh"

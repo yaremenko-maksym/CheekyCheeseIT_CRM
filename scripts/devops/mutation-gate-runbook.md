@@ -100,6 +100,36 @@ being treated. Either split the PR, or raise `MUTATION_BUDGET_SECONDS` in
 Startup dominates a small diff (~3s of the 3.5s); after that the cost tracks the
 mutant count, which tracks changed lines.
 
+**This table has NO `apps/api` row, and that gap was itself the bug** — the
+2026-08-18 pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) shipped
+quoting this table's `packages/shared` number (3.5s-10s) as "the" typical cost,
+without ever having measured `apps/api` specifically. A PR reviewer measured it
+directly and got 39-40s for a 2-line/4-mutant `apps/api` diff — ten times the
+quoted figure, not noise. Filling that gap:
+
+| Diff                                                                 | Package       | Mutants | Wall clock | Load average during measurement  |
+| -------------------------------------------------------------------- | ------------- | ------: | ---------: | -------------------------------- |
+| 1 changed line (`packages/shared/src/utils/filename.ts`, idempotent) | `@crm/shared` |       3 |       8.0s | ~20-22 (8-core, shared machine)  |
+| 1 changed line (`apps/api/src/users/users.controller.ts`)            | `@crm/api`    |       3 |      24.7s | ~20-22 (same session, same load) |
+| 2 changed lines (reviewer's own measurement, PR #572 review)         | `@crm/api`    |       4 |     39-40s | not stated, comparable range     |
+
+The `@crm/shared` and `@crm/api` rows above are from the SAME session, same
+load, same-shaped diff (1 line, 3 mutants) — the ~3x gap between them is
+therefore **structural, not load noise**: Stryker boots the full NestJS DI
+graph once per worker before it can run a single mutant (roughly 16-20s of the
+`@crm/api` total, present regardless of mutant count), and `@crm/shared` /
+`apps/web` have no such bootstrap. Load adds a multiplier ON TOP of this fixed
+tax — an unloaded machine would show smaller absolute numbers on both rows, but
+the same relative gap.
+
+**Practical consequence for the pre-push hook's 120s budget:** the fixed
+`apps/api` tax alone (~16-20s) already accounts for a sixth to a sixth-and-a-
+half of the budget before a single extra mutant is counted, leaving real but
+not huge headroom — comfortable for the common case (a handful of changed
+lines), tighter than `@crm/shared`/`apps/web` pushes for a genuinely large
+`apps/api` diff. See "Judgment: is ~25-40s per `apps/api` push acceptable?"
+below for the call on whether that is worth narrowing further.
+
 **The `apps/web` nightly leg is the long pole and its wall clock is NOT known.**
 What was measured: 263 files instrument to 27947 mutants, and its unmutated dry
 run (1346 tests) takes 63s. Extrapolating from the per-mutant rate seen on
@@ -112,6 +142,63 @@ comfortable fiction. **Read the first nightly run and set
 `MUTATION_BUDGET_SECONDS` per leg from what it actually reports.** If `apps/web`
 cannot finish in one night, split that leg by directory in the matrix rather
 than raising the budget past the 6h job ceiling.
+
+## Judgment: is ~25-40s per `apps/api` push acceptable? (review round 2, 2026-08-18)
+
+Asked explicitly by a PR reviewer once the real `apps/api` cost was measured,
+rather than left implicit. The answer here is **yes, as shipped, with one
+caveat spelled out rather than fixed silently** — this section is that
+judgment call, on the record.
+
+**Why yes:** `apps/api` is not an arbitrary expensive package — it is the
+EXACT area task-mutation-gate-mechanical's own motivating facts came from
+(three independent "test checks the mock, not the code" defects found there
+in one session). A push that costs more because it is checking the highest-
+risk surface more thoroughly is a real tradeoff paid for real protection, not
+waste. 25-40s is noticeable but not disruptive to a normal push cadence
+(compare: `pnpm test` for the whole monorepo already runs on every pre-push
+via the existing husky hook and costs minutes, not seconds — this hook adds a
+fraction of that, and only for pushes that actually touch mutation-relevant
+`apps/api` lines). The MUTATION_PREPUSH_BUDGET_SECONDS=120 default leaves real
+margin above the measured cost for a typical small diff (a handful of changed
+lines), and the budget-exceeded path is verified to fail loud rather than
+silent (see "Measured cost" above and the hook's own header).
+
+**The caveat:** margin shrinks fast as a diff grows, because the ~16-20s
+NestJS-boot tax is fixed per push, not amortized across a session — every
+apps/api push pays it again, whether the diff is 1 line or 50. A genuinely
+large apps/api diff (the shape of PR #504, 4565 lines / 2220 mutants) would
+hit the 120s local budget WELL before the mutant count alone would explain it,
+purely from that one push's own boot cost stacking against whatever margin the
+mutant count already used. That push still gets a correct, loud SKIP (verified
+above against a REAL overflow, not a stub) — it just means "not verified
+locally" happens exactly on the largest, highest-risk apps/api changes, which
+is the opposite of where a local first line of defense is most valuable.
+
+**A narrowing option, described but NOT implemented here** (task instruction:
+describe rather than silently redo when the fix is non-trivial design work,
+not a one-line change) — reuse a warm NestJS `TestingModule` across the dry
+run and every mutant within one Stryker worker, instead of paying the DI-graph
+boot cost once per worker regardless of mutant count. This is real, scoped
+engineering: it means writing or wiring a Stryker-aware test bootstrap for
+`apps/api` specifically (Stryker's `vitest-runner` plugin does not do this on
+its own — it re-imports the test file per mutant, which is what re-triggers
+Nest's bootstrap each time), verifying no state leaks between mutants sharing
+one module instance, and confirming the speedup is real under this repo's
+actual DI graph size before trusting it. That is `apps/api` source/test-infra
+work — outside this task's zone (`.claude/hooks/**`, `scripts/devops/**`) and
+a plausible size for its own task if the owner wants it pursued.
+
+A cheaper, in-zone alternative that WOULD fit this task's surface: raise
+`MUTATION_PREPUSH_BUDGET_SECONDS`'s default specifically higher when the diff
+touches `apps/api` (the fixed boot tax alone already claims a sixth of the
+current 120s default), or size-gate very large local `apps/api` diffs into an
+immediate, visible SKIP ("this diff is large enough that local verification
+would cost minutes — CI will check it for real") rather than spending the
+whole budget attempting it. Neither is implemented here: both are judgment
+calls about UX (how many false-margin seconds is worth adding, what "large"
+means) that belong to the owner's call, not something to guess and ship
+silently.
 
 ## Running it yourself
 

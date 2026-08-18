@@ -37,17 +37,55 @@
 #     which is the same failure this whole task treats: a check that cannot be
 #     told apart from a check that never ran.
 #
-# HONEST TIME BUDGET (AC1): on the diffs measured for task-mutation-gate
-# (scripts/devops/mutation-gate-runbook.md, 2026-08-11, 4 workers, local), a
-# typical PR-sized diff costs 3.5s-10s; the largest recent PR (#504, 4565 changed
-# lines) generates 2220 mutants and lands in budget-exceeded territory. This hook
-# sets a LOCAL budget of MUTATION_PREPUSH_BUDGET_SECONDS (default 120s) — above
-# every typical case with real margin, below "block the developer for 15 minutes
-# on a huge diff" (CI's own budget for `--changed` is 900s). If the budget is
-# exceeded, mutation-gate.mjs's own budgetExceeded() reports exactly how far it
-# got and how long it took; this hook relays that as a SKIP with the two ways to
-# narrow: split the push, or `MUTATION_ONLY_FILES=<path> pnpm mutation:changed`
-# to check one file locally while iterating (see the runbook).
+# HONEST TIME BUDGET (AC1, corrected 2026-08-18 review round 2 — the first
+# version of this comment quoted ONE number, 3.5s-10s, sourced from
+# packages/shared/apps/web measurements only. A reviewer measured apps/api
+# directly and got 39-40s for a 2-line/4-mutant diff — TEN TIMES the quoted
+# figure, not noise. A number that lies by 10x is worse than no number, so this
+# is now per-package, not a single promise):
+#
+#   packages/shared  ~3.5-8s   for a 1-2 line / 3-5 mutant diff (measured
+#                              2026-08-11 unloaded, and again 2026-08-18 under
+#                              load average ~20 on 8 cores — 8.0s).
+#   apps/web         ~7-10s    similar order to shared; no separate NestJS boot.
+#   apps/api         ~25-40s   for a 1-2 line / 3-4 mutant diff, MEASURED (not
+#                              estimated) 2026-08-18: 24.7s for 1 line/3 mutants
+#                              in this repo, under the SAME load as the shared
+#                              measurement above (same session, same ~20 load
+#                              average) — apps/api cost ~3x shared for an
+#                              equivalently tiny diff. A reviewer separately
+#                              measured 39-40s for a 2-line/4-mutant apps/api
+#                              diff. This gap is STRUCTURAL, not load: Stryker
+#                              boots the full NestJS DI graph once per worker
+#                              before it can run a single mutant (~16-20s of
+#                              the total, by both measurements, independent of
+#                              mutant count) — shared and web have no such
+#                              bootstrap. Load adds a multiplier on TOP of this
+#                              fixed tax; it does not create it.
+#
+# apps/api is also the exact package where this task's motivating defects were
+# found three times (task-mutation-gate-mechanical, fact 1) — the push that
+# costs the most is the one doing the most-needed work, which is a real
+# tradeoff, not a free lunch. See PR #572 review discussion for the judgment
+# call on whether that cost is acceptable as-is.
+#
+# The largest recent PR (#504, 4565 changed lines) generates 2220 mutants and
+# lands in budget-exceeded territory regardless of package. This hook sets a
+# LOCAL budget of MUTATION_PREPUSH_BUDGET_SECONDS (default 120s) — real but not
+# huge margin for apps/api specifically (measured cost already ~25-40s before
+# a single extra mutant), well above shared/web's typical case, below "block
+# the developer for 15 minutes on a huge diff" (CI's own budget for `--changed`
+# is 900s). If the budget is exceeded, mutation-gate.mjs's own budgetExceeded()
+# reports exactly how far it got and how long it took — VERIFIED against a
+# REAL apps/api overflow (not a stubbed one), 2026-08-18: a 1-line apps/api
+# diff against a 2s budget produced a loud, correct SKIP naming the exact
+# elapsed time, not a silent pass. This hook relays that as a SKIP with the two
+# ways to narrow: split the push, or `MUTATION_ONLY_FILES=<path> pnpm
+# mutation:changed` to check one file locally while iterating (see the
+# runbook). This hook ALSO prints its own measured wall-clock duration in every
+# PASS/BLOCK/SKIP banner below, so the number above is a starting estimate, not
+# the only source of truth — the actual figure on YOUR push is always visible,
+# not promised.
 #
 # Contract:
 #   - Reads tool-call JSON from stdin.
@@ -89,9 +127,29 @@ fi
 WT_TOP=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 [ -z "$WT_TOP" ] && exit 0
 
+# Wall-clock from HERE (right before the infra pre-checks), captured with
+# sub-second precision via python3 (bash arithmetic is integer-only). This is
+# the number that answers "how long did THIS push actually wait", printed in
+# every banner below -- an observed fact, not the header comment's estimate
+# (review round 2, 2026-08-18: the estimate was quoted as one number and
+# measured 10x off for apps/api; a number nobody has to trust because it is
+# printed fresh on every run is the actual fix, the corrected estimate is only
+# a starting point).
+HOOK_STARTED_AT=$(python3 -c "import time; print(time.time())" 2>/dev/null || echo "")
+
+elapsed_s() {
+  # Prints seconds.tenths since HOOK_STARTED_AT, or "?" if the clock read failed
+  # (never blocks the verdict on a timing nicety).
+  if [ -z "$HOOK_STARTED_AT" ]; then
+    echo "?"
+    return
+  fi
+  python3 -c "import time,sys; print(f'{time.time()-float(sys.argv[1]):.1f}')" "$HOOK_STARTED_AT" 2>/dev/null || echo "?"
+}
+
 skip() {
   # $1 = reason, $2 = optional fix instruction
-  echo "[pre:bash:mutation-gate] SKIP branch=$BRANCH — $1" >&2
+  echo "[pre:bash:mutation-gate] SKIP branch=$BRANCH ($(elapsed_s)s) — $1" >&2
   echo "    NOT verified locally. CI's mutation gate (ci.yml, job quality) still runs the real check on the PR." >&2
   [ -n "${2:-}" ] && echo "    $2" >&2
   exit 0
@@ -100,7 +158,7 @@ skip() {
 block() {
   # $1 = short reason for the JSON decision, $2 = already-printed detail (stderr only)
   python3 -c "import json,sys; print(json.dumps({'decision':'block','reason':sys.argv[1]}))" "$1" 2>/dev/null
-  echo "[pre:bash:mutation-gate] BLOCK branch=$BRANCH" >&2
+  echo "[pre:bash:mutation-gate] BLOCK branch=$BRANCH ($(elapsed_s)s)" >&2
   exit 2
 }
 
@@ -146,7 +204,7 @@ echo "$OUT" >&2
 
 case "$RC" in
   0)
-    echo "[pre:bash:mutation-gate] PASS branch=$BRANCH" >&2
+    echo "[pre:bash:mutation-gate] PASS branch=$BRANCH ($(elapsed_s)s)" >&2
     exit 0
     ;;
   1)
