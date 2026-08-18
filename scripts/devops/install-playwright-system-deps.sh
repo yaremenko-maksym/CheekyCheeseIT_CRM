@@ -102,6 +102,45 @@
 # request (github.com/microsoft/playwright/issues/40512). That has not
 # changed since round 1 — re-confirmed, not re-investigated, for round 2.
 #
+# LOCK SIGNATURE, AND WHY "CONTAINS THE PHRASE" WAS NOT ENOUGH (round 2
+# review, PR #562 review 4956397222): the first version of this
+# classifier asked "does the phrase appear ANYWHERE in the merged
+# stdout+stderr", which the reviewer disproved by hand: a fake command
+# that prints BOTH apt's real lock wording AND an unrelated, genuine
+# `E: Unable to locate package libnonexistent-dep0` in the SAME call
+# still classified as "lock" — a real missing dependency would have
+# exited the job green with only a ::warning::, exactly the outcome the
+# script's own header already called out as forbidden ("never to the
+# dependency install itself being broken"). The intent was right; a
+# substring search cannot enforce it, because apt legitimately prints a
+# transient `W: ... — retrying internally` lock line and THEN a separate,
+# unrelated `E: ...` failure in one run, and "contains" cannot tell
+# "explains" from "also mentioned".
+#
+# The fix classifies by apt/dpkg's OWN distinction between the two, not
+# by keyword search: apt/dpkg report every DEFINITIVE failure as a line
+# starting with `E: ` — that is the tool's own severity marker, not
+# vocabulary this script invented (a transient lock wait that is still
+# retrying is reported as `W: `, never `E: `; see the real #562
+# transcript's two `E: ` lines, both lock-family, and the reviewer's
+# counter-example, whose `E: ` line is Unable-to-locate-package, not the
+# lock). So: collect every `E: ` line in the merged output.
+#   - NO `E: ` line at all → cannot prove the failure was lock-only →
+#     "real" (see the WHEN-UNSURE rule below).
+#   - EVERY `E: ` line matches the lock family → "lock".
+#   - ANY `E: ` line does NOT match the lock family → "real", full stop
+#     — one genuine error line outweighs any number of lock mentions
+#     elsewhere in the same output, regardless of order (error-first or
+#     lock-first — both required by this file's own tests).
+#
+# WHEN UNSURE, DECIDE TOWARD "real" (requirement, not a preference): the
+# two mistakes are not symmetric. Misclassifying a cleared/transient lock
+# as "real" costs one extra failed run someone re-triggers. Misclassifying
+# a genuine missing dependency as "lock" ships a job that says PASS while
+# the E2E gate it exists to protect never actually ran with what it
+# needed — silent exactly when the gate matters most. Every branch above
+# that cannot prove "lock and only lock" falls to "real".
+#
 # LOCK SIGNATURE: apt/dpkg's own wording for "another process holds the
 # lock" — "Could not get lock" / "Unable to lock directory" (both lines
 # seen verbatim in the #562 transcript above; `dpkg frontend lock` folded
@@ -182,20 +221,37 @@ _write_summary() {
 }
 
 # $1 = captured output, $2 = exit code. Echoes one of: lock | timeout | real
+#
+# Classifies by apt/dpkg's OWN `E: ` severity marker for a definitive
+# failure, not by a keyword search over the whole blob — see the "LOCK
+# SIGNATURE, AND WHY..." header comment above for why a plain substring
+# match let a real dependency error hide behind an unrelated lock mention
+# in the same output (round-2 review finding, PR #562). Unsure → "real"
+# (WHEN-UNSURE rule above): a missing `E: ` line, or any `E: ` line this
+# script does not recognize as lock-family, is never classified "lock".
 _classify() {
   local out="$1" rc="$2"
   if [ "$rc" -eq 124 ]; then
     echo "timeout"
     return
   fi
-  case "$out" in
-    *"Could not get lock"* | *"Unable to lock directory"* | *"dpkg frontend lock"*)
-      echo "lock"
-      ;;
-    *)
-      echo "real"
-      ;;
-  esac
+  local e_lines non_lock_e_lines
+  e_lines="$(printf '%s\n' "$out" | grep -E '^E: ')"
+  if [ -z "$e_lines" ]; then
+    # No apt/dpkg "E: " line at all — nothing here PROVES lock-only, so
+    # this cannot be classified "lock" (WHEN-UNSURE rule).
+    echo "real"
+    return
+  fi
+  non_lock_e_lines="$(printf '%s\n' "$e_lines" | grep -Ev 'Could not get lock|Unable to lock directory|dpkg frontend lock')"
+  if [ -n "$non_lock_e_lines" ]; then
+    # At least one "E: " line names something other than the lock — a
+    # real failure, regardless of how many lock mentions (any severity,
+    # any position) sit alongside it in the same output.
+    echo "real"
+  else
+    echo "lock"
+  fi
 }
 
 _fail_real() {

@@ -38,6 +38,22 @@
 #                              NEXT call hits a genuine, unrelated
 #                              dependency error" — a case a blanket
 #                              FAKE_PW_DEPS_LOCK_TEXT=1 cannot represent.
+#   FAKE_PW_DEPS_MIXED_OUTPUT   optional (round 2, PR #562 review
+#                              4956397222) — "lock-then-real" or
+#                              "real-then-lock". Every FAILING call
+#                              prints BOTH apt's real lock wording AND a
+#                              genuine, unrelated `E: Unable to locate
+#                              package libnonexistent-dep0` line in ONE
+#                              call, in the given order. This is the
+#                              reviewer's own counter-example shape: a
+#                              substring search over the whole output
+#                              cannot tell "the lock also happened to be
+#                              mentioned" from "the lock explains the
+#                              whole failure" — only a call that can
+#                              print BOTH signals in a single invocation
+#                              can prove the classifier tells them apart.
+#                              Takes priority over FAKE_PW_DEPS_LOCK_TEXT
+#                              and FAKE_PW_DEPS_LOCK_UNTIL_CALL if set.
 set -u
 
 : "${FAKE_PW_DEPS_RC_SEQUENCE:?FAKE_PW_DEPS_RC_SEQUENCE not set}"
@@ -72,6 +88,29 @@ if [ "$rc" -eq 0 ]; then
   exit 0
 fi
 
+LOCK_LINE='E: Could not get lock /var/lib/apt/lists/lock. It is held by process 3760 (apt-get)'
+REAL_LINE='E: Unable to locate package libnonexistent-dep0'
+
+case "${FAKE_PW_DEPS_MIXED_OUTPUT:-}" in
+  lock-then-real)
+    echo "$LOCK_LINE" >&2
+    echo "E: Unable to lock directory /var/lib/apt/lists/" >&2
+    echo "$REAL_LINE" >&2
+    exit "$rc"
+    ;;
+  real-then-lock)
+    echo "$REAL_LINE" >&2
+    echo "$LOCK_LINE" >&2
+    echo "E: Unable to lock directory /var/lib/apt/lists/" >&2
+    exit "$rc"
+    ;;
+  "") ;;
+  *)
+    echo "fake-playwright-deps: unknown FAKE_PW_DEPS_MIXED_OUTPUT '$FAKE_PW_DEPS_MIXED_OUTPUT'" >&2
+    exit 2
+    ;;
+esac
+
 use_lock_text=0
 if [ -n "${FAKE_PW_DEPS_LOCK_UNTIL_CALL:-}" ]; then
   [ "$n" -le "$FAKE_PW_DEPS_LOCK_UNTIL_CALL" ] && use_lock_text=1
@@ -80,7 +119,7 @@ elif [ "${FAKE_PW_DEPS_LOCK_TEXT:-}" = "1" ]; then
 fi
 
 if [ "$use_lock_text" -eq 1 ]; then
-  echo "E: Could not get lock /var/lib/apt/lists/lock. It is held by process 3760 (apt-get)" >&2
+  echo "$LOCK_LINE" >&2
   echo "E: Unable to lock directory /var/lib/apt/lists/" >&2
 else
   echo "fake-playwright-deps: call $n failed (rc=$rc)" >&2

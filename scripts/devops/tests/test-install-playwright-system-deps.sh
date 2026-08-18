@@ -20,6 +20,18 @@
 #      entry, so the run stays visibly flagged instead of silently green.
 #   7. (d) THE HEALTHY PATH (case 1 above) IS A SINGLE CALL, NO DELAY —
 #      re-asserted with an explicit wall-clock bound alongside case 1.
+#   8. MIXED OUTPUT, EITHER ORDER — a single call's output naming BOTH the
+#      lock AND a genuine, unrelated dependency error must classify as a
+#      real failure and fail loud, in BOTH orders (lock line first, real
+#      line first). This is PR #562 review 4956397222's own finding: the
+#      round-2-v1 classifier asked "does the lock phrase appear anywhere
+#      in the merged output", which this exact fixture defeated by hand —
+#      a real `E: Unable to locate package ...` sitting next to a lock
+#      mention still came back "lock", and the job went green with a
+#      missing dependency. This case is the one that must never again be
+#      unrepresentable in this suite (the round-2-v1 gap the review named
+#      as the more important finding, since it made the leak itself
+#      untestable).
 #
 # Each timing-sensitive case is measured with `date +%s`, matching
 # test-gh-merge-pr-with-retry.sh's own convention — "the message says it
@@ -225,6 +237,57 @@ if [ "$CALLS7" = "4" ]; then
 else
   GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
   printf 'FAIL  [RED  ] lock-then-real case made %s calls, expected 4\n' "$CALLS7"
+fi
+
+# ── 8: MIXED OUTPUT — one call, BOTH signals present, either order ─────────
+# The finding from PR #562 review 4956397222: the round-2-v1 classifier
+# asked "does the lock phrase appear anywhere in this call's merged
+# output" — which a call whose output mentions the lock AND separately
+# fails on a real, unrelated package defeats. This is exactly that call,
+# reproduced via fake-playwright-deps.sh's own FAKE_PW_DEPS_MIXED_OUTPUT
+# (not a hand-rolled one-off command outside the fixture, so this gap can
+# never again be unrepresentable in this suite). Both tiers see the SAME
+# mixed output on every failing call (no counter-based recovery), so this
+# also proves the "real" classification holds even once the patient tier
+# is reached — the softening must not leak in from either tier.
+COUNTER8="$WS/counter-mixed-lock-then-real"
+assert_red "(review 4956397222) a single call's output naming the lock FIRST, then a real error, still classifies real and fails loud" \
+  --contains "::error::" \
+  --contains "FAILED, last exit code 1" \
+  --contains "Unable to locate package libnonexistent-dep0" \
+  --not-contains "::warning::" \
+  --not-contains "continuing WITHOUT installing system deps" \
+  -- run_install "1" "$COUNTER8" FAKE_PW_DEPS_MIXED_OUTPUT=lock-then-real
+
+COUNTER9="$WS/counter-mixed-real-then-lock"
+assert_red "(review 4956397222) a single call's output naming a real error FIRST, then the lock, still classifies real and fails loud (order must not matter)" \
+  --contains "::error::" \
+  --contains "FAILED, last exit code 1" \
+  --contains "Unable to locate package libnonexistent-dep0" \
+  --not-contains "::warning::" \
+  --not-contains "continuing WITHOUT installing system deps" \
+  -- run_install "1" "$COUNTER9" FAKE_PW_DEPS_MIXED_OUTPUT=real-then-lock
+
+# Both mixed cases exhaust FAST_MAX_ATTEMPTS(2) fast-tier calls (mixed
+# output classifies "real" from attempt 1, but the fast tier still spends
+# its own budget before deciding — same "exhaust the tier, then classify
+# the last attempt" shape as every other case in this suite) and never
+# enter the patient tier at all.
+CALLS8="$(cat "$COUNTER8" 2>/dev/null || echo '?')"
+if [ "$CALLS8" = "2" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [RED  ] mixed lock-then-real case made exactly 2 calls (fast tier only)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [RED  ] mixed lock-then-real case made %s calls, expected 2\n' "$CALLS8"
+fi
+CALLS9="$(cat "$COUNTER9" 2>/dev/null || echo '?')"
+if [ "$CALLS9" = "2" ]; then
+  GUARD_TEST_PASS=$((GUARD_TEST_PASS + 1))
+  printf 'PASS  [RED  ] mixed real-then-lock case made exactly 2 calls (fast tier only)\n'
+else
+  GUARD_TEST_FAIL=$((GUARD_TEST_FAIL + 1))
+  printf 'FAIL  [RED  ] mixed real-then-lock case made %s calls, expected 2\n' "$CALLS9"
 fi
 
 guard_test_summary "test-install-playwright-system-deps.sh"
