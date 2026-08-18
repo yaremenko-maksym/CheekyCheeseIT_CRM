@@ -105,10 +105,13 @@ INPUT=$(cat)
 echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
-import json, os, re, sys
+import importlib.util, json, os, re, sys
 
-sys.path.insert(0, os.environ["CMDSCAN_LIB"])
-import cmdscan
+# By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
+_spec = importlib.util.spec_from_file_location(
+    "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
+cmdscan = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cmdscan)
 
 data = json.load(sys.stdin)
 cmd = (data.get("tool_input") or {}).get("command") or ""
@@ -123,21 +126,36 @@ if not CONTEXT.search(cmd) and not CONTEXT.search(cwd):
     sys.exit(0)
 
 scan = cmdscan.scan(cmd)
+# cmdscan.launches() is confidence-aware: a segment whose command word it could
+# not resolve is judged by every reading of it, so `script -q /dev/null pnpm dev`
+# and `env -i pnpm dev` land here too. Broken quoting is one such case, which is
+# why the old `scan.degraded` special case is gone — it covered the one failure
+# mode that never actually happened, and none of the 13 the review found.
 hits = cmdscan.launches(scan)
 
-# Unparseable quoting must not read as "found nothing": fall back to the coarse
-# test rather than going quiet.
-if not hits and scan.degraded and cmdscan.LEGACY_LAUNCHER_RE.search(cmd):
-    hits = [(None, "деградированный разбор строки")]
+# Nesting deeper than the analyzer walks leaves code unread. An unread launch is
+# not an absent launch, so it is refused with an env of its own (i.e. nothing
+# proven safe) rather than reported as clean.
+if not hits and scan.truncated:
+    hits = [(
+        cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
+        "вложенность глубже предела разбора — код не прочитан",
+    )]
 
 if not hits:
     sys.exit(0)
 
-label = hits[0][1]
-segs = [s for s, _ in hits if s is not None]
+seg, label = hits[0]
+segs = [s for s, _ in hits]
+
+# The environment of the LAUNCHING segment, not of the line. A prefix on some
+# other segment reaches nothing: `DATABASE_URL=…/crm_qa API_PORT=3011 echo ok &&
+# pnpm dev` gives the launch exactly nothing and inherits the live pair — the
+# shape of PR #485 (review MED-5).
+env = seg.env
 reasons = []
 
-db = scan.assigns.get("DATABASE_URL")
+db = env.get("DATABASE_URL")
 if db is None:
     reasons.append(
         "DATABASE_URL не задана инлайн в этой команде — унаследуется из "
@@ -153,11 +171,11 @@ elif db != "":
 
 port_values = []
 for var in ("API_PORT", "PORT", "WEB_PORT"):
-    val = scan.assigns.get(var)
+    val = env.get(var)
     if val is not None and val.isdigit():
         port_values.append(val)
-for seg in segs:
-    argv = seg.argv
+for s in segs:
+    argv = s.argv
     for i, tok in enumerate(argv):
         m = re.match(r"^--port=(\d+)$", tok)
         if m:
@@ -171,7 +189,9 @@ if not port_values:
         "server.port хардкожен 3000 в apps/web/vite.config.ts)"
     )
 else:
-    live = [p for p in port_values if p in ("3000", "3001")]
+    # Compared as numbers: `API_PORT=03001` is 3001 to Node and was "not 3001"
+    # to a string comparison (review LOW).
+    live = [p for p in port_values if int(p) in (3000, 3001)]
     if live:
         reasons.append(
             "порт %s явно задан из живой пары владельца (web:3000 / api:3001)" % live[0]

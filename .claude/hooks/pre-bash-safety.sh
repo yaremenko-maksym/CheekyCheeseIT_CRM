@@ -80,10 +80,16 @@ INPUT=$(cat)
 [ -z "$INPUT" ] && exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
-import json, os, re, sys
+import importlib.util, json, os, re, shlex, sys
 
-sys.path.insert(0, os.environ["CMDSCAN_LIB"])
-import cmdscan
+# Loaded by absolute path instead of sys.path.insert: putting lib/ on the import
+# path made every stdlib module cmdscan imports (shlex) resolvable from that
+# directory, on EVERY Bash call. The bar to abuse it was high, but the directory
+# had no business being importable at all (review LOW).
+_spec = importlib.util.spec_from_file_location(
+    "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
+cmdscan = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cmdscan)
 
 data = json.load(sys.stdin)
 cmd = (data.get("tool_input") or {}).get("command") or ""
@@ -92,6 +98,16 @@ if not cmd:
 
 scan = cmdscan.scan(cmd)
 blocked = []
+
+# Every predicate below judges CANDIDATES, not segments. For a segment the
+# analyzer understood, the candidate list is just the segment. For one it could
+# not (`script -q /dev/null rm -rf /etc`, `sudo -T 5 rm -rf /etc`, an unknown
+# wrapper) it is every "the real command might start here" reading — so a
+# wrapper nobody has added to the list still cannot hide the command it runs.
+# This is the fix for the review finding that 13 misses all had degraded=False:
+# the parser had not failed, it had been confidently wrong, and nothing checked.
+def candidates(seg):
+    return cmdscan.candidates(seg)
 
 # ── predicate 1+2: rm -rf on root / home paths ───────────────────────────────
 SAFE_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
@@ -116,18 +132,23 @@ def dangerous_rm_target(tok):
 
 
 for seg in scan.segments:
-    if seg.name not in ("rm", "rmdir"):
-        continue
-    flags = [t for t in seg.argv if t.startswith("-") and t != "-"]
-    recursive = any(
-        ("r" in f[1:] and not f.startswith("--")) or f in ("--recursive",)
-        for f in flags
-    )
-    if seg.name == "rm" and not recursive:
-        continue
-    for tok in seg.positionals():
-        if dangerous_rm_target(tok):
-            blocked.append("rm -rf on root/home path (%s)" % tok)
+    for cand in candidates(seg):
+        if cand.name not in ("rm", "rmdir"):
+            continue
+        flags = [t for t in cand.argv if t.startswith("-") and t != "-"]
+        # `-R` is the same as `-r` for rm on both BSD and GNU; the first version
+        # compared case-sensitively, so `rm -Rf /etc` read as non-recursive.
+        recursive = any(
+            ("r" in f[1:].lower() and not f.startswith("--")) or f in ("--recursive",)
+            for f in flags
+        )
+        if cand.name == "rm" and not recursive:
+            continue
+        for tok in cand.positionals():
+            if dangerous_rm_target(tok):
+                blocked.append("rm -rf on root/home path (%s)" % tok)
+                break
+        if blocked:
             break
     if blocked:
         break
@@ -152,19 +173,30 @@ def targets_protected_ref(tokens):
     return False
 
 
+# git s own global flags take values, and `positionals()` did not know that —
+# so `git -C <path> push --force origin main` read as subcommand `<path>` and
+# left before the check (review MED-4). `-C` is also the idiom our own rules
+# prescribe for checking MAIN after a Coder, so the shape is a live one.
+GIT_VALUE_FLAGS = {
+    "-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path",
+    "--super-prefix", "--config-env",
+}
 for seg in scan.segments:
-    if seg.name != "git":
-        continue
-    pos = seg.positionals()
-    if not pos or pos[0] != "push":
-        continue
-    forced = any(
-        f in FORCE_FLAGS or (f.startswith("-") and not f.startswith("--") and "f" in f[1:])
-        for f in seg.argv if f.startswith("-")
-    )
-    forced = forced or any(t.startswith("+") for t in pos[1:])
-    if forced and targets_protected_ref(pos[1:]):
-        blocked.append("force push to main/master")
+    for cand in candidates(seg):
+        if cand.name != "git":
+            continue
+        pos = cand.positionals(GIT_VALUE_FLAGS)
+        if not pos or pos[0] != "push":
+            continue
+        forced = any(
+            f in FORCE_FLAGS or (f.startswith("-") and not f.startswith("--") and "f" in f[1:])
+            for f in cand.argv if f.startswith("-")
+        )
+        forced = forced or any(t.startswith("+") for t in pos[1:])
+        if forced and targets_protected_ref(pos[1:]):
+            blocked.append("force push to main/master")
+            break
+    if blocked:
         break
 
 # ── predicate 5: dropping the live database ─────────────────────────────────
@@ -173,19 +205,90 @@ for seg in scan.segments:
 # that writes a file is a quotation. Unknown commands count as dangerous — the
 # allowlist says what is inert, it does not enumerate what is dangerous.
 DROP_RE = re.compile(r"DROP\s+DATABASE\s+(IF\s+EXISTS\s+)?[\"\x27`]?crm_db", re.I)
+# Text consumers only. `sed` (GNU `e`), `awk` (`system()`), `less`/`more` (shell
+# escape), `open`/`code` (hand the file to an application) were on this list and
+# are not inert — `awk "BEGIN{system(\"psql -c ...\")}"` executed straight
+# through it (review MED-2). `cp`/`mv`/`tee` stay: they move bytes, they do not
+# run them — the write-then-execute chain below is what covers materialising a
+# file and feeding it to psql in the same line.
 INERT = {
     "", "echo", "printf", "cat", "tee", "gh", "git", "jq", "yq", "head", "tail",
-    "grep", "egrep", "fgrep", "rg", "ag", "sed", "awk", "less", "more", "wc",
-    "sort", "uniq", "cut", "tr", "diff", "comm", "column", "pbcopy", "true",
-    ":", "test", "cp", "mv", "touch", "open", "bat", "code", "prettier", "date",
+    "grep", "egrep", "fgrep", "rg", "ag", "wc", "sort", "uniq", "cut", "tr",
+    "diff", "comm", "column", "pbcopy", "true", ":", "test", "cp", "mv",
+    "touch", "bat", "prettier", "date",
 }
+# `git -c core.pager="psql -c ..." log -1` runs psql. So does an alias set the
+# same way. `git` is inert only when it is not being handed configuration.
+GIT_EXEC_FLAGS = ("-c", "--config-env", "--exec-path")
+
+
+def is_inert(seg):
+    name = os.path.basename(seg.name)
+    if name not in INERT:
+        return False
+    # An uncertain parse must not be able to CLAIM inertness — that direction is
+    # the one that loses data.
+    if not seg.confident:
+        return False
+    if name == "git" and any(
+        t == f or t.startswith(f + "=") for t in seg.argv for f in GIT_EXEC_FLAGS
+    ):
+        return False
+    return True
+
+
 for seg in scan.segments:
-    if DROP_RE.search(seg.text()) and os.path.basename(seg.name) not in INERT:
+    if DROP_RE.search(seg.text()) and not is_inert(seg):
         blocked.append("DROP DATABASE crm_db (исполняется через `%s`)" % (seg.name or "?"))
         break
-    if seg.name == "dropdb" and "crm_db" in seg.positionals():
-        blocked.append("dropdb crm_db")
+    for cand in candidates(seg):
+        if cand.name == "dropdb" and "crm_db" in cand.positionals():
+            blocked.append("dropdb crm_db")
+            break
+    if blocked:
         break
+
+# ── predicate 6: write the SQL in one segment, execute the file in the next ──
+# `echo "DROP DATABASE crm_db;" > /tmp/x.sql && psql -f /tmp/x.sql` slipped past
+# predicate 5 because each segment on its own is innocent: the first is `echo`,
+# the second no longer contains the phrase. This is not the stated gap about a
+# script the hook cannot read — the whole chain is right there in the line.
+if not blocked:
+    line_text = "\n".join(seg.text() for seg in scan.segments)
+    if DROP_RE.search(line_text):
+        written = {}
+        for seg in scan.segments:
+            argv = seg.argv
+            for i, tok in enumerate(argv):
+                if tok in (">", ">>", "1>", "&>") and i + 1 < len(argv):
+                    written[argv[i + 1]] = seg
+                elif tok.startswith(">") and len(tok.lstrip(">")) > 0:
+                    written[tok.lstrip(">")] = seg
+            if os.path.basename(seg.name) == "tee":
+                for tok in seg.positionals(("-o",)):
+                    written[tok] = seg
+        for seg in scan.segments:
+            if is_inert(seg):
+                continue
+            for tok in seg.argv:
+                path = tok.lstrip("<")
+                if path in written and written[path] is not seg:
+                    blocked.append(
+                        "DROP DATABASE crm_db записан в %s и тут же исполняется через `%s`"
+                        % (path, seg.name or "?")
+                    )
+                    break
+            if blocked:
+                break
+
+# ── the analyzer admitting it did not finish ────────────────────────────────
+# `$( $( … 200 deep … ) )` walks past MAX_DEPTH and leaves code unread. Silence
+# about code nobody looked at is exactly the failure mode this hook was rewritten
+# for, so it refuses instead.
+if not blocked and scan.truncated:
+    blocked.append(
+        "команда вложена глубже предела разбора — часть кода не прочитана"
+    )
 
 if not blocked:
     sys.exit(0)

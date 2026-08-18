@@ -57,10 +57,13 @@ INPUT=$(cat)
 echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
 
 printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
-import json, os, re, sys
+import importlib.util, json, os, re, sys
 
-sys.path.insert(0, os.environ["CMDSCAN_LIB"])
-import cmdscan
+# By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
+_spec = importlib.util.spec_from_file_location(
+    "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
+cmdscan = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cmdscan)
 
 data = json.load(sys.stdin)
 cmd = (data.get("tool_input") or {}).get("command") or ""
@@ -74,18 +77,25 @@ if not CONTEXT.search(cmd) and not CONTEXT.search(cwd):
     sys.exit(0)
 
 scan = cmdscan.scan(cmd)
+# Confidence-aware (see the sibling hook): a segment whose command word could
+# not be resolved contributes every reading of itself, so an unknown wrapper
+# cannot smuggle a boot past the gate. The old `scan.degraded` special case is
+# gone with it.
 hits = cmdscan.launches(scan)
 
-# Broken quoting must not read as "found nothing".
-if not hits and scan.degraded and cmdscan.LEGACY_LAUNCHER_RE.search(cmd):
-    if not re.search(r"(^|[/\s])dev-ttl\.sh(\s|$)", cmd):
-        hits = [(None, "деградированный разбор строки")]
+# Code the analyzer never reached (nesting past MAX_DEPTH) is refused rather
+# than reported clean — with no wrappers, so the TTL check below fails it.
+if not hits and scan.truncated:
+    hits = [(
+        cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
+        "вложенность глубже предела разбора — код не прочитан",
+    )]
 
 # A decoy mention of dev-ttl.sh in one segment must not whitelist an unwrapped
 # boot in another: the wrapper has to sit on the LAUNCHING segment itself.
 unwrapped = [
     (seg, label) for seg, label in hits
-    if seg is None or "dev-ttl.sh" not in seg.wrappers
+    if "dev-ttl.sh" not in seg.wrappers
 ]
 if not unwrapped:
     sys.exit(0)
