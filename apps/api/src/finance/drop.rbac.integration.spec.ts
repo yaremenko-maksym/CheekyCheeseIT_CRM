@@ -63,7 +63,7 @@ import { hasDatabaseUrl } from '../test/require-real-db'
  *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against a scratch DB (NEVER the live crm_db):
- *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/scratch_drop1 \
+ *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_scratch_drop1 \
  *     pnpm --filter @crm/api test -- drop.rbac
  */
 
