@@ -22,6 +22,41 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 SCRIPT_UNDER_TEST="$GUARD_DIR/install-typst-from-dockerfile.sh"
 
+# ---------------------------------------------------------------------------
+# This test only proves what install-typst-from-dockerfile.sh does on the ONE
+# platform it ever runs on for real: GitHub-hosted ubuntu-latest CI (x86_64,
+# GNU coreutils). That script's own "ONLY amd64 IS PARSED" refusal (see its
+# header) is a DELIBERATE, already-tested feature — arm64 is out of scope by
+# design, not a gap this test should paper over by faking an amd64 run on a
+# machine that is not one. Two things this test's OWN fixture-building needs,
+# that a contributor's Apple Silicon Mac does not have, follow straight from
+# that: `uname -m` there is "arm64", and macOS ships BSD `shasum` instead of
+# GNU `sha256sum` (used below to build the GOOD_SHA256 fixture, and by the
+# script under test itself). Both used to fail this test outright, with
+# nothing in the output suggesting either failure had anything to do with
+# whatever change was actually under review — three different agents lost a
+# turn each to that exact confusion on 2026-08-18. Skip loudly instead, the
+# same convention every guard test in this directory already uses for "cannot
+# run here" (see e.g. test-pre-bash-mutation-gate.sh, test-check-nginx-
+# perimeter.sh): a visible SKIP line naming the reason, clean exit — never a
+# silent pass, and never a red that is actually about the machine, not the
+# code. CI (ubuntu-latest, x86_64, sha256sum present) never takes either
+# branch below; both `case` and `command -v` are no-ops there.
+# ---------------------------------------------------------------------------
+case "$(uname -m)" in
+  x86_64 | amd64) ;;
+  *)
+    echo "SKIP  test-install-typst-from-dockerfile.sh: runner arch '$(uname -m)' is not amd64/x86_64."
+    echo "SKIP  install-typst-from-dockerfile.sh only parses the Dockerfile's amd64 branch by design (GitHub-hosted ubuntu-latest is x86_64) — see that script's own 'ONLY amd64 IS PARSED' comment. This test exercises the real script on the real platform it runs on; it has nothing to prove on this one."
+    exit 0
+    ;;
+esac
+if ! command -v sha256sum >/dev/null 2>&1; then
+  echo "SKIP  test-install-typst-from-dockerfile.sh: 'sha256sum' not found on PATH."
+  echo "SKIP  This test's fixtures (and the script under test itself) need GNU coreutils' sha256sum; macOS ships BSD 'shasum -a 256' instead, which is not a drop-in replacement for the '-c' check-file mode used here. GitHub-hosted ubuntu-latest CI has sha256sum by default."
+  exit 0
+fi
+
 WS="$(guard_test_workspace)"
 trap 'rm -rf "$WS"' EXIT
 
