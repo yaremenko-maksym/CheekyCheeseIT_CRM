@@ -91,6 +91,11 @@ function requestedDateOf(url: string): string | null {
  * the live feed answers for a day it has no record for (verified against
  * tomorrow's date, 2026-08-18).
  */
+/** `20260301` → `01.03.2026`, the format the live feed actually publishes. */
+function ymdToDotted(ymd: string): string {
+  return `${ymd.slice(6, 8)}.${ymd.slice(4, 6)}.${ymd.slice(0, 4)}`
+}
+
 function mockNbuByDate(
   byDate: Record<string, Array<{ cc: string; rate: number }> | 'network-error'>,
 ): void {
@@ -110,7 +115,11 @@ function mockNbuByDate(
             txt: r.cc,
             rate: r.rate,
             cc: r.cc,
-            exchangedate: day ?? '',
+            // The live feed publishes DD.MM.YYYY here, never YYYYMMDD. Today
+            // only the field's PRESENCE is read, so the difference is inert —
+            // but a mock that drifts from the real payload is precisely the
+            // failure mode these specs were rewritten to remove.
+            exchangedate: day === null ? '' : ymdToDotted(day),
           })),
         ),
     })
@@ -360,12 +369,16 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     const r1 = await svc.getRates()
     expect(r1.stale).toBe(true) // prev-day result = stale
     expect(parseFloat(r1.usdUah)).toBeCloseTo(38.5, 4)
-    // owner addendum (2026-08): a prev-day fallback IS a real, dated source
-    // (just not the exact requested day) — rateDate is set, and differs
-    // from `date` (which still echoes the ORIGINALLY REQUESTED day, for
-    // backward compat with every consumer that assumes date===requested).
-    expect(r1.rateDate).toBeDefined()
-    expect(r1.rateDate).not.toBe(r1.date)
+    // MED-1 (security-review PR #574): a prev-day fallback is a real
+    // publication, but that alone no longer makes it payable for the
+    // requested day. Here Monday's rate is being used to price TUESDAY, and
+    // Tuesday has its own official NBU rate — so it is display-only, exactly
+    // as the same situation reached through the cache already was. `date`
+    // still echoes the ORIGINALLY REQUESTED day for every consumer that
+    // assumes date===requested. The weekend case that IS payable is covered
+    // in nbu-rate-freshness.spec.ts.
+    expect(r1.date).toBe('20260707')
+    expect(r1.rateDate).toBeUndefined()
 
     // Call 2: total network failure — must return cached 38.5, NOT hardcoded 41.5
     mockNbuNetworkError()

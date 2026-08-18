@@ -272,6 +272,35 @@ describe('MED-6: last-known-good cache freshness gate', () => {
     expect(result.rateDate).toBeUndefined()
   })
 
+  it('MED-1: the previous-day path obeys the SAME gate — Sunday cannot price Monday', async () => {
+    // Before the fix this path claimed `rateDate` unconditionally, so the
+    // outcome depended on the ROUTE rather than the calendar: this exact
+    // situation is refused when it arrives via the cache ("REFUSES a Friday
+    // rate on Monday"), yet was accepted when it arrived here. Monday has its
+    // own official NBU rate either way.
+    pinDay('2026-07-06') // Monday
+    mockNbu({ '20260705': RATES }) // only Sunday published
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true)
+    expect(result.date).toBe('20260706') // still echoes the requested day
+    expect(result.rateDate).toBeUndefined() // → payout refused
+    expect(parseFloat(result.usdUah)).toBeCloseTo(44.6988, 4) // display still works
+  })
+
+  it('MED-1: the previous-day path still prices a weekday rate reached on the SAME day', async () => {
+    // Guards against over-correcting: a Saturday request served by Friday's
+    // publication crosses no new rate (Sat repeats Fri), so it stays payable.
+    pinDay('2026-07-04') // Saturday
+    mockNbu({ '20260703': RATES }) // only Friday published
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true)
+    expect(result.rateDate).toBe('20260703')
+  })
+
   it('a weekend rate obtained WITH a real date still prices money (unchanged behaviour)', async () => {
     // The prev-day path: the requested day has no record anywhere, the day
     // before does. That is a real NBU publication and must NOT be refused.

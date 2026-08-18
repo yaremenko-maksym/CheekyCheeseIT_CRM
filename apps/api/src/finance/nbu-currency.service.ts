@@ -205,18 +205,44 @@ export class NbuCurrencyService {
     const prev = this.prevDayStr(dateStr)
     const prevHit = await this.fetchFromSources(prev)
     if (prevHit !== null) {
-      this.logger.warn(
-        `NBU had no data for ${dateStr} on any source, using previous-day rates (${prev}) — stale=true, but DATED (money paths accept)`,
-      )
       const prevResult = this.buildResult(prevHit.rates, prev, {
         stale: false, // a real publication for `prev` — cacheable as such
         allowCacheUpdate: isLiveRequest,
         sourceId: prevHit.sourceId,
         calcdate: this.calcdateOf(prevHit.rates),
       })
-      // `date` echoes the REQUESTED day (unchanged contract); `rateDate`
-      // stays `prev` — the day the numbers really apply to.
-      const result: ExchangeRateResult = { ...prevResult, date: dateStr, stale: true }
+      // MED-1 (security-review PR #574): this path must clear the SAME gate as
+      // the cache path, and until this fix it did not — it claimed `rateDate`
+      // unconditionally. That made the identical situation depend on which
+      // route it arrived by: Sunday's rate priced on Monday was REFUSED when it
+      // came from the cache, yet ACCEPTED when it came from here, even though
+      // Monday has its own official rate either way. The rule is a property of
+      // the calendar, not of the code path that fetched the numbers.
+      //
+      // `date` still echoes the REQUESTED day (unchanged contract). `rateDate`
+      // is claimed only when no newer official rate has taken effect between
+      // `prev` and `dateStr` — which keeps the legitimate case working (a
+      // Sunday request served by Saturday's publication: age 1, weekend, still
+      // dated and still payable) and refuses the weekday case.
+      //
+      // Caching above is deliberately NOT conditioned on this: `prev` really
+      // was published, so it is a valid cache entry; whether it may price a
+      // LATER day is re-decided by `buildFallbackResult` on its own merits.
+      const { rateDate: prevRateDate, ...prevNumbers } = prevResult
+      const datedForRequestedDay = prevRateDate !== undefined && this.noNewRateSince(prev, dateStr)
+      this.logger.warn(
+        `NBU had no data for ${dateStr} on any source, using previous-day rates (${prev}) — stale=true, ${
+          datedForRequestedDay
+            ? 'DATED for the requested day (money paths accept)'
+            : 'but a newer official rate applies to the requested day — display only, money paths refuse'
+        }`,
+      )
+      const result: ExchangeRateResult = {
+        ...prevNumbers,
+        date: dateStr,
+        stale: true,
+        ...(datedForRequestedDay ? { rateDate: prevRateDate } : {}),
+      }
       this.logProvenance(result, {
         origin: `live-prev-day:${prevHit.sourceId}`,
         url: prevHit.url,
