@@ -793,7 +793,6 @@ describe.skipIf(!hasDatabaseUrl())(
     let app: NestFastifyApplication
     let jwt: JwtService
     let dbSvc: DatabaseService
-    let legendDbAvailable = true
 
     beforeAll(async () => {
       try {
@@ -801,9 +800,9 @@ describe.skipIf(!hasDatabaseUrl())(
         await probePool.query('SELECT 1')
         await probePool.end()
       } catch {
-        console.warn('[legend-persona integration] FAILED — no DB (CI unit job)')
-        legendDbAvailable = false
-        return
+        throw new Error(
+          '[legend-persona integration] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
+        )
       }
 
       const moduleRef = await Test.createTestingModule({
@@ -928,7 +927,6 @@ describe.skipIf(!hasDatabaseUrl())(
     }, 30_000)
 
     afterAll(async () => {
-      if (!legendDbAvailable) return
       try {
         const db = dbSvc.db
         await db.delete(legends).where(inArray(legends.id, [LEGEND_ID]))
@@ -952,7 +950,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── LEGEND-1: JUNIOR receives persona fullName in seniorName ─────────────
 
     it('LEGEND-1. JUNIOR with legend project → seniorName = persona fullName (not real senior name)', async () => {
-      if (!legendDbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/projects/${LEGEND_PROJ_A}`,
@@ -970,7 +967,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── LEGEND-2: JUNIOR receives presentedRole ───────────────────────────────
 
     it('LEGEND-2. JUNIOR with legend project → seniorPresentedRole = persona presentedRole', async () => {
-      if (!legendDbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/projects/${LEGEND_PROJ_A}`,
@@ -987,7 +983,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── LEGEND-3: Real identity fields stay null ──────────────────────────────
 
     it('LEGEND-3. JUNIOR with legend project → seniorId / dropId / contacts remain null (allowlist not opened)', async () => {
-      if (!legendDbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/projects/${LEGEND_PROJ_A}`,
@@ -1005,7 +1000,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── LEGEND-4: Non-JUNIOR (ADMIN) is NOT affected ─────────────────────────
 
     it('LEGEND-4. ADMIN on legend project → gets REAL seniorName (not persona), seniorPresentedRole=null', async () => {
-      if (!legendDbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/projects/${LEGEND_PROJ_A}`,
@@ -1027,7 +1021,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── LEGEND-5: JUNIOR project without legend → null fallback ──────────────
 
     it('LEGEND-5. JUNIOR with no-legend project → seniorName null, seniorPresentedRole null', async () => {
-      if (!legendDbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/projects/${LEGEND_PROJ_B}`,
@@ -1047,7 +1040,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── LEGEND-6: persona does not leak to non-member JUNIOR ─────────────────
 
     it('LEGEND-6. J2 (member of Project B only) → 403 on legend Project A, persona not in error body', async () => {
-      if (!legendDbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/projects/${LEGEND_PROJ_A}`,
@@ -1065,7 +1057,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── SENIOR-ISO-1: SENIOR cannot view another SENIOR's profile (real-DB) ──
 
     it('SENIOR-ISO-1. SENIOR (S1) viewing SENIOR (S2) profile → UsersAccessService returns 0 tabs (identity isolation)', async () => {
-      if (!legendDbAvailable) return
       const db = dbSvc.db
       // Load actual User rows for the access check (UsersAccessService takes full User objects)
       const s1Row = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, LEGEND_S1.id) })
@@ -1081,7 +1072,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── SENIOR-ISO-2: SENIOR cannot view DROP profile (real-DB) ──────────────
 
     it('SENIOR-ISO-2. SENIOR (S1) viewing DROP (DROP1) profile → 0 tabs (identity isolation)', async () => {
-      if (!legendDbAvailable) return
       const db = dbSvc.db
       const s1Row = await db.query.users.findFirst({ where: (u, { eq }) => eq(u.id, LEGEND_S1.id) })
       const dropRow = await db.query.users.findFirst({
@@ -1098,7 +1088,6 @@ describe.skipIf(!hasDatabaseUrl())(
     // ── SENIOR-ISO-3: ADMIN behavior unchanged (regression) ──────────────────
 
     it('SENIOR-ISO-3. ADMIN viewing SENIOR (S1) → still has tabs (regression guard for SENIOR-ISO fix)', async () => {
-      if (!legendDbAvailable) return
       const db = dbSvc.db
       const adminRow = await db.query.users.findFirst({
         where: (u, { eq }) => eq(u.id, 'a8f4d3b1-c2e5-4a1f-9b3d-8c7e6f5a4b21'),
