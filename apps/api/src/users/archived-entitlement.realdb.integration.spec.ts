@@ -117,7 +117,7 @@ async function activeMembershipCount(projectId: string, userId: string): Promise
 async function wipe(): Promise<void> {
   const db = dbSvc.db
   await db.delete(projectMembers).where(inArray(projectMembers.userId, [...ALL_USER_IDS]))
-  await db.delete(projectAuditLog).where(inArray(projectAuditLog.projectId, [...ALL_PROJECT_IDS]))
+  await db.delete(projectAuditLog).where(inArray(projectAuditLog.targetId, [...ALL_PROJECT_IDS]))
   await db.delete(projects).where(inArray(projects.id, [...ALL_PROJECT_IDS]))
   await db.delete(userAuditLog).where(inArray(userAuditLog.targetId, [...ALL_USER_IDS]))
   await db.delete(users).where(inArray(users.id, [...ALL_USER_IDS]))
