@@ -37,6 +37,7 @@ import {
   addSeniorToDropTeamViaAPI,
   cleanupDropViaAPI,
   getTeamViaAPI,
+  getTeamAuditLogViaAPI,
   getUserViaAPI,
   getDropProjectsViaAPI,
 } from './fixtures'
@@ -91,7 +92,19 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
       // Confirm-input prompt: «введите имя дропа: <dropDisplayName>».
       // The dialog renders `<strong>` containing the expected drop name —
       // assertion gates on the visible strong text matching the drop.
-      await expect(dialog.getByText(dropDisplayName, { exact: false })).toBeVisible()
+      //
+      // Backlog item 139: a bare `dialog.getByText(dropDisplayName)` is a
+      // strict-mode violation (>1 match) — `createDropViaAPI` names the team
+      // `Команда ${displayName}` (teams.service.ts), so the impact
+      // paragraph's `<strong>{impact.teamName}</strong>` (line above the
+      // confirm prompt in ArchiveConfirmDialog.tsx) ALSO contains
+      // `dropDisplayName` as a substring, on top of the impact paragraph's
+      // own `<strong>{dropName}</strong>` and the confirm prompt's
+      // `<strong>{expected}</strong>`. Scope to the confirm-prompt sentence
+      // specifically, which is unique in the dialog.
+      const confirmPrompt = dialog.getByText(/Для подтверждения введите/i)
+      await expect(confirmPrompt).toBeVisible()
+      await expect(confirmPrompt).toContainText(dropDisplayName)
 
       // Step 6: type the drop name to enable submit, then submit.
       const input = page.getByTestId('archive-confirm-input')
@@ -122,11 +135,30 @@ test.describe('Drop-team archive — real-API (AC1)', () => {
       expect(senior.archivedAt).toBeNull()
 
       // Senior's team_members row must have leftAt set (detached).
-      const seniorRow = team.members.find((m) => m.userId === seniorId)
-      // Drop role - phase 1: archived team responses include all *historic*
-      // members with `leftAt` set — the seed senior gets detached on archive.
-      expect(seniorRow).toBeTruthy()
-      expect(seniorRow!.leftAt).not.toBeNull()
+      //
+      // Backlog item 139: `TeamsService.mapDropTeam` (security-review PR
+      // #541 round 3) filters `members` to ACTIVE rows only
+      // (`leftAt === null`) for drop-teams — a detached member is NEVER
+      // returned by `GET /api/teams/:id`, at any point, not just after this
+      // specific archive. The comment this replaced ("archived team
+      // responses include all historic members with leftAt set") was true
+      // of the legacy SENIOR-team `mapTeam` branch but never of
+      // `mapDropTeam` — this file predates (or never re-verified against)
+      // that split. Two independent, correct signals instead: (a) the
+      // senior is no longer an ACTIVE member (absent from `team.members`),
+      // and (b) the audit trail `archiveDropTeam` writes proves the
+      // specific detach happened (`action: 'team_member_removed'`,
+      // `changes.userId.before` = the senior, `changes.role.before` =
+      // 'SENIOR') — the closest observable equivalent of "leftAt got set".
+      expect(team.members.find((m) => m.userId === seniorId)).toBeUndefined()
+
+      const auditLog = await getTeamAuditLogViaAPI(page, teamId)
+      const detachEntry = auditLog.find(
+        (e) => e.action === 'team_member_removed' && e.changes['userId']?.before === seniorId,
+      )
+      expect(detachEntry).toBeTruthy()
+      expect(detachEntry!.changes['role']?.before).toBe('SENIOR')
+      expect(detachEntry!.changes['userId']?.after).toBeNull()
 
       // Drop projects (if any) — verify they're archived. Fresh drops have
       // zero projects by default so this is a no-op safety net.
