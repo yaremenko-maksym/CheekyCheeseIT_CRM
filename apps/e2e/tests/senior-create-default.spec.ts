@@ -14,9 +14,8 @@
  * exactly one obvious path forward.
  */
 
-import { test, expect, USERS, TEAMS } from './fixtures'
+import { test, expect, USERS, TEAMS, API_RE } from './fixtures'
 
-const API = 'http://localhost:3001/api'
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
 test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
@@ -25,7 +24,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
   }) => {
     // Override teams so only the legacy senior team is present — guarantees
     // no JOIN_DROP_TEAM option is plausible by accident.
-    await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -50,7 +49,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
   test('explicit click on «Создать свою команду» keeps the CREATE_NEW path active', async ({
     asAdmin: page,
   }) => {
-    await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -77,7 +76,7 @@ test.describe('Senior creation — CREATE_NEW default (AC3 regression)', () => {
   test('SENIOR creation POST omits teamMode/dropTeamId — backend defaults to CREATE_NEW', async ({
     asAdmin: page,
   }) => {
-    await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

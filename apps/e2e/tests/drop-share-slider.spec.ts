@@ -36,13 +36,15 @@
  * silently never resolved in CREATE mode.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, API_RE } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
 import type { Locator, Page } from '@playwright/test'
 
-// task-settle-in-place-e2e: env-aware (was hardcoded to localhost:3001) —
-// mirrors fixtures.ts so this file is portable to an isolated scratch stand.
-const API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
+// task-e2e-origin-agnostic: these page.route() calls are MOCKS — matching
+// must be on the `/api/...` PATH regardless of origin (fixtures.ts API_RE),
+// not an env-derived absolute origin that only matches when the dev
+// remembers to point E2E_REAL_API_BASE at whatever the browser actually
+// resolves `/api/*` to.
 
 /**
  * Fill the minimum required fields for DROP submit: email, name, USDT
@@ -115,7 +117,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
     // LOW-2 fix: the DROP slider now passes min={0}, matching the backend's
     // [0, 100] range. Submitting `0` in the number input no longer clamps
     // up to 1 — it stays 0 and is posted as-is.
-    await page.route(new RegExp(`${API}/users/drops$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/users/drops$`), (r) =>
       r.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -151,7 +153,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
   })
 
   test('slider value 100 submits 100 to the backend', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/users/drops$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/users/drops$`), (r) =>
       r.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -188,7 +190,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
   }) => {
     // No backend hit — we only verify the clamping. Mock returns 201 so the
     // dialog doesn't keep retrying on real-API failure.
-    await page.route(new RegExp(`${API}/users/drops$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/users/drops$`), (r) =>
       r.fulfill({
         status: 201,
         contentType: 'application/json',
@@ -229,7 +231,7 @@ test.describe('Drop share slider — extreme values (AC4)', () => {
   test('150 is clamped to 100 — backend never receives an out-of-range value', async ({
     asAdmin: page,
   }) => {
-    await page.route(new RegExp(`${API}/users/drops$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/users/drops$`), (r) =>
       r.fulfill({
         status: 201,
         contentType: 'application/json',

@@ -21,9 +21,8 @@
  * Why a dedicated file: keeps the regression suite isolated, so future
  * changes to the broader finance flow don't accidentally mask either bug.
  */
-import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 
-const API = 'http://localhost:3001/api'
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
 
@@ -89,14 +88,14 @@ function makePayoutResponse(
 }
 
 async function mockTransactions(page: MockPage, txs: object[], payouts: object[] = []) {
-  await page.route(new RegExp(`${API}/transactions/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(txs[0] ?? {}) }),
   )
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(txs) }),
   )
   // /pay endpoint — final submit. Must match BEFORE the catch-all below.
-  await page.route(new RegExp(`${API}/payout-requests/([^/?]+)/pay$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)/pay$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -110,7 +109,7 @@ async function mockTransactions(page: MockPage, txs: object[], payouts: object[]
     }),
   )
   // Single-payout GET — used by PayoutDetailDialog.
-  await page.route(new RegExp(`${API}/payout-requests/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests/([^/?]+)$`), (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({
           status: 200,
@@ -119,7 +118,7 @@ async function mockTransactions(page: MockPage, txs: object[], payouts: object[]
         })
       : r.fallback(),
   )
-  await page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
     r.request().method() === 'POST'
       ? r.fulfill({
           status: 201,
@@ -128,7 +127,7 @@ async function mockTransactions(page: MockPage, txs: object[], payouts: object[]
         })
       : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(payouts) }),
   )
-  await page.route(`${API}/projects`, (r) =>
+  await page.route(`${API_GLOB}/projects`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -354,7 +353,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     })
 
     await mockTransactions(asAdmin, [txWithImageReceipt])
-    await asAdmin.route(`${API}/documents/doc-receipt-img/download`, (r) =>
+    await asAdmin.route(`${API_GLOB}/documents/doc-receipt-img/download`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -399,7 +398,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     })
 
     await mockTransactions(asAdmin, [txWithPdfReceipt])
-    await asAdmin.route(`${API}/documents/doc-receipt-pdf/download`, (r) =>
+    await asAdmin.route(`${API_GLOB}/documents/doc-receipt-pdf/download`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -439,7 +438,7 @@ test.describe('Receipt preview (inline, not download) — PR #56 Bug 2 regressio
     await mockTransactions(asAdmin, [txWithUploadedReceipt])
 
     // Mock the document download endpoint to return a presigned URL.
-    await asAdmin.route(`${API}/documents/doc-receipt-123/download`, (r) =>
+    await asAdmin.route(`${API_GLOB}/documents/doc-receipt-123/download`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

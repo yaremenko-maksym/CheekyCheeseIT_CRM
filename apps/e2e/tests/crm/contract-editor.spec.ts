@@ -12,9 +12,7 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { USERS, mockAuthAs, buildAdminViewingUser, buildSelfView } from '../fixtures'
-
-const API = 'http://localhost:3001/api'
+import { USERS, mockAuthAs, buildAdminViewingUser, buildSelfView, API_RE } from '../fixtures'
 
 // ─── Contract fixtures ────────────────────────────────────────────────────────
 
@@ -53,14 +51,14 @@ async function setupAdminViewingSenior(
   const contractStatus = opts.contractStatus ?? 200
 
   // GET /api/users/:id/contract
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/pdf$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/pdf$`), async (r) => {
     await r.fulfill({
       status: 200,
       contentType: 'application/pdf',
       body: PDF_BYTES,
     })
   })
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/ready$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/ready$`), async (r) => {
     if (r.request().method() === 'POST') {
       await r.fulfill({
         status: 200,
@@ -71,14 +69,14 @@ async function setupAdminViewingSenior(
       await r.fallback()
     }
   })
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/revert$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/revert$`), async (r) => {
     await r.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(DRAFT_CONTRACT),
     })
   })
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/reset$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/reset$`), async (r) => {
     await r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -88,7 +86,7 @@ async function setupAdminViewingSenior(
   // GET /api/users/:id/contract/variables — consumed by ContractFillForm (Screen 2).
   // Without this mock the request hits the real backend → 401 → axios interceptor
   // redirects to /login, which kills all subsequent assertions with timeout.
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/variables$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/variables$`), async (r) => {
     await r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -96,14 +94,14 @@ async function setupAdminViewingSenior(
     })
   })
   // PATCH /api/users/:id/contract/custom-values — used by ContractFillForm submit.
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/custom-values$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/custom-values$`), async (r) => {
     await r.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(DRAFT_CONTRACT),
     })
   })
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), async (r) => {
     if (r.request().method() === 'PATCH') {
       // Merge body into contract
       const body = JSON.parse(r.request().postData() ?? '{}') as { bodyMarkdown?: string }
@@ -135,7 +133,7 @@ async function setupAdminViewingSenior(
   })
 
   // Override /users/:id to include 'contract' tab (buildAdminViewingUser already does this)
-  await page.route(new RegExp(`${API}/users/${TARGET_ID}$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/${TARGET_ID}$`), async (r) => {
     if (r.request().method() === 'GET') {
       await r.fulfill({
         status: 200,
@@ -168,7 +166,7 @@ test.describe('A3-2: Contract editor tab', () => {
     await mockAuthAs(page, USERS.senior)
 
     // Senior viewing junior — no contract tab in permissions
-    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users/${USERS.junior.id}$`), async (r) => {
       if (r.request().method() === 'GET') {
         await r.fulfill({
           status: 200,
@@ -225,7 +223,7 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByTestId('contract-mark-ready-btn')).toBeVisible()
 
     // Mock the query invalidation refetch to return READY_TO_SIGN contract
-    await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), async (r) => {
       if (r.request().method() === 'GET') {
         await r.fulfill({
           status: 200,
@@ -288,7 +286,7 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByTestId('contract-revert-confirm-dialog')).toBeVisible()
 
     // After confirm: mock refetch returns DRAFT contract
-    await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), async (r) => {
       if (r.request().method() === 'GET') {
         await r.fulfill({
           status: 200,
@@ -328,7 +326,7 @@ test.describe('A3-2: Contract editor tab', () => {
     }
 
     // After confirm: mock refetch returns reset contract body
-    await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), async (r) => {
       if (r.request().method() === 'GET') {
         await r.fulfill({
           status: 200,
@@ -371,7 +369,7 @@ test.describe('A3-2: Contract editor tab', () => {
     await expect(page.getByText('Вернуть подписанный контракт в черновик?')).toBeVisible()
 
     // After confirm: mock refetch returns DRAFT contract
-    await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), async (r) => {
       if (r.request().method() === 'GET') {
         await r.fulfill({
           status: 200,

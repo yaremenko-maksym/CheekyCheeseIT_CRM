@@ -17,10 +17,9 @@
  * Pattern mirrors finance-smoke-regressions.spec.ts + documents-pr3.spec.ts.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, API_RE } from './fixtures'
 
 const DROP_ID = 'a0000000-0000-4000-8000-000000000007'
-const API = 'http://localhost:3001/api'
 
 /** Finance summary with one drop entry that has positive balance + pending */
 const SUMMARY_WITH_DROP_POSITIVE = {
@@ -60,7 +59,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
     asAdmin: page,
   }) => {
     // Override finance/summary with the new fields (LIFO — wins over fixture mock)
-    await page.route(new RegExp(`${API}/finance/summary(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -94,7 +93,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
   })
 
   test('zero-balance drop shows «—» and «нет выплат» sub-label', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/finance/summary(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -117,7 +116,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
   })
 
   test('pendingCount=0 hides the amber pending badge', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/finance/summary(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -134,7 +133,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
   })
 
   test('panel is hidden when dropBalances is empty array — no crash', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/finance/summary(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -169,7 +168,7 @@ test.describe('Drop Balances Panel — redesigned', () => {
   })
 
   test('header shows «N дропов» counter with correct count', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/finance/summary(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/finance/summary(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

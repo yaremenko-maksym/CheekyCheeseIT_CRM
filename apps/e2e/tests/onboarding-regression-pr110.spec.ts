@@ -26,9 +26,7 @@
  */
 
 import { test as base, expect, type Page } from '@playwright/test'
-import { USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { USERS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // Fixture constants (mirrors PR #110 changes)
@@ -147,8 +145,8 @@ function getPreviewArticle(page: Page) {
 // ---------------------------------------------------------------------------
 
 async function mockUnboardedStatus(page: Page, statusOverride?: object): Promise<void> {
-  await page.unroute(`${API}/onboarding/status`)
-  await page.route(`${API}/onboarding/status`, (r) =>
+  await page.unroute(`${API_GLOB}/onboarding/status`)
+  await page.route(`${API_GLOB}/onboarding/status`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -158,7 +156,7 @@ async function mockUnboardedStatus(page: Page, statusOverride?: object): Promise
 }
 
 async function mockContractTemplate(page: Page, templateOverride?: object): Promise<void> {
-  await page.route(new RegExp(`${API}/contracts/templates/current/[A-Z]+$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/contracts/templates/current/[A-Z]+$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -173,7 +171,7 @@ async function mockContractPdf(
   opts: { succeed: boolean } = { succeed: true },
 ): Promise<{ callCount: () => number }> {
   let calls = 0
-  await page.route(`${API}/onboarding/contract/pdf`, (r) => {
+  await page.route(`${API_GLOB}/onboarding/contract/pdf`, (r) => {
     calls++
     if (!opts.succeed) {
       return r.fulfill({ status: 500, body: 'Internal Server Error' })
@@ -193,7 +191,7 @@ async function mockPreviewRenderedEndpoint(
   opts: { succeed: boolean },
 ): Promise<{ callCount: () => number }> {
   let calls = 0
-  await page.route(new RegExp(`${API}/contracts/templates/preview-rendered/[^/?]+$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/contracts/templates/preview-rendered/[^/?]+$`), (r) => {
     calls++
     if (!opts.succeed) {
       return r.fulfill({ status: 500, body: 'Internal Server Error' })
@@ -212,7 +210,7 @@ async function mockSignContract(
   signedPayload?: object,
 ): Promise<{ signCalled: () => boolean }> {
   let called = false
-  await page.route(`${API}/contracts/sign`, (r) => {
+  await page.route(`${API_GLOB}/contracts/sign`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     called = true
     return r.fulfill({
@@ -229,14 +227,14 @@ async function mockTosEndpoints(
   userId?: string,
 ): Promise<{ tosAcceptCalled: () => boolean }> {
   let called = false
-  await page.route(`${API}/tos/current`, (r) =>
+  await page.route(`${API_GLOB}/tos/current`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify(TOS_VERSION),
     }),
   )
-  await page.route(`${API}/tos/accept`, (r) => {
+  await page.route(`${API_GLOB}/tos/accept`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     called = true
     return r.fulfill({
@@ -267,8 +265,8 @@ async function mockFullOnboardingApi(
   let signDone = false
   let tosAcceptDone = false
 
-  await page.unroute(`${API}/onboarding/status`)
-  await page.route(`${API}/onboarding/status`, (r) => {
+  await page.unroute(`${API_GLOB}/onboarding/status`)
+  await page.route(`${API_GLOB}/onboarding/status`, (r) => {
     const body = tosAcceptDone
       ? STATUS_ONBOARDED
       : signDone
@@ -281,7 +279,7 @@ async function mockFullOnboardingApi(
     })
   })
 
-  await page.route(new RegExp(`${API}/contracts/templates/current/[A-Z]+$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/contracts/templates/current/[A-Z]+$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -290,7 +288,7 @@ async function mockFullOnboardingApi(
   )
 
   // A3-4: PDF endpoint for personal contract (replaces old preview-rendered)
-  await page.route(`${API}/onboarding/contract/pdf`, (r) =>
+  await page.route(`${API_GLOB}/onboarding/contract/pdf`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/pdf',
@@ -298,7 +296,7 @@ async function mockFullOnboardingApi(
     }),
   )
 
-  await page.route(`${API}/contracts/sign`, (r) => {
+  await page.route(`${API_GLOB}/contracts/sign`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     signDone = true
     return r.fulfill({
@@ -308,11 +306,11 @@ async function mockFullOnboardingApi(
     })
   })
 
-  await page.route(`${API}/tos/current`, (r) =>
+  await page.route(`${API_GLOB}/tos/current`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TOS_VERSION) }),
   )
 
-  await page.route(`${API}/tos/accept`, (r) => {
+  await page.route(`${API_GLOB}/tos/accept`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     tosAcceptDone = true
     return r.fulfill({
@@ -410,8 +408,8 @@ test.describe('Regression #1 — onboarding/status 200 (admin UUID fix)', () => 
   })
 
   test('ADMIN: bypass — не редиректится в wizard, остаётся на /', async ({ asAdminPage: page }) => {
-    await page.unroute(`${API}/onboarding/status`)
-    await page.route(`${API}/onboarding/status`, (r) =>
+    await page.unroute(`${API_GLOB}/onboarding/status`)
+    await page.route(`${API_GLOB}/onboarding/status`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -681,7 +679,7 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
     await mockUnboardedStatus(page)
     await mockContractTemplate(page)
     // A3-4: mock the PDF endpoint (replaces old preview-rendered)
-    await page.route(`${API}/onboarding/contract/pdf`, (r) =>
+    await page.route(`${API_GLOB}/onboarding/contract/pdf`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/pdf',
@@ -715,8 +713,8 @@ test.describe('Sign flow — happy path (regression guard for full wizard)', () 
 
 test.describe('RBAC — onboarding gate', () => {
   test('ADMIN: bypass — /crm без редиректа в wizard', async ({ asAdminPage: page }) => {
-    await page.unroute(`${API}/onboarding/status`)
-    await page.route(`${API}/onboarding/status`, (r) =>
+    await page.unroute(`${API_GLOB}/onboarding/status`)
+    await page.route(`${API_GLOB}/onboarding/status`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

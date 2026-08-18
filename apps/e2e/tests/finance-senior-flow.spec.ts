@@ -11,13 +11,11 @@
  * 5.  SENIOR оплачивает выплату с TX hash (payout-request → PAID)
  */
 
-import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 
 // Origin-agnostic patterns — Playwright intercepts at the browser layer
 // (http://localhost:3000/api/*). Using '**/api' glob for string routes and
 // '\\/api' path segment for RegExp routes matches regardless of host/port.
-const API = '**/api'
-const API_RE = '\\/api'
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
 
@@ -143,7 +141,7 @@ async function setupTransactionMocks(
           body: JSON.stringify(payoutReqs),
         }),
   )
-  await page.route(`${API}/projects`, (r) =>
+  await page.route(`${API_GLOB}/projects`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -829,7 +827,7 @@ test.describe('SENIOR INCOME — полный сквозной флоу', () => 
     await seniorPage.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
     )
-    await seniorPage.route(`${API}/projects`, (r) =>
+    await seniorPage.route(`${API_GLOB}/projects`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

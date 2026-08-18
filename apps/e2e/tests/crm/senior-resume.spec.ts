@@ -21,16 +21,14 @@
  * (which is DevOps's file, not this task's).
  */
 import { test, expect, type Page } from '@playwright/test'
-import { USERS, mockAuthAs, buildAdminViewingUser, buildSelfView } from '../fixtures'
-
-/**
- * Origin-agnostic patterns, same convention as fixtures.ts: axios talks to
- * `http://localhost:3001/api` in CI (VITE_API_URL) but to the page's own origin
- * `/api` behind the Vite proxy locally. A host-pinned pattern would silently
- * stop matching in one of the two setups.
- */
-const API_GLOB = '**/api'
-const API_RE = '\\/api'
+import {
+  USERS,
+  mockAuthAs,
+  buildAdminViewingUser,
+  buildSelfView,
+  API_GLOB,
+  API_RE,
+} from '../fixtures'
 const SENIOR_ID = USERS.senior.id
 
 const EMPTY_CONTENT = {

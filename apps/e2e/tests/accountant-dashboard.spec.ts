@@ -14,14 +14,10 @@
  * /finance/accountant-summary mock returns {4, 2, 12000, 5} (see fixtures.ts).
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, API_RE } from './fixtures'
 
 // CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
 const CRM_ROOT = /\/?$/
-
-const _webOrigin =
-  (typeof process !== 'undefined' && process.env['PLAYWRIGHT_BASE_URL']) || 'http://localhost:3000'
-const API_BASE = `${_webOrigin}/api`
 
 // ── A. Dispatch + hub render ─────────────────────────────────────────────────
 
@@ -76,48 +72,45 @@ test.describe('C. ACCOUNTANT hub — validate CTA', () => {
   }) => {
     // Seed a PENDING SENIOR_INCOME tx so validateQueue is non-empty when CTA is clicked.
     // AccountantDashboard calls GET /api/transactions to build the queue.
-    await page.route(
-      new RegExp(`${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/transactions(\\?.*)?$`),
-      (r) => {
-        if (r.request().method() !== 'GET') return r.fallback()
-        return r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: 'c0000000-0000-4000-8000-000000000099',
-              type: 'SENIOR_INCOME',
-              status: 'PENDING',
-              amount: '2500',
-              currency: 'USDT',
-              senderId: null,
-              senderLabel: 'Senior B',
-              senderName: 'Senior B',
-              receiverId: null,
-              receiverLabel: null,
-              receiverName: null,
-              projectId: null,
-              projectName: 'Proj B',
-              payoutRequestId: null,
-              seniorSharePercent: null,
-              receiptDocumentId: null,
-              receiptExternalUrl: null,
-              txHash: null,
-              validatedBy: null,
-              validatedAt: null,
-              rejectionReason: null,
-              notes: null,
-              salaryMonth: null,
-              txDate: null,
-              recipientId: null,
-              createdBy: 'c0000000-0000-4000-8000-0000000000aa',
-              createdAt: '2026-06-10T10:00:00.000Z',
-              updatedAt: '2026-06-10T10:00:00.000Z',
-            },
-          ]),
-        })
-      },
-    )
+    await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
+      if (r.request().method() !== 'GET') return r.fallback()
+      return r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 'c0000000-0000-4000-8000-000000000099',
+            type: 'SENIOR_INCOME',
+            status: 'PENDING',
+            amount: '2500',
+            currency: 'USDT',
+            senderId: null,
+            senderLabel: 'Senior B',
+            senderName: 'Senior B',
+            receiverId: null,
+            receiverLabel: null,
+            receiverName: null,
+            projectId: null,
+            projectName: 'Proj B',
+            payoutRequestId: null,
+            seniorSharePercent: null,
+            receiptDocumentId: null,
+            receiptExternalUrl: null,
+            txHash: null,
+            validatedBy: null,
+            validatedAt: null,
+            rejectionReason: null,
+            notes: null,
+            salaryMonth: null,
+            txDate: null,
+            recipientId: null,
+            createdBy: 'c0000000-0000-4000-8000-0000000000aa',
+            createdAt: '2026-06-10T10:00:00.000Z',
+            updatedAt: '2026-06-10T10:00:00.000Z',
+          },
+        ]),
+      })
+    })
 
     await page.goto('/')
 
@@ -141,45 +134,43 @@ test.describe('D. Finance status deep-link', () => {
     asAccountant: page,
   }) => {
     // Seed a couple of transactions so the table + filter render.
-    await page.route(
-      new RegExp(`${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/transactions(\\?.*)?$`),
-      (r) =>
-        r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([
-            {
-              id: 'c0000000-0000-4000-8000-000000000001',
-              type: 'SENIOR_INCOME',
-              status: 'PENDING',
-              amount: '1000',
-              currency: 'USDT',
-              senderId: null,
-              senderLabel: 'Senior A',
-              senderName: 'Senior A',
-              receiverId: null,
-              receiverLabel: null,
-              receiverName: null,
-              projectId: null,
-              projectName: 'Proj A',
-              payoutRequestId: null,
-              seniorSharePercent: null,
-              receiptDocumentId: null,
-              receiptExternalUrl: null,
-              txHash: null,
-              validatedBy: null,
-              validatedAt: null,
-              rejectionReason: null,
-              notes: null,
-              salaryMonth: null,
-              txDate: null,
-              recipientId: null,
-              createdBy: 'c0000000-0000-4000-8000-0000000000aa',
-              createdAt: '2026-06-10T10:00:00.000Z',
-              updatedAt: '2026-06-10T10:00:00.000Z',
-            },
-          ]),
-        }),
+    await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          {
+            id: 'c0000000-0000-4000-8000-000000000001',
+            type: 'SENIOR_INCOME',
+            status: 'PENDING',
+            amount: '1000',
+            currency: 'USDT',
+            senderId: null,
+            senderLabel: 'Senior A',
+            senderName: 'Senior A',
+            receiverId: null,
+            receiverLabel: null,
+            receiverName: null,
+            projectId: null,
+            projectName: 'Proj A',
+            payoutRequestId: null,
+            seniorSharePercent: null,
+            receiptDocumentId: null,
+            receiptExternalUrl: null,
+            txHash: null,
+            validatedBy: null,
+            validatedAt: null,
+            rejectionReason: null,
+            notes: null,
+            salaryMonth: null,
+            txDate: null,
+            recipientId: null,
+            createdBy: 'c0000000-0000-4000-8000-0000000000aa',
+            createdAt: '2026-06-10T10:00:00.000Z',
+            updatedAt: '2026-06-10T10:00:00.000Z',
+          },
+        ]),
+      }),
     )
 
     await page.goto('/finance?status=PENDING')

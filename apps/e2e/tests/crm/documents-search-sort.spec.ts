@@ -15,9 +15,7 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { USERS, mockAuthAs } from '../fixtures'
-
-const API = 'http://localhost:3001/api'
+import { USERS, mockAuthAs, API_RE } from '../fixtures'
 
 // ---------------------------------------------------------------------------
 // Document fixtures
@@ -86,7 +84,7 @@ async function mockDocumentsList(
 ) {
   // Override ONLY the generic list route — specific sub-routes (download, hard,
   // restore) registered by mockAuthAs remain intact (LIFO stack in Playwright).
-  await page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 200,

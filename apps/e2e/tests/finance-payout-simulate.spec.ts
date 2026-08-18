@@ -21,12 +21,10 @@
  *       PATCH /pay called with simulateResult='success'.
  *   B4: Real mode in dev — submit stays disabled even with a valid hash.
  */
-import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 
 // Origin-agnostic prefix — matches any host/port (dev proxy on :3000,
 // direct :3001, preview :3010). Mirrors the API_GLOB pattern from fixtures.ts.
-const API = '**/api'
-const API_RE = '\\/api'
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
 
@@ -187,7 +185,7 @@ function setupPayoutMocks(
   void page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   )
-  void page.route(`${API}/projects`, (r) =>
+  void page.route(`${API_GLOB}/projects`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',

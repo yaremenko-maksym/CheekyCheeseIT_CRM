@@ -22,7 +22,7 @@
  * Cleanup: cascade-archive the drop (removes the project too).
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -36,7 +36,7 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
-const REAL_API = 'http://localhost:3001/api'
+const REAL_API = `${REAL_API_BASE}/api`
 
 test.describe('Drop-project create — UI flow (AC5)', () => {
   test('ADMIN selects «Дроп» in the create form → drop-project saved + badge + breakdown', async ({

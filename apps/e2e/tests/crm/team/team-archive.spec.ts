@@ -11,9 +11,7 @@
  * registered first to override the generic ones from `mockAuthAs`.
  */
 
-import { test, expect, USERS, TEAMS } from '../../fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, TEAMS, API_GLOB, API_RE } from '../../fixtures'
 
 // TEAMS[0] is the seed Alpha Team — non-null in fixtures.
 const activeTeam = TEAMS[0]!
@@ -30,7 +28,7 @@ test.describe('Team archive — list page tab', () => {
     asAdmin: page,
   }) => {
     // Active teams response — default
-    await page.route(`${API}/teams`, (r) =>
+    await page.route(`${API_GLOB}/teams`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -38,7 +36,7 @@ test.describe('Team archive — list page tab', () => {
       }),
     )
     // Archived teams response
-    await page.route(`${API}/teams?archived=true`, (r) =>
+    await page.route(`${API_GLOB}/teams?archived=true`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -65,7 +63,7 @@ test.describe('Team archive — list page tab', () => {
   test('archived team card has opacity-60 and no inline action buttons (ADMIN)', async ({
     asAdmin: page,
   }) => {
-    await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -89,7 +87,7 @@ test.describe('Team archive — list page tab', () => {
 
   test('detail-page restore button calls POST /teams/:id/unarchive', async ({ asAdmin: page }) => {
     // ut-39b: the unarchive action moved from the list to the detail header.
-    await page.route(`${API}/teams/${archivedTeam.id}`, (r) =>
+    await page.route(`${API_GLOB}/teams/${archivedTeam.id}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -100,7 +98,7 @@ test.describe('Team archive — list page tab', () => {
       (req) => req.url().endsWith(`/teams/${archivedTeam.id}/unarchive`) && req.method() === 'POST',
       { timeout: 5000 },
     )
-    await page.route(`${API}/teams/${archivedTeam.id}/unarchive`, (r) =>
+    await page.route(`${API_GLOB}/teams/${archivedTeam.id}/unarchive`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: '{}' }),
     )
 
@@ -116,7 +114,7 @@ test.describe('Team detail page — admin actions', () => {
   // ut-39b: «Действия» dropdown replaced with explicit «Архивировать» /
   // «Восстановить» buttons. Add / Edit remain as primary actions.
   test('ADMIN sees explicit Archive button on active team detail', async ({ asAdmin: page }) => {
-    await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
+    await page.route(`${API_GLOB}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/team/${activeTeam.id}`)
@@ -125,7 +123,7 @@ test.describe('Team detail page — admin actions', () => {
   })
 
   test('non-ADMIN does not see Archive button on team detail', async ({ asHr: page }) => {
-    await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
+    await page.route(`${API_GLOB}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/team/${activeTeam.id}`)
@@ -136,7 +134,7 @@ test.describe('Team detail page — admin actions', () => {
   test('ADMIN sees members list and add-member button on team detail', async ({
     asAdmin: page,
   }) => {
-    await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
+    await page.route(`${API_GLOB}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
     await page.goto(`/team/${activeTeam.id}`)
@@ -149,10 +147,10 @@ test.describe('Team detail page — admin actions', () => {
   test('opening "Архивировать" shows ArchiveConfirmDialog with senior-name input', async ({
     asAdmin: page,
   }) => {
-    await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
+    await page.route(`${API_GLOB}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
-    await page.route(`${API}/teams/${activeTeam.id}/archive-impact`, (r) =>
+    await page.route(`${API_GLOB}/teams/${activeTeam.id}/archive-impact`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -181,10 +179,10 @@ test.describe('Team detail page — admin actions', () => {
   test('typing senior name enables submit and DELETE /teams/:id is called', async ({
     asAdmin: page,
   }) => {
-    await page.route(`${API}/teams/${activeTeam.id}`, (r) =>
+    await page.route(`${API_GLOB}/teams/${activeTeam.id}`, (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(activeTeam) }),
     )
-    await page.route(`${API}/teams/${activeTeam.id}/archive-impact`, (r) =>
+    await page.route(`${API_GLOB}/teams/${activeTeam.id}/archive-impact`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -217,7 +215,7 @@ test.describe('Team detail page — admin actions', () => {
   test('archived team shows "В архиве" badge and Unarchive button only', async ({
     asAdmin: page,
   }) => {
-    await page.route(`${API}/teams/${archivedTeam.id}`, (r) =>
+    await page.route(`${API_GLOB}/teams/${archivedTeam.id}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

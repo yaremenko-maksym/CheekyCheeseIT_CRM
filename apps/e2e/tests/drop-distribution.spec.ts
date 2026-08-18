@@ -47,6 +47,7 @@ import {
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
   getTransactionViaAPI,
+  REAL_API_BASE,
 } from './fixtures'
 
 function uniqueSuffix(): string {
@@ -113,7 +114,7 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       // Optional double-check via ADMIN read — confirms DB state matches.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const adminCheck = await page.request.get(
-        `http://localhost:3001/api/payout-requests/${payoutRequestId}`,
+        `${REAL_API_BASE}/api/payout-requests/${payoutRequestId}`,
       )
       expect(adminCheck.status()).toBe(200)
       const adminPayout = (await adminCheck.json()) as { status: string }

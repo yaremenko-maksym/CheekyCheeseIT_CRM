@@ -24,22 +24,22 @@
  *   apps/web/app/lib/route-access.ts + routing.tsx + DropFinancePage.tsx
  *   on feature branch (NOT live :3001).
  *
- * API mock URL note: in production build (vite preview) axios uses relative
- * baseURL=/api so browser requests go to the web-server origin (e.g. :3010).
- * Playwright intercepts BEFORE the vite proxy forwards to :3001, so mocks must
- * match the web-server origin derived from PLAYWRIGHT_BASE_URL. The `API_BASE`
- * constant below mirrors the same logic as `API` in fixtures.ts.
+ * API mock URL note (task-e2e-origin-agnostic): route mocks match on the
+ * `/api/...` PATH only, regardless of origin — see fixtures.ts's `API_GLOB`
+ * (string routes) / `API_RE` (RegExp routes) comment for the rationale. This
+ * file used to derive an absolute origin from `PLAYWRIGHT_BASE_URL` (falling
+ * back to a hardcoded `http://localhost:3000`) — that only matched when the
+ * browser's actual `/api/*` requests happened to go through the same-origin
+ * proxy (local `vite preview`); it silently stopped matching in the CI mode
+ * where `VITE_API_URL` is baked to an absolute `http://localhost:3001/api` at
+ * build time, since then the request origin has nothing to do with
+ * `PLAYWRIGHT_BASE_URL`.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, API_GLOB, API_RE } from './fixtures'
 
 // CRM root, anchored — matches `/` (and `/`) but NOT `/team` etc.
 const CRM_ROOT = /\/?$/
-
-// Derive web origin to match how `API` constant is built in fixtures.ts.
-const _webOrigin =
-  (typeof process !== 'undefined' && process.env['PLAYWRIGHT_BASE_URL']) || 'http://localhost:3000'
-const API_BASE = `${_webOrigin}/api`
 
 // ── Fixture data for DROP-specific API endpoints ───────────────────────────────
 
@@ -184,7 +184,7 @@ test.describe('A. DROP routing hub — /crm root render', () => {
 
   test('hub renders DropBalanceCard with loading → loaded state', async ({ asDrop: page }) => {
     // Override default (balance=0) with data summary. Registered AFTER mockAuthAs (LIFO).
-    await page.route(`${API_BASE}/finance/drop/me/summary`, (r) =>
+    await page.route(`${API_GLOB}/finance/drop/me/summary`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -243,9 +243,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
     asDrop: page,
   }) => {
     // Override incomes: return 2 validated items. LIFO → wins over mockAuthAs default.
-    const incomesPattern = new RegExp(
-      `${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/finance/drop/me/incomes(\\?.*)?$`,
-    )
+    const incomesPattern = new RegExp(`${API_RE}/finance/drop/me/incomes(\\?.*)?$`)
     await page.route(incomesPattern, (r) =>
       r.fulfill({
         status: 200,
@@ -266,7 +264,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
 
   test('DropProjectsList renders project items when data available', async ({ asDrop: page }) => {
     // Override projects. LIFO wins.
-    await page.route(`${API_BASE}/projects/drop/me`, (r) =>
+    await page.route(`${API_GLOB}/projects/drop/me`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -291,9 +289,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
   test('pay action on income item navigates to /payments/initiate/:id', async ({
     asDrop: page,
   }) => {
-    const incomesPattern = new RegExp(
-      `${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/finance/drop/me/incomes(\\?.*)?$`,
-    )
+    const incomesPattern = new RegExp(`${API_RE}/finance/drop/me/incomes(\\?.*)?$`)
     await page.route(incomesPattern, (r) =>
       r.fulfill({
         status: 200,
@@ -305,9 +301,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
     // Override /transactions/:id so the initiate-page access-guard can confirm
     // ownership (receiverId === USERS.drop.id). Without this, the guard fires
     // navigate('/') and the URL bounces back immediately.
-    const txPattern = new RegExp(
-      `${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/transactions/([^/?]+)$`,
-    )
+    const txPattern = new RegExp(`${API_RE}/transactions/([^/?]+)$`)
     await page.route(txPattern, (r) =>
       r.fulfill({
         status: 200,
@@ -347,9 +341,7 @@ test.describe('B. DROP routing hub — loaded with data', () => {
 
     // Mock POST /payments/initiate-crypto so the CryptoChannelCard doesn't
     // hit the real backend → 401 bounce.
-    const initCryptoPattern = new RegExp(
-      `${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/payments/initiate-crypto$`,
-    )
+    const initCryptoPattern = new RegExp(`${API_RE}/payments/initiate-crypto$`)
     await page.route(initCryptoPattern, (r) =>
       r.fulfill({
         status: 200,
@@ -388,7 +380,7 @@ test.describe('C. DROP finance cabinet — /finance', () => {
   })
 
   test('finance cabinet renders DropBalanceCard (variant=full)', async ({ asDrop: page }) => {
-    await page.route(`${API_BASE}/finance/drop/me/summary`, (r) =>
+    await page.route(`${API_GLOB}/finance/drop/me/summary`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -403,9 +395,7 @@ test.describe('C. DROP finance cabinet — /finance', () => {
   })
 
   test('finance cabinet renders DropIncomesTable with rows', async ({ asDrop: page }) => {
-    const incomesPattern = new RegExp(
-      `${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/finance/drop/me/incomes(\\?.*)?$`,
-    )
+    const incomesPattern = new RegExp(`${API_RE}/finance/drop/me/incomes(\\?.*)?$`)
     await page.route(incomesPattern, (r) =>
       r.fulfill({
         status: 200,
@@ -436,9 +426,7 @@ test.describe('C. DROP finance cabinet — /finance', () => {
   }) => {
     // Register BEFORE goto — LIFO wins over mockAuthAs default (returns []).
     // Use RegExp to match with or without trailing query params.
-    const paymentsPattern = new RegExp(
-      `${API_BASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}/finance/drop/me/payments(\\?.*)?$`,
-    )
+    const paymentsPattern = new RegExp(`${API_RE}/finance/drop/me/payments(\\?.*)?$`)
     await page.route(paymentsPattern, (r) =>
       r.fulfill({
         status: 200,

@@ -12,9 +12,7 @@
  * carries no team containing them as an active member.
  */
 
-import { test as base, expect, mockAuthAs, USERS } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test as base, expect, mockAuthAs, USERS, API_RE } from './fixtures'
 
 /**
  * Authenticate as the orphan senior + serve a teams list where the senior
@@ -25,7 +23,7 @@ const test = base.extend<{ asTeamlessSenior: import('@playwright/test').Page }>(
     await mockAuthAs(page, USERS.seniorOrphan)
     // Override `/teams` AFTER mockAuthAs so the orphan senior sees an
     // empty list — no active membership anywhere.
-    await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

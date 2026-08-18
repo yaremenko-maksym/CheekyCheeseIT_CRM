@@ -27,13 +27,8 @@
  *    no funding-source section per component logic).
  */
 
-import { test, expect, USERS } from './fixtures'
+import { test, expect, USERS, API_RE } from './fixtures'
 import type { Page, Route } from '@playwright/test'
-
-// ---------------------------------------------------------------------------
-// Origin-agnostic route constants
-// ---------------------------------------------------------------------------
-const API_RE = '\\/api'
 
 function jsonOk(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })

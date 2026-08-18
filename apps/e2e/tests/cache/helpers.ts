@@ -29,8 +29,13 @@ export const CACHE_NAMES = {
 /** Prefix used by Workbox precache — must NOT be deleted on logout. */
 export const PRECACHE_PREFIX = 'workbox-precache'
 
-/** Backend URL used by loginViaApi. */
-export const REAL_API_BASE = 'http://localhost:3001'
+/**
+ * Backend URL used by loginViaApi. Overridable via `E2E_REAL_API_BASE`
+ * (task-e2e-origin-agnostic, mirrors the same override in fixtures.ts) so a
+ * scratch-port run of the `cache` project doesn't have to occupy :3001.
+ * Existing callers (default 3001) are unaffected.
+ */
+export const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'
 
 /** Dev seed admin email (mirrors apps/api/src/database/seed.ts). */
 export const SEED_ADMIN_EMAIL = 'yaremenkomaksym99@gmail.com'

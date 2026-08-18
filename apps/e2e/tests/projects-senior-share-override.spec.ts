@@ -34,7 +34,7 @@
  *
  * All scenarios run against the mocked /api/* responses defined in fixtures.ts.
  */
-import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB } from './fixtures'
 
 // Helper — register a one-off override of the /api/projects/:id response so
 // each scenario can present the project in whatever override state it needs.
@@ -713,7 +713,7 @@ test.describe('login auth-guard', () => {
   test('unauthenticated visitor stays on /login', async ({ page }) => {
     // No mockAuthAs → /api/auth/me would otherwise hit the real backend. We
     // intercept it to force a 401 so the spec is deterministic.
-    await page.route('http://localhost:3001/api/auth/me', (r) =>
+    await page.route(`${API_GLOB}/auth/me`, (r) =>
       r.fulfill({ status: 401, contentType: 'application/json', body: '{}' }),
     )
     await page.goto('/login')

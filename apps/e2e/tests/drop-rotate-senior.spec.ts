@@ -18,9 +18,7 @@
  * (no active senior) fixtures.
  */
 
-import { test, expect, USERS, TEAMS, DROP_TEAM, DROP_TEAM_VACANT } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, TEAMS, DROP_TEAM, DROP_TEAM_VACANT, API_RE } from './fixtures'
 
 /**
  * Pre-load fixture sets so the page sees all relevant teams: legacy
@@ -29,7 +27,7 @@ const API = 'http://localhost:3001/api'
  * `/teams/:id` route returns the fixture from `ALL_TEAMS` lookup.
  */
 async function withFullTeamList(page: import('@playwright/test').Page) {
-  await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',

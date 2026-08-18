@@ -25,9 +25,7 @@
  *   C5: Public verify /invoice/v/:txId page renders без auth, shows both
  *       signers + counts «2 из 2».
  */
-import { test, expect, USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, mockAuthAs, API_RE } from './fixtures'
 
 // Stable IDs used across the C scenarios so route handlers can match across
 // auth contexts without ordering dependencies between describe blocks.
@@ -150,16 +148,16 @@ function mockInvoiceFlow(
   const signCalls: Array<Record<string, unknown>> = []
   let currentState: 'unsigned' | 'signed' = options.state
 
-  void page.route(new RegExp(`${API}/notifications/read-all$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/notifications/read-all$`), (r) =>
     r.fulfill({ status: 204, body: '' }),
   )
-  void page.route(new RegExp(`${API}/notifications/([^/?]+)/read$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/notifications/([^/?]+)/read$`), (r) =>
     r.fulfill({ status: 204, body: '' }),
   )
-  void page.route(new RegExp(`${API}/notifications/([^/?]+)$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/notifications/([^/?]+)$`), (r) =>
     r.request().method() === 'DELETE' ? r.fulfill({ status: 204, body: '' }) : r.fallback(),
   )
-  void page.route(new RegExp(`${API}/notifications(\\?.*)?$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/notifications(\\?.*)?$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -171,7 +169,7 @@ function mockInvoiceFlow(
   )
 
   // POST /invoices/:txId/sign — capture body, flip state to 'signed', return signed DTO.
-  void page.route(new RegExp(`${API}/invoices/([^/?]+)/sign$`), (r) => {
+  void page.route(new RegExp(`${API_RE}/invoices/([^/?]+)/sign$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     try {
       const raw = r.request().postData()
@@ -188,7 +186,7 @@ function mockInvoiceFlow(
   })
 
   // GET /invoices/:txId
-  void page.route(new RegExp(`${API}/invoices/([^/?]+)$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/invoices/([^/?]+)$`), (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({
           status: 200,
@@ -200,7 +198,7 @@ function mockInvoiceFlow(
       : r.fallback(),
   )
   // GET /invoices (list)
-  void page.route(new RegExp(`${API}/invoices(\\?.*)?$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/invoices(\\?.*)?$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -209,7 +207,7 @@ function mockInvoiceFlow(
   )
 
   // Documents — list returns the invoice document for INVOICE category.
-  void page.route(new RegExp(`${API}/documents/([^/?]+)/download$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/documents/([^/?]+)/download$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -219,7 +217,7 @@ function mockInvoiceFlow(
       }),
     }),
   )
-  void page.route(new RegExp(`${API}/documents/([^/?]+)$`), (r) => {
+  void page.route(new RegExp(`${API_RE}/documents/([^/?]+)$`), (r) => {
     const docId = r.request().url().split('/').at(-1) ?? INVOICE_DOC_ID_UNSIGNED
     return r.fulfill({
       status: 200,
@@ -227,7 +225,7 @@ function mockInvoiceFlow(
       body: JSON.stringify(makeInvoiceDocument(docId, currentState === 'signed')),
     })
   })
-  void page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) =>
+  void page.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -350,7 +348,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
     // No fixture used → no auth mocks. The public verify endpoint must NOT
     // require credentials (the QR-target use case is a stranger scanning
     // the printed PDF). We intercept it directly with a SIGNED payload.
-    await page.route(new RegExp(`${API}/invoices/verify/([^/?]+)$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/invoices/verify/([^/?]+)$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -397,7 +395,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
   test('C8: public verify with PENDING status renders «ожидает подписи» state', async ({
     page,
   }) => {
-    await page.route(new RegExp(`${API}/invoices/verify/([^/?]+)$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/invoices/verify/([^/?]+)$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -430,7 +428,7 @@ test.describe('Flow C — Invoice signing (PR #56)', () => {
   })
 
   test('C9: public verify 404 → error state', async ({ page }) => {
-    await page.route(new RegExp(`${API}/invoices/verify/([^/?]+)$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/invoices/verify/([^/?]+)$`), (r) =>
       r.fulfill({
         status: 404,
         contentType: 'application/json',

@@ -1,4 +1,4 @@
-import { test, expect, USERS, PROJECTS, dismissDialog, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS, dismissDialog, mockAuthAs, API_RE } from './fixtures'
 
 const PROJECT = PROJECTS[0]!
 const PROJECT_ID = PROJECT.id
@@ -9,7 +9,6 @@ const PROJECT_NAME = PROJECT.name
 // through localhost:3000, so the browser URL is http://localhost:3000/api/*.
 // A hardcoded 'http://localhost:3001/api' prefix would NOT match and the
 // mockAuthAs route (which returns []) would win instead.
-const API = '\\/api'
 
 // ── Shared transaction fixtures ────────────────────────────────────────────────
 
@@ -151,7 +150,7 @@ const TX_SALARY_OTHER: object = {
 // ── Helper: mock transactions endpoint ────────────────────────────────────────
 
 async function mockTransactions(page: import('@playwright/test').Page, rows: object[]) {
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
     if (r.request().method() === 'POST') {
       return r.fulfill({
         status: 201,
@@ -161,7 +160,7 @@ async function mockTransactions(page: import('@playwright/test').Page, rows: obj
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) })
   })
-  await page.route(new RegExp(`${API}/transactions/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)!
     const found = rows.find((t) => (t as { id: string }).id === id) ?? rows[0]
     if (r.request().method() === 'DELETE') {
@@ -180,7 +179,7 @@ async function mockTransactions(page: import('@playwright/test').Page, rows: obj
       }),
     })
   })
-  await page.route(new RegExp(`${API}/transactions/([^/?]+)/(validate|pay|admin-edit)`), (r) => {
+  await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)/(validate|pay|admin-edit)`), (r) => {
     const id = r.request().url().split('/').at(-2)!
     const found = rows.find((t) => (t as { id: string }).id === id) ?? rows[0]
     return r.fulfill({
@@ -189,7 +188,7 @@ async function mockTransactions(page: import('@playwright/test').Page, rows: obj
       body: JSON.stringify({ ...(found as object) }),
     })
   })
-  await page.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)!
     const found = rows.find((t) => (t as { id: string }).id === id) ?? rows[0]
     return r.fulfill({

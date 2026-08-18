@@ -14,14 +14,8 @@
  * Route pattern: glob **\/api for string routes, \\\/api for RegExp routes.
  */
 
-import { test, expect, USERS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 import type { Page, Route } from '@playwright/test'
-
-// ---------------------------------------------------------------------------
-// Origin-agnostic route constants (Vite dev-proxy: browser→:3000, api→:3001)
-// ---------------------------------------------------------------------------
-const API_GLOB = '**/api'
-const API_RE = '\\/api'
 
 function jsonOk(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })

@@ -38,7 +38,7 @@
  * closed by the SAME settle endpoint used below for the senior debt.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -61,7 +61,7 @@ import {
 // task-settle-in-place-e2e: env-aware (was hardcoded to localhost:3001) —
 // mirrors fixtures.ts / pending-settlement.spec.ts so this file is portable
 // to an isolated scratch stand.
-const REAL_API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
+const REAL_API = `${REAL_API_BASE}/api`
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`

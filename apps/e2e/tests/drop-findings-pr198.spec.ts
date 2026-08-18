@@ -43,14 +43,16 @@
  * No waitForTimeout — only expect(locator).toBeVisible() / toHaveCount(0).
  */
 
-import { test, expect, USERS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, mockAuthAs, API_RE } from './fixtures'
 
-// Origin-agnostic API prefix — matches regardless of whether the app is
-// served from localhost:3000 (dev) or 127.0.0.1:3016 (vite preview).
-// In production builds VITE_API_URL is absent → axios falls back to `/api`
-// (relative), so requests hit <preview-origin>/api/... not localhost:3001.
-// Using /\/api/ as prefix mirrors the fixtures.ts `API_RE = '\\/api'` convention.
-const API_RE = '\\/api'
+// Origin-agnostic API prefix (task-e2e-origin-agnostic: now imported from
+// fixtures.ts — this file independently reinvented the exact same
+// `API_RE = '\\/api'` value, which is the "one thing described two ways"
+// duplication that motivated exporting it as the canonical constant).
+// Matches regardless of whether the app is served from localhost:3000 (dev)
+// or a scratch preview port. In production builds VITE_API_URL is absent →
+// axios falls back to `/api` (relative), so requests hit
+// <preview-origin>/api/... not localhost:3001.
 
 // ---------------------------------------------------------------------------
 // Shared contract fixtures

@@ -33,6 +33,7 @@ import {
   confirmPayoutViaAPI,
   createSeniorProjectViaAPI,
   createSeniorIncomeViaAPI,
+  REAL_API_BASE,
 } from './fixtures'
 
 function uniqueSuffix(): string {
@@ -102,9 +103,7 @@ test.describe('Drop confirm-payout — edge cases (AC5)', () => {
       expect(status).toBe(400)
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL)
-      await page.request
-        .delete(`http://localhost:3001/api/projects/${projectId}`)
-        .catch(() => undefined)
+      await page.request.delete(`${REAL_API_BASE}/api/projects/${projectId}`).catch(() => undefined)
     }
   })
 

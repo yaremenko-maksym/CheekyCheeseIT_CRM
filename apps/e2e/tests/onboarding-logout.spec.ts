@@ -9,9 +9,7 @@
  */
 
 import { expect, test } from '@playwright/test'
-import { USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { USERS, mockAuthAs, API_GLOB } from './fixtures'
 
 // Unboarded status — user must complete onboarding before proceeding
 const STATUS_UNBOARDED = {
@@ -45,8 +43,8 @@ test.describe('Onboarding logout', () => {
     await mockAuthAs(page, USERS.senior)
 
     // Override onboarding status to "unboarded" so the gate stays open
-    await page.unroute(`${API}/onboarding/status`)
-    await page.route(`${API}/onboarding/status`, (r) =>
+    await page.unroute(`${API_GLOB}/onboarding/status`)
+    await page.route(`${API_GLOB}/onboarding/status`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -55,7 +53,7 @@ test.describe('Onboarding logout', () => {
     )
 
     // Mock PDF endpoint so onboarding page loads without error
-    await page.route(`${API}/onboarding/contract/pdf`, (r) =>
+    await page.route(`${API_GLOB}/onboarding/contract/pdf`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/pdf',
@@ -92,8 +90,8 @@ test.describe('Onboarding logout', () => {
     // Set up the post-logout session state BEFORE clicking: /auth/me returns
     // 401 so any re-fetch (and the /crm guard below) deterministically sees a
     // cleared session — independent of CRM Layout init ordering.
-    await page.unroute(`${API}/auth/me`)
-    await page.route(`${API}/auth/me`, (r) => r.fulfill({ status: 401, body: '' }))
+    await page.unroute(`${API_GLOB}/auth/me`)
+    await page.route(`${API_GLOB}/auth/me`, (r) => r.fulfill({ status: 401, body: '' }))
 
     // The click triggers window.location.href='/login' inside useLogout.
     await page.getByTestId('onboarding-logout').click()

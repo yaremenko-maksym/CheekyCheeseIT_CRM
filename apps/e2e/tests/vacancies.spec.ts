@@ -40,9 +40,7 @@
  * this whole spec.
  */
 import { test, expect, type Locator, type Page } from '@playwright/test'
-import { loginViaApi, SEED_ADMIN_EMAIL, SEED_EMAILS } from './fixtures'
-
-const REAL_API_BASE = process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'
+import { loginViaApi, SEED_ADMIN_EMAIL, SEED_EMAILS, REAL_API_BASE } from './fixtures'
 
 /** Seed DROP user (apps/api/src/database/seed.ts) — used by the RBAC smoke. */
 const DROP_EMAIL = 'viktor.drop@cheekycheese.dev'

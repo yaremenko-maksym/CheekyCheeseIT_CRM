@@ -31,7 +31,7 @@
  *   { obligationId, sourceTransactionId, debtorType, seniorId, amount, currency, ... }
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -56,7 +56,7 @@ import {
 // the same env override fixtures.ts already uses for every typed helper in
 // this file (loginViaApi, listTransactionsByProjectViaAPI, ...) so the WHOLE
 // spec — not just the typed-helper calls — is portable to a throwaway API.
-const REAL_API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
+const REAL_API = `${REAL_API_BASE}/api`
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`

@@ -13,14 +13,12 @@
  * Tests use getByRole('button', ...) to locate tab triggers.
  */
 
-import { test, expect, USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, mockAuthAs, API_RE } from './fixtures'
 
 /** Override GET /users/:id to return HR-visible permissions for a senior */
 async function mockHrViewingSenior(page: import('@playwright/test').Page) {
   await mockAuthAs(page, USERS.hr)
-  await page.route(new RegExp(`${API}/users/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)$`), (r) => {
     if (r.request().method() !== 'GET') return r.fulfill({ status: 204, body: '' })
     return r.fulfill({
       status: 200,

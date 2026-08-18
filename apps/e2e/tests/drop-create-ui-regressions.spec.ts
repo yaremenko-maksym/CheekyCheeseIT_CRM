@@ -26,13 +26,18 @@
  * backend cascade (covered by `drop-create.spec.ts` + real-API specs).
  */
 
-import { test, expect, USERS } from './fixtures'
+import { test, expect, USERS, API_RE } from './fixtures'
 import { VALID_USDT_WALLET } from './fixtures'
 
-// task-settle-in-place-e2e convention (env-aware, mirrors fixtures.ts /
-// drop-share-slider.spec.ts) — was hardcoded to localhost:3001, which broke
-// any isolated scratch-stand run pointed at a different API port.
-const API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
+// task-e2e-origin-agnostic: this used to be an env-derived ABSOLUTE origin
+// (`${E2E_REAL_API_BASE ?? 'http://localhost:3001'}/api`) fixing the earlier
+// hardcoded-:3001 bug, but only halfway — these `page.route()` calls are
+// MOCKS, and a mock must match the browser's actual request PATH regardless
+// of origin (see fixtures.ts `API_RE` comment), not depend on the dev
+// remembering to set `E2E_REAL_API_BASE` to whatever the web app's real
+// backend calls resolve to. Path-only matching is origin-agnostic by
+// construction; the env-var indirection was still one more way this could
+// silently drift out of sync.
 
 test.describe('Drop create — UI regressions', () => {
   test('slider for DROP role exposes aria-label «Доля дропа в процентах»', async ({
@@ -81,7 +86,7 @@ test.describe('Drop create — UI regressions', () => {
     // Order matters: register this override BEFORE goto so it shadows the
     // generic fixture handler (Playwright route handlers run in
     // registration-order LIFO, so the latest wins).
-    await page.route(new RegExp(`${API}/users(\\?.*)?$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), (r) => {
       if (r.request().method() === 'POST') return r.fallback()
       // Return ALL users EXCEPT HRs — the picker will render with «Нет
       // доступных HR» and the form-level validation flags an empty hrIds.
@@ -93,7 +98,7 @@ test.describe('Drop create — UI regressions', () => {
     })
 
     let postFired = false
-    await page.route(new RegExp(`${API}/users/drops$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users/drops$`), (r) => {
       postFired = true
       return r.fulfill({
         status: 201,
@@ -150,7 +155,7 @@ test.describe('Drop create — UI regressions', () => {
     asAdmin: page,
   }) => {
     // Mock /users/drops to return 201 immediately (no real DB).
-    await page.route(new RegExp(`${API}/users/drops$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/users/drops$`), (r) =>
       r.fulfill({
         status: 201,
         contentType: 'application/json',

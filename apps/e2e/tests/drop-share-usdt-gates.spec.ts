@@ -25,9 +25,7 @@
  */
 
 import { test, expect } from './fixtures'
-import { USERS, mockAuthAs } from './fixtures'
-
-const API = '\\/api'
+import { USERS, mockAuthAs, API_RE } from './fixtures'
 
 type MockProject = {
   id: string
@@ -39,7 +37,7 @@ type MockProject = {
 
 /** Register a `/projects` override AFTER `mockAuthAs` (LIFO — wins over the default fixture list). */
 async function mockProjectsList(page: import('@playwright/test').Page, projects: MockProject[]) {
-  await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -166,7 +164,7 @@ test.describe('Admin-USDT payment-type gates — CreateTransactionDialog (Flow 2
         paymentType: 'FOP',
       },
     ])
-    await page.route(new RegExp(`${API}/transactions/drop-income$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/transactions/drop-income$`), (r) =>
       r.fulfill({
         status: 201,
         contentType: 'application/json',

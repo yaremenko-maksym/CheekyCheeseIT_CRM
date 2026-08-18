@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { API_GLOB } from './fixtures'
 
 const PROTECTED_ROUTES = ['/', '/team', '/projects', '/interviews', '/profile', '/users']
 
@@ -65,8 +66,11 @@ test.describe('Auth flow', () => {
 
   for (const route of PROTECTED_ROUTES) {
     test(`unauthenticated ${route} redirects to /login`, async ({ page }) => {
-      // Stub /auth/me to return 401 so the app knows user is not logged in
-      await page.route('http://localhost:3001/api/auth/me', (r) =>
+      // Stub /auth/me to return 401 so the app knows user is not logged in.
+      // Origin-agnostic glob (task-e2e-origin-agnostic) — see fixtures.ts
+      // API_GLOB comment; a hardcoded 'http://localhost:3001/...' prefix only
+      // matches when the web app happens to be served from exactly that origin.
+      await page.route(`${API_GLOB}/auth/me`, (r) =>
         r.fulfill({ status: 401, body: '{"message":"Unauthorized"}' }),
       )
       await page.goto(route)
@@ -115,9 +119,18 @@ test.describe('Auth flow', () => {
     //
     // Wrap in try/catch so ECONNREFUSED (backend not running) is handled before
     // test.skip can fire — apiRequestContext.post throws synchronously on ECONNREFUSED.
+    // Relative path (task-e2e-origin-agnostic) — `page.request` resolves
+    // against the test's configured `baseURL` (PLAYWRIGHT_BASE_URL), so this
+    // works regardless of which port the web app is served from. Previously
+    // hardcoded to 'http://localhost:3001/auth/dev-login' — TWO bugs in one:
+    // wrong origin (broke on any non-default port) AND missing the `/api`
+    // global prefix (apps/api/src/main.ts `setGlobalPrefix('api')`), so the
+    // real route is `/api/auth/dev-login`. The missing prefix meant this POST
+    // always 404'd and the test silently `test.skip()`d below — a masked
+    // failure that never actually ran the assertion it exists for.
     let res: Awaited<ReturnType<typeof page.request.post>> | null = null
     try {
-      res = await page.request.post('http://localhost:3001/auth/dev-login', {
+      res = await page.request.post('/api/auth/dev-login', {
         data: { email: 'yaremenkomaksym99@gmail.com' },
       })
     } catch {
@@ -153,7 +166,11 @@ test.describe('Auth flow', () => {
   test('Vite proxy forwards /api → :3001 (no SPA fallback HTML)', async ({ page }) => {
     // No /api routes mocked here on purpose — we want the real proxy chain.
     // page.request uses the same context as the browser (same origin).
-    const res = await page.request.get('http://localhost:3000/api/auth/me')
+    // Relative path (task-e2e-origin-agnostic) — resolves against the test's
+    // configured baseURL (PLAYWRIGHT_BASE_URL). A hardcoded
+    // 'http://localhost:3000/...' only worked when the web app happened to be
+    // served from exactly that origin — ECONNREFUSED on any other port.
+    const res = await page.request.get('/api/auth/me')
     const contentType = res.headers()['content-type'] ?? ''
     // When the backend is not running the Vite proxy returns 502/504/500.
     // Skip the assertion in that case — the test is only meaningful when both

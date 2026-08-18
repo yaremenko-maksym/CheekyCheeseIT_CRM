@@ -1,5 +1,5 @@
 import type { Page } from '@playwright/test'
-import { test, expect, USERS, mockAuthAs } from '../../fixtures'
+import { test, expect, USERS, mockAuthAs, API_RE } from '../../fixtures'
 
 /**
  * E2E for /users PR 2 refactor:
@@ -298,13 +298,12 @@ test.describe('Users page refactor (PR 2)', () => {
     }) => {
       await mockAuthAs(page, USERS.admin)
       const archivedSenior = { ...USERS.senior, archivedAt: '2026-01-01T00:00:00.000Z' }
-      await page.route('http://localhost:3001/api/users?archived=true', (r) =>
-        r.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify([archivedSenior]),
-        }),
-      )
+      // task-e2e-origin-agnostic: this used to be TWO registrations — a
+      // hardcoded 'http://localhost:3001/...' one (dead: never matched, so
+      // Playwright fell through to the second, origin-agnostic regex below,
+      // which is what actually made this test pass) and this regex. Same
+      // "two descriptions of the same thing" defect the task backlog flags
+      // for `users-refactor.spec.ts:566` below — removed the dead duplicate.
       await page.route(/\/api\/users\?archived=true.*/, (r) =>
         r.fulfill({
           status: 200,
@@ -563,7 +562,7 @@ test.describe('Users page refactor (PR 2)', () => {
       await mockAuthAs(page, USERS.admin)
       const archivedJunior = { ...USERS.junior, archivedAt: '2026-01-01T00:00:00.000Z' }
       // Override /users/:id to return archived profile (UserWithPermissionsResponse shape)
-      await page.route(new RegExp(`http://localhost:3001/api/users/${USERS.junior.id}$`), (r) =>
+      await page.route(new RegExp(`${API_RE}/users/${USERS.junior.id}$`), (r) =>
         r.fulfill({
           status: 200,
           contentType: 'application/json',
