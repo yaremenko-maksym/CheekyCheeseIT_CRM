@@ -250,10 +250,25 @@ assert_green "existing open PR/issue -> edit, never a second create" \
 # '..., NOT "no drift"' as a negation, which would otherwise self-defeat
 # a naive substring check.
 assert_red "Cloudflare unreachable -> loud failure, not silently treated as clean" \
-  --contains "BROKEN SENTINEL" \
+  --contains "failing loud so the scheduled run goes red" \
   --not-contains "no drift — nginx/cloudflare-ips.txt matches" \
   --not-contains "gh issue create" \
   --not-contains "gh pr create" \
+  -- run_watch "$WS/repo-fresh.txt" SHIM_CURL_FAIL=1
+
+# ── security review PR #557 (MED follow-up, 2026-08-18) ────────────────────────
+# The exit-2 message must tell an operator, ON THE DAY IT MATTERS, that the
+# SAME red also fires on a genuine Cloudflare range retirement — not only on
+# an actually broken fetch — and how to tell the two apart. Without this, the
+# obvious (and wrong) reading of "check-cloudflare-ips-freshness.sh could NOT
+# verify freshness" on the day Cloudflare genuinely retires a range is
+# "the automation broke", sending an owner to debug the workflow instead of
+# updating nginx/cloudflare-ips.txt by hand.
+assert_red "exit-2 message explains the genuine-retirement case and how to tell it apart" \
+  --contains "NOT necessarily a broken sentinel" \
+  --contains "Cloudflare genuinely retires a range" \
+  --contains "compare nginx/cloudflare-ips.txt BY EYE against https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6" \
+  --contains "update nginx/cloudflare-ips.txt by hand" \
   -- run_watch "$WS/repo-fresh.txt" SHIM_CURL_FAIL=1
 
 # ── extra: missing required env is refused, not silently defaulted ────────────

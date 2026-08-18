@@ -167,7 +167,21 @@ case "$FRESH_RC" in
     : # drifted — proceed below
     ;;
   *)
-    echo "::error::cloudflare-ips-watch: check-cloudflare-ips-freshness.sh could NOT verify freshness (exit $FRESH_RC) — the source is unreachable or returned something unparseable. This is a BROKEN SENTINEL, not \"no drift\" — failing loud so the scheduled run goes red." >&2
+    # security review PR #557 (MED follow-up, 2026-08-18): this same red ALSO
+    # fires on a genuine Cloudflare range retirement, not only on an actually
+    # broken fetch — the count-floor guard cannot tell the two apart (see
+    # check-cloudflare-ips-freshness.sh's own header for why that is by
+    # design). Said out loud HERE, not only in the runbook: the runbook is
+    # what a human reads when they already know to go looking; this message
+    # is what they see FIRST, on the day it matters, before they know
+    # anything is unusual. Without this line the previous message read as
+    # "the sentinel broke" unconditionally — exactly the version an owner
+    # who does not remember this tradeoff would misread as automation
+    # failure on the one day it is actually reporting a real range removal,
+    # and go debug the workflow instead of updating the file.
+    echo "::error::cloudflare-ips-watch: check-cloudflare-ips-freshness.sh could NOT verify freshness (exit $FRESH_RC) — failing loud so the scheduled run goes red." >&2
+    echo "This is NOT necessarily a broken sentinel: the exact same exit code also fires when Cloudflare genuinely retires a range — check-cloudflare-ips-freshness.sh cannot tell a real removal from a truncated/garbled fetch from the CIDR list alone, and is deliberately built to treat both as \"do not trust this automatically\" rather than risk recommending a live range's removal (see docs/runbooks/origin-mtls-and-firewall.md, section on this workflow, for the full tradeoff)." >&2
+    echo "How to tell which one this is: compare nginx/cloudflare-ips.txt BY EYE against https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6 right now. If every range in the repo file is still on Cloudflare's published lists (nothing genuinely missing), the source really was unreachable or returned garbage — that IS a broken sentinel, go investigate the fetch. If a range in the repo file is truly gone from Cloudflare's own lists, this is a real (if rare) cleanup — update nginx/cloudflare-ips.txt by hand and open a PR; the automation is working as intended, not failing." >&2
     exit 1
     ;;
 esac
