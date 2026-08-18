@@ -10,9 +10,7 @@
  *   6. View toggle switches to grid and back to list.
  */
 
-import { test, expect, USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, mockAuthAs, API_RE } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // 1. Sidebar — no "Аудит-журнал"
@@ -80,7 +78,7 @@ test.describe('User profile — no audit tab', () => {
 test.describe('ToS acceptance marker on profile overview', () => {
   test('ADMIN sees ToS acceptance card on junior profile overview', async ({ asAdmin: page }) => {
     // Override the /users/:id response to include tosAcceptedAt in data.overview.
-    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users/${USERS.junior.id}$`), (r) => {
       if (r.request().method() !== 'GET') return r.continue()
       return r.fulfill({
         status: 200,
@@ -151,7 +149,7 @@ test.describe('ToS acceptance marker on profile overview', () => {
   })
 
   test('ADMIN sees "Не принято" when tosAcceptedAt is null', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users/${USERS.junior.id}$`), (r) => {
       if (r.request().method() !== 'GET') return r.continue()
       return r.fulfill({
         status: 200,

@@ -25,11 +25,10 @@
  * Fixtures must satisfy Zod schemas exactly (z.string().uuid() etc.).
  */
 
-import { test, expect, USERS, PROJECTS } from './fixtures'
+import { test, expect, USERS, PROJECTS, API_RE } from './fixtures'
 
 // Origin-agnostic API path prefix — matches both direct (:3001) and proxied (:3000/:3020) origins.
 // RegExp patterns built from this prefix match on path only, so they work regardless of dev port.
-const API = '\\/api'
 
 // ---------------------------------------------------------------------------
 // Shared junior-facing fixtures
@@ -182,7 +181,7 @@ async function mockJuniorProjectsAndLegend(
   opts: MockOptions = {},
 ) {
   // Projects list — masked project
-  await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -193,7 +192,7 @@ async function mockJuniorProjectsAndLegend(
 
   // Legend GET + PUT
   const legendBody = opts.legend ?? LEGEND_FIXTURE
-  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/legend$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${JUNIOR_PROJECT.id}/legend$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 200,
@@ -212,7 +211,7 @@ async function mockJuniorProjectsAndLegend(
   })
 
   // Legend entries POST
-  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/legend/entries$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${JUNIOR_PROJECT.id}/legend/entries$`), (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     const newEntry = {
       id: 'b0000000-0000-4000-8000-000000000003',
@@ -232,7 +231,7 @@ async function mockJuniorProjectsAndLegend(
   })
 
   // HR contact
-  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT.id}/hr-contact$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${JUNIOR_PROJECT.id}/hr-contact$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -243,7 +242,7 @@ async function mockJuniorProjectsAndLegend(
 
   // Contract status — AC1 fix: uses /contracts/me/status, NOT /contracts/me
   const contractOpts = opts.contractStatus ?? { status: 404, body: { message: 'Not found' } }
-  await page.route(new RegExp(`${API}/contracts/me/status$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/contracts/me/status$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: contractOpts.status,
@@ -254,7 +253,7 @@ async function mockJuniorProjectsAndLegend(
 
   // Salary meta
   const salaryMetaOpts = opts.salaryMeta ?? { status: 200, body: SALARY_META_FIXTURE }
-  await page.route(new RegExp(`${API}/users/me/salary-meta$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/me/salary-meta$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: salaryMetaOpts.status,
@@ -264,7 +263,7 @@ async function mockJuniorProjectsAndLegend(
   })
 
   // Salary transactions
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     const url = new URL(r.request().url())
     if (url.searchParams.get('type') === 'SALARY') {
@@ -447,7 +446,7 @@ test.describe('AC1 — JUNIOR hub /project', () => {
   })
 
   test('empty-state shown when JUNIOR has no projects', async ({ asJunior: page }) => {
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
         status: 200,
@@ -962,7 +961,7 @@ test.describe('AC4 — Route guards — JUNIOR redirected from forbidden routes'
   for (const route of forbiddenRoutes) {
     test(`JUNIOR on ${route} → redirected to /project`, async ({ asJunior: page }) => {
       // Need minimal mocks so the hub can render after redirect
-      await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+      await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
         if (r.request().method() !== 'GET') return r.fallback()
         return r.fulfill({
           status: 200,
@@ -1040,7 +1039,7 @@ async function mockUserCredentials(
   body: object[],
   status = 200,
 ) {
-  await page.route(new RegExp(`${API}/users/${userId}/credentials$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/${userId}/credentials$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
   })
@@ -1069,7 +1068,7 @@ test.describe('AC6 — Credentials visibility', () => {
     asAdmin: page,
   }) => {
     // LIFO: register AFTER mockAuthAs (called by asAdmin fixture) to win over the generic handler
-    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users/${USERS.junior.id}$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
         status: 200,
@@ -1111,7 +1110,7 @@ test.describe('AC6 — Credentials visibility', () => {
   })
 
   test('HR viewing JUNIOR profile: profile-credentials-section visible', async ({ asHr: page }) => {
-    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users/${USERS.junior.id}$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
         status: 200,

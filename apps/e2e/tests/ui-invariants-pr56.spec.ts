@@ -18,9 +18,8 @@
  *   E4: InvoiceDetailDialog — card-per-signature list (NOT a 5-column
  *       table), no «Хэш» column anywhere on the main view.
  */
-import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS, mockAuthAs, API_RE } from './fixtures'
 
-const API = 'http://localhost:3001/api'
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
 
@@ -120,13 +119,13 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
       updatedAt: '2026-05-02T10:00:00.000Z',
     }
 
-    await asAdmin.route(new RegExp(`${API}/transactions/([^/?]+)$`), (r) =>
+    await asAdmin.route(new RegExp(`${API_RE}/transactions/([^/?]+)$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tx) }),
     )
-    await asAdmin.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await asAdmin.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([tx]) }),
     )
-    await asAdmin.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+    await asAdmin.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
 
@@ -184,13 +183,13 @@ test.describe('Flow E2 — Transaction receipt height capped at max-h-[520px]', 
       createdAt: '2026-05-01T10:00:00.000Z',
       updatedAt: '2026-05-02T10:00:00.000Z',
     }
-    await asAdmin.route(new RegExp(`${API}/transactions/([^/?]+)$`), (r) =>
+    await asAdmin.route(new RegExp(`${API_RE}/transactions/([^/?]+)$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(tx) }),
     )
-    await asAdmin.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await asAdmin.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([tx]) }),
     )
-    await asAdmin.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+    await asAdmin.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
     await asAdmin.goto('/finance')
@@ -229,7 +228,7 @@ test.describe('Flow E3 — DocumentDetailDialog layout', () => {
       invoicePendingSignature: false,
       createdAt: '2026-05-10T12:00:00.000Z',
     }
-    await asSenior.route(new RegExp(`${API}/documents/${docId}/download$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/documents/${docId}/download$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -239,14 +238,14 @@ test.describe('Flow E3 — DocumentDetailDialog layout', () => {
         }),
       }),
     )
-    await asSenior.route(new RegExp(`${API}/documents/${docId}$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/documents/${docId}$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(doc) }),
     )
     // /documents list — the page fires this WITH and WITHOUT a category
     // filter (the INVOICE-banner query always runs alongside the main
     // list). Return [doc] only when no category filter is sent so the
     // openDocId deep-link finds the row; INVOICE-scoped queries get [].
-    await asSenior.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) => {
+    await asSenior.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) => {
       const url = new URL(r.request().url())
       const cat = url.searchParams.get('category')
       const body = cat === 'INVOICE' ? '[]' : JSON.stringify([doc])
@@ -312,10 +311,10 @@ test.describe('Flow E4 — InvoiceDetailDialog signature cards', () => {
       createdAt: '2026-05-10T12:00:00.000Z',
       updatedAt: '2026-05-10T12:00:00.000Z',
     }
-    await asSenior.route(new RegExp(`${API}/invoices/${TX_ID}$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/invoices/${TX_ID}$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(invoice) }),
     )
-    await asSenior.route(new RegExp(`${API}/invoices(\\?.*)?$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/invoices(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
     )
     const invoiceDoc = {
@@ -337,7 +336,7 @@ test.describe('Flow E4 — InvoiceDetailDialog signature cards', () => {
       invoicePendingSignature: true,
       createdAt: '2026-05-10T12:00:00.000Z',
     }
-    await asSenior.route(new RegExp(`${API}/documents/e4-invoice-doc/download$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/documents/e4-invoice-doc/download$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -347,10 +346,10 @@ test.describe('Flow E4 — InvoiceDetailDialog signature cards', () => {
         }),
       }),
     )
-    await asSenior.route(new RegExp(`${API}/documents/([^/?]+)$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/documents/([^/?]+)$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(invoiceDoc) }),
     )
-    await asSenior.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

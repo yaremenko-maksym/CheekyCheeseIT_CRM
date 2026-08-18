@@ -25,7 +25,7 @@
  * Cleanup: cascade-archive the drop.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -40,7 +40,7 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
-const REAL_API = 'http://localhost:3001/api'
+const REAL_API = `${REAL_API_BASE}/api`
 
 test.describe('Drop income — UI flow on /profile (AC6)', () => {
   test('DROP submits DROP_INCOME via profile «Финансы» tab → row appears + backend records PENDING', async ({

@@ -14,12 +14,7 @@
  */
 
 import { test as base, expect, type Page, type Route } from '@playwright/test'
-import { USERS, mockAuthAs } from './fixtures'
-
-// Origin-agnostic prefix — matches any host/port (dev proxy on :3000,
-// direct :3001, preview :3010). Mirrors the API_GLOB pattern from fixtures.ts.
-const API_GLOB = '**/api'
-const API_RE = '\\/api'
+import { USERS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 
 function jsonOk(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })

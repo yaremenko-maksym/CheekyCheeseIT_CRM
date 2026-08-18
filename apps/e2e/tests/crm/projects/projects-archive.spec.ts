@@ -12,13 +12,7 @@
  * senior's CURRENT team_members snapshot — not frozen at archive time.
  */
 
-import { test, expect, USERS, PROJECTS } from '../../fixtures'
-
-// Origin-agnostic route patterns — mirrors fixtures.ts convention.
-// page.route intercepts at the browser-fetch URL (same-origin proxy: localhost:3000/api/...),
-// so full-origin 'http://localhost:3001/api/...' never matches.
-const API_RE = '\\/api'
-const API_GLOB = '**/api'
+import { test, expect, USERS, PROJECTS, API_RE, API_GLOB } from '../../fixtures'
 
 const activeProject = PROJECTS[0]!
 

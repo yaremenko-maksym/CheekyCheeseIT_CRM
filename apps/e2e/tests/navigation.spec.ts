@@ -9,7 +9,7 @@
  * via the sidebar triggered a logout + redirect to the landing page.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, API_GLOB } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // Routes visible to ALL roles (except JUNIOR for interviews)
@@ -382,7 +382,7 @@ test.describe('Unauthenticated redirect', () => {
 
   for (const route of ALL_CRM_ROUTES) {
     test(`${route} → /login when not authenticated`, async ({ page }) => {
-      await page.route('http://localhost:3001/api/auth/me', (r) =>
+      await page.route(`${API_GLOB}/auth/me`, (r) =>
         r.fulfill({ status: 401, body: '{"message":"Unauthorized"}' }),
       )
       await page.goto(route)

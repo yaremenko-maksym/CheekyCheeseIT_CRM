@@ -29,9 +29,7 @@
  *   (LIFO — позже зарегистрированный обработчик побеждает дефолтный из mockAuthAs).
  */
 
-import { test, expect, USERS } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, API_RE } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // Project IDs — UUID-format (обязательно для Zod-схем)
@@ -154,7 +152,7 @@ async function setupJuniorHub(page: import('@playwright/test').Page, credList: o
   // LIFO: позже зарегистрированные маршруты выигрывают у mockAuthAs defaults
 
   // Projects list — замаскированный junior project
-  await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -164,7 +162,7 @@ async function setupJuniorHub(page: import('@playwright/test').Page, credList: o
   })
 
   // Legend — 404 по умолчанию
-  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT_ID}/legend$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${JUNIOR_PROJECT_ID}/legend$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 404,
@@ -176,7 +174,7 @@ async function setupJuniorHub(page: import('@playwright/test').Page, credList: o
   })
 
   // HR contact
-  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT_ID}/hr-contact$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${JUNIOR_PROJECT_ID}/hr-contact$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -186,7 +184,7 @@ async function setupJuniorHub(page: import('@playwright/test').Page, credList: o
   })
 
   // Contract status — 404 (no contract)
-  await page.route(new RegExp(`${API}/contracts/me/status$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/contracts/me/status$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 404,
@@ -196,7 +194,7 @@ async function setupJuniorHub(page: import('@playwright/test').Page, credList: o
   })
 
   // Salary meta — null (not configured)
-  await page.route(new RegExp(`${API}/users/me/salary-meta$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/me/salary-meta$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -206,7 +204,7 @@ async function setupJuniorHub(page: import('@playwright/test').Page, credList: o
   })
 
   // Credentials list — LIFO победитель (последний в очереди = первый срабатывает)
-  await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT_ID}/credentials$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${JUNIOR_PROJECT_ID}/credentials$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 200,
@@ -226,7 +224,7 @@ async function mockReveal(
   response: { status: number; body: object },
 ) {
   await page.route(
-    new RegExp(`${API}/projects/${projectId}/credentials/${credId}/reveal$`),
+    new RegExp(`${API_RE}/projects/${projectId}/credentials/${credId}/reveal$`),
     (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
@@ -244,7 +242,7 @@ async function mockReveal(
 
 async function setupAdminProjectDetail(page: import('@playwright/test').Page, credList: object[]) {
   // Credentials list
-  await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 200,
@@ -273,21 +271,24 @@ async function setupAdminProjectDetail(page: import('@playwright/test').Page, cr
   })
 
   // Credentials single CRUD (PATCH / DELETE)
-  await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials/([^/?]+)$`), (r) => {
-    if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
-    if (r.request().method() === 'PATCH') {
-      return r.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify(CREDENTIAL_ADMIN_1),
-      })
-    }
-    return r.fallback()
-  })
+  await page.route(
+    new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}/credentials/([^/?]+)$`),
+    (r) => {
+      if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
+      if (r.request().method() === 'PATCH') {
+        return r.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify(CREDENTIAL_ADMIN_1),
+        })
+      }
+      return r.fallback()
+    },
+  )
 
   // Reveal
   await page.route(
-    new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials/${CRED_ID_1}/reveal$`),
+    new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}/credentials/${CRED_ID_1}/reveal$`),
     (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
@@ -299,7 +300,7 @@ async function setupAdminProjectDetail(page: import('@playwright/test').Page, cr
   )
 
   // Project detail GET — нужен для страницы /projects/$projectId
-  await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 200,
@@ -480,7 +481,7 @@ test.describe('JUNIOR hub — 403 на credentials list', () => {
     await setupJuniorHub(page, [])
 
     // LIFO: перебиваем [] мок 403-ом (регистрируем после setupJuniorHub)
-    await page.route(new RegExp(`${API}/projects/${JUNIOR_PROJECT_ID}/credentials$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects/${JUNIOR_PROJECT_ID}/credentials$`), (r) => {
       if (r.request().method() === 'GET') {
         return r.fulfill({
           status: 403,
@@ -592,7 +593,7 @@ test.describe('ADMIN project detail — credentials section', () => {
 
     // POST → 201 + subsequent GET возвращает обновлённый список
     let callCount = 0
-    await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
           status: 201,
@@ -644,7 +645,7 @@ test.describe('ADMIN project detail — credentials section', () => {
   }) => {
     let callCount = 0
     // GET: сначала оба credential, после удаления — только второй
-    await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
       if (r.request().method() === 'GET') {
         callCount++
         const list =
@@ -659,7 +660,7 @@ test.describe('ADMIN project detail — credentials section', () => {
     })
     // DELETE
     await page.route(
-      new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials/${CRED_ID_1}$`),
+      new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}/credentials/${CRED_ID_1}$`),
       (r) => {
         if (r.request().method() === 'DELETE') return r.fulfill({ status: 204, body: '' })
         return r.fallback()
@@ -780,7 +781,7 @@ test.describe('Round 3 — credential dialog form reset on reopen', () => {
   }) => {
     const NEW_CRED_ID = 'd0000000-0000-4000-8000-000000000099'
     let callCount = 0
-    await page.route(new RegExp(`${API}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects/${ADMIN_PROJECT_ID}/credentials$`), (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
           status: 201,

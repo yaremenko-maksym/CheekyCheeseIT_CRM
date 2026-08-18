@@ -14,9 +14,8 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { USERS, mockAuthAs } from '../fixtures'
+import { USERS, mockAuthAs, API_RE } from '../fixtures'
 
-const API = 'http://localhost:3001/api'
 const NEW_USER_ID = 'b0000000-0000-4000-8000-000000000099'
 
 // ─── Contract fixture ─────────────────────────────────────────────────────────
@@ -38,7 +37,7 @@ const DRAFT_CONTRACT = {
 /** Mount contract sub-routes for a freshly created user (by id). */
 async function mockContractRoutes(page: import('@playwright/test').Page) {
   // GET /api/users/:id/contract
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract$`), async (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 200,
@@ -61,7 +60,7 @@ async function mockContractRoutes(page: import('@playwright/test').Page) {
   })
 
   // POST /api/users/:id/contract/ready
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/ready$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/ready$`), async (r) => {
     if (r.request().method() === 'POST') {
       return r.fulfill({
         status: 200,
@@ -73,7 +72,7 @@ async function mockContractRoutes(page: import('@playwright/test').Page) {
   })
 
   // PDF endpoint (ContractActionBar may load it)
-  await page.route(new RegExp(`${API}/users/([^/?]+)/contract/pdf$`), async (r) => {
+  await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/pdf$`), async (r) => {
     return r.fulfill({
       status: 200,
       contentType: 'application/pdf',
@@ -148,7 +147,7 @@ test.describe('A3-3: Create-user wizard', () => {
   test('AC3: step 1 «Далее» calls POST /api/users and advances to step 2', async ({ page }) => {
     // Intercept and capture POST /api/users call
     let postUsersCalled = false
-    await page.route(new RegExp(`${API}/users(\\?.*)?$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), async (r) => {
       if (r.request().method() === 'POST') {
         postUsersCalled = true
         return r.fulfill({
@@ -178,7 +177,7 @@ test.describe('A3-3: Create-user wizard', () => {
   test('AC4: step 2 shows contract section with editor, «Назад» returns to step 1', async ({
     page,
   }) => {
-    await page.route(new RegExp(`${API}/users(\\?.*)?$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), async (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
           status: 201,
@@ -214,7 +213,7 @@ test.describe('A3-3: Create-user wizard', () => {
   }) => {
     let readyCalled = false
 
-    await page.route(new RegExp(`${API}/users(\\?.*)?$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), async (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
           status: 201,
@@ -226,7 +225,7 @@ test.describe('A3-3: Create-user wizard', () => {
     })
 
     // Override /ready to capture the call
-    await page.route(new RegExp(`${API}/users/([^/?]+)/contract/ready$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/ready$`), async (r) => {
       if (r.request().method() === 'POST') {
         readyCalled = true
         return r.fulfill({
@@ -275,7 +274,7 @@ test.describe('A3-3: Create-user wizard', () => {
   test('AC7: «Сохранить как черновик» closes dialog without POST /ready', async ({ page }) => {
     let readyCalled = false
 
-    await page.route(new RegExp(`${API}/users(\\?.*)?$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users(\\?.*)?$`), async (r) => {
       if (r.request().method() === 'POST') {
         return r.fulfill({
           status: 201,
@@ -286,7 +285,7 @@ test.describe('A3-3: Create-user wizard', () => {
       return r.fallback()
     })
 
-    await page.route(new RegExp(`${API}/users/([^/?]+)/contract/ready$`), async (r) => {
+    await page.route(new RegExp(`${API_RE}/users/([^/?]+)/contract/ready$`), async (r) => {
       readyCalled = true
       return r.fulfill({ status: 200, contentType: 'application/json', body: '{}' })
     })

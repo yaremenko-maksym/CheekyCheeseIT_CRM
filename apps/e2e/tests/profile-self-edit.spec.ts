@@ -12,9 +12,7 @@
  * "Личные данные" card.
  */
 
-import { test, expect, USERS, mockAuthAs, buildSelfView } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, mockAuthAs, buildSelfView, API_GLOB } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // Debounced autosave — telegram field
@@ -87,7 +85,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
   test('API error during autosave keeps page intact and does not crash', async ({ page }) => {
     await mockAuthAs(page, USERS.admin)
     // Override the PATCH to return 500 after initial GET
-    await page.route(`${API}/users/me`, (r) => {
+    await page.route(`${API_GLOB}/users/me`, (r) => {
       if (r.request().method() === 'PATCH') {
         return r.fulfill({ status: 500, body: '{"message":"internal error"}' })
       }
@@ -155,8 +153,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
     // the generic :id handler wins and returns buildAdminViewingUser instead of
     // buildSelfView. Re-register /users/me last so it takes LIFO priority.
     // See: fixtures.ts mockAuthAs registration order (lines 628 vs 698).
-    const API = 'http://localhost:3001/api'
-    await page.route(`${API}/users/me`, (r) =>
+    await page.route(`${API_GLOB}/users/me`, (r) =>
       r.request().method() === 'PATCH'
         ? r.fulfill({
             status: 200,
@@ -196,8 +193,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
   // Backend returns overview/projects/team/requisites/documents for ADMIN, but
   // the frontend filter (UserProfileShell §2c) reduces to overview+requisites.
   test('ADMIN self-view: ONLY overview + requisites tabs visible', async ({ asAdmin: page }) => {
-    const API = 'http://localhost:3001/api'
-    await page.route(`${API}/users/me`, (r) =>
+    await page.route(`${API_GLOB}/users/me`, (r) =>
       r.request().method() === 'PATCH'
         ? r.fulfill({
             status: 200,
@@ -229,8 +225,7 @@ test.describe('Profile self-edit — debounced autosave', () => {
   // Backend returns overview/projects/team/requisites/documents/finance for SENIOR,
   // but the frontend filter reduces to overview+requisites.
   test('SENIOR self-view: ONLY overview + requisites tabs visible', async ({ asSenior: page }) => {
-    const API = 'http://localhost:3001/api'
-    await page.route(`${API}/users/me`, (r) =>
+    await page.route(`${API_GLOB}/users/me`, (r) =>
       r.request().method() === 'PATCH'
         ? r.fulfill({
             status: 200,

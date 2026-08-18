@@ -21,12 +21,10 @@
  * move them to the real-API spec instead.
  */
 
-import { test, expect, USERS, TEAMS, DROP_TEAM } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, TEAMS, DROP_TEAM, API_RE } from './fixtures'
 
 async function withDropTeamFixtures(page: import('@playwright/test').Page) {
-  await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -35,7 +33,7 @@ async function withDropTeamFixtures(page: import('@playwright/test').Page) {
   )
   // Archive-impact endpoint mirror for drop-teams — used by the archive
   // confirm dialog to populate the cascade preview text.
-  await page.route(new RegExp(`${API}/teams/([^/?]+)/archive-impact$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/teams/([^/?]+)/archive-impact$`), (r) => {
     r.fulfill({
       status: 200,
       contentType: 'application/json',

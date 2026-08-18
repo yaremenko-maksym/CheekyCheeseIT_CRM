@@ -18,9 +18,7 @@
  * tab triggers are located via getByRole('button', ...).
  */
 
-import { test, expect, USERS, mockAuthAs, buildSelfView } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, mockAuthAs, buildSelfView, API_GLOB } from './fixtures'
 
 // Junior seed user fixture — has BANK_UAH_FOP fields pre-filled in buildSelfView
 const TARGET_IBAN = 'UA213223130000026007233566001'
@@ -66,7 +64,7 @@ test.describe('Requisites edit form', () => {
   test('SENIOR sees Bank UAH segment disabled (USDT only)', async ({ page }) => {
     // Override GET /users/me for senior to include requisites tab
     await mockAuthAs(page, USERS.senior)
-    await page.route(`${API}/users/me`, (r) => {
+    await page.route(`${API_GLOB}/users/me`, (r) => {
       if (r.request().method() === 'PATCH') return r.fulfill({ status: 200, body: '{}' })
       return r.fulfill({
         status: 200,

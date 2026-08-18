@@ -12,9 +12,7 @@
  */
 
 import { test as base, expect, type Page, type Route } from '@playwright/test'
-import { USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { USERS, mockAuthAs, API_RE } from './fixtures'
 
 function jsonOk(route: Route, body: unknown, status = 200) {
   return route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) })
@@ -82,9 +80,9 @@ const test = base.extend<LocalFixtures>({
 // ---------------------------------------------------------------------------
 
 async function mockInvoiceApis(page: Page, invoice: Record<string, unknown>) {
-  await page.route(new RegExp(`${API}/invoices(\\?.*)?$`), (r) => jsonOk(r, [invoice]))
-  await page.route(new RegExp(`${API}/invoices/([^/?]+)$`), (r) => jsonOk(r, invoice))
-  await page.route(new RegExp(`${API}/invoices/([^/?]+)/sign$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/invoices(\\?.*)?$`), (r) => jsonOk(r, [invoice]))
+  await page.route(new RegExp(`${API_RE}/invoices/([^/?]+)$`), (r) => jsonOk(r, invoice))
+  await page.route(new RegExp(`${API_RE}/invoices/([^/?]+)/sign$`), (r) =>
     jsonOk(r, { ...invoice, status: 'SIGNED' }),
   )
 }

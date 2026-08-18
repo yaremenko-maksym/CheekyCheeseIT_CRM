@@ -35,7 +35,7 @@
  * `expectConfirmedRow` need to flip too.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -55,7 +55,7 @@ function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`
 }
 
-const REAL_API = 'http://localhost:3001/api'
+const REAL_API = `${REAL_API_BASE}/api`
 
 test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', () => {
   test('ADMIN confirms drop PAYOUT → row PAID + PAYOUT_CONFIRMED for Maksym + UI updates', async ({

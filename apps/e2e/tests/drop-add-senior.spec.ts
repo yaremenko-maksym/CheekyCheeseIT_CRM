@@ -19,9 +19,8 @@
  * `DROP_TEAM_VACANT`.
  */
 
-import { test, expect, USERS, TEAMS, DROP_TEAM_VACANT } from './fixtures'
+import { test, expect, USERS, TEAMS, DROP_TEAM_VACANT, API_RE } from './fixtures'
 
-const API = 'http://localhost:3001/api'
 const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
 
 /**
@@ -30,7 +29,7 @@ const VALID_USDT_WALLET = '0x' + '0'.repeat(40)
  * the JOIN_DROP_TEAM dropdown.
  */
 async function withVacantDropTeam(page: import('@playwright/test').Page) {
-  await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -81,7 +80,7 @@ test.describe('Drop add-senior flow — AC2', () => {
     asAdmin: page,
   }) => {
     // Override teams: only the senior team, no drop-team at all.
-    await page.route(new RegExp(`${API}/teams(\\?.*)?$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/teams(\\?.*)?$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

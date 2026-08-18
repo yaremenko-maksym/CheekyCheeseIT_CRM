@@ -40,6 +40,7 @@ import {
   listTransactionsByProjectViaAPI,
   findUserByEmailViaApi,
   patchUserSharePercentViaAPI,
+  REAL_API_BASE,
 } from './fixtures'
 
 function uniqueSuffix(): string {
@@ -163,7 +164,7 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       // Now try to pay → expect 400 BadRequest with the exceeds-100% body.
       await loginViaApi(page, dropEmail)
       const res = await page.request.patch(
-        `http://localhost:3001/api/payout-requests/${payoutRequestId}/pay`,
+        `${REAL_API_BASE}/api/payout-requests/${payoutRequestId}/pay`,
         { data: { simulateResult: 'success' } },
       )
       expect(res.status()).toBe(400)

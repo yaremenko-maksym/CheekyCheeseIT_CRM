@@ -15,9 +15,7 @@
  * Сетевой перехват (AC2) использует page.route() для S3 endpoint + page.on('request').
  */
 
-import { test, expect, USERS, mockAuthAs } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, mockAuthAs, API_GLOB } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // Тестовые данные
@@ -97,7 +95,7 @@ async function setupDocumentsMocks(
   await mockAuthAs(page, USERS.admin)
 
   // Documents list
-  await page.route(`${API}/documents*`, (route) => {
+  await page.route(`${API_GLOB}/documents*`, (route) => {
     if (route.request().method() !== 'GET') return route.continue()
     return route.fulfill({
       status: 200,
@@ -107,7 +105,7 @@ async function setupDocumentsMocks(
   })
 
   // Presigned download URL для PDF документа
-  await page.route(`${API}/documents/${PDF_DOC_ID}/download`, (route) => {
+  await page.route(`${API_GLOB}/documents/${PDF_DOC_ID}/download`, (route) => {
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -119,7 +117,7 @@ async function setupDocumentsMocks(
   })
 
   // Thumbnail URL — для PDF возвращаем null (нет тумбнейла)
-  await page.route(`${API}/documents/${PDF_DOC_ID}/thumbnail`, (route) => {
+  await page.route(`${API_GLOB}/documents/${PDF_DOC_ID}/thumbnail`, (route) => {
     return route.fulfill({ status: 200, contentType: 'application/json', body: 'null' })
   })
 }
@@ -193,7 +191,7 @@ test.describe('AC2: кнопка «Скачать» использует blob �
     })
 
     // Считаем вызовы /download endpoint
-    await page.route(`${API}/documents/${PDF_DOC_ID}/download`, (route) => {
+    await page.route(`${API_GLOB}/documents/${PDF_DOC_ID}/download`, (route) => {
       downloadApiCallCount++
       return route.fulfill({
         status: 200,
@@ -278,7 +276,7 @@ test.describe('AC3: виртуальный контракт — PDF превью
     await mockAuthAs(page, USERS.admin)
 
     // Список документов — только контракт
-    await page.route(`${API}/documents*`, (route) => {
+    await page.route(`${API_GLOB}/documents*`, (route) => {
       if (route.request().method() !== 'GET') return route.continue()
       return route.fulfill({
         status: 200,
@@ -288,7 +286,7 @@ test.describe('AC3: виртуальный контракт — PDF превью
     })
 
     // Mock contract PDF endpoint (same-origin — используется fetchContractPdfBlob)
-    await page.route(`${API}/users/${CONTRACT_USER_ID}/contract/pdf`, (route) => {
+    await page.route(`${API_GLOB}/users/${CONTRACT_USER_ID}/contract/pdf`, (route) => {
       return route.fulfill({
         status: 200,
         contentType: 'application/pdf',
@@ -299,7 +297,7 @@ test.describe('AC3: виртуальный контракт — PDF превью
     })
 
     // Thumbnail — null для контракта
-    await page.route(`${API}/documents/${contractDoc.id}/thumbnail`, (route) => {
+    await page.route(`${API_GLOB}/documents/${contractDoc.id}/thumbnail`, (route) => {
       return route.fulfill({ status: 200, contentType: 'application/json', body: 'null' })
     })
 

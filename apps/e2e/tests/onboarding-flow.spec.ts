@@ -13,12 +13,11 @@
  */
 
 import { test as base, expect, type Page } from '@playwright/test'
-import { USERS, mockAuthAs } from './fixtures'
+import { USERS, mockAuthAs, API_GLOB } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // API base (mirrors fixtures.ts)
 // ---------------------------------------------------------------------------
-const API = 'http://localhost:3001/api'
 
 // ---------------------------------------------------------------------------
 // Onboarding mock payloads
@@ -120,10 +119,10 @@ async function mockOnboardingApi(
   // Clear any previously registered handler for this URL (e.g. the default
   // "fully onboarded" mock registered by mockAuthAs) so our stateful handler
   // takes effect unconditionally.
-  await page.unroute(`${API}/onboarding/status`)
+  await page.unroute(`${API_GLOB}/onboarding/status`)
 
   // GET /onboarding/status — dynamic based on state
-  await page.route(`${API}/onboarding/status`, (r) => {
+  await page.route(`${API_GLOB}/onboarding/status`, (r) => {
     if (tosAcceptDone)
       return r.fulfill({
         status: 200,
@@ -148,7 +147,7 @@ async function mockOnboardingApi(
   // GET /onboarding/contract/pdf — A3-4: personal contract PDF blob.
   // Return a minimal PDF so the iframe loads without error and the
   // isLoadingPdf state clears (enabling the sign button once checkbox checked).
-  await page.route(`${API}/onboarding/contract/pdf`, (r) =>
+  await page.route(`${API_GLOB}/onboarding/contract/pdf`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/pdf',
@@ -157,7 +156,7 @@ async function mockOnboardingApi(
   )
 
   // POST /contracts/sign
-  await page.route(`${API}/contracts/sign`, (r) => {
+  await page.route(`${API_GLOB}/contracts/sign`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     signDone = true
     return r.fulfill({
@@ -168,12 +167,12 @@ async function mockOnboardingApi(
   })
 
   // GET /tos/current
-  await page.route(`${API}/tos/current`, (r) =>
+  await page.route(`${API_GLOB}/tos/current`, (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(TOS_VERSION) }),
   )
 
   // POST /tos/accept
-  await page.route(`${API}/tos/accept`, (r) => {
+  await page.route(`${API_GLOB}/tos/accept`, (r) => {
     if (r.request().method() !== 'POST') return r.fallback()
     tosAcceptDone = true
     return r.fulfill({
@@ -316,7 +315,7 @@ test.describe('Onboarding flow', () => {
     await mockAuthAs(page, USERS.admin)
 
     // Mock onboarding status as admin bypass
-    await page.route(`${API}/onboarding/status`, (r) =>
+    await page.route(`${API_GLOB}/onboarding/status`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -339,7 +338,7 @@ test.describe('Onboarding flow', () => {
     await mockAuthAs(page, USERS.senior)
 
     // Status = fully onboarded
-    await page.route(`${API}/onboarding/status`, (r) =>
+    await page.route(`${API_GLOB}/onboarding/status`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -362,8 +361,8 @@ test.describe('Onboarding flow', () => {
     await mockAuthAs(page, USERS.senior)
 
     // Status: onboarded but ToS update available — override the default mock.
-    await page.unroute(`${API}/onboarding/status`)
-    await page.route(`${API}/onboarding/status`, (r) =>
+    await page.unroute(`${API_GLOB}/onboarding/status`)
+    await page.route(`${API_GLOB}/onboarding/status`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

@@ -35,7 +35,7 @@
  *     this feature (design-spec §6.1); covered by `documents-pr*.spec.ts`.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import type { Page } from '@playwright/test'
 import {
   SEED_ADMIN_EMAIL,
@@ -55,7 +55,7 @@ import {
   declareUsdtIncomeViaAPI,
 } from './fixtures'
 
-const REAL_API = `${process.env['E2E_REAL_API_BASE'] ?? 'http://localhost:3001'}/api`
+const REAL_API = `${REAL_API_BASE}/api`
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`

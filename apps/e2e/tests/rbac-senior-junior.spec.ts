@@ -8,9 +8,7 @@
  * Pattern matches legend.spec.ts: asSenior/asJunior/asAdmin/asHr fixtures.
  */
 
-import { test, expect, USERS, TEAMS, PROJECTS, buildAdminViewingUser } from './fixtures'
-
-const API = 'http://localhost:3001/api'
+import { test, expect, USERS, TEAMS, PROJECTS, buildAdminViewingUser, API_RE } from './fixtures'
 
 // ---------------------------------------------------------------------------
 // Fixture: senior-team with junior member derived from project
@@ -159,7 +157,7 @@ async function mockTeamDetail(
   teamId: string,
   teamData: object,
 ) {
-  await page.route(new RegExp(`${API}/teams/${teamId}$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/teams/${teamId}$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -174,7 +172,7 @@ async function mockProjectDetail(
   projectId: string,
   projectData: object,
 ) {
-  await page.route(new RegExp(`${API}/projects/${projectId}$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/projects/${projectId}$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -185,7 +183,7 @@ async function mockProjectDetail(
 }
 
 async function mockProfileForbidden(page: import('@playwright/test').Page, userId: string) {
-  await page.route(new RegExp(`${API}/users/${userId}$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/${userId}$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 403,
@@ -220,7 +218,7 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on team page', ()
     await mockTeamDetail(page, TEAM_WITH_JUNIOR.id, TEAM_WITH_JUNIOR)
     // Projects with junior member — irrelevant because the section is hidden
     // for SENIOR entirely (stronger protection than hiding junior identity within it).
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
         status: 200,
@@ -248,7 +246,7 @@ test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on team page', ()
 test.describe('RBAC #1 — SENIOR does not see JUNIOR identity on project detail', () => {
   test('SENIOR on project members tab: juniors section is empty', async ({ asSenior: page }) => {
     await mockProjectDetail(page, PROJECT_WITH_JUNIOR.id, PROJECT_WITH_JUNIOR)
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
         status: 200,
@@ -383,7 +381,7 @@ test.describe('Regression — ADMIN and HR still see JUNIOR identity (not broken
 
   test('ADMIN sees active-projects section with junior name', async ({ asAdmin: page }) => {
     await mockTeamDetail(page, TEAM_WITH_JUNIOR.id, TEAM_WITH_JUNIOR)
-    await page.route(new RegExp(`${API}/projects(\\?.*)?$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/projects(\\?.*)?$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
         status: 200,
@@ -417,7 +415,7 @@ test.describe('Regression — ADMIN and HR still see JUNIOR identity (not broken
   })
 
   test('ADMIN can navigate to junior profile (full access)', async ({ asAdmin: page }) => {
-    await page.route(new RegExp(`${API}/users/${USERS.junior.id}$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users/${USERS.junior.id}$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       return r.fulfill({
         status: 200,

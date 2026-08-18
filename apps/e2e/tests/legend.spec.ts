@@ -22,9 +22,8 @@ import {
   buildAdminViewingUser,
   buildHrViewingSenior,
   buildJuniorViewingSenior,
+  API_RE,
 } from './fixtures'
-
-const API = 'http://localhost:3001/api'
 
 // ---------------------------------------------------------------------------
 // Legend fixture data
@@ -60,7 +59,7 @@ async function mockLegendGet(
   userId: string,
   response: 'found' | 'not-found' | 'forbidden',
 ) {
-  const pattern = new RegExp(`${API}/users/${userId}/legend$`)
+  const pattern = new RegExp(`${API_RE}/users/${userId}/legend$`)
   if (response === 'found') {
     await page.route(pattern, (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
@@ -91,7 +90,7 @@ async function mockLegendGet(
 }
 
 async function mockUserGet(page: import('@playwright/test').Page, userId: string, body: object) {
-  await page.route(new RegExp(`${API}/users/${userId}$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/users/${userId}$`), (r) => {
     if (r.request().method() !== 'GET') return r.fallback()
     return r.fulfill({
       status: 200,
@@ -163,7 +162,7 @@ test.describe('ADMIN viewing senior profile — editable legend', () => {
     const updatedLegend = { ...MOCK_LEGEND, fullName: 'Петренко Петро Петрович' }
 
     // GET initially 404, PUT returns updated, GET after invalidation returns updated
-    await page.route(new RegExp(`${API}/users/${USERS.senior.id}/legend$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/users/${USERS.senior.id}/legend$`), (r) => {
       if (r.request().method() === 'PUT') {
         return r.fulfill({
           status: 200,

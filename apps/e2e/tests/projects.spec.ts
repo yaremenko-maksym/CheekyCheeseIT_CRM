@@ -1,4 +1,4 @@
-import { test, expect, PROJECTS, USERS, mockAuthAs } from './fixtures'
+import { test, expect, PROJECTS, USERS, mockAuthAs, API_GLOB } from './fixtures'
 
 test.describe('Projects page', () => {
   // ---------------------------------------------------------------------------
@@ -333,7 +333,7 @@ test.describe('Projects page', () => {
         notesGeneral: 'Great project with modern stack',
       }
 
-      await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, (r) => {
+      await page.route(`${API_GLOB}/projects/${PROJECTS[0]!.id}`, (r) => {
         if (r.request().method() === 'GET') {
           return r.fulfill({
             status: 200,
@@ -443,7 +443,7 @@ test.describe('Projects page', () => {
         notesGeneral: 'Long-term strategic project',
       }
 
-      await page.route(`http://localhost:3001/api/projects/${PROJECTS[0]!.id}`, (r) => {
+      await page.route(`${API_GLOB}/projects/${PROJECTS[0]!.id}`, (r) => {
         if (r.request().method() === 'GET') {
           return r.fulfill({
             status: 200,
@@ -475,7 +475,7 @@ test.describe('Projects page', () => {
   test.describe('Edge cases', () => {
     test('empty projects list renders without crash', async ({ page }) => {
       await mockAuthAs(page, USERS.admin)
-      await page.route('http://localhost:3001/api/projects', (r) =>
+      await page.route(`${API_GLOB}/projects`, (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/projects')

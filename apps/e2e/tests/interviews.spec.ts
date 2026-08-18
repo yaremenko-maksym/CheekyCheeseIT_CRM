@@ -1,4 +1,4 @@
-import { test, expect, INTERVIEWS, USERS, mockAuthAs } from './fixtures'
+import { test, expect, INTERVIEWS, USERS, mockAuthAs, API_RE } from './fixtures'
 import type { Page } from '@playwright/test'
 
 // ---------------------------------------------------------------------------
@@ -506,7 +506,7 @@ test.describe('Interviews (Kanban) page', () => {
   test.describe('Edge cases', () => {
     test('empty board renders stage columns without crash', async ({ page }) => {
       await mockAuthAs(page, USERS.senior)
-      await page.route(new RegExp('localhost:3001/api/interviews(\\?.*)?$'), (r) =>
+      await page.route(new RegExp(`${API_RE}/interviews(\\?.*)?$`), (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/interviews')

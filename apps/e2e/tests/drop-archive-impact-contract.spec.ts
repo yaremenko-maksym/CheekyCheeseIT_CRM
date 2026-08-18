@@ -27,7 +27,7 @@
  *      - response.dropName field is absent or empty
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import {
   SEED_ADMIN_EMAIL,
   SEED_EMAILS,
@@ -38,7 +38,7 @@ import {
   findUserByEmailViaApi,
 } from './fixtures'
 
-const REAL_API = 'http://localhost:3001/api'
+const REAL_API = `${REAL_API_BASE}/api`
 
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.floor(Math.random() * 1e6)}`

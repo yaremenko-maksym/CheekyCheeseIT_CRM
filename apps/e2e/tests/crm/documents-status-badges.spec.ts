@@ -15,9 +15,7 @@
  */
 
 import { test, expect } from '@playwright/test'
-import { USERS, mockAuthAs } from '../fixtures'
-
-const API = 'http://localhost:3001/api'
+import { USERS, mockAuthAs, API_RE } from '../fixtures'
 
 // ---------------------------------------------------------------------------
 // Document fixtures (PR-2 shape with statusBadge)
@@ -132,7 +130,7 @@ async function mockDocumentsList(page: import('@playwright/test').Page, docs: ty
   // Override the generic mock set by mockAuthAs (which returns []).
   // Specific sub-routes (download, hard, restore) registered first by
   // mockAuthAs remain intact; this only overrides the list endpoint.
-  await page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) => {
     if (r.request().method() === 'GET') {
       return r.fulfill({
         status: 200,
@@ -356,7 +354,7 @@ test.describe('PR-2: category filter', () => {
     await mockAuthAs(page, USERS.admin)
 
     // Mock that respects the ?category= query param — filters server-side like the real API
-    await page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) => {
+    await page.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) => {
       if (r.request().method() !== 'GET') return r.fallback()
       const url = new URL(r.request().url())
       const category = url.searchParams.get('category')

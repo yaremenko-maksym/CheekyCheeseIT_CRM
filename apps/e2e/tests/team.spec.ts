@@ -1,4 +1,4 @@
-import { test, expect, TEAMS, USERS, mockAuthAs } from './fixtures'
+import { test, expect, TEAMS, USERS, mockAuthAs, API_GLOB } from './fixtures'
 
 test.describe('Team page', () => {
   // ---------------------------------------------------------------------------
@@ -451,7 +451,13 @@ test.describe('Team page', () => {
   test.describe('Edge cases', () => {
     test('shows empty state when teams list is empty', async ({ page }) => {
       await mockAuthAs(page, USERS.admin)
-      await page.route('http://localhost:3001/teams', (r) =>
+      // Origin-agnostic glob (task-e2e-origin-agnostic) — this ALSO fixes a
+      // latent second bug: the literal was missing the `/api` global prefix
+      // (`'.../teams'` instead of `'.../api/teams'`), so the override never
+      // fired even on the original hardcoded :3001 origin; mockAuthAs's own
+      // full-list fallback silently won and this test never actually
+      // exercised the empty-list state its name promises.
+      await page.route(`${API_GLOB}/teams`, (r) =>
         r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
       )
       await page.goto('/team')
@@ -469,7 +475,7 @@ test.describe('Team page', () => {
       // intact (registering a wildcard would also intercept the detail-page
       // load and hang on `r.continue()` because there's no real backend in
       // this Playwright env).
-      await page.route(`http://localhost:3001/api/teams/${TEAMS[0]!.id}`, async (r) => {
+      await page.route(`${API_GLOB}/teams/${TEAMS[0]!.id}`, async (r) => {
         if (r.request().method() === 'PATCH') {
           return r.fulfill({ status: 500, body: '{"message":"Internal error"}' })
         }

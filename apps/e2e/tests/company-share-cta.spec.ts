@@ -19,10 +19,9 @@
  *   - A11y: focus moves into the step-2 container after the transition.
  */
 import { test, expect } from './fixtures'
-import { USERS, PROJECTS } from './fixtures'
+import { USERS, PROJECTS, API_RE } from './fixtures'
 
 const PROJECT = PROJECTS[0]!
-const API = '\\/api'
 
 const OUTSTANDING_INCOME = {
   id: 'cta-income-1',
@@ -72,13 +71,13 @@ const CREATED_PAYOUT = {
 }
 
 async function mockTransactions(page: import('@playwright/test').Page, rows: object[]) {
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
   )
 }
 
 async function mockPayoutRequests(page: import('@playwright/test').Page) {
-  await page.route(new RegExp(`${API}/payout-requests$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/payout-requests$`), (r) => {
     if (r.request().method() === 'POST') {
       return r.fulfill({
         status: 201,
@@ -88,7 +87,7 @@ async function mockPayoutRequests(page: import('@playwright/test').Page) {
     }
     return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
   })
-  await page.route(new RegExp(`${API}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -216,10 +215,10 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     // proves the row genuinely "survives" the close, not just that no extra
     // network call fired.
     let rows: object[] = [OUTSTANDING_INCOME]
-    await asSenior.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
     )
-    await asSenior.route(new RegExp(`${API}/payout-requests$`), (r) => {
+    await asSenior.route(new RegExp(`${API_RE}/payout-requests$`), (r) => {
       if (r.request().method() === 'POST') {
         rows = [
           { ...OUTSTANDING_INCOME, status: 'PENDING_PAYMENT', payoutRequestId: CREATED_PAYOUT.id },
@@ -262,7 +261,7 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
       }
       return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     })
-    await asSenior.route(new RegExp(`${API}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -306,7 +305,7 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
     const createGate = new Promise<void>((resolve) => {
       releaseCreate = resolve
     })
-    await asSenior.route(new RegExp(`${API}/payout-requests$`), async (r) => {
+    await asSenior.route(new RegExp(`${API_RE}/payout-requests$`), async (r) => {
       if (r.request().method() === 'POST') {
         createCalls += 1
         await createGate
@@ -318,7 +317,7 @@ test.describe('Company-share payout modal — two-step flow (AC3/AC4/AC6)', () =
       }
       return r.fulfill({ status: 200, contentType: 'application/json', body: '[]' })
     })
-    await asSenior.route(new RegExp(`${API}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
+    await asSenior.route(new RegExp(`${API_RE}/payout-requests/${CREATED_PAYOUT.id}$`), (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',

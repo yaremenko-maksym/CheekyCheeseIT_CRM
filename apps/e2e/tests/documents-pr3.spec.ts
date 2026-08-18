@@ -18,9 +18,8 @@
  * Pattern: page.route() mocks (mirrors finance-senior-flow.spec.ts).
  */
 
-import { test, expect, USERS, PROJECTS, mockAuthAs } from './fixtures'
+import { test, expect, USERS, PROJECTS, mockAuthAs, API_GLOB, API_RE } from './fixtures'
 
-const API = 'http://localhost:3001/api'
 const PROJECT_ID = PROJECTS[0]!.id
 const PROJECT_NAME = PROJECTS[0]!.name
 const TX_ID = 'pr3-e2e-tx-1'
@@ -76,7 +75,7 @@ type MockPage = import('@playwright/test').Page
 
 async function setupFinanceMocks(page: MockPage, txList: object[], singleTx: object) {
   // GET /api/transactions — list
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
     r.request().method() === 'GET'
       ? r.fulfill({
           status: 200,
@@ -86,7 +85,7 @@ async function setupFinanceMocks(page: MockPage, txList: object[], singleTx: obj
       : r.fallback(),
   )
   // GET /api/transactions/senior-income/:id — single (used by edit dialog)
-  await page.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -94,7 +93,7 @@ async function setupFinanceMocks(page: MockPage, txList: object[], singleTx: obj
     }),
   )
   // PATCH /api/transactions/senior-income/:id — resubmit
-  await page.route(new RegExp(`${API}/transactions/senior-income/([^/?]+)$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions/senior-income/([^/?]+)$`), (r) =>
     r.request().method() === 'PATCH'
       ? r.fulfill({
           status: 200,
@@ -104,7 +103,7 @@ async function setupFinanceMocks(page: MockPage, txList: object[], singleTx: obj
       : r.fallback(),
   )
   // Finance summary stub
-  await page.route(`${API}/finance/summary`, (r) =>
+  await page.route(`${API_GLOB}/finance/summary`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -117,11 +116,11 @@ async function setupFinanceMocks(page: MockPage, txList: object[], singleTx: obj
     }),
   )
   // Exchange rates stub
-  await page.route(new RegExp(`${API}/nbu-rates(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/nbu-rates(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   )
   // Projects stub
-  await page.route(`${API}/projects`, (r) =>
+  await page.route(`${API_GLOB}/projects`, (r) =>
     r.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -129,7 +128,7 @@ async function setupFinanceMocks(page: MockPage, txList: object[], singleTx: obj
     }),
   )
   // Documents stub (for receipt file-mode upload path)
-  await page.route(new RegExp(`${API}/documents(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/documents(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) }),
   )
 }

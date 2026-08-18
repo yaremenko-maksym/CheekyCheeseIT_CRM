@@ -19,9 +19,8 @@
  * Mock-only: API is mocked via the shared mockAuthAs() helper (page.route) — the
  * same proven harness all other mock specs use, no real backend required.
  */
-import { test, expect, type Page, mockAuthAs, USERS } from './fixtures'
+import { test, expect, type Page, mockAuthAs, USERS, API_GLOB } from './fixtures'
 
-const API = 'http://localhost:3001/api'
 const IDB_KEY = 'crm-query-cache'
 
 /** Full API mock for an authenticated ADMIN (auth/me, notifications, users,
@@ -93,7 +92,7 @@ test.describe('PersistQueryClient — isRestoring race regression (AC1)', () => 
   test('unauthenticated request (auth/me → 401) still redirects to /login', async ({ page }) => {
     await setupMocks(page)
     // Override auth/me to 401 — registered AFTER mockAuthAs so it wins (LIFO).
-    await page.route(`${API}/auth/me`, (r) =>
+    await page.route(`${API_GLOB}/auth/me`, (r) =>
       r.fulfill({ status: 401, body: '{"message":"Unauthorized"}' }),
     )
 

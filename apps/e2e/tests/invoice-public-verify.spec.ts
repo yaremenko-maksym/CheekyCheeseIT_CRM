@@ -24,10 +24,10 @@
  * shape. The 404 / 400 negative cases need no seeded data.
  */
 
-import { test, expect } from './fixtures'
+import { test, expect, REAL_API_BASE } from './fixtures'
 import { loginViaApi, SEED_ADMIN_EMAIL } from './fixtures'
 
-const REAL_API = 'http://localhost:3001/api'
+const REAL_API = `${REAL_API_BASE}/api`
 
 test.describe('Invoice public verify endpoint — real API', () => {
   test('GET /api/invoices/verify/:id with a syntactically valid but unknown UUID → 404', async ({

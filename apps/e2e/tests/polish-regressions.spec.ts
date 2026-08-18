@@ -26,7 +26,7 @@
  * finance-senior-payment-flow.spec.ts + invoices-signing-flow.spec.ts
  * (PR #60) — deliberately NOT duplicated here.
  */
-import { test, expect, USERS, PROJECTS } from './fixtures'
+import { test, expect, USERS, PROJECTS, API_GLOB, API_RE } from './fixtures'
 import type { Page, ConsoleMessage } from '@playwright/test'
 
 // Mirror of UserAvatar.getInitials (apps/web/app/components/users/UserAvatar.tsx).
@@ -40,7 +40,6 @@ function getInitials(displayName: string): string {
   return (parts[0]![0]! + parts[1]![0]!).toUpperCase()
 }
 
-const API = 'http://localhost:3001/api'
 const PROJECT = PROJECTS[0]!
 const PROJECT_ID = PROJECT.id
 const PROJECT_NAME = PROJECT.name
@@ -100,7 +99,7 @@ const TX_USDT_SENIOR = {
 }
 
 async function mockTxList(page: Page, rows: object[]) {
-  await page.route(new RegExp(`${API}/transactions/([^/?]+)$`), (r) => {
+  await page.route(new RegExp(`${API_RE}/transactions/([^/?]+)$`), (r) => {
     const id = r.request().url().split('/').at(-1)
     const found = rows.find((t) => (t as { id: string }).id === id) ?? rows[0]
     return r.fulfill({
@@ -109,10 +108,10 @@ async function mockTxList(page: Page, rows: object[]) {
       body: JSON.stringify(found ?? {}),
     })
   })
-  await page.route(new RegExp(`${API}/transactions(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/transactions(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(rows) }),
   )
-  await page.route(new RegExp(`${API}/payout-requests(\\?.*)?$`), (r) =>
+  await page.route(new RegExp(`${API_RE}/payout-requests(\\?.*)?$`), (r) =>
     r.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   )
 }
@@ -187,7 +186,7 @@ test.describe('AC2 — avatar fallback renders initials', () => {
     // /projects/:id response (the default fixture mock omits it → error state).
     // Register a one-off override mirroring projects-senior-share-override's
     // helper so the page renders its header (and thus the ProjectLogo).
-    await asAdmin.route(`${API}/projects/${PROJECT_ID}`, (r) =>
+    await asAdmin.route(`${API_GLOB}/projects/${PROJECT_ID}`, (r) =>
       r.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -324,7 +323,7 @@ test.describe('AC4 — «синьора» spelling on verify page', () => {
         },
       ],
     }
-    await page.route(new RegExp(`${API}/invoices/verify/${TX_ID}$`), (r) =>
+    await page.route(new RegExp(`${API_RE}/invoices/verify/${TX_ID}$`), (r) =>
       r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(verify) }),
     )
 
