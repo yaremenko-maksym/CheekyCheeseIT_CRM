@@ -44,8 +44,12 @@ import {
   createDropProjectViaAPI,
   createDropIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
+  onboardDropViaAPI,
+  ensureCompanyWalletViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  listPayoutRequestTransactionsViaAPI,
   getTransactionViaAPI,
   REAL_API_BASE,
 } from './fixtures'
@@ -71,6 +75,12 @@ test.describe('Drop distribution math — real API (AC2)', () => {
     })
 
     try {
+      // Backlog item 139: onboard the fresh DROP (contract + ToS) before ANY
+      // non-bypassed route lets them through, and configure the company
+      // wallet — required by `createPayoutRequestViaAPI` below.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      await ensureCompanyWalletViaAPI(page)
+
       // Step 2: create a drop-project routed through the DROP, with a
       // seed SENIOR at the canonical 26% share (seed default).
       const { projectId, seniorId } = await createDropProjectViaAPI(page, {
@@ -93,9 +103,17 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       const pending = await getTransactionViaAPI(page, incomeTxId)
       expect(pending.status).toBe('PENDING')
 
-      // Step 4: ACCOUNTANT validates (flips to VALIDATED + creates payout_request).
+      // Step 4: ACCOUNTANT validates (flips PENDING → VALIDATED only —
+      // task-drop-payout-company-account removed the auto-create-
+      // payout_request side-effect for both SENIOR_INCOME and DROP_INCOME).
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, incomeTxId)
+      await validateTransactionViaAPI(page, incomeTxId)
+
+      // The DROP now explicitly bundles their own VALIDATED income into a
+      // payout_request — same as SENIOR — which is what creates the
+      // placeholder PAYOUT row.
+      await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [incomeTxId])
       expect(payoutRequestId).toBeTruthy()
 
       // Step 5: DROP pays the payout_request → triggers the distribution
@@ -105,8 +123,8 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       // NOTE: backend returns 403 to the DROP caller because the post-pay
       // `findPayoutRequest` response read blocks DROP — the helper papers
       // over this (see `payPayoutRequestViaAPI` jsdoc) and re-reads as
-      // ADMIN below. The DB-side cascade has already committed.
-      await loginViaApi(page, dropEmail)
+      // ADMIN below. The DB-side cascade has already committed. (Already
+      // logged in as the DROP from the createPayoutRequestViaAPI call above.)
       const paid = await payPayoutRequestViaAPI(page, payoutRequestId!)
       expect(paid.status).toBe('PAID')
       expect(paid.txHash).toBeTruthy()
@@ -127,17 +145,24 @@ test.describe('Drop distribution math — real API (AC2)', () => {
       // Filter by type so the regression assertions are explicit and
       // resilient to incidental rows (e.g. auto-generated invoice trace).
       const dropIncomeRows = projectTxs.filter((t) => t.type === 'DROP_INCOME')
-      const payoutRows = projectTxs.filter((t) => t.type === 'PAYOUT')
       const dropPendingRows = projectTxs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')
       const payoutAdminRows = projectTxs.filter((t) => t.type === 'PAYOUT_ADMIN')
+      // The PAYOUT placeholder row is fetched via the payout_request join
+      // instead — `createPayoutRequest` never stamps `projectId` on it (see
+      // the TRAP note on `findPendingPayoutsForProjectViaAPI` in
+      // fixtures.ts), so it never surfaces via `?projectId=`.
+      const payoutRequestTxs = await listPayoutRequestTransactionsViaAPI(page, payoutRequestId)
+      const payoutRows = payoutRequestTxs.filter((t) => t.type === 'PAYOUT')
 
       // DROP_INCOME = 1 row, PAID after `payPayoutRequest`.
       expect(dropIncomeRows).toHaveLength(1)
       expect(dropIncomeRows[0]!.status).toBe('PAID')
       expect(parseFloat(dropIncomeRows[0]!.amount)).toBeCloseTo(1000, 2)
 
-      // PAYOUT placeholder (1 row). Amount = payable recorded at validate
-      // time = 1000 * (1 - drop% / 100) = 1000 * (1 - 5/100) = 950.
+      // PAYOUT placeholder (1 row). Amount = payable recorded at
+      // payout_request creation time (task-drop-payout-company-account moved
+      // this computation from validate to createPayoutRequest) =
+      // 1000 * (1 - drop% / 100) = 1000 * (1 - 5/100) = 950.
       expect(payoutRows).toHaveLength(1)
       expect(payoutRows[0]!.status).toBe('PAID')
       expect(parseFloat(payoutRows[0]!.amount)).toBeCloseTo(950, 2)

@@ -36,8 +36,12 @@ import {
   createDropProjectViaAPI,
   createDropIncomeViaAPI,
   validateTransactionViaAPI,
+  createPayoutRequestViaAPI,
+  onboardDropViaAPI,
+  ensureCompanyWalletViaAPI,
   payPayoutRequestViaAPI,
   listTransactionsByProjectViaAPI,
+  listPayoutRequestTransactionsViaAPI,
   findUserByEmailViaApi,
   patchUserSharePercentViaAPI,
   REAL_API_BASE,
@@ -73,29 +77,43 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     })
 
     try {
+      // Backlog item 139: onboard the fresh DROP + configure the company
+      // wallet — required by `createPayoutRequestViaAPI` below.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      await ensureCompanyWalletViaAPI(page)
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,
       })
 
-      // DROP posts $1000, ACCOUNTANT validates, DROP pays.
+      // DROP posts $1000, ACCOUNTANT validates, DROP bundles + pays.
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      // task-drop-payout-company-account (backlog item 139): validate no
+      // longer auto-creates the payout_request — the DROP bundles their own
+      // VALIDATED income explicitly, same as SENIOR.
+      await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
-      await loginViaApi(page, dropEmail)
-      const paid = await payPayoutRequestViaAPI(page, payoutRequestId!)
+      const paid = await payPayoutRequestViaAPI(page, payoutRequestId)
       expect(paid.status).toBe('PAID')
 
       // Assertions.
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
-      const payouts = txs.filter((t) => t.type === 'PAYOUT')
       const dropPendings = txs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')
       const payoutAdmins = txs.filter((t) => t.type === 'PAYOUT_ADMIN')
+      // The PAYOUT placeholder is fetched via the payout_request join —
+      // `createPayoutRequest` never stamps `projectId` on it (see the TRAP
+      // note on `findPendingPayoutsForProjectViaAPI` in fixtures.ts).
+      const payoutRequestTxs = await listPayoutRequestTransactionsViaAPI(page, payoutRequestId)
+      const payouts = payoutRequestTxs.filter((t) => t.type === 'PAYOUT')
 
       // PAYOUT placeholder = income * (1 - dropShare/100) = 1000 * 0.5 = 500.
       expect(payouts).toHaveLength(1)
@@ -146,6 +164,11 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     })
 
     try {
+      // Backlog item 139: onboard the fresh DROP + configure the company
+      // wallet — required by `createPayoutRequestViaAPI` below.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      await ensureCompanyWalletViaAPI(page)
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorB,
@@ -154,15 +177,21 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       await loginViaApi(page, dropEmail)
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
-      // Validate still succeeds — payable = 1000 * 0.5 = 500 (drop only).
-      // The 60+50 violation is caught later, at pay-time, when the backend
-      // attempts the senior/drop share math.
+      // Validate flips PENDING → VALIDATED only (task-drop-payout-company-
+      // account) — the DROP then bundles it into a payout_request
+      // themselves. Bundling succeeds — payable = 1000 * 0.5 = 500 (drop
+      // only, computed from the DROP's OWN dropSharePercent; the senior's
+      // 60% doesn't factor in until pay-time). The 60+50 violation is caught
+      // later, at pay-time, when the backend attempts the senior/drop share
+      // math for the distribution cascade.
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
       // Now try to pay → expect 400 BadRequest with the exceeds-100% body.
-      await loginViaApi(page, dropEmail)
       const res = await page.request.patch(
         `${REAL_API_BASE}/api/payout-requests/${payoutRequestId}/pay`,
         { data: { simulateResult: 'success' } },
@@ -174,7 +203,9 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       // Sanity: no DROP_PENDING_PAYOUT / PAYOUT_DROP / PAYOUT_ADMIN rows were
       // inserted (the whole cascade runs in ONE DB transaction — the
       // exceeds-100% throw rolls back everything, so the distribution rows
-      // must NOT exist even though the placeholder PAYOUT survives from validate).
+      // must NOT exist even though the placeholder PAYOUT survives from the
+      // earlier createPayoutRequest call — the pay-time throw only rolls
+      // back payPayoutRequest's own transaction, not createPayoutRequest's).
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
       expect(txs.filter((t) => t.type === 'DROP_PENDING_PAYOUT')).toHaveLength(0)
@@ -208,6 +239,11 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
     })
 
     try {
+      // Backlog item 139: onboard the fresh DROP + configure the company
+      // wallet — required by `createPayoutRequestViaAPI` below.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+      await ensureCompanyWalletViaAPI(page)
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,
@@ -217,11 +253,16 @@ test.describe('Drop distribution edge cases — real API (AC3)', () => {
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+      await validateTransactionViaAPI(page, txId)
+
+      // task-drop-payout-company-account (backlog item 139): validate no
+      // longer auto-creates the payout_request — the DROP bundles their own
+      // VALIDATED income explicitly, same as SENIOR.
+      await loginViaApi(page, dropEmail)
+      const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
       expect(payoutRequestId).toBeTruthy()
 
-      await loginViaApi(page, dropEmail)
-      await payPayoutRequestViaAPI(page, payoutRequestId!)
+      await payPayoutRequestViaAPI(page, payoutRequestId)
 
       await loginViaApi(page, SEED_ADMIN_EMAIL)
       const txs = await listTransactionsByProjectViaAPI(page, projectId)
