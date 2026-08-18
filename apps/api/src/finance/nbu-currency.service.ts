@@ -380,6 +380,12 @@ export class NbuCurrencyService {
           // downloaded them — the freshness gate must compare like with like.
           rateDate: date,
           sourceId,
+          // Stryker disable next-line ConditionalExpression: equivalent — spreading
+          // `{ calcdate: undefined }` instead of omitting the key is
+          // indistinguishable downstream. The only reader is `logProvenance`,
+          // which renders `meta.calcdate ?? '(not exposed)'`, and absent vs
+          // present-but-undefined both take the `??` branch. The conditional is
+          // kept solely to satisfy `exactOptionalPropertyTypes` at compile time.
           ...(calcdate !== undefined ? { calcdate } : {}),
         }
       } else {
@@ -512,6 +518,13 @@ export class NbuCurrencyService {
    */
   private noNewRateSince(cachedYmd: string, pricingYmd: string): boolean {
     const age = this.dayDiff(cachedYmd, pricingYmd)
+    // Stryker disable next-line ConditionalExpression: the `age > MAX_CACHED_RATE_AGE_DAYS`
+    // half is deliberately REDUNDANT, so removing it is unobservable: any span
+    // of 3+ calendar days necessarily contains a non-weekend day, which the
+    // loop below already rejects. It is kept as a cheap, explicit ceiling so a
+    // future bug in the weekday logic cannot silently widen the window that
+    // decides whether real money may be paid. The `age < 0` half is NOT
+    // redundant and IS covered (a historical request during an outage).
     if (age < 0 || age > MAX_CACHED_RATE_AGE_DAYS) return false
     const cachedMs = this.ymdToUtcMs(cachedYmd)
     for (let i = 1; i <= age; i++) {

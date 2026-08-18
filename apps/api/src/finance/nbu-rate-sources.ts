@@ -38,6 +38,10 @@ export interface NbuSource {
 
 function asRecordArray(body: unknown): Record<string, unknown>[] | null {
   if (!Array.isArray(body)) return null
+  // Stryker disable next-line ArrayDeclaration: equivalent — seeding this
+  // accumulator with junk cannot be observed. Every consumer is a parser that
+  // reads named fields off each row, and a stray primitive yields `undefined`
+  // for all of them, so the row is dropped before it can become a rate.
   const out: Record<string, unknown>[] = []
   for (const row of body) {
     if (typeof row !== 'object' || row === null) return null
@@ -85,6 +89,10 @@ function parseCcRateDialect(body: unknown): NbuRateResponse[] | null {
     const units = toFiniteNumber(row.units)
     // Prefer the explicit per-unit figure; otherwise divide by units when the
     // source states them; otherwise take `rate` as-is (statdirectory dialect).
+    // Stryker disable next-line ConditionalExpression: the `units !== null` half is
+    // equivalent on its own — `null > 0` is already false, so the `units > 0`
+    // guard rejects a missing units count regardless. It stays for legibility:
+    // the null check states the intent, rather than leaning on a coercion.
     const rate = perUnit ?? (raw !== null && units !== null && units > 0 ? raw / units : raw)
     if (cc === undefined || exchangedate === undefined || rate === null) continue
     const calcdate = toStringOrUndefined(row.calcdate)
@@ -108,6 +116,9 @@ function parseOpenDataDialect(body: unknown): NbuRateResponse[] | null {
     const amount = toFiniteNumber(row.Amount)
     const units = toFiniteNumber(row.Units)
     if (cc === undefined || exchangedate === undefined || amount === null) continue
+    // Stryker disable next-line ConditionalExpression: as above, the `units !== null`
+    // half is equivalent — `null > 0` is false, so a missing `Units` already
+    // falls through to the undivided amount. Kept for the same reason.
     const rate = units !== null && units > 0 ? amount / units : amount
     out.push({ cc, rate, exchangedate })
   }

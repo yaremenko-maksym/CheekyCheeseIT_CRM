@@ -458,4 +458,376 @@ describe('Part 3: provenance of the applied rate is recoverable from the log', (
     expect(line).toContain('appliesTo=20260707')
     expect(line).toContain('stale=true')
   })
+
+  it("carries NBU's publication date through the cache into a later outage", async () => {
+    // The cache must remember `calcdate`, not just the numbers: during an
+    // outage the log is the only record of which publication was applied.
+    mockNbu({ '20260707': RATES }, ['exchange_site'])
+    await svc.getRates()
+    logSpy.mockClear()
+    mockTotalOutage()
+
+    await svc.getRates()
+
+    expect(loggedLines()).toContain('published=07.07.2026')
+  })
+})
+
+describe('Part 2: degraded source responses fall through, they do not poison the rate', () => {
+  let svc: NbuCurrencyService
+  let errorSpy: ReturnType<typeof vi.spyOn>
+  let warnSpy: ReturnType<typeof vi.spyOn>
+  let logSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    requestedUrls.length = 0
+    svc = new NbuCurrencyService()
+    errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
+    warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    logSpy = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
+    vi.useFakeTimers({ toFake: ['Date'] })
+    pinDay('2026-07-07')
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  /** Lets each source answer with an arbitrary body for the pinned day. */
+  function mockBodies(bodyBySource: Record<SourceId, unknown>): void {
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      requestedUrls.push(url)
+      const source = sourceOf(url)
+      if (source === null) return Promise.reject(new Error('unexpected URL'))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(bodyBySource[source]),
+      })
+    })
+  }
+
+  it('a source answering 200 with an unrecognisable body is passed over', async () => {
+    // e.g. the open-data service's `[{ Wrong date format }]`, or a service
+    // that starts returning an error object instead of an array.
+    mockBodies({
+      statdirectory: { error: 'maintenance' },
+      exchange_site: renderRows('exchange_site', '20260707', RATES),
+      open_data: [],
+    })
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(false)
+    expect(result.rateDate).toBe('20260707')
+    expect(parseFloat(result.usdUah)).toBeCloseTo(44.6988, 4)
+    // Name the culprit: silently falling through would hide a service that
+    // has started returning garbage.
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'unrecognised body shape',
+    )
+  })
+
+  it('a source with no record for the day is passed over for one that has it', async () => {
+    // An empty array is a valid answer meaning "no data for this day" — but
+    // another service may still have it, and today's real rate beats
+    // yesterday's.
+    mockBodies({
+      statdirectory: [],
+      exchange_site: renderRows('exchange_site', '20260707', RATES),
+      open_data: [],
+    })
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(false)
+    expect(result.rateDate).toBe('20260707')
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('returned empty rates')
+  })
+
+  it('a source carrying USD but NOT EUR is passed over for a complete one', async () => {
+    // Half a rate table is not a usable rate: pricing EUR off a missing row
+    // would silently substitute a cached or invented number. This is why the
+    // check is "has USD AND EUR", not "has either".
+    mockBodies({
+      statdirectory: renderRows('statdirectory', '20260707', [{ cc: 'USD', rate: 44.6988 }]),
+      exchange_site: renderRows('exchange_site', '20260707', RATES),
+      open_data: [],
+    })
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(false)
+    expect(parseFloat(result.usdUah)).toBeCloseTo(44.6988, 4)
+    expect(parseFloat(result.eurUah)).toBeCloseTo(51.8082, 4)
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'missing USD and/or EUR',
+    )
+  })
+
+  it('when EVERY source is incomplete, the partial answer still renders but never prices money', async () => {
+    // Nothing is discarded — the screens keep working — but the result is
+    // stale and undated, so both payout paths refuse it.
+    const usdOnly = [{ cc: 'USD', rate: 44.6988 }]
+    mockBodies({
+      statdirectory: renderRows('statdirectory', '20260707', usdOnly),
+      exchange_site: renderRows('exchange_site', '20260707', usdOnly),
+      open_data: renderRows('open_data', '20260707', usdOnly),
+    })
+
+    const result = await svc.getRates()
+
+    expect(parseFloat(result.usdUah)).toBeCloseTo(44.6988, 4)
+    expect(result.stale).toBe(true)
+    expect(result.rateDate).toBeUndefined()
+  })
+
+  it('a source carrying EUR but NOT USD is passed over for a complete one', async () => {
+    // The mirror of the USD-only case: BOTH currencies must be present for a
+    // source to be taken, since USD also underpins the USDT peg.
+    mockBodies({
+      statdirectory: renderRows('statdirectory', '20260707', [{ cc: 'EUR', rate: 51.8082 }]),
+      exchange_site: renderRows('exchange_site', '20260707', RATES),
+      open_data: [],
+    })
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(false)
+    expect(result.rateDate).toBe('20260707')
+    expect(parseFloat(result.usdUah)).toBeCloseTo(44.6988, 4)
+  })
+
+  it('an answer with no USD row at all does not crash the provenance lookup', async () => {
+    // `calcdateOf` looks the publication date up off the USD row; when there
+    // is no USD row it must yield "not exposed", not throw.
+    const eurOnly = [{ cc: 'EUR', rate: 51.8082 }]
+    mockBodies({
+      statdirectory: renderRows('statdirectory', '20260707', eurOnly),
+      exchange_site: renderRows('exchange_site', '20260707', eurOnly),
+      open_data: renderRows('open_data', '20260707', eurOnly),
+    })
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true)
+    expect(parseFloat(result.eurUah)).toBeCloseTo(51.8082, 4)
+    // The publication date is read off the USD row specifically. With no USD
+    // row there is none to report — it must NOT borrow the EUR row's date and
+    // present it as the provenance of a USD-derived figure.
+    expect(logSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'published=(not exposed)',
+    )
+  })
+
+  it('a plain network error is reported as such — not as a timeout, not as a bad body', async () => {
+    // Each of these three diagnoses sends an operator somewhere different.
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'))
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true)
+    const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    const warned = warnSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('network error')
+    expect(logged).not.toContain('timed out')
+    // A dead connection is not a malformed payload: the body was never read.
+    expect(`${logged}\n${warned}`).not.toContain('unrecognised body shape')
+  })
+
+  it('only a genuine abort counts as a timeout — the name alone is not enough', async () => {
+    // A DOMException that is NOT an abort (e.g. any other DOM error) must be
+    // reported as a network error, and an ordinary Error merely NAMED
+    // "AbortError" must not be promoted into one either. Both halves of the
+    // `instanceof && name` check carry weight.
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockRejectedValue(new DOMException('boom', 'InvalidStateError'))
+    await svc.getRates()
+    let logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('network error')
+    expect(logged).not.toContain('timed out')
+
+    errorSpy.mockClear()
+    const impostor = new Error('not really an abort')
+    impostor.name = 'AbortError'
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockRejectedValue(impostor)
+    await svc.getRates()
+    logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('network error')
+    expect(logged).not.toContain('timed out')
+  })
+
+  it('reads the publication date off the USD row, not merely the first row', async () => {
+    // USD is the row that drives both the USD figure and the USDT peg, so its
+    // publication date is the one that describes the applied number. Here EUR
+    // comes first and carries a DIFFERENT calcdate — reporting that one would
+    // attribute the USD figure to a publication it did not come from.
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      requestedUrls.push(url)
+      if (sourceOf(url) !== 'exchange_site') return Promise.reject(new Error('down'))
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve([
+            { cc: 'EUR', rate: 51.8082, exchangedate: '07.07.2026', calcdate: '01.01.2020' },
+            { cc: 'USD', rate: 44.6988, exchangedate: '07.07.2026', calcdate: '06.07.2026' },
+          ]),
+      })
+    })
+
+    await svc.getRates()
+
+    const logged = logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('published=06.07.2026')
+    expect(logged).not.toContain('published=01.01.2020')
+  })
+})
+
+describe('operator diagnostics: the log says WHY a payout was refused', () => {
+  // With no provenance columns in `payout_requests` yet, these lines are the
+  // only durable record of which rate was applied and why one was rejected.
+  let svc: NbuCurrencyService
+  let errorSpy: ReturnType<typeof vi.spyOn>
+  let warnSpy: ReturnType<typeof vi.spyOn>
+  let logSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    requestedUrls.length = 0
+    svc = new NbuCurrencyService()
+    errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
+    warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    logSpy = vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
+    vi.useFakeTimers({ toFake: ['Date'] })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  const errors = (): string => errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+  const logs = (): string => logSpy.mock.calls.map((c) => String(c[0])).join('\n')
+
+  it('names the previous-day fallback as such, in both the warning and the provenance line', async () => {
+    pinDay('2026-07-05')
+    mockNbu({ '20260704': RATES })
+
+    await svc.getRates()
+
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('previous-day rates')
+    expect(logs()).toContain('origin=live-prev-day:')
+    expect(logs()).toContain('requested=20260705')
+    expect(logs()).toContain('appliesTo=20260704')
+  })
+
+  it('states that an accepted cache may price money, and marks it as cache-sourced', async () => {
+    pinDay('2026-07-07')
+    mockNbu({ '20260707': RATES })
+    await svc.getRates()
+    errorSpy.mockClear()
+    logSpy.mockClear()
+    mockTotalOutage()
+
+    await svc.getRates()
+
+    expect(errors()).toContain('money paths accept')
+    expect(logs()).toContain('url=(cache)')
+  })
+
+  it('states that a too-old cache is display-only', async () => {
+    pinDay('2026-07-06') // Monday
+    mockNbu({ '20260706': RATES })
+    await svc.getRates()
+    errorSpy.mockClear()
+    mockTotalOutage()
+    pinDay('2026-07-07') // Tuesday — a new official rate exists
+
+    await svc.getRates()
+
+    expect(errors()).toContain('DISPLAY ONLY')
+  })
+
+  it('names the hardcoded constant when there is nothing else at all', async () => {
+    pinDay('2026-07-07')
+    mockTotalOutage()
+
+    await svc.getRates()
+
+    expect(errors()).toContain('hardcoded fallback')
+    expect(logs()).not.toContain('NBU rate applied') // never presented as applied
+  })
+
+  it('marks an undated result as having no applies-to day', async () => {
+    // `appliesTo=(none)` is the human-readable form of "no payout may use this".
+    pinDay('2026-07-07')
+    mockNbu({ '20260707': [{ cc: 'USD', rate: 44.6988 }] }) // USD only → incomplete
+
+    const result = await svc.getRates()
+
+    expect(result.rateDate).toBeUndefined()
+    expect(logs()).toContain('appliesTo=(none)')
+  })
+
+  it('distinguishes a timeout from a plain network error in the log', async () => {
+    // Operators triage these differently: a timeout means NBU is slow/hanging,
+    // a network error means it is unreachable.
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi
+      .fn()
+      .mockRejectedValue(new DOMException('The operation was aborted.', 'AbortError'))
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true)
+    const logged = errorSpy.mock.calls.map((c) => String(c[0])).join('\n')
+    expect(logged).toContain('timed out')
+    expect(logged).not.toContain('network error')
+  })
+
+  it('survives a 200 whose body is not JSON at all, and says so', async () => {
+    // Not hypothetical: `NBU_Exchange/exchange` answers HTTP 200 with the
+    // non-JSON blob `[{ Wrong date format }]` when handed the wrong date
+    // dialect (verified live 2026-08-18). Decoding must fail softly into
+    // "try the next source", never bubble out of getRates.
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      requestedUrls.push(url)
+      if (sourceOf(url) === 'statdirectory') {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: () => Promise.reject(new SyntaxError('Unexpected token W in JSON at position 3')),
+        })
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(renderRows('exchange_site', '20260707', RATES)),
+      })
+    })
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(false)
+    expect(parseFloat(result.usdUah)).toBeCloseTo(44.6988, 4)
+    expect(errorSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('undecodable body')
+  })
+
+  it('reports a non-OK HTTP status rather than silently treating it as no data', async () => {
+    // @ts-expect-error — test stub
+    globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+      requestedUrls.push(url)
+      return Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve([]) })
+    })
+
+    await svc.getRates()
+
+    expect(errorSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain('HTTP 503')
+  })
 })
