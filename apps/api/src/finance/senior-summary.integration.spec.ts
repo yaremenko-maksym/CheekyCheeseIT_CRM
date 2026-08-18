@@ -717,15 +717,41 @@ describe.skipIf(!hasDatabaseUrl())(
       expect(guards).toContain(RolesGuard)
     })
 
-    it('open routes (summary / exchange-rate) ship NO @Roles — service-side RBAC unchanged', () => {
-      // The class-level guard must stay inert for the non-@Roles handlers so their
-      // existing service-side RBAC (and public-ish exchange-rate) is untouched.
+    // REVERSAL (backlog item 121, security-review on #566) of this test's own
+    // prior pin. This block used to assert `getSummary` shipped NO @Roles — that
+    // was a DELIBERATE decision when @Roles(SENIOR, ADMIN) was added to the
+    // neighboring `getSeniorSummary` above: the class-level RolesGuard had to
+    // stay inert for `getSummary` so its existing service-side RBAC (and the
+    // public-ish `exchange-rate`) stayed untouched. Item 121 found that
+    // "inert guard" shape was itself the gap on a money route: with NO @Roles,
+    // RolesGuard is a NO-OP for `getSummary`, so the ONLY thing standing
+    // between a forbidden role and the handler was `TransactionsService
+    // .getSummary`'s own ForbiddenException — one deleted `if` away from wide
+    // open. `@Roles('ADMIN', 'ACCOUNTANT')` was added there as a second,
+    // independent layer, and it is SAFE precisely because it changes nothing
+    // observable: the role set matches `getSummary`'s own service-side check
+    // exactly (`role !== 'ADMIN' && role !== 'ACCOUNTANT'` →
+    // ForbiddenException), RolesGuard has no role hierarchy, so a caller who
+    // passed the service check before passes the guard now and vice versa —
+    // only the NUMBER of layers changed, not who gets in. The original pin's
+    // goal ("don't touch the behaviour of the other open routes") is still
+    // honored: `exchange-rate` is untouched below, and this spec's own
+    // `getSummary` HTTP-boundary behaviour is separately pinned end-to-end in
+    // transactions.summary.rbac.integration.spec.ts +
+    // transactions.summary.roles-guard.spec.ts. If you are reading this
+    // because the assertion below turned red again: that means someone
+    // removed @Roles from getSummary — restore it, do not "fix" this test
+    // back to `toBeUndefined()` (see transactions.controller.ts's own comment
+    // above `getSummary` before touching either side).
+    it('getSummary now ships @Roles(ADMIN, ACCOUNTANT) too; exchange-rate stays open (service-side RBAC unchanged there)', () => {
       expect(
         reflector.get<string[] | undefined>(
           ROLES_KEY,
           FinanceSummaryController.prototype.getSummary,
         ),
-      ).toBeUndefined()
+      ).toEqual(['ADMIN', 'ACCOUNTANT'])
+      // exchange-rate is semi-public (NBU rates, no per-user data) and was NOT
+      // touched by item 121 — the class-level guard must stay inert for it.
       expect(
         reflector.get<string[] | undefined>(
           ROLES_KEY,
