@@ -56,6 +56,17 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-mutation-gate.sh"
+          }
+        ],
+        "description": "Mutation gate push gate — run mutation-gate.mjs --changed on git push, local mirror of CI's mutation gate; BLOCK only on a real finding (survivor / reasonless suppression), SKIP (visible banner) whenever it could not run at all",
+        "id": "pre:bash:mutation-gate"
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
             "command": "bash /Users/maksym/Desktop/programming/CheekyCheeseIT_CRM/.claude/hooks/pre-bash-devserver-ttl-gate.sh"
           }
         ],

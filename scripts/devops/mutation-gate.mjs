@@ -573,6 +573,11 @@ function readReport(reportPath, pkg) {
   const survivors = []
   const uncovered = []
   const badSuppressions = []
+  // EVERY Ignored mutant, not just the reasonless ones — this is what AC2 of
+  // task-mutation-gate-mechanical needs: the actual per-directive COUNT, read
+  // back out of Stryker's own report rather than reasoned about from the diff.
+  // See groupSuppressions() below for why "line × mutator" is the right key.
+  const suppressed = []
 
   for (const [file, entry] of Object.entries(report.files ?? {})) {
     for (const mutant of entry.mutants ?? []) {
@@ -587,11 +592,125 @@ function readReport(reportPath, pkg) {
         const written =
           reason !== STRYKER_DEFAULT_IGNORE_REASON &&
           reason.replace(/[^\p{L}\p{N}]/gu, '').length >= MIN_REASON_LENGTH
+        suppressed.push({ where, mutator: mutant.mutatorName, reason })
         if (!written) badSuppressions.push({ where, mutator: mutant.mutatorName, reason })
       }
     }
   }
-  return { counts, survivors, uncovered, badSuppressions }
+  return { counts, survivors, uncovered, badSuppressions, suppressed }
+}
+
+/**
+ * Groups Ignored mutants by (file:line, mutator) — task-mutation-gate-mechanical
+ * AC2. That pair is the actual unit a `// Stryker disable next-line <mutator>`
+ * directive silences, and it is NOT the same thing as "the one mutant the author
+ * was looking at": the same mutator can rewrite several distinct AST nodes on one
+ * line (e.g. two comparisons in one `if`), and every one of them goes quiet under
+ * a single comment. Measured three times on this repo, always higher than the
+ * author expected: #531 (eight silenced, two intended — six were already killed
+ * by tests that existed), #554 (four silenced, one intended, author already knew
+ * the rule and still miscounted). The fix is not a sharper memory of the rule —
+ * it is printing the number Stryker itself recorded, so nobody has to reason
+ * about it by reading the diff.
+ */
+function groupSuppressions(suppressed) {
+  const map = new Map()
+  for (const s of suppressed) {
+    const key = `${s.where} ${s.mutator}`
+    let g = map.get(key)
+    if (!g) {
+      g = { where: s.where, mutator: s.mutator, count: 0, reasons: new Set() }
+      map.set(key, g)
+    }
+    g.count++
+    if (s.reason) g.reasons.add(s.reason)
+  }
+  // Worst offenders (most silenced mutants under one directive) first — that is
+  // the ordering a reviewer needs, not file order.
+  return [...map.values()].sort((a, b) => b.count - a.count)
+}
+
+/**
+ * Generic names that would make the integration-spec heuristic below noise
+ * rather than signal: almost every package has an `index.ts`, and "utils" or
+ * "types" says nothing about which ONE file's coverage is in question. Treated
+ * as "no hint either way", not as "definitely not integration-only" — the
+ * heuristic can only ever ADD confidence, never subtract it.
+ */
+const INTEGRATION_HINT_STOPLIST = new Set([
+  'index',
+  'types',
+  'type',
+  'utils',
+  'util',
+  'helpers',
+  'helper',
+  'constants',
+  'common',
+  'base',
+  'main',
+  'module',
+  'config',
+])
+
+const _integrationCorpusCache = new Map()
+
+/**
+ * The combined text of every `*.integration.spec.ts` in the given root, read
+ * once and cached per root — task-mutation-gate-mechanical AC3/AC4. Backing for
+ * looksIntegrationOnly() below. `root` defaults to REPO_ROOT but is an explicit
+ * parameter so the test for this function can point it at a throwaway fixture
+ * tree instead of grep-ing the real repository (same discipline the guard tests
+ * in scripts/devops/tests/ already hold themselves to: exercise the real code,
+ * against a FAKE root, never the repo being verified).
+ */
+function integrationSpecCorpus(root = REPO_ROOT) {
+  if (_integrationCorpusCache.has(root)) return _integrationCorpusCache.get(root)
+  let text = ''
+  const res = spawnSyncCapture('git', ['-C', root, 'ls-files', '--', '*.integration.spec.ts'])
+  if (res.code === 0) {
+    for (const rel of res.output.split('\n').filter(Boolean)) {
+      try {
+        text += readFileSync(path.join(root, rel), 'utf8') + '\n'
+      } catch {
+        /* an unreadable spec file just contributes nothing to the corpus */
+      }
+    }
+  }
+  _integrationCorpusCache.set(root, text)
+  return text
+}
+
+/**
+ * HEURISTIC, not proof (task-mutation-gate-mechanical AC3): true when a source
+ * file's basename shows up somewhere in the text of the integration-spec corpus,
+ * as a whole word. That is a much weaker claim than "this file is imported ONLY
+ * by an integration spec" — it does not parse imports, it cannot tell a real
+ * reference from a coincidental name collision, and it says nothing about
+ * whether a UNIT test also covers the same line. What it is good for: triage.
+ * A `NoCoverage` entry the gate cannot execute (the whole reason this gate runs
+ * only the unit suite — vitest.config.mts structurally excludes
+ * `*.integration.spec.ts` from a non-integration run, see
+ * .claude/rules/common/mutation-gate-integration-specs.md) is unsurprising when
+ * its file is also mentioned in an integration spec; it is worth a first, closer
+ * look when it is not.
+ */
+function looksIntegrationOnly(repoRelPath, root = REPO_ROOT) {
+  const base = path.basename(repoRelPath).replace(/\.(ts|tsx)$/, '')
+  if (!base || INTEGRATION_HINT_STOPLIST.has(base.toLowerCase())) return false
+  const escaped = base.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`\\b${escaped}\\b`).test(integrationSpecCorpus(root))
+}
+
+/** Splits a list of `{ where, mutator }` NoCoverage entries by the heuristic above. */
+function splitUncoveredByIntegrationHint(uncovered, root = REPO_ROOT) {
+  const likely = []
+  const real = []
+  for (const u of uncovered) {
+    const file = u.where.slice(0, u.where.lastIndexOf(':'))
+    ;(looksIntegrationOnly(file, root) ? likely : real).push(u)
+  }
+  return { likely, real }
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────
@@ -601,10 +720,6 @@ async function main() {
   const mode = args.includes('--full') ? 'full' : 'changed'
   if (!args.includes('--full') && !args.includes('--changed')) {
     fail('pass --changed (PR gate) or --full (nightly). Refusing to guess.')
-  }
-
-  if (!existsSync(STRYKER_BIN)) {
-    fail(`StrykerJS is not installed (${STRYKER_BIN} missing). Run pnpm install first.`)
   }
 
   const budgetSeconds = Number(
@@ -654,6 +769,18 @@ async function main() {
     return 0
   }
 
+  // Checked HERE, not before the two early-returns above (task-mutation-gate-
+  // mechanical, AC1/AC5). Stryker is only actually needed once there is at least
+  // one mutant to generate: a docs-only push, or one that only touches excluded
+  // paths, must be able to say "nothing to mutate" without requiring Stryker to
+  // be installed at all. The pre-push hook (.claude/hooks/pre-bash-mutation-
+  // gate.sh) relies on exactly this ordering to distinguish "nothing changed"
+  // (fast, infra-independent) from "Stryker missing" (a real, separate SKIP
+  // reason) — checking this first would have collapsed both into one message.
+  if (!existsSync(STRYKER_BIN)) {
+    fail(`StrykerJS is not installed (${STRYKER_BIN} missing). Run pnpm install first.`)
+  }
+
   const startedAt = Date.now()
   const totals = {
     Killed: 0,
@@ -667,6 +794,7 @@ async function main() {
   const allSurvivors = []
   const allUncovered = []
   const allBadSuppressions = []
+  const allSuppressed = []
   const perPackage = []
 
   for (const { pkg, patterns, files, lines } of plan) {
@@ -719,6 +847,7 @@ async function main() {
     allSurvivors.push(...parsed.survivors)
     allUncovered.push(...parsed.uncovered)
     allBadSuppressions.push(...parsed.badSuppressions)
+    allSuppressed.push(...parsed.suppressed)
     perPackage.push({ name: pkg.name, seconds: pkgSeconds, counts: parsed.counts, scope })
   }
 
@@ -765,11 +894,84 @@ async function main() {
     }
   }
 
+  // ── suppression counts (task-mutation-gate-mechanical AC2) ─────────────────
+  //
+  // Printed for EVERY suppression, not only the reasonless ones above: a
+  // directive with a written reason can still be silencing more mutants than
+  // its author looked at. The count comes from groupSuppressions(), which reads
+  // it back out of Stryker's own report — see that function's header for the
+  // three times this went wrong when the number lived only in someone's head.
+  if (allSuppressed.length > 0) {
+    const groups = groupSuppressions(allSuppressed)
+    const multi = groups.filter((g) => g.count > 1)
+    lines.push(
+      '',
+      `#### Suppressed (${groups.length} directive(s), ${allSuppressed.length} mutant(s) total)`,
+    )
+    console.log('')
+    for (const g of groups) {
+      const flag = g.count > 1 ? ' — COVERS MORE THAN ONE MUTANT, verify each is intended' : ''
+      const line = `suppression at ${g.where} (${g.mutator}) silences ${g.count} mutant(s)${flag}`
+      console.log(g.count > 1 ? `::warning::${line}` : `mutation-gate: ${line}`)
+      lines.push(
+        `- \`${g.where}\` — **${g.mutator}**: ${g.count} mutant(s)${
+          g.count > 1 ? ' **(more than one — check each)**' : ''
+        }`,
+      )
+    }
+    if (multi.length > 0) {
+      console.log(
+        `::warning::${multi.length} suppression directive(s) cover MORE THAN ONE mutant each. ` +
+          `A single "// Stryker disable next-line <mutator>" silences EVERY mutant that mutator ` +
+          `produces on that line, not just the one you were looking at. This has under-counted ` +
+          `by a factor of 4-8x on this repo before (see groupSuppressions() in mutation-gate.mjs) ` +
+          `— the number above is read from Stryker's report, not reasoned about.`,
+      )
+    }
+  }
+
+  // ── NoCoverage vs Survived (task-mutation-gate-mechanical AC3) ─────────────
+  //
+  // These are different diagnoses and conflating them is expensive (backlog
+  // #104): Survived means a test DID run the mutated line and still passed —
+  // the suite executed the code and noticed nothing. NoCoverage means no test
+  // ran the line AT ALL, which is the more serious of the two in general: zero
+  // verification happened, not "verification that missed something". It is not
+  // automatically a gap here, though — this gate only ever runs the UNIT suite,
+  // and vitest.config.mts structurally excludes every `*.integration.spec.ts`
+  // from a non-integration run (see
+  // .claude/rules/common/mutation-gate-integration-specs.md). A NoCoverage
+  // entry in a file that is ALSO referenced by an integration spec is expected,
+  // not a hole — PR #564 spent a full turn re-deriving exactly this by hand
+  // for 8 entries that turned out to be exactly that case.
   if (allUncovered.length > 0) {
+    const { likely, real } = splitUncoveredByIntegrationHint(allUncovered)
     lines.push('', `#### No coverage (${allUncovered.length})`)
-    for (const u of allUncovered.slice(0, 50)) lines.push(`- \`${u.where}\` — ${u.mutator}`)
+    lines.push(
+      '',
+      `NoCoverage means the line was never EXECUTED by the unit suite this gate runs — ` +
+        `by itself a MORE serious diagnosis than Survived (Survived = a test ran the line and ` +
+        `still missed the change; NoCoverage = no test ran it at all). Not automatically a gap: ` +
+        `${likely.length} of these also appear in a \`*.integration.spec.ts\` (heuristic — a ` +
+        `filename match, not a proof) and are commonly EXPECTED, because this gate cannot execute ` +
+        `the integration suite (see mutation-gate-integration-specs.md). The other ${real.length} ` +
+        `do not match that heuristic and are the ones worth checking first.`,
+    )
+    if (real.length > 0) {
+      lines.push('', `##### No integration-spec hint (${real.length}) — check these first`)
+      for (const u of real.slice(0, 50)) lines.push(`- \`${u.where}\` — ${u.mutator}`)
+    }
+    if (likely.length > 0) {
+      lines.push(
+        '',
+        `##### Filename also seen in an integration spec (${likely.length}) — likely expected, verify before treating as a gap`,
+      )
+      for (const u of likely.slice(0, 50)) lines.push(`- \`${u.where}\` — ${u.mutator}`)
+    }
     const msg =
-      `${allUncovered.length} mutant(s) in changed code are not executed by any test. ` +
+      `${allUncovered.length} mutant(s) in changed code are not executed by any test ` +
+      `(${real.length} with no integration-spec hint, ${likely.length} likely covered only by ` +
+      `an integration spec — see .claude/rules/common/mutation-gate-integration-specs.md). ` +
       `Not failing the build: a coverage threshold on changed lines is a separate task ` +
       `(task-mutation-gate "Границы"). Set MUTATION_NO_COVERAGE_IS_RED=1 to make it red.`
     console.log(noCoverageIsRed ? `::error::${msg}` : `::warning::${msg}`)
@@ -832,7 +1034,17 @@ function budgetExceeded(pkg, budgetSeconds, elapsedMs, perPackage) {
   )
 }
 
-main().then(
-  (code) => process.exit(code),
-  (err) => fail(`unexpected failure: ${err?.stack ?? err}`),
-)
+// Guarded so scripts/devops/tests/test-mutation-gate-reporting.sh can `import`
+// groupSuppressions() / looksIntegrationOnly() / splitUncoveredByIntegrationHint()
+// (task-mutation-gate-mechanical AC2/AC3/AC6) without triggering a real Stryker
+// run — `node mutation-gate.mjs --changed` is unaffected, since argv[1] there IS
+// this file.
+const isMain = process.argv[1] && import.meta.url === `file://${process.argv[1]}`
+if (isMain) {
+  main().then(
+    (code) => process.exit(code),
+    (err) => fail(`unexpected failure: ${err?.stack ?? err}`),
+  )
+}
+
+export { groupSuppressions, looksIntegrationOnly, splitUncoveredByIntegrationHint, readReport }
