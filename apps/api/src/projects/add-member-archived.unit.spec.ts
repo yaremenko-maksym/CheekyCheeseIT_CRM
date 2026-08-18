@@ -20,6 +20,8 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { ProjectsService } from './projects.service'
+import { projectMembers } from '../database/schema'
+import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
 
 const ADMIN: SessionUser = {
   id: '22222222-0000-4000-aa00-000000000001',
@@ -85,5 +87,116 @@ describe('AC1 — addMember refuses an archived user', () => {
     const svc = makeService(juniorRow)
 
     await expect(svc.addMember(PROJECT_ID, USER_ID, ADMIN)).rejects.toThrow(/INSERT REACHED/)
+  })
+})
+
+/**
+ * task-archived-user-completeness — security-review MED-3, unit-level.
+ *
+ * The behaviour is proven end-to-end in
+ * `users/archived-entitlement.realdb.integration.spec.ts` (real Postgres, three
+ * teammate states, both filters knocked out one at a time). This is the unit
+ * twin, for the same reason as the `addMember` one above: Stryker runs the UNIT
+ * suite, so without it the mutation gate reported the two guard lines as
+ * `NoCoverage` — i.e. "no test would notice if these were deleted", which is
+ * the exact property this PR exists to stop asserting without proof.
+ *
+ * It pins the two things that survive only as long as someone keeps them:
+ *   • the `archivedAt: true` COLUMN PROJECTION — drop it and `u.archivedAt` is
+ *     `undefined` for every teammate, so the guard below silently never fires;
+ *   • the `if (u.archivedAt) continue` guard itself.
+ */
+describe('MED-3 — createFromInterview does not seat dismissed teammates', () => {
+  const SENIOR_ID = '22222222-0000-4000-aa00-000000000010'
+  const TEAM_ID = '22222222-0000-4000-cc00-000000000001'
+  const ACTIVE_HR = '22222222-0000-4000-aa00-000000000011'
+  const ARCHIVED_HR = '22222222-0000-4000-aa00-000000000012'
+  const NEW_PROJECT_ID = '22222222-0000-4000-dd00-000000000009'
+
+  type Teammate = {
+    teamId: string
+    userId: string
+    user: { id: string; role: string; archivedAt: Date | null } | null
+  }
+
+  function makeInterviewDb(teammates: Teammate[]) {
+    const findManyArgs: Record<string, unknown>[] = []
+    const seatedUserIds: string[] = []
+
+    const findMany = vi.fn((args: Record<string, unknown>) => {
+      findManyArgs.push(args)
+      // 1st call: the senior's own team memberships. 2nd: their teammates.
+      return Promise.resolve(
+        findManyArgs.length === 1 ? [{ teamId: TEAM_ID, userId: SENIOR_ID }] : teammates,
+      )
+    })
+
+    const insert = vi.fn((table: unknown) => ({
+      values: (vals: Record<string, unknown>) => {
+        if (table === projectMembers) seatedUserIds.push(String(vals['userId']))
+        // `projects` is awaited via `.returning()`; `projectMembers` is awaited
+        // directly — so hand back a thenable that also carries `.returning`.
+        return Object.assign(Promise.resolve(undefined), {
+          returning: () => Promise.resolve([{ id: NEW_PROJECT_ID }]),
+        })
+      },
+    }))
+
+    const db = { db: { query: { teamMembers: { findMany } }, insert } } as never
+    return { db, findManyArgs, seatedUserIds }
+  }
+
+  const interview = {
+    id: '22222222-0000-4000-ee00-000000000001',
+    seniorId: SENIOR_ID,
+    companyName: 'MED3 Co',
+    notesDomain: 'ai',
+    senior: null,
+  } as unknown as Parameters<ProjectsService['createFromInterview']>[0]
+
+  const teammate = (userId: string, archivedAt: Date | null): Teammate => ({
+    teamId: TEAM_ID,
+    userId,
+    user: { id: userId, role: 'HR', archivedAt },
+  })
+
+  function makeService(db: never): ProjectsService {
+    return new ProjectsService(db, {} as never, {} as never, {} as never)
+  }
+
+  it('seats the active teammate and skips the archived one', async () => {
+    const { db, seatedUserIds } = makeInterviewDb([
+      teammate(ACTIVE_HR, null),
+      teammate(ARCHIVED_HR, new Date('2026-01-31T00:00:00.000Z')),
+    ])
+
+    await makeService(db).createFromInterview(interview, ADMIN)
+
+    expect(seatedUserIds).toEqual([ACTIVE_HR])
+  })
+
+  it('asks the DB for `archivedAt` — without the column the guard cannot fire', async () => {
+    // Dropping `archivedAt` from the projection leaves the guard syntactically
+    // intact and semantically dead: `u.archivedAt` would be `undefined` for
+    // everyone. Assert the projection, not just the outcome.
+    const { db, findManyArgs } = makeInterviewDb([teammate(ACTIVE_HR, null)])
+
+    await makeService(db).createFromInterview(interview, ADMIN)
+
+    const teammateQuery = findManyArgs[1] as
+      | { with?: { user?: { columns?: Record<string, boolean> } } }
+      | undefined
+    expect(teammateQuery?.with?.user?.columns?.['archivedAt']).toBe(true)
+  })
+
+  it('asks the DB only for OPEN memberships (`left_at is null`)', async () => {
+    // The other half of the fix, and the one an outcome assertion cannot see:
+    // a closed membership is filtered in SQL, so it never reaches the loop.
+    const { db, findManyArgs } = makeInterviewDb([teammate(ACTIVE_HR, null)])
+
+    await makeService(db).createFromInterview(interview, ADMIN)
+
+    const teammateQuery = findManyArgs[1] as { where?: unknown } | undefined
+    expect(compileWhere(teammateQuery?.where).sql).toContain('"left_at" is null')
   })
 })
