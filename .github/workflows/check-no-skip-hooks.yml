@@ -121,28 +121,26 @@ jobs:
               ].join('\n'),
             })
 
-      # On success: remove the hook-bypass-warning label if it was previously added
-      # (e.g. developer fixed formatting after the label was applied). Wrapped in
-      # try/catch because removeLabel throws 404 if the label is not present.
+      # On success: remove the hook-bypass-warning label if it was previously
+      # added (e.g. developer fixed formatting after the label was applied).
+      #
+      # task-infra-honest-ci-verdicts (2026-08-18, backlog #96): this used to
+      # be inline actions/github-script whose try/catch forgave ONLY a 404
+      # ("label not present") and rethrew anything else — including a
+      # transient 503 from the GitHub API, which fails the STEP and reds the
+      # whole JOB even though the actual prettier check two steps above
+      # already passed. PR #549 / #550 (2026-08-17) hit exactly this:
+      # `steps[]` named THIS step as the failure, not the check. The script
+      # below never fails the job over label housekeeping — see its header
+      # for the retry/warning contract.
       - name: Remove hook-bypass-warning label on success
         if: steps.prettier.outcome == 'success'
-        uses: actions/github-script@v7
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           PR_NUMBER: ${{ env.PR_NUM }}
-        with:
-          script: |
-            const prNum = parseInt(process.env.PR_NUMBER, 10)
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNum,
-                name: 'hook-bypass-warning',
-              })
-            } catch (err) {
-              // 404 = label not present on this PR — nothing to remove, ignore.
-              if (err.status !== 404) throw err
-            }
+          LABEL: hook-bypass-warning
+        run: bash scripts/devops/gh-clear-label-if-set.sh
 
       # Re-fail the job so the check is visible as red on the PR.
       - name: Mark check failed if formatting violated

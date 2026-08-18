@@ -188,24 +188,23 @@ jobs:
               ].join('\n'),
             })
 
+      # task-infra-honest-ci-verdicts (2026-08-18, backlog #96): this used to
+      # be inline actions/github-script whose try/catch forgave ONLY a 404
+      # ("label not present") and rethrew anything else — including a
+      # transient 503 from the GitHub API, which fails the STEP and reds the
+      # whole JOB even though the gate itself already found status ok/clean/
+      # waived. PR #549 / #550 (2026-08-17) hit exactly this shape in
+      # check-no-skip-hooks.yml's sibling step. The script below never fails
+      # the job over label housekeeping — see its header for the
+      # retry/warning contract.
       - name: Clear needs-guard-test label when satisfied
         if: steps.gate.outputs.status == 'ok' || steps.gate.outputs.status == 'clean' || steps.gate.outputs.status == 'waived'
-        uses: actions/github-script@v7
         env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
           PR_NUMBER: ${{ env.PR_NUM }}
-        with:
-          script: |
-            const prNum = parseInt(process.env.PR_NUMBER, 10)
-            try {
-              await github.rest.issues.removeLabel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: prNum,
-                name: 'needs-guard-test',
-              })
-            } catch (err) {
-              if (err.status !== 404) throw err
-            }
+          LABEL: needs-guard-test
+        run: bash scripts/devops/gh-clear-label-if-set.sh
 
       - name: Fail check if guard test missing
         if: steps.gate.outputs.status == 'missing'

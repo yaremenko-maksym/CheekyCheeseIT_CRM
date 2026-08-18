@@ -100,6 +100,8 @@
 # Tests: scripts/devops/tests/test-check-required-checks-complete.sh
 set -u
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
 REPO="${REPO:?REPO env var required (owner/repo)}"
 PR_NUMBER="${PR_NUMBER:?PR_NUMBER env var required}"
 required="${REQUIRED_CONTEXTS:?REQUIRED_CONTEXTS env var required (one context per line)}"
@@ -118,46 +120,14 @@ report() {
   fi
 }
 
-# Portable per-attempt timeout wrapper (review round, MED-4) — deliberately
-# NOT built on the GNU `timeout` command. `timeout` is coreutils, absent by
-# default on macOS (confirmed: `which timeout` finds nothing on a stock Mac),
-# and this exact, unmodified script is what
-# tests/test-check-required-checks-complete.sh runs locally on a developer's
-# Mac — a hard dependency on `timeout` would make the very call this wrapper
-# times out untestable outside CI. Same class of portability trap this
-# repo's already hit once (see post-merge-alert.sh's "GNU timeout/mktemp"
-# comment). Sets _TIMEOUT_OUT / _TIMEOUT_RC instead of using $(...) capture,
-# because capturing a function's stdout from a caller and ALSO getting a
-# meaningful exit code back out of a backgrounded child is not something
-# $(...) can do at the same time — mirrors tests/lib/harness.sh's own
-# _GT_OUT/_GT_RC side-channel for the identical reason.
-_TIMEOUT_OUT=""
-_TIMEOUT_RC=0
-run_with_timeout() {
-  local secs="$1"
-  shift
-  local tmp waited pid
-  tmp="$(mktemp)"
-  "$@" >"$tmp" 2>&1 &
-  pid=$!
-  waited=0
-  while kill -0 "$pid" 2>/dev/null; do
-    if [ "$waited" -ge "$secs" ]; then
-      kill "$pid" 2>/dev/null
-      wait "$pid" 2>/dev/null
-      _TIMEOUT_OUT="$(cat "$tmp")"
-      _TIMEOUT_RC=124
-      rm -f "$tmp"
-      return
-    fi
-    sleep 1
-    waited=$((waited + 1))
-  done
-  wait "$pid"
-  _TIMEOUT_RC=$?
-  _TIMEOUT_OUT="$(cat "$tmp")"
-  rm -f "$tmp"
-}
+# Portable per-attempt timeout wrapper (review round, MED-4) — defines
+# run_with_timeout() / sets $_TIMEOUT_OUT and $_TIMEOUT_RC. Extracted to
+# lib/run-with-timeout.sh (task-infra-honest-ci-verdicts, PR #558 review
+# round) once a second caller (gh-merge-pr-with-retry.sh) needed the exact
+# same capability — see that file's header for the full rationale (GNU
+# `timeout` portability, side-channel variables instead of $(...) capture).
+# shellcheck source=lib/run-with-timeout.sh
+. "$SCRIPT_DIR/lib/run-with-timeout.sh"
 
 [ -n "$REPORT_FILE" ] && : >"$REPORT_FILE"
 
