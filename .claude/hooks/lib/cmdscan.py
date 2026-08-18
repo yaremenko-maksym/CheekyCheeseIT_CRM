@@ -34,12 +34,21 @@ definition, one place, one test. Hook-SPECIFIC policy (which env vars are safe,
 which TTL wrapper is required, which safety predicates exist) deliberately stays
 inline in each hook, where a reader of that hook can see it.
 
-WHAT IT DOES NOT DO — it does not evaluate the shell. Values behind variables
-(`C="pnpm dev"; $C`), `eval`, and a launcher hidden inside a script this hook
-cannot read stay unresolved. Those are marked `dynamic` and handed back to the
-caller, which falls back to the old coarse substring test for that segment —
-conservative by construction: an unresolvable command word can never turn a
+WHAT IT DOES NOT DO — it does not evaluate the shell. A command word behind a
+variable or a substitution (`$RUNNER dev`, `$(echo pnpm) dev`) is marked
+`dynamic` and handed back to the caller, which falls back to the old coarse
+substring test for that segment: an unresolvable command word can never turn a
 would-be block into an allow.
+
+STATED GAPS (accepted, same line pre-bash-cross-agent-blast.sh draws):
+  - the command text produced by a substitution: `sh -c "$(cat run.sh)"`;
+  - a launcher inside a script file this scanner cannot read: `./boot.sh`;
+  - indirection through a variable: `C="pnpm dev"; $C` (the value is not
+    tracked across segments).
+`eval "<code>"` is NOT in that list — its argument is parsed as code, because
+trying to fool the first version of this scanner showed `eval 'pnpm dev'` and
+`eval 'rm -rf /etc'` slipping through while the old substring rule had caught
+them. Closing a gap found by execution beat every gap found by reading.
 
 CONTRACT
 --------
@@ -351,6 +360,13 @@ def _build_segment(raw, tokens, heredocs, assigns, depth):
             m = ASSIGN_RE.match(tok)
             if m:
                 assigns[m.group(1)] = m.group(2)
+
+    # `eval "<script>"` — its arguments are concatenated and executed as code.
+    # Found by trying to fool the narrowed hooks, not by reading them: without
+    # this branch `eval "pnpm dev"` and `eval "rm -rf /etc"` both slipped
+    # through, while the old substring rule had caught them.
+    if name == "eval" and argv:
+        nested.append(" ".join(argv))
 
     # `sh -c "<script>"` — the script is code, not an argument. Parse it.
     if name in INTERPRETERS:

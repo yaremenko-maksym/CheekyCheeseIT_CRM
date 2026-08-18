@@ -145,6 +145,45 @@ assert_red "форс через +refspec (старое правило его п�
   --contains "[pre:bash:safety] BLOCK" \
   -- h "git push origin +main"
 
+# ── попытки обмануть сужение (найдены прогоном, не вычиткой) ──────────────────
+# `eval 'rm -rf /etc'` реально проскочил через первую версию сужения, хотя
+# старое подстрочное правило его блокировало. Регрессия закрыта, кейс закреплён.
+assert_red "ОБХОД: eval 'rm -rf /etc'" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "eval 'rm -rf /etc'"
+
+assert_red "ОБХОД: eval с psql" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "eval \"psql -c '$DROP'\""
+
+assert_red "ОБХОД: имя команды в кавычках ('rm' -rf /etc)" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "'rm' -rf /etc"
+
+assert_red "ОБХОД: абсолютный путь /bin/rm" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "/bin/rm -rf /etc"
+
+assert_red "ОБХОД: порядок флагов rm -fr (старое правило его пропускало)" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -fr /etc"
+
+assert_red "ОБХОД: длинные флаги rm --recursive --force" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm --recursive --force /etc"
+
+assert_red "ОБХОД: лишние пробелы внутри SQL" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "psql -c \"DROP   DATABASE   crm_db\""
+
+assert_red "ОБХОД: имя базы в кавычках внутри SQL" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "psql --command='drop database \"crm_db\"'"
+
+assert_red "ОБХОД: через xargs" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "xargs -I{} psql -c '$DROP'"
+
 # ── crash is not a verdict (AC6) ──────────────────────────────────────────────
 BROKEN="$(hook_with_broken_lib "$WS" pre-bash-safety.sh)"
 

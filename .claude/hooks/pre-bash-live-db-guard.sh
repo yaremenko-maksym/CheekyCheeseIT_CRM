@@ -104,7 +104,7 @@ INPUT=$(cat)
 # what the analyzer can block (never a second, divergent policy).
 echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
 
-printf '%s' "$INPUT" | CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import json, os, re, sys
 
 sys.path.insert(0, os.environ["CMDSCAN_LIB"])

@@ -79,7 +79,7 @@ INPUT=$(cat)
 
 [ -z "$INPUT" ] && exit 0
 
-printf '%s' "$INPUT" | CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
 import json, os, re, sys
 
 sys.path.insert(0, os.environ["CMDSCAN_LIB"])

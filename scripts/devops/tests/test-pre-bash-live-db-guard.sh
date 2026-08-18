@@ -116,6 +116,41 @@ assert_red "кавычки не парсятся — разбор дегради
   --contains '"decision": "block"' \
   -- h "pnpm --filter @crm/api dev \"unbalanced"
 
+# ── попытки обмануть сужение (каждая найдена прогоном, не вычиткой) ───────────
+# `eval` реально ускользал: старое подстрочное правило его ловило, первая версия
+# сужения — нет. Поэтому кейс живёт здесь, а не в описании PR.
+assert_red "ОБХОД: eval 'pnpm dev'" \
+  --contains '"decision": "block"' \
+  -- h "eval 'pnpm --filter @crm/api dev'"
+
+assert_red "ОБХОД: кавычки внутри имени команды (p''npm)" \
+  --contains '"decision": "block"' \
+  -- h "p''npm --filter @crm/api dev"
+
+assert_red "ОБХОД: имя команды в кавычках (\"pnpm\" dev)" \
+  --contains '"decision": "block"' \
+  -- h "\"pnpm\" dev"
+
+assert_red "ОБХОД: экранированное имя (\\pnpm dev)" \
+  --contains '"decision": "block"' \
+  -- h "\\pnpm dev"
+
+assert_red "ОБХОД: env -i + абсолютный путь к nest" \
+  --contains '"decision": "block"' \
+  -- h "env -i DATABASE_URL=postgresql://h/crm_db /abs/node_modules/.bin/nest start"
+
+assert_red "ОБХОД: bash -c 'exec pnpm dev'" \
+  --contains '"decision": "block"' \
+  -- h "bash -c 'exec pnpm dev'"
+
+assert_red "ОБХОД: xargs -I{} pnpm dev" \
+  --contains '"decision": "block"' \
+  -- h "xargs -I{} pnpm dev"
+
+assert_red "ОБХОД: pnpm -r --filter=@crm/api run dev" \
+  --contains '"decision": "block"' \
+  -- h "pnpm -r --filter=@crm/api run dev"
+
 # ── crash is not a verdict (AC6) ──────────────────────────────────────────────
 BROKEN="$(hook_with_broken_lib "$WS" pre-bash-live-db-guard.sh)"
 
