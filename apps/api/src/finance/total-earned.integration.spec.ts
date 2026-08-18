@@ -554,10 +554,14 @@ describe.skipIf(!hasDatabaseUrl())(
     // is here, not a weaker constraint. The DEFENSIVE code this test exercised
     // (computeDropAggregate's `received − sent`, which nets a self-loop to
     // zero) is UNCHANGED and stays as belt-and-suspenders — the DB now backs
-    // it up structurally instead of relying on it alone. Un-skippable without
-    // either a new low-level unit test against a mocked query result (no real
-    // insert) or a deliberate, scoped constraint-drop-then-restore inside the
-    // test itself — both out of scope for the invariant task.
+    // it up structurally instead of relying on it alone.
+    //
+    // security-review round 2 follow-up: the "nets to zero" coverage this
+    // test lost is now pinned at the UNIT level instead — see
+    // `transactions.drop-self-summary.spec.ts` → "a self-referential
+    // PAYOUT_DROP (senderId===receiverId===drop.id) nets to zero (C-1,
+    // unit-level)", which exercises the SAME `computeDropAggregate` branch
+    // through a mocked query result (no DB, no CHECK to route around).
     it.skip('DROP self-referential PAYOUT_DROP (senderId===receiverId===drop) nets to zero (C-1)', async () => {
       const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
       expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)

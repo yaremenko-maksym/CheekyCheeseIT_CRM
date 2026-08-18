@@ -348,6 +348,28 @@ describe('TransactionsService.confirmPayout (Drop role - phase 3, spec §8.4)', 
         svc.confirmPayout('payout-tx-1', MAKSYM_USER.id, accountantUser, { method: 'CASH' }),
       ).rejects.toThrow(BadRequestException)
     })
+
+    // security-review round 2 (MED-1, mutation gate): the `selfPayError`
+    // defense-in-depth guard (payoutTx.senderId === recipient.id) is not
+    // reachable through legitimate role data today (a PAYOUT's senderId is
+    // always the requesting SENIOR/DROP, recipient is always verified ADMIN
+    // — two roles that can never share an id). Engineer the collision
+    // directly through the mock (same technique the other guard tests above
+    // use for their own otherwise-hard-to-reach states) so the guard's OWN
+    // logic is exercised and provably fires — this is what kills the
+    // ConditionalExpression mutant on the `if (confirmSelfPayErr) throw ...`
+    // line, not a claim that the scenario is reachable in production.
+    it('payoutTx.senderId === recipient.id (engineered) → BadRequestException, no INSERT/UPDATE attempted', async () => {
+      const { svc, state } = makeService({
+        payoutRow: makePayoutRow({ senderId: 'collided-id' }),
+        recipient: { id: 'collided-id', role: 'ADMIN', archivedAt: null },
+      })
+      await expect(
+        svc.confirmPayout('payout-tx-1', 'collided-id', accountantUser, { method: 'CASH' }),
+      ).rejects.toThrow(BadRequestException)
+      expect(state.updates).toHaveLength(0)
+      expect(state.inserts).toHaveLength(0)
+    })
   })
 
   // ── Happy path ───────────────────────────────────────────────────────────

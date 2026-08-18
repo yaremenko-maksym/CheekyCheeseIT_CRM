@@ -384,4 +384,64 @@ describe('paySalary — #11: ADMIN_PERSONAL atomic flip (no duplicate invoice)',
     )
     expect(invoiceSpy).not.toHaveBeenCalled()
   })
+
+  // security-review round 2 (MED-1, mutation gate): the `selfPayError`
+  // defense-in-depth guard (senderId === tx.receiverId) is not reachable
+  // through legitimate role data today — verified by reading (not assuming)
+  // both role-mutation doors: `UsersService.changeRole` and
+  // `.adminUpdateUser` BOTH unconditionally refuse `role === 'ADMIN'`, so a
+  // SALARY receiver (never ADMIN by construction) can never become the same
+  // row as an ADMIN payer. Engineer the collision directly through the mock
+  // (tx.receiverId === the ADMIN_PERSONAL payer's own id) so the guard's OWN
+  // logic is exercised and provably fires — this kills the
+  // ConditionalExpression mutant on `if (paySalarySelfPayErr) throw ...`, not
+  // a claim that the scenario is reachable in production.
+  it('tx.receiverId === payerAdminId (engineered) → BadRequestException, NO update/invoice', async () => {
+    const invoiceSpy = vi.fn().mockResolvedValue(undefined)
+    const findOne = vi.fn().mockResolvedValue({ id: 'sal-1' })
+    const updateSpy = vi.fn()
+    const dbStub = {
+      db: {
+        query: {
+          transactions: {
+            findFirst: () =>
+              Promise.resolve({
+                id: 'sal-1',
+                type: 'SALARY',
+                status: 'PENDING',
+                notes: null,
+                // Same id as the ADMIN_PERSONAL payer below — the collision.
+                receiverId: 'admin-1',
+              }),
+          },
+          users: {
+            // Serves BOTH the archived-receiver check (receiverId='admin-1')
+            // AND the ADMIN_PERSONAL payer resolution (payerAdminId='admin-1')
+            // — same underlying row, on purpose (that IS the self-pay).
+            findFirst: () =>
+              Promise.resolve({
+                id: 'admin-1',
+                role: 'ADMIN',
+                displayName: 'Admin',
+                archivedAt: null,
+              }),
+          },
+        },
+        update: (..._args: unknown[]) => {
+          updateSpy()
+          return { set: () => ({ where: () => ({ returning: () => Promise.resolve([]) }) }) }
+        },
+      },
+    }
+    const svc = makeTransactionsService({ db: dbStub as never })
+    ;(svc as unknown as { safeAutoCreateInvoice: typeof invoiceSpy }).safeAutoCreateInvoice =
+      invoiceSpy
+    ;(svc as unknown as { findOne: typeof findOne }).findOne = findOne
+
+    await expect(svc.paySalary('sal-1', payData, admin())).rejects.toBeInstanceOf(
+      BadRequestException,
+    )
+    expect(updateSpy).not.toHaveBeenCalled()
+    expect(invoiceSpy).not.toHaveBeenCalled()
+  })
 })
