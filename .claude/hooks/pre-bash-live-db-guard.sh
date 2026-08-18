@@ -22,17 +22,65 @@
 # even though "nothing was written" looks like the safe default — it is
 # exactly the opposite (see class 3 below).
 #
-# Contract (mirrors pre-bash-devserver-ttl-gate.sh, the sibling hook this
-# one is modeled on — same launcher/context detection idiom, deliberately
-# duplicated rather than shared: no hook in this repo sources a common
-# lib, and the two concerns are procedurally different (TTL-wrap vs
-# explicit-env-override) so each keeps its own independently actionable
-# block message instead of one hook doing two unrelated things):
+# ---------------------------------------------------------------------------
+# HOW IT DECIDES WHAT IS BEING LAUNCHED (rewritten 2026-08-18, backlog 63)
+#
+# It used to grep the raw command line for `vite`, `nest start`, `pnpm dev`,
+# `dist/main`. A word in ANY position was enough, so this hook refused
+#
+#     git show <ref>:pnpm-lock.yaml | grep -n vite      (pure read, no process)
+#     ls -la node_modules/.bin/vite
+#     node -e "console.log('apps/api/dist/main.js')"
+#
+# with a wall of text about booting a dev server against the live database.
+# That is not a cosmetic annoyance: the workaround is printed inside the
+# refusal itself, so two false hits are enough to train "prepend `DATABASE_URL=`
+# and retry" — a reflex that then fires on a REAL launch too. The predicates
+# are NOT relaxed; the question changed from "does the line contain X" to
+# "is X the command being executed", which is the only difference between
+# `grep vite` and `vite`.
+#
+# The parse lives in lib/cmdscan.py (shared with pre-bash-devserver-ttl-gate.sh,
+# which must agree token-for-token on what a launch is — they used to carry the
+# same regex twice, which is why narrowing one alone would still have left this
+# `grep` refused). It splits on `;`/`&&`/`||`/`|`/`&`/newline and on shell
+# grouping, recurses into `sh -c`, `eval`, `find -exec` and `$( )`, unwraps
+# `VAR=v` and the wrapper commands, and decides on the COMMAND WORD.
+#
+# WHAT THE FIRST VERSION GOT WRONG (security review, 2026-08-18). It trusted the
+# parse unless `shlex` had thrown. The review produced 13 reproduced misses —
+# `env -i pnpm dev`, `sudo -s pnpm dev`, `{ pnpm dev ; }`, `script -q /dev/null
+# pnpm dev` — in every one of which the parser had NOT failed; it had answered
+# confidently and wrong. So the trust boundary moved: cmdscan marks a segment
+# `confident` only when it resolved the command word AND understands the command,
+# and an unconfident segment is judged by every "the command might start here"
+# reading of itself. `$RUNNER dev` and an unknown wrapper are now the same case,
+# and neither can turn a would-be block into an allow.
+#
+# The third round then fixed the OTHER half of that sentence — "AND understands
+# the command". The understood list contained commands that run their argument
+# (`tar`, `rsync`, `ssh`, `pnpm exec`, …), and being on it skips the re-reading
+# entirely, so `bun x pnpm dev` reached this hook as "a bun command". Pruned in
+# lib/cmdscan.py; `git` and `psql` stay and surrender their exec surface instead.
+#
+# The environment is read PER SEGMENT: an inline prefix reaches only the command
+# it is glued to, `export` reaches later segments. `DATABASE_URL=…/crm_qa echo ok
+# && pnpm dev` gives the launch nothing, and is refused.
+# ---------------------------------------------------------------------------
+#
+# Contract:
 #   - Reads tool-call JSON from stdin.
 #   - Fast-exit 0 for non-dev-server commands.
 #   - Fast-exit 0 outside agent worktree / claude scratchpad context — the
 #     owner's own main-checkout session is legitimate and untouched.
 #   - exit 2 + JSON decision body on block.
+#   - exit 1 + `INTERNAL ERROR` on stderr when the ANALYZER itself fails:
+#     a broken hook must never be mistaken for a hook that refused. Both used
+#     to be "non-zero exit"; a bash syntax error still exits 2 exactly like a
+#     verdict, so the distinguishing mark is the contract: a real verdict ALWAYS
+#     carries a {"decision":"block"} body on stdout. If the analyzer dies while
+#     the coarse test says a launcher is present, the fallback still blocks —
+#     but labels itself ДЕГРАДИРОВАННЫЙ РЕЖИМ, so nobody debugs the wrong thing.
 #   - CI runners never see this file at all (hooks are a local Claude Code
 #     mechanism; GitHub Actions does not invoke .claude/hooks/**).
 #
@@ -59,57 +107,99 @@
 #     a `git push`, since it only matches dev-server launchers below.
 #   - vitest / Playwright runs (not in the launcher pattern — see sibling
 #     hook's header for why; unchanged here).
+#   - READING about a launcher: grep/rg/ls/git show/echo naming `vite`,
+#     `pnpm dev`, `dist/main` in any position.
 
 set -u
 
+SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 INPUT=$(cat)
-CMD=$(printf '%s' "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('tool_input',{}).get('command',''))" 2>/dev/null || true)
-CWD=$(printf '%s' "$INPUT" | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('cwd',''))" 2>/dev/null || true)
 
-# Fast exit: empty command.
-[ -z "$CMD" ] && exit 0
+[ -z "$INPUT" ] && exit 0
 
-# Same launcher surface as pre-bash-devserver-ttl-gate.sh (deliberately
-# duplicated — see header): nest start / vite / pnpm|npm|yarn|turbo
-# dev(:start) / node ... dist/main.
-LAUNCHER='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
-echo "$CMD" | grep -qE "$LAUNCHER" || exit 0
+# Hot path: if no launcher word occurs anywhere in the payload, nothing below
+# can fire — leave before paying for a python start. Deliberately a SUPERSET of
+# what the analyzer can block (never a second, divergent policy).
+echo "$INPUT" | grep -qE 'vite|nest|dev|dist/main' || exit 0
 
-# Same worktree/scratchpad context gate as the sibling hook — the owner's
+printf '%s' "$INPUT" | PYTHONDONTWRITEBYTECODE=1 CMDSCAN_LIB="$SELF_DIR/lib" python3 -c '
+import importlib.util, json, os, re, sys
+
+# By absolute path, not via sys.path — see the note in pre-bash-safety.sh.
+_spec = importlib.util.spec_from_file_location(
+    "cmdscan", os.path.join(os.environ["CMDSCAN_LIB"], "cmdscan.py"))
+cmdscan = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(cmdscan)
+
+data = json.load(sys.stdin)
+cmd = (data.get("tool_input") or {}).get("command") or ""
+cwd = data.get("cwd") or ""
+if not cmd:
+    sys.exit(0)
+
+# Same worktree/scratchpad context gate as the sibling hook — the owner s
 # main checkout is out of scope by design.
-CONTEXT='\.claude/worktrees/|/tmp/claude-'
-if ! echo "$CMD" | grep -qE "$CONTEXT" && ! echo "$CWD" | grep -qE "$CONTEXT"; then
-  exit 0
-fi
+CONTEXT = re.compile(r"\.claude/worktrees/|/tmp/claude-")
+if not CONTEXT.search(cmd) and not CONTEXT.search(cwd):
+    sys.exit(0)
 
-# Authoritative check: does this command explicitly declare a safe
-# DATABASE_URL and a safe port? Reads CMD via stdin (no shell-quoting
-# hazards) and prints one reason line per violation found, if any.
-REASONS=$(printf '%s' "$CMD" | python3 -c '
-import re, sys
+scan = cmdscan.scan(cmd)
+# cmdscan.launches() is confidence-aware: a segment whose command word it could
+# not resolve is judged by every reading of it, so `script -q /dev/null pnpm dev`
+# and `env -i pnpm dev` land here too. Broken quoting is one such case, which is
+# why the old `scan.degraded` special case is gone — it covered the one failure
+# mode that never actually happened, and none of the 13 the review found.
+hits = cmdscan.launches(scan)
 
-cmd = sys.stdin.read()
+# Nesting deeper than the analyzer walks leaves code unread. An unread launch is
+# not an absent launch, so it is refused with an env of its own (i.e. nothing
+# proven safe) rather than reported as clean.
+if not hits and scan.truncated:
+    hits = [(
+        cmdscan.Segment("", [], [], [], False, cmd, 0, {}, False, None),
+        "вложенность глубже предела разбора — код не прочитан",
+    )]
+
+if not hits:
+    sys.exit(0)
+
+seg, label = hits[0]
+segs = [s for s, _ in hits]
+
+# The environment of the LAUNCHING segment, not of the line. A prefix on some
+# other segment reaches nothing: `DATABASE_URL=…/crm_qa API_PORT=3011 echo ok &&
+# pnpm dev` gives the launch exactly nothing and inherits the live pair — the
+# shape of PR #485 (review MED-5).
+env = seg.env
 reasons = []
 
-db_match = re.search(r"DATABASE_URL=([\"\x27]?)([^\s\"\x27]*)\1", cmd)
-if db_match is None:
+db = env.get("DATABASE_URL")
+if db is None:
     reasons.append(
         "DATABASE_URL не задана инлайн в этой команде — унаследуется из "
         "окружения сессии, а не из .env worktree (dotenv НЕ перезаписывает "
         "уже установленную process.env переменную). Именно так утекло PR #485."
     )
-else:
-    val = db_match.group(2)
-    if val != "":
-        db_name = val.rsplit("/", 1)[-1].split("?", 1)[0]
-        if db_name == "crm_db":
-            reasons.append(
-                "DATABASE_URL указывает на живую базу владельца crm_db (%s)" % val
-            )
+elif db != "":
+    db_name = db.rsplit("/", 1)[-1].split("?", 1)[0]
+    if db_name == "crm_db":
+        reasons.append(
+            "DATABASE_URL указывает на живую базу владельца crm_db (%s)" % db
+        )
 
 port_values = []
-port_values += re.findall(r"--port[=\s]+(\d+)", cmd)
-port_values += re.findall(r"(?:^|[\s;&|])(?:API_PORT|PORT|WEB_PORT)=(\d+)", cmd)
+for var in ("API_PORT", "PORT", "WEB_PORT"):
+    val = env.get(var)
+    if val is not None and val.isdigit():
+        port_values.append(val)
+for s in segs:
+    argv = s.argv
+    for i, tok in enumerate(argv):
+        m = re.match(r"^--port=(\d+)$", tok)
+        if m:
+            port_values.append(m.group(1))
+        elif tok == "--port" and i + 1 < len(argv) and argv[i + 1].isdigit():
+            port_values.append(argv[i + 1])
 if not port_values:
     reasons.append(
         "порт не задан инлайн в этой команде — унаследует живой порт по "
@@ -117,29 +207,23 @@ if not port_values:
         "server.port хардкожен 3000 в apps/web/vite.config.ts)"
     )
 else:
-    live = [p for p in port_values if p in ("3000", "3001")]
+    # Compared as numbers: `API_PORT=03001` is 3001 to Node and was "not 3001"
+    # to a string comparison (review LOW).
+    live = [p for p in port_values if int(p) in (3000, 3001)]
     if live:
         reasons.append(
             "порт %s явно задан из живой пары владельца (web:3000 / api:3001)" % live[0]
         )
 
-for r in reasons:
-    print(r)
-' 2>/dev/null)
+if not reasons:
+    sys.exit(0)
 
-[ -z "$REASONS" ] && exit 0
+reason_lines = "\n".join("  - %s" % r for r in reasons)
+msg = """🚫 LIVE-DB GUARD: команда запускает dev-сервер из agent-worktree/scratchpad без доказуемо безопасных DATABASE_URL/порта.
 
-# Block: build the JSON decision body via python (REASONS passed as argv to
-# avoid re-quoting a multi-line string through the shell), stderr for the
-# ECC human-readable line, exit 2 per convention.
-python3 -c "
-import json, sys
+Запуск, который распознан: %s
 
-reasons = sys.argv[1].splitlines()
-reason_lines = '\n'.join(f'  - {r}' for r in reasons)
-msg = f'''🚫 LIVE-DB GUARD: команда запускает dev-сервер из agent-worktree/scratchpad без доказуемо безопасных DATABASE_URL/порта.
-
-{reason_lines}
+%s
 
 Инцидент 2026-08-05 (PR #485): унаследованные из родительской сессии DATABASE_URL/API_PORT
 перебили .env worktree — API ~2 минуты слушал :3000 против ЖИВОЙ базы владельца. Обошлось
@@ -159,10 +243,42 @@ msg = f'''🚫 LIVE-DB GUARD: команда запускает dev-сервер
 Не забудь и TTL-обёртку (отдельное требование, тоже обязательное):
     scripts/devops/dev-ttl.sh -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
 
-См. .claude/hooks/pre-bash-devserver-ttl-gate.sh и .claude/rules/common/light-track.md
-(«Параллельный диспатч» — список свободных портов).'''
-print(json.dumps({'decision': 'block', 'reason': msg}))
-" "$REASONS" 2>/dev/null
+Читать про запуск (grep/ls/git show, где слово vite или pnpm dev стоит аргументом) этот хук
+больше не мешает — он смотрит только на команду в позиции запуска.
 
-echo "[pre:bash:live-db-guard] BLOCK unsafe dev-server launch in worktree/scratchpad" >&2
-exit 2
+См. .claude/hooks/pre-bash-devserver-ttl-gate.sh и .claude/rules/common/light-track.md
+(«Параллельный диспатч» — список свободных портов).""" % (label, reason_lines)
+
+print(json.dumps({"decision": "block", "reason": msg}))
+sys.stderr.write(
+    "[pre:bash:live-db-guard] BLOCK unsafe dev-server launch in worktree/scratchpad (%s)\n" % label
+)
+sys.exit(10)
+'
+RC=$?
+
+case "$RC" in
+  0) exit 0 ;;
+  10) exit 2 ;;
+esac
+
+# ── analyzer failure — NOT a verdict ──────────────────────────────────────────
+# Everything below runs only when the python above could not finish (missing
+# python3, missing lib/cmdscan.py, an edit that broke it). It says so loudly and
+# falls back to the pre-2026-08-18 coarse test, so the protection does not
+# silently disappear — but it never impersonates a decision on the merits.
+echo "[pre:bash:live-db-guard] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
+
+LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
+# The raw stdin is JSON, so the command's last token is followed by `"` — the
+# legacy pattern's `([[:space:]]|$)` boundary would silently never match and the
+# fallback would let everything through. Turning JSON punctuation into spaces
+# restores the token boundaries without needing a parser (python3 may be exactly
+# what is missing here). Verified by test case "СЛОМАННЫЙ анализатор + опасный запуск".
+FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
+if echo "$FLAT" | grep -qE "$LEGACY" && echo "$FLAT" | grep -qE '\.claude/worktrees/|/tmp/claude-'; then
+  printf '%s\n' '{"decision":"block","reason":"⚠️ ДЕГРАДИРОВАННЫЙ РЕЖИМ live-db-guard: анализатор команды не отработал (см. INTERNAL ERROR в stderr), поэтому применено старое грубое правило «слово-подстрока». Это может быть ЛОЖНОЕ срабатывание. Почини .claude/hooks/lib/cmdscan.py вместо обхода: bash .claude/hooks/pre-bash-live-db-guard.sh < <(echo JSON) покажет причину."}'
+  echo "[pre:bash:live-db-guard] BLOCK (degraded fallback, coarse substring rule)" >&2
+  exit 2
+fi
+exit 1
