@@ -430,3 +430,50 @@ narrowed	safety	curl -d 'q=rm -rf /etc' https://example.test/
 allow	all	rg --pre-glob '*.gz' 'pnpm dev' .
 allow	all	git -c core.pager=less log -1
 allow	all	pnpm exec vitest run apps/api
+
+# ═══ round-3 review: the modelled surfaces had to be COMPLETE ════════════════
+# Round 3 chose to KEEP `git`, `psql`, `rg` and `ag` in UNDERSTOOD and model what
+# they execute, because their arguments are prose, SQL and regexes and reading
+# those through readings() refuses `git commit -m` and `rg -n 'nest start'`. The
+# review accepted the argument and then held it to its consequence: a modelled
+# surface that is half-modelled is WORSE than an unmodelled one, because it
+# reads as covered. `_psql_exec_commands` knew `\!` and `COPY … PROGRAM` and did
+# not know that four more metacommands pipe to a shell. Each of the four was
+# reproduced here against the SERVICE database (never crm_db), payload = touch a
+# marker: `\o | CMD` fires through `psql -c`, and `\g | CMD`, `\gx | CMD`,
+# `\w | CMD` through stdin. That path leads to the owner's database.
+block	safety	psql -c '\o | rm -rf /etc' -c 'select 1'
+block	safety	psql -c 'select 1 \g | rm -rf /etc'
+block	safety	psql -c 'select 1 \gx | rm -rf /etc'
+block	safety	psql -c '\w | rm -rf /etc'
+block	safety	psql -h localhost -U crm_user -d crm_qa -c '\o | psql -c "DROP DATABASE crm_db"'
+# MED-1 is a CLASS, not a flag: `--flag=subkey=command` hid the command
+# behind a SECOND `=`, where `exec=rm` is no more a command word than
+# `--checkpoint-action=exec=rm` is. readings() now yields every suffix, so
+# the next tool that spells it this way is covered without being listed.
+# MED-2 `install` joins the removals — its argv is paths. MED-3 `ext::` is
+# closed rather than accepted: git's protocol.ext.allow=never is a DEFAULT,
+# and the same line that carries the payload can carry the -c that turns it
+# off — which is the form that reproduced.
+block	safety	tar --checkpoint=1000 --checkpoint-action=exec=rm -rf /etc -cf /dev/null .
+block	safety	tar --checkpoint-action='exec=rm -rf /etc' -cf /dev/null .
+block	safety	install --strip-program='rm -rf /etc' -s a /tmp/b
+block	safety	git -c protocol.ext.allow=always clone 'ext::rm -rf /etc %s' dst
+block	safety	git clone 'ext::rm -rf /etc %s' dst
+# the same three surfaces in front of a dev-server boot
+block	db,ttl	psql -c '\o | pnpm dev'
+block	db,ttl	git -c protocol.ext.allow=always clone 'ext::pnpm dev %s' dst
+block	db,ttl	tar --checkpoint-action='exec=pnpm dev' -cf /dev/null .
+# ACCEPTED RISK, written down so it is visible rather than implied (LOW-1):
+# `gh alias set` executes nothing when typed — it stores the string, and the
+# payload runs on a later `gh boom` that this guard sees as two harmless
+# tokens. Refusing it would mean judging a command by what it WRITES, which
+# is the substring rule again: `echo '<cmd>' >> config.yml` is the same act.
+# Deferred execution via stored configuration is ONE stated gap — shell
+# `alias`, `history`, `gh alias set`, write-now-source-later.
+narrowed	safety	gh alias set boom '!rm -rf /etc'
+# receipts: the same four commands doing the job they are actually used for
+allow	all	psql -h localhost -U crm_user -d crm_qa -f apps/api/scripts/seed.sql
+allow	all	install -m 755 scripts/devops/dev-ttl.sh /tmp/bin/dev-ttl.sh
+allow	all	tar --checkpoint=1000 -czf backup.tar.gz apps/
+allow	all	git clone https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM.git

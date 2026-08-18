@@ -51,6 +51,31 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 CORPUS="$SELF_DIR/lib/command-corpus.txt"
 
+# ── running this file is optional; SAYING SO is not ──────────────────────────
+# This is the expensive test in the suite: every line is handed to three hooks
+# under two baselines, which is one python3 start per verdict — minutes on a
+# loaded machine, against ~12 seconds for the other three hook tests. A PR that
+# does not touch the hooks or the corpus cannot change any of those verdicts, so
+# the caller may set GUARD_TEST_HOOKS_TOUCHED=0 to skip it.
+#
+# The default is 1. A gate that decides on its own to be cheap is a gate that
+# quietly stops existing, so the skip has to be ASKED for, and it announces
+# itself in the same breath: the banner below names what was NOT checked, in the
+# same output stream a reader is already looking at. The failure mode being
+# guarded against is not a slow CI run — it is a green tick that means less than
+# the reader thinks it does, which is the third time that has come up in this PR.
+if [ "${GUARD_TEST_HOOKS_TOUCHED:-1}" = "0" ]; then
+  CORPUS_LINES="$(awk 'NF && $0 !~ /^[[:space:]]*#/' "$CORPUS" | wc -l | tr -d ' ')"
+  echo "== test-hook-command-corpus.sh: SWEEP ПРОПУЩЕН =="
+  echo "   причина:      GUARD_TEST_HOOKS_TOUCHED=0 — .claude/hooks/** и корпус"
+  echo "                 в этом PR не менялись, значит ни один вердикт не мог измениться"
+  echo "   НЕ проверено: $CORPUS_LINES строк корпуса через три хука в двух базисах"
+  echo "                 и метрика «деградированный режим строже рабочего»"
+  echo "   прогнать:     GUARD_TEST_HOOKS_TOUCHED=1 scripts/devops/tests/test-hook-command-corpus.sh"
+  echo
+  exit 0
+fi
+
 WS="$(guard_test_workspace)"
 trap 'rm -rf "$WS"' EXIT
 

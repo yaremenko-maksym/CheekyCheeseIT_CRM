@@ -292,6 +292,9 @@ INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
 #     sort           GNU --compress-program
 #     bat            --pager
 #     wget           --use-askpass
+#     install        GNU coreutils --strip-program=CMD (round-3 review MED-2;
+#                    macOS BSD install rejects the flag, ubuntu CI does not).
+#                    Its argv is paths, so removal is free by the rule below.
 #     launchctl      submit -l x -- <cmd>, bootstrap
 #     source / .     execute the contents of the file they are handed
 #
@@ -317,9 +320,18 @@ INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
 #     (a config, a test, a formula, an engine .so), never a command line spelled
 #     out in the argument. That is the stated `./boot.sh` gap, the same one
 #     `bash script.sh` has, not this one.
-#   gh — gone through option by option: none takes a command. `gh alias set`
-#     DEFINES one, which runs on a LATER invocation; that is the cross-segment
-#     indirection gap. Shell `alias` and `history` are the same case.
+#   gh — gone through option by option: none takes a command. ACCEPTED RISK,
+#     decided explicitly at the round-3 review (LOW-1): `gh alias set x '!<cmd>'`
+#     executes NOTHING when it is typed. It writes the string into
+#     ~/.config/gh/config.yml, and the payload runs on a later `gh x`, which this
+#     guard sees as two harmless tokens. Not closed, because closing it means
+#     refusing a command for what it WRITES rather than what it RUNS — and that
+#     is the substring rule wearing a different hat: the same reasoning would
+#     have to refuse `echo '<cmd>' >> config.yml` and every other way of putting
+#     text into a file. Deferred execution through stored configuration is ONE
+#     gap, stated once: shell `alias`, `history`, `gh alias set`, and a script
+#     file written now and sourced later are all of it. The corpus carries the
+#     form, so the decision is visible instead of implied.
 #   pg_dump / pg_restore / createdb / dropdb / pg_isready — no shell escape;
 #     `dropdb crm_db` is dangerous as ITSELF and has its own predicate.
 UNDERSTOOD = set(INTERPRETERS) | {
@@ -337,7 +349,7 @@ UNDERSTOOD = set(INTERPRETERS) | {
     # filesystem
     "ls", "stat", "file", "find", "mkdir", "rmdir", "rm", "cp", "mv", "ln",
     "touch", "chmod", "chown", "du", "df", "unzip", "gzip",
-    "gunzip", "mktemp", "install", "diskutil",
+    "gunzip", "mktemp", "diskutil",
     # processes / network
     "ps", "pgrep", "pkill", "kill", "killall", "lsof", "top", "uptime",
     "curl", "ping", "dig", "nslookup", "host",
@@ -751,6 +763,19 @@ GIT_CODE_FLAGS = (
 # `<lead> <verb> <command…>` — the subcommands that take a command line as
 # positional arguments rather than as a flag value.
 GIT_CODE_SUBCOMMANDS = (("submodule", "foreach"), ("bisect", "run"))
+# `git clone 'ext::<command> %s'` — the ext:: transport runs the command to speak
+# the protocol. Reproduced on this box: with `-c protocol.ext.allow=always` the
+# marker appeared; the bare form did NOT, because git ships
+# protocol.ext.allow=never and refuses first (round-3 review MED-3, and the
+# reviewer measured the same two halves).
+#
+# Closed anyway rather than filed as accepted risk, for two reasons. The
+# mitigation is a DEFAULT, and the same command line that carries the payload
+# can carry `-c protocol.ext.allow=always` to switch it off — which is exactly
+# the form that reproduced. And a URL is not free text: nothing legitimate in
+# this repo clones over ext::, so the false-positive cost that made `git` worth
+# modelling in the first place is zero here.
+GIT_EXT_URL_RE = re.compile(r"^ext::(.+)$", re.S)
 
 
 # Commands kept in UNDERSTOOD with their (small, closed, documented) exec
@@ -830,6 +855,13 @@ def _git_exec_commands(argv):
     # names an environment variable, whose value is not on this line at all.
     # That is the stated variable-indirection gap, not something to guess at.
     out.extend(_flag_value_commands(argv, GIT_CODE_FLAGS))
+    for tok in argv:
+        ext = GIT_EXT_URL_RE.match(tok)
+        if ext:
+            # `%s`/`%G`/`%V` are placeholders git substitutes; they are arguments
+            # of the command, and leaving them in changes nothing for any
+            # predicate here.
+            out.append(ext.group(1))
     for lead, verb in GIT_CODE_SUBCOMMANDS:
         for j in range(len(argv) - 1):
             if argv[j] == lead and argv[j + 1] == verb:
@@ -852,6 +884,20 @@ def _git_exec_commands(argv):
 # same command in a different shirt.
 PSQL_BANG_RE = re.compile(r"\\!\s*(\S.*)")
 PSQL_PROGRAM_RE = re.compile(r"\bPROGRAM\s+(['\"])(.+?)\1", re.I)
+# psql pipes to a shell from FOUR more metacommands, not just `\!`: when the
+# argument of `\o`, `\g`, `\gx` or `\w` begins with `|`, the rest of the line
+# IS the command. Round-3 review found all four missing and proved each by
+# execution; reproduced here the same way, against the service database — every
+# one created its marker file:
+#     \o | CMD          (works even through `psql -c`)
+#     select 1 \g | CMD  \gx | CMD   \w | CMD   (through stdin)
+# This is why "keep psql and model it" obliges the model to be COMPLETE: a
+# half-modelled surface is worse than an unmodelled one, because it reads as
+# covered. The optional `(format=csv)` block that `\g` accepts before the pipe
+# is allowed for, and the alias spellings `\out` / `\write` are included.
+PSQL_PIPE_RE = re.compile(
+    r"\\(?:o|out|g|gx|w|write)\b[ \t]*(?:\([^)]*\)[ \t]*)?\|[ \t]*(\S.*)"
+)
 
 
 def _psql_exec_commands(payload):
@@ -861,6 +907,8 @@ def _psql_exec_commands(payload):
             m = PSQL_BANG_RE.search(line)
             if m:
                 out.append(m.group(1).strip())
+            for pipe in PSQL_PIPE_RE.finditer(line):
+                out.append(pipe.group(1).strip())
             for pm in PSQL_PROGRAM_RE.finditer(line):
                 out.append(pm.group(2).strip())
     return [c for c in out if c]
@@ -985,10 +1033,19 @@ def _expand_token(tok, code=False):
     out = []
     for part in parts:
         out.append(part)
-        if not code and "=" in part:
-            rhs = part.split("=", 1)[1].lstrip("!")
-            if rhs and rhs != part:
-                out.append(rhs)
+        if code:
+            continue
+        # EVERY `=`, not just the first. `tar --checkpoint-action=exec=CMD` puts
+        # the command behind a SECOND one, and stopping at the first left
+        # `exec=rm`, which is not a command word either — so the command never
+        # surfaced anywhere (round-3 review, MED-1). The loop costs nothing (a
+        # token has a handful of `=` at most) and covers the whole shape
+        # `--flag=subkey=command`, not the one flag that was reported.
+        rest = part
+        while "=" in rest:
+            rest = rest.split("=", 1)[1].lstrip("!")
+            if rest and rest != part:
+                out.append(rest)
     return out
 
 
