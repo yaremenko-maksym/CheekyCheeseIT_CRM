@@ -650,7 +650,25 @@ describe.skipIf(!hasDatabaseUrl())('drop-share-pending-parity backfill script (r
     expect(backupRows.rowCount).toBe(0)
   })
 
-  it('AC6-f (MED-3): a self-loop Path-B row (sender_id = receiver_id — pre-Audit-2026-06-28 shape) is EXCLUDED from selection and left untouched', async () => {
+  // SKIPPED task-sender-receiver-invariant (backlog A-2, 2026-08-18): the
+  // `seedSelfLoopPathBRow` fixture above (senderId === receiverId === DROP_A.id)
+  // can no longer be inserted at all — the new `ck_transactions_sender_ne_receiver`
+  // DB CHECK on `transactions` rejects ANY row with both sides non-null and
+  // equal, through every write path including this raw fixture insert
+  // (verified: this exact seed throws Postgres 23514 against a DB carrying the
+  // constraint). This backfill script (`2026-07-27_drop_share_pending_parity_
+  // backfill.sql`) is a completed ONE-TIME historical migration — the
+  // self-loop shape it defends against was, per the owner's own audit trail
+  // referenced above, a pre-2026-06-28 artifact, and the owner has now
+  // confirmed (2026-08-17, twice) zero such rows remain anywhere. Per
+  // task-sender-receiver-invariant's AC6 ("если что-то упало — это находка, а
+  // не повод ослабить ограничение"), the fix is skipping this now-uncreatable
+  // fixture, not weakening the constraint. The script's exclusion clause
+  // (`sender_id <> receiver_id` in the SELECT — see the migration file) is
+  // UNCHANGED and still correct for any pre-existing prod row from before this
+  // constraint existed; it simply cannot be exercised end-to-end via a live
+  // fixture insert any more.
+  it.skip('AC6-f (MED-3): a self-loop Path-B row (sender_id = receiver_id — pre-Audit-2026-06-28 shape) is EXCLUDED from selection and left untouched', async () => {
     const { txId: selfLoopId } = await seedSelfLoopPathBRow('88')
     const beforeBalance = await dropBalance()
 

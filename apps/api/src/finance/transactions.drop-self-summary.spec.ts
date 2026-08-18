@@ -351,6 +351,48 @@ describe('getDropSelfSummary — balance & pendingIncomesCount', () => {
     expect(res.balance).toBe(60) // 50 + 30 − 20
   })
 
+  /**
+   * task-sender-receiver-invariant (backlog A-2, security-review round 2
+   * follow-up). A self-referential PAYOUT_DROP (senderId === receiverId ===
+   * drop.id — mega-audit wave 2, C-1) is now IMPOSSIBLE to insert at all
+   * (the `ck_transactions_sender_ne_receiver` DB CHECK rejects it), so the
+   * REAL-DB regression that used to prove this (`total-earned.integration
+   * .spec.ts`'s C-1 test) can no longer seed its fixture and was `it.skip`'d
+   * with a note pointing here. This UNIT test keeps the coverage alive the
+   * cheap way — `computeDropAggregate` is pure arithmetic over an in-memory
+   * array, so a mocked query result exercises the SAME "nets to zero" branch
+   * without touching a real Postgres CHECK at all: a self-loop row counts
+   * once as `received` (receiverId=drop.id) and once as `sent`
+   * (senderId=drop.id), and the two cancel exactly — proving the defensive
+   * `received − sent` formula still holds even for the shape the DB now
+   * structurally forbids (belt-and-suspenders, not a redundant check).
+   */
+  it('a self-referential PAYOUT_DROP (senderId===receiverId===drop.id) nets to zero (C-1, unit-level)', async () => {
+    const txs: TxStub[] = [
+      {
+        id: 'r1',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '50',
+        senderId: null,
+        receiverId: DROP_ID,
+      },
+      {
+        id: 'self-loop',
+        type: 'PAYOUT_DROP',
+        status: 'PAID',
+        amount: '333.33',
+        senderId: DROP_ID,
+        receiverId: DROP_ID,
+      },
+    ]
+    const svc = makeSvc(selfRow, txs)
+    const res = await svc.getDropSelfSummary(user('DROP', DROP_ID))
+    // 50 (received) + 0 net from the self-loop (counted as BOTH received AND
+    // sent, cancelling) — NOT 50 + 333.33 and NOT 50 − 333.33.
+    expect(res.balance).toBe(50)
+  })
+
   it('pendingIncomesCount = DROP_INCOME rows (PENDING|VALIDATED) for this drop', async () => {
     const txs: TxStub[] = [
       {

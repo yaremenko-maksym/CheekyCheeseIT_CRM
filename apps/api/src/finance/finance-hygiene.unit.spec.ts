@@ -421,6 +421,73 @@ describe('AC1 BIZ-06 — createAdminTransfer: ADMIN cannot debit a partner', () 
       ),
     ).rejects.toThrow(BadRequestException)
   })
+
+  // ── task-sender-receiver-invariant (backlog A-2) ────────────────────────
+  // Application-level mirror of `ck_transactions_sender_ne_receiver` — a
+  // friendly 400 BEFORE the row ever reaches the DB CHECK. No insert should
+  // even be attempted (captured stays empty).
+
+  it('ADMIN caller with receiverId=self → BadRequestException, no insert attempted (AC4/AC5)', async () => {
+    const captured: Array<{ senderId: string }> = []
+    const svc = makeAdminTransferService(userMap, captured)
+    const caller = makeViewer('ADMIN', ADMIN_A_ID)
+
+    await expect(
+      svc.createAdminTransfer(
+        {
+          receiverId: ADMIN_A_ID,
+          amount: 100,
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+        },
+        caller,
+      ),
+    ).rejects.toThrow(BadRequestException)
+    expect(captured).toHaveLength(0)
+  })
+
+  it('ACCOUNTANT caller with senderId===receiverId → BadRequestException, no insert attempted (AC4/AC5)', async () => {
+    const captured: Array<{ senderId: string }> = []
+    const svc = makeAdminTransferService(userMap, captured)
+    const accountant = makeViewer('ACCOUNTANT', 'acct-0000-0000-0000-000000000003')
+
+    await expect(
+      svc.createAdminTransfer(
+        {
+          senderId: ADMIN_A_ID,
+          receiverId: ADMIN_A_ID,
+          amount: 100,
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xabc123',
+        },
+        accountant,
+      ),
+    ).rejects.toThrow(BadRequestException)
+    expect(captured).toHaveLength(0)
+  })
+
+  /**
+   * RED-PROOF (AC5): without the `selfPayError` guard in
+   * `TransactionsService.createAdminTransfer`, this exact call would have
+   * reached `dbtx.insert(transactions).values(...)` with senderId ===
+   * receiverId === ADMIN_A_ID, and (against a real Postgres carrying
+   * `ck_transactions_sender_ne_receiver`) failed with an opaque 500 —
+   * Postgres error 23514, NOT a clean BadRequestException. This test proves
+   * the application-level guard fires FIRST, matching AC4's "friendly
+   * refusal before the DB". Temporarily commenting out the `selfPayError`
+   * check in `createAdminTransfer` turns this red (the mock's `insert` would
+   * be reached and throw nothing — `rejects.toThrow` fails).
+   */
+  it('RED-PROOF: self-transfer is rejected before any DB write is attempted', async () => {
+    const captured: Array<{ senderId: string }> = []
+    const svc = makeAdminTransferService(userMap, captured)
+    const caller = makeViewer('ADMIN', ADMIN_A_ID)
+
+    await expect(
+      svc.createAdminTransfer({ receiverId: ADMIN_A_ID, amount: 1, currency: 'USDT' }, caller),
+    ).rejects.toThrow(BadRequestException)
+    expect(captured).toHaveLength(0)
+  })
 })
 
 // ── AC3 — BIZ-18: adminUpdateTransaction blocks amount/currency on any PAID ───

@@ -291,7 +291,12 @@ describe.skipIf(!hasDatabaseUrl())(
           status: 'REJECTED',
           amount: '1000',
           currency: 'USD',
-          senderId: ARTEM.id,
+          // task-sender-receiver-invariant (backlog A-2, 2026-08-18): was
+          // `senderId: ARTEM.id` alongside `receiverId: ARTEM.id` — a self-pay
+          // fixture bug caught by the new `ck_transactions_sender_ne_receiver`
+          // DB CHECK (found via CI, which seeds the real ARTEM fixture this
+          // local scratch DB does not have). Real SENIOR_INCOME rows never set
+          // senderId — see createSeniorIncome in transactions.service.ts.
           receiverId: ARTEM.id,
           receiptDocumentId: null,
           rejectionReason: 'No receipt',
@@ -320,7 +325,12 @@ describe.skipIf(!hasDatabaseUrl())(
           status: 'REJECTED',
           amount: '2000',
           currency: 'USD',
-          senderId: ARTEM.id,
+          // task-sender-receiver-invariant (backlog A-2, 2026-08-18): was
+          // `senderId: ARTEM.id` alongside `receiverId: ARTEM.id` — a self-pay
+          // fixture bug caught by the new `ck_transactions_sender_ne_receiver`
+          // DB CHECK (found via CI, which seeds the real ARTEM fixture this
+          // local scratch DB does not have). Real SENIOR_INCOME rows never set
+          // senderId — see createSeniorIncome in transactions.service.ts.
           receiverId: ARTEM.id,
           receiptDocumentId: DOC_A_ID,
           rejectionReason: 'Bad quality receipt',
@@ -444,7 +454,12 @@ describe.skipIf(!hasDatabaseUrl())(
           status: 'REJECTED',
           amount: '500',
           currency: 'USD',
-          senderId: ARTEM.id,
+          // task-sender-receiver-invariant (backlog A-2, 2026-08-18): was
+          // `senderId: ARTEM.id` alongside `receiverId: ARTEM.id` — a self-pay
+          // fixture bug caught by the new `ck_transactions_sender_ne_receiver`
+          // DB CHECK (found via CI, which seeds the real ARTEM fixture this
+          // local scratch DB does not have). Real SENIOR_INCOME rows never set
+          // senderId — see createSeniorIncome in transactions.service.ts.
           receiverId: ARTEM.id,
           receiptDocumentId: null,
           createdBy: ADMIN.id,

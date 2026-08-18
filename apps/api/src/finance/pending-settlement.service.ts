@@ -45,7 +45,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { and, eq, inArray } from 'drizzle-orm'
-import { MAX_TRANSACTION_AMOUNT, receiptMandatoryError } from '@crm/shared'
+import { MAX_TRANSACTION_AMOUNT, receiptMandatoryError, selfPayError } from '@crm/shared'
 import type {
   PendingSettlementItemDto,
   PendingObligationDto,
@@ -436,6 +436,26 @@ export class PendingSettlementService {
       // the currency label consistent with the ledger).
       currency = 'USDT'
     }
+
+    // security-review round 2 (MED-1 finding, same shape as `paySalary` —
+    // security-reviewer's own linkage): friendly 400 BEFORE the DB CHECK
+    // (ck_transactions_sender_ne_receiver) would reject the UPDATE below with
+    // an opaque constraint-violation error. This method updates the SAME
+    // pre-existing row `paySalary` does (sender resolved here, receiver fixed
+    // at IOU-creation time by `bookCompanyObligations`) and, same as there,
+    // never re-checks the CREDITOR's current role. `obligation.creditorUserId`
+    // is the settling row's `receiverId` — `bookCompanyObligations` stamps
+    // both to the SAME id in the SAME insert (senior.id / drop.id), so no
+    // extra read is needed.
+    //
+    // Verified NOT reachable today the same way as `paySalary`: a senior/drop
+    // creditor can never become an ADMIN either — `UsersService.changeRole`
+    // and `.adminUpdateUser` both refuse `role === 'ADMIN'` unconditionally
+    // ("ADMIN pool is fixed"), and only an ADMIN/ACCOUNTANT-verified ADMIN can
+    // be an `ADMIN_PERSONAL` payer here. Kept as defense-in-depth for the same
+    // reason as `paySalary`'s guard — do not rely on that invariant forever.
+    const settleSelfPayErr = selfPayError(senderId, obligation.creditorUserId)
+    if (settleSelfPayErr) throw new BadRequestException(settleSelfPayErr)
 
     // SECURITY (defense-in-depth, security-review PR #381 — BIZ-03 guard bypass
     // on the omitted-currency path): the branches above can leave `currency` at

@@ -966,6 +966,31 @@ describe('settle senior IOU — funding selection (COMPANY_ACCOUNT | ADMIN_PERSO
     ).rejects.toThrow(ForbiddenException)
   })
 
+  // security-review round 2 (MED-1, mutation gate): the `selfPayError`
+  // defense-in-depth guard (senderId === obligation.creditorUserId) is not
+  // reachable through legitimate role data today — a senior/drop creditor
+  // can never become an ADMIN (verified by reading, not assuming, both
+  // role-mutation doors: `UsersService.changeRole` / `.adminUpdateUser` both
+  // unconditionally refuse `role === 'ADMIN'`). Engineer the collision
+  // directly through the mock (obligation.creditorUserId === the
+  // ADMIN_PERSONAL payer's own id — the same technique the other tests in
+  // this file use for otherwise-hard-to-reach states) so the guard's OWN
+  // logic is exercised and provably fires — this kills the
+  // ConditionalExpression mutant on `if (settleSelfPayErr) throw ...`, not a
+  // claim that the scenario is reachable in production.
+  it('obligation.creditorUserId === payerAdminId (engineered) → BadRequestException, no flip/insert', async () => {
+    const { svc, getFlips, getInsertsFor } = makeService({
+      obligations: new Map([
+        [OBLIGATION_COMPANY, makeObligation({ creditorUserId: ADMIN_PAYER_2_ID })],
+      ]),
+    })
+    await expect(
+      svc.settleByCompanySourceTransaction(SOURCE_TX_ID, accountantUser, ADMIN_FUNDING),
+    ).rejects.toThrow(BadRequestException)
+    expect(getFlips()).toHaveLength(0)
+    expect(getInsertsFor(transactions)).toHaveLength(0)
+  })
+
   // ── obligation-id entry point honours the same funding selection ────────────
   it('settleByCompany (obligation id) with ADMIN_PERSONAL → senderId=payer, no company marker', async () => {
     const { svc, settledTx } = makeService()

@@ -75,7 +75,7 @@ import {
   COMPANY_ACCOUNT_FUNDING_SOURCE,
 } from './company-account-balance'
 import { assertReceiptDocumentBindable } from './receipt.util'
-import { receiptMandatoryError, transactionAmountError } from '@crm/shared'
+import { receiptMandatoryError, selfPayError, transactionAmountError } from '@crm/shared'
 // task-admin-income-unified: MONEY_SCALE/roundShareAmount moved to @crm/shared
 // so the web pre-submit obligation-preview banner and this service compute the
 // exact same rounded share amount — see the module doc in packages/shared.
@@ -3361,6 +3361,15 @@ export class TransactionsService {
     if (recipient.archivedAt) {
       throw new BadRequestException('Recipient admin is archived')
     }
+    // task-sender-receiver-invariant (backlog A-2): defense-in-depth. Not
+    // reachable today — `payoutTx.senderId` is the SENIOR/DROP who requested
+    // the payout and `recipient` must resolve to an ADMIN, two structurally
+    // different roles that can never share an id — but the PAYOUT_CONFIRMED
+    // insert below copies `payoutTx.senderId` verbatim, so a future change to
+    // either invariant would otherwise surface as an opaque DB CHECK error
+    // instead of this clean 400.
+    const confirmSelfPayErr = selfPayError(payoutTx.senderId, recipient.id)
+    if (confirmSelfPayErr) throw new BadRequestException(confirmSelfPayErr)
 
     // security-review PR #456 round 2 (MED-3): under impersonation, attribute
     // `validatedBy` (and the note) to the REAL admin/accountant operator, never
@@ -3783,8 +3792,16 @@ export class TransactionsService {
     if (!receiver) throw new NotFoundException('User not found')
     if (receiver.role !== 'ADMIN')
       throw new BadRequestException('Can only transfer to another ADMIN')
-    if (receiver.id === effectiveSenderId)
-      throw new BadRequestException('Cannot transfer to yourself')
+    // task-sender-receiver-invariant (backlog A-2): friendly 400 BEFORE the
+    // DB CHECK (ck_transactions_sender_ne_receiver) would reject the insert
+    // below with an opaque constraint-violation error. Shared with every
+    // other write path via `selfPayError` — one rule, not five copies.
+    const transferSelfPayErr = selfPayError(
+      effectiveSenderId,
+      receiver.id,
+      'Cannot transfer to yourself',
+    )
+    if (transferSelfPayErr) throw new BadRequestException(transferSelfPayErr)
     // task-archived-user-completeness (AC3). RECEIVER only — the asymmetry is
     // the whole point. In the HOLDING model an ADMIN_TRANSFER credits the
     // receiver (`received` in getSummary), i.e. it puts more company money into
@@ -6397,6 +6414,25 @@ export class TransactionsService {
       // (the PENDING row is denomination-neutral). Any currency is valid here.
       currency = data.currency
     }
+
+    // security-review round 2 (MED-1): friendly 400 BEFORE the DB CHECK
+    // (ck_transactions_sender_ne_receiver) would reject the UPDATE below with
+    // an opaque constraint-violation error. `tx.receiverId` was fixed at
+    // SALARY creation and this method only re-checks `payer.role ===
+    // 'ADMIN'` — never the RECEIVER's CURRENT role — so senderId===receiverId
+    // would only be caught by the DB, not here, if that ever became possible.
+    //
+    // Verified NOT reachable today by reading (not assuming) both role-
+    // mutation doors: `UsersService.changeRole` and `.adminUpdateUser` BOTH
+    // explicitly refuse `role === 'ADMIN'` ("ADMIN pool is fixed") — so no
+    // SALARY receiver (never ADMIN by construction — createSalary's
+    // SALARY_ELIGIBLE_ROLES gate, both accrual crons filter role explicitly)
+    // can ever become the same row as an ADMIN payer. Kept as defense-in-
+    // depth anyway, same reasoning as the `confirmPayout` guard above: cheap,
+    // and it stops relying on "the ADMIN pool is fixed" holding forever
+    // across every future change to those two methods.
+    const paySalarySelfPayErr = selfPayError(senderId, tx.receiverId)
+    if (paySalarySelfPayErr) throw new BadRequestException(paySalarySelfPayErr)
 
     // ── task-salary-pay-amount: the FACT of the payment vs the OBLIGATION ────
     //

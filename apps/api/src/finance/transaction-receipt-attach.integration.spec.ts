@@ -194,7 +194,13 @@ describe.skipIf(!hasDatabaseUrl())(
       const baseTx = {
         type: 'SENIOR_INCOME' as const,
         amount: '1000',
-        senderId: ARTEM.id,
+        // task-sender-receiver-invariant (backlog A-2, 2026-08-18): was
+        // `senderId: ARTEM.id` alongside `receiverId: ARTEM.id` — a self-pay
+        // fixture bug caught by the new `ck_transactions_sender_ne_receiver`
+        // DB CHECK on `transactions` (found via CI's Integration Tests job,
+        // which seeds the real ARTEM fixture this local scratch DB does not
+        // have). Real SENIOR_INCOME rows never set senderId — see
+        // createSeniorIncome/declareUsdtProjectIncome in transactions.service.ts.
         receiverId: ARTEM.id,
         createdBy: ARTEM.id,
       }
