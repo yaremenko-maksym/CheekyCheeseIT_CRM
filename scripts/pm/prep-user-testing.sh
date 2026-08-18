@@ -31,6 +31,10 @@
 #   SKIP_TUNNEL=1 (отключить tunnel, только локальный сервер на localhost:3000)
 #   SKIP_UNIT_TESTS=1 (пропустить unit-tests на шаге 4 — обход флейков, риск показать
 #                      сломанный bundle пользователю; см. runbook)
+#
+# Шаг 6 (db:migrate) сам подтверждает целевую БД префиксом на своей строке
+# (task-ci-db-rename-and-dbpush-guard MED-3) — вызывать этот скрипт как обычно,
+# ничего дополнительно на командную строку добавлять не нужно.
 
 set -euo pipefail
 
@@ -318,8 +322,24 @@ elif [ "$HAS_TRACKING" = "true" ]; then
 fi
 
 # 6. Применить миграции
+#
+# task-ci-db-rename-and-dbpush-guard (security review, PR #579, MED-3):
+# db:migrate now refuses to run against a database whose name does not LOOK
+# disposable (apps/api/src/database/seed-db-guard.ts) — and $PG_DB here is,
+# by design, the live database (`crm_db` unless POSTGRES_DB overrides it;
+# see the "Env overrides" header above). This IS the legitimate case that
+# guard's escape hatch exists for: this script's whole job is preparing User
+# Testing against the real dev database, on purpose, every time.
+#
+# The confirmation is a PREFIX on this ONE command, not `export`ed above —
+# `export SEED_CONFIRM_LIVE_DB_NAME=...` would persist for the rest of this
+# script's process tree (unit tests, build, API start — none of which need
+# it) and reads, on a skim, like a standing bypass rather than a single
+# deliberate confirmation scoped to the one command that needs it. Uses
+# $PG_DB (not a literal "crm_db") so a POSTGRES_DB override is confirmed
+# for the database THIS run actually targets, not a hardcoded guess.
 echo "[6/$TOTAL_STEPS] DB migrations"
-pnpm --filter @crm/api db:migrate
+SEED_CONFIRM_LIVE_DB_NAME="$PG_DB" pnpm --filter @crm/api db:migrate
 
 # 7. Прогнать unit-тесты — если упали, не показываем пользователю.
 # ВАЖНО: `pnpm test` без фильтра тянет @crm/e2e (Playwright), который коннектится к
