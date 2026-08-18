@@ -4,6 +4,7 @@ import { eq } from 'drizzle-orm'
 import { Pool } from 'pg'
 import * as schema from './schema'
 import { loadEnvQuietly } from './load-env-quietly'
+import { assertSeedTargetIsDisposable } from './seed-db-guard'
 import { JUNIOR_CONTRACT } from './seed-templates/contract-junior'
 import { HR_CONTRACT } from './seed-templates/contract-hr'
 import { ACCOUNTANT_CONTRACT } from './seed-templates/contract-accountant'
@@ -539,6 +540,10 @@ Cheeky Cheese IT, 2025`
 async function main() {
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new Error('DATABASE_URL is not set')
+
+  // Must run before opening any connection, let alone the TRUNCATE below —
+  // see seed-db-guard.ts for the incident this closes.
+  assertSeedTargetIsDisposable(databaseUrl)
 
   const pool = new Pool({ connectionString: databaseUrl })
   const db = drizzle(pool, { schema })
