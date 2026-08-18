@@ -27,6 +27,7 @@ import {
   addSeniorToDropTeamViaAPI,
   cleanupDropViaAPI,
   getTeamViaAPI,
+  getTeamAuditLogViaAPI,
   getUserViaAPI,
 } from './fixtures'
 
@@ -97,9 +98,21 @@ test.describe('Drop user archive — real-API (AC2)', () => {
       const senior = await getUserViaAPI(page, seniorId)
       expect(senior.archivedAt).toBeNull()
 
-      const seniorRow = team.members.find((m) => m.userId === seniorId)
-      expect(seniorRow).toBeTruthy()
-      expect(seniorRow!.leftAt).not.toBeNull()
+      // Backlog item 139: `TeamsService.mapDropTeam` (security-review PR
+      // #541 round 3) filters a drop-team's `members` to ACTIVE rows only
+      // (`leftAt === null`) — a detached member is NEVER returned by
+      // `GET /api/teams/:id`. Assert absence from the active list + the
+      // audit trail `archiveDropTeam` writes for the specific detach — see
+      // the identical fix (and full rationale) in drop-archive-real.spec.ts.
+      expect(team.members.find((m) => m.userId === seniorId)).toBeUndefined()
+
+      const auditLog = await getTeamAuditLogViaAPI(page, teamId)
+      const detachEntry = auditLog.find(
+        (e) => e.action === 'team_member_removed' && e.changes['userId']?.before === seniorId,
+      )
+      expect(detachEntry).toBeTruthy()
+      expect(detachEntry!.changes['role']?.before).toBe('SENIOR')
+      expect(detachEntry!.changes['userId']?.after).toBeNull()
 
       cleanedUp = true
     } finally {
