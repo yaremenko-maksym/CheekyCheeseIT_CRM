@@ -43,6 +43,7 @@ import {
   type EntitlementSnapshot,
 } from './archived-entitlement'
 import { UsersService } from './users.service'
+import { compileWhere } from '../finance/__test-helpers__/drizzle-where-introspection'
 
 const ARCHIVED_AT = new Date('2026-01-31T00:00:00.000Z')
 
@@ -146,6 +147,58 @@ describe('archived-entitlement — the discriminator', () => {
       false,
     )
   })
+
+  it('an ARCHIVED user with a real change IS refused (the positive case)', () => {
+    expect(createsEntitlementForArchivedUser(archived, { role: 'HR' })).toBe(true)
+    expect(createsEntitlementForArchivedUser(archived, { monthlySalary: 9000 })).toBe(true)
+  })
+
+  it('null is not "zero" — clearing a salary, or setting one from null, is a change', () => {
+    // `?? null` normalisation runs BEFORE the numeric fast path for a reason:
+    // `Number(null)` is 0, so a numeric comparison would call `null → 0` "no
+    // change" and let an archived user's salary be zeroed (or lifted off null)
+    // without the guard noticing.
+    expect(
+      changedEntitlementFields({ ...archived, monthlySalary: null }, { monthlySalary: 0 }),
+    ).toEqual(['monthlySalary'])
+    expect(
+      changedEntitlementFields({ ...archived, monthlySalary: '0' }, { monthlySalary: null }),
+    ).toEqual(['monthlySalary'])
+  })
+
+  it('a malformed numeric falls back to a textual comparison instead of NaN ≠ NaN', () => {
+    // Number('abc') is NaN and NaN !== NaN, so a pure numeric comparison would
+    // report an unchanged garbage value as a change and 400 a legitimate
+    // whole-form resubmit.
+    expect(
+      changedEntitlementFields({ ...archived, monthlySalary: 'abc' }, { monthlySalary: 'abc' }),
+    ).toEqual([])
+    expect(
+      changedEntitlementFields({ ...archived, monthlySalary: 'abc' }, { monthlySalary: 5 }),
+    ).toEqual(['monthlySalary'])
+  })
+
+  it('TEXT columns are compared textually — never coerced through Number', () => {
+    // `role` and `salaryCurrency` hold enum values today, so numeric coercion
+    // happens to be harmless for them RIGHT NOW. That is an accident of the
+    // current enums, not a property of the function, and the day a text-kind
+    // column holds a numeric-looking value ('1.0' vs '1.00') a numeric
+    // comparison would silently call two different values equal.
+    expect(
+      changedEntitlementFields(
+        { ...archived, salaryCurrency: '1.0' as never },
+        { salaryCurrency: '1.00' },
+      ),
+    ).toEqual(['salaryCurrency'])
+  })
+
+  it('the refusal text names the state AND the way out', () => {
+    // Asserted against literal fragments, NOT against the exported constant —
+    // comparing the constant with itself is the "assertion that cannot fail"
+    // this repo's mutation gate exists to catch.
+    expect(ARCHIVED_ENTITLEMENT_MESSAGE).toContain('архивирован')
+    expect(ARCHIVED_ENTITLEMENT_MESSAGE).toContain('разархивируйте')
+  })
 })
 
 describe('archived-entitlement — layer 1: the in-JS pre-check', () => {
@@ -216,7 +269,89 @@ describe('archived-entitlement — layer 2: reading back the true reason for "0 
     })
     const svc = makeService(db)
 
-    await expect(svc.changeRole('u1', 'HR', 'admin-1')).rejects.toBeInstanceOf(NotFoundException)
+    const err = await svc.changeRole('u1', 'HR', 'admin-1').catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(NotFoundException)
+    // The TEXT matters: this is the message an operator reads to tell "gone"
+    // apart from "frozen".
+    expect((err as Error).message).toBe('User not found')
+  })
+
+  it('the re-read asks for `archivedAt` — an empty projection could only ever answer "not archived"', async () => {
+    const { db, select } = makeDb({
+      selects: [[{ ...active, id: 'u1' }], [{ archivedAt: ARCHIVED_AT }]],
+      updateReturns: [],
+    })
+    const svc = makeService(db)
+
+    await expect(svc.changeRole('u1', 'HR', 'admin-1')).rejects.toThrow(
+      ARCHIVED_ENTITLEMENT_MESSAGE,
+    )
+    const projection = select.mock.calls.at(-1)?.[0] as Record<string, unknown> | undefined
+    expect(projection).toBeDefined()
+    expect(Object.keys(projection!)).toContain('archivedAt')
+  })
+
+  it('does NOT re-read when nothing entitlement-bearing changed — 0 rows then means "gone"', async () => {
+    // No archival predicate was attached, so zero rows is unambiguous. Firing
+    // the re-read anyway would report a row that IS archived as an archival
+    // refusal for a write that never touched an entitlement column.
+    const { db, select } = makeDb({
+      selects: [
+        [{ ...active, id: 'u1' }], // findById — active, nothing changes
+        [{ archivedAt: ARCHIVED_AT }], // would be consumed only by a stray re-read
+      ],
+      updateReturns: [],
+    })
+    const svc = makeService(db)
+
+    await expect(svc.changeSalary('u1', { monthlySalary: 1500 })).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(select).toHaveBeenCalledTimes(1) // findById only
+  })
+
+  it('changeSalary 404s on a missing user before it can write anything', async () => {
+    // `changeSalary` used to write blind; the read added for this task is what
+    // `updateUserRow` compares against, so losing it would hand `undefined`
+    // down as the snapshot.
+    const { db, update } = makeDb({ selects: [[]] })
+    const svc = makeService(db)
+
+    await expect(svc.changeSalary('nope', { monthlySalary: 10 })).rejects.toBeInstanceOf(
+      NotFoundException,
+    )
+    expect(update).not.toHaveBeenCalled()
+  })
+})
+
+describe('archived-entitlement — layer 2: the predicate actually inside the statement', () => {
+  // The mock executor ignores the WHERE clause, but the clause it is HANDED is
+  // a real Drizzle SQL fragment (only the executor is stubbed, not the query
+  // builder). Compiling it is the only way a unit test can see the predicate —
+  // see drizzle-where-introspection.ts, added for exactly this blind spot.
+  async function whereSqlFor(
+    existingRow: Record<string, unknown>,
+    call: (svc: UsersService) => Promise<unknown>,
+  ): Promise<string> {
+    const { db, whereUpdate } = makeDb({
+      selects: [[{ ...existingRow, id: 'u1' }]],
+      updateReturns: [{ ...existingRow, id: 'u1' }],
+    })
+    await call(makeService(db))
+    return compileWhere(whereUpdate.mock.calls[0]?.[0]).sql
+  }
+
+  it('adds `archived_at is null` when an entitlement column actually moves', async () => {
+    const sql = await whereSqlFor(active, (svc) => svc.changeRole('u1', 'HR', 'admin-1'))
+    expect(sql).toContain('"archived_at" is null')
+  })
+
+  it('leaves the statement untouched when nothing entitlement-bearing moves', async () => {
+    // Settlement-time edits must produce byte-for-byte the statement they
+    // produced before this task — an unconditional predicate here would make
+    // every archived user's row unwritable, including their payout requisites.
+    const sql = await whereSqlFor(active, (svc) => svc.changeSalary('u1', { monthlySalary: 1500 }))
+    expect(sql).not.toContain('archived_at')
   })
 })
 
