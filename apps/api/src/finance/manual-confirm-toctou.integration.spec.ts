@@ -14,6 +14,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 
 /**
  * Audit 2026-06-27 (LOW #6) — manualConfirmPayout TOCTOU (real DB).
@@ -127,6 +128,11 @@ describe.skipIf(!hasDatabaseUrl())(
       await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
       await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
       await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
+      // task-onchain-payment-integrity: the consumed-hash registry OUTLIVES its
+      // referent by design, so a suite re-using a fixed test hash must sweep it —
+      // otherwise the next run using the same HASH gets a legitimate
+      // «хеш уже использован» rejection. Runs LAST (needs the rows above gone).
+      await sweepOrphanConsumedTxHashes(dbSvc)
     }
 
     // Seed a PENDING payout request (real createPayoutRequest path) over a fresh
