@@ -477,3 +477,71 @@ allow	all	psql -h localhost -U crm_user -d crm_qa -f apps/api/scripts/seed.sql
 allow	all	install -m 755 scripts/devops/dev-ttl.sh /tmp/bin/dev-ttl.sh
 allow	all	tar --checkpoint=1000 -czf backup.tar.gz apps/
 allow	all	git clone https://github.com/yaremenko-maksym/CheekyCheeseIT_CRM.git
+
+# ═══ round-4 review: the variable that names a program ═══════════════════════
+# `GIT_EDITOR=<cmd> git commit` runs <cmd> — now, on this line, as part of this
+# command. Seven forms reproduced on the box, payload = touch a marker, psql
+# against the SERVICE database and never crm_db: GIT_EDITOR, GIT_SEQUENCE_EDITOR
+# (needs a clean worktree, or rebase refuses before it ever reaches the editor —
+# the first probe lied for that reason), GIT_SSH_COMMAND, GIT_EXTERNAL_DIFF, and
+# PSQL_EDITOR / EDITOR / VISUAL through psql `\e`. All eleven forms below were
+# `ref=BLOCK -> ALLOW` before the fix.
+#
+# NOT the stated variable gap: that one is about a value the scanner cannot see
+# (`C="pnpm dev"; $C`). Here the value is a literal on the same line and
+# scan.assigns already had it — only the link "this variable is run by this
+# command" was missing. The review's boundary is the one to keep: does it
+# execute in THIS command? An editor variable does. `gh alias set` does not, and
+# stays a declared gap two sections up.
+#
+# Read by NAME, not by pairing variable to consumer: a table of
+# GIT_EDITOR->git, PSQL_EDITOR->psql is the wrapper list again and misses
+# `env GIT_EDITOR=<cmd> nice git commit`. The suffix convention (EDITOR, PAGER,
+# COMMAND, ASKPASS, PROGRAM, _PROG, _CMD, SHELL) is the contract, which is also
+# how GIT_SSH_COMMAND is covered without being an EDITOR at all.
+block	safety	GIT_EDITOR='rm -rf /etc' git commit
+block	safety	GIT_SEQUENCE_EDITOR='rm -rf /etc' git rebase -i HEAD~1
+block	safety	GIT_SSH_COMMAND='rm -rf /etc' git fetch origin
+block	safety	GIT_EXTERNAL_DIFF='rm -rf /etc' git diff HEAD~1
+block	safety	GIT_ASKPASS='rm -rf /etc' git push origin main
+block	safety	PSQL_EDITOR='rm -rf /etc' psql -c '\e'
+block	safety	EDITOR='rm -rf /etc' psql -c '\e'
+block	safety	VISUAL='rm -rf /etc' psql -c '\e'
+block	safety	LESSOPEN='|rm -rf /etc %s' less file.txt
+block	safety	env GIT_EDITOR='rm -rf /etc' git commit
+block	safety	export GIT_EDITOR='rm -rf /etc'; git commit
+block	safety	GIT_EDITOR='psql -c "DROP DATABASE crm_db"' git commit
+block	safety	sudo -u maksym GIT_EDITOR='rm -rf /etc' git commit
+# the same variable in front of a dev-server boot
+block	db,ttl	GIT_EDITOR='pnpm dev' git commit
+block	db,ttl	GIT_SEQUENCE_EDITOR='pnpm dev' git rebase -i HEAD~1
+block	db,ttl	PSQL_EDITOR='pnpm dev' psql -c '\e'
+# receipts. The last one is the point of reading by NAME rather than
+# blanket-parsing every inline value: COMMIT_MSG holds a message, so it
+# stays a narrowing. A rule that read every `VAR=value` as code would
+# refuse it, and refusing quoted prose is the disease this PR treats.
+allow	all	GIT_EDITOR=true git commit --amend --no-edit
+allow	all	EDITOR=vim git commit
+allow	all	GIT_PAGER=cat git log -1
+allow	all	PGPASSWORD=secret psql -h localhost -U crm_user -d crm_qa -c 'select 1'
+allow	all	NODE_OPTIONS='--max-old-space-size=4096' pnpm --filter @crm/web build
+narrowed	safety	COMMIT_MSG='fix: never rm -rf /etc by hand' git commit -m x
+# ── attacking the env-var rule itself ────────────────────────────────────────
+# A prefix survives every wrapper between it and the command, so the rule reads
+# `own` (the inline prefix plus `env VAR=v`) rather than looking for the
+# consumer. The last two block on the NAME alone, with no git and no psql in
+# sight: that is the naming convention doing the work, and it is the direction
+# this whole file errs in on purpose.
+block	safety	GIT_EDITOR='rm -rf /etc' nice git commit
+block	safety	env -i GIT_EDITOR='rm -rf /etc' git commit
+block	safety	sudo -u maksym GIT_EDITOR='rm -rf /etc' git commit
+block	safety	xargs -I{} env GIT_EDITOR='rm -rf /etc' git commit
+block	safety	MY_CUSTOM_EDITOR='rm -rf /etc' git commit
+block	safety	SOMETHING_CMD='rm -rf /etc' ./deploy.sh
+block	db,ttl	GIT_EDITOR='pnpm dev' nice git commit
+# and the variables this repo actually puts on a command line, none of which is
+# named like a program — the receipts for reading by name
+allow	all	GUARD_TEST_HOOKS_TOUCHED=0 bash scripts/devops/tests/run-guard-tests.sh
+allow	all	CMDSCAN_LIB=.claude/hooks/lib python3 -c 'print(1)'
+allow	all	GIT_EDITOR=nano git commit
+allow	all	SHELL=/bin/bash pnpm --filter @crm/web build

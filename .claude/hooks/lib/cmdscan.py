@@ -875,6 +875,71 @@ def _git_exec_commands(argv):
     return [c for c in out if c and c.strip()]
 
 
+# ── an inline environment variable that NAMES A PROGRAM ──────────────────────
+# `GIT_EDITOR=<cmd> git commit` runs <cmd>. So do GIT_SEQUENCE_EDITOR with
+# `rebase -i`, GIT_SSH_COMMAND with any transport, GIT_EXTERNAL_DIFF with
+# `diff`, and PSQL_EDITOR / EDITOR / VISUAL with psql `\e`. Seven forms
+# reproduced on this box, payload = touch a marker (psql against the SERVICE
+# database, never crm_db); every marker appeared.
+#
+# THIS IS NOT THE STATED VARIABLE GAP. That gap is about a value the scanner
+# cannot see — `C="pnpm dev"; $C`, where the command word itself is computed.
+# Here the value is a LITERAL sitting on the same line, `scan.assigns` already
+# captured it, and the only thing missing was the link "this variable is run by
+# this command". The review drew the line exactly right, and it is the line this
+# module already uses everywhere else: does it execute in THIS command? An
+# editor variable does, now. `gh alias set` does not — it executes on the NEXT
+# invocation, which is why that one stays a stated gap and this one is a bug.
+#
+# READ BY NAME, NOT BY PAIRING. The alternative was a table of
+# variable -> the command that consumes it (GIT_EDITOR belongs to git,
+# PSQL_EDITOR to psql). Rejected: that is the wrapper list again, and its
+# failure mode is a MISS — an unknown pair, an unknown consumer, or a wrapper in
+# between (`env GIT_EDITOR=<cmd> nice git commit`) and the value goes unread.
+# Naming is the signal instead, because the convention IS the contract: a
+# variable whose name ends in EDITOR / PAGER / COMMAND / ASKPASS / PROGRAM /
+# _PROG / _CMD / SHELL holds a program by construction. That covers
+# GIT_SSH_COMMAND, which no EDITOR-suffix rule would have caught, and it covers
+# the next such variable without anyone adding it.
+#
+# The false-positive cost is bounded by the same convention: a variable named
+# like a program that does not hold one is not a thing. Everything this repo
+# actually puts on a command line — DATABASE_URL, API_PORT, PGPASSWORD,
+# NODE_OPTIONS, GUARD_TEST_*, CMDSCAN_LIB — is untouched, and so is
+# `COMMIT_MSG='... rm -rf /etc ...' git commit`, which stays a narrowing
+# because a message is still data.
+ENV_PROGRAM_SUFFIXES = (
+    "EDITOR", "PAGER", "COMMAND", "ASKPASS", "PROGRAM", "_PROG", "_CMD",
+    "SHELL",
+)
+# Names that hold a program without saying so in the suffix.
+ENV_PROGRAM_EXACT = {
+    "VISUAL", "BROWSER", "GIT_SSH", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND",
+    "LESSOPEN", "LESSCLOSE", "FCEDIT", "DIFFPROG", "MANPAGER",
+}
+
+
+def _env_names_a_program(var):
+    upper = var.upper()
+    if upper in ENV_PROGRAM_EXACT:
+        return True
+    return any(upper.endswith(suffix) for suffix in ENV_PROGRAM_SUFFIXES)
+
+
+def _env_exec_commands(assigns):
+    """Values of the assignments on THIS line that name a program to run."""
+    out = []
+    for var, value in assigns.items():
+        if not _env_names_a_program(var):
+            continue
+        # `LESSOPEN='|<cmd> %s'` — the leading pipe is lesspipe syntax for
+        # "this is a filter", not part of the command word.
+        body = (value or "").strip().lstrip("|").strip()
+        if body:
+            out.append(body)
+    return out
+
+
 # psql executes two things that are not SQL: the `\!` meta-command hands the
 # rest of the line to a shell (reproduced against a live local server — marker
 # appeared; it needs a CONNECTION, which is why a probe against a dead port says
@@ -969,6 +1034,15 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
 
     if name in EXEC_FLAG_SPEC:
         nested.extend(_flag_value_commands(argv, EXEC_FLAG_SPEC[name]))
+
+    # Only what THIS line introduces: `own` is the inline `VAR=v` prefix plus
+    # `env VAR=v`, and `exports` is this segment s own `export VAR=v`. The
+    # INHERITED environment is deliberately not re-read — a nested scan inherits
+    # seg.env, so re-reading it would extract the same value once per level of
+    # nesting for no new information.
+    nested.extend(_env_exec_commands(own))
+    if exports:
+        nested.extend(_env_exec_commands(exports))
 
     # ── the confidence verdict ────────────────────────────────────────────────
     why = None
