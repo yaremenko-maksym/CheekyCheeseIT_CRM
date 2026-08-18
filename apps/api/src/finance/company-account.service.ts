@@ -671,10 +671,35 @@ export class CompanyAccountService {
     // task-archived-user-completeness (AC3). A dividend is a DISCRETIONARY
     // distribution of company profit, decided now — not the settlement of a
     // debt the company already booked. So it is a new entitlement, and an
-    // archived partner must not receive one. (Contrast: what the company
-    // already owes a departed partner lives in `pending_obligations` /
-    // PAYOUT rows and is settled through the payout paths, which deliberately
-    // do NOT check archival — that money was earned.)
+    // archived partner must not receive one.
+    //
+    // AN ADMIN PARTNER HAS NO OBLIGATION ROW — READ THIS BEFORE ADDING A FIFTH
+    // PATH (security-review MED-2 on PR #564 corrected an earlier version of
+    // this comment, which claimed the opposite). For a SENIOR or a DROP, what
+    // the company owes is a durable row: `bookCompanyObligations` is the only
+    // writer of `pending_obligations`, and it stamps `creditorUserId` as
+    // `senior.id` or `drop.id` — never an admin, explicitly (`senior.role !==
+    // 'ADMIN'` guards the senior branch). An ADMIN partner's share is not a
+    // row at all: it is the HOLDING balance `getSummary` DERIVES from
+    // `ADMIN_INCOME` / `ADMIN_TRANSFER` / `PAYOUT_CONFIRMED` (and legacy
+    // `PAYOUT_ADMIN`, which no live path mints any more) minus what they sent
+    // out. There is therefore no admin-side analogue of
+    // `manualConfirmPayout` / `settleByCompany` to fall back on.
+    //
+    // The consequence, stated plainly because it is easy to miss: with this
+    // guard plus the four in `TransactionsService` (`createAdminIncome`,
+    // `declareUsdtProjectIncome`, `confirmPayout`, `createAdminTransfer`),
+    // EVERY route by which company money reaches an admin refuses an archived
+    // receiver. A departed partner's
+    // accumulated HOLDING would have no way out. That costs nothing today —
+    // an archived ADMIN cannot exist (see below) — but the trigger named in
+    // the next paragraph, a "deactivate partner" feature, is exactly the day
+    // someone needs to settle with a leaving partner. That feature must ship
+    // WITH a settlement path for the accumulated HOLDING; it must not ship by
+    // relaxing this line, which exists to stop a NEW discretionary payout, not
+    // to withhold what was earned. Same shape as backlog #129 (the `paySalary`
+    // case) and the same order of operations: provide the way to pay out what
+    // was earned first, then talk about the guard.
     //
     // NOT REACHABLE TODAY, AND THAT IS THE POINT. An archived ADMIN cannot
     // currently exist: `createUser` refuses role=ADMIN, `changeRole` and

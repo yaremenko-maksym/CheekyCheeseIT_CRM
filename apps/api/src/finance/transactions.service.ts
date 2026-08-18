@@ -3798,6 +3798,15 @@ export class TransactionsService {
     // path (`CompanyAccountService.createDividend`) — an archived ADMIN cannot
     // be produced through the API. Kept as a lock on a door that does not
     // exist yet, not as dead code.
+    //
+    // Read the dividend path's comment before relaxing this one: an ADMIN
+    // partner has NO `pending_obligations` row (that table's only writer
+    // stamps a senior or a drop, never an admin), so their accumulated share
+    // exists solely as a derived HOLDING balance. With this guard the archived
+    // RECEIVER side is closed on every admin-crediting path at once — fine
+    // while archived admins cannot exist, and a thing a "deactivate partner"
+    // feature has to solve with a settlement path rather than by deleting
+    // these lines.
     if (receiver.archivedAt) {
       throw new BadRequestException('Получатель архивирован — перевод невозможен')
     }
