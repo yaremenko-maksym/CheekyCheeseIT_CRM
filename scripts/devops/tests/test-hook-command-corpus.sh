@@ -58,6 +58,19 @@ CORPUS="$SELF_DIR/lib/command-corpus.txt"
 # does not touch the hooks or the corpus cannot change any of those verdicts, so
 # the caller may set GUARD_TEST_HOOKS_TOUCHED=0 to skip it.
 #
+# WHICH PATHS OBLIGE THIS FILE TO RUN (the contract the CI filter must match):
+#
+#     .claude/hooks/**            the hooks and lib/cmdscan.py — the subjects
+#     scripts/devops/tests/**     this file, lib/command-corpus.txt, the
+#                                 harnesses, and the three test-pre-bash-* files
+#
+# Written here because otherwise the filter in .github/workflows/ci.yml and this
+# skip switch are joined by nothing but a shared assumption, and assumptions
+# drift in silence. A PR that touches only command-corpus.txt must still run —
+# it would otherwise skip the check on its own change, which is the exact shape
+# of green-and-not-about-it this PR has now hit three times. If the filter and
+# this list ever disagree, the list is the one that states the intent.
+#
 # The default is 1. A gate that decides on its own to be cheap is a gate that
 # quietly stops existing, so the skip has to be ASKED for, and it announces
 # itself in the same breath: the banner below names what was NOT checked, in the

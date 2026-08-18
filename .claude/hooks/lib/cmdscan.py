@@ -908,14 +908,41 @@ def _git_exec_commands(argv):
 # NODE_OPTIONS, GUARD_TEST_*, CMDSCAN_LIB — is untouched, and so is
 # `COMMIT_MSG='... rm -rf /etc ...' git commit`, which stays a narrowing
 # because a message is still data.
+# THERE ARE THREE NAMING CONVENTIONS, NOT ONE (round-5 review). The suffix rule
+# below was the first; the other two carry exactly the same meaning — "this
+# variable holds a program" — and both are finite and documented, so they are
+# filled in here rather than answered with a new mechanism:
+#
+#   *_RSH        the remote-shell slot: RSYNC_RSH, CVS_RSH. Reproduced —
+#                `RSYNC_RSH=<cmd> rsync data host:/tmp/` created its marker.
+#   tool names   the POSIX make / autotools convention, where the variable IS
+#                the name of the tool it runs: CC, CXX, LD, AR, MAKE, RANLIB,
+#                STRIP, YACC, LEX and their relatives. Reproduced with a real
+#                makefile — `CC=<cmd> make -e all`, and the same for CXX and
+#                STRIP, all three created markers.
+#
+# NOT INCLUDED, deliberately, and tracked as backlog 138 instead: LD_PRELOAD,
+# DYLD_INSERT_LIBRARIES, IFS. They do not NAME a program — they change how an
+# already-named one finds its code, so the value is a library path or a
+# separator and there is nothing for a nested parse to read. They need a
+# different predicate with a different false-positive profile (LD_LIBRARY_PATH
+# is ordinary). Likewise BASH_ENV, ENV, PYTHONSTARTUP, PERL5OPT and
+# GIT_TEMPLATE_DIR: those name a FILE, which is the stated file gap, and the
+# pre-narrowing hooks missed them too — so there is no divergence from main.
 ENV_PROGRAM_SUFFIXES = (
     "EDITOR", "PAGER", "COMMAND", "ASKPASS", "PROGRAM", "_PROG", "_CMD",
-    "SHELL",
+    "SHELL", "RSH",
 )
 # Names that hold a program without saying so in the suffix.
 ENV_PROGRAM_EXACT = {
     "VISUAL", "BROWSER", "GIT_SSH", "GIT_EXTERNAL_DIFF", "GIT_PROXY_COMMAND",
     "LESSOPEN", "LESSCLOSE", "FCEDIT", "DIFFPROG", "MANPAGER",
+    # POSIX make / autotools: the variable name IS the tool name. A closed,
+    # documented list — the whole reason this convention can be enumerated at
+    # all, unlike the wrapper list that started this PR.
+    "CC", "CXX", "CPP", "LD", "AR", "AS", "NM", "FC", "F77", "MAKE",
+    "RANLIB", "STRIP", "YACC", "LEX", "OBJCOPY", "OBJDUMP", "LIBTOOL",
+    "INSTALL", "DLLTOOL", "WINDRES", "PKG_CONFIG",
 }
 
 
