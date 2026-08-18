@@ -387,26 +387,41 @@ export class PayoutRequestsController {
 // is attached here. @UseGuards(RolesGuard) at the class level enforces every
 // @Roles-decorated method below; methods WITHOUT @Roles stay open to any
 // authenticated user (RolesGuard returns true when no metadata is present), so
-// `summary` / `accountant-summary` / `drop/me/*` / `exchange-rate` keep their
-// existing service-side RBAC untouched. This closes the recurring "front-only /
+// `accountant-summary` / `drop/me/*` / `exchange-rate` keep their existing
+// service-side RBAC untouched. This closes the recurring "front-only /
 // service-only gating" gap flagged in the #234 review for the live
 // senior-summary route (the service-side ForbiddenException is KEPT —
 // defense-in-depth, never replaced).
 @Controller('finance')
 @UseGuards(RolesGuard)
 export class FinanceSummaryController {
+  // Explicit @Inject so the REAL controller can be instantiated by Nest's DI
+  // in the vitest/esbuild env (which omits `design:paramtypes`) — required by
+  // transactions.summary.roles-guard.spec.ts, which mounts this exact class to
+  // prove the @Roles guard layer on `getSummary`. Mirrors TransactionsController
+  // / PendingSettlementController above.
   constructor(
-    private readonly svc: TransactionsService,
-    private readonly nbu: NbuCurrencyService,
+    @Inject(TransactionsService) private readonly svc: TransactionsService,
+    @Inject(NbuCurrencyService) private readonly nbu: NbuCurrencyService,
   ) {}
 
-  // No @Roles here on purpose (see the class-level comment above) — RolesGuard
-  // is effectively a NO-OP for this route (it returns true when no @Roles
-  // metadata is present), so the REAL RBAC gate is the ForbiddenException at
-  // the top of `TransactionsService.getSummary`. Do not "clean up" by
-  // removing that service-side check as a supposed duplicate of the guard —
-  // it is the only gate this route has.
+  // BACKLOG item 121 (security-review on #560): this route used to carry NO
+  // @Roles, which made the class-level RolesGuard a NO-OP for it (returns
+  // `true` when no @Roles metadata is present — see roles.guard.ts) — the
+  // ONLY gate was the ForbiddenException at the top of
+  // `TransactionsService.getSummary`. A single accidental deletion of that
+  // one `if` would have opened company-wide financial data to every
+  // authenticated role with nothing left to catch it but one integration
+  // spec. @Roles('ADMIN','ACCOUNTANT') below adds the guard as a SECOND,
+  // independent layer — it matches `getSummary`'s own role check exactly
+  // (verify against the service if you change either side). The service
+  // check is DEFENSE-IN-DEPTH, not a duplicate: do NOT remove it under the
+  // impression that the guard now makes it redundant — see the class-level
+  // comment above for why RolesGuard has to be told about routes explicitly,
+  // and transactions.summary.roles-guard.spec.ts for a test that proves the
+  // guard alone (not the service) rejects a forbidden role.
   @Get('summary')
+  @Roles('ADMIN', 'ACCOUNTANT')
   getSummary(@CurrentUser() user: SessionUser) {
     return this.svc.getSummary(user)
   }
