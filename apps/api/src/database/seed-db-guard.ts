@@ -40,9 +40,6 @@
  *   - CI's OWN throwaway Postgres service is ALSO named `crm_db`
  *     (ci.yml + e2e.yml `services.postgres.env.POSTGRES_DB` and each job's
  *     `DATABASE_URL`) — a fresh container recreated per run, safe to wipe.
- *     GitHub Actions sets `CI=true` in every job's environment
- *     automatically (no workflow-file wiring needed), so that is the signal
- *     used to tell "CI's crm_db" apart from "a developer's crm_db" below.
  *   - every OTHER database name actually used anywhere in this repo —
  *     `.env.test`'s `crm_qa`, `run-landing-e2e-local.sh`'s own
  *     `crm_db_scratch` example, and every ad-hoc scratch name an agent has
@@ -59,6 +56,9 @@
  * this repo owns, so there is no import site to hang this same in-process
  * check off of. Giving it equivalent protection needs a small wrapper
  * script in front of the CLI call, which is a separate, scoped change.
+ * (security-review on PR #576, 2026-08-18: this is the single unclosed
+ * path, and drizzle-kit push already destroyed a live table once —
+ * `senior_resumes`, 2026-08-12. Tracked as a follow-up, not bundled here.)
  */
 
 export const LIVE_DB_NAME = 'crm_db'
@@ -113,25 +113,55 @@ export function looksDisposable(dbName: string): boolean {
  * unless the resolved database name looks disposable, per
  * {@link looksDisposable}, or one of two deliberate exceptions applies:
  *
- *   1. `CI=true` — GitHub Actions' own throwaway container. Checked first,
- *      unconditionally, so a CI run never even has to reach the name check.
- *   2. `SEED_CONFIRM_LIVE_DB_NAME=<exact db name>` — the owner's own
- *      escape hatch to deliberately reseed a database that doesn't look
- *      disposable (their live `crm_db` included). The confirmation value
- *      must equal the EXACT database name being targeted, typed at
- *      invocation time — not a plain on/off flag. A flag like
- *      `SEED_ALLOW_LIVE_DB=1` is exactly the shape of thing that silently
- *      survives in an inherited shell environment (the incident this guard
- *      exists for was caused by precisely that pattern, with
- *      `DATABASE_URL`); a value that must match the specific name of THIS
- *      run's target cannot be satisfied by accidentally-inherited state
- *      from an unrelated earlier session.
+ *   1. `GITHUB_ACTIONS=true` — set ONLY by GitHub Actions itself, on every
+ *      job, unconditionally (no workflow-file wiring needed). CI's postgres
+ *      service happens to also be named `crm_db` (a fresh throwaway
+ *      container recreated per run, safe to wipe) — see the file doc above.
+ *
+ *      Deliberately narrower than the more generic `CI=true` (security
+ *      review on PR #576, 2026-08-18): `CI=true <cmd>` is a common,
+ *      easy-to-type idiom for "run this non-interactively" that a human OR
+ *      an agent can reach for outside of GitHub Actions entirely — and it
+ *      is not exported by anything in this repo, so it is not something a
+ *      normal workflow would already have set by accident. Accepting it
+ *      here would hand back a full, silent bypass gated on exactly the
+ *      class of variable (an easily-inherited/easily-typed env var) this
+ *      guard exists to defend against — verified by execution: with
+ *      `CI=true` accepted and a non-disposable-looking name, the old
+ *      version TRUNCATEd for real. `GITHUB_ACTIONS` has no such casual
+ *      path to being set; only the GitHub Actions runner sets it.
+ *
+ *   2. `SEED_CONFIRM_LIVE_DB_NAME=<exact db name>` — the owner's own escape
+ *      hatch to deliberately reseed a database that doesn't look disposable
+ *      (their live `crm_db` included). The confirmation value must equal
+ *      the EXACT database name being targeted, typed at invocation time —
+ *      not a plain on/off flag. A flag like `SEED_ALLOW_LIVE_DB=1` is
+ *      exactly the shape of thing that silently survives in an inherited
+ *      shell environment (the incident this guard exists for was caused by
+ *      precisely that pattern, with `DATABASE_URL`); a value that must
+ *      match the specific name of THIS run's target cannot be satisfied by
+ *      accidentally-inherited state from an unrelated earlier session.
+ *
+ *      This value is deliberately read from `confirmSourceEnv`, NOT from
+ *      `env` (security review on PR #576, 2026-08-18, LOW-2): `env` is
+ *      normally `process.env` AFTER seed.ts's `loadEnvQuietly()` has run,
+ *      i.e. it also reflects whatever `apps/api/.env` set. If the
+ *      confirmation were read from there, setting it once in `.env` to
+ *      unblock a single deliberate reseed would make that "one-time"
+ *      confirmation permanent — silently re-confirming on every future
+ *      run, defeating the entire point of requiring it typed per
+ *      invocation. `confirmSourceEnv` must be a snapshot of `process.env`
+ *      taken BEFORE dotenv ran (seed.ts does this at its very first line);
+ *      dotenv's own default behaviour — never overriding an already-set
+ *      variable — means a value present in that pre-dotenv snapshot can
+ *      only have come from the real shell invocation, never from a file.
  */
 export function assertSeedTargetIsDisposable(
   databaseUrl: string,
   env: NodeJS.ProcessEnv = process.env,
+  confirmSourceEnv: NodeJS.ProcessEnv = env,
 ): void {
-  if (env['CI'] === 'true') {
+  if (env['GITHUB_ACTIONS'] === 'true') {
     return
   }
 
@@ -140,7 +170,7 @@ export function assertSeedTargetIsDisposable(
     return
   }
 
-  if (dbName.length > 0 && env[SEED_LIVE_DB_CONFIRM_ENV] === dbName) {
+  if (dbName.length > 0 && confirmSourceEnv[SEED_LIVE_DB_CONFIRM_ENV] === dbName) {
     console.warn(
       `[seed-db-guard] ${SEED_LIVE_DB_CONFIRM_ENV} confirms wiping '${dbName}' — proceeding.`,
     )
@@ -156,7 +186,8 @@ export function assertSeedTargetIsDisposable(
       `  seed.ts's main() truncates every table before reseeding — if this is genuinely\n` +
       `  your own database and you want to wipe it on purpose, set:\n` +
       `    ${SEED_LIVE_DB_CONFIRM_ENV}=${dbName || '<exact db name>'} pnpm --filter @crm/api db:seed\n` +
-      `  (the value must equal the exact database name above, typed for this run — an\n` +
-      `  inherited or stale env var from an earlier session will not accidentally match).\n`,
+      `  (the value must equal the exact database name above, typed for THIS run on the\n` +
+      `  command line — putting it in apps/api/.env will not work, and an inherited or\n` +
+      `  stale env var from an earlier session will not accidentally match).\n`,
   )
 }

@@ -11,6 +11,15 @@ import { ACCOUNTANT_CONTRACT } from './seed-templates/contract-accountant'
 import { ContractPdfService } from '../contracts/contract-pdf.service'
 import { PdfGenerationService } from '../common/pdf/pdf-generation.service'
 
+// Snapshot BEFORE loadEnvQuietly() below — see seed-db-guard.ts's
+// SEED_CONFIRM_LIVE_DB_NAME doc (security review on PR #576, 2026-08-18,
+// LOW-2): dotenv never overrides an already-set process.env var, so
+// anything present in THIS snapshot came from the real shell invocation,
+// never from apps/api/.env. Passed to assertSeedTargetIsDisposable() below
+// as the sole source for the escape-hatch confirmation, so setting the
+// confirmation once in .env cannot make it silently permanent.
+const preDotenvEnv: NodeJS.ProcessEnv = { ...process.env }
+
 // task-backlog-hygiene-batch (item 7/56): see load-env-quietly.ts for why
 // this is a separate, unit-tested function rather than an inline call —
 // this file's `main().catch(...)` at the bottom runs unconditionally on
@@ -542,8 +551,9 @@ async function main() {
   if (!databaseUrl) throw new Error('DATABASE_URL is not set')
 
   // Must run before opening any connection, let alone the TRUNCATE below —
-  // see seed-db-guard.ts for the incident this closes.
-  assertSeedTargetIsDisposable(databaseUrl)
+  // see seed-db-guard.ts for the incident this closes. `preDotenvEnv` (see
+  // above) is the confirmation source — see that file's LOW-2 doc.
+  assertSeedTargetIsDisposable(databaseUrl, process.env, preDotenvEnv)
 
   const pool = new Pool({ connectionString: databaseUrl })
   const db = drizzle(pool, { schema })

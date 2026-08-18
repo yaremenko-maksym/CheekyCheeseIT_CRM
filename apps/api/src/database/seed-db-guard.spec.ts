@@ -94,14 +94,28 @@ describe('assertSeedTargetIsDisposable', () => {
     expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), {})).toThrow(/'crm_db'/)
   })
 
-  it('CI=true short-circuits before the name check, even against crm_db', () => {
-    expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'true' })).not.toThrow()
+  it('GITHUB_ACTIONS=true short-circuits before the name check, even against crm_db', () => {
+    expect(() =>
+      assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { GITHUB_ACTIONS: 'true' }),
+    ).not.toThrow()
   })
 
-  it('CI set to any other value does NOT bypass the guard', () => {
-    expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'false' })).toThrow(
+  it('GITHUB_ACTIONS set to any other value does NOT bypass the guard', () => {
+    expect(() =>
+      assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { GITHUB_ACTIONS: 'false' }),
+    ).toThrow(/REFUSED/)
+  })
+
+  it('plain CI=true does NOT bypass the guard (narrowed per security review, PR #576 MED-1 — CI is an easy-to-type/easy-to-inherit idiom nothing in this repo exports, unlike GITHUB_ACTIONS which only the runner sets)', () => {
+    expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'true' })).toThrow(
       /REFUSED/,
     )
+  })
+
+  it('CI=true AND GITHUB_ACTIONS=true together still bypass (GITHUB_ACTIONS is what matters)', () => {
+    expect(() =>
+      assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'true', GITHUB_ACTIONS: 'true' }),
+    ).not.toThrow()
   })
 
   it('the exact-name confirmation env var bypasses the guard for crm_db', () => {
@@ -137,13 +151,39 @@ describe('assertSeedTargetIsDisposable', () => {
   })
 
   it('defaults to process.env when no env argument is passed', () => {
-    const saved = process.env['CI']
-    process.env['CI'] = 'true'
+    const saved = process.env['GITHUB_ACTIONS']
+    process.env['GITHUB_ACTIONS'] = 'true'
     try {
       expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME))).not.toThrow()
     } finally {
-      if (saved === undefined) delete process.env['CI']
-      else process.env['CI'] = saved
+      if (saved === undefined) delete process.env['GITHUB_ACTIONS']
+      else process.env['GITHUB_ACTIONS'] = saved
     }
+  })
+
+  describe('confirmSourceEnv (LOW-2, PR #576, 2026-08-18) — the confirmation must come from the real invocation, not apps/api/.env', () => {
+    it('a confirmation value present ONLY in the (post-dotenv) env, absent from confirmSourceEnv, does NOT bypass — this models it having come from a .env file', () => {
+      const postDotenvEnv = { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' } // as if dotenv injected it
+      const preDotenvSnapshot = {} // the real invocation never set it
+      expect(() =>
+        assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), postDotenvEnv, preDotenvSnapshot),
+      ).toThrow(/REFUSED/)
+    })
+
+    it('a confirmation value present in confirmSourceEnv (the pre-dotenv snapshot) DOES bypass — this models it being typed on the invoking command line', () => {
+      const postDotenvEnv = {} // .env did not set it in this scenario
+      const preDotenvSnapshot = { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' } // shell exported it
+      expect(() =>
+        assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), postDotenvEnv, preDotenvSnapshot),
+      ).not.toThrow()
+    })
+
+    it('confirmSourceEnv defaults to env when not passed (back-compat with a single-env call)', () => {
+      expect(() =>
+        assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), {
+          [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db',
+        }),
+      ).not.toThrow()
+    })
   })
 })
