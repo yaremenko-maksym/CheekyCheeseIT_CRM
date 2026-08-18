@@ -55,6 +55,17 @@ import { TransactionsService } from './transactions.service'
  *
  * No DATABASE_URL needed — `.spec.ts` (not `.integration.spec.ts`), runs in
  * the ordinary unit-test job every time, never DB-skipped.
+ *
+ * security-review round on #577 (LOW-1) added `GET /payout-requests/:id`
+ * coverage below: `TransactionsService.findPayoutRequest` throws
+ * `ForbiddenException` UNCONDITIONALLY for any role outside `{ADMIN,
+ * ACCOUNTANT, SENIOR, DROP}` — that fixed superset (not a per-row ownership
+ * check) is exactly what `@Roles('ADMIN','ACCOUNTANT','SENIOR','DROP')` on
+ * `findOne` expresses. HR/JUNIOR are proven rejected by the guard here;
+ * SENIOR/DROP/ADMIN/ACCOUNTANT reach the (always-succeeding) stub — this
+ * spec cannot and does not claim to prove the FINER per-row ownership check
+ * still inside the service (a non-owning SENIOR, say) — that is pinned
+ * separately against a real DB.
  */
 
 const JWT_SECRET = 'payout-requests-roles-guard-spec-secret-32ch'
@@ -92,6 +103,7 @@ const FIXED_PAYOUT = {
 
 let createCalls = 0
 let payCalls = 0
+let findOneCalls = 0
 const stubTransactionsService = {
   createPayoutRequest: () => {
     createCalls++
@@ -100,6 +112,10 @@ const stubTransactionsService = {
   payPayoutRequest: () => {
     payCalls++
     return Promise.resolve({ ...FIXED_PAYOUT, status: 'PAID' })
+  },
+  findPayoutRequest: () => {
+    findOneCalls++
+    return Promise.resolve(FIXED_PAYOUT)
   },
 } as unknown as TransactionsService
 
@@ -151,6 +167,7 @@ describe('PayoutRequestsController — @Roles guard layer (stub service, never t
   beforeEach(() => {
     createCalls = 0
     payCalls = 0
+    findOneCalls = 0
   })
 
   function tokenFor(user: SessionUser): string {
@@ -172,6 +189,14 @@ describe('PayoutRequestsController — @Roles guard layer (stub service, never t
       url: `/api/payout-requests/${SOME_REQUEST_ID}/pay`,
       cookies: { jwt: tokenFor(user) },
       payload: { txHash: '0x'.padEnd(66, 'a') },
+    })
+  }
+
+  async function getPayout(user: SessionUser) {
+    return app.inject({
+      method: 'GET',
+      url: `/api/payout-requests/${SOME_REQUEST_ID}`,
+      cookies: { jwt: tokenFor(user) },
     })
   }
 
@@ -223,6 +248,45 @@ describe('PayoutRequestsController — @Roles guard layer (stub service, never t
         expect(res.statusCode).toBe(200)
         expect(JSON.parse(res.payload)).toEqual({ ...FIXED_PAYOUT, status: 'PAID' })
         expect(payCalls).toBe(1)
+      })
+    }
+  })
+
+  // LOW-1 (security-review round on #577): `@Roles('ADMIN','ACCOUNTANT',
+  // 'SENIOR','DROP')` on `findOne` is the FIXED superset of roles that can
+  // ever pass `findPayoutRequest`'s service-side check — ADMIN/ACCOUNTANT
+  // unconditionally, SENIOR/DROP only when they own the row (this spec's
+  // stub cannot distinguish ownership — it always resolves — so ONLY the
+  // categorically-ineligible roles belong in `forbiddenByRole` below).
+  describe('GET /api/payout-requests/:id', () => {
+    const forbiddenByRole: Array<[string, SessionUser]> = [
+      ['JUNIOR', JUNIOR],
+      ['HR', HR],
+    ]
+    const allowedByRole: Array<[string, SessionUser]> = [
+      ['ADMIN', ADMIN],
+      ['ACCOUNTANT', ACCOUNTANT],
+      ['SENIOR', SENIOR],
+      ['DROP', DROP],
+    ]
+
+    for (const [label, user] of forbiddenByRole) {
+      it(`${label} → 403 AND the handler is never called (guard rejects before it runs)`, async () => {
+        const res = await getPayout(user)
+        expect(res.statusCode).toBe(403)
+        // The stub can only ever return 200 — a 403 here is impossible
+        // unless the guard itself threw, and findOneCalls staying 0 proves
+        // the request never reached the (always-succeeding) handler.
+        expect(findOneCalls).toBe(0)
+      })
+    }
+
+    for (const [label, user] of allowedByRole) {
+      it(`${label} → 200, handler reached (guard lets it through)`, async () => {
+        const res = await getPayout(user)
+        expect(res.statusCode).toBe(200)
+        expect(JSON.parse(res.payload)).toEqual(FIXED_PAYOUT)
+        expect(findOneCalls).toBe(1)
       })
     }
   })

@@ -190,7 +190,7 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       // the separate self-only `GET /api/finance/drop/me/summary` route
       // (untouched by #566, still gated by service-side ownership).
       expect(res.status()).toBe(403)
-      const body = (await res.json()) as { message?: string }
+      const body = (await res.json()) as { message?: string; error?: string }
       // Code-review round on #569 (MED-1): this assertion does NOT tell the
       // `RolesGuard` layer's 403 apart from `TransactionsService.getSummary`'s
       // own 403 — both used to mention "ADMIN"/"ACCOUNTANT" in free text, so
@@ -212,8 +212,19 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       // fix (see the onboarding note above): without `onboardDropViaAPI`,
       // the status-only assertion would have passed for the wrong reason
       // (onboarding-gate 403, not role-gate 403). This still catches it.
+      //
+      // Security-review round on #577 (LOW-2): a body that HAS `message`
+      // structurally cannot also be `OnboardingGuard`'s
+      // `{ error: 'ONBOARDING_REQUIRED', missing }` payload (Nest never
+      // merges the two shapes) — so `body.message.toContain(/* anything */
+      // 'ONBOARDING_REQUIRED')` was always trivially true once `typeof
+      // body.message === 'string'` had already passed; it could never
+      // observe a real failure. Replaced with a structural check on `error`
+      // instead of a content check on `message` — this one is NOT implied
+      // by the line above and would catch a future regression where a
+      // response carried BOTH fields.
       expect(typeof body.message).toBe('string')
-      expect(body.message).not.toContain('ONBOARDING_REQUIRED')
+      expect(body).not.toHaveProperty('error', 'ONBOARDING_REQUIRED')
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)

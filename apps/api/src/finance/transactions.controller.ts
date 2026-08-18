@@ -148,10 +148,20 @@ export class TransactionsController {
     )
   }
 
-  // BIZ-17: DROP resubmit path for REJECTED DROP_INCOME. Service-side ownership
-  // check (tx.receiverId === currentUser.id) is the gate — no @Roles needed;
-  // RolesGuard passes when no metadata is present.
+  // BIZ-17: DROP resubmit path for REJECTED DROP_INCOME. Two independent
+  // checks in `TransactionsService.updateDropIncome`: `currentUser.role !==
+  // 'DROP'` FIRST (an exact role check — the same shape `createDropIncome`
+  // above already carries as `@Roles('DROP')`), THEN `tx.receiverId ===
+  // currentUser.id` for ownership of THIS specific transaction. `@Roles`
+  // expresses the first; it cannot express the second, which stays
+  // service-side. Security-review round on #577 (MED-1): this route used to
+  // carry no `@Roles` at all — the comment here claimed "ownership is the
+  // gate, no @Roles needed" for BOTH checks, which was wrong for the role
+  // check and would have misled the next person who read it instead of the
+  // service. `@Roles('DROP')` below adds the guard layer for the role half;
+  // the service's ownership check is unchanged.
   @Patch('drop-income/:id')
+  @Roles('DROP')
   updateDropIncome(
     @Param('id') id: string,
     @Body() body: unknown,
@@ -355,12 +365,28 @@ export class PayoutRequestsController {
   // @Roles/@UseGuards from the manual-confirm route turns THAT spec red.
   constructor(@Inject(TransactionsService) private readonly svc: TransactionsService) {}
 
+  // `findPayoutRequests` never throws for a non-eligible role — HR/JUNIOR
+  // get an empty array (200), not a 403, so there is no "unconditional
+  // superset" of allowed roles to lift into `@Roles` here the way #566 did
+  // for `getSummary` (a plain guard would turn that 200-empty into a 403,
+  // changing the contract). Left as-is; service-side filtering is the gate.
   @Get()
   findAll(@CurrentUser() user: SessionUser) {
     return this.svc.findPayoutRequests(user)
   }
 
+  // security-review round on #577 (LOW-1): `TransactionsService.
+  // findPayoutRequest` throws `ForbiddenException` UNCONDITIONALLY for any
+  // role outside `{ADMIN, ACCOUNTANT} ∪ {SENIOR, DROP who own the row}` —
+  // unlike `findAll` above, HR/JUNIOR (and any future role) can NEVER
+  // succeed here, ownership or not. That superset — the roles that can EVER
+  // pass the service check — is exactly what `@Roles` below expresses,
+  // mirroring the backlog-121 pattern (`getSummary` et al.): the guard
+  // rejects the categorically-ineligible roles BEFORE the handler runs; the
+  // service's `isPrivileged`/`isOwner` check is UNCHANGED and still does the
+  // per-row ownership narrowing `@Roles` cannot express.
   @Get(':id')
+  @Roles('ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP')
   findOne(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.findPayoutRequest(id, user)
   }
