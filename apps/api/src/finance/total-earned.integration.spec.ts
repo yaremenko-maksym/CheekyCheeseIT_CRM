@@ -119,10 +119,14 @@ const TX_DROP_PAYOUT_PAID = 'fe111111-0000-4000-cc00-000000000007' // PAYOUT_DRO
 // receiverId === DROP.id — the owner's ruling: bad/legacy data, not a real
 // flow) must NOT double-credit the drop's payout bucket. It nets to zero,
 // mirroring computeDropAggregate's `received − sent` (transactions.service
-// .ts). Amount is deliberately non-zero and not a round default (333.33), so
-// this fixture is a real "before/after" red-then-green anchor for the
-// existing DROP totalEarned assertion below, not a no-op fixture.
-const TX_DROP_PAYOUT_SELF_REF = 'fe111111-0000-4000-cc00-00000000000b' // PAYOUT_DROP PAID 333.33 sender=receiver=drop → nets to 0
+// .ts).
+//
+// task-sender-receiver-invariant (backlog A-2, 2026-08-18): this id is kept
+// (harmless in the cleanup delete-by-id list below) but the row is NO LONGER
+// seeded — `ck_transactions_sender_ne_receiver` now rejects it at the DB, the
+// same "bad/legacy data" this comment already called it out as. See the
+// skipped C-1 test further down for the full reasoning.
+const TX_DROP_PAYOUT_SELF_REF = 'fe111111-0000-4000-cc00-00000000000b' // PAYOUT_DROP PAID 333.33 sender=receiver=drop — NO LONGER SEEDED (see above)
 // Audit 2026-06-28 (#2): a gross DROP_INCOME (senderId=null, external client) is
 // NO LONGER counted toward totalEarned — its real slice is the linked PAYOUT_DROP,
 // so counting both double-counts. Kept in the fixture to prove it is excluded.
@@ -315,9 +319,9 @@ describe.skipIf(!hasDatabaseUrl())(
       // DROP earned = 1500 (PAYOUT_DROP PAID) + 400 (DIRECT DROP_INCOME, senderId set)
       //   = 1900. The GROSS DROP_INCOME (250, senderId=null) is EXCLUDED (audit #2 —
       //   its slice is the PAYOUT_DROP); the PENDING drop income is excluded too.
-      //   The self-referential PAYOUT_DROP (333.33, C-1) nets to ZERO and does NOT
-      //   move this total — see TX_DROP_PAYOUT_SELF_REF above and the dedicated
-      //   C-1 test below.
+      //   The self-referential PAYOUT_DROP (333.33, C-1) is NO LONGER seeded
+      //   (task-sender-receiver-invariant, 2026-08-18 — see TX_DROP_PAYOUT_SELF_REF
+      //   above and the skipped C-1 test below), so it does not appear in this total.
       await db.insert(transactions).values([
         {
           id: TX_JUNIOR_SALARY_PAID,
@@ -395,20 +399,14 @@ describe.skipIf(!hasDatabaseUrl())(
           projectId: PROJ_ID,
           createdBy: SENIOR.id,
         },
-        {
-          // C-1: self-referential row — senderId === receiverId === DROP.id.
-          // Must net to zero (parity with computeDropAggregate), NOT add 333.33.
-          id: TX_DROP_PAYOUT_SELF_REF,
-          type: 'PAYOUT_DROP',
-          status: 'PAID',
-          amount: '333.33',
-          currency: 'USD',
-          senderId: DROP.id,
-          receiverId: DROP.id,
-          recipientId: DROP.id,
-          projectId: PROJ_ID,
-          createdBy: SENIOR.id,
-        },
+        // task-sender-receiver-invariant (backlog A-2, 2026-08-18): the
+        // TX_DROP_PAYOUT_SELF_REF fixture (senderId === receiverId === DROP.id)
+        // used to be seeded here. It can no longer be inserted at all — the new
+        // `ck_transactions_sender_ne_receiver` DB CHECK on `transactions` rejects
+        // ANY row where both sides are non-null and equal, through every write
+        // path including a raw test-fixture insert like this one. See the
+        // skipped C-1 test below for the full story (why the row existed, why
+        // removing the constraint is not the fix).
         {
           // GROSS DROP_INCOME — senderId=null (external client). EXCLUDED by #2.
           id: TX_DROP_INCOME_GROSS,
@@ -544,7 +542,23 @@ describe.skipIf(!hasDatabaseUrl())(
     // 333.33 → payout=1833.33, totalEarned=2233.33); GREEN after (payout=1500,
     // totalEarned=1900 — identical to the test above, proving the self-ref row
     // is a true no-op end-to-end, through the real HTTP route + real DB).
-    it('DROP self-referential PAYOUT_DROP (senderId===receiverId===drop) nets to zero (C-1)', async () => {
+    //
+    // SKIPPED task-sender-receiver-invariant (backlog A-2, 2026-08-18): the
+    // fixture this test depends on can no longer be created at all — the new
+    // `ck_transactions_sender_ne_receiver` DB CHECK on `transactions` rejects
+    // ANY insert with senderId === receiverId (both non-null), through every
+    // write path including this raw test-fixture insert (verified: running
+    // this file's `beforeAll` against a DB carrying the constraint throws
+    // Postgres 23514 on exactly this row). Per that task's AC6 ("если
+    // что-то упало — это находка, а не повод ослабить ограничение"), the fix
+    // is here, not a weaker constraint. The DEFENSIVE code this test exercised
+    // (computeDropAggregate's `received − sent`, which nets a self-loop to
+    // zero) is UNCHANGED and stays as belt-and-suspenders — the DB now backs
+    // it up structurally instead of relying on it alone. Un-skippable without
+    // either a new low-level unit test against a mocked query result (no real
+    // insert) or a deliberate, scoped constraint-drop-then-restore inside the
+    // test itself — both out of scope for the invariant task.
+    it.skip('DROP self-referential PAYOUT_DROP (senderId===receiverId===drop) nets to zero (C-1)', async () => {
       const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
       expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
       expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)

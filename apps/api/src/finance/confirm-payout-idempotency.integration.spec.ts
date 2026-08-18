@@ -163,7 +163,14 @@ describe.skipIf(!hasDatabaseUrl())(
           amount,
           currency: 'USDT',
           senderId: SENIOR.id,
-          receiverId: SENIOR.id,
+          // task-sender-receiver-invariant (backlog A-2, 2026-08-18): was
+          // `receiverId: SENIOR.id` — a self-pay fixture bug (senderId ===
+          // receiverId), caught by the new `ck_transactions_sender_ne_receiver`
+          // DB CHECK on `transactions`. The REAL `createPayoutRequest` write
+          // path (transactions.service.ts) never sets `receiverId` on a PAYOUT
+          // row at all — only `receiverLabel: 'CheekyCheeseIT'` — so `null`
+          // here matches production shape exactly, not just "whatever passes
+          // the constraint". No test in this file asserted on this field.
           payoutRequestId: payoutRequestId ?? null,
           createdBy: SENIOR.id,
         })
