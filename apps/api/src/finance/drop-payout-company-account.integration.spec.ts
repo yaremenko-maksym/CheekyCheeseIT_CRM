@@ -26,6 +26,7 @@ import {
 } from '../database/schema'
 import * as schema from '../database/schema'
 import { hasDatabaseUrl } from '../test/require-real-db'
+import { sweepOrphanConsumedTxHashes } from './__test-helpers__/consumed-tx-hashes'
 
 /**
  * task-drop-payout-company-account — REAL-DB integration proving the new DROP
@@ -249,6 +250,11 @@ describe.skipIf(!hasDatabaseUrl())(
       await dbSvc.db
         .delete(payoutRequests)
         .where(inArray(payoutRequests.seniorId, TEST_OWN_USER_IDS))
+      // task-onchain-payment-integrity: the consumed-hash registry OUTLIVES its
+      // referent by design, so a suite re-using fixed test hashes must sweep it —
+      // otherwise the next run using the same HASH gets a legitimate
+      // «хеш уже использован» rejection. Runs LAST (needs the rows above gone).
+      await sweepOrphanConsumedTxHashes(dbSvc)
     }
 
     async function displayBalance(): Promise<number> {
