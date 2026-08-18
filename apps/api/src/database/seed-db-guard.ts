@@ -88,7 +88,11 @@ export function extractDbName(databaseUrl: string): string {
   } catch {
     return ''
   }
-  const raw = pathname.replace(/^\//, '')
+  // `.slice(1)` rather than `.replace(/^\//, '')`: URL.pathname is guaranteed
+  // to either be empty or start with `/` (WHATWG URL spec), so there is no
+  // observable difference — and no regex left for a mutation gate to flag as
+  // an untested equivalent.
+  const raw = pathname.slice(1)
   let decoded: string
   try {
     decoded = decodeURIComponent(raw)
@@ -105,7 +109,11 @@ export function extractDbName(databaseUrl: string): string {
  * unrelated database that happens to share letters.
  */
 export function looksDisposable(dbName: string): boolean {
-  return dbName.length > 0 && dbName.startsWith(DISPOSABLE_NAME_PREFIX) && dbName !== LIVE_DB_NAME
+  // No separate `dbName.length > 0` check: it would be dead code.
+  // DISPOSABLE_NAME_PREFIX is non-empty, so an empty dbName already fails
+  // `.startsWith(DISPOSABLE_NAME_PREFIX)` on its own — there is no string
+  // for which the length check changes the result.
+  return dbName.startsWith(DISPOSABLE_NAME_PREFIX) && dbName !== LIVE_DB_NAME
 }
 
 /**

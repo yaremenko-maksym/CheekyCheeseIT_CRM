@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import {
   DISPOSABLE_NAME_PREFIX,
@@ -39,6 +39,10 @@ describe('extractDbName', () => {
   it('returns empty string for a URL with no path segment', () => {
     expect(extractDbName('postgresql://crm_user:password@localhost:5432')).toBe('')
   })
+
+  it('falls back to the raw (un-decoded) segment when it is not valid percent-encoding, rather than throwing', () => {
+    expect(extractDbName('postgresql://u:p@localhost:5432/crm_qa%zz')).toBe('crm_qa%zz')
+  })
 })
 
 describe('looksDisposable', () => {
@@ -76,6 +80,18 @@ describe('looksDisposable', () => {
 })
 
 describe('assertSeedTargetIsDisposable', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('the escape-hatch env var name is the exact string this file documents (not just "truthy")', () => {
+    // Guards against the constant itself being gutted: every test above uses
+    // the SAME imported symbol as both production code and test code, so a
+    // mutated (e.g. emptied) constant would still "work" in every other test
+    // here — only a direct value assertion catches that.
+    expect(SEED_LIVE_DB_CONFIRM_ENV).toBe('SEED_CONFIRM_LIVE_DB_NAME')
+  })
+
   it('does not throw for a disposable-looking name', () => {
     expect(() => assertSeedTargetIsDisposable(urlFor('crm_qa'), {})).not.toThrow()
   })
@@ -92,6 +108,30 @@ describe('assertSeedTargetIsDisposable', () => {
 
   it('the refusal names the exact database it saw', () => {
     expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), {})).toThrow(/'crm_db'/)
+  })
+
+  it('the refusal message contains every distinct piece of guidance text, in full (not just "REFUSED")', () => {
+    let thrown: Error | undefined
+    try {
+      assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), {})
+    } catch (err) {
+      thrown = err as Error
+    }
+    expect(thrown).toBeInstanceOf(Error)
+    const msg = thrown!.message
+
+    expect(msg).toContain("REFUSED: db:seed will not TRUNCATE database 'crm_db'")
+    expect(msg).toContain('does not look disposable')
+    expect(msg).toContain(`prefixed scratch/QA name, not exactly '${LIVE_DB_NAME}'`)
+    // A blank line separates the "why" paragraph from the "how to override"
+    // paragraph — a real \n\n, not just two \n-terminated lines back to back.
+    expect(msg).toMatch(/\n\n/)
+    expect(msg).toContain('truncates every table before reseeding')
+    expect(msg).toContain('want to wipe it on purpose, set:')
+    expect(msg).toContain(`${SEED_LIVE_DB_CONFIRM_ENV}=crm_db pnpm --filter @crm/api db:seed`)
+    expect(msg).toContain('must equal the exact database name above')
+    expect(msg).toContain('apps/api/.env will not work')
+    expect(msg).toContain('will not accidentally match')
   })
 
   it('GITHUB_ACTIONS=true short-circuits before the name check, even against crm_db', () => {
@@ -142,12 +182,39 @@ describe('assertSeedTargetIsDisposable', () => {
     ).toThrow(/REFUSED/)
   })
 
+  it('logs a warning naming the exact database when the confirmation bypasses (not silent)', () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+    assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' })
+    expect(warnSpy).toHaveBeenCalledWith(
+      `[seed-db-guard] ${SEED_LIVE_DB_CONFIRM_ENV} confirms wiping 'crm_db' — proceeding.`,
+    )
+  })
+
+  it('an EMPTY confirmation value does not bypass an unparseable (empty) db name — the length check on the confirm branch is not dead code', () => {
+    expect(() =>
+      assertSeedTargetIsDisposable('not-a-url', { [SEED_LIVE_DB_CONFIRM_ENV]: '' }),
+    ).toThrow(/REFUSED/)
+  })
+
   it('refuses an unrecognized non-crm_-prefixed name too (fail-closed, not a crm_db-only denylist)', () => {
     expect(() => assertSeedTargetIsDisposable(urlFor('some_other_db'), {})).toThrow(/REFUSED/)
   })
 
-  it('refuses a malformed DATABASE_URL (unknown name, cannot prove disposable)', () => {
+  it('refuses a malformed DATABASE_URL (unknown name, cannot prove disposable), naming it as unknown rather than showing an empty string', () => {
     expect(() => assertSeedTargetIsDisposable('not-a-url', {})).toThrow(/REFUSED/)
+    let thrown: Error | undefined
+    try {
+      assertSeedTargetIsDisposable('not-a-url', {})
+    } catch (err) {
+      thrown = err as Error
+    }
+    const msg = thrown!.message
+    expect(msg).toContain(
+      "REFUSED: db:seed will not TRUNCATE database '(unknown — could not parse DATABASE_URL)'",
+    )
+    expect(msg).toContain(
+      `${SEED_LIVE_DB_CONFIRM_ENV}=<exact db name> pnpm --filter @crm/api db:seed`,
+    )
   })
 
   it('defaults to process.env when no env argument is passed', () => {
