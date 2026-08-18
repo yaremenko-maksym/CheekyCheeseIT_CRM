@@ -15,6 +15,7 @@ import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { pendingObligations, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Security-review PR #367 (MED-1) — declareUsdtProjectIncome idempotency.
@@ -103,7 +104,6 @@ const stubInvoices = {
 const stubDocuments = {} as never
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -154,195 +154,123 @@ class TestDatabaseModule {}
 })
 class UsdtIdemTestModule {}
 
-describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => {
-  let svc: TransactionsService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)',
+  () => {
+    let svc: TransactionsService
+    let dbSvc: DatabaseService
 
-  // Surgical cleanup — never a blanket delete by MAKSYM/KOSTYA id.
-  async function clearLedger() {
-    await dbSvc.db
-      .delete(pendingObligations)
-      .where(inArray(pendingObligations.creditorUserId, TEST_OWN_USER_IDS))
-    await dbSvc.db.delete(transactions).where(inArray(transactions.projectId, MY_PROJECT_IDS))
-  }
+    // Surgical cleanup — never a blanket delete by MAKSYM/KOSTYA id.
+    async function clearLedger() {
+      await dbSvc.db
+        .delete(pendingObligations)
+        .where(inArray(pendingObligations.creditorUserId, TEST_OWN_USER_IDS))
+      await dbSvc.db.delete(transactions).where(inArray(transactions.projectId, MY_PROJECT_IDS))
+    }
 
-  async function countTxType(type: string, projectId: string): Promise<number> {
-    const rows = await dbSvc.db
-      .select({ c: sql<string>`COUNT(*)` })
-      .from(transactions)
-      .where(and(eq(transactions.type, type as never), eq(transactions.projectId, projectId)))
-    return parseInt(rows[0]?.c ?? '0', 10)
-  }
+    async function countTxType(type: string, projectId: string): Promise<number> {
+      const rows = await dbSvc.db
+        .select({ c: sql<string>`COUNT(*)` })
+        .from(transactions)
+        .where(and(eq(transactions.type, type as never), eq(transactions.projectId, projectId)))
+      return parseInt(rows[0]?.c ?? '0', 10)
+    }
 
-  async function obligationsFor(creditorId: string): Promise<number> {
-    const rows = await dbSvc.db
-      .select({ c: sql<string>`COUNT(*)` })
-      .from(pendingObligations)
-      .where(eq(pendingObligations.creditorUserId, creditorId))
-    return parseInt(rows[0]?.c ?? '0', 10)
-  }
+    async function obligationsFor(creditorId: string): Promise<number> {
+      const rows = await dbSvc.db
+        .select({ c: sql<string>`COUNT(*)` })
+        .from(pendingObligations)
+        .where(eq(pendingObligations.creditorUserId, creditorId))
+      return parseInt(rows[0]?.c ?? '0', 10)
+    }
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const enumOk = await probe.query(
-        `SELECT 1 FROM pg_type WHERE typname='project_payment_type' LIMIT 1`,
-      )
-      const colOk = await probe.query(
-        `SELECT 1 FROM information_schema.columns
-         WHERE table_name='transactions' AND column_name='idempotency_key' LIMIT 1`,
-      )
-      const idxOk = await probe.query(
-        `SELECT 1 FROM pg_indexes
-         WHERE indexname='uq_transactions_admin_income_idempotency_key' LIMIT 1`,
-      )
-      await probe.end()
-      if (enumOk.rowCount === 0 || colOk.rowCount === 0 || idxOk.rowCount === 0) {
-        console.warn(
-          '[usdt-income-idempotency] SKIPPED — payment_type enum / idempotency_key column / admin_income index not migrated',
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const enumOk = await probe.query(
+          `SELECT 1 FROM pg_type WHERE typname='project_payment_type' LIMIT 1`,
         )
-        dbAvailable = false
-        return
+        const colOk = await probe.query(
+          `SELECT 1 FROM information_schema.columns
+         WHERE table_name='transactions' AND column_name='idempotency_key' LIMIT 1`,
+        )
+        const idxOk = await probe.query(
+          `SELECT 1 FROM pg_indexes
+         WHERE indexname='uq_transactions_admin_income_idempotency_key' LIMIT 1`,
+        )
+        await probe.end()
+        if (enumOk.rowCount === 0 || colOk.rowCount === 0 || idxOk.rowCount === 0) {
+          throw new Error(
+            '[usdt-income-idempotency] FAILED — payment_type enum / idempotency_key column / admin_income index not migrated',
+          )
+        }
+      } catch {
+        throw new Error('[usdt-income-idempotency] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[usdt-income-idempotency] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({ imports: [UsdtIdemTestModule] }).compile()
-    await moduleRef.init()
-    svc = moduleRef.get(TransactionsService)
-    dbSvc = moduleRef.get(DatabaseService)
+      const moduleRef = await Test.createTestingModule({ imports: [UsdtIdemTestModule] }).compile()
+      await moduleRef.init()
+      svc = moduleRef.get(TransactionsService)
+      dbSvc = moduleRef.get(DatabaseService)
 
-    const db = dbSvc.db
-    await db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
-    await clearLedger()
-    await db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
-    await db
-      .insert(users)
-      .values(
-        [...TEST_OWN_USERS, ADMIN_MAKSYM, ADMIN_KOSTYA].map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.seniorSharePercent,
-          ...(u.role === 'DROP' ? { dropSharePercent: DROP_SHARE } : {}),
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // USDT drop-project: senior (non-admin) + drop bound, no override → drop 5%.
-    await db
-      .insert(projects)
-      .values([
-        {
-          id: USDT_DROP_PROJECT,
-          name: 'USDT Idem Drop Project',
-          companyName: 'USDT Idem DropCorp',
-          domain: 'fintech',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR.id,
-          dropId: DROP.id,
-          currency: 'USDT',
-          rate: 1000,
-          paymentType: 'USDT',
-        },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  beforeEach(async () => {
-    if (!dbAvailable) return
-    await clearLedger()
-  })
-
-  afterAll(async () => {
-    if (dbAvailable && dbSvc) {
+      const db = dbSvc.db
+      await db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
       await clearLedger()
-      await dbSvc.db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
-    }
-    if (_pool) await _pool.end()
-  }, 15_000)
+      await db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
+      await db
+        .insert(users)
+        .values(
+          [...TEST_OWN_USERS, ADMIN_MAKSYM, ADMIN_KOSTYA].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.seniorSharePercent,
+            ...(u.role === 'DROP' ? { dropSharePercent: DROP_SHARE } : {}),
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
 
-  // ── AC2: replay with the same key ──────────────────────────────────────────
-  it('AC2: same key twice → ONE ADMIN_INCOME + ONE obligation set, second call returns existing', async () => {
-    if (!dbAvailable) return
-    const key = randomUUID()
+      // USDT drop-project: senior (non-admin) + drop bound, no override → drop 5%.
+      await db
+        .insert(projects)
+        .values([
+          {
+            id: USDT_DROP_PROJECT,
+            name: 'USDT Idem Drop Project',
+            companyName: 'USDT Idem DropCorp',
+            domain: 'fintech',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR.id,
+            dropId: DROP.id,
+            currency: 'USDT',
+            rate: 1000,
+            paymentType: 'USDT',
+          },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
 
-    const first = await svc.declareUsdtProjectIncome(
-      {
-        projectId: USDT_DROP_PROJECT,
-        amount: 1000,
-        receiverId: COMPANY_ACCOUNT_RECEIVER,
-        idempotencyKey: key,
-        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
-      },
-      ADMIN_MAKSYM,
-    )
-    const second = await svc.declareUsdtProjectIncome(
-      {
-        projectId: USDT_DROP_PROJECT,
-        amount: 1000,
-        receiverId: COMPANY_ACCOUNT_RECEIVER,
-        idempotencyKey: key,
-        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
-      },
-      ADMIN_MAKSYM,
-    )
+    beforeEach(async () => {
+      await clearLedger()
+    })
 
-    // Idempotent — the replay returns the SAME transaction id.
-    expect(second.id).toBe(first.id)
-    // Exactly ONE ADMIN_INCOME on the project — no second income.
-    expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(1)
-    // Obligations NOT doubled: exactly one senior IOU + one drop IOU.
-    expect(await obligationsFor(SENIOR.id)).toBe(1)
-    expect(await obligationsFor(DROP.id)).toBe(1)
-  }, 30_000)
+    afterAll(async () => {
+      if (dbSvc) {
+        await clearLedger()
+        await dbSvc.db.delete(projects).where(inArray(projects.id, MY_PROJECT_IDS))
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
+      }
+      if (_pool) await _pool.end()
+    }, 15_000)
 
-  // ── AC3: distinct keys are independent ─────────────────────────────────────
-  it('AC3: two different keys → TWO incomes + TWO obligation sets', async () => {
-    if (!dbAvailable) return
-    await svc.declareUsdtProjectIncome(
-      {
-        projectId: USDT_DROP_PROJECT,
-        amount: 1000,
-        receiverId: COMPANY_ACCOUNT_RECEIVER,
-        idempotencyKey: randomUUID(),
-        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
-      },
-      ADMIN_MAKSYM,
-    )
-    await svc.declareUsdtProjectIncome(
-      {
-        projectId: USDT_DROP_PROJECT,
-        amount: 1000,
-        receiverId: COMPANY_ACCOUNT_RECEIVER,
-        idempotencyKey: randomUUID(),
-        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
-      },
-      ADMIN_MAKSYM,
-    )
+    // ── AC2: replay with the same key ──────────────────────────────────────────
+    it('AC2: same key twice → ONE ADMIN_INCOME + ONE obligation set, second call returns existing', async () => {
+      const key = randomUUID()
 
-    expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(2)
-    expect(await obligationsFor(SENIOR.id)).toBe(2)
-    expect(await obligationsFor(DROP.id)).toBe(2)
-  }, 30_000)
-
-  // ── AC4: concurrent race collides on the unique index (23505) ──────────────
-  it('AC4: concurrent duplicate submit → both fulfilled with SAME id, exactly ONE income + set (no 500)', async () => {
-    if (!dbAvailable) return
-    const key = randomUUID()
-
-    // Both calls miss the early-SELECT (they run before either commits). Under the
-    // partial unique index one INSERT wins, the other hits 23505, the catch
-    // re-reads the committed winner and returns it — no rejection, no double book.
-    const results = await Promise.allSettled([
-      svc.declareUsdtProjectIncome(
+      const first = await svc.declareUsdtProjectIncome(
         {
           projectId: USDT_DROP_PROJECT,
           amount: 1000,
@@ -351,8 +279,8 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
           receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
         },
         ADMIN_MAKSYM,
-      ),
-      svc.declareUsdtProjectIncome(
+      )
+      const second = await svc.declareUsdtProjectIncome(
         {
           projectId: USDT_DROP_PROJECT,
           amount: 1000,
@@ -361,60 +289,126 @@ describe('declareUsdtProjectIncome idempotency (real DB, PR #367 MED-1)', () => 
           receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
         },
         ADMIN_MAKSYM,
-      ),
-    ])
+      )
 
-    expect(results[0]!.status).toBe('fulfilled')
-    expect(results[1]!.status).toBe('fulfilled')
-    const ids = results
-      .filter((r): r is PromiseFulfilledResult<{ id: string }> => r.status === 'fulfilled')
-      .map((r) => r.value.id)
-    expect(ids[0]).toBe(ids[1])
+      // Idempotent — the replay returns the SAME transaction id.
+      expect(second.id).toBe(first.id)
+      // Exactly ONE ADMIN_INCOME on the project — no second income.
+      expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(1)
+      // Obligations NOT doubled: exactly one senior IOU + one drop IOU.
+      expect(await obligationsFor(SENIOR.id)).toBe(1)
+      expect(await obligationsFor(DROP.id)).toBe(1)
+    }, 30_000)
 
-    expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(1)
-    expect(await obligationsFor(SENIOR.id)).toBe(1)
-    expect(await obligationsFor(DROP.id)).toBe(1)
-  }, 30_000)
+    // ── AC3: distinct keys are independent ─────────────────────────────────────
+    it('AC3: two different keys → TWO incomes + TWO obligation sets', async () => {
+      await svc.declareUsdtProjectIncome(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 1000,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+          idempotencyKey: randomUUID(),
+          receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
+        },
+        ADMIN_MAKSYM,
+      )
+      await svc.declareUsdtProjectIncome(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 1000,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+          idempotencyKey: randomUUID(),
+          receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
+        },
+        ADMIN_MAKSYM,
+      )
 
-  // ── AC4b: out-of-band row with the key → early-SELECT returns it, no obligations
-  it('AC4b: pre-existing ADMIN_INCOME with the key → returns it and books NO obligations', async () => {
-    if (!dbAvailable) return
-    const key = randomUUID()
+      expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(2)
+      expect(await obligationsFor(SENIOR.id)).toBe(2)
+      expect(await obligationsFor(DROP.id)).toBe(2)
+    }, 30_000)
 
-    // Insert an ADMIN_INCOME carrying the key directly (bypassing the service, so
-    // no obligations exist for it). A service call with the SAME key must hit the
-    // early-SELECT, return the existing row, and NOT book any obligations.
-    const [preexisting] = await dbSvc.db
-      .insert(transactions)
-      .values({
-        type: 'ADMIN_INCOME',
-        status: 'PAID',
-        amount: '1000',
-        currency: 'USDT',
-        receiverId: MAKSYM_ID,
-        projectId: USDT_DROP_PROJECT,
-        fundingSource: 'COMPANY_ACCOUNT',
-        idempotencyKey: key,
-        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
-        createdBy: MAKSYM_ID,
-      })
-      .returning()
+    // ── AC4: concurrent race collides on the unique index (23505) ──────────────
+    it('AC4: concurrent duplicate submit → both fulfilled with SAME id, exactly ONE income + set (no 500)', async () => {
+      const key = randomUUID()
 
-    const res = await svc.declareUsdtProjectIncome(
-      {
-        projectId: USDT_DROP_PROJECT,
-        amount: 1000,
-        receiverId: COMPANY_ACCOUNT_RECEIVER,
-        idempotencyKey: key,
-        receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
-      },
-      ADMIN_MAKSYM,
-    )
+      // Both calls miss the early-SELECT (they run before either commits). Under the
+      // partial unique index one INSERT wins, the other hits 23505, the catch
+      // re-reads the committed winner and returns it — no rejection, no double book.
+      const results = await Promise.allSettled([
+        svc.declareUsdtProjectIncome(
+          {
+            projectId: USDT_DROP_PROJECT,
+            amount: 1000,
+            receiverId: COMPANY_ACCOUNT_RECEIVER,
+            idempotencyKey: key,
+            receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
+          },
+          ADMIN_MAKSYM,
+        ),
+        svc.declareUsdtProjectIncome(
+          {
+            projectId: USDT_DROP_PROJECT,
+            amount: 1000,
+            receiverId: COMPANY_ACCOUNT_RECEIVER,
+            idempotencyKey: key,
+            receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
+          },
+          ADMIN_MAKSYM,
+        ),
+      ])
 
-    expect(res.id).toBe(preexisting!.id)
-    expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(1)
-    // Early-return skipped bookCompanyObligations entirely.
-    expect(await obligationsFor(SENIOR.id)).toBe(0)
-    expect(await obligationsFor(DROP.id)).toBe(0)
-  }, 30_000)
-})
+      expect(results[0]!.status).toBe('fulfilled')
+      expect(results[1]!.status).toBe('fulfilled')
+      const ids = results
+        .filter((r): r is PromiseFulfilledResult<{ id: string }> => r.status === 'fulfilled')
+        .map((r) => r.value.id)
+      expect(ids[0]).toBe(ids[1])
+
+      expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(1)
+      expect(await obligationsFor(SENIOR.id)).toBe(1)
+      expect(await obligationsFor(DROP.id)).toBe(1)
+    }, 30_000)
+
+    // ── AC4b: out-of-band row with the key → early-SELECT returns it, no obligations
+    it('AC4b: pre-existing ADMIN_INCOME with the key → returns it and books NO obligations', async () => {
+      const key = randomUUID()
+
+      // Insert an ADMIN_INCOME carrying the key directly (bypassing the service, so
+      // no obligations exist for it). A service call with the SAME key must hit the
+      // early-SELECT, return the existing row, and NOT book any obligations.
+      const [preexisting] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'ADMIN_INCOME',
+          status: 'PAID',
+          amount: '1000',
+          currency: 'USDT',
+          receiverId: MAKSYM_ID,
+          projectId: USDT_DROP_PROJECT,
+          fundingSource: 'COMPANY_ACCOUNT',
+          idempotencyKey: key,
+          receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
+          createdBy: MAKSYM_ID,
+        })
+        .returning()
+
+      const res = await svc.declareUsdtProjectIncome(
+        {
+          projectId: USDT_DROP_PROJECT,
+          amount: 1000,
+          receiverId: COMPANY_ACCOUNT_RECEIVER,
+          idempotencyKey: key,
+          receiptExternalUrl: 'https://etherscan.io/tx/0xusdtincomeidempotencyspec',
+        },
+        ADMIN_MAKSYM,
+      )
+
+      expect(res.id).toBe(preexisting!.id)
+      expect(await countTxType('ADMIN_INCOME', USDT_DROP_PROJECT)).toBe(1)
+      // Early-return skipped bookCompanyObligations entirely.
+      expect(await obligationsFor(SENIOR.id)).toBe(0)
+      expect(await obligationsFor(DROP.id)).toBe(0)
+    }, 30_000)
+  },
+)

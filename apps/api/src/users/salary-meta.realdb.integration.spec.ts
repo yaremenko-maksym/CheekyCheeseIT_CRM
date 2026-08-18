@@ -14,7 +14,10 @@
  * SEED: inserts isolated test rows in beforeAll, deletes in afterAll.
  * IDs namespaced sm2- (salary-meta-realdb) — no collision with other specs.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED). A DATABASE_URL that IS set but unreachable
+ * throws in beforeAll (reports FAILED) — neither case can look like
+ * "passed" with zero assertions.
  */
 
 import { Pool } from 'pg'
@@ -26,6 +29,7 @@ import { DatabaseService } from '../database/database.service'
 import { UsersService } from './users.service'
 import { users, userAuditLog } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ---------------------------------------------------------------------------
 // Test IDs — stable namespace sm2-
@@ -46,14 +50,13 @@ const SALARY_CHANGE_DATE = new Date('2026-01-15T10:00:00.000Z')
 // ---------------------------------------------------------------------------
 // DB availability flag
 // ---------------------------------------------------------------------------
-let dbAvailable = true
 let _pool: Pool | null = null
 let usersSvc: UsersService
 
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
-describe('UsersService.getSalaryMeta — real DB (AC4)', () => {
+describe.skipIf(!hasDatabaseUrl())('UsersService.getSalaryMeta — real DB (AC4)', () => {
   beforeAll(async () => {
     // DB availability probe
     try {
@@ -61,9 +64,9 @@ describe('UsersService.getSalaryMeta — real DB (AC4)', () => {
       await probePool.query('SELECT 1')
       await probePool.end()
     } catch {
-      console.warn('[salary-meta-realdb] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)')
-      dbAvailable = false
-      return
+      throw new Error(
+        '[salary-meta-realdb] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
+      )
     }
 
     // Build UsersService directly
@@ -139,7 +142,10 @@ describe('UsersService.getSalaryMeta — real DB (AC4)', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable || !_pool) return
+    if (!_pool)
+      throw new Error(
+        '[require-real-db] _pool not initialized — beforeAll should have thrown already',
+      )
     try {
       const db = drizzle(_pool, { schema })
       // Delete audit log entries first (FK → users)
@@ -153,7 +159,6 @@ describe('UsersService.getSalaryMeta — real DB (AC4)', () => {
   }, 30_000)
 
   it('AC4a: user with monthlySalary → getSalaryMeta returns correct salary and currency', async () => {
-    if (!dbAvailable) return
     const result = await usersSvc.getSalaryMeta(U_WITH_SALARY_ID)
     // DB returns numeric as string; compare via parseFloat to handle '3500' vs '3500.00'
     expect(parseFloat(result.monthlySalary!)).toBe(3500)
@@ -161,7 +166,6 @@ describe('UsersService.getSalaryMeta — real DB (AC4)', () => {
   })
 
   it('AC4b: user_audit_log has monthlySalary change → changedAt equals that entry created_at', async () => {
-    if (!dbAvailable) return
     const result = await usersSvc.getSalaryMeta(U_WITH_SALARY_ID)
     expect(result.changedAt).not.toBeNull()
     // changedAt is ISO string — should match our seeded date
@@ -169,14 +173,12 @@ describe('UsersService.getSalaryMeta — real DB (AC4)', () => {
   })
 
   it('AC4c: no monthlySalary audit log entry → changedAt is null', async () => {
-    if (!dbAvailable) return
     const result = await usersSvc.getSalaryMeta(U_NO_AUDIT_ID)
     expect(parseFloat(result.monthlySalary!)).toBe(2000)
     expect(result.changedAt).toBeNull()
   })
 
   it('AC4d: self-only — getSalaryMeta(A) returns A data, never B data', async () => {
-    if (!dbAvailable) return
     const resultA = await usersSvc.getSalaryMeta(U_WITH_SALARY_ID)
     const resultOther = await usersSvc.getSalaryMeta(U_OTHER_ID)
     // A has monthlySalary=3500, OTHER has 9999 — must not cross
@@ -186,7 +188,6 @@ describe('UsersService.getSalaryMeta — real DB (AC4)', () => {
   })
 
   it('AC4e: user with no row in DB → getSalaryMeta returns all nulls', async () => {
-    if (!dbAvailable) return
     const result = await usersSvc.getSalaryMeta('00000000-0000-4000-a000-000000000000')
     expect(result.monthlySalary).toBeNull()
     expect(result.salaryCurrency).toBeNull()

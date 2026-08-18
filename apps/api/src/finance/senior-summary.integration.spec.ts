@@ -21,6 +21,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { TransactionsService } from './transactions.service'
 import { payoutRequests, projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * SENIOR dashboard — senior-summary real-backend integration spec (real
@@ -47,9 +48,10 @@ import * as schema from '../database/schema'
  * carries `@UseGuards(RolesGuard)` — proving the gate is on the LIVE code, while
  * the sentinel exercises the live 403/200 + scoping behaviour through real HTTP.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR the
- * `projects` table is absent → every test returns early and stays green (so the
- * CI unit job without a DB is unaffected).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against the scratch crm_qa DB (NEVER the live crm_db — guard #233 also
  * blocks crm_db locally). vitest auto-loads apps/api/.env.test (→ crm_qa) for
@@ -186,7 +188,6 @@ class SentinelFinanceController {
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -255,454 +256,437 @@ class TestDatabaseModule {}
 class SeniorSummaryTestModule {}
 
 // ── Suite ───────────────────────────────────────────────────────────────────
-describe('senior-summary — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'senior-summary — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  const now = new Date()
-  const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
-  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
-  const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+    const now = new Date()
+    const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
+    const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
+    const salaryMonth = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
 
-  async function cleanup(db: DatabaseService['db']): Promise<void> {
-    // Order matters: payout_requests + transactions FK → projects/users.
-    await db.delete(payoutRequests).where(inArray(payoutRequests.id, TEST_PR_IDS))
-    await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
-    await db.delete(projects).where(inArray(projects.id, TEST_PROJECT_IDS))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-  }
+    async function cleanup(db: DatabaseService['db']): Promise<void> {
+      // Order matters: payout_requests + transactions FK → projects/users.
+      await db.delete(payoutRequests).where(inArray(payoutRequests.id, TEST_PR_IDS))
+      await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
+      await db.delete(projects).where(inArray(projects.id, TEST_PROJECT_IDS))
+      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+    }
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      const schemaCheck = await probePool.query(
-        `SELECT table_name FROM information_schema.tables
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        const schemaCheck = await probePool.query(
+          `SELECT table_name FROM information_schema.tables
          WHERE table_name='projects' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn('[senior-summary integration] SKIPPED — projects table not found')
-        dbAvailable = false
-        return
+        )
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error('[senior-summary integration] FAILED — projects table not found')
+        }
+      } catch {
+        throw new Error(
+          '[senior-summary integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[senior-summary integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [SeniorSummaryTestModule],
+      }).compile()
+
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'senior-summary-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
+
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
+      const db = dbSvc.db
+
+      // Surgical cleanup of any leftover rows BEFORE seeding (deterministic counts).
+      await cleanup(db)
+
+      // ── Seed users ──────────────────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values(
+          [ADMIN, SENIOR_A, SENIOR_B, JUNIOR, HR, ACCOUNTANT, DROP].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.seniorSharePercent,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      // ── Seed projects ─────────────────────────────────────────────────────────
+      await db.insert(projects).values([
+        {
+          id: PROJ_A1,
+          name: 'A Project One',
+          companyName: 'Acme A1',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_A.id,
+          rate: 50,
+          seniorSharePercentOverride: 40,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_A2,
+          name: 'A Project Two',
+          companyName: 'Globex A2',
+          domain: 'EdTech',
+          startDate: thisMonth,
+          seniorId: SENIOR_A.id,
+          rate: 40,
+          seniorSharePercentOverride: null,
+          createdAt: thisMonth,
+        },
+        {
+          id: PROJ_A_ARCHIVED,
+          name: 'A Project Archived',
+          companyName: 'Dead A3',
+          domain: 'E-Commerce',
+          startDate: lastMonth,
+          seniorId: SENIOR_A.id,
+          rate: 30,
+          archivedAt: thisMonth,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_B1,
+          name: 'B Project One',
+          companyName: 'Initech B1',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_B.id,
+          rate: 60,
+          seniorSharePercentOverride: 50,
+          createdAt: lastMonth,
+        },
+      ])
+
+      // ── Seed income transactions ────────────────────────────────────────────
+      await db.insert(transactions).values([
+        {
+          id: TX_A_INCOME_PAID_1,
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '1000',
+          currency: 'USD',
+          receiverId: SENIOR_A.id,
+          projectId: PROJ_A1,
+          seniorSharePercent: 40,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR_A.id,
+        },
+        {
+          id: TX_A_INCOME_PAID_2,
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '500',
+          currency: 'USD',
+          receiverId: SENIOR_A.id,
+          projectId: PROJ_A2,
+          seniorSharePercent: 30,
+          txDate: lastMonth,
+          createdAt: lastMonth,
+          createdBy: SENIOR_A.id,
+        },
+        {
+          // PENDING → must NOT count toward seniorShareIncome.
+          id: TX_A_INCOME_PENDING,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '777',
+          currency: 'USD',
+          receiverId: SENIOR_A.id,
+          projectId: PROJ_A1,
+          seniorSharePercent: 40,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR_A.id,
+        },
+        {
+          // SENIOR_B's PAID income — must NEVER surface in SENIOR_A's summary.
+          id: TX_B_INCOME_PAID,
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '9999',
+          currency: 'USD',
+          receiverId: SENIOR_B.id,
+          projectId: PROJ_B1,
+          seniorSharePercent: 50,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR_B.id,
+        },
+        {
+          // task-senior-dashboard-enhance: seed the salary in a NON-USD currency
+          // (UAH) so the mySalaryStatus test proves the salary-currency bug fix —
+          // the DTO must echo the row's real currency, NOT a hard-coded USD.
+          id: TX_A_SALARY,
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: '50000',
+          currency: 'UAH',
+          senderId: ADMIN.id,
+          senderLabel: 'CheekyCheeseIT',
+          receiverId: SENIOR_A.id,
+          salaryMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+      ])
+
+      // ── Seed payout_requests ──────────────────────────────────────────────────
+      await db.insert(payoutRequests).values([
+        {
+          id: PR_A_PENDING_1,
+          seniorId: SENIOR_A.id,
+          incomeAmount: '1000',
+          payableAmount: '740',
+          contractAddress: '0x' + 'a'.repeat(40),
+          status: 'PENDING',
+        },
+        {
+          id: PR_A_PENDING_2,
+          seniorId: SENIOR_A.id,
+          incomeAmount: '500',
+          payableAmount: '260',
+          contractAddress: '0x' + 'b'.repeat(40),
+          status: 'PENDING',
+        },
+        {
+          // PAID → must NOT count toward pendingPayouts.
+          id: PR_A_PAID,
+          seniorId: SENIOR_A.id,
+          incomeAmount: '300',
+          payableAmount: '200',
+          contractAddress: '0x' + 'c'.repeat(40),
+          status: 'PAID',
+        },
+        {
+          // SENIOR_B's PENDING payout — must NEVER count for SENIOR_A.
+          id: PR_B_PENDING,
+          seniorId: SENIOR_B.id,
+          incomeAmount: '5000',
+          payableAmount: '3000',
+          contractAddress: '0x' + 'd'.repeat(40),
+          status: 'PENDING',
+        },
+      ])
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await cleanup(dbSvc.db)
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [SeniorSummaryTestModule],
-    }).compile()
-
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'senior-summary-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // Surgical cleanup of any leftover rows BEFORE seeding (deterministic counts).
-    await cleanup(db)
-
-    // ── Seed users ──────────────────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values(
-        [ADMIN, SENIOR_A, SENIOR_B, JUNIOR, HR, ACCOUNTANT, DROP].map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.seniorSharePercent,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // ── Seed projects ─────────────────────────────────────────────────────────
-    await db.insert(projects).values([
-      {
-        id: PROJ_A1,
-        name: 'A Project One',
-        companyName: 'Acme A1',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_A.id,
-        rate: 50,
-        seniorSharePercentOverride: 40,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_A2,
-        name: 'A Project Two',
-        companyName: 'Globex A2',
-        domain: 'EdTech',
-        startDate: thisMonth,
-        seniorId: SENIOR_A.id,
-        rate: 40,
-        seniorSharePercentOverride: null,
-        createdAt: thisMonth,
-      },
-      {
-        id: PROJ_A_ARCHIVED,
-        name: 'A Project Archived',
-        companyName: 'Dead A3',
-        domain: 'E-Commerce',
-        startDate: lastMonth,
-        seniorId: SENIOR_A.id,
-        rate: 30,
-        archivedAt: thisMonth,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_B1,
-        name: 'B Project One',
-        companyName: 'Initech B1',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_B.id,
-        rate: 60,
-        seniorSharePercentOverride: 50,
-        createdAt: lastMonth,
-      },
-    ])
-
-    // ── Seed income transactions ────────────────────────────────────────────
-    await db.insert(transactions).values([
-      {
-        id: TX_A_INCOME_PAID_1,
-        type: 'SENIOR_INCOME',
-        status: 'PAID',
-        amount: '1000',
-        currency: 'USD',
-        receiverId: SENIOR_A.id,
-        projectId: PROJ_A1,
-        seniorSharePercent: 40,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR_A.id,
-      },
-      {
-        id: TX_A_INCOME_PAID_2,
-        type: 'SENIOR_INCOME',
-        status: 'PAID',
-        amount: '500',
-        currency: 'USD',
-        receiverId: SENIOR_A.id,
-        projectId: PROJ_A2,
-        seniorSharePercent: 30,
-        txDate: lastMonth,
-        createdAt: lastMonth,
-        createdBy: SENIOR_A.id,
-      },
-      {
-        // PENDING → must NOT count toward seniorShareIncome.
-        id: TX_A_INCOME_PENDING,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: '777',
-        currency: 'USD',
-        receiverId: SENIOR_A.id,
-        projectId: PROJ_A1,
-        seniorSharePercent: 40,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR_A.id,
-      },
-      {
-        // SENIOR_B's PAID income — must NEVER surface in SENIOR_A's summary.
-        id: TX_B_INCOME_PAID,
-        type: 'SENIOR_INCOME',
-        status: 'PAID',
-        amount: '9999',
-        currency: 'USD',
-        receiverId: SENIOR_B.id,
-        projectId: PROJ_B1,
-        seniorSharePercent: 50,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR_B.id,
-      },
-      {
-        // task-senior-dashboard-enhance: seed the salary in a NON-USD currency
-        // (UAH) so the mySalaryStatus test proves the salary-currency bug fix —
-        // the DTO must echo the row's real currency, NOT a hard-coded USD.
-        id: TX_A_SALARY,
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: '50000',
-        currency: 'UAH',
-        senderId: ADMIN.id,
-        senderLabel: 'CheekyCheeseIT',
-        receiverId: SENIOR_A.id,
-        salaryMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-    ])
-
-    // ── Seed payout_requests ──────────────────────────────────────────────────
-    await db.insert(payoutRequests).values([
-      {
-        id: PR_A_PENDING_1,
-        seniorId: SENIOR_A.id,
-        incomeAmount: '1000',
-        payableAmount: '740',
-        contractAddress: '0x' + 'a'.repeat(40),
-        status: 'PENDING',
-      },
-      {
-        id: PR_A_PENDING_2,
-        seniorId: SENIOR_A.id,
-        incomeAmount: '500',
-        payableAmount: '260',
-        contractAddress: '0x' + 'b'.repeat(40),
-        status: 'PENDING',
-      },
-      {
-        // PAID → must NOT count toward pendingPayouts.
-        id: PR_A_PAID,
-        seniorId: SENIOR_A.id,
-        incomeAmount: '300',
-        payableAmount: '200',
-        contractAddress: '0x' + 'c'.repeat(40),
-        status: 'PAID',
-      },
-      {
-        // SENIOR_B's PENDING payout — must NEVER count for SENIOR_A.
-        id: PR_B_PENDING,
-        seniorId: SENIOR_B.id,
-        incomeAmount: '5000',
-        payableAmount: '3000',
-        contractAddress: '0x' + 'd'.repeat(40),
-        status: 'PENDING',
-      },
-    ])
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
-      await cleanup(dbSvc.db)
-    } catch {
-      // non-fatal
-    }
-    await app.close()
-  }, 15_000)
-
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  async function summaryAs(user: SessionUser): Promise<SeniorSummaryDtoT> {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/finance/senior-summary',
-      cookies: { jwt: tokenFor(user) },
-    })
-    return seniorSummarySchema.parse(res.json())
-  }
-
-  // ── RBAC (AC2) ──────────────────────────────────────────────────────────────
-  const forbidden: Array<[string, SessionUser]> = [
-    ['JUNIOR', JUNIOR],
-    ['HR', HR],
-    ['ACCOUNTANT', ACCOUNTANT],
-    ['DROP', DROP],
-  ]
-  for (const [label, persona] of forbidden) {
-    it(`RBAC: ${label} → 403`, async () => {
-      if (!dbAvailable) return
+    async function summaryAs(user: SessionUser): Promise<SeniorSummaryDtoT> {
       const res = await app.inject({
         method: 'GET',
         url: '/api/finance/senior-summary',
-        cookies: { jwt: tokenFor(persona) },
+        cookies: { jwt: tokenFor(user) },
       })
-      expect(res.statusCode).toBe(403)
-    })
-  }
-
-  it('RBAC: SENIOR → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/finance/senior-summary',
-      cookies: { jwt: tokenFor(SENIOR_A) },
-    })
-    expect(res.statusCode).toBe(200)
-  })
-
-  it('RBAC: ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/finance/senior-summary',
-      cookies: { jwt: tokenFor(ADMIN) },
-    })
-    expect(res.statusCode).toBe(200)
-  })
-
-  // ── KPI shape + correctness (AC1) ─────────────────────────────────────────────
-  it('returns a schema-valid KPI payload for SENIOR_A', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    expect(body).toBeTruthy()
-  })
-
-  it('activeProjects: only own ACTIVE projects, with effective share %', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    // PROJ_A1 + PROJ_A2 active; PROJ_A_ARCHIVED excluded; PROJ_B1 (B's) NOT visible.
-    expect(body.activeProjects.count).toBe(2)
-    const ids = body.activeProjects.items.map((p) => p.id).sort()
-    expect(ids).toEqual([PROJ_A1, PROJ_A2].sort())
-    const a1 = body.activeProjects.items.find((p) => p.id === PROJ_A1)!
-    const a2 = body.activeProjects.items.find((p) => p.id === PROJ_A2)!
-    expect(a1.sharePercent).toBe(40) // project override
-    expect(a2.sharePercent).toBe(30) // user default (SENIOR_A.seniorSharePercent)
-  })
-
-  it('seniorShareIncome: own PAID SENIOR_INCOME share (total + this month)', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    // total = 1000*0.40 (this month) + 500*0.30 (last month) = 400 + 150 = 550
-    expect(body.seniorShareIncome.total).toBeCloseTo(550, 6)
-    // this month = 400 only (PROJ_A2 income was last month; PENDING 777 excluded)
-    expect(body.seniorShareIncome.thisMonth).toBeCloseTo(400, 6)
-    expect(body.seniorShareIncome.currency).toBe('USD')
-  })
-
-  it('pendingPayouts: own PENDING payout_requests only (count + Σ payable)', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    // PR_A_PENDING_1 (740) + PR_A_PENDING_2 (260) = 1000; PAID excluded; B's excluded.
-    expect(body.pendingPayouts.count).toBe(2)
-    expect(body.pendingPayouts.amount).toBeCloseTo(1000, 6)
-  })
-
-  it('mySalaryStatus: own current-month salary in its REAL currency (UAH, no $-hardcode)', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    expect(body.mySalaryStatus).not.toBeNull()
-    expect(body.mySalaryStatus!.amount).toBe(50000)
-    expect(body.mySalaryStatus!.status).toBe('PENDING')
-    // The salary-currency bug fix: the DTO echoes the row's real currency (UAH),
-    // NOT a hard-coded USD — so the dashboard can render «50 000,00 UAH».
-    expect(body.mySalaryStatus!.currency).toBe('UAH')
-  })
-
-  // ── «Статистика заработка» (task-senior-stats-block) ──────────────────────────
-  // Seed recap for SENIOR_A:
-  //   TX_A_INCOME_PAID_1 — 1000 @40% = 400, THIS month, project A1.
-  //   TX_A_INCOME_PAID_2 —  500 @30% = 150, LAST month, project A2.
-  //   TX_A_INCOME_PENDING — excluded (not PAID).
-  // So: lastMonthIncome = 150; thisMonth share = 400; total = 550.
-  // companyIncomeProgress: total = 2 active projects (A1, A2); received = 1 (only
-  // A1 has a PAID income dated THIS month — A2's income was LAST month).
-  it('earningsStats.lastMonthIncome: own PAID share dated in the PREVIOUS month', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    expect(body.earningsStats.lastMonthIncome).toBeCloseTo(150, 6)
-  })
-
-  it('earningsStats.monthlyHistory: fixed-length run, newest=this / prev=last month', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    const hist = body.earningsStats.monthlyHistory
-    expect(hist.length).toBe(8) // HISTORY_MONTHS
-    // Oldest → newest, contiguous YYYY-MM keys (no gaps).
-    for (let i = 1; i < hist.length; i++) {
-      expect(hist[i]!.month > hist[i - 1]!.month).toBe(true)
+      return seniorSummarySchema.parse(res.json())
     }
-    const thisKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
-    const lastDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
-    const lastKey = `${lastDate.getUTCFullYear()}-${String(lastDate.getUTCMonth() + 1).padStart(2, '0')}`
-    const newest = hist[hist.length - 1]!
-    const prev = hist[hist.length - 2]!
-    expect(newest.month).toBe(thisKey)
-    expect(newest.amount).toBeCloseTo(400, 6) // A1 income this month
-    expect(prev.month).toBe(lastKey)
-    expect(prev.amount).toBeCloseTo(150, 6) // A2 income last month
-    // Σ of all history points equals the lifetime total (every PAID row falls in
-    // the seeded window).
-    const sum = hist.reduce((s, p) => s + p.amount, 0)
-    expect(sum).toBeCloseTo(550, 6)
-  })
 
-  it('earningsStats.companyIncomeProgress: X/N arrival progress for THIS month (received ≤ total)', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(SENIOR_A)
-    // total = 2 active projects; received = 1 (only A1 has income THIS month).
-    expect(body.earningsStats.companyIncomeProgress.total).toBe(2)
-    expect(body.earningsStats.companyIncomeProgress.received).toBe(1)
-    expect(body.earningsStats.companyIncomeProgress.received).toBeLessThanOrEqual(
-      body.earningsStats.companyIncomeProgress.total,
-    )
-  })
+    // ── RBAC (AC2) ──────────────────────────────────────────────────────────────
+    const forbidden: Array<[string, SessionUser]> = [
+      ['JUNIOR', JUNIOR],
+      ['HR', HR],
+      ['ACCOUNTANT', ACCOUNTANT],
+      ['DROP', DROP],
+    ]
+    for (const [label, persona] of forbidden) {
+      it(`RBAC: ${label} → 403`, async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/finance/senior-summary',
+          cookies: { jwt: tokenFor(persona) },
+        })
+        expect(res.statusCode).toBe(403)
+      })
+    }
 
-  it('earningsStats SCOPING: SENIOR_B stats never leak into SENIOR_A', async () => {
-    if (!dbAvailable) return
-    const a = await summaryAs(SENIOR_A)
-    // B's 9999@50% = 4999.5 income (this month) must not appear in A's history.
-    const aSum = a.earningsStats.monthlyHistory.reduce((s, p) => s + p.amount, 0)
-    expect(aSum).toBeCloseTo(550, 6)
-    expect(aSum).not.toBeCloseTo(550 + 4999.5, 1)
-    // A has 2 own projects; B's single project must not inflate A's progress total.
-    expect(a.earningsStats.companyIncomeProgress.total).toBe(2)
-  })
+    it('RBAC: SENIOR → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/finance/senior-summary',
+        cookies: { jwt: tokenFor(SENIOR_A) },
+      })
+      expect(res.statusCode).toBe(200)
+    })
 
-  it('earningsStats SCOPING: SENIOR_B sees ONLY B stats (mirror)', async () => {
-    if (!dbAvailable) return
-    const b = await summaryAs(SENIOR_B)
-    // B's income is dated THIS month, so lastMonthIncome = 0.
-    expect(b.earningsStats.lastMonthIncome).toBeCloseTo(0, 6)
-    // B has 1 active project, with income THIS month → 1/1 arrival progress.
-    expect(b.earningsStats.companyIncomeProgress.total).toBe(1)
-    expect(b.earningsStats.companyIncomeProgress.received).toBe(1)
-    // Newest history point = B's this-month share (4999.5).
-    const bHist = b.earningsStats.monthlyHistory
-    expect(bHist[bHist.length - 1]!.amount).toBeCloseTo(4999.5, 6)
-  })
+    it('RBAC: ADMIN → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/finance/senior-summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+    })
 
-  // ── SELF-SCOPING — the central security claim (AC2) ──────────────────────────
-  it('SCOPING: SENIOR_A NEVER sees SENIOR_B figures', async () => {
-    if (!dbAvailable) return
-    const a = await summaryAs(SENIOR_A)
-    // B's project (PROJ_B1) must not appear in A's active projects.
-    const aProjectIds = a.activeProjects.items.map((p) => p.id)
-    expect(aProjectIds).not.toContain(PROJ_B1)
-    // B's PAID income (9999 @50% = 4999.5) must not bleed into A's totals.
-    expect(a.seniorShareIncome.total).toBeCloseTo(550, 6)
-    expect(a.seniorShareIncome.total).not.toBeCloseTo(550 + 4999.5, 1)
-    // B's PENDING payout (3000) must not bleed into A's pending amount.
-    expect(a.pendingPayouts.amount).toBeCloseTo(1000, 6)
-  })
+    // ── KPI shape + correctness (AC1) ─────────────────────────────────────────────
+    it('returns a schema-valid KPI payload for SENIOR_A', async () => {
+      const body = await summaryAs(SENIOR_A)
+      expect(body).toBeTruthy()
+    })
 
-  it('SCOPING: SENIOR_B sees ONLY B figures (mirror of A)', async () => {
-    if (!dbAvailable) return
-    const b = await summaryAs(SENIOR_B)
-    // B has exactly 1 active project (PROJ_B1) with override 50%.
-    expect(b.activeProjects.count).toBe(1)
-    expect(b.activeProjects.items[0]!.id).toBe(PROJ_B1)
-    expect(b.activeProjects.items[0]!.sharePercent).toBe(50)
-    // B income = 9999 * 0.50 = 4999.5 (this month). A's figures must not appear.
-    expect(b.seniorShareIncome.total).toBeCloseTo(4999.5, 6)
-    expect(b.seniorShareIncome.total).not.toBeCloseTo(550, 1)
-    // B pending payout = 3000.
-    expect(b.pendingPayouts.count).toBe(1)
-    expect(b.pendingPayouts.amount).toBeCloseTo(3000, 6)
-    // B has no salary row → null.
-    expect(b.mySalaryStatus).toBeNull()
-  })
-})
+    it('activeProjects: only own ACTIVE projects, with effective share %', async () => {
+      const body = await summaryAs(SENIOR_A)
+      // PROJ_A1 + PROJ_A2 active; PROJ_A_ARCHIVED excluded; PROJ_B1 (B's) NOT visible.
+      expect(body.activeProjects.count).toBe(2)
+      const ids = body.activeProjects.items.map((p) => p.id).sort()
+      expect(ids).toEqual([PROJ_A1, PROJ_A2].sort())
+      const a1 = body.activeProjects.items.find((p) => p.id === PROJ_A1)!
+      const a2 = body.activeProjects.items.find((p) => p.id === PROJ_A2)!
+      expect(a1.sharePercent).toBe(40) // project override
+      expect(a2.sharePercent).toBe(30) // user default (SENIOR_A.seniorSharePercent)
+    })
+
+    it('seniorShareIncome: own PAID SENIOR_INCOME share (total + this month)', async () => {
+      const body = await summaryAs(SENIOR_A)
+      // total = 1000*0.40 (this month) + 500*0.30 (last month) = 400 + 150 = 550
+      expect(body.seniorShareIncome.total).toBeCloseTo(550, 6)
+      // this month = 400 only (PROJ_A2 income was last month; PENDING 777 excluded)
+      expect(body.seniorShareIncome.thisMonth).toBeCloseTo(400, 6)
+      expect(body.seniorShareIncome.currency).toBe('USD')
+    })
+
+    it('pendingPayouts: own PENDING payout_requests only (count + Σ payable)', async () => {
+      const body = await summaryAs(SENIOR_A)
+      // PR_A_PENDING_1 (740) + PR_A_PENDING_2 (260) = 1000; PAID excluded; B's excluded.
+      expect(body.pendingPayouts.count).toBe(2)
+      expect(body.pendingPayouts.amount).toBeCloseTo(1000, 6)
+    })
+
+    it('mySalaryStatus: own current-month salary in its REAL currency (UAH, no $-hardcode)', async () => {
+      const body = await summaryAs(SENIOR_A)
+      expect(body.mySalaryStatus).not.toBeNull()
+      expect(body.mySalaryStatus!.amount).toBe(50000)
+      expect(body.mySalaryStatus!.status).toBe('PENDING')
+      // The salary-currency bug fix: the DTO echoes the row's real currency (UAH),
+      // NOT a hard-coded USD — so the dashboard can render «50 000,00 UAH».
+      expect(body.mySalaryStatus!.currency).toBe('UAH')
+    })
+
+    // ── «Статистика заработка» (task-senior-stats-block) ──────────────────────────
+    // Seed recap for SENIOR_A:
+    //   TX_A_INCOME_PAID_1 — 1000 @40% = 400, THIS month, project A1.
+    //   TX_A_INCOME_PAID_2 —  500 @30% = 150, LAST month, project A2.
+    //   TX_A_INCOME_PENDING — excluded (not PAID).
+    // So: lastMonthIncome = 150; thisMonth share = 400; total = 550.
+    // companyIncomeProgress: total = 2 active projects (A1, A2); received = 1 (only
+    // A1 has a PAID income dated THIS month — A2's income was LAST month).
+    it('earningsStats.lastMonthIncome: own PAID share dated in the PREVIOUS month', async () => {
+      const body = await summaryAs(SENIOR_A)
+      expect(body.earningsStats.lastMonthIncome).toBeCloseTo(150, 6)
+    })
+
+    it('earningsStats.monthlyHistory: fixed-length run, newest=this / prev=last month', async () => {
+      const body = await summaryAs(SENIOR_A)
+      const hist = body.earningsStats.monthlyHistory
+      expect(hist.length).toBe(8) // HISTORY_MONTHS
+      // Oldest → newest, contiguous YYYY-MM keys (no gaps).
+      for (let i = 1; i < hist.length; i++) {
+        expect(hist[i]!.month > hist[i - 1]!.month).toBe(true)
+      }
+      const thisKey = `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`
+      const lastDate = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1))
+      const lastKey = `${lastDate.getUTCFullYear()}-${String(lastDate.getUTCMonth() + 1).padStart(2, '0')}`
+      const newest = hist[hist.length - 1]!
+      const prev = hist[hist.length - 2]!
+      expect(newest.month).toBe(thisKey)
+      expect(newest.amount).toBeCloseTo(400, 6) // A1 income this month
+      expect(prev.month).toBe(lastKey)
+      expect(prev.amount).toBeCloseTo(150, 6) // A2 income last month
+      // Σ of all history points equals the lifetime total (every PAID row falls in
+      // the seeded window).
+      const sum = hist.reduce((s, p) => s + p.amount, 0)
+      expect(sum).toBeCloseTo(550, 6)
+    })
+
+    it('earningsStats.companyIncomeProgress: X/N arrival progress for THIS month (received ≤ total)', async () => {
+      const body = await summaryAs(SENIOR_A)
+      // total = 2 active projects; received = 1 (only A1 has income THIS month).
+      expect(body.earningsStats.companyIncomeProgress.total).toBe(2)
+      expect(body.earningsStats.companyIncomeProgress.received).toBe(1)
+      expect(body.earningsStats.companyIncomeProgress.received).toBeLessThanOrEqual(
+        body.earningsStats.companyIncomeProgress.total,
+      )
+    })
+
+    it('earningsStats SCOPING: SENIOR_B stats never leak into SENIOR_A', async () => {
+      const a = await summaryAs(SENIOR_A)
+      // B's 9999@50% = 4999.5 income (this month) must not appear in A's history.
+      const aSum = a.earningsStats.monthlyHistory.reduce((s, p) => s + p.amount, 0)
+      expect(aSum).toBeCloseTo(550, 6)
+      expect(aSum).not.toBeCloseTo(550 + 4999.5, 1)
+      // A has 2 own projects; B's single project must not inflate A's progress total.
+      expect(a.earningsStats.companyIncomeProgress.total).toBe(2)
+    })
+
+    it('earningsStats SCOPING: SENIOR_B sees ONLY B stats (mirror)', async () => {
+      const b = await summaryAs(SENIOR_B)
+      // B's income is dated THIS month, so lastMonthIncome = 0.
+      expect(b.earningsStats.lastMonthIncome).toBeCloseTo(0, 6)
+      // B has 1 active project, with income THIS month → 1/1 arrival progress.
+      expect(b.earningsStats.companyIncomeProgress.total).toBe(1)
+      expect(b.earningsStats.companyIncomeProgress.received).toBe(1)
+      // Newest history point = B's this-month share (4999.5).
+      const bHist = b.earningsStats.monthlyHistory
+      expect(bHist[bHist.length - 1]!.amount).toBeCloseTo(4999.5, 6)
+    })
+
+    // ── SELF-SCOPING — the central security claim (AC2) ──────────────────────────
+    it('SCOPING: SENIOR_A NEVER sees SENIOR_B figures', async () => {
+      const a = await summaryAs(SENIOR_A)
+      // B's project (PROJ_B1) must not appear in A's active projects.
+      const aProjectIds = a.activeProjects.items.map((p) => p.id)
+      expect(aProjectIds).not.toContain(PROJ_B1)
+      // B's PAID income (9999 @50% = 4999.5) must not bleed into A's totals.
+      expect(a.seniorShareIncome.total).toBeCloseTo(550, 6)
+      expect(a.seniorShareIncome.total).not.toBeCloseTo(550 + 4999.5, 1)
+      // B's PENDING payout (3000) must not bleed into A's pending amount.
+      expect(a.pendingPayouts.amount).toBeCloseTo(1000, 6)
+    })
+
+    it('SCOPING: SENIOR_B sees ONLY B figures (mirror of A)', async () => {
+      const b = await summaryAs(SENIOR_B)
+      // B has exactly 1 active project (PROJ_B1) with override 50%.
+      expect(b.activeProjects.count).toBe(1)
+      expect(b.activeProjects.items[0]!.id).toBe(PROJ_B1)
+      expect(b.activeProjects.items[0]!.sharePercent).toBe(50)
+      // B income = 9999 * 0.50 = 4999.5 (this month). A's figures must not appear.
+      expect(b.seniorShareIncome.total).toBeCloseTo(4999.5, 6)
+      expect(b.seniorShareIncome.total).not.toBeCloseTo(550, 1)
+      // B pending payout = 3000.
+      expect(b.pendingPayouts.count).toBe(1)
+      expect(b.pendingPayouts.amount).toBeCloseTo(3000, 6)
+      // B has no salary row → null.
+      expect(b.mySalaryStatus).toBeNull()
+    })
+  },
+)
 
 // ── SHIPPING-ROUTE GATE (#234 review MED) ─────────────────────────────────────
 // The block above exercises the live 403/200 + scoping behaviour via a sentinel
@@ -711,37 +695,43 @@ describe('senior-summary — real backend integration (real DB, no mocks)', () =
 // — "prove the gate is on the LIVE controller, not just the test's copy" — these
 // assertions read the decorator metadata DIRECTLY off the production
 // `FinanceSummaryController`. They run WITHOUT a DB, so they always execute.
-describe('senior-summary — SHIPPING route carries the RBAC gate (production controller)', () => {
-  const reflector = new Reflector()
+describe.skipIf(!hasDatabaseUrl())(
+  'senior-summary — SHIPPING route carries the RBAC gate (production controller)',
+  () => {
+    const reflector = new Reflector()
 
-  it('getSeniorSummary handler ships @Roles(SENIOR, ADMIN)', () => {
-    const roles = reflector.get<string[]>(
-      ROLES_KEY,
-      FinanceSummaryController.prototype.getSeniorSummary,
-    )
-    expect(roles).toEqual(['SENIOR', 'ADMIN'])
-  })
-
-  it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
-    // Nest stores @UseGuards metadata under the '__guards__' key on the class.
-    const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
-      | unknown[]
-      | undefined
-    expect(guards).toBeDefined()
-    expect(guards).toContain(RolesGuard)
-  })
-
-  it('open routes (summary / exchange-rate) ship NO @Roles — service-side RBAC unchanged', () => {
-    // The class-level guard must stay inert for the non-@Roles handlers so their
-    // existing service-side RBAC (and public-ish exchange-rate) is untouched.
-    expect(
-      reflector.get<string[] | undefined>(ROLES_KEY, FinanceSummaryController.prototype.getSummary),
-    ).toBeUndefined()
-    expect(
-      reflector.get<string[] | undefined>(
+    it('getSeniorSummary handler ships @Roles(SENIOR, ADMIN)', () => {
+      const roles = reflector.get<string[]>(
         ROLES_KEY,
-        FinanceSummaryController.prototype.getExchangeRate,
-      ),
-    ).toBeUndefined()
-  })
-})
+        FinanceSummaryController.prototype.getSeniorSummary,
+      )
+      expect(roles).toEqual(['SENIOR', 'ADMIN'])
+    })
+
+    it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
+      // Nest stores @UseGuards metadata under the '__guards__' key on the class.
+      const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
+        | unknown[]
+        | undefined
+      expect(guards).toBeDefined()
+      expect(guards).toContain(RolesGuard)
+    })
+
+    it('open routes (summary / exchange-rate) ship NO @Roles — service-side RBAC unchanged', () => {
+      // The class-level guard must stay inert for the non-@Roles handlers so their
+      // existing service-side RBAC (and public-ish exchange-rate) is untouched.
+      expect(
+        reflector.get<string[] | undefined>(
+          ROLES_KEY,
+          FinanceSummaryController.prototype.getSummary,
+        ),
+      ).toBeUndefined()
+      expect(
+        reflector.get<string[] | undefined>(
+          ROLES_KEY,
+          FinanceSummaryController.prototype.getExchangeRate,
+        ),
+      ).toBeUndefined()
+    })
+  },
+)

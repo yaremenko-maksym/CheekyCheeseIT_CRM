@@ -25,6 +25,7 @@ import {
   users,
 } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Legends RBAC — real-backend integration spec.
@@ -63,8 +64,9 @@ import * as schema from '../database/schema'
  * other integration specs or seed data).
  *
  * DB-SKIP-GUARD:
- *   `dbAvailable = false` when DATABASE_URL is unreachable (CI unit job).
- *   Every test calls `if (!dbAvailable) return` and stays green.
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * WHY sentinel controller (not real ProjectsController):
  *   Real controller depends on ProjectsModule (which has its own deps tree).
@@ -237,7 +239,6 @@ class SentinelLegendsController {
 // ---------------------------------------------------------------------------
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -303,411 +304,396 @@ class LegendsRbacTestModule {}
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('Legends RBAC — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'Legends RBAC — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    // ── DB availability + schema probe ────────────────────────────────────
-    // Two conditions required to run:
-    //   1. DATABASE_URL is reachable (CI unit job without Postgres → skip).
-    //   2. legends table has `project_id` column (per-project schema migration
-    //      from this PR). crm_db still has the old `user_id` schema until the
-    //      migration is applied — skip gracefully to avoid breaking the unit
-    //      test job that runs against crm_db.
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      // Verify the per-project schema is present
-      const schemaCheck = await probePool.query(
-        `SELECT column_name FROM information_schema.columns
+    beforeAll(async () => {
+      // ── DB availability + schema probe ────────────────────────────────────
+      // Two conditions required to run:
+      //   1. DATABASE_URL is reachable (CI unit job without Postgres → skip).
+      //   2. legends table has `project_id` column (per-project schema migration
+      //      from this PR). crm_db still has the old `user_id` schema until the
+      //      migration is applied — skip gracefully to avoid breaking the unit
+      //      test job that runs against crm_db.
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        // Verify the per-project schema is present
+        const schemaCheck = await probePool.query(
+          `SELECT column_name FROM information_schema.columns
          WHERE table_name='legends' AND column_name='project_id' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn(
-          '[legends-rbac integration] SKIPPED — legends.project_id column not found ' +
-            '(run migration 0009 against this DB, or use DATABASE_URL pointing to crm_qa)',
         )
-        dbAvailable = false
-        return
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error(
+            '[legends-rbac integration] FAILED — legends.project_id column not found ' +
+              '(run migration 0009 against this DB, or use DATABASE_URL pointing to crm_qa)',
+          )
+        }
+      } catch {
+        throw new Error(
+          '[legends-rbac integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[legends-rbac integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [LegendsRbacTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [LegendsRbacTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'legends-rbac-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'legends-rbac-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // ── Seed test data (idempotent via onConflictDoNothing) ────────────────
-
-    // 1. Users
-    await db
-      .insert(users)
-      .values([
-        {
-          id: S1.id,
-          email: S1.email,
-          displayName: S1.displayName,
-          role: 'SENIOR',
-          googleId: `test-google-${S1.id}`,
-        },
-        {
-          id: D1.id,
-          email: D1.email,
-          displayName: D1.displayName,
-          role: 'DROP',
-          googleId: `test-google-${D1.id}`,
-        },
-        {
-          id: J1.id,
-          email: J1.email,
-          displayName: J1.displayName,
-          role: 'JUNIOR',
-          googleId: `test-google-${J1.id}`,
-        },
-        {
-          id: J2.id,
-          email: J2.email,
-          displayName: J2.displayName,
-          role: 'JUNIOR',
-          googleId: `test-google-${J2.id}`,
-        },
-        {
-          id: S2.id,
-          email: S2.email,
-          displayName: S2.displayName,
-          role: 'SENIOR',
-          googleId: `test-google-${S2.id}`,
-        },
-        {
-          id: HR_X.id,
-          email: HR_X.email,
-          displayName: HR_X.displayName,
-          role: 'HR',
-          googleId: `test-google-${HR_X.id}`,
-        },
-        {
-          id: HR_Y.id,
-          email: HR_Y.email,
-          displayName: HR_Y.displayName,
-          role: 'HR',
-          googleId: `test-google-${HR_Y.id}`,
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 2. Projects
-    //    Project A: seniorId=S1, dropId=D1
-    //    Project B: seniorId=S2, no drop
-    await db
-      .insert(projects)
-      .values([
-        {
-          id: PROJ_A_ID,
-          name: 'Legend RBAC Project A',
-          companyName: 'Test Corp A',
-          domain: 'e-commerce',
-          startDate: new Date('2025-01-01'),
-          seniorId: S1.id,
-          dropId: D1.id,
-          currency: 'USDT',
-          rate: '100',
-        },
-        {
-          id: PROJ_B_ID,
-          name: 'Legend RBAC Project B',
-          companyName: 'Test Corp B',
-          domain: 'fintech',
-          startDate: new Date('2025-01-01'),
-          seniorId: S2.id,
-          dropId: null,
-          currency: 'USDT',
-          rate: '100',
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 3. Project members
-    //    J1 is active member of Project A
-    //    J2 is active member of Project B (NOT Project A)
-    await db
-      .insert(projectMembers)
-      .values([
-        {
-          id: PROJ_A_MEMBER_J1,
-          projectId: PROJ_A_ID,
-          userId: J1.id,
-          joinedAt: new Date(),
-        },
-        {
-          id: PROJ_B_MEMBER_J2,
-          projectId: PROJ_B_ID,
-          userId: J2.id,
-          joinedAt: new Date(),
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 4. Teams
-    //    Team X: HR_X + S1 (same team → HR_X can access Project A)
-    //    Team Y: HR_Y only (no S1 → HR_Y cannot access Project A)
-    await db
-      .insert(teams)
-      .values([
-        { id: TEAM_X_ID, name: 'Legend RBAC Team X' },
-        { id: TEAM_Y_ID, name: 'Legend RBAC Team Y' },
-      ])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: TEAM_X_ID, userId: HR_X.id, joinedAt: new Date() },
-        { teamId: TEAM_X_ID, userId: S1.id, joinedAt: new Date() },
-        { teamId: TEAM_Y_ID, userId: HR_Y.id, joinedAt: new Date() },
-        // S1 is NOT in Team Y
-      ])
-      .onConflictDoNothing()
-
-    // 5. Legends
-    //    Legend A for Project A (exists — so GET can find it)
-    //    Legend B for Project B
-    await db
-      .insert(legends)
-      .values([
-        {
-          id: LEGEND_A_ID,
-          projectId: PROJ_A_ID,
-          fullName: 'Legend RBAC Persona A',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-        {
-          id: LEGEND_B_ID,
-          projectId: PROJ_B_ID,
-          fullName: 'Legend RBAC Persona B',
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
 
-      // Clean up in FK-safe order
-      // legend_entries (FK→legends, FK→users) — delete by legendId
+      // ── Seed test data (idempotent via onConflictDoNothing) ────────────────
+
+      // 1. Users
       await db
-        .delete(legendEntries)
-        .where(inArray(legendEntries.legendId, [LEGEND_A_ID, LEGEND_B_ID]))
+        .insert(users)
+        .values([
+          {
+            id: S1.id,
+            email: S1.email,
+            displayName: S1.displayName,
+            role: 'SENIOR',
+            googleId: `test-google-${S1.id}`,
+          },
+          {
+            id: D1.id,
+            email: D1.email,
+            displayName: D1.displayName,
+            role: 'DROP',
+            googleId: `test-google-${D1.id}`,
+          },
+          {
+            id: J1.id,
+            email: J1.email,
+            displayName: J1.displayName,
+            role: 'JUNIOR',
+            googleId: `test-google-${J1.id}`,
+          },
+          {
+            id: J2.id,
+            email: J2.email,
+            displayName: J2.displayName,
+            role: 'JUNIOR',
+            googleId: `test-google-${J2.id}`,
+          },
+          {
+            id: S2.id,
+            email: S2.email,
+            displayName: S2.displayName,
+            role: 'SENIOR',
+            googleId: `test-google-${S2.id}`,
+          },
+          {
+            id: HR_X.id,
+            email: HR_X.email,
+            displayName: HR_X.displayName,
+            role: 'HR',
+            googleId: `test-google-${HR_X.id}`,
+          },
+          {
+            id: HR_Y.id,
+            email: HR_Y.email,
+            displayName: HR_Y.displayName,
+            role: 'HR',
+            googleId: `test-google-${HR_Y.id}`,
+          },
+        ])
+        .onConflictDoNothing()
 
-      // legends (FK→projects)
-      await db.delete(legends).where(inArray(legends.id, [LEGEND_A_ID, LEGEND_B_ID]))
-
-      // project_members (FK→projects, FK→users)
+      // 2. Projects
+      //    Project A: seniorId=S1, dropId=D1
+      //    Project B: seniorId=S2, no drop
       await db
-        .delete(projectMembers)
-        .where(inArray(projectMembers.id, [PROJ_A_MEMBER_J1, PROJ_B_MEMBER_J2]))
+        .insert(projects)
+        .values([
+          {
+            id: PROJ_A_ID,
+            name: 'Legend RBAC Project A',
+            companyName: 'Test Corp A',
+            domain: 'e-commerce',
+            startDate: new Date('2025-01-01'),
+            seniorId: S1.id,
+            dropId: D1.id,
+            currency: 'USDT',
+            rate: '100',
+          },
+          {
+            id: PROJ_B_ID,
+            name: 'Legend RBAC Project B',
+            companyName: 'Test Corp B',
+            domain: 'fintech',
+            startDate: new Date('2025-01-01'),
+            seniorId: S2.id,
+            dropId: null,
+            currency: 'USDT',
+            rate: '100',
+          },
+        ])
+        .onConflictDoNothing()
 
-      // team_members (FK→teams, FK→users)
-      await db.delete(teamMembers).where(inArray(teamMembers.teamId, [TEAM_X_ID, TEAM_Y_ID]))
+      // 3. Project members
+      //    J1 is active member of Project A
+      //    J2 is active member of Project B (NOT Project A)
+      await db
+        .insert(projectMembers)
+        .values([
+          {
+            id: PROJ_A_MEMBER_J1,
+            projectId: PROJ_A_ID,
+            userId: J1.id,
+            joinedAt: new Date(),
+          },
+          {
+            id: PROJ_B_MEMBER_J2,
+            projectId: PROJ_B_ID,
+            userId: J2.id,
+            joinedAt: new Date(),
+          },
+        ])
+        .onConflictDoNothing()
 
-      // projects (FK→users)
-      await db.delete(projects).where(inArray(projects.id, [PROJ_A_ID, PROJ_B_ID]))
+      // 4. Teams
+      //    Team X: HR_X + S1 (same team → HR_X can access Project A)
+      //    Team Y: HR_Y only (no S1 → HR_Y cannot access Project A)
+      await db
+        .insert(teams)
+        .values([
+          { id: TEAM_X_ID, name: 'Legend RBAC Team X' },
+          { id: TEAM_Y_ID, name: 'Legend RBAC Team Y' },
+        ])
+        .onConflictDoNothing()
 
-      // teams
-      await db.delete(teams).where(inArray(teams.id, [TEAM_X_ID, TEAM_Y_ID]))
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: TEAM_X_ID, userId: HR_X.id, joinedAt: new Date() },
+          { teamId: TEAM_X_ID, userId: S1.id, joinedAt: new Date() },
+          { teamId: TEAM_Y_ID, userId: HR_Y.id, joinedAt: new Date() },
+          // S1 is NOT in Team Y
+        ])
+        .onConflictDoNothing()
 
-      // users (test-only — seed users are NOT deleted)
-      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // Non-fatal cleanup failure — do not mask test results
+      // 5. Legends
+      //    Legend A for Project A (exists — so GET can find it)
+      //    Legend B for Project B
+      await db
+        .insert(legends)
+        .values([
+          {
+            id: LEGEND_A_ID,
+            projectId: PROJ_A_ID,
+            fullName: 'Legend RBAC Persona A',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+          {
+            id: LEGEND_B_ID,
+            projectId: PROJ_B_ID,
+            fullName: 'Legend RBAC Persona B',
+            createdAt: new Date(),
+            updatedAt: new Date(),
+          },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+
+        // Clean up in FK-safe order
+        // legend_entries (FK→legends, FK→users) — delete by legendId
+        await db
+          .delete(legendEntries)
+          .where(inArray(legendEntries.legendId, [LEGEND_A_ID, LEGEND_B_ID]))
+
+        // legends (FK→projects)
+        await db.delete(legends).where(inArray(legends.id, [LEGEND_A_ID, LEGEND_B_ID]))
+
+        // project_members (FK→projects, FK→users)
+        await db
+          .delete(projectMembers)
+          .where(inArray(projectMembers.id, [PROJ_A_MEMBER_J1, PROJ_B_MEMBER_J2]))
+
+        // team_members (FK→teams, FK→users)
+        await db.delete(teamMembers).where(inArray(teamMembers.teamId, [TEAM_X_ID, TEAM_Y_ID]))
+
+        // projects (FK→users)
+        await db.delete(projects).where(inArray(projects.id, [PROJ_A_ID, PROJ_B_ID]))
+
+        // teams
+        await db.delete(teams).where(inArray(teams.id, [TEAM_X_ID, TEAM_Y_ID]))
+
+        // users (test-only — seed users are NOT deleted)
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // Non-fatal cleanup failure — do not mask test results
+      }
+
+      await app.close()
+      // Pool torn down by factory-registered onModuleDestroy
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
 
-    await app.close()
-    // Pool torn down by factory-registered onModuleDestroy
-  }, 15_000)
+    // ── GET legend — RBAC matrix ──────────────────────────────────────────────
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  // ── GET legend — RBAC matrix ──────────────────────────────────────────────
-
-  it('GET 1. ADMIN → 200 (full access)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(ADMIN) },
+    it('GET 1. ADMIN → 200 (full access)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { projectId: string; fullName: string }
+      expect(body.projectId).toBe(PROJ_A_ID)
+      expect(body.fullName).toBe('Legend RBAC Persona A')
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { projectId: string; fullName: string }
-    expect(body.projectId).toBe(PROJ_A_ID)
-    expect(body.fullName).toBe('Legend RBAC Persona A')
-  })
 
-  it('GET 2. S1 (seniorId of Project A) → 403 subject-excluded', async () => {
-    if (!dbAvailable) return
-    // KEY assertion: the SENIOR who "owns" the project is explicitly excluded
-    // from their own legend (RBAC: canAccess returns false for seniorId).
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(S1) },
+    it('GET 2. S1 (seniorId of Project A) → 403 subject-excluded', async () => {
+      // KEY assertion: the SENIOR who "owns" the project is explicitly excluded
+      // from their own legend (RBAC: canAccess returns false for seniorId).
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(S1) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('GET 3. D1 (dropId of Project A) → 403 subject-excluded', async () => {
-    if (!dbAvailable) return
-    // DROP persona is also excluded from their own legend.
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(D1) },
+    it('GET 3. D1 (dropId of Project A) → 403 subject-excluded', async () => {
+      // DROP persona is also excluded from their own legend.
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(D1) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('GET 4. J1 (active member of Project A) → 200 access', async () => {
-    if (!dbAvailable) return
-    // JUNIOR who is active project_member can read the legend.
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(J1) },
+    it('GET 4. J1 (active member of Project A) → 200 access', async () => {
+      // JUNIOR who is active project_member can read the legend.
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(J1) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { projectId: string }
+      expect(body.projectId).toBe(PROJ_A_ID)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { projectId: string }
-    expect(body.projectId).toBe(PROJ_A_ID)
-  })
 
-  it('GET 5. J2 (member of Project B, NOT Project A) → 403 IDOR guard', async () => {
-    if (!dbAvailable) return
-    // CRITICAL: J2 is a member of Project B only. Accessing Project A legend
-    // must be denied — this is the IDOR case mocked tests cannot catch.
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(J2) },
+    it('GET 5. J2 (member of Project B, NOT Project A) → 403 IDOR guard', async () => {
+      // CRITICAL: J2 is a member of Project B only. Accessing Project A legend
+      // must be denied — this is the IDOR case mocked tests cannot catch.
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(J2) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('GET 6. HR_X (same team as S1) → 200 access', async () => {
-    if (!dbAvailable) return
-    // HR who shares Team X with S1 can read Project A legend.
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(HR_X) },
+    it('GET 6. HR_X (same team as S1) → 200 access', async () => {
+      // HR who shares Team X with S1 can read Project A legend.
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(HR_X) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { projectId: string }
+      expect(body.projectId).toBe(PROJ_A_ID)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { projectId: string }
-    expect(body.projectId).toBe(PROJ_A_ID)
-  })
 
-  it('GET 7. HR_Y (different team, no S1) → 403 cross-team scoping', async () => {
-    if (!dbAvailable) return
-    // HR_Y is only in Team Y where S1 is NOT a member.
-    // Must be denied → verifies cross-team scoping in SQL.
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(HR_Y) },
+    it('GET 7. HR_Y (different team, no S1) → 403 cross-team scoping', async () => {
+      // HR_Y is only in Team Y where S1 is NOT a member.
+      // Must be denied → verifies cross-team scoping in SQL.
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(HR_Y) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  it('GET 8. ACCOUNTANT → 403 (no legend access)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    it('GET 8. ACCOUNTANT → 403 (no legend access)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  // ── PUT legend — view==edit ───────────────────────────────────────────────
+    // ── PUT legend — view==edit ───────────────────────────────────────────────
 
-  it('PUT 9. J1 (active member) → 200 (view==edit per spec)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PUT',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(J1) },
-      payload: { fullName: 'Legend RBAC Persona A (updated by J1)' },
+    it('PUT 9. J1 (active member) → 200 (view==edit per spec)', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(J1) },
+        payload: { fullName: 'Legend RBAC Persona A (updated by J1)' },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { projectId: string; fullName: string }
+      expect(body.projectId).toBe(PROJ_A_ID)
+      expect(body.fullName).toBe('Legend RBAC Persona A (updated by J1)')
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { projectId: string; fullName: string }
-    expect(body.projectId).toBe(PROJ_A_ID)
-    expect(body.fullName).toBe('Legend RBAC Persona A (updated by J1)')
-  })
 
-  it('PUT 10. S1 (seniorId) → 403 subject-excluded from edit', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'PUT',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
-      cookies: { jwt: tokenFor(S1) },
-      payload: { fullName: 'Hack attempt' },
+    it('PUT 10. S1 (seniorId) → 403 subject-excluded from edit', async () => {
+      const res = await app.inject({
+        method: 'PUT',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+        cookies: { jwt: tokenFor(S1) },
+        payload: { fullName: 'Hack attempt' },
+      })
+      expect(res.statusCode).toBe(403)
     })
-    expect(res.statusCode).toBe(403)
-  })
 
-  // ── POST entries — authorId from JWT, not body ────────────────────────────
+    // ── POST entries — authorId from JWT, not body ────────────────────────────
 
-  it('POST 11. J1 adds entry → 201; authorId saved = J1 (not from body)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/projects/${PROJ_A_ID}/legend/entries`,
-      cookies: { jwt: tokenFor(J1) },
-      payload: { text: 'Запис про персонажа від J1', authorId: 'should-be-ignored' },
+    it('POST 11. J1 adds entry → 201; authorId saved = J1 (not from body)', async () => {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/projects/${PROJ_A_ID}/legend/entries`,
+        cookies: { jwt: tokenFor(J1) },
+        payload: { text: 'Запис про персонажа від J1', authorId: 'should-be-ignored' },
+      })
+      // NestJS @Post returns 201 by default
+      expect(res.statusCode).toBe(201)
+
+      const body = res.json() as { entries: Array<{ authorId: string; text: string }> }
+      expect(Array.isArray(body.entries)).toBe(true)
+
+      const entry = body.entries.find((e) => e.text === 'Запис про персонажа від J1')
+      expect(entry).toBeDefined()
+      // authorId MUST be taken from JWT (viewer.id), not the request body
+      expect(entry!.authorId).toBe(J1.id)
     })
-    // NestJS @Post returns 201 by default
-    expect(res.statusCode).toBe(201)
 
-    const body = res.json() as { entries: Array<{ authorId: string; text: string }> }
-    expect(Array.isArray(body.entries)).toBe(true)
+    // ── Unauthenticated ───────────────────────────────────────────────────────
 
-    const entry = body.entries.find((e) => e.text === 'Запис про персонажа від J1')
-    expect(entry).toBeDefined()
-    // authorId MUST be taken from JWT (viewer.id), not the request body
-    expect(entry!.authorId).toBe(J1.id)
-  })
-
-  // ── Unauthenticated ───────────────────────────────────────────────────────
-
-  it('GET 12. No JWT → 401', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/projects/${PROJ_A_ID}/legend`,
+    it('GET 12. No JWT → 401', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/projects/${PROJ_A_ID}/legend`,
+      })
+      expect(res.statusCode).toBe(401)
     })
-    expect(res.statusCode).toBe(401)
-  })
-})
+  },
+)

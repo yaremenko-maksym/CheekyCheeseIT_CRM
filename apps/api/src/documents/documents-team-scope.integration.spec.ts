@@ -19,6 +19,7 @@ import type { S3Service } from './s3.service'
 import type { CompressionService } from './compression.service'
 import { documents, projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * DocumentsService team/project-scoped RESUME/SCAN — real-backend integration
@@ -77,9 +78,10 @@ import * as schema from '../database/schema'
  *     whole task)                                                      → 404
  *   list() with category=RESUME only returns team+project-scoped rows
  *
- * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable
- * (CI unit job without Postgres) — every test returns early, 0 assertions
- * is acceptable there; the integration job has a Postgres service.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job without Postgres). A DATABASE_URL
+ * that IS set but unreachable throws in beforeAll (reports FAILED) —
+ * neither case can look like "passed" with zero assertions.
  */
 
 const JWT_SECRET = 'documents-team-scope-integration-secret-32c'
@@ -354,7 +356,6 @@ class SentinelDocumentsController {
 // ---------------------------------------------------------------------------
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 const stubS3 = {
   upload: () => Promise.resolve(),
@@ -426,444 +427,430 @@ class DocumentsTeamScopeTestModule {}
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('DocumentsService team/project-scoped RESUME/SCAN — real backend integration (HIGH-2)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'DocumentsService team/project-scoped RESUME/SCAN — real backend integration (HIGH-2)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[documents-team-scope integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[documents-team-scope integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
+      }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [DocumentsTeamScopeTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [DocumentsTeamScopeTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'documents-team-scope-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'documents-team-scope-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // ── Seed test data (idempotent via onConflictDoNothing) ────────────────
-
-    // 1. Users
-    await db
-      .insert(users)
-      .values(
-        [
-          SENIOR,
-          SENIOR_OUTSIDE,
-          SENIOR_TEAMMATE,
-          JUNIOR_ON_PROJECT,
-          JUNIOR_ELSEWHERE,
-          HR_TEAMMATE,
-          HR_OUTSIDE,
-          ACCOUNTANT,
-          SCAN_OWNER_NO_TRANSACTIONS,
-          SENIOR_NO_TEAM,
-          JUNIOR_NO_TEAM_PROJECT,
-          JUNIOR_FORMER_MEMBER,
-          SENIOR_ARCHIVED_PROJECT,
-          JUNIOR_ON_ARCHIVED_PROJECT,
-          DROP_ACTOR,
-        ].map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // 2. Projects — SENIOR owns PROJ_SENIOR; SENIOR_OUTSIDE owns PROJ_ELSEWHERE;
-    //    SENIOR_NO_TEAM owns PROJ_NO_TEAM (no team_members row for that senior
-    //    at all — LOW-1); SENIOR_ARCHIVED_PROJECT owns PROJ_ARCHIVED, seeded
-    //    with `archivedAt` already set (MED archived-project fix).
-    await db
-      .insert(projects)
-      .values([
-        {
-          id: PROJ_SENIOR_ID,
-          name: 'Doc Scope Project (Senior)',
-          companyName: 'Test Corp',
-          domain: 'e-commerce',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR.id,
-          currency: 'USDT',
-          rate: '100',
-        },
-        {
-          id: PROJ_ELSEWHERE_ID,
-          name: 'Doc Scope Project (Elsewhere)',
-          companyName: 'Test Corp 2',
-          domain: 'fintech',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR_OUTSIDE.id,
-          currency: 'USDT',
-          rate: '100',
-        },
-        {
-          id: PROJ_NO_TEAM_ID,
-          name: 'Doc Scope Project (No Team Senior)',
-          companyName: 'Test Corp 3',
-          domain: 'ai',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR_NO_TEAM.id,
-          currency: 'USDT',
-          rate: '100',
-        },
-        {
-          id: PROJ_ARCHIVED_ID,
-          name: 'Doc Scope Project (Archived)',
-          companyName: 'Test Corp 4',
-          domain: 'edtech',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR_ARCHIVED_PROJECT.id,
-          currency: 'USDT',
-          rate: '100',
-          archivedAt: new Date('2025-06-01'),
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 3. Project members — the ONLY path a JUNIOR reaches "SENIOR's scope"
-    //    through, matching UsersService.createUser's real insert shape
-    //    (JUNIOR → project_members ONLY, never team_members).
-    //    - PROJ_MEMBER_JUNIOR_FORMER: `leftAt` set — mirrors
-    //      ProjectsService.removeMember's soft-delete (LOW-1 "former member").
-    //    - PROJ_MEMBER_JUNIOR_ARCHIVED: `leftAt = null` on an ARCHIVED
-    //      project — mirrors the unarchive() drift described above the
-    //      persona's own doc comment (MED archived-project fix).
-    await db
-      .insert(projectMembers)
-      .values([
-        {
-          id: PROJ_MEMBER_JUNIOR_ON_PROJECT,
-          projectId: PROJ_SENIOR_ID,
-          userId: JUNIOR_ON_PROJECT.id,
-          joinedAt: new Date(),
-        },
-        {
-          id: PROJ_MEMBER_JUNIOR_ELSEWHERE,
-          projectId: PROJ_ELSEWHERE_ID,
-          userId: JUNIOR_ELSEWHERE.id,
-          joinedAt: new Date(),
-        },
-        {
-          id: PROJ_MEMBER_JUNIOR_NO_TEAM,
-          projectId: PROJ_NO_TEAM_ID,
-          userId: JUNIOR_NO_TEAM_PROJECT.id,
-          joinedAt: new Date(),
-        },
-        {
-          id: PROJ_MEMBER_JUNIOR_FORMER,
-          projectId: PROJ_SENIOR_ID,
-          userId: JUNIOR_FORMER_MEMBER.id,
-          joinedAt: new Date('2025-01-01'),
-          leftAt: new Date('2025-06-01'),
-        },
-        {
-          id: PROJ_MEMBER_JUNIOR_ARCHIVED,
-          projectId: PROJ_ARCHIVED_ID,
-          userId: JUNIOR_ON_ARCHIVED_PROJECT.id,
-          joinedAt: new Date('2025-01-01'),
-          leftAt: null,
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 4. Teams — TEAM_MAIN: SENIOR + SENIOR_TEAMMATE + HR_TEAMMATE.
-    //    TEAM_ELSEWHERE: HR_OUTSIDE only (no overlap with SENIOR).
-    //    SENIOR_OUTSIDE / SENIOR_NO_TEAM / SENIOR_ARCHIVED_PROJECT are
-    //    deliberately in NO team at all.
-    await db
-      .insert(teams)
-      .values([
-        { id: TEAM_MAIN_ID, name: 'Doc Scope Team Main' },
-        { id: TEAM_ELSEWHERE_ID, name: 'Doc Scope Team Elsewhere' },
-      ])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: TEAM_MAIN_ID, userId: SENIOR.id, joinedAt: new Date() },
-        { teamId: TEAM_MAIN_ID, userId: SENIOR_TEAMMATE.id, joinedAt: new Date() },
-        { teamId: TEAM_MAIN_ID, userId: HR_TEAMMATE.id, joinedAt: new Date() },
-        { teamId: TEAM_ELSEWHERE_ID, userId: HR_OUTSIDE.id, joinedAt: new Date() },
-      ])
-      .onConflictDoNothing()
-
-    // 5. Documents — RESUME/SCAN rows owned by the JUNIORs/SENIORs above.
-    await db
-      .insert(documents)
-      .values([
-        {
-          id: DOC_JUNIOR_RESUME_ID,
-          ownerId: JUNIOR_ON_PROJECT.id,
-          category: 'RESUME',
-          name: 'resume.pdf',
-          s3Key: `documents/RESUME/${JUNIOR_ON_PROJECT.id}/${DOC_JUNIOR_RESUME_ID}-resume.pdf`,
-          sizeBytes: 1024,
-          mimeType: 'application/pdf',
-          uploadedBy: JUNIOR_ON_PROJECT.id,
-        },
-        {
-          id: DOC_JUNIOR_SCAN_ID,
-          ownerId: JUNIOR_ON_PROJECT.id,
-          category: 'SCAN',
-          name: 'passport.jpg',
-          s3Key: `documents/SCAN/${JUNIOR_ON_PROJECT.id}/${DOC_JUNIOR_SCAN_ID}-passport.jpg`,
-          sizeBytes: 1024,
-          mimeType: 'image/jpeg',
-          uploadedBy: JUNIOR_ON_PROJECT.id,
-        },
-        {
-          id: DOC_SENIOR_TEAMMATE_SCAN_ID,
-          ownerId: SENIOR_TEAMMATE.id,
-          category: 'SCAN',
-          name: 'passport.jpg',
-          s3Key: `documents/SCAN/${SENIOR_TEAMMATE.id}/${DOC_SENIOR_TEAMMATE_SCAN_ID}-passport.jpg`,
-          sizeBytes: 1024,
-          mimeType: 'image/jpeg',
-          uploadedBy: SENIOR_TEAMMATE.id,
-        },
-        {
-          id: DOC_SCAN_OWNER_NO_TX_ID,
-          ownerId: SCAN_OWNER_NO_TRANSACTIONS.id,
-          category: 'SCAN',
-          name: 'passport.jpg',
-          s3Key: `documents/SCAN/${SCAN_OWNER_NO_TRANSACTIONS.id}/${DOC_SCAN_OWNER_NO_TX_ID}-passport.jpg`,
-          sizeBytes: 1024,
-          mimeType: 'image/jpeg',
-          uploadedBy: SCAN_OWNER_NO_TRANSACTIONS.id,
-        },
-        {
-          id: DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID,
-          ownerId: JUNIOR_NO_TEAM_PROJECT.id,
-          category: 'RESUME',
-          name: 'resume.pdf',
-          s3Key: `documents/RESUME/${JUNIOR_NO_TEAM_PROJECT.id}/${DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID}-resume.pdf`,
-          sizeBytes: 1024,
-          mimeType: 'application/pdf',
-          uploadedBy: JUNIOR_NO_TEAM_PROJECT.id,
-        },
-        {
-          id: DOC_JUNIOR_FORMER_MEMBER_RESUME_ID,
-          ownerId: JUNIOR_FORMER_MEMBER.id,
-          category: 'RESUME',
-          name: 'resume.pdf',
-          s3Key: `documents/RESUME/${JUNIOR_FORMER_MEMBER.id}/${DOC_JUNIOR_FORMER_MEMBER_RESUME_ID}-resume.pdf`,
-          sizeBytes: 1024,
-          mimeType: 'application/pdf',
-          uploadedBy: JUNIOR_FORMER_MEMBER.id,
-        },
-        {
-          id: DOC_JUNIOR_ARCHIVED_PROJECT_RESUME_ID,
-          ownerId: JUNIOR_ON_ARCHIVED_PROJECT.id,
-          category: 'RESUME',
-          name: 'resume.pdf',
-          s3Key: `documents/RESUME/${JUNIOR_ON_ARCHIVED_PROJECT.id}/${DOC_JUNIOR_ARCHIVED_PROJECT_RESUME_ID}-resume.pdf`,
-          sizeBytes: 1024,
-          mimeType: 'application/pdf',
-          uploadedBy: JUNIOR_ON_ARCHIVED_PROJECT.id,
-        },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
-      await db.delete(documents).where(inArray(documents.id, ALL_DOC_IDS))
-      await db.delete(projectMembers).where(inArray(projectMembers.id, ALL_PROJECT_MEMBER_IDS))
-      await db.delete(teamMembers).where(inArray(teamMembers.teamId, ALL_TEAM_IDS))
-      await db.delete(projects).where(inArray(projects.id, ALL_PROJECT_IDS))
-      await db.delete(teams).where(inArray(teams.id, ALL_TEAM_IDS))
-      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // Non-fatal cleanup failure — do not mask test results
+
+      // ── Seed test data (idempotent via onConflictDoNothing) ────────────────
+
+      // 1. Users
+      await db
+        .insert(users)
+        .values(
+          [
+            SENIOR,
+            SENIOR_OUTSIDE,
+            SENIOR_TEAMMATE,
+            JUNIOR_ON_PROJECT,
+            JUNIOR_ELSEWHERE,
+            HR_TEAMMATE,
+            HR_OUTSIDE,
+            ACCOUNTANT,
+            SCAN_OWNER_NO_TRANSACTIONS,
+            SENIOR_NO_TEAM,
+            JUNIOR_NO_TEAM_PROJECT,
+            JUNIOR_FORMER_MEMBER,
+            SENIOR_ARCHIVED_PROJECT,
+            JUNIOR_ON_ARCHIVED_PROJECT,
+            DROP_ACTOR,
+          ].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      // 2. Projects — SENIOR owns PROJ_SENIOR; SENIOR_OUTSIDE owns PROJ_ELSEWHERE;
+      //    SENIOR_NO_TEAM owns PROJ_NO_TEAM (no team_members row for that senior
+      //    at all — LOW-1); SENIOR_ARCHIVED_PROJECT owns PROJ_ARCHIVED, seeded
+      //    with `archivedAt` already set (MED archived-project fix).
+      await db
+        .insert(projects)
+        .values([
+          {
+            id: PROJ_SENIOR_ID,
+            name: 'Doc Scope Project (Senior)',
+            companyName: 'Test Corp',
+            domain: 'e-commerce',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR.id,
+            currency: 'USDT',
+            rate: '100',
+          },
+          {
+            id: PROJ_ELSEWHERE_ID,
+            name: 'Doc Scope Project (Elsewhere)',
+            companyName: 'Test Corp 2',
+            domain: 'fintech',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR_OUTSIDE.id,
+            currency: 'USDT',
+            rate: '100',
+          },
+          {
+            id: PROJ_NO_TEAM_ID,
+            name: 'Doc Scope Project (No Team Senior)',
+            companyName: 'Test Corp 3',
+            domain: 'ai',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR_NO_TEAM.id,
+            currency: 'USDT',
+            rate: '100',
+          },
+          {
+            id: PROJ_ARCHIVED_ID,
+            name: 'Doc Scope Project (Archived)',
+            companyName: 'Test Corp 4',
+            domain: 'edtech',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR_ARCHIVED_PROJECT.id,
+            currency: 'USDT',
+            rate: '100',
+            archivedAt: new Date('2025-06-01'),
+          },
+        ])
+        .onConflictDoNothing()
+
+      // 3. Project members — the ONLY path a JUNIOR reaches "SENIOR's scope"
+      //    through, matching UsersService.createUser's real insert shape
+      //    (JUNIOR → project_members ONLY, never team_members).
+      //    - PROJ_MEMBER_JUNIOR_FORMER: `leftAt` set — mirrors
+      //      ProjectsService.removeMember's soft-delete (LOW-1 "former member").
+      //    - PROJ_MEMBER_JUNIOR_ARCHIVED: `leftAt = null` on an ARCHIVED
+      //      project — mirrors the unarchive() drift described above the
+      //      persona's own doc comment (MED archived-project fix).
+      await db
+        .insert(projectMembers)
+        .values([
+          {
+            id: PROJ_MEMBER_JUNIOR_ON_PROJECT,
+            projectId: PROJ_SENIOR_ID,
+            userId: JUNIOR_ON_PROJECT.id,
+            joinedAt: new Date(),
+          },
+          {
+            id: PROJ_MEMBER_JUNIOR_ELSEWHERE,
+            projectId: PROJ_ELSEWHERE_ID,
+            userId: JUNIOR_ELSEWHERE.id,
+            joinedAt: new Date(),
+          },
+          {
+            id: PROJ_MEMBER_JUNIOR_NO_TEAM,
+            projectId: PROJ_NO_TEAM_ID,
+            userId: JUNIOR_NO_TEAM_PROJECT.id,
+            joinedAt: new Date(),
+          },
+          {
+            id: PROJ_MEMBER_JUNIOR_FORMER,
+            projectId: PROJ_SENIOR_ID,
+            userId: JUNIOR_FORMER_MEMBER.id,
+            joinedAt: new Date('2025-01-01'),
+            leftAt: new Date('2025-06-01'),
+          },
+          {
+            id: PROJ_MEMBER_JUNIOR_ARCHIVED,
+            projectId: PROJ_ARCHIVED_ID,
+            userId: JUNIOR_ON_ARCHIVED_PROJECT.id,
+            joinedAt: new Date('2025-01-01'),
+            leftAt: null,
+          },
+        ])
+        .onConflictDoNothing()
+
+      // 4. Teams — TEAM_MAIN: SENIOR + SENIOR_TEAMMATE + HR_TEAMMATE.
+      //    TEAM_ELSEWHERE: HR_OUTSIDE only (no overlap with SENIOR).
+      //    SENIOR_OUTSIDE / SENIOR_NO_TEAM / SENIOR_ARCHIVED_PROJECT are
+      //    deliberately in NO team at all.
+      await db
+        .insert(teams)
+        .values([
+          { id: TEAM_MAIN_ID, name: 'Doc Scope Team Main' },
+          { id: TEAM_ELSEWHERE_ID, name: 'Doc Scope Team Elsewhere' },
+        ])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: TEAM_MAIN_ID, userId: SENIOR.id, joinedAt: new Date() },
+          { teamId: TEAM_MAIN_ID, userId: SENIOR_TEAMMATE.id, joinedAt: new Date() },
+          { teamId: TEAM_MAIN_ID, userId: HR_TEAMMATE.id, joinedAt: new Date() },
+          { teamId: TEAM_ELSEWHERE_ID, userId: HR_OUTSIDE.id, joinedAt: new Date() },
+        ])
+        .onConflictDoNothing()
+
+      // 5. Documents — RESUME/SCAN rows owned by the JUNIORs/SENIORs above.
+      await db
+        .insert(documents)
+        .values([
+          {
+            id: DOC_JUNIOR_RESUME_ID,
+            ownerId: JUNIOR_ON_PROJECT.id,
+            category: 'RESUME',
+            name: 'resume.pdf',
+            s3Key: `documents/RESUME/${JUNIOR_ON_PROJECT.id}/${DOC_JUNIOR_RESUME_ID}-resume.pdf`,
+            sizeBytes: 1024,
+            mimeType: 'application/pdf',
+            uploadedBy: JUNIOR_ON_PROJECT.id,
+          },
+          {
+            id: DOC_JUNIOR_SCAN_ID,
+            ownerId: JUNIOR_ON_PROJECT.id,
+            category: 'SCAN',
+            name: 'passport.jpg',
+            s3Key: `documents/SCAN/${JUNIOR_ON_PROJECT.id}/${DOC_JUNIOR_SCAN_ID}-passport.jpg`,
+            sizeBytes: 1024,
+            mimeType: 'image/jpeg',
+            uploadedBy: JUNIOR_ON_PROJECT.id,
+          },
+          {
+            id: DOC_SENIOR_TEAMMATE_SCAN_ID,
+            ownerId: SENIOR_TEAMMATE.id,
+            category: 'SCAN',
+            name: 'passport.jpg',
+            s3Key: `documents/SCAN/${SENIOR_TEAMMATE.id}/${DOC_SENIOR_TEAMMATE_SCAN_ID}-passport.jpg`,
+            sizeBytes: 1024,
+            mimeType: 'image/jpeg',
+            uploadedBy: SENIOR_TEAMMATE.id,
+          },
+          {
+            id: DOC_SCAN_OWNER_NO_TX_ID,
+            ownerId: SCAN_OWNER_NO_TRANSACTIONS.id,
+            category: 'SCAN',
+            name: 'passport.jpg',
+            s3Key: `documents/SCAN/${SCAN_OWNER_NO_TRANSACTIONS.id}/${DOC_SCAN_OWNER_NO_TX_ID}-passport.jpg`,
+            sizeBytes: 1024,
+            mimeType: 'image/jpeg',
+            uploadedBy: SCAN_OWNER_NO_TRANSACTIONS.id,
+          },
+          {
+            id: DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID,
+            ownerId: JUNIOR_NO_TEAM_PROJECT.id,
+            category: 'RESUME',
+            name: 'resume.pdf',
+            s3Key: `documents/RESUME/${JUNIOR_NO_TEAM_PROJECT.id}/${DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID}-resume.pdf`,
+            sizeBytes: 1024,
+            mimeType: 'application/pdf',
+            uploadedBy: JUNIOR_NO_TEAM_PROJECT.id,
+          },
+          {
+            id: DOC_JUNIOR_FORMER_MEMBER_RESUME_ID,
+            ownerId: JUNIOR_FORMER_MEMBER.id,
+            category: 'RESUME',
+            name: 'resume.pdf',
+            s3Key: `documents/RESUME/${JUNIOR_FORMER_MEMBER.id}/${DOC_JUNIOR_FORMER_MEMBER_RESUME_ID}-resume.pdf`,
+            sizeBytes: 1024,
+            mimeType: 'application/pdf',
+            uploadedBy: JUNIOR_FORMER_MEMBER.id,
+          },
+          {
+            id: DOC_JUNIOR_ARCHIVED_PROJECT_RESUME_ID,
+            ownerId: JUNIOR_ON_ARCHIVED_PROJECT.id,
+            category: 'RESUME',
+            name: 'resume.pdf',
+            s3Key: `documents/RESUME/${JUNIOR_ON_ARCHIVED_PROJECT.id}/${DOC_JUNIOR_ARCHIVED_PROJECT_RESUME_ID}-resume.pdf`,
+            sizeBytes: 1024,
+            mimeType: 'application/pdf',
+            uploadedBy: JUNIOR_ON_ARCHIVED_PROJECT.id,
+          },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(documents).where(inArray(documents.id, ALL_DOC_IDS))
+        await db.delete(projectMembers).where(inArray(projectMembers.id, ALL_PROJECT_MEMBER_IDS))
+        await db.delete(teamMembers).where(inArray(teamMembers.teamId, ALL_TEAM_IDS))
+        await db.delete(projects).where(inArray(projects.id, ALL_PROJECT_IDS))
+        await db.delete(teams).where(inArray(teams.id, ALL_TEAM_IDS))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // Non-fatal cleanup failure — do not mask test results
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  it("SENIOR downloads their OWN project's JUNIOR RESUME → 200 (the HIGH-1 fix)", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_RESUME_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR) },
+    it("SENIOR downloads their OWN project's JUNIOR RESUME → 200 (the HIGH-1 fix)", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_RESUME_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it("SENIOR downloads their OWN project's JUNIOR SCAN → 200", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_SCAN_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR) },
+    it("SENIOR downloads their OWN project's JUNIOR SCAN → 200", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_SCAN_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it("SENIOR_OUTSIDE (no team/project overlap) CANNOT download the JUNIOR's RESUME → 404, not 403", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_RESUME_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR_OUTSIDE) },
+    it("SENIOR_OUTSIDE (no team/project overlap) CANNOT download the JUNIOR's RESUME → 404, not 403", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_RESUME_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR_OUTSIDE) },
+      })
+      expect(res.statusCode).toBe(404)
     })
-    expect(res.statusCode).toBe(404)
-  })
 
-  // LOW-1: the same SENIOR who legitimately reaches JUNIOR_ON_PROJECT must
-  // NOT reach a genuinely different project's junior — proves the scope is
-  // per-project, not "any junior anywhere".
-  it("SENIOR CANNOT download a JUNIOR on a DIFFERENT senior's project → 404", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR) },
+    // LOW-1: the same SENIOR who legitimately reaches JUNIOR_ON_PROJECT must
+    // NOT reach a genuinely different project's junior — proves the scope is
+    // per-project, not "any junior anywhere".
+    it("SENIOR CANNOT download a JUNIOR on a DIFFERENT senior's project → 404", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(404)
     })
-    expect(res.statusCode).toBe(404)
-  })
 
-  it('SENIOR downloads a TEAMMATE SENIOR’s SCAN (pure team_members overlap, no project) → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_SENIOR_TEAMMATE_SCAN_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR) },
+    it('SENIOR downloads a TEAMMATE SENIOR’s SCAN (pure team_members overlap, no project) → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_SENIOR_TEAMMATE_SCAN_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  // LOW-1: a SENIOR with ZERO active team membership must still reach their
-  // OWN project's junior — proves the project-derived step does not depend
-  // on the team-overlap step returning anything.
-  it("SENIOR_NO_TEAM (no active team at all) still downloads their OWN project's JUNIOR RESUME → 200", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR_NO_TEAM) },
+    // LOW-1: a SENIOR with ZERO active team membership must still reach their
+    // OWN project's junior — proves the project-derived step does not depend
+    // on the team-overlap step returning anything.
+    it("SENIOR_NO_TEAM (no active team at all) still downloads their OWN project's JUNIOR RESUME → 200", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_NO_TEAM_PROJECT_RESUME_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR_NO_TEAM) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  // LOW-1: a FORMER project member (leftAt set) must not remain reachable.
-  it("SENIOR CANNOT download a FORMER project member's RESUME (leftAt set) → 404", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_FORMER_MEMBER_RESUME_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR) },
+    // LOW-1: a FORMER project member (leftAt set) must not remain reachable.
+    it("SENIOR CANNOT download a FORMER project member's RESUME (leftAt set) → 404", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_FORMER_MEMBER_RESUME_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(404)
     })
-    expect(res.statusCode).toBe(404)
-  })
 
-  // MED (security-review round 2): a JUNIOR whose OWN project_members row
-  // still has `leftAt = null` (mirroring the real unarchive() drift) must
-  // still be unreachable once the PROJECT itself is archived — proves the
-  // fix checks `projects.archivedAt` directly, not just `leftAt`.
-  it('SENIOR_ARCHIVED_PROJECT CANNOT download a junior on their ARCHIVED project, even with leftAt=null → 404', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_ARCHIVED_PROJECT_RESUME_ID}/download`,
-      cookies: { jwt: tokenFor(SENIOR_ARCHIVED_PROJECT) },
+    // MED (security-review round 2): a JUNIOR whose OWN project_members row
+    // still has `leftAt = null` (mirroring the real unarchive() drift) must
+    // still be unreachable once the PROJECT itself is archived — proves the
+    // fix checks `projects.archivedAt` directly, not just `leftAt`.
+    it('SENIOR_ARCHIVED_PROJECT CANNOT download a junior on their ARCHIVED project, even with leftAt=null → 404', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_ARCHIVED_PROJECT_RESUME_ID}/download`,
+        cookies: { jwt: tokenFor(SENIOR_ARCHIVED_PROJECT) },
+      })
+      expect(res.statusCode).toBe(404)
     })
-    expect(res.statusCode).toBe(404)
-  })
 
-  it("HR_TEAMMATE downloads their team's SENIOR's JUNIOR SCAN (team+project chain) → 200", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_SCAN_ID}/download`,
-      cookies: { jwt: tokenFor(HR_TEAMMATE) },
+    it("HR_TEAMMATE downloads their team's SENIOR's JUNIOR SCAN (team+project chain) → 200", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_SCAN_ID}/download`,
+        cookies: { jwt: tokenFor(HR_TEAMMATE) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it("HR_OUTSIDE (no team overlap with SENIOR) CANNOT download the JUNIOR's SCAN → 404", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_SCAN_ID}/download`,
-      cookies: { jwt: tokenFor(HR_OUTSIDE) },
+    it("HR_OUTSIDE (no team overlap with SENIOR) CANNOT download the JUNIOR's SCAN → 404", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_SCAN_ID}/download`,
+        cookies: { jwt: tokenFor(HR_OUTSIDE) },
+      })
+      expect(res.statusCode).toBe(404)
     })
-    expect(res.statusCode).toBe(404)
-  })
 
-  // Owner decision 2026-08-03 (security-review round 2, reverses round 1's
-  // MED-1 transaction-scoped attempt): ACCOUNTANT sees ANY scan, including
-  // one belonging to an owner with ZERO transactions on record.
-  it('ACCOUNTANT downloads SCAN of an owner with ZERO transactions on record → 200 (owner decision 2026-08-03)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_SCAN_OWNER_NO_TX_ID}/download`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    // Owner decision 2026-08-03 (security-review round 2, reverses round 1's
+    // MED-1 transaction-scoped attempt): ACCOUNTANT sees ANY scan, including
+    // one belonging to an owner with ZERO transactions on record.
+    it('ACCOUNTANT downloads SCAN of an owner with ZERO transactions on record → 200 (owner decision 2026-08-03)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_SCAN_OWNER_NO_TX_ID}/download`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  // LOW-1: DROP is unaffected by any of this task's team/project scoping —
-  // still strictly own-documents-only.
-  it("DROP_ACTOR CANNOT download another user's RESUME (own-only, unaffected by this task) → 404", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: `/api/documents/${DOC_JUNIOR_RESUME_ID}/download`,
-      cookies: { jwt: tokenFor(DROP_ACTOR) },
+    // LOW-1: DROP is unaffected by any of this task's team/project scoping —
+    // still strictly own-documents-only.
+    it("DROP_ACTOR CANNOT download another user's RESUME (own-only, unaffected by this task) → 404", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: `/api/documents/${DOC_JUNIOR_RESUME_ID}/download`,
+        cookies: { jwt: tokenFor(DROP_ACTOR) },
+      })
+      expect(res.statusCode).toBe(404)
     })
-    expect(res.statusCode).toBe(404)
-  })
 
-  it("list(category=RESUME) for SENIOR includes their project JUNIOR's resume", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/documents?category=RESUME',
-      cookies: { jwt: tokenFor(SENIOR) },
+    it("list(category=RESUME) for SENIOR includes their project JUNIOR's resume", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/documents?category=RESUME',
+        cookies: { jwt: tokenFor(SENIOR) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { id: string }[]
+      expect(body.some((d) => d.id === DOC_JUNIOR_RESUME_ID)).toBe(true)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { id: string }[]
-    expect(body.some((d) => d.id === DOC_JUNIOR_RESUME_ID)).toBe(true)
-  })
 
-  it("list(category=RESUME) for SENIOR_OUTSIDE does NOT include the unrelated JUNIOR's resume", async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/documents?category=RESUME',
-      cookies: { jwt: tokenFor(SENIOR_OUTSIDE) },
+    it("list(category=RESUME) for SENIOR_OUTSIDE does NOT include the unrelated JUNIOR's resume", async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/documents?category=RESUME',
+        cookies: { jwt: tokenFor(SENIOR_OUTSIDE) },
+      })
+      expect(res.statusCode).toBe(200)
+      const body = res.json() as { id: string }[]
+      expect(body.some((d) => d.id === DOC_JUNIOR_RESUME_ID)).toBe(false)
     })
-    expect(res.statusCode).toBe(200)
-    const body = res.json() as { id: string }[]
-    expect(body.some((d) => d.id === DOC_JUNIOR_RESUME_ID)).toBe(false)
-  })
-})
+  },
+)

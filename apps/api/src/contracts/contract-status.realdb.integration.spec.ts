@@ -13,8 +13,10 @@
  * SEED: inserts isolated test rows in beforeAll, deletes in afterAll.
  * IDs namespaced to this spec run — no collision with other integration specs.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
- * Every test does `if (!dbAvailable) return` and stays green.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 import { Pool } from 'pg'
@@ -27,6 +29,7 @@ import { EmployeeContractsService } from './employee-contracts.service'
 import { ContractTemplatesService } from './contract-templates.service'
 import { employeeContracts, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ---------------------------------------------------------------------------
 // Template IDs are resolved dynamically from the target DB in beforeAll.
@@ -53,14 +56,13 @@ const TEST_EC_IDS = [EC_SIGNED_ID, EC_SENIOR_ID]
 // ---------------------------------------------------------------------------
 // DB availability probe
 // ---------------------------------------------------------------------------
-let dbAvailable = true
 let _pool: Pool | null = null
 let ecSvc: EmployeeContractsService
 
 // ---------------------------------------------------------------------------
 // Suite
 // ---------------------------------------------------------------------------
-describe('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
+describe.skipIf(!hasDatabaseUrl())('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
   beforeAll(async () => {
     // DB availability probe + resolve dynamic template IDs
     try {
@@ -75,18 +77,14 @@ describe('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
       )
       await probePool.end()
       if (!juniorRow.rows[0] || !seniorRow.rows[0]) {
-        console.warn('[contract-status-realdb] SKIPPED — no contract templates found in DB')
-        dbAvailable = false
-        return
+        throw new Error('[contract-status-realdb] FAILED — no contract templates found in DB')
       }
       TEMPLATE_JUNIOR_ID = juniorRow.rows[0].id
       TEMPLATE_SENIOR_ID = seniorRow.rows[0].id
     } catch {
-      console.warn(
-        '[contract-status-realdb] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
+      throw new Error(
+        '[contract-status-realdb] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
       )
-      dbAvailable = false
-      return
     }
 
     // Build minimal service directly (getMyStatus only needs DatabaseService)
@@ -157,7 +155,10 @@ describe('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable || !_pool) return
+    if (!_pool)
+      throw new Error(
+        '[require-real-db] _pool not initialized — beforeAll should have thrown already',
+      )
     try {
       const db = drizzle(_pool, { schema })
       // Delete in FK-safe order: contracts first, then users
@@ -172,7 +173,6 @@ describe('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
   }, 30_000)
 
   it('AC2a: JUNIOR with SIGNED contract → getMyStatus returns {id, status:"SIGNED"}', async () => {
-    if (!dbAvailable) return
     const result = await ecSvc.getMyStatus(J_SIGNED_ID)
     expect(result).not.toBeNull()
     expect(result!.status).toBe('SIGNED')
@@ -180,13 +180,11 @@ describe('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
   })
 
   it('AC2b: user without any active contract → getMyStatus returns null', async () => {
-    if (!dbAvailable) return
     const result = await ecSvc.getMyStatus(J_NOSIGNED_ID)
     expect(result).toBeNull()
   })
 
   it('AC2c: self-only — getMyStatus(userA) never returns userB contract', async () => {
-    if (!dbAvailable) return
     // J_NOSIGNED has no contract → null (does NOT return J_SIGNED or SENIOR contract)
     const resultForNoSigned = await ecSvc.getMyStatus(J_NOSIGNED_ID)
     expect(resultForNoSigned).toBeNull()
@@ -199,7 +197,6 @@ describe('EmployeeContractsService.getMyStatus — real DB (AC2)', () => {
   })
 
   it('AC2d: SENIOR with SIGNED contract → also returns correctly (any auth user self-only)', async () => {
-    if (!dbAvailable) return
     const result = await ecSvc.getMyStatus(SENIOR_ID)
     expect(result).not.toBeNull()
     expect(result!.status).toBe('SIGNED')

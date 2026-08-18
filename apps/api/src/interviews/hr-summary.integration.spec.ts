@@ -19,6 +19,7 @@ import { DatabaseService } from '../database/database.service'
 import { InterviewsService } from './interviews.service'
 import { interviews, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * HR dashboard — hr-summary real-backend integration spec (real Postgres, no
@@ -32,9 +33,10 @@ import * as schema from '../database/schema'
  *     actual JWT request, not a unit stub, and
  *   - the KPI aggregation + team-scope run over real rows (proving the SQL path).
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR the
- * `interviews` table is absent → every test returns early and stays green (so
- * the CI unit job without a DB is unaffected).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against a scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_hr_dash \
@@ -177,7 +179,6 @@ class SentinelInterviewsController {
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -240,403 +241,388 @@ class TestDatabaseModule {}
 class HrSummaryTestModule {}
 
 // ── Suite ───────────────────────────────────────────────────────────────────
-describe('hr-summary — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'hr-summary — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  // Baseline KPI captured BEFORE this spec inserts its own rows, so deltas hold
-  // on a seeded crm_db AND on an empty scratch DB alike. ADMIN baseline (sees
-  // all boards) is used for the global interview KPI; the HR baseline isolates
-  // the team-scoped figures.
-  let adminBaseline: HrSummaryDtoT | null = null
-  let hrBaseline: HrSummaryDtoT | null = null
+    // Baseline KPI captured BEFORE this spec inserts its own rows, so deltas hold
+    // on a seeded crm_db AND on an empty scratch DB alike. ADMIN baseline (sees
+    // all boards) is used for the global interview KPI; the HR baseline isolates
+    // the team-scoped figures.
+    let adminBaseline: HrSummaryDtoT | null = null
+    let hrBaseline: HrSummaryDtoT | null = null
 
-  const now = new Date()
-  const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
-  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
+    const now = new Date()
+    const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
+    const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      const schemaCheck = await probePool.query(
-        `SELECT table_name FROM information_schema.tables
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        const schemaCheck = await probePool.query(
+          `SELECT table_name FROM information_schema.tables
          WHERE table_name='interviews' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn('[hr-summary integration] SKIPPED — interviews table not found')
-        dbAvailable = false
-        return
+        )
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error('[hr-summary integration] FAILED — interviews table not found')
+        }
+      } catch {
+        throw new Error(
+          '[hr-summary integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[hr-summary integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [HrSummaryTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [HrSummaryTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'hr-summary-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'hr-summary-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // Surgical cleanup of any leftover rows BEFORE seeding (deterministic counts).
-    await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
-    await db.delete(interviews).where(inArray(interviews.id, TEST_IV_IDS))
-    await db.delete(teamMembers).where(inArray(teamMembers.userId, TEST_USER_IDS))
-    await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-
-    // ── Seed users ──────────────────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values(
-        [ADMIN, HR, HR_NO_TEAM, SENIOR_IN_TEAM, SENIOR_OUT_TEAM, JUNIOR, ACCOUNTANT, DROP].map(
-          (u) => ({
-            id: u.id,
-            email: u.email,
-            displayName: u.displayName,
-            role: u.role,
-            googleId: `test-google-${u.id}`,
-          }),
-        ),
-      )
-      .onConflictDoNothing()
-
-    // ── Seed team: HR + SENIOR_IN_TEAM are members (active) ───────────────────
-    await db
-      .insert(teams)
-      .values({ id: TEAM_ID, name: 'HR Sum Team', type: 'SENIOR' })
-      .onConflictDoNothing()
-    await db.insert(teamMembers).values([
-      { teamId: TEAM_ID, userId: HR.id },
-      { teamId: TEAM_ID, userId: SENIOR_IN_TEAM.id },
-    ])
-
-    // ── Capture baseline KPI BEFORE inserting this spec's interview rows ───────
-    {
-      const adminRes = await app.inject({
-        method: 'GET',
-        url: '/api/interviews/hr-summary',
-        cookies: { jwt: jwt.sign(ADMIN) },
-      })
-      adminBaseline = hrSummarySchema.parse(adminRes.json())
-      const hrRes = await app.inject({
-        method: 'GET',
-        url: '/api/interviews/hr-summary',
-        cookies: { jwt: jwt.sign(HR) },
-      })
-      hrBaseline = hrSummarySchema.parse(hrRes.json())
-    }
-
-    // ── Seed interviews (deterministic KPI fixtures) ──────────────────────────
-    // For SENIOR_IN_TEAM (in HR scope):
-    //   2 active (TECH_INTERVIEW, HR_SCREEN), 1 HIRED-this-month, 1 HIRED-last-month
-    //   (excluded), 1 REJECTED (excluded from open), 1 ARCHIVED (excluded from open).
-    // For SENIOR_OUT_TEAM (NOT in HR scope, but in ADMIN's all-board view):
-    //   1 active (FINAL_INTERVIEW), 1 HIRED-this-month.
-    await db.insert(interviews).values([
-      {
-        id: IV_IN_ACTIVE_1,
-        seniorId: SENIOR_IN_TEAM.id,
-        companyName: 'In Active 1',
-        stage: 'TECH_INTERVIEW',
-        position: 0,
-        createdAt: thisMonth,
-        updatedAt: thisMonth,
-      },
-      {
-        id: IV_IN_ACTIVE_2,
-        seniorId: SENIOR_IN_TEAM.id,
-        companyName: 'In Active 2',
-        stage: 'HR_SCREEN',
-        position: 1,
-        createdAt: thisMonth,
-        updatedAt: thisMonth,
-      },
-      {
-        id: IV_IN_HIRED_THIS,
-        seniorId: SENIOR_IN_TEAM.id,
-        companyName: 'In Hired This',
-        stage: 'HIRED',
-        position: 0,
-        createdAt: thisMonth,
-        updatedAt: thisMonth,
-      },
-      {
-        id: IV_IN_HIRED_OLD,
-        seniorId: SENIOR_IN_TEAM.id,
-        companyName: 'In Hired Old',
-        stage: 'HIRED',
-        position: 1,
-        createdAt: lastMonth,
-        updatedAt: lastMonth,
-      },
-      {
-        id: IV_IN_REJECTED,
-        seniorId: SENIOR_IN_TEAM.id,
-        companyName: 'In Rejected',
-        stage: 'REJECTED',
-        position: 0,
-        createdAt: thisMonth,
-        updatedAt: thisMonth,
-      },
-      {
-        id: IV_IN_ARCHIVED,
-        seniorId: SENIOR_IN_TEAM.id,
-        companyName: 'In Archived',
-        stage: 'ARCHIVED',
-        position: 0,
-        createdAt: thisMonth,
-        updatedAt: thisMonth,
-      },
-      {
-        id: IV_OUT_ACTIVE,
-        seniorId: SENIOR_OUT_TEAM.id,
-        companyName: 'Out Active',
-        stage: 'FINAL_INTERVIEW',
-        position: 0,
-        createdAt: thisMonth,
-        updatedAt: thisMonth,
-      },
-      {
-        id: IV_OUT_HIRED_THIS,
-        seniorId: SENIOR_OUT_TEAM.id,
-        companyName: 'Out Hired This',
-        stage: 'HIRED',
-        position: 0,
-        createdAt: thisMonth,
-        updatedAt: thisMonth,
-      },
-    ])
-
-    // ── Seed projects for activeProjects KPI ──────────────────────────────────
-    // PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 — in HR scope (SENIOR_IN_TEAM), active → +2 for HR.
-    // PROJ_IN_ARCHIVED — in HR scope but archived → excluded from activeProjects.
-    // PROJ_OUT_ACTIVE  — SENIOR_OUT_TEAM (not HR scope), active → +0 for HR, +1 for ADMIN.
-    await db.insert(projects).values([
-      {
-        id: PROJ_IN_ACTIVE_1,
-        name: 'HR Proj Active 1',
-        companyName: 'TestCo',
-        domain: 'AI',
-        seniorId: SENIOR_IN_TEAM.id,
-        startDate: thisMonth,
-        rate: 1000,
-        currency: 'USD',
-      },
-      {
-        id: PROJ_IN_ACTIVE_2,
-        name: 'HR Proj Active 2',
-        companyName: 'TestCo',
-        domain: 'AI',
-        seniorId: SENIOR_IN_TEAM.id,
-        startDate: thisMonth,
-        rate: 1000,
-        currency: 'USD',
-      },
-      {
-        id: PROJ_IN_ARCHIVED,
-        name: 'HR Proj Archived',
-        companyName: 'TestCo',
-        domain: 'AI',
-        seniorId: SENIOR_IN_TEAM.id,
-        startDate: thisMonth,
-        rate: 1000,
-        currency: 'USD',
-        archivedAt: thisMonth,
-      },
-      {
-        id: PROJ_OUT_ACTIVE,
-        name: 'HR Proj Out Active',
-        companyName: 'TestCo',
-        domain: 'AI',
-        seniorId: SENIOR_OUT_TEAM.id,
-        startDate: thisMonth,
-        rate: 1000,
-        currency: 'USD',
-      },
-    ])
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
+
+      // Surgical cleanup of any leftover rows BEFORE seeding (deterministic counts).
       await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
       await db.delete(interviews).where(inArray(interviews.id, TEST_IV_IDS))
       await db.delete(teamMembers).where(inArray(teamMembers.userId, TEST_USER_IDS))
       await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
+
+      // ── Seed users ──────────────────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values(
+          [ADMIN, HR, HR_NO_TEAM, SENIOR_IN_TEAM, SENIOR_OUT_TEAM, JUNIOR, ACCOUNTANT, DROP].map(
+            (u) => ({
+              id: u.id,
+              email: u.email,
+              displayName: u.displayName,
+              role: u.role,
+              googleId: `test-google-${u.id}`,
+            }),
+          ),
+        )
+        .onConflictDoNothing()
+
+      // ── Seed team: HR + SENIOR_IN_TEAM are members (active) ───────────────────
+      await db
+        .insert(teams)
+        .values({ id: TEAM_ID, name: 'HR Sum Team', type: 'SENIOR' })
+        .onConflictDoNothing()
+      await db.insert(teamMembers).values([
+        { teamId: TEAM_ID, userId: HR.id },
+        { teamId: TEAM_ID, userId: SENIOR_IN_TEAM.id },
+      ])
+
+      // ── Capture baseline KPI BEFORE inserting this spec's interview rows ───────
+      {
+        const adminRes = await app.inject({
+          method: 'GET',
+          url: '/api/interviews/hr-summary',
+          cookies: { jwt: jwt.sign(ADMIN) },
+        })
+        adminBaseline = hrSummarySchema.parse(adminRes.json())
+        const hrRes = await app.inject({
+          method: 'GET',
+          url: '/api/interviews/hr-summary',
+          cookies: { jwt: jwt.sign(HR) },
+        })
+        hrBaseline = hrSummarySchema.parse(hrRes.json())
+      }
+
+      // ── Seed interviews (deterministic KPI fixtures) ──────────────────────────
+      // For SENIOR_IN_TEAM (in HR scope):
+      //   2 active (TECH_INTERVIEW, HR_SCREEN), 1 HIRED-this-month, 1 HIRED-last-month
+      //   (excluded), 1 REJECTED (excluded from open), 1 ARCHIVED (excluded from open).
+      // For SENIOR_OUT_TEAM (NOT in HR scope, but in ADMIN's all-board view):
+      //   1 active (FINAL_INTERVIEW), 1 HIRED-this-month.
+      await db.insert(interviews).values([
+        {
+          id: IV_IN_ACTIVE_1,
+          seniorId: SENIOR_IN_TEAM.id,
+          companyName: 'In Active 1',
+          stage: 'TECH_INTERVIEW',
+          position: 0,
+          createdAt: thisMonth,
+          updatedAt: thisMonth,
+        },
+        {
+          id: IV_IN_ACTIVE_2,
+          seniorId: SENIOR_IN_TEAM.id,
+          companyName: 'In Active 2',
+          stage: 'HR_SCREEN',
+          position: 1,
+          createdAt: thisMonth,
+          updatedAt: thisMonth,
+        },
+        {
+          id: IV_IN_HIRED_THIS,
+          seniorId: SENIOR_IN_TEAM.id,
+          companyName: 'In Hired This',
+          stage: 'HIRED',
+          position: 0,
+          createdAt: thisMonth,
+          updatedAt: thisMonth,
+        },
+        {
+          id: IV_IN_HIRED_OLD,
+          seniorId: SENIOR_IN_TEAM.id,
+          companyName: 'In Hired Old',
+          stage: 'HIRED',
+          position: 1,
+          createdAt: lastMonth,
+          updatedAt: lastMonth,
+        },
+        {
+          id: IV_IN_REJECTED,
+          seniorId: SENIOR_IN_TEAM.id,
+          companyName: 'In Rejected',
+          stage: 'REJECTED',
+          position: 0,
+          createdAt: thisMonth,
+          updatedAt: thisMonth,
+        },
+        {
+          id: IV_IN_ARCHIVED,
+          seniorId: SENIOR_IN_TEAM.id,
+          companyName: 'In Archived',
+          stage: 'ARCHIVED',
+          position: 0,
+          createdAt: thisMonth,
+          updatedAt: thisMonth,
+        },
+        {
+          id: IV_OUT_ACTIVE,
+          seniorId: SENIOR_OUT_TEAM.id,
+          companyName: 'Out Active',
+          stage: 'FINAL_INTERVIEW',
+          position: 0,
+          createdAt: thisMonth,
+          updatedAt: thisMonth,
+        },
+        {
+          id: IV_OUT_HIRED_THIS,
+          seniorId: SENIOR_OUT_TEAM.id,
+          companyName: 'Out Hired This',
+          stage: 'HIRED',
+          position: 0,
+          createdAt: thisMonth,
+          updatedAt: thisMonth,
+        },
+      ])
+
+      // ── Seed projects for activeProjects KPI ──────────────────────────────────
+      // PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 — in HR scope (SENIOR_IN_TEAM), active → +2 for HR.
+      // PROJ_IN_ARCHIVED — in HR scope but archived → excluded from activeProjects.
+      // PROJ_OUT_ACTIVE  — SENIOR_OUT_TEAM (not HR scope), active → +0 for HR, +1 for ADMIN.
+      await db.insert(projects).values([
+        {
+          id: PROJ_IN_ACTIVE_1,
+          name: 'HR Proj Active 1',
+          companyName: 'TestCo',
+          domain: 'AI',
+          seniorId: SENIOR_IN_TEAM.id,
+          startDate: thisMonth,
+          rate: 1000,
+          currency: 'USD',
+        },
+        {
+          id: PROJ_IN_ACTIVE_2,
+          name: 'HR Proj Active 2',
+          companyName: 'TestCo',
+          domain: 'AI',
+          seniorId: SENIOR_IN_TEAM.id,
+          startDate: thisMonth,
+          rate: 1000,
+          currency: 'USD',
+        },
+        {
+          id: PROJ_IN_ARCHIVED,
+          name: 'HR Proj Archived',
+          companyName: 'TestCo',
+          domain: 'AI',
+          seniorId: SENIOR_IN_TEAM.id,
+          startDate: thisMonth,
+          rate: 1000,
+          currency: 'USD',
+          archivedAt: thisMonth,
+        },
+        {
+          id: PROJ_OUT_ACTIVE,
+          name: 'HR Proj Out Active',
+          companyName: 'TestCo',
+          domain: 'AI',
+          seniorId: SENIOR_OUT_TEAM.id,
+          startDate: thisMonth,
+          rate: 1000,
+          currency: 'USD',
+        },
+      ])
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
+        await db.delete(interviews).where(inArray(interviews.id, TEST_IV_IDS))
+        await db.delete(teamMembers).where(inArray(teamMembers.userId, TEST_USER_IDS))
+        await db.delete(teams).where(inArray(teams.id, [TEAM_ID]))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  async function summaryAs(user: SessionUser): Promise<HrSummaryDtoT> {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/interviews/hr-summary',
-      cookies: { jwt: tokenFor(user) },
-    })
-    return hrSummarySchema.parse(res.json())
-  }
-
-  // ── RBAC (AC2) ──────────────────────────────────────────────────────────────
-  const forbidden: Array<[string, SessionUser]> = [
-    ['SENIOR', SENIOR_IN_TEAM],
-    ['JUNIOR', JUNIOR],
-    ['ACCOUNTANT', ACCOUNTANT],
-    ['DROP', DROP],
-  ]
-  for (const [label, persona] of forbidden) {
-    it(`RBAC: ${label} → 403`, async () => {
-      if (!dbAvailable) return
+    async function summaryAs(user: SessionUser): Promise<HrSummaryDtoT> {
       const res = await app.inject({
         method: 'GET',
         url: '/api/interviews/hr-summary',
-        cookies: { jwt: tokenFor(persona) },
+        cookies: { jwt: tokenFor(user) },
       })
-      expect(res.statusCode).toBe(403)
+      return hrSummarySchema.parse(res.json())
+    }
+
+    // ── RBAC (AC2) ──────────────────────────────────────────────────────────────
+    const forbidden: Array<[string, SessionUser]> = [
+      ['SENIOR', SENIOR_IN_TEAM],
+      ['JUNIOR', JUNIOR],
+      ['ACCOUNTANT', ACCOUNTANT],
+      ['DROP', DROP],
+    ]
+    for (const [label, persona] of forbidden) {
+      it(`RBAC: ${label} → 403`, async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/interviews/hr-summary',
+          cookies: { jwt: tokenFor(persona) },
+        })
+        expect(res.statusCode).toBe(403)
+      })
+    }
+
+    it('RBAC: HR → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/interviews/hr-summary',
+        cookies: { jwt: tokenFor(HR) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-  }
 
-  it('RBAC: HR → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/interviews/hr-summary',
-      cookies: { jwt: tokenFor(HR) },
+    it('RBAC: ADMIN → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/interviews/hr-summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('RBAC: ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/interviews/hr-summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+    // ── KPI shape + correctness (AC1) ─────────────────────────────────────────────
+    it('returns a schema-valid KPI payload for HR', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/interviews/hr-summary',
+        cookies: { jwt: tokenFor(HR) },
+      })
+      expect(res.statusCode).toBe(200)
+      const parsed = hrSummarySchema.parse(res.json())
+      expect(parsed).toBeTruthy()
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  // ── KPI shape + correctness (AC1) ─────────────────────────────────────────────
-  it('returns a schema-valid KPI payload for HR', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/interviews/hr-summary',
-      cookies: { jwt: tokenFor(HR) },
+    it('HR KPI deltas reflect ONLY the in-team senior board (team-scope)', async () => {
+      expect(hrBaseline).not.toBeNull()
+      const base = hrBaseline!
+      const body = await summaryAs(HR)
+
+      // Δ openInterviews for HR scope: IV_IN_ACTIVE_1 + IV_IN_ACTIVE_2 = +2.
+      // HIRED/REJECTED/ARCHIVED rows excluded; SENIOR_OUT_TEAM rows NOT in scope.
+      expect(body.openInterviews - base.openInterviews).toBe(2)
+
+      // Δ hiredThisMonth for HR scope: IV_IN_HIRED_THIS = +1. HIRED-last-month
+      // excluded; SENIOR_OUT_TEAM HIRED-this-month NOT in scope.
+      expect(body.hiredThisMonth - base.hiredThisMonth).toBe(1)
     })
-    expect(res.statusCode).toBe(200)
-    const parsed = hrSummarySchema.parse(res.json())
-    expect(parsed).toBeTruthy()
-  })
 
-  it('HR KPI deltas reflect ONLY the in-team senior board (team-scope)', async () => {
-    if (!dbAvailable) return
-    expect(hrBaseline).not.toBeNull()
-    const base = hrBaseline!
-    const body = await summaryAs(HR)
+    it('ADMIN KPI deltas include ALL boards (no team-scope filter)', async () => {
+      expect(adminBaseline).not.toBeNull()
+      const base = adminBaseline!
+      const body = await summaryAs(ADMIN)
 
-    // Δ openInterviews for HR scope: IV_IN_ACTIVE_1 + IV_IN_ACTIVE_2 = +2.
-    // HIRED/REJECTED/ARCHIVED rows excluded; SENIOR_OUT_TEAM rows NOT in scope.
-    expect(body.openInterviews - base.openInterviews).toBe(2)
+      // Δ openInterviews for ADMIN: IV_IN_ACTIVE_1 + IV_IN_ACTIVE_2 + IV_OUT_ACTIVE = +3.
+      expect(body.openInterviews - base.openInterviews).toBe(3)
 
-    // Δ hiredThisMonth for HR scope: IV_IN_HIRED_THIS = +1. HIRED-last-month
-    // excluded; SENIOR_OUT_TEAM HIRED-this-month NOT in scope.
-    expect(body.hiredThisMonth - base.hiredThisMonth).toBe(1)
-  })
+      // Δ hiredThisMonth for ADMIN: IV_IN_HIRED_THIS + IV_OUT_HIRED_THIS = +2.
+      expect(body.hiredThisMonth - base.hiredThisMonth).toBe(2)
+    })
 
-  it('ADMIN KPI deltas include ALL boards (no team-scope filter)', async () => {
-    if (!dbAvailable) return
-    expect(adminBaseline).not.toBeNull()
-    const base = adminBaseline!
-    const body = await summaryAs(ADMIN)
+    it('team-scope: an out-of-team senior board NEVER leaks into HR figures', async () => {
+      const base = hrBaseline!
+      const body = await summaryAs(HR)
+      // If team-scope regressed, HR would see SENIOR_OUT_TEAM's active (FINAL_INTERVIEW)
+      // → delta 3, and his HIRED-this-month → delta 2. Both must stay at the in-team value.
+      expect(body.openInterviews - base.openInterviews).toBe(2)
+      expect(body.hiredThisMonth - base.hiredThisMonth).toBe(1)
+    })
 
-    // Δ openInterviews for ADMIN: IV_IN_ACTIVE_1 + IV_IN_ACTIVE_2 + IV_OUT_ACTIVE = +3.
-    expect(body.openInterviews - base.openInterviews).toBe(3)
+    it('HR with NO team gets 0 for both interview KPI (empty scope)', async () => {
+      const body = await summaryAs(HR_NO_TEAM)
+      expect(body.openInterviews).toBe(0)
+      expect(body.hiredThisMonth).toBe(0)
+    })
 
-    // Δ hiredThisMonth for ADMIN: IV_IN_HIRED_THIS + IV_OUT_HIRED_THIS = +2.
-    expect(body.hiredThisMonth - base.hiredThisMonth).toBe(2)
-  })
+    // ── activeProjects (AC2) ─────────────────────────────────────────────────────
+    it('HR activeProjects: only active non-archived projects of in-team seniors', async () => {
+      expect(hrBaseline).not.toBeNull()
+      const base = hrBaseline!
+      const body = await summaryAs(HR)
+      // Delta: PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 in HR scope, active → +2.
+      // PROJ_IN_ARCHIVED is archived → excluded (delta 0).
+      // PROJ_OUT_ACTIVE is SENIOR_OUT_TEAM → not in HR scope (delta 0).
+      expect(body.activeProjects - base.activeProjects).toBe(2)
+    })
 
-  it('team-scope: an out-of-team senior board NEVER leaks into HR figures', async () => {
-    if (!dbAvailable) return
-    const base = hrBaseline!
-    const body = await summaryAs(HR)
-    // If team-scope regressed, HR would see SENIOR_OUT_TEAM's active (FINAL_INTERVIEW)
-    // → delta 3, and his HIRED-this-month → delta 2. Both must stay at the in-team value.
-    expect(body.openInterviews - base.openInterviews).toBe(2)
-    expect(body.hiredThisMonth - base.hiredThisMonth).toBe(1)
-  })
+    it('ADMIN activeProjects: sees all non-archived projects (no team-scope filter)', async () => {
+      expect(adminBaseline).not.toBeNull()
+      const base = adminBaseline!
+      const body = await summaryAs(ADMIN)
+      // Delta: PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 + PROJ_OUT_ACTIVE = +3.
+      // PROJ_IN_ARCHIVED excluded (archived).
+      expect(body.activeProjects - base.activeProjects).toBe(3)
+    })
 
-  it('HR with NO team gets 0 for both interview KPI (empty scope)', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(HR_NO_TEAM)
-    expect(body.openInterviews).toBe(0)
-    expect(body.hiredThisMonth).toBe(0)
-  })
+    it('team-scope: out-of-team project NEVER leaks into HR activeProjects', async () => {
+      expect(hrBaseline).not.toBeNull()
+      const base = hrBaseline!
+      const body = await summaryAs(HR)
+      // If team-scope regressed, HR would see PROJ_OUT_ACTIVE → delta 3. Must stay at 2.
+      expect(body.activeProjects - base.activeProjects).toBe(2)
+    })
 
-  // ── activeProjects (AC2) ─────────────────────────────────────────────────────
-  it('HR activeProjects: only active non-archived projects of in-team seniors', async () => {
-    if (!dbAvailable) return
-    expect(hrBaseline).not.toBeNull()
-    const base = hrBaseline!
-    const body = await summaryAs(HR)
-    // Delta: PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 in HR scope, active → +2.
-    // PROJ_IN_ARCHIVED is archived → excluded (delta 0).
-    // PROJ_OUT_ACTIVE is SENIOR_OUT_TEAM → not in HR scope (delta 0).
-    expect(body.activeProjects - base.activeProjects).toBe(2)
-  })
+    it('HR with NO team gets 0 activeProjects', async () => {
+      const body = await summaryAs(HR_NO_TEAM)
+      expect(body.activeProjects).toBe(0)
+    })
 
-  it('ADMIN activeProjects: sees all non-archived projects (no team-scope filter)', async () => {
-    if (!dbAvailable) return
-    expect(adminBaseline).not.toBeNull()
-    const base = adminBaseline!
-    const body = await summaryAs(ADMIN)
-    // Delta: PROJ_IN_ACTIVE_1 + PROJ_IN_ACTIVE_2 + PROJ_OUT_ACTIVE = +3.
-    // PROJ_IN_ARCHIVED excluded (archived).
-    expect(body.activeProjects - base.activeProjects).toBe(3)
-  })
-
-  it('team-scope: out-of-team project NEVER leaks into HR activeProjects', async () => {
-    if (!dbAvailable) return
-    expect(hrBaseline).not.toBeNull()
-    const base = hrBaseline!
-    const body = await summaryAs(HR)
-    // If team-scope regressed, HR would see PROJ_OUT_ACTIVE → delta 3. Must stay at 2.
-    expect(body.activeProjects - base.activeProjects).toBe(2)
-  })
-
-  it('HR with NO team gets 0 activeProjects', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(HR_NO_TEAM)
-    expect(body.activeProjects).toBe(0)
-  })
-
-  it('schema has no mySalaryStatus field', async () => {
-    if (!dbAvailable) return
-    const body = await summaryAs(HR)
-    // hrSummarySchema no longer contains mySalaryStatus — ensure it's absent.
-    expect('mySalaryStatus' in body).toBe(false)
-  })
-})
+    it('schema has no mySalaryStatus field', async () => {
+      const body = await summaryAs(HR)
+      // hrSummarySchema no longer contains mySalaryStatus — ensure it's absent.
+      expect('mySalaryStatus' in body).toBe(false)
+    })
+  },
+)

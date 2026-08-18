@@ -23,6 +23,7 @@ import type { NbuCurrencyService } from './nbu-currency.service'
 import type { InvoicesService } from '../invoices/invoices.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Audit 2026-06-27 (findings #2/#3) — REAL-controller RBAC integration for the
@@ -134,7 +135,6 @@ const stubInvoices = {
 } as unknown as InvoicesService
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -200,309 +200,288 @@ class TestDatabaseModule {}
 })
 class GuardsRbacTestModule {}
 
-describe('finance controller guards — real backend RBAC integration (real DB)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'finance controller guards — real backend RBAC integration (real DB)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT table_name FROM information_schema.tables WHERE table_name='transactions' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[finance-controller-guards rbac] SKIPPED — transactions table not found')
-        dbAvailable = false
-        return
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_name='transactions' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[finance-controller-guards rbac] FAILED — transactions table not found')
+        }
+      } catch {
+        throw new Error('[finance-controller-guards rbac] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[finance-controller-guards rbac] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({ imports: [GuardsRbacTestModule] })
-      .overrideGuard(RolesGuard)
-      .useValue(new RolesGuard(new Reflector()))
-      .compile()
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'finance-controller-guards-rbac-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      const moduleRef = await Test.createTestingModule({ imports: [GuardsRbacTestModule] })
+        .overrideGuard(RolesGuard)
+        .useValue(new RolesGuard(new Reflector()))
+        .compile()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'finance-controller-guards-rbac-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    await db
-      .insert(users)
-      .values(
-        ALL.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
+
       await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
-    }
-    await app.close()
-  }, 15_000)
+      await db
+        .insert(users)
+        .values(
+          ALL.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+    }, 30_000)
 
-  const tokenFor = (u: SessionUser) => jwt.sign(u)
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
 
-  async function post(user: SessionUser, url: string, payload: unknown): Promise<number> {
-    const res = await app.inject({
-      method: 'POST',
-      url,
-      cookies: { jwt: tokenFor(user) },
-      payload: payload as object,
-    })
-    return res.statusCode
-  }
-  async function del(user: SessionUser, url: string): Promise<number> {
-    const res = await app.inject({ method: 'DELETE', url, cookies: { jwt: tokenFor(user) } })
-    return res.statusCode
-  }
-  async function get(user: SessionUser, url: string): Promise<number> {
-    const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(user) } })
-    return res.statusCode
-  }
-  async function patch(user: SessionUser, url: string, payload: unknown): Promise<number> {
-    const res = await app.inject({
-      method: 'PATCH',
-      url,
-      cookies: { jwt: tokenFor(user) },
-      payload: payload as object,
-    })
-    return res.statusCode
-  }
+    const tokenFor = (u: SessionUser) => jwt.sign(u)
 
-  // ── #3 TransactionsController — guard fires BEFORE handler (403, not 4xx body) ─
-  describe('#3 TransactionsController @Roles guards', () => {
-    const expensePayload = { amount: 10, currency: 'USDT', category: 'X' }
-
-    for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
-      it(`POST /transactions/expense — ${persona.role} → 403 (ADMIN/ACCOUNTANT only)`, async () => {
-        if (!dbAvailable) return
-        expect(await post(persona, '/api/transactions/expense', expensePayload)).toBe(403)
+    async function post(user: SessionUser, url: string, payload: unknown): Promise<number> {
+      const res = await app.inject({
+        method: 'POST',
+        url,
+        cookies: { jwt: tokenFor(user) },
+        payload: payload as object,
       })
+      return res.statusCode
+    }
+    async function del(user: SessionUser, url: string): Promise<number> {
+      const res = await app.inject({ method: 'DELETE', url, cookies: { jwt: tokenFor(user) } })
+      return res.statusCode
+    }
+    async function get(user: SessionUser, url: string): Promise<number> {
+      const res = await app.inject({ method: 'GET', url, cookies: { jwt: tokenFor(user) } })
+      return res.statusCode
+    }
+    async function patch(user: SessionUser, url: string, payload: unknown): Promise<number> {
+      const res = await app.inject({
+        method: 'PATCH',
+        url,
+        cookies: { jwt: tokenFor(user) },
+        payload: payload as object,
+      })
+      return res.statusCode
     }
 
-    it('POST /transactions/admin-income — SENIOR → 403', async () => {
-      if (!dbAvailable) return
-      expect(
-        await post(SENIOR, '/api/transactions/admin-income', {
-          projectId: '00000000-0000-4000-8000-000000000000',
-          amount: 10,
-          currency: 'USDT',
-        }),
-      ).toBe(403)
-    })
+    // ── #3 TransactionsController — guard fires BEFORE handler (403, not 4xx body) ─
+    describe('#3 TransactionsController @Roles guards', () => {
+      const expensePayload = { amount: 10, currency: 'USDT', category: 'X' }
 
-    for (const persona of [ADMIN, HR]) {
-      it(`POST /transactions/senior-income — ${persona.role} → 403 (SENIOR only)`, async () => {
-        if (!dbAvailable) return
+      for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
+        it(`POST /transactions/expense — ${persona.role} → 403 (ADMIN/ACCOUNTANT only)`, async () => {
+          expect(await post(persona, '/api/transactions/expense', expensePayload)).toBe(403)
+        })
+      }
+
+      it('POST /transactions/admin-income — SENIOR → 403', async () => {
         expect(
-          await post(persona, '/api/transactions/senior-income', {
+          await post(SENIOR, '/api/transactions/admin-income', {
             projectId: '00000000-0000-4000-8000-000000000000',
             amount: 10,
             currency: 'USDT',
           }),
         ).toBe(403)
       })
-    }
 
-    it('POST /transactions/drop-income — ADMIN → 403 (DROP only)', async () => {
-      if (!dbAvailable) return
-      expect(
-        await post(ADMIN, '/api/transactions/drop-income', {
-          projectId: '00000000-0000-4000-8000-000000000000',
-          amount: 10,
-          currency: 'USDT',
-        }),
-      ).toBe(403)
-    })
-
-    // ── PATCH drop-income/:id — ownership-gated (no @Roles, service-side check) ─
-    // BIZ-17: updateDropIncome has NO @Roles decorator — RolesGuard passes all
-    // authenticated callers. The service enforces:
-    //   (a) currentUser.role !== 'DROP' → ForbiddenException (403)
-    //   (b) tx.receiverId !== currentUser.id → ForbiddenException (403)
-    // We insert a REJECTED DROP_INCOME owned by DROP and test two cases:
-    //   1. ADMIN (non-DROP role) → 403
-    //   2. SENIOR (DROP-owned tx, wrong user) → 403
-    describe('PATCH /transactions/drop-income/:id — ownership enforcement', () => {
-      const DROP_TX_ID = 'fc550000-0000-4000-ac00-000000000001'
-      const url = `/api/transactions/drop-income/${DROP_TX_ID}`
-      const patchPayload = { amount: 99 }
-
-      beforeAll(async () => {
-        if (!dbAvailable) return
-        const db = dbSvc.db
-        await db.delete(transactions).where(inArray(transactions.id, [DROP_TX_ID]))
-        // Seed a REJECTED DROP_INCOME owned by DROP (receiverId = DROP.id)
-        await db.insert(transactions).values({
-          id: DROP_TX_ID,
-          type: 'DROP_INCOME',
-          status: 'REJECTED',
-          amount: '50',
-          currency: 'USDT',
-          senderId: null,
-          receiverId: DROP.id,
-          recipientId: DROP.id,
-          createdBy: DROP.id,
-          rejectionReason: 'test rejection',
+      for (const persona of [ADMIN, HR]) {
+        it(`POST /transactions/senior-income — ${persona.role} → 403 (SENIOR only)`, async () => {
+          expect(
+            await post(persona, '/api/transactions/senior-income', {
+              projectId: '00000000-0000-4000-8000-000000000000',
+              amount: 10,
+              currency: 'USDT',
+            }),
+          ).toBe(403)
         })
-      }, 15_000)
+      }
 
-      afterAll(async () => {
-        if (!dbAvailable) return
-        try {
-          await dbSvc.db.delete(transactions).where(inArray(transactions.id, [DROP_TX_ID]))
-        } catch {
-          // non-fatal
-        }
-      }, 10_000)
-
-      it('PATCH drop-income/:id — ADMIN (non-DROP role) → 403', async () => {
-        if (!dbAvailable) return
-        expect(await patch(ADMIN, url, patchPayload)).toBe(403)
+      it('POST /transactions/drop-income — ADMIN → 403 (DROP only)', async () => {
+        expect(
+          await post(ADMIN, '/api/transactions/drop-income', {
+            projectId: '00000000-0000-4000-8000-000000000000',
+            amount: 10,
+            currency: 'USDT',
+          }),
+        ).toBe(403)
       })
 
-      it('PATCH drop-income/:id — SENIOR (not owner) → 403', async () => {
-        if (!dbAvailable) return
-        // SENIOR role triggers the `currentUser.role !== 'DROP'` check first → 403
-        expect(await patch(SENIOR, url, patchPayload)).toBe(403)
+      // ── PATCH drop-income/:id — ownership-gated (no @Roles, service-side check) ─
+      // BIZ-17: updateDropIncome has NO @Roles decorator — RolesGuard passes all
+      // authenticated callers. The service enforces:
+      //   (a) currentUser.role !== 'DROP' → ForbiddenException (403)
+      //   (b) tx.receiverId !== currentUser.id → ForbiddenException (403)
+      // We insert a REJECTED DROP_INCOME owned by DROP and test two cases:
+      //   1. ADMIN (non-DROP role) → 403
+      //   2. SENIOR (DROP-owned tx, wrong user) → 403
+      describe('PATCH /transactions/drop-income/:id — ownership enforcement', () => {
+        const DROP_TX_ID = 'fc550000-0000-4000-ac00-000000000001'
+        const url = `/api/transactions/drop-income/${DROP_TX_ID}`
+        const patchPayload = { amount: 99 }
+
+        beforeAll(async () => {
+          const db = dbSvc.db
+          await db.delete(transactions).where(inArray(transactions.id, [DROP_TX_ID]))
+          // Seed a REJECTED DROP_INCOME owned by DROP (receiverId = DROP.id)
+          await db.insert(transactions).values({
+            id: DROP_TX_ID,
+            type: 'DROP_INCOME',
+            status: 'REJECTED',
+            amount: '50',
+            currency: 'USDT',
+            senderId: null,
+            receiverId: DROP.id,
+            recipientId: DROP.id,
+            createdBy: DROP.id,
+            rejectionReason: 'test rejection',
+          })
+        }, 15_000)
+
+        afterAll(async () => {
+          try {
+            await dbSvc.db.delete(transactions).where(inArray(transactions.id, [DROP_TX_ID]))
+          } catch {
+            // non-fatal
+          }
+        }, 10_000)
+
+        it('PATCH drop-income/:id — ADMIN (non-DROP role) → 403', async () => {
+          expect(await patch(ADMIN, url, patchPayload)).toBe(403)
+        })
+
+        it('PATCH drop-income/:id — SENIOR (not owner) → 403', async () => {
+          // SENIOR role triggers the `currentUser.role !== 'DROP'` check first → 403
+          expect(await patch(SENIOR, url, patchPayload)).toBe(403)
+        })
+      })
+
+      it('DELETE /transactions/:id — ACCOUNTANT → 403 (ADMIN only)', async () => {
+        expect(
+          await del(ACCOUNTANT, '/api/transactions/00000000-0000-4000-8000-000000000000'),
+        ).toBe(403)
+      })
+
+      // Authorized roles pass the GUARD (they may still hit a 4xx in the handler for
+      // missing data, but NOT 403 — proving the guard let them through).
+      it('POST /transactions/expense — ADMIN passes the guard (not 403)', async () => {
+        expect(await post(ADMIN, '/api/transactions/expense', expensePayload)).not.toBe(403)
+      })
+      it('POST /transactions/expense — ACCOUNTANT passes the guard (not 403)', async () => {
+        expect(await post(ACCOUNTANT, '/api/transactions/expense', expensePayload)).not.toBe(403)
       })
     })
 
-    it('DELETE /transactions/:id — ACCOUNTANT → 403 (ADMIN only)', async () => {
-      if (!dbAvailable) return
-      expect(await del(ACCOUNTANT, '/api/transactions/00000000-0000-4000-8000-000000000000')).toBe(
-        403,
-      )
+    // BACKLOG-followups.md item 12 — the duplicated-`txHash` query-param guard
+    // (`inspectOnChainHash`, MED-S round 7) previously had ZERO controller-level
+    // HTTP coverage: every existing test called `svc.inspectOnChainHash(...)`
+    // directly, which never exercises Fastify's own query-string parsing — the
+    // exact layer this guard defends (`?txHash=a&txHash=b` arrives as an ARRAY,
+    // not a string, only at the HTTP boundary). A service-level test cannot prove
+    // the guard is wired on the route at all.
+    describe('GET /transactions/onchain-hash — duplicated txHash query param', () => {
+      it('?txHash=a&txHash=b — ADMIN → 400 (guard fires before the service)', async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+          cookies: { jwt: tokenFor(ADMIN) },
+        })
+        expect(res.statusCode).toBe(400)
+        // Positive assert: this 400 comes from the duplicated-param guard
+        // specifically, not from some other 400 source down the stack.
+        expect(JSON.parse(res.payload).message).toMatch(/ровно один параметр/)
+      })
+
+      it('?txHash=a&txHash=b — ACCOUNTANT → 400 too (guard is role-independent)', async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+          cookies: { jwt: tokenFor(ACCOUNTANT) },
+        })
+        expect(res.statusCode).toBe(400)
+      })
+
+      it('a single txHash param passes the duplicate-param guard and reaches the service (200, unclaimed hash)', async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: `/api/transactions/onchain-hash?txHash=0x${'0'.repeat(64)}`,
+          cookies: { jwt: tokenFor(ADMIN) },
+        })
+        // MED-2 (security-review round on #534, same principle item 13 of this
+        // PR applies): `not.toBe(400)` only proves the response ISN'T a 400 —
+        // not that it is the CORRECT 200. `inspectOnChainHash` has no
+        // `@HttpCode` decorator, so a well-formed, unclaimed hash is a
+        // deterministic 200 with `claimed: false` (see
+        // TransactionsService.inspectOnChainHash — no matching row → plain
+        // return, Nest's GET default). Assert the exact value.
+        expect(res.statusCode).toBe(200)
+        expect(JSON.parse(res.payload)).toMatchObject({ claimed: false })
+      })
+
+      it('?txHash=a&txHash=b — SENIOR → 403 (RBAC guard still runs first)', async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
+          cookies: { jwt: tokenFor(SENIOR) },
+        })
+        expect(res.statusCode).toBe(403)
+      })
     })
 
-    // Authorized roles pass the GUARD (they may still hit a 4xx in the handler for
-    // missing data, but NOT 403 — proving the guard let them through).
-    it('POST /transactions/expense — ADMIN passes the guard (not 403)', async () => {
-      if (!dbAvailable) return
-      expect(await post(ADMIN, '/api/transactions/expense', expensePayload)).not.toBe(403)
+    // ── #2 PendingSettlementController @Roles guards ────────────────────────────
+    describe('#2 PendingSettlementController @Roles guards', () => {
+      for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
+        it(`GET /pending-settlements/company — ${persona.role} → 403 (ADMIN/ACCOUNTANT only)`, async () => {
+          // SENIOR is allowed on /senior but NOT /company → 403.
+          expect(await get(persona, '/api/pending-settlements/company')).toBe(403)
+        })
+      }
+
+      for (const persona of [ADMIN, ACCOUNTANT]) {
+        it(`GET /pending-settlements/company — ${persona.role} passes the guard (not 403)`, async () => {
+          expect(await get(persona, '/api/pending-settlements/company')).not.toBe(403)
+        })
+      }
+
+      for (const persona of [JUNIOR, HR, DROP]) {
+        it(`GET /pending-settlements/senior — ${persona.role} → 403 (ADMIN/ACCOUNTANT/SENIOR only)`, async () => {
+          expect(await get(persona, '/api/pending-settlements/senior')).toBe(403)
+        })
+      }
+
+      for (const persona of [ADMIN, ACCOUNTANT, SENIOR]) {
+        it(`GET /pending-settlements/senior — ${persona.role} passes the guard (not 403)`, async () => {
+          expect(await get(persona, '/api/pending-settlements/senior')).not.toBe(403)
+        })
+      }
     })
-    it('POST /transactions/expense — ACCOUNTANT passes the guard (not 403)', async () => {
-      if (!dbAvailable) return
-      expect(await post(ACCOUNTANT, '/api/transactions/expense', expensePayload)).not.toBe(403)
-    })
-  })
-
-  // BACKLOG-followups.md item 12 — the duplicated-`txHash` query-param guard
-  // (`inspectOnChainHash`, MED-S round 7) previously had ZERO controller-level
-  // HTTP coverage: every existing test called `svc.inspectOnChainHash(...)`
-  // directly, which never exercises Fastify's own query-string parsing — the
-  // exact layer this guard defends (`?txHash=a&txHash=b` arrives as an ARRAY,
-  // not a string, only at the HTTP boundary). A service-level test cannot prove
-  // the guard is wired on the route at all.
-  describe('GET /transactions/onchain-hash — duplicated txHash query param', () => {
-    it('?txHash=a&txHash=b — ADMIN → 400 (guard fires before the service)', async () => {
-      if (!dbAvailable) return
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
-        cookies: { jwt: tokenFor(ADMIN) },
-      })
-      expect(res.statusCode).toBe(400)
-      // Positive assert: this 400 comes from the duplicated-param guard
-      // specifically, not from some other 400 source down the stack.
-      expect(JSON.parse(res.payload).message).toMatch(/ровно один параметр/)
-    })
-
-    it('?txHash=a&txHash=b — ACCOUNTANT → 400 too (guard is role-independent)', async () => {
-      if (!dbAvailable) return
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
-        cookies: { jwt: tokenFor(ACCOUNTANT) },
-      })
-      expect(res.statusCode).toBe(400)
-    })
-
-    it('a single txHash param passes the duplicate-param guard and reaches the service (200, unclaimed hash)', async () => {
-      if (!dbAvailable) return
-      const res = await app.inject({
-        method: 'GET',
-        url: `/api/transactions/onchain-hash?txHash=0x${'0'.repeat(64)}`,
-        cookies: { jwt: tokenFor(ADMIN) },
-      })
-      // MED-2 (security-review round on #534, same principle item 13 of this
-      // PR applies): `not.toBe(400)` only proves the response ISN'T a 400 —
-      // not that it is the CORRECT 200. `inspectOnChainHash` has no
-      // `@HttpCode` decorator, so a well-formed, unclaimed hash is a
-      // deterministic 200 with `claimed: false` (see
-      // TransactionsService.inspectOnChainHash — no matching row → plain
-      // return, Nest's GET default). Assert the exact value.
-      expect(res.statusCode).toBe(200)
-      expect(JSON.parse(res.payload)).toMatchObject({ claimed: false })
-    })
-
-    it('?txHash=a&txHash=b — SENIOR → 403 (RBAC guard still runs first)', async () => {
-      if (!dbAvailable) return
-      const res = await app.inject({
-        method: 'GET',
-        url: '/api/transactions/onchain-hash?txHash=a&txHash=b',
-        cookies: { jwt: tokenFor(SENIOR) },
-      })
-      expect(res.statusCode).toBe(403)
-    })
-  })
-
-  // ── #2 PendingSettlementController @Roles guards ────────────────────────────
-  describe('#2 PendingSettlementController @Roles guards', () => {
-    for (const persona of [SENIOR, JUNIOR, HR, DROP]) {
-      it(`GET /pending-settlements/company — ${persona.role} → 403 (ADMIN/ACCOUNTANT only)`, async () => {
-        if (!dbAvailable) return
-        // SENIOR is allowed on /senior but NOT /company → 403.
-        expect(await get(persona, '/api/pending-settlements/company')).toBe(403)
-      })
-    }
-
-    for (const persona of [ADMIN, ACCOUNTANT]) {
-      it(`GET /pending-settlements/company — ${persona.role} passes the guard (not 403)`, async () => {
-        if (!dbAvailable) return
-        expect(await get(persona, '/api/pending-settlements/company')).not.toBe(403)
-      })
-    }
-
-    for (const persona of [JUNIOR, HR, DROP]) {
-      it(`GET /pending-settlements/senior — ${persona.role} → 403 (ADMIN/ACCOUNTANT/SENIOR only)`, async () => {
-        if (!dbAvailable) return
-        expect(await get(persona, '/api/pending-settlements/senior')).toBe(403)
-      })
-    }
-
-    for (const persona of [ADMIN, ACCOUNTANT, SENIOR]) {
-      it(`GET /pending-settlements/senior — ${persona.role} passes the guard (not 403)`, async () => {
-        if (!dbAvailable) return
-        expect(await get(persona, '/api/pending-settlements/senior')).not.toBe(403)
-      })
-    }
-  })
-})
+  },
+)

@@ -9,6 +9,7 @@ import { teamMembers, teams, users } from '../database/schema'
 import { DatabaseService } from '../database/database.service'
 import { UsersAccessService } from './users-access.service'
 import { UsersService } from './users.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-hr-rbac-teammate-access — HR teammate RBAC, real-Postgres integration.
@@ -33,8 +34,10 @@ import { UsersService } from './users.service'
  *
  * SEED namespace: e51c2d3f-8b4a-** (distinct from drop-profile-rbac group)
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job) →
- *   every test returns early, suite stays green in no-DB environments.
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ *   unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ *   unreachable throws in beforeAll (reports FAILED) — neither case can
+ *   look like "passed" with zero assertions.
  */
 
 // ── Personas ─────────────────────────────────────────────────────────────────
@@ -160,177 +163,181 @@ function makeRow(overrides: Partial<User>): User {
   } as User
 }
 
-describe('HR teammate profile RBAC — real DB integration (task-hr-rbac-teammate-access)', () => {
-  let dbAvailable = true
-  let pool: Pool
-  let dbSvc: DatabaseService
-  let usersService: UsersService
+describe.skipIf(!hasDatabaseUrl())(
+  'HR teammate profile RBAC — real DB integration (task-hr-rbac-teammate-access)',
+  () => {
+    let pool: Pool
+    let dbSvc: DatabaseService
+    let usersService: UsersService
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      await probe.end()
-    } catch {
-      console.warn('[hr-teammate-rbac integration] SKIPPED — no DB at DATABASE_URL (CI unit job)')
-      dbAvailable = false
-      return
-    }
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        await probe.end()
+      } catch {
+        throw new Error(
+          '[hr-teammate-rbac integration] FAILED — no DB at DATABASE_URL (CI unit job)',
+        )
+      }
 
-    pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(pool, { schema })
-    dbSvc = Object.assign(Object.create(DatabaseService.prototype) as DatabaseService, { pool, db })
+      pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      const db = drizzle(pool, { schema })
+      dbSvc = Object.assign(Object.create(DatabaseService.prototype) as DatabaseService, {
+        pool,
+        db,
+      })
 
-    const accessService = new UsersAccessService(dbSvc)
-    // buildProfileView only uses db + accessService + tosService (tosService is
-    // called only for ADMIN/self viewers — not on the HR→teammate path).
-    const tosService = {
-      getLatestAcceptanceForUser: () => Promise.resolve(null),
-    } as never
-    usersService = Object.assign(Object.create(UsersService.prototype) as UsersService, {
-      db: dbSvc,
-      accessService,
-      tosService,
+      const accessService = new UsersAccessService(dbSvc)
+      // buildProfileView only uses db + accessService + tosService (tosService is
+      // called only for ADMIN/self viewers — not on the HR→teammate path).
+      const tosService = {
+        getLatestAcceptanceForUser: () => Promise.resolve(null),
+      } as never
+      usersService = Object.assign(Object.create(UsersService.prototype) as UsersService, {
+        db: dbSvc,
+        accessService,
+        tosService,
+      })
+
+      // ── Seed ──────────────────────────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values([
+          { ...HR, googleId: `test-hr-rbac-${HR.id}` },
+          { ...ACCOUNTANT_MATE, googleId: `test-hr-rbac-${ACCOUNTANT_MATE.id}` },
+          { ...HR_MATE, googleId: `test-hr-rbac-${HR_MATE.id}` },
+          { ...ACCOUNTANT_OUTSIDER, googleId: `test-hr-rbac-${ACCOUNTANT_OUTSIDER.id}` },
+          { ...SENIOR_MATE, googleId: `test-hr-rbac-${SENIOR_MATE.id}` },
+          { ...ADMIN_USER, googleId: `test-hr-rbac-${ADMIN_USER.id}` },
+          { ...ACCOUNTANT_EX_MATE, googleId: `test-hr-rbac-${ACCOUNTANT_EX_MATE.id}` },
+        ])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teams)
+        .values([
+          { id: HR_TEAM_ID, name: 'HR RBAC Team' },
+          { id: OTHER_TEAM_ID, name: 'HR RBAC Other Team' },
+        ])
+        .onConflictDoNothing()
+
+      // HR + ACCOUNTANT_MATE + HR_MATE + SENIOR_MATE active in HR_TEAM;
+      // ACCOUNTANT_OUTSIDER active in OTHER_TEAM. ADMIN is in no team.
+      // ACCOUNTANT_EX_MATE: in HR_TEAM but with leftAt set (former member).
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: HR_TEAM_ID, userId: HR.id, joinedAt: new Date() },
+          { teamId: HR_TEAM_ID, userId: ACCOUNTANT_MATE.id, joinedAt: new Date() },
+          { teamId: HR_TEAM_ID, userId: HR_MATE.id, joinedAt: new Date() },
+          { teamId: HR_TEAM_ID, userId: SENIOR_MATE.id, joinedAt: new Date() },
+          { teamId: OTHER_TEAM_ID, userId: ACCOUNTANT_OUTSIDER.id, joinedAt: new Date() },
+          {
+            teamId: HR_TEAM_ID,
+            userId: ACCOUNTANT_EX_MATE.id,
+            joinedAt: new Date('2025-01-01'),
+            leftAt: new Date('2025-06-01'), // left 6 months ago → must NOT be accessible
+          },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(teamMembers).where(inArray(teamMembers.teamId, TEST_TEAM_IDS))
+        await db.delete(teams).where(inArray(teams.id, TEST_TEAM_IDS))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // Non-fatal cleanup failure — do not mask test results
+      }
+      await pool?.end()
+    }, 15_000)
+
+    // ── HR-INT-1: HR → ACCOUNTANT same team → 200, overview/team, masked ──────────
+
+    it('HR-INT-1. HR viewing ACCOUNTANT teammate → 200, tabs=["overview","team"], finance/PII masked, contacts visible', async () => {
+      const view = await usersService.buildProfileView(HR, ACCOUNTANT_MATE.id)
+      // Exactly overview + team — no projects/interviews/finance/requisites.
+      expect(view.permissions.tabs).toEqual(['overview', 'team'])
+
+      // Financial / PII fields MUST be masked (null) — no new leak from widening.
+      expect(view.user.monthlySalary).toBeNull()
+      expect(view.user.salaryCurrency).toBeNull()
+      expect(view.user.paymentMethod).toBeNull()
+      expect(view.user.walletUsdtErc20).toBeNull()
+      expect(view.user.bankUahIban).toBeNull()
+      expect(view.user.bankUahRecipient).toBeNull()
+      expect(view.user.registrationAddress).toBeNull()
+      expect(view.user.legalFullName).toBeNull()
+      expect(view.user.adminNote).toBeNull()
+
+      // Contacts of a teammate ARE visible (same as SENIOR HR path).
+      expect(view.user.email).toBe(ACCOUNTANT_MATE.email)
+      expect(view.user.phone).toBe(ACCOUNTANT_MATE.phone)
+      expect(view.user.telegram).toBe(ACCOUNTANT_MATE.telegram)
     })
 
-    // ── Seed ──────────────────────────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values([
-        { ...HR, googleId: `test-hr-rbac-${HR.id}` },
-        { ...ACCOUNTANT_MATE, googleId: `test-hr-rbac-${ACCOUNTANT_MATE.id}` },
-        { ...HR_MATE, googleId: `test-hr-rbac-${HR_MATE.id}` },
-        { ...ACCOUNTANT_OUTSIDER, googleId: `test-hr-rbac-${ACCOUNTANT_OUTSIDER.id}` },
-        { ...SENIOR_MATE, googleId: `test-hr-rbac-${SENIOR_MATE.id}` },
-        { ...ADMIN_USER, googleId: `test-hr-rbac-${ADMIN_USER.id}` },
-        { ...ACCOUNTANT_EX_MATE, googleId: `test-hr-rbac-${ACCOUNTANT_EX_MATE.id}` },
+    // ── HR-INT-2: HR → HR same team → 200, overview/team, masked ──────────────────
+
+    it('HR-INT-2. HR viewing another HR teammate → 200, tabs=["overview","team"], finance/PII masked', async () => {
+      const view = await usersService.buildProfileView(HR, HR_MATE.id)
+      expect(view.permissions.tabs).toEqual(['overview', 'team'])
+      expect(view.user.monthlySalary).toBeNull()
+      expect(view.user.paymentMethod).toBeNull()
+      expect(view.user.walletUsdtErc20).toBeNull()
+      expect(view.user.registrationAddress).toBeNull()
+      expect(view.user.legalFullName).toBeNull()
+      // Contacts visible
+      expect(view.user.email).toBe(HR_MATE.email)
+      expect(view.user.phone).toBe(HR_MATE.phone)
+    })
+
+    // ── HR-INT-3: HR → ACCOUNTANT other team → 403 ────────────────────────────────
+
+    it('HR-INT-3. HR viewing ACCOUNTANT in a DIFFERENT team → 403 ForbiddenException (no leak)', async () => {
+      await expect(
+        usersService.buildProfileView(HR, ACCOUNTANT_OUTSIDER.id),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    // ── HR-INT-4: HR → SENIOR same team → 200, full senior surface (regression) ───
+
+    it('HR-INT-4. HR viewing SENIOR teammate → 200, tabs=["overview","projects","team","interviews","resume"] (regression)', async () => {
+      const view = await usersService.buildProfileView(HR, SENIOR_MATE.id)
+      // task-resume-base §4: 'resume' appended for a SENIOR target (HR maintains
+      // a senior's resume). The four tabs this regression test was written to
+      // guard are unchanged, in the same order.
+      expect(view.permissions.tabs).toEqual([
+        'overview',
+        'projects',
+        'team',
+        'interviews',
+        'resume',
       ])
-      .onConflictDoNothing()
+      // SENIOR contacts visible, finance still masked for HR.
+      expect(view.user.email).toBe(SENIOR_MATE.email)
+      expect(view.user.monthlySalary).toBeNull()
+    })
 
-    await db
-      .insert(teams)
-      .values([
-        { id: HR_TEAM_ID, name: 'HR RBAC Team' },
-        { id: OTHER_TEAM_ID, name: 'HR RBAC Other Team' },
-      ])
-      .onConflictDoNothing()
+    // ── HR-INT-5: HR → ADMIN → 403 ────────────────────────────────────────────────
 
-    // HR + ACCOUNTANT_MATE + HR_MATE + SENIOR_MATE active in HR_TEAM;
-    // ACCOUNTANT_OUTSIDER active in OTHER_TEAM. ADMIN is in no team.
-    // ACCOUNTANT_EX_MATE: in HR_TEAM but with leftAt set (former member).
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: HR_TEAM_ID, userId: HR.id, joinedAt: new Date() },
-        { teamId: HR_TEAM_ID, userId: ACCOUNTANT_MATE.id, joinedAt: new Date() },
-        { teamId: HR_TEAM_ID, userId: HR_MATE.id, joinedAt: new Date() },
-        { teamId: HR_TEAM_ID, userId: SENIOR_MATE.id, joinedAt: new Date() },
-        { teamId: OTHER_TEAM_ID, userId: ACCOUNTANT_OUTSIDER.id, joinedAt: new Date() },
-        {
-          teamId: HR_TEAM_ID,
-          userId: ACCOUNTANT_EX_MATE.id,
-          joinedAt: new Date('2025-01-01'),
-          leftAt: new Date('2025-06-01'), // left 6 months ago → must NOT be accessible
-        },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
+    it('HR-INT-5. HR viewing an ADMIN → 403 ForbiddenException (ADMIN never opened to HR)', async () => {
+      await expect(usersService.buildProfileView(HR, ADMIN_USER.id)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+    })
 
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
-      const db = dbSvc.db
-      await db.delete(teamMembers).where(inArray(teamMembers.teamId, TEST_TEAM_IDS))
-      await db.delete(teams).where(inArray(teams.id, TEST_TEAM_IDS))
-      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // Non-fatal cleanup failure — do not mask test results
-    }
-    await pool?.end()
-  }, 15_000)
+    // ── HR-INT-6: HR → ex-teammate (leftAt set) → 403 ─────────────────────────────
+    // SECURITY-MED fix: team_members with leftAt IS NOT NULL must be excluded from
+    // the shared-team check. A former ACCOUNTANT who left the team 6 months ago
+    // must not be viewable by HR who is still active in that team.
 
-  // ── HR-INT-1: HR → ACCOUNTANT same team → 200, overview/team, masked ──────────
-
-  it('HR-INT-1. HR viewing ACCOUNTANT teammate → 200, tabs=["overview","team"], finance/PII masked, contacts visible', async () => {
-    if (!dbAvailable) return
-    const view = await usersService.buildProfileView(HR, ACCOUNTANT_MATE.id)
-    // Exactly overview + team — no projects/interviews/finance/requisites.
-    expect(view.permissions.tabs).toEqual(['overview', 'team'])
-
-    // Financial / PII fields MUST be masked (null) — no new leak from widening.
-    expect(view.user.monthlySalary).toBeNull()
-    expect(view.user.salaryCurrency).toBeNull()
-    expect(view.user.paymentMethod).toBeNull()
-    expect(view.user.walletUsdtErc20).toBeNull()
-    expect(view.user.bankUahIban).toBeNull()
-    expect(view.user.bankUahRecipient).toBeNull()
-    expect(view.user.registrationAddress).toBeNull()
-    expect(view.user.legalFullName).toBeNull()
-    expect(view.user.adminNote).toBeNull()
-
-    // Contacts of a teammate ARE visible (same as SENIOR HR path).
-    expect(view.user.email).toBe(ACCOUNTANT_MATE.email)
-    expect(view.user.phone).toBe(ACCOUNTANT_MATE.phone)
-    expect(view.user.telegram).toBe(ACCOUNTANT_MATE.telegram)
-  })
-
-  // ── HR-INT-2: HR → HR same team → 200, overview/team, masked ──────────────────
-
-  it('HR-INT-2. HR viewing another HR teammate → 200, tabs=["overview","team"], finance/PII masked', async () => {
-    if (!dbAvailable) return
-    const view = await usersService.buildProfileView(HR, HR_MATE.id)
-    expect(view.permissions.tabs).toEqual(['overview', 'team'])
-    expect(view.user.monthlySalary).toBeNull()
-    expect(view.user.paymentMethod).toBeNull()
-    expect(view.user.walletUsdtErc20).toBeNull()
-    expect(view.user.registrationAddress).toBeNull()
-    expect(view.user.legalFullName).toBeNull()
-    // Contacts visible
-    expect(view.user.email).toBe(HR_MATE.email)
-    expect(view.user.phone).toBe(HR_MATE.phone)
-  })
-
-  // ── HR-INT-3: HR → ACCOUNTANT other team → 403 ────────────────────────────────
-
-  it('HR-INT-3. HR viewing ACCOUNTANT in a DIFFERENT team → 403 ForbiddenException (no leak)', async () => {
-    if (!dbAvailable) return
-    await expect(usersService.buildProfileView(HR, ACCOUNTANT_OUTSIDER.id)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
-  })
-
-  // ── HR-INT-4: HR → SENIOR same team → 200, full senior surface (regression) ───
-
-  it('HR-INT-4. HR viewing SENIOR teammate → 200, tabs=["overview","projects","team","interviews","resume"] (regression)', async () => {
-    if (!dbAvailable) return
-    const view = await usersService.buildProfileView(HR, SENIOR_MATE.id)
-    // task-resume-base §4: 'resume' appended for a SENIOR target (HR maintains
-    // a senior's resume). The four tabs this regression test was written to
-    // guard are unchanged, in the same order.
-    expect(view.permissions.tabs).toEqual(['overview', 'projects', 'team', 'interviews', 'resume'])
-    // SENIOR contacts visible, finance still masked for HR.
-    expect(view.user.email).toBe(SENIOR_MATE.email)
-    expect(view.user.monthlySalary).toBeNull()
-  })
-
-  // ── HR-INT-5: HR → ADMIN → 403 ────────────────────────────────────────────────
-
-  it('HR-INT-5. HR viewing an ADMIN → 403 ForbiddenException (ADMIN never opened to HR)', async () => {
-    if (!dbAvailable) return
-    await expect(usersService.buildProfileView(HR, ADMIN_USER.id)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
-  })
-
-  // ── HR-INT-6: HR → ex-teammate (leftAt set) → 403 ─────────────────────────────
-  // SECURITY-MED fix: team_members with leftAt IS NOT NULL must be excluded from
-  // the shared-team check. A former ACCOUNTANT who left the team 6 months ago
-  // must not be viewable by HR who is still active in that team.
-
-  it('HR-INT-6. HR viewing former ACCOUNTANT teammate (leftAt set) → 403 ForbiddenException (soft-delete excluded)', async () => {
-    if (!dbAvailable) return
-    await expect(usersService.buildProfileView(HR, ACCOUNTANT_EX_MATE.id)).rejects.toBeInstanceOf(
-      ForbiddenException,
-    )
-  })
-})
+    it('HR-INT-6. HR viewing former ACCOUNTANT teammate (leftAt set) → 403 ForbiddenException (soft-delete excluded)', async () => {
+      await expect(usersService.buildProfileView(HR, ACCOUNTANT_EX_MATE.id)).rejects.toBeInstanceOf(
+        ForbiddenException,
+      )
+    })
+  },
+)

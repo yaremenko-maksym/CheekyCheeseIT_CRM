@@ -27,6 +27,7 @@ import {
   users,
 } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-drop-share-override-and-receiver — REAL-DB integration for the admin-USDT
@@ -140,7 +141,6 @@ const stubInvoices = {
 const stubDocuments = {} as never
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -202,7 +202,7 @@ class TestDatabaseModule {}
 })
 class UsdtTestModule {}
 
-describe('admin-USDT income → obligations → settle (real DB)', () => {
+describe.skipIf(!hasDatabaseUrl())('admin-USDT income → obligations → settle (real DB)', () => {
   let svc: TransactionsService
   let settleSvc: PendingSettlementService
   let dbSvc: DatabaseService
@@ -330,14 +330,10 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
       )
       await probe.end()
       if (check.rowCount === 0) {
-        console.warn('[usdt-income-obligations] SKIPPED — project_payment_type enum not found')
-        dbAvailable = false
-        return
+        throw new Error('[usdt-income-obligations] FAILED — project_payment_type enum not found')
       }
     } catch {
-      console.warn('[usdt-income-obligations] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[usdt-income-obligations] FAILED — no DB reachable at DATABASE_URL')
     }
 
     const moduleRef = await Test.createTestingModule({ imports: [UsdtTestModule] }).compile()
@@ -444,7 +440,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     seniorInvoiceTriggers = 0
     await clearLedger()
     // Fund the pool with a big COMPANY_DEPOSIT so company-funded settles pass the
@@ -463,7 +458,7 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     // Clean up ALL rows this spec created so we do not pollute the shared DB for
     // company-wide integration specs (income-compliance / admin-summary) that run
     // later in the same suite and read every project/receiver.
-    if (dbAvailable && dbSvc) {
+    if (dbSvc) {
       await clearLedger()
       await dbSvc.db
         .delete(projects)
@@ -482,7 +477,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC9: paymentType declaration gate ──────────────────────────────────────
   it('AC9: SENIOR/DROP cannot declare income on a USDT project (403); FOP project is OK', async () => {
-    if (!dbAvailable) return
     await expect(
       svc.createDropIncome({ projectId: USDT_DROP_PROJECT, amount: 500, currency: 'USDT' }, DROP),
     ).rejects.toThrow(/USDT-проекте/)
@@ -510,7 +504,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC10: declareUsdtProjectIncome RBAC + receiver routing ─────────────────
   it('AC10: only ADMIN may declare USDT income (ACCOUNTANT/SENIOR/DROP/JUNIOR → 403)', async () => {
-    if (!dbAvailable) return
     const body = {
       projectId: USDT_DROP_PROJECT,
       amount: 1000,
@@ -522,7 +515,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   it('AC10: receiver=COMPANY_ACCOUNT → ADMIN_INCOME(COMPANY_ACCOUNT); non-USDT project rejected', async () => {
-    if (!dbAvailable) return
     const income = await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -543,7 +535,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   it('AC10: receiver=ADMIN X → ADMIN_INCOME(funding=null, receiverId=X)', async () => {
-    if (!dbAvailable) return
     const income = await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: KOSTYA_ID },
       ADMIN_MAKSYM,
@@ -556,7 +547,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC11: atomic obligations (senior IOU + drop IOU) ───────────────────────
   it('AC11: booking is atomic — senior IOU (I×26%) + drop IOU (I×5%) with pending_obligations', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -574,7 +564,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   it('AC11: senior-only USDT project → senior IOU only, no drop IOU', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_SENIOR_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -584,7 +573,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   it('AC11: drop IOU uses the per-project override (12%, not the 5% user default)', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_OVERRIDE_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -596,7 +584,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── task-admin-income-drop-backfill AC1/AC2: sourceIncomeTransactionId ─────
   it('task-admin-income-drop-backfill AC1: booking stamps sourceIncomeTransactionId on BOTH the senior IOU and the drop IOU, equal to the ADMIN_INCOME row it was booked from', async () => {
-    if (!dbAvailable) return
     const income = await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -610,7 +597,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   it('task-admin-income-drop-backfill AC2: the payout cascade (manualConfirmPayout → applyPayoutPaidCascade) books the drop IOU with sourceIncomeTransactionId=NULL — no single source income to name', async () => {
-    if (!dbAvailable) return
     const [income] = await dbSvc.db
       .insert(transactions)
       .values({
@@ -639,7 +625,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC12: idempotent settle (anti-BIZ-02 double-settle) ────────────────────
   it('AC12: double settle of one obligation → second call is rejected (no double payout)', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -655,7 +640,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC13: settle drop → PAYOUT_DROP credits the drop, no senior invoice ────
   it('AC13: settling a drop IOU settles to PAYOUT_DROP (credits drop balance), no senior invoice', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -673,7 +657,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   it('AC13: settling a senior IOU settles to SENIOR_INCOME + fires the senior invoice', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -692,7 +675,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // phantom. The `created` settle row reuses the source id (self-reference), and
   // the closingTransactionId points at that same row.
   it('settle-in-place: senior IOU flips SENIOR_PENDING_PAYOUT → SENIOR_INCOME on the SAME row (no second tx)', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -741,7 +723,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   })
 
   it('settle-in-place: drop IOU flips DROP_PENDING_PAYOUT → PAYOUT_DROP on the SAME row (no second tx)', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -791,7 +772,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // undoing the obligation claim too. We assert the obligation is STILL PENDING
   // afterward (not left half-closed with no closing row).
   it('settle-in-place defense-in-depth: source IOU status corrupted out of band aborts the WHOLE transaction (real rollback)', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
       ADMIN_MAKSYM,
@@ -837,7 +817,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
   // ACCOUNTANT see everything. Proven against the REAL cascade rows, not mocks.
   describe('MED-1: DROP_PENDING_PAYOUT / PAYOUT_DROP RBAC visibility (real DB)', () => {
     it('DROP sees their own DROP_PENDING_PAYOUT; SENIOR does NOT see it (findOne)', async () => {
-      if (!dbAvailable) return
       await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
@@ -863,7 +842,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     })
 
     it('SENIOR sees their own SENIOR_PENDING_PAYOUT; DROP does NOT see it (findOne)', async () => {
-      if (!dbAvailable) return
       await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
@@ -884,7 +862,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     })
 
     it('after settle: DROP sees their own PAYOUT_DROP; SENIOR does NOT (findOne)', async () => {
-      if (!dbAvailable) return
       await declare(
         { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
         ADMIN_MAKSYM,
@@ -902,7 +879,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     })
 
     it('findAll: DROP sees own DROP_PENDING_PAYOUT + PAYOUT_DROP; SENIOR list excludes them; ACCOUNTANT sees both', async () => {
-      if (!dbAvailable) return
       // task-settle-in-place: a settle FLIPS the drop IOU (DROP_PENDING_PAYOUT →
       // PAYOUT_DROP) in place, so a single declare+settle leaves NO lingering
       // DROP_PENDING_PAYOUT. To exercise BOTH types' RBAC visibility at once we
@@ -938,7 +914,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC14: company-account ledger consistency ───────────────────────────────
   it('AC14: ledger — declare(pool) then settle drop from the pool subtracts the drop slice', async () => {
-    if (!dbAvailable) return
     const base = await gateBalance()
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: COMPANY_ACCOUNT_RECEIVER },
@@ -954,7 +929,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC15: C4 — totalIncome counts the gross once ───────────────────────────
   it('AC15: receiver=ADMIN X → declare + settle senior ADMIN_PERSONAL → totalIncome not doubled', async () => {
-    if (!dbAvailable) return
     await declare(
       { projectId: USDT_DROP_PROJECT, amount: 1000, receiverId: KOSTYA_ID },
       ADMIN_MAKSYM,
@@ -974,7 +948,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
 
   // ── AC16: debtToCompany regression under a per-project override ─────────────
   it('AC16: createPayoutRequest is override-aware — debtToCompany = I×(1−override%)', async () => {
-    if (!dbAvailable) return
     // A VALIDATED DROP_INCOME on the override project carrying the 12% snapshot.
     // createPayoutRequest books a PENDING_PAYMENT PAYOUT (senderId=drop) whose
     // amount is the company-kept share I×(1 − dropShare%). debtToCompany reads
@@ -1012,7 +985,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     const REAL_HASH = '0x' + 'ad'.repeat(32)
 
     it('claims the hash carried by the explorer receipt (purpose=ADMIN_INCOME)', async () => {
-      if (!dbAvailable) return
       const income = await declare(
         {
           projectId: USDT_DROP_PROJECT,
@@ -1039,7 +1011,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     })
 
     it('SECURITY: a hash spent as admin income cannot then settle a payout', async () => {
-      if (!dbAvailable) return
       await declare(
         {
           projectId: USDT_DROP_PROJECT,
@@ -1082,7 +1053,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     // the claim is deliberately skipped (round-3 change) was never exercised —
     // a regression there would have burned an unrelated transfer silently.
     it('a PERSONAL declaration (receiver = an ADMIN) does NOT claim the hash', async () => {
-      if (!dbAvailable) return
       const PERSONAL_HASH = '0x' + 'ae'.repeat(32)
       const income = await declare(
         {
@@ -1113,7 +1083,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     })
 
     it('a personal declaration leaves the transfer usable by the payout path', async () => {
-      if (!dbAvailable) return
       const SHARED_HASH = '0x' + 'af'.repeat(32)
       await declare(
         {
@@ -1148,7 +1117,6 @@ describe('admin-USDT income → obligations → settle (real DB)', () => {
     })
 
     it('a receipt link WITHOUT a real hash claims nothing (legacy links keep working)', async () => {
-      if (!dbAvailable) return
       const income = await declare(
         {
           projectId: USDT_DROP_PROJECT,

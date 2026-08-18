@@ -10,6 +10,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import { DatabaseService } from '../database/database.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-drop-share-pending-parity — REAL-DB integration for the manual
@@ -98,7 +99,6 @@ const TEST_OWN_USER_IDS = [DROP_A_ID, ADMIN_ID]
 const LONG_AGO = new Date('2000-01-01T00:00:00.000Z')
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -133,7 +133,7 @@ class TestDatabaseModule {}
 @Module({ imports: [TestDatabaseModule] })
 class MarkerTestModule {}
 
-describe('drop_cascade_origin marker migration (real DB)', () => {
+describe.skipIf(!hasDatabaseUrl())('drop_cascade_origin marker migration (real DB)', () => {
   let dbSvc: DatabaseService
 
   async function clearOwnRows() {
@@ -222,14 +222,12 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
       )
       await probe.end()
       if (check.rowCount === 0) {
-        console.warn('[drop-cascade-origin-marker] SKIPPED — drop_cascade_origin column not found')
-        dbAvailable = false
-        return
+        throw new Error(
+          '[drop-cascade-origin-marker] FAILED — drop_cascade_origin column not found',
+        )
       }
     } catch {
-      console.warn('[drop-cascade-origin-marker] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[drop-cascade-origin-marker] FAILED — no DB reachable at DATABASE_URL')
     }
 
     const moduleRef = await Test.createTestingModule({ imports: [MarkerTestModule] }).compile()
@@ -262,13 +260,11 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
   }, 30_000)
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     await clearOwnRows()
     await assertNoForeignUnstampedRows()
   })
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       await clearOwnRows()
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_OWN_USER_IDS))
@@ -280,7 +276,6 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
   }, 15_000)
 
   it('MARKER-a: backfills a historical unstamped row to false; leaves a row created well past the restart-window margin untouched (NULL)', async () => {
-    if (!dbAvailable) return
     await resetMarkerState()
     const { txId: historicalId } = await seedUnstampedRow(LONG_AGO)
     // 3 days is well outside STEP 3's 24h restart-window margin regardless of
@@ -303,7 +298,6 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
   })
 
   it("MARKER-b (round 6): a row created after this environment's own first application, but inside the restart-window margin, is backfilled on a second pass — the boundary is self-referential, not a calendar date", async () => {
-    if (!dbAvailable) return
     await resetMarkerState()
 
     // First pass — mirrors PR #447's deploy.yml Step 2j (schema-change pass,
@@ -333,7 +327,6 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
   })
 
   it("MARKER-e (round 6, late-rollout proof): a restart-window row is backfilled even when this environment's own first-ever application is simulated to happen on a date long after the OLD hardcoded literal ('2026-08-10') this design replaces", async () => {
-    if (!dbAvailable) return
     await resetMarkerState()
 
     // Simulates the exact scenario round-6 review flagged as unprotected by
@@ -364,7 +357,6 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
   })
 
   it('MARKER-c: idempotent — a second application changes nothing further', async () => {
-    if (!dbAvailable) return
     await resetMarkerState()
     const { txId: preId } = await seedUnstampedRow(LONG_AGO)
     await applyMarkerFile()
@@ -386,7 +378,6 @@ describe('drop_cascade_origin marker migration (real DB)', () => {
   })
 
   it('MARKER-d: the column converges to nullable / no default', async () => {
-    if (!dbAvailable) return
     await applyMarkerFile()
     const shape = await columnShape()
     expect(shape.isNullable).toBe('YES')

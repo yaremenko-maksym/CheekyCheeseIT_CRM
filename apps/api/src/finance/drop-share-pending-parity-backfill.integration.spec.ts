@@ -20,6 +20,7 @@ import {
   users,
 } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-drop-share-pending-parity — REAL-DB integration for the manual backfill
@@ -165,7 +166,6 @@ const fakeNbu = {
 } as never
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -220,7 +220,7 @@ class TestDatabaseModule {}
 })
 class DsppTestModule {}
 
-describe('drop-share-pending-parity backfill script (real DB)', () => {
+describe.skipIf(!hasDatabaseUrl())('drop-share-pending-parity backfill script (real DB)', () => {
   let svc: TransactionsService
   let settleSvc: PendingSettlementService
   let dbSvc: DatabaseService
@@ -376,14 +376,14 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
       )
       await probe.end()
       if (check.rowCount === 0) {
-        console.warn('[drop-share-pending-parity-backfill] SKIPPED — pending_obligations not found')
-        dbAvailable = false
-        return
+        throw new Error(
+          '[drop-share-pending-parity-backfill] FAILED — pending_obligations not found',
+        )
       }
     } catch {
-      console.warn('[drop-share-pending-parity-backfill] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error(
+        '[drop-share-pending-parity-backfill] FAILED — no DB reachable at DATABASE_URL',
+      )
     }
 
     const moduleRef = await Test.createTestingModule({ imports: [DsppTestModule] }).compile()
@@ -442,7 +442,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   }, 30_000)
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     await clearLedger()
     // LOW-1 (security-review PR #443 round 2): fail loud, before touching the
     // shared DB, if a foreign spec's matching fixtures leaked in — see the
@@ -451,7 +450,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   })
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       await clearLedger()
       await dbSvc.db.delete(projects).where(eq(projects.id, PROJECT_ID))
@@ -475,7 +473,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   }, 15_000)
 
   it('AC6-a/b/c: converts ONLY the Path-B row (payout_request_id set); leaves the legacy-closed row (payout_request_id NULL) untouched; backs up + books the paired obligation', async () => {
-    if (!dbAvailable) return
     const { txId: pathBId, payoutRequestId } = await seedPathBRow('50')
     const { txId: legacyId } = await seedLegacyClosedRow('999')
 
@@ -534,7 +531,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   })
 
   it('AC6-d: idempotent — running the backfill a SECOND time changes nothing', async () => {
-    if (!dbAvailable) return
     const { txId: pathBId } = await seedPathBRow('75')
     await runBackfill()
 
@@ -563,7 +559,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   })
 
   it('AC6-e: round-trip equivalence — convert then settle via settleByCompany restores the EXACT pre-backfill drop balance', async () => {
-    if (!dbAvailable) return
     const before = await dropBalance()
     const { txId: pathBId } = await seedPathBRow('120')
 
@@ -604,7 +599,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   })
 
   it('AC6-verify: fail-loud when a target cannot get its paired obligation (receiver_id corrupted to NULL) — RAISE EXCEPTION rolls back the WHOLE conversion, including unrelated targets in the same run', async () => {
-    if (!dbAvailable) return
     // A normal target (would convert cleanly) alongside a CORRUPTED target
     // (receiver_id forced to NULL — step 2c's INSERT guard "tgt.receiver_id
     // IS NOT NULL" then skips it, so it can never get a paired obligation).
@@ -657,7 +651,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   })
 
   it('AC6-f (MED-3): a self-loop Path-B row (sender_id = receiver_id — pre-Audit-2026-06-28 shape) is EXCLUDED from selection and left untouched', async () => {
-    if (!dbAvailable) return
     const { txId: selfLoopId } = await seedSelfLoopPathBRow('88')
     const beforeBalance = await dropBalance()
 
@@ -689,7 +682,6 @@ describe('drop-share-pending-parity backfill script (real DB)', () => {
   })
 
   it('AC8 (MED-A): the standalone precount file is genuinely READ-ONLY — makes zero writes, still reports an accurate count', async () => {
-    if (!dbAvailable) return
     const { txId: pathBId } = await seedPathBRow('42')
 
     const before = await dbSvc.db.query.transactions.findFirst({

@@ -13,6 +13,7 @@ import type { InvoicesService } from '../invoices/invoices.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Audit 2026-06-27 (LOW #6) — manualConfirmPayout TOCTOU (real DB).
@@ -65,7 +66,6 @@ const stubInvoices = {
 } as unknown as InvoicesService
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -116,165 +116,159 @@ class TestDatabaseModule {}
 })
 class ManualConfirmToctouModule {}
 
-describe('manualConfirmPayout — TOCTOU serialization (LOW #6, real DB)', () => {
-  let svc: TransactionsService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'manualConfirmPayout — TOCTOU serialization (LOW #6, real DB)',
+  () => {
+    let svc: TransactionsService
+    let dbSvc: DatabaseService
 
-  async function cleanup() {
-    const db = dbSvc.db
-    await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
-    await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
-    await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
-  }
+    async function cleanup() {
+      const db = dbSvc.db
+      await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+      await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
+      await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
+    }
 
-  // Seed a PENDING payout request (real createPayoutRequest path) over a fresh
-  // VALIDATED senior income, and return its id.
-  async function seedPendingPayout(): Promise<string> {
-    const [income] = await dbSvc.db
-      .insert(transactions)
-      .values({
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '1000',
-        currency: 'USDT',
-        receiverId: SENIOR.id,
-        seniorSharePercent: 26,
-        createdBy: SENIOR.id,
-      })
-      .returning()
-    const pr = await svc.createPayoutRequest([income!.id], SENIOR)
-    return pr.id
-  }
+    // Seed a PENDING payout request (real createPayoutRequest path) over a fresh
+    // VALIDATED senior income, and return its id.
+    async function seedPendingPayout(): Promise<string> {
+      const [income] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '1000',
+          currency: 'USDT',
+          receiverId: SENIOR.id,
+          seniorSharePercent: 26,
+          createdBy: SENIOR.id,
+        })
+        .returning()
+      const pr = await svc.createPayoutRequest([income!.id], SENIOR)
+      return pr.id
+    }
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT table_name FROM information_schema.tables WHERE table_name='payout_requests' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[manual-confirm-toctou] SKIPPED — payout_requests table not found')
-        dbAvailable = false
-        return
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_name='payout_requests' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[manual-confirm-toctou] FAILED — payout_requests table not found')
+        }
+      } catch {
+        throw new Error('[manual-confirm-toctou] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[manual-confirm-toctou] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [ManualConfirmToctouModule],
-    }).compile()
-    await moduleRef.init()
-    svc = moduleRef.get(TransactionsService)
-    dbSvc = moduleRef.get(DatabaseService)
+      const moduleRef = await Test.createTestingModule({
+        imports: [ManualConfirmToctouModule],
+      }).compile()
+      await moduleRef.init()
+      svc = moduleRef.get(TransactionsService)
+      dbSvc = moduleRef.get(DatabaseService)
 
-    const db = dbSvc.db
-    await cleanup()
-    await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    await db
-      .insert(users)
-      .values(
-        ALL.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // createPayoutRequest reads companyAccount.walletAddress — ensure one exists.
-    const existing = await db.query.companyAccount.findFirst()
-    if (existing) {
-      await db
-        .update(companyAccount)
-        .set({ walletAddress: WALLET })
-        .where(eq(companyAccount.id, existing.id))
-    } else {
-      await db.insert(companyAccount).values({
-        id: ACCOUNT_ID,
-        walletAddress: WALLET,
-        confirmationThreshold: 12,
-        updatedBy: ADMIN.id,
-      })
-    }
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      const db = dbSvc.db
       await cleanup()
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
-    }
-    await _pool?.end()
-  }, 15_000)
+      await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
+      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      await db
+        .insert(users)
+        .values(
+          ALL.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
 
-  beforeEach(async () => {
-    if (!dbAvailable) return
-    await cleanup()
-  })
+      // createPayoutRequest reads companyAccount.walletAddress — ensure one exists.
+      const existing = await db.query.companyAccount.findFirst()
+      if (existing) {
+        await db
+          .update(companyAccount)
+          .set({ walletAddress: WALLET })
+          .where(eq(companyAccount.id, existing.id))
+      } else {
+        await db.insert(companyAccount).values({
+          id: ACCOUNT_ID,
+          walletAddress: WALLET,
+          confirmationThreshold: 12,
+          updatedBy: ADMIN.id,
+        })
+      }
+    }, 30_000)
 
-  it('two concurrent manual-confirms of the SAME payout → exactly one succeeds', async () => {
-    if (!dbAvailable) return
-    const payoutId = await seedPendingPayout()
+    afterAll(async () => {
+      try {
+        await cleanup()
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await _pool?.end()
+    }, 15_000)
 
-    const results = await Promise.allSettled([
-      svc.manualConfirmPayout(payoutId, 'CASH', ADMIN),
-      svc.manualConfirmPayout(payoutId, 'CASH', ADMIN),
-    ])
-    const fulfilled = results.filter((r) => r.status === 'fulfilled')
-    const rejected = results.filter((r) => r.status === 'rejected')
-    expect(fulfilled).toHaveLength(1)
-    expect(rejected).toHaveLength(1)
-    expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already paid/)
-
-    // The payout flipped to PAID exactly once.
-    const pr = await dbSvc.db.query.payoutRequests.findFirst({
-      where: eq(payoutRequests.id, payoutId),
+    beforeEach(async () => {
+      await cleanup()
     })
-    expect(pr?.status).toBe('PAID')
-  }, 30_000)
 
-  it('a real on-chain hash consumed by a PAID COMPANY_ACCOUNT payout cannot be reused', async () => {
-    if (!dbAvailable) return
-    const realHash = '0x' + 'ab'.repeat(32) // 0x + 64 hex
-    const first = await seedPendingPayout()
-    const second = await seedPendingPayout()
+    it('two concurrent manual-confirms of the SAME payout → exactly one succeeds', async () => {
+      const payoutId = await seedPendingPayout()
 
-    // First confirm consumes the hash and credits the company account.
-    await svc.manualConfirmPayout(first, 'COMPANY_ACCOUNT', ADMIN, { txHash: realHash })
-    const prFirst = await dbSvc.db.query.payoutRequests.findFirst({
-      where: eq(payoutRequests.id, first),
-    })
-    expect(prFirst?.status).toBe('PAID')
+      const results = await Promise.allSettled([
+        svc.manualConfirmPayout(payoutId, 'CASH', ADMIN),
+        svc.manualConfirmPayout(payoutId, 'CASH', ADMIN),
+      ])
+      const fulfilled = results.filter((r) => r.status === 'fulfilled')
+      const rejected = results.filter((r) => r.status === 'rejected')
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
+      expect((rejected[0] as PromiseRejectedResult).reason.message).toMatch(/already paid/)
 
-    // Second confirm with the SAME real hash on a COMPANY_ACCOUNT payout → rejected.
-    await expect(
-      svc.manualConfirmPayout(second, 'COMPANY_ACCOUNT', ADMIN, { txHash: realHash }),
-    ).rejects.toThrowError(/уже использован/)
+      // The payout flipped to PAID exactly once.
+      const pr = await dbSvc.db.query.payoutRequests.findFirst({
+        where: eq(payoutRequests.id, payoutId),
+      })
+      expect(pr?.status).toBe('PAID')
+    }, 30_000)
 
-    // The second payout stays PENDING (no double credit).
-    const prSecond = await dbSvc.db.query.payoutRequests.findFirst({
-      where: eq(payoutRequests.id, second),
-    })
-    expect(prSecond?.status).toBe('PENDING')
-  }, 30_000)
+    it('a real on-chain hash consumed by a PAID COMPANY_ACCOUNT payout cannot be reused', async () => {
+      const realHash = '0x' + 'ab'.repeat(32) // 0x + 64 hex
+      const first = await seedPendingPayout()
+      const second = await seedPendingPayout()
 
-  it('re-confirming an already-PAID payout → rejected "already paid"', async () => {
-    if (!dbAvailable) return
-    const payoutId = await seedPendingPayout()
-    await svc.manualConfirmPayout(payoutId, 'CASH', ADMIN)
-    await expect(svc.manualConfirmPayout(payoutId, 'CASH', ADMIN)).rejects.toThrowError(
-      /already paid/,
-    )
-  }, 30_000)
-})
+      // First confirm consumes the hash and credits the company account.
+      await svc.manualConfirmPayout(first, 'COMPANY_ACCOUNT', ADMIN, { txHash: realHash })
+      const prFirst = await dbSvc.db.query.payoutRequests.findFirst({
+        where: eq(payoutRequests.id, first),
+      })
+      expect(prFirst?.status).toBe('PAID')
+
+      // Second confirm with the SAME real hash on a COMPANY_ACCOUNT payout → rejected.
+      await expect(
+        svc.manualConfirmPayout(second, 'COMPANY_ACCOUNT', ADMIN, { txHash: realHash }),
+      ).rejects.toThrowError(/уже использован/)
+
+      // The second payout stays PENDING (no double credit).
+      const prSecond = await dbSvc.db.query.payoutRequests.findFirst({
+        where: eq(payoutRequests.id, second),
+      })
+      expect(prSecond?.status).toBe('PENDING')
+    }, 30_000)
+
+    it('re-confirming an already-PAID payout → rejected "already paid"', async () => {
+      const payoutId = await seedPendingPayout()
+      await svc.manualConfirmPayout(payoutId, 'CASH', ADMIN)
+      await expect(svc.manualConfirmPayout(payoutId, 'CASH', ADMIN)).rejects.toThrowError(
+        /already paid/,
+      )
+    }, 30_000)
+  },
+)

@@ -23,9 +23,9 @@
  *         would cause F3-5 to fail (count > 1, foreign tx visible).
  *
  * DB-SKIP-GUARD:
- *   dbAvailable = false when DATABASE_URL is unreachable (CI unit job without
- *   Postgres service). Every test checks the flag and returns early with a
- *   skip comment — stays green in no-DB environments.
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * SEED strategy:
  *   UUID namespace: f3000000-0000-4000-*  (distinct from other specs).
@@ -45,6 +45,7 @@ import { DatabaseService } from '../database/database.service'
 import { makeTransactionsService } from './__test-helpers__/make-transactions-service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ---------------------------------------------------------------------------
 // Constants — test personas
@@ -120,7 +121,6 @@ const TX_J2_SALARY_ID = 'f3000001-0000-4000-b000-000000000003'
 // DB-skip-guard
 // ---------------------------------------------------------------------------
 
-let dbAvailable = true
 let _pool: Pool | null = null
 let transactionsService: TransactionsService
 
@@ -128,210 +128,204 @@ let transactionsService: TransactionsService
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('F3 — JUNIOR findAll: sees only own SALARY rows (real-DB)', () => {
-  beforeAll(async () => {
-    // ── DB availability probe ────────────────────────────────────────────────
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[f3-junior-findall] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
+describe.skipIf(!hasDatabaseUrl())(
+  'F3 — JUNIOR findAll: sees only own SALARY rows (real-DB)',
+  () => {
+    beforeAll(async () => {
+      // ── DB availability probe ────────────────────────────────────────────────
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[f3-junior-findall] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
+      }
 
-    // ── Build real DB + service ──────────────────────────────────────────────
-    _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(_pool, { schema })
+      // ── Build real DB + service ──────────────────────────────────────────────
+      _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      const db = drizzle(_pool, { schema })
 
-    const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool: _pool, db })
+      const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool: _pool, db })
 
-    // InvoicesService and DocumentsService are only exercised by write paths
-    // (createSalary, validateTransaction, etc.) — findAll does not call them.
-    // Factory defaults (no-op stubs) are safe here.
-    transactionsService = makeTransactionsService({ db: dbSvc })
+      // InvoicesService and DocumentsService are only exercised by write paths
+      // (createSalary, validateTransaction, etc.) — findAll does not call them.
+      // Factory defaults (no-op stubs) are safe here.
+      transactionsService = makeTransactionsService({ db: dbSvc })
 
-    // ── Insert synthetic users ───────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values({
-        id: JUNIOR_1.id,
-        email: JUNIOR_1.email,
-        displayName: JUNIOR_1.displayName,
+      // ── Insert synthetic users ───────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values({
+          id: JUNIOR_1.id,
+          email: JUNIOR_1.email,
+          displayName: JUNIOR_1.displayName,
+          role: 'JUNIOR',
+          seniorSharePercent: 26,
+        })
+        .onConflictDoNothing()
+
+      await db
+        .insert(users)
+        .values({
+          id: SENIOR_1.id,
+          email: SENIOR_1.email,
+          displayName: SENIOR_1.displayName,
+          role: 'SENIOR',
+          seniorSharePercent: 26,
+        })
+        .onConflictDoNothing()
+
+      await db
+        .insert(users)
+        .values({
+          id: JUNIOR_2.id,
+          email: JUNIOR_2.email,
+          displayName: JUNIOR_2.displayName,
+          role: 'JUNIOR',
+          seniorSharePercent: 26,
+        })
+        .onConflictDoNothing()
+
+      // ── Insert test transactions ─────────────────────────────────────────────
+      // TX_J1_SALARY: SALARY paid to JUNIOR_1 — JUNIOR_1 MUST see this
+      await db
+        .insert(transactions)
+        .values({
+          id: TX_J1_SALARY_ID,
+          type: 'SALARY',
+          status: 'PAID',
+          amount: '1000',
+          currency: 'USDT',
+          senderId: SENIOR_1.id,
+          receiverId: JUNIOR_1.id,
+          createdBy: ADMIN.id,
+        })
+        .onConflictDoNothing()
+
+      // TX_S1_INCOME: SENIOR_INCOME for SENIOR_1 — JUNIOR_1 must NOT see this
+      await db
+        .insert(transactions)
+        .values({
+          id: TX_S1_INCOME_ID,
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '5000',
+          currency: 'USDT',
+          senderId: null,
+          receiverId: SENIOR_1.id,
+          createdBy: ADMIN.id,
+        })
+        .onConflictDoNothing()
+
+      // TX_J2_SALARY: SALARY paid to JUNIOR_2 — JUNIOR_1 must NOT see this
+      await db
+        .insert(transactions)
+        .values({
+          id: TX_J2_SALARY_ID,
+          type: 'SALARY',
+          status: 'PAID',
+          amount: '800',
+          currency: 'USDT',
+          senderId: SENIOR_1.id,
+          receiverId: JUNIOR_2.id,
+          createdBy: ADMIN.id,
+        })
+        .onConflictDoNothing()
+    })
+
+    afterAll(async () => {
+      if (!_pool)
+        throw new Error(
+          '[require-real-db] _pool not initialized — beforeAll should have thrown already',
+        )
+      const db = drizzle(_pool, { schema })
+
+      // Delete transactions first (FK → users)
+      await db
+        .delete(transactions)
+        .where(inArray(transactions.id, [TX_J1_SALARY_ID, TX_S1_INCOME_ID, TX_J2_SALARY_ID]))
+        .catch(() => undefined)
+
+      // Delete synthetic users
+      await db
+        .delete(users)
+        .where(inArray(users.id, [JUNIOR_1.id, SENIOR_1.id, JUNIOR_2.id]))
+        .catch(() => undefined)
+
+      await _pool.end()
+    })
+
+    // ── F3-1: JUNIOR sees own SALARY ──────────────────────────────────────────
+
+    it('F3-1 — JUNIOR with own SALARY tx → tx is returned', async () => {
+      const result = await transactionsService.findAll(JUNIOR_1)
+
+      const own = result.find((t) => t.id === TX_J1_SALARY_ID)
+      expect(own, 'own SALARY tx must be in result').toBeDefined()
+    })
+
+    // ── F3-2: JUNIOR does NOT see SENIOR_INCOME of another user ──────────────
+
+    it('F3-2 — JUNIOR does NOT see SENIOR_INCOME belonging to SENIOR_1', async () => {
+      const result = await transactionsService.findAll(JUNIOR_1)
+
+      const leaked = result.find((t) => t.id === TX_S1_INCOME_ID)
+      expect(leaked, 'SENIOR_INCOME of another user must NOT be visible to JUNIOR').toBeUndefined()
+    })
+
+    // ── F3-3: JUNIOR does NOT see SALARY of another JUNIOR ───────────────────
+
+    it('F3-3 — JUNIOR does NOT see SALARY paid to another JUNIOR', async () => {
+      const result = await transactionsService.findAll(JUNIOR_1)
+
+      const leaked = result.find((t) => t.id === TX_J2_SALARY_ID)
+      expect(leaked, "another JUNIOR's SALARY must NOT be visible").toBeUndefined()
+    })
+
+    // ── F3-4: JUNIOR with no transactions → [] (not 403) ─────────────────────
+
+    it('F3-4 — JUNIOR with no transactions returns empty array, not a 403', async () => {
+      // JUNIOR_2 has TX_J2_SALARY as receiver — but we use a fresh persona with
+      // no rows. Re-use JUNIOR_2 but filter from a perspective where receiverId
+      // never matches any row seeded above: create a transient persona on the fly.
+      //
+      // To keep setup minimal, we just verify that a JUNIOR whose id does NOT
+      // appear as receiverId in any seeded tx gets an empty result.
+      const JUNIOR_NO_TX: SessionUser = {
+        id: 'f3000000-0000-4000-aa00-000000000099',
+        email: 'f3-junior-notx@test.spec',
+        displayName: 'F3 Junior NoTx',
+        avatarUrl: null,
         role: 'JUNIOR',
         seniorSharePercent: 26,
-      })
-      .onConflictDoNothing()
+        legalFullName: null,
+      }
+      // This user does not exist in users table and has no transactions seeded.
+      // findAll does not validate that currentUser exists — it filters by id.
+      const result = await transactionsService.findAll(JUNIOR_NO_TX)
 
-    await db
-      .insert(users)
-      .values({
-        id: SENIOR_1.id,
-        email: SENIOR_1.email,
-        displayName: SENIOR_1.displayName,
-        role: 'SENIOR',
-        seniorSharePercent: 26,
-      })
-      .onConflictDoNothing()
+      // All seeded test txs have receiverId = JUNIOR_1.id or JUNIOR_2.id.
+      // None belong to JUNIOR_NO_TX → the filtered slice is empty.
+      const testTxIds = [TX_J1_SALARY_ID, TX_S1_INCOME_ID, TX_J2_SALARY_ID]
+      const leaks = result.filter((t) => testTxIds.includes(t.id))
+      expect(leaks).toHaveLength(0)
+    })
 
-    await db
-      .insert(users)
-      .values({
-        id: JUNIOR_2.id,
-        email: JUNIOR_2.email,
-        displayName: JUNIOR_2.displayName,
-        role: 'JUNIOR',
-        seniorSharePercent: 26,
-      })
-      .onConflictDoNothing()
+    // ── F3-5: Exact count — JUNIOR sees exactly the rows where receiverId = self
 
-    // ── Insert test transactions ─────────────────────────────────────────────
-    // TX_J1_SALARY: SALARY paid to JUNIOR_1 — JUNIOR_1 MUST see this
-    await db
-      .insert(transactions)
-      .values({
-        id: TX_J1_SALARY_ID,
-        type: 'SALARY',
-        status: 'PAID',
-        amount: '1000',
-        currency: 'USDT',
-        senderId: SENIOR_1.id,
-        receiverId: JUNIOR_1.id,
-        createdBy: ADMIN.id,
-      })
-      .onConflictDoNothing()
+    it('F3-5 — among the 3 seeded test rows, JUNIOR_1 sees exactly 1 (own SALARY)', async () => {
+      const result = await transactionsService.findAll(JUNIOR_1)
 
-    // TX_S1_INCOME: SENIOR_INCOME for SENIOR_1 — JUNIOR_1 must NOT see this
-    await db
-      .insert(transactions)
-      .values({
-        id: TX_S1_INCOME_ID,
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '5000',
-        currency: 'USDT',
-        senderId: null,
-        receiverId: SENIOR_1.id,
-        createdBy: ADMIN.id,
-      })
-      .onConflictDoNothing()
+      // Filter only the test-namespaced rows to avoid interference from other
+      // data that may already be in the DB (other specs, seed data).
+      const testTxIds = new Set([TX_J1_SALARY_ID, TX_S1_INCOME_ID, TX_J2_SALARY_ID])
+      const testRows = result.filter((t) => testTxIds.has(t.id))
 
-    // TX_J2_SALARY: SALARY paid to JUNIOR_2 — JUNIOR_1 must NOT see this
-    await db
-      .insert(transactions)
-      .values({
-        id: TX_J2_SALARY_ID,
-        type: 'SALARY',
-        status: 'PAID',
-        amount: '800',
-        currency: 'USDT',
-        senderId: SENIOR_1.id,
-        receiverId: JUNIOR_2.id,
-        createdBy: ADMIN.id,
-      })
-      .onConflictDoNothing()
-  })
-
-  afterAll(async () => {
-    if (!dbAvailable || !_pool) return
-    const db = drizzle(_pool, { schema })
-
-    // Delete transactions first (FK → users)
-    await db
-      .delete(transactions)
-      .where(inArray(transactions.id, [TX_J1_SALARY_ID, TX_S1_INCOME_ID, TX_J2_SALARY_ID]))
-      .catch(() => undefined)
-
-    // Delete synthetic users
-    await db
-      .delete(users)
-      .where(inArray(users.id, [JUNIOR_1.id, SENIOR_1.id, JUNIOR_2.id]))
-      .catch(() => undefined)
-
-    await _pool.end()
-  })
-
-  // ── F3-1: JUNIOR sees own SALARY ──────────────────────────────────────────
-
-  it('F3-1 — JUNIOR with own SALARY tx → tx is returned', async () => {
-    if (!dbAvailable) return
-
-    const result = await transactionsService.findAll(JUNIOR_1)
-
-    const own = result.find((t) => t.id === TX_J1_SALARY_ID)
-    expect(own, 'own SALARY tx must be in result').toBeDefined()
-  })
-
-  // ── F3-2: JUNIOR does NOT see SENIOR_INCOME of another user ──────────────
-
-  it('F3-2 — JUNIOR does NOT see SENIOR_INCOME belonging to SENIOR_1', async () => {
-    if (!dbAvailable) return
-
-    const result = await transactionsService.findAll(JUNIOR_1)
-
-    const leaked = result.find((t) => t.id === TX_S1_INCOME_ID)
-    expect(leaked, 'SENIOR_INCOME of another user must NOT be visible to JUNIOR').toBeUndefined()
-  })
-
-  // ── F3-3: JUNIOR does NOT see SALARY of another JUNIOR ───────────────────
-
-  it('F3-3 — JUNIOR does NOT see SALARY paid to another JUNIOR', async () => {
-    if (!dbAvailable) return
-
-    const result = await transactionsService.findAll(JUNIOR_1)
-
-    const leaked = result.find((t) => t.id === TX_J2_SALARY_ID)
-    expect(leaked, "another JUNIOR's SALARY must NOT be visible").toBeUndefined()
-  })
-
-  // ── F3-4: JUNIOR with no transactions → [] (not 403) ─────────────────────
-
-  it('F3-4 — JUNIOR with no transactions returns empty array, not a 403', async () => {
-    if (!dbAvailable) return
-
-    // JUNIOR_2 has TX_J2_SALARY as receiver — but we use a fresh persona with
-    // no rows. Re-use JUNIOR_2 but filter from a perspective where receiverId
-    // never matches any row seeded above: create a transient persona on the fly.
-    //
-    // To keep setup minimal, we just verify that a JUNIOR whose id does NOT
-    // appear as receiverId in any seeded tx gets an empty result.
-    const JUNIOR_NO_TX: SessionUser = {
-      id: 'f3000000-0000-4000-aa00-000000000099',
-      email: 'f3-junior-notx@test.spec',
-      displayName: 'F3 Junior NoTx',
-      avatarUrl: null,
-      role: 'JUNIOR',
-      seniorSharePercent: 26,
-      legalFullName: null,
-    }
-    // This user does not exist in users table and has no transactions seeded.
-    // findAll does not validate that currentUser exists — it filters by id.
-    const result = await transactionsService.findAll(JUNIOR_NO_TX)
-
-    // All seeded test txs have receiverId = JUNIOR_1.id or JUNIOR_2.id.
-    // None belong to JUNIOR_NO_TX → the filtered slice is empty.
-    const testTxIds = [TX_J1_SALARY_ID, TX_S1_INCOME_ID, TX_J2_SALARY_ID]
-    const leaks = result.filter((t) => testTxIds.includes(t.id))
-    expect(leaks).toHaveLength(0)
-  })
-
-  // ── F3-5: Exact count — JUNIOR sees exactly the rows where receiverId = self
-
-  it('F3-5 — among the 3 seeded test rows, JUNIOR_1 sees exactly 1 (own SALARY)', async () => {
-    if (!dbAvailable) return
-
-    const result = await transactionsService.findAll(JUNIOR_1)
-
-    // Filter only the test-namespaced rows to avoid interference from other
-    // data that may already be in the DB (other specs, seed data).
-    const testTxIds = new Set([TX_J1_SALARY_ID, TX_S1_INCOME_ID, TX_J2_SALARY_ID])
-    const testRows = result.filter((t) => testTxIds.has(t.id))
-
-    expect(testRows).toHaveLength(1)
-    expect(testRows[0]!.id).toBe(TX_J1_SALARY_ID)
-  })
-})
+      expect(testRows).toHaveLength(1)
+      expect(testRows[0]!.id).toBe(TX_J1_SALARY_ID)
+    })
+  },
+)

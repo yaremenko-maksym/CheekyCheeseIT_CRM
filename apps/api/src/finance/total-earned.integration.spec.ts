@@ -18,6 +18,7 @@ import { BalanceService } from './balance.service'
 import { NbuCurrencyService } from './nbu-currency.service'
 import { projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * total-earned — real-backend integration spec (real Postgres, no mocks).
@@ -36,9 +37,10 @@ import * as schema from '../database/schema'
  * figure is independent of NBU rates. The NbuCurrencyService is stubbed with a
  * fixed rate set so the spec never reaches out to the exchange_rate table.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR the
- * `transactions` table is absent → every test returns early and stays green
- * (CI unit job without a DB is unaffected).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against a scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_te_scratch \
@@ -165,7 +167,6 @@ class SentinelBalanceController {
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -236,337 +237,325 @@ class TestDatabaseModule {}
 class TotalEarnedTestModule {}
 
 // ── Suite ───────────────────────────────────────────────────────────────────
-describe('total-earned — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'total-earned — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      const schemaCheck = await probePool.query(
-        `SELECT table_name FROM information_schema.tables
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        const schemaCheck = await probePool.query(
+          `SELECT table_name FROM information_schema.tables
          WHERE table_name='transactions' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn('[total-earned integration] SKIPPED — transactions table not found')
-        dbAvailable = false
-        return
+        )
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error('[total-earned integration] FAILED — transactions table not found')
+        }
+      } catch {
+        throw new Error(
+          '[total-earned integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[total-earned integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [TotalEarnedTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [TotalEarnedTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'total-earned-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'total-earned-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // Surgical cleanup BEFORE seeding so figures are deterministic.
-    await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
-    await db.delete(projects).where(inArray(projects.id, [PROJ_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-
-    await db
-      .insert(users)
-      .values(
-        [ACCOUNTANT, ADMIN, SENIOR, JUNIOR, HR, DROP].map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    await db
-      .insert(projects)
-      .values({
-        id: PROJ_ID,
-        name: 'TE Project',
-        companyName: 'TE Corp',
-        domain: 'ai',
-        startDate: new Date('2025-01-01'),
-        seniorId: SENIOR.id,
-        currency: 'USD',
-        rate: 1000,
-      })
-      .onConflictDoNothing()
-
-    // ── Seed deterministic per-role PAID fixtures (all USD) ────────────────────
-    // JUNIOR earned = 1000 + 500 = 1500 (SALARY PAID). PENDING salary excluded.
-    // HR earned = 2000 (SALARY PAID).
-    // SENIOR earned = 3000 (SENIOR_INCOME PAID). VALIDATED (not PAID) excluded.
-    // DROP earned = 1500 (PAYOUT_DROP PAID) + 400 (DIRECT DROP_INCOME, senderId set)
-    //   = 1900. The GROSS DROP_INCOME (250, senderId=null) is EXCLUDED (audit #2 —
-    //   its slice is the PAYOUT_DROP); the PENDING drop income is excluded too.
-    //   The self-referential PAYOUT_DROP (333.33, C-1) nets to ZERO and does NOT
-    //   move this total — see TX_DROP_PAYOUT_SELF_REF above and the dedicated
-    //   C-1 test below.
-    await db.insert(transactions).values([
-      {
-        id: TX_JUNIOR_SALARY_PAID,
-        type: 'SALARY',
-        status: 'PAID',
-        amount: '1000',
-        currency: 'USD',
-        senderId: ADMIN.id,
-        receiverId: JUNIOR.id,
-        salaryMonth: '2025-11',
-        createdBy: ADMIN.id,
-      },
-      {
-        id: TX_JUNIOR_SALARY_PAID_2,
-        type: 'SALARY',
-        status: 'PAID',
-        amount: '500',
-        currency: 'USD',
-        senderId: ADMIN.id,
-        receiverId: JUNIOR.id,
-        salaryMonth: '2025-12',
-        createdBy: ADMIN.id,
-      },
-      {
-        id: TX_JUNIOR_SALARY_PENDING,
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: '777',
-        currency: 'USD',
-        senderId: ADMIN.id,
-        receiverId: JUNIOR.id,
-        salaryMonth: '2026-01',
-        createdBy: ADMIN.id,
-      },
-      {
-        id: TX_HR_SALARY_PAID,
-        type: 'SALARY',
-        status: 'PAID',
-        amount: '2000',
-        currency: 'USD',
-        senderId: ADMIN.id,
-        receiverId: HR.id,
-        salaryMonth: '2025-12',
-        createdBy: ADMIN.id,
-      },
-      {
-        id: TX_SENIOR_INCOME_PAID,
-        type: 'SENIOR_INCOME',
-        status: 'PAID',
-        amount: '3000',
-        currency: 'USD',
-        receiverId: SENIOR.id,
-        projectId: PROJ_ID,
-        createdBy: SENIOR.id,
-      },
-      {
-        id: TX_SENIOR_INCOME_VALIDATED,
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '4444',
-        currency: 'USD',
-        receiverId: SENIOR.id,
-        projectId: PROJ_ID,
-        createdBy: SENIOR.id,
-      },
-      {
-        id: TX_DROP_PAYOUT_PAID,
-        type: 'PAYOUT_DROP',
-        status: 'PAID',
-        amount: '1500',
-        currency: 'USD',
-        senderId: SENIOR.id,
-        receiverId: DROP.id,
-        recipientId: DROP.id,
-        projectId: PROJ_ID,
-        createdBy: SENIOR.id,
-      },
-      {
-        // C-1: self-referential row — senderId === receiverId === DROP.id.
-        // Must net to zero (parity with computeDropAggregate), NOT add 333.33.
-        id: TX_DROP_PAYOUT_SELF_REF,
-        type: 'PAYOUT_DROP',
-        status: 'PAID',
-        amount: '333.33',
-        currency: 'USD',
-        senderId: DROP.id,
-        receiverId: DROP.id,
-        recipientId: DROP.id,
-        projectId: PROJ_ID,
-        createdBy: SENIOR.id,
-      },
-      {
-        // GROSS DROP_INCOME — senderId=null (external client). EXCLUDED by #2.
-        id: TX_DROP_INCOME_GROSS,
-        type: 'DROP_INCOME',
-        status: 'PAID',
-        amount: '250',
-        currency: 'USD',
-        senderId: null,
-        receiverId: DROP.id,
-        recipientId: DROP.id,
-        projectId: PROJ_ID,
-        createdBy: DROP.id,
-      },
-      {
-        id: TX_DROP_INCOME_PENDING,
-        type: 'DROP_INCOME',
-        status: 'PENDING',
-        amount: '999',
-        currency: 'USD',
-        receiverId: DROP.id,
-        recipientId: DROP.id,
-        projectId: PROJ_ID,
-        createdBy: DROP.id,
-      },
-      {
-        // DIRECT admin→drop DROP_INCOME — senderId set, no PAYOUT_DROP slice. COUNTED.
-        id: TX_DROP_INCOME_DIRECT,
-        type: 'DROP_INCOME',
-        status: 'PAID',
-        amount: '400',
-        currency: 'USD',
-        senderId: ADMIN.id,
-        receiverId: DROP.id,
-        recipientId: DROP.id,
-        projectId: PROJ_ID,
-        createdBy: ADMIN.id,
-      },
-    ])
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
+
+      // Surgical cleanup BEFORE seeding so figures are deterministic.
       await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
       await db.delete(projects).where(inArray(projects.id, [PROJ_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
+
+      await db
+        .insert(users)
+        .values(
+          [ACCOUNTANT, ADMIN, SENIOR, JUNIOR, HR, DROP].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      await db
+        .insert(projects)
+        .values({
+          id: PROJ_ID,
+          name: 'TE Project',
+          companyName: 'TE Corp',
+          domain: 'ai',
+          startDate: new Date('2025-01-01'),
+          seniorId: SENIOR.id,
+          currency: 'USD',
+          rate: 1000,
+        })
+        .onConflictDoNothing()
+
+      // ── Seed deterministic per-role PAID fixtures (all USD) ────────────────────
+      // JUNIOR earned = 1000 + 500 = 1500 (SALARY PAID). PENDING salary excluded.
+      // HR earned = 2000 (SALARY PAID).
+      // SENIOR earned = 3000 (SENIOR_INCOME PAID). VALIDATED (not PAID) excluded.
+      // DROP earned = 1500 (PAYOUT_DROP PAID) + 400 (DIRECT DROP_INCOME, senderId set)
+      //   = 1900. The GROSS DROP_INCOME (250, senderId=null) is EXCLUDED (audit #2 —
+      //   its slice is the PAYOUT_DROP); the PENDING drop income is excluded too.
+      //   The self-referential PAYOUT_DROP (333.33, C-1) nets to ZERO and does NOT
+      //   move this total — see TX_DROP_PAYOUT_SELF_REF above and the dedicated
+      //   C-1 test below.
+      await db.insert(transactions).values([
+        {
+          id: TX_JUNIOR_SALARY_PAID,
+          type: 'SALARY',
+          status: 'PAID',
+          amount: '1000',
+          currency: 'USD',
+          senderId: ADMIN.id,
+          receiverId: JUNIOR.id,
+          salaryMonth: '2025-11',
+          createdBy: ADMIN.id,
+        },
+        {
+          id: TX_JUNIOR_SALARY_PAID_2,
+          type: 'SALARY',
+          status: 'PAID',
+          amount: '500',
+          currency: 'USD',
+          senderId: ADMIN.id,
+          receiverId: JUNIOR.id,
+          salaryMonth: '2025-12',
+          createdBy: ADMIN.id,
+        },
+        {
+          id: TX_JUNIOR_SALARY_PENDING,
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: '777',
+          currency: 'USD',
+          senderId: ADMIN.id,
+          receiverId: JUNIOR.id,
+          salaryMonth: '2026-01',
+          createdBy: ADMIN.id,
+        },
+        {
+          id: TX_HR_SALARY_PAID,
+          type: 'SALARY',
+          status: 'PAID',
+          amount: '2000',
+          currency: 'USD',
+          senderId: ADMIN.id,
+          receiverId: HR.id,
+          salaryMonth: '2025-12',
+          createdBy: ADMIN.id,
+        },
+        {
+          id: TX_SENIOR_INCOME_PAID,
+          type: 'SENIOR_INCOME',
+          status: 'PAID',
+          amount: '3000',
+          currency: 'USD',
+          receiverId: SENIOR.id,
+          projectId: PROJ_ID,
+          createdBy: SENIOR.id,
+        },
+        {
+          id: TX_SENIOR_INCOME_VALIDATED,
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '4444',
+          currency: 'USD',
+          receiverId: SENIOR.id,
+          projectId: PROJ_ID,
+          createdBy: SENIOR.id,
+        },
+        {
+          id: TX_DROP_PAYOUT_PAID,
+          type: 'PAYOUT_DROP',
+          status: 'PAID',
+          amount: '1500',
+          currency: 'USD',
+          senderId: SENIOR.id,
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: PROJ_ID,
+          createdBy: SENIOR.id,
+        },
+        {
+          // C-1: self-referential row — senderId === receiverId === DROP.id.
+          // Must net to zero (parity with computeDropAggregate), NOT add 333.33.
+          id: TX_DROP_PAYOUT_SELF_REF,
+          type: 'PAYOUT_DROP',
+          status: 'PAID',
+          amount: '333.33',
+          currency: 'USD',
+          senderId: DROP.id,
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: PROJ_ID,
+          createdBy: SENIOR.id,
+        },
+        {
+          // GROSS DROP_INCOME — senderId=null (external client). EXCLUDED by #2.
+          id: TX_DROP_INCOME_GROSS,
+          type: 'DROP_INCOME',
+          status: 'PAID',
+          amount: '250',
+          currency: 'USD',
+          senderId: null,
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: PROJ_ID,
+          createdBy: DROP.id,
+        },
+        {
+          id: TX_DROP_INCOME_PENDING,
+          type: 'DROP_INCOME',
+          status: 'PENDING',
+          amount: '999',
+          currency: 'USD',
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: PROJ_ID,
+          createdBy: DROP.id,
+        },
+        {
+          // DIRECT admin→drop DROP_INCOME — senderId set, no PAYOUT_DROP slice. COUNTED.
+          id: TX_DROP_INCOME_DIRECT,
+          type: 'DROP_INCOME',
+          status: 'PAID',
+          amount: '400',
+          currency: 'USD',
+          senderId: ADMIN.id,
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: PROJ_ID,
+          createdBy: ADMIN.id,
+        },
+      ])
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
+        await db.delete(projects).where(inArray(projects.id, [PROJ_ID]))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  async function earnedFor(viewer: SessionUser, targetId: string) {
-    return app.inject({
-      method: 'GET',
-      url: `/api/balances/total-earned/${targetId}`,
-      cookies: { jwt: tokenFor(viewer) },
-    })
-  }
-
-  // ── RBAC (AC3) ────────────────────────────────────────────────────────────
-  const forbidden: Array<[string, SessionUser]> = [
-    ['SENIOR', SENIOR],
-    ['JUNIOR', JUNIOR],
-    ['HR', HR],
-    ['DROP', DROP],
-  ]
-  for (const [label, persona] of forbidden) {
-    it(`RBAC: ${label} viewer → 403`, async () => {
-      if (!dbAvailable) return
-      // Even self-view is forbidden for non-privileged roles.
-      const res = await earnedFor(persona, persona.id)
-      expect(res.statusCode).toBe(403)
-    })
-  }
-
-  it('RBAC: ACCOUNTANT → 200', async () => {
-    if (!dbAvailable) return
-    const res = await earnedFor(ACCOUNTANT, JUNIOR.id)
-    expect(res.statusCode).toBe(200)
-  })
-
-  it('RBAC: ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    const res = await earnedFor(ADMIN, JUNIOR.id)
-    expect(res.statusCode).toBe(200)
-  })
-
-  // ── Schema shape (AC) ───────────────────────────────────────────────────────
-  it('returns a schema-valid TotalEarnedDto', async () => {
-    if (!dbAvailable) return
-    const res = await earnedFor(ACCOUNTANT, JUNIOR.id)
-    const parsed: TotalEarnedDto = totalEarnedSchema.parse(res.json())
-    expect(parsed.userId).toBe(JUNIOR.id)
-    expect(parsed.role).toBe('JUNIOR')
-    expect(parsed.currency).toBe('USD')
-  })
-
-  // ── Correctness per role (AC4) ──────────────────────────────────────────────
-  it('JUNIOR totalEarned = sum of PAID SALARY (excludes PENDING)', async () => {
-    if (!dbAvailable) return
-    const body = totalEarnedSchema.parse((await earnedFor(ADMIN, JUNIOR.id)).json())
-    // 1000 + 500 PAID; 777 PENDING excluded.
-    expect(Math.round(body.totalEarned * 100) / 100).toBe(1500)
-    expect(Math.round((body.breakdown['salary'] ?? 0) * 100) / 100).toBe(1500)
-  })
-
-  it('HR totalEarned = sum of PAID SALARY', async () => {
-    if (!dbAvailable) return
-    const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, HR.id)).json())
-    expect(Math.round(body.totalEarned * 100) / 100).toBe(2000)
-  })
-
-  it('SENIOR totalEarned = PAID SENIOR_INCOME (excludes non-PAID)', async () => {
-    if (!dbAvailable) return
-    const body = totalEarnedSchema.parse((await earnedFor(ADMIN, SENIOR.id)).json())
-    // 3000 PAID; 4444 VALIDATED excluded.
-    expect(Math.round(body.totalEarned * 100) / 100).toBe(3000)
-    expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(3000)
-  })
-
-  it('DROP totalEarned = PAID PAYOUT_DROP + DIRECT DROP_INCOME (excludes gross + PENDING) (#2)', async () => {
-    if (!dbAvailable) return
-    const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
-    // 1500 PAYOUT_DROP + 400 DIRECT DROP_INCOME (senderId set). The 250 GROSS
-    // DROP_INCOME (senderId=null) is excluded by #2 (its slice IS the PAYOUT_DROP),
-    // and the 999 PENDING is excluded. Total = 1900.
-    expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)
-    expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
-    // Only the DIRECT income (400) lands in the income bucket — NOT the 250 gross.
-    expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(400)
-  })
-
-  // C-1 (mega-audit wave 2), real backend + real Postgres: the self-referential
-  // PAYOUT_DROP fixture (TX_DROP_PAYOUT_SELF_REF, senderId===receiverId===DROP)
-  // must not move the payout bucket. RED before the C-1 fix (would have added
-  // 333.33 → payout=1833.33, totalEarned=2233.33); GREEN after (payout=1500,
-  // totalEarned=1900 — identical to the test above, proving the self-ref row
-  // is a true no-op end-to-end, through the real HTTP route + real DB).
-  it('DROP self-referential PAYOUT_DROP (senderId===receiverId===drop) nets to zero (C-1)', async () => {
-    if (!dbAvailable) return
-    const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
-    expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
-    expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)
-  })
-
-  it('amounts are always finite numbers (no NULL/NaN leak)', async () => {
-    if (!dbAvailable) return
-    const body = totalEarnedSchema.parse((await earnedFor(ADMIN, SENIOR.id)).json())
-    expect(Number.isFinite(body.totalEarned)).toBe(true)
-    for (const v of Object.values(body.breakdown)) {
-      expect(Number.isFinite(v)).toBe(true)
+    async function earnedFor(viewer: SessionUser, targetId: string) {
+      return app.inject({
+        method: 'GET',
+        url: `/api/balances/total-earned/${targetId}`,
+        cookies: { jwt: tokenFor(viewer) },
+      })
     }
-  })
-})
+
+    // ── RBAC (AC3) ────────────────────────────────────────────────────────────
+    const forbidden: Array<[string, SessionUser]> = [
+      ['SENIOR', SENIOR],
+      ['JUNIOR', JUNIOR],
+      ['HR', HR],
+      ['DROP', DROP],
+    ]
+    for (const [label, persona] of forbidden) {
+      it(`RBAC: ${label} viewer → 403`, async () => {
+        // Even self-view is forbidden for non-privileged roles.
+        const res = await earnedFor(persona, persona.id)
+        expect(res.statusCode).toBe(403)
+      })
+    }
+
+    it('RBAC: ACCOUNTANT → 200', async () => {
+      const res = await earnedFor(ACCOUNTANT, JUNIOR.id)
+      expect(res.statusCode).toBe(200)
+    })
+
+    it('RBAC: ADMIN → 200', async () => {
+      const res = await earnedFor(ADMIN, JUNIOR.id)
+      expect(res.statusCode).toBe(200)
+    })
+
+    // ── Schema shape (AC) ───────────────────────────────────────────────────────
+    it('returns a schema-valid TotalEarnedDto', async () => {
+      const res = await earnedFor(ACCOUNTANT, JUNIOR.id)
+      const parsed: TotalEarnedDto = totalEarnedSchema.parse(res.json())
+      expect(parsed.userId).toBe(JUNIOR.id)
+      expect(parsed.role).toBe('JUNIOR')
+      expect(parsed.currency).toBe('USD')
+    })
+
+    // ── Correctness per role (AC4) ──────────────────────────────────────────────
+    it('JUNIOR totalEarned = sum of PAID SALARY (excludes PENDING)', async () => {
+      const body = totalEarnedSchema.parse((await earnedFor(ADMIN, JUNIOR.id)).json())
+      // 1000 + 500 PAID; 777 PENDING excluded.
+      expect(Math.round(body.totalEarned * 100) / 100).toBe(1500)
+      expect(Math.round((body.breakdown['salary'] ?? 0) * 100) / 100).toBe(1500)
+    })
+
+    it('HR totalEarned = sum of PAID SALARY', async () => {
+      const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, HR.id)).json())
+      expect(Math.round(body.totalEarned * 100) / 100).toBe(2000)
+    })
+
+    it('SENIOR totalEarned = PAID SENIOR_INCOME (excludes non-PAID)', async () => {
+      const body = totalEarnedSchema.parse((await earnedFor(ADMIN, SENIOR.id)).json())
+      // 3000 PAID; 4444 VALIDATED excluded.
+      expect(Math.round(body.totalEarned * 100) / 100).toBe(3000)
+      expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(3000)
+    })
+
+    it('DROP totalEarned = PAID PAYOUT_DROP + DIRECT DROP_INCOME (excludes gross + PENDING) (#2)', async () => {
+      const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
+      // 1500 PAYOUT_DROP + 400 DIRECT DROP_INCOME (senderId set). The 250 GROSS
+      // DROP_INCOME (senderId=null) is excluded by #2 (its slice IS the PAYOUT_DROP),
+      // and the 999 PENDING is excluded. Total = 1900.
+      expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)
+      expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
+      // Only the DIRECT income (400) lands in the income bucket — NOT the 250 gross.
+      expect(Math.round((body.breakdown['income'] ?? 0) * 100) / 100).toBe(400)
+    })
+
+    // C-1 (mega-audit wave 2), real backend + real Postgres: the self-referential
+    // PAYOUT_DROP fixture (TX_DROP_PAYOUT_SELF_REF, senderId===receiverId===DROP)
+    // must not move the payout bucket. RED before the C-1 fix (would have added
+    // 333.33 → payout=1833.33, totalEarned=2233.33); GREEN after (payout=1500,
+    // totalEarned=1900 — identical to the test above, proving the self-ref row
+    // is a true no-op end-to-end, through the real HTTP route + real DB).
+    it('DROP self-referential PAYOUT_DROP (senderId===receiverId===drop) nets to zero (C-1)', async () => {
+      const body = totalEarnedSchema.parse((await earnedFor(ACCOUNTANT, DROP.id)).json())
+      expect(Math.round((body.breakdown['payout'] ?? 0) * 100) / 100).toBe(1500)
+      expect(Math.round(body.totalEarned * 100) / 100).toBe(1900)
+    })
+
+    it('amounts are always finite numbers (no NULL/NaN leak)', async () => {
+      const body = totalEarnedSchema.parse((await earnedFor(ADMIN, SENIOR.id)).json())
+      expect(Number.isFinite(body.totalEarned)).toBe(true)
+      for (const v of Object.values(body.breakdown)) {
+        expect(Number.isFinite(v)).toBe(true)
+      }
+    })
+  },
+)

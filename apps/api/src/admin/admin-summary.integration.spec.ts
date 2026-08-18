@@ -19,6 +19,7 @@ import * as schema from '../database/schema'
 import { UsersService } from '../users/users.service'
 import { AdminController } from './admin.controller'
 import { AdminSummaryService } from './admin-summary.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * ADMIN dashboard — admin-summary real-backend integration spec (real Postgres,
@@ -32,9 +33,10 @@ import { AdminSummaryService } from './admin-summary.service'
  *     an actual JWT + Fastify request, not a unit stub, and
  *   - the KPI aggregation + active-transactions feed run over real rows.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR the
- * `transactions` table is absent → every test returns early and stays green (so
- * the CI unit job without a DB is unaffected).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against a scratch DB (NEVER the live crm_db):
  *   DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa \
@@ -139,7 +141,6 @@ const TEST_INT_IDS = [INT_ACTIVE, INT_HIRED]
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -202,467 +203,455 @@ class TestDatabaseModule {}
 class AdminSummaryTestModule {}
 
 // ── Suite ───────────────────────────────────────────────────────────────────
-describe('admin-summary — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'admin-summary — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  const now = new Date()
-  const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
+    const now = new Date()
+    const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      const schemaCheck = await probePool.query(
-        `SELECT table_name FROM information_schema.tables
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        const schemaCheck = await probePool.query(
+          `SELECT table_name FROM information_schema.tables
          WHERE table_name='transactions' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn('[admin-summary integration] SKIPPED — transactions table not found')
-        dbAvailable = false
-        return
+        )
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error('[admin-summary integration] FAILED — transactions table not found')
+        }
+      } catch {
+        throw new Error(
+          '[admin-summary integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[admin-summary integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [AdminSummaryTestModule],
-    })
-      // The real AdminController is decorated `@UseGuards(RolesGuard)` at the
-      // class level. In the vitest/esbuild env Nest can't auto-wire RolesGuard
-      // with a Reflector (no `design:paramtypes`), so we override it with a
-      // fully-constructed instance — this exercises the REAL RolesGuard logic
-      // (getAllAndOverride(@Roles('ADMIN')) → 403 for non-ADMIN) against the live
-      // JWT request. Pattern: pay-salary.rbac.integration.spec.ts.
-      .overrideGuard(RolesGuard)
-      .useValue(new RolesGuard(new Reflector()))
-      .compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [AdminSummaryTestModule],
+      })
+        // The real AdminController is decorated `@UseGuards(RolesGuard)` at the
+        // class level. In the vitest/esbuild env Nest can't auto-wire RolesGuard
+        // with a Reflector (no `design:paramtypes`), so we override it with a
+        // fully-constructed instance — this exercises the REAL RolesGuard logic
+        // (getAllAndOverride(@Roles('ADMIN')) → 403 for non-ADMIN) against the live
+        // JWT request. Pattern: pay-salary.rbac.integration.spec.ts.
+        .overrideGuard(RolesGuard)
+        .useValue(new RolesGuard(new Reflector()))
+        .compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'admin-summary-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'admin-summary-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // Surgical cleanup of any leftover rows from a previous run BEFORE seeding.
-    await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
-    await db.delete(interviews).where(inArray(interviews.id, TEST_INT_IDS))
-    await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-
-    // ── Seed users ──────────────────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values(
-        [ADMIN, SENIOR, HR, ACCOUNTANT, JUNIOR, DROP].map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // ── Seed projects (one active, one archived) ──────────────────────────────
-    await db
-      .insert(projects)
-      .values([
-        {
-          id: PROJ_ACTIVE,
-          name: 'Admin Sum Active Project',
-          companyName: 'AdminSum Corp',
-          domain: 'ai',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR.id,
-          currency: 'USDT',
-          rate: 1000,
-        },
-        {
-          id: PROJ_ARCHIVED,
-          name: 'Admin Sum Archived Project',
-          companyName: 'AdminSum Corp',
-          domain: 'ai',
-          startDate: new Date('2025-01-01'),
-          seniorId: SENIOR.id,
-          currency: 'USDT',
-          rate: 1000,
-          archivedAt: new Date('2025-02-01'),
-        },
-      ])
-      .onConflictDoNothing()
-
-    // ── Seed interviews (one active stage, one terminal) ──────────────────────
-    await db
-      .insert(interviews)
-      .values([
-        {
-          id: INT_ACTIVE,
-          seniorId: SENIOR.id,
-          hrId: HR.id,
-          companyName: 'Admin Sum Active Interview Co',
-          stage: 'TECH_INTERVIEW',
-        },
-        {
-          id: INT_HIRED,
-          seniorId: SENIOR.id,
-          hrId: HR.id,
-          companyName: 'Admin Sum Hired Interview Co',
-          stage: 'HIRED',
-        },
-      ])
-      .onConflictDoNothing()
-
-    // ── Seed transactions (active vs terminal status fixtures) ────────────────
-    // Active (in feed): TX_PENDING (PENDING), TX_PENDING_PAYMENT (PENDING_PAYMENT).
-    // NOT active: TX_PAID (PAID), TX_VALIDATED (VALIDATED).
-    // TX_INCOME_THIS_MONTH (ADMIN_INCOME, this month, PROJ_ACTIVE) makes the
-    // active project "paid this month" → must NOT count in projectsUnpaidThisMonth.
-    await db.insert(transactions).values([
-      {
-        id: TX_PENDING,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: '1000',
-        currency: 'USDT',
-        senderId: SENIOR.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR.id,
-      },
-      {
-        id: TX_PENDING_PAYMENT,
-        type: 'PAYOUT',
-        status: 'PENDING_PAYMENT',
-        amount: '500',
-        currency: 'USDT',
-        senderId: SENIOR.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR.id,
-      },
-      {
-        id: TX_PAID,
-        type: 'ADMIN_INCOME',
-        status: 'PAID',
-        amount: '2000',
-        currency: 'UAH',
-        senderId: ADMIN.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-      {
-        id: TX_VALIDATED,
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '800',
-        currency: 'USDT',
-        senderId: SENIOR.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR.id,
-      },
-      {
-        id: TX_INCOME_THIS_MONTH,
-        type: 'ADMIN_INCOME',
-        status: 'PAID',
-        amount: '3000',
-        currency: 'USDT',
-        senderId: ADMIN.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-      // Active rows in each non-USDT DB currency — they MUST appear in the feed
-      // carrying their REAL currency (no payment-rail mapping).
-      {
-        id: TX_PENDING_USD,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: '700',
-        currency: 'USD',
-        senderId: SENIOR.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR.id,
-      },
-      {
-        id: TX_PENDING_EUR,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: '650',
-        currency: 'EUR',
-        senderId: SENIOR.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR.id,
-      },
-      {
-        id: TX_PENDING_UAH,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: '25000',
-        currency: 'UAH',
-        senderId: SENIOR.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR.id,
-      },
-      // DROP_INCOME: client company → drop. senderLabel = client name (no
-      // senderId), receiverId = the drop. Surfaces the new receiverId +
-      // resolved receiverName + projectId so the feed can render the participant.
-      {
-        id: TX_DROP_INCOME,
-        type: 'DROP_INCOME',
-        status: 'PENDING',
-        amount: '1200',
-        currency: 'USDT',
-        senderId: null,
-        senderLabel: 'Drop Client Co',
-        receiverId: DROP.id,
-        recipientId: DROP.id,
-        projectId: PROJ_ACTIVE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: DROP.id,
-      },
-    ])
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
+
+      // Surgical cleanup of any leftover rows from a previous run BEFORE seeding.
       await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
       await db.delete(interviews).where(inArray(interviews.id, TEST_INT_IDS))
       await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
+
+      // ── Seed users ──────────────────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values(
+          [ADMIN, SENIOR, HR, ACCOUNTANT, JUNIOR, DROP].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      // ── Seed projects (one active, one archived) ──────────────────────────────
+      await db
+        .insert(projects)
+        .values([
+          {
+            id: PROJ_ACTIVE,
+            name: 'Admin Sum Active Project',
+            companyName: 'AdminSum Corp',
+            domain: 'ai',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR.id,
+            currency: 'USDT',
+            rate: 1000,
+          },
+          {
+            id: PROJ_ARCHIVED,
+            name: 'Admin Sum Archived Project',
+            companyName: 'AdminSum Corp',
+            domain: 'ai',
+            startDate: new Date('2025-01-01'),
+            seniorId: SENIOR.id,
+            currency: 'USDT',
+            rate: 1000,
+            archivedAt: new Date('2025-02-01'),
+          },
+        ])
+        .onConflictDoNothing()
+
+      // ── Seed interviews (one active stage, one terminal) ──────────────────────
+      await db
+        .insert(interviews)
+        .values([
+          {
+            id: INT_ACTIVE,
+            seniorId: SENIOR.id,
+            hrId: HR.id,
+            companyName: 'Admin Sum Active Interview Co',
+            stage: 'TECH_INTERVIEW',
+          },
+          {
+            id: INT_HIRED,
+            seniorId: SENIOR.id,
+            hrId: HR.id,
+            companyName: 'Admin Sum Hired Interview Co',
+            stage: 'HIRED',
+          },
+        ])
+        .onConflictDoNothing()
+
+      // ── Seed transactions (active vs terminal status fixtures) ────────────────
+      // Active (in feed): TX_PENDING (PENDING), TX_PENDING_PAYMENT (PENDING_PAYMENT).
+      // NOT active: TX_PAID (PAID), TX_VALIDATED (VALIDATED).
+      // TX_INCOME_THIS_MONTH (ADMIN_INCOME, this month, PROJ_ACTIVE) makes the
+      // active project "paid this month" → must NOT count in projectsUnpaidThisMonth.
+      await db.insert(transactions).values([
+        {
+          id: TX_PENDING,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '1000',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
+        },
+        {
+          id: TX_PENDING_PAYMENT,
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '500',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
+        },
+        {
+          id: TX_PAID,
+          type: 'ADMIN_INCOME',
+          status: 'PAID',
+          amount: '2000',
+          currency: 'UAH',
+          senderId: ADMIN.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+        {
+          id: TX_VALIDATED,
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '800',
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
+        },
+        {
+          id: TX_INCOME_THIS_MONTH,
+          type: 'ADMIN_INCOME',
+          status: 'PAID',
+          amount: '3000',
+          currency: 'USDT',
+          senderId: ADMIN.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+        // Active rows in each non-USDT DB currency — they MUST appear in the feed
+        // carrying their REAL currency (no payment-rail mapping).
+        {
+          id: TX_PENDING_USD,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '700',
+          currency: 'USD',
+          senderId: SENIOR.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
+        },
+        {
+          id: TX_PENDING_EUR,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '650',
+          currency: 'EUR',
+          senderId: SENIOR.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
+        },
+        {
+          id: TX_PENDING_UAH,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '25000',
+          currency: 'UAH',
+          senderId: SENIOR.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR.id,
+        },
+        // DROP_INCOME: client company → drop. senderLabel = client name (no
+        // senderId), receiverId = the drop. Surfaces the new receiverId +
+        // resolved receiverName + projectId so the feed can render the participant.
+        {
+          id: TX_DROP_INCOME,
+          type: 'DROP_INCOME',
+          status: 'PENDING',
+          amount: '1200',
+          currency: 'USDT',
+          senderId: null,
+          senderLabel: 'Drop Client Co',
+          receiverId: DROP.id,
+          recipientId: DROP.id,
+          projectId: PROJ_ACTIVE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: DROP.id,
+        },
+      ])
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
+        await db.delete(interviews).where(inArray(interviews.id, TEST_INT_IDS))
+        await db.delete(projects).where(inArray(projects.id, TEST_PROJ_IDS))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
+    // ── RBAC (AC2) ──────────────────────────────────────────────────────────────
+    const forbidden: Array<[string, SessionUser]> = [
+      ['SENIOR', SENIOR],
+      ['HR', HR],
+      ['ACCOUNTANT', ACCOUNTANT],
+      ['JUNIOR', JUNIOR],
+      ['DROP', DROP],
+    ]
+    for (const [label, persona] of forbidden) {
+      it(`RBAC: ${label} → 403`, async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/admin/summary',
+          cookies: { jwt: tokenFor(persona) },
+        })
+        expect(res.statusCode).toBe(403)
+      })
+    }
 
-  // ── RBAC (AC2) ──────────────────────────────────────────────────────────────
-  const forbidden: Array<[string, SessionUser]> = [
-    ['SENIOR', SENIOR],
-    ['HR', HR],
-    ['ACCOUNTANT', ACCOUNTANT],
-    ['JUNIOR', JUNIOR],
-    ['DROP', DROP],
-  ]
-  for (const [label, persona] of forbidden) {
-    it(`RBAC: ${label} → 403`, async () => {
-      if (!dbAvailable) return
+    it('RBAC: ADMIN → 200', async () => {
       const res = await app.inject({
         method: 'GET',
         url: '/api/admin/summary',
-        cookies: { jwt: tokenFor(persona) },
+        cookies: { jwt: tokenFor(ADMIN) },
       })
-      expect(res.statusCode).toBe(403)
+      expect(res.statusCode).toBe(200)
     })
-  }
 
-  it('RBAC: ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+    it('RBAC: unauthenticated (no cookie) → 401/403', async () => {
+      const res = await app.inject({ method: 'GET', url: '/api/admin/summary' })
+      expect([401, 403]).toContain(res.statusCode)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('RBAC: unauthenticated (no cookie) → 401/403', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({ method: 'GET', url: '/api/admin/summary' })
-    expect([401, 403]).toContain(res.statusCode)
-  })
-
-  // ── Shape (AC1) ───────────────────────────────────────────────────────────────
-  it('returns a schema-valid payload with the four KPI keys for ADMIN', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+    // ── Shape (AC1) ───────────────────────────────────────────────────────────────
+    it('returns a schema-valid payload with the four KPI keys for ADMIN', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
+      // Throws if the wire shape drifts from the shared contract.
+      const parsed = adminSummarySchema.parse(res.json())
+      expect(parsed.kpis).toMatchObject({
+        activeProjects: expect.any(Number),
+        employees: expect.any(Number),
+        projectsUnpaidThisMonth: expect.any(Number),
+        activeInterviews: expect.any(Number),
+      })
+      expect(Array.isArray(parsed.activeTransactions)).toBe(true)
     })
-    expect(res.statusCode).toBe(200)
-    // Throws if the wire shape drifts from the shared contract.
-    const parsed = adminSummarySchema.parse(res.json())
-    expect(parsed.kpis).toMatchObject({
-      activeProjects: expect.any(Number),
-      employees: expect.any(Number),
-      projectsUnpaidThisMonth: expect.any(Number),
-      activeInterviews: expect.any(Number),
+
+    // ── activeTransactions correctness (AC1) ────────────────────────────────────
+    it('activeTransactions contains ONLY the actionable statuses and excludes terminal ones', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      const body = adminSummarySchema.parse(res.json())
+
+      // Every row carries one of the 3 actionable statuses (proves the SQL filter).
+      const allowed = new Set(['PENDING', 'PENDING_PAYMENT', 'PENDING_CASH_CONFIRM'])
+      for (const tx of body.activeTransactions) {
+        expect(allowed.has(tx.status)).toBe(true)
+      }
+
+      const ids = new Set(body.activeTransactions.map((t) => t.id))
+      // PENDING + PENDING_PAYMENT rows ARE present.
+      expect(ids.has(TX_PENDING)).toBe(true)
+      expect(ids.has(TX_PENDING_PAYMENT)).toBe(true)
+      // PAID + VALIDATED rows are NOT present.
+      expect(ids.has(TX_PAID)).toBe(false)
+      expect(ids.has(TX_VALIDATED)).toBe(false)
+      expect(ids.has(TX_INCOME_THIS_MONTH)).toBe(false)
     })
-    expect(Array.isArray(parsed.activeTransactions)).toBe(true)
-  })
 
-  // ── activeTransactions correctness (AC1) ────────────────────────────────────
-  it('activeTransactions contains ONLY the actionable statuses and excludes terminal ones', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+    it('canPay is true ONLY for PENDING_PAYMENT rows', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      const body = adminSummarySchema.parse(res.json())
+
+      const pendingPayment = body.activeTransactions.find((t) => t.id === TX_PENDING_PAYMENT)
+      const pending = body.activeTransactions.find((t) => t.id === TX_PENDING)
+      expect(pendingPayment?.canPay).toBe(true)
+      expect(pending?.canPay).toBe(false)
     })
-    const body = adminSummarySchema.parse(res.json())
 
-    // Every row carries one of the 3 actionable statuses (proves the SQL filter).
-    const allowed = new Set(['PENDING', 'PENDING_PAYMENT', 'PENDING_CASH_CONFIRM'])
-    for (const tx of body.activeTransactions) {
-      expect(allowed.has(tx.status)).toBe(true)
-    }
+    it('passes the REAL DB currency straight through for every currency (USDT/USD/EUR/UAH)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      const body = adminSummarySchema.parse(res.json())
 
-    const ids = new Set(body.activeTransactions.map((t) => t.id))
-    // PENDING + PENDING_PAYMENT rows ARE present.
-    expect(ids.has(TX_PENDING)).toBe(true)
-    expect(ids.has(TX_PENDING_PAYMENT)).toBe(true)
-    // PAID + VALIDATED rows are NOT present.
-    expect(ids.has(TX_PAID)).toBe(false)
-    expect(ids.has(TX_VALIDATED)).toBe(false)
-    expect(ids.has(TX_INCOME_THIS_MONTH)).toBe(false)
-  })
-
-  it('canPay is true ONLY for PENDING_PAYMENT rows', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+      // Each active row keeps its real DB currency — NOT a lossy payment-rail bucket
+      // (regression: USD/EUR used to be folded into USDT_ERC20 / BANK_UAH_FOP). This
+      // is the exact `TransactionDto['currency']` union the Финансы page shows.
+      const byId = (id: string) => body.activeTransactions.find((t) => t.id === id)
+      const cases: Array<[string, 'USDT' | 'USD' | 'EUR' | 'UAH']> = [
+        [TX_PENDING, 'USDT'],
+        [TX_PENDING_USD, 'USD'],
+        [TX_PENDING_EUR, 'EUR'],
+        [TX_PENDING_UAH, 'UAH'],
+      ]
+      for (const [id, expected] of cases) {
+        expect(byId(id)?.currency).toBe(expected)
+      }
     })
-    const body = adminSummarySchema.parse(res.json())
 
-    const pendingPayment = body.activeTransactions.find((t) => t.id === TX_PENDING_PAYMENT)
-    const pending = body.activeTransactions.find((t) => t.id === TX_PENDING)
-    expect(pendingPayment?.canPay).toBe(true)
-    expect(pending?.canPay).toBe(false)
-  })
+    it('surfaces raw party/project ids + resolved user display names for the feed', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      const body = adminSummarySchema.parse(res.json())
+      const byId = (id: string) => body.activeTransactions.find((t) => t.id === id)
 
-  it('passes the REAL DB currency straight through for every currency (USDT/USD/EUR/UAH)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+      // Every active row exposes the new id/name keys (nullable) so the shared
+      // `FromTo` no longer falls back to «—» for types that key off ids/names.
+      // `payoutRequestId` is projected too (UT-feedback #280) so the dashboard can
+      // open the SAME ConfirmPayoutDialog whose company-account branch confirms off
+      // the payout request id.
+      for (const tx of body.activeTransactions) {
+        expect(tx).toHaveProperty('senderId')
+        expect(tx).toHaveProperty('senderName')
+        expect(tx).toHaveProperty('receiverId')
+        expect(tx).toHaveProperty('receiverName')
+        expect(tx).toHaveProperty('projectId')
+        expect(tx).toHaveProperty('payoutRequestId')
+      }
+
+      // The PAYOUT fixture (TX_PENDING_PAYMENT) carries no linked payout_request,
+      // so its projected payoutRequestId is null (not undefined / absent) — the
+      // field is always present in the contract.
+      expect(byId(TX_PENDING_PAYMENT)?.payoutRequestId).toBeNull()
+
+      // SENIOR_INCOME (TX_PENDING): senderId = the senior + resolved senderName,
+      // projectId = the active project (proves sender side + project are surfaced).
+      const seniorIncome = byId(TX_PENDING)
+      expect(seniorIncome?.senderId).toBe(SENIOR.id)
+      expect(seniorIncome?.senderName).toBe(SENIOR.displayName)
+      expect(seniorIncome?.projectId).toBe(PROJ_ACTIVE)
+
+      // DROP_INCOME (TX_DROP_INCOME): client company → drop. No senderId (client
+      // alias only), receiverId = the drop + resolved receiverName, projectId set
+      // (proves the receiver side is surfaced — previously rendered «—»).
+      const dropIncome = byId(TX_DROP_INCOME)
+      expect(dropIncome?.senderId).toBeNull()
+      expect(dropIncome?.senderLabel).toBe('Drop Client Co')
+      expect(dropIncome?.receiverId).toBe(DROP.id)
+      expect(dropIncome?.receiverName).toBe(DROP.displayName)
+      expect(dropIncome?.projectId).toBe(PROJ_ACTIVE)
     })
-    const body = adminSummarySchema.parse(res.json())
 
-    // Each active row keeps its real DB currency — NOT a lossy payment-rail bucket
-    // (regression: USD/EUR used to be folded into USDT_ERC20 / BANK_UAH_FOP). This
-    // is the exact `TransactionDto['currency']` union the Финансы page shows.
-    const byId = (id: string) => body.activeTransactions.find((t) => t.id === id)
-    const cases: Array<[string, 'USDT' | 'USD' | 'EUR' | 'UAH']> = [
-      [TX_PENDING, 'USDT'],
-      [TX_PENDING_USD, 'USD'],
-      [TX_PENDING_EUR, 'EUR'],
-      [TX_PENDING_UAH, 'UAH'],
-    ]
-    for (const [id, expected] of cases) {
-      expect(byId(id)?.currency).toBe(expected)
-    }
-  })
-
-  it('surfaces raw party/project ids + resolved user display names for the feed', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+    // ── KPI correctness (AC1) ──────────────────────────────────────────────────
+    it('counts the archived project out of activeProjects (delta-safe)', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      const body = adminSummarySchema.parse(res.json())
+      // activeProjects/employees are global aggregates over a seeded DB, so assert
+      // only the floor contributed by this spec (>= our active fixtures), not an
+      // absolute equality that would couple to seed data.
+      expect(body.kpis.activeProjects).toBeGreaterThanOrEqual(1)
+      expect(body.kpis.employees).toBeGreaterThanOrEqual(TEST_USER_IDS.length)
+      expect(body.kpis.activeInterviews).toBeGreaterThanOrEqual(1)
     })
-    const body = adminSummarySchema.parse(res.json())
-    const byId = (id: string) => body.activeTransactions.find((t) => t.id === id)
 
-    // Every active row exposes the new id/name keys (nullable) so the shared
-    // `FromTo` no longer falls back to «—» for types that key off ids/names.
-    // `payoutRequestId` is projected too (UT-feedback #280) so the dashboard can
-    // open the SAME ConfirmPayoutDialog whose company-account branch confirms off
-    // the payout request id.
-    for (const tx of body.activeTransactions) {
-      expect(tx).toHaveProperty('senderId')
-      expect(tx).toHaveProperty('senderName')
-      expect(tx).toHaveProperty('receiverId')
-      expect(tx).toHaveProperty('receiverName')
-      expect(tx).toHaveProperty('projectId')
-      expect(tx).toHaveProperty('payoutRequestId')
-    }
-
-    // The PAYOUT fixture (TX_PENDING_PAYMENT) carries no linked payout_request,
-    // so its projected payoutRequestId is null (not undefined / absent) — the
-    // field is always present in the contract.
-    expect(byId(TX_PENDING_PAYMENT)?.payoutRequestId).toBeNull()
-
-    // SENIOR_INCOME (TX_PENDING): senderId = the senior + resolved senderName,
-    // projectId = the active project (proves sender side + project are surfaced).
-    const seniorIncome = byId(TX_PENDING)
-    expect(seniorIncome?.senderId).toBe(SENIOR.id)
-    expect(seniorIncome?.senderName).toBe(SENIOR.displayName)
-    expect(seniorIncome?.projectId).toBe(PROJ_ACTIVE)
-
-    // DROP_INCOME (TX_DROP_INCOME): client company → drop. No senderId (client
-    // alias only), receiverId = the drop + resolved receiverName, projectId set
-    // (proves the receiver side is surfaced — previously rendered «—»).
-    const dropIncome = byId(TX_DROP_INCOME)
-    expect(dropIncome?.senderId).toBeNull()
-    expect(dropIncome?.senderLabel).toBe('Drop Client Co')
-    expect(dropIncome?.receiverId).toBe(DROP.id)
-    expect(dropIncome?.receiverName).toBe(DROP.displayName)
-    expect(dropIncome?.projectId).toBe(PROJ_ACTIVE)
-  })
-
-  // ── KPI correctness (AC1) ──────────────────────────────────────────────────
-  it('counts the archived project out of activeProjects (delta-safe)', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
+    it('does NOT count a project paid this month in projectsUnpaidThisMonth', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/admin/summary',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      const body = adminSummarySchema.parse(res.json())
+      // PROJ_ACTIVE has TX_INCOME_THIS_MONTH (ADMIN_INCOME this month) → it is
+      // "paid", so the unpaid counter must be >= 0 (never negative) and the active
+      // project's presence in income keeps the SQL NOT EXISTS path exercised.
+      expect(body.kpis.projectsUnpaidThisMonth).toBeGreaterThanOrEqual(0)
     })
-    const body = adminSummarySchema.parse(res.json())
-    // activeProjects/employees are global aggregates over a seeded DB, so assert
-    // only the floor contributed by this spec (>= our active fixtures), not an
-    // absolute equality that would couple to seed data.
-    expect(body.kpis.activeProjects).toBeGreaterThanOrEqual(1)
-    expect(body.kpis.employees).toBeGreaterThanOrEqual(TEST_USER_IDS.length)
-    expect(body.kpis.activeInterviews).toBeGreaterThanOrEqual(1)
-  })
-
-  it('does NOT count a project paid this month in projectsUnpaidThisMonth', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/admin/summary',
-      cookies: { jwt: tokenFor(ADMIN) },
-    })
-    const body = adminSummarySchema.parse(res.json())
-    // PROJ_ACTIVE has TX_INCOME_THIS_MONTH (ADMIN_INCOME this month) → it is
-    // "paid", so the unpaid counter must be >= 0 (never negative) and the active
-    // project's presence in income keeps the SQL NOT EXISTS path exercised.
-    expect(body.kpis.projectsUnpaidThisMonth).toBeGreaterThanOrEqual(0)
-  })
-})
+  },
+)

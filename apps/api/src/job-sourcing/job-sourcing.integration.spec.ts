@@ -21,6 +21,7 @@ import { DouRssProvider } from './dou.provider'
 import type { NormalizedPosting } from './job-source.provider'
 import { MAX_FAILURE_MESSAGE_CHARS } from './safe-failure-message'
 import { JobSourcingService } from './job-sourcing.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Job sourcing — real-database integration spec (task-job-sourcing-slice1 AC8).
@@ -147,12 +148,11 @@ const BASE_FEED = douFeed([
   { title: 'Lead Fullstack в Mobilunity, віддалено', path: '/companies/mobilunity/vacancies/3/' },
 ])
 
-describe('Job sourcing — real DB integration', () => {
+describe.skipIf(!hasDatabaseUrl())('Job sourcing — real DB integration', () => {
   let pool: Pool
   let dbSvc: DatabaseService
   let service: JobSourcingService
   let provider: StubDouProvider
-  let dbAvailable = true
 
   beforeAll(async () => {
     try {
@@ -160,9 +160,7 @@ describe('Job sourcing — real DB integration', () => {
       await probe.query('SELECT 1')
       await probe.end()
     } catch {
-      console.warn('[job-sourcing integration] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[job-sourcing integration] FAILED — no DB reachable at DATABASE_URL')
     }
 
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -227,7 +225,6 @@ describe('Job sourcing — real DB integration', () => {
   }, 30_000)
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     // Each test starts from a clean posting/suggestion/exclusion state; the
     // users/teams/projects/source seed above is shared.
     const db = dbSvc.db
@@ -238,7 +235,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   afterAll(async () => {
-    if (!dbAvailable) return
     const db = dbSvc.db
     await db.delete(jobSuggestions).where(inArray(jobSuggestions.seniorId, TEST_USER_IDS))
     await db.delete(jobPostings).where(eq(jobPostings.sourceId, SOURCE_ID))
@@ -256,7 +252,6 @@ describe('Job sourcing — real DB integration', () => {
   // ── AC1 — collection + dedupe ──────────────────────────────────────────────
 
   it('AC1: collection fills postings from the feed', async () => {
-    if (!dbAvailable) return
     const result = await service.collectSource(source)
 
     expect(result.fetched).toBe(3)
@@ -274,7 +269,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC1: a second run over the SAME feed creates no duplicates', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const second = await service.collectSource(source)
 
@@ -287,7 +281,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC1: dedupe survives DOU changing the guid timestamp between fetches', async () => {
-    if (!dbAvailable) return
     provider.feedXml = douFeed([
       { title: 'Dev в Ciklum, Київ', path: '/companies/ciklum/vacancies/9/', guidSuffix: '1111' },
     ])
@@ -306,7 +299,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC1: dedupe is enforced by the DATABASE, not only by application code', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const [existing] = await dbSvc.db
       .select()
@@ -332,7 +324,6 @@ describe('Job sourcing — real DB integration', () => {
   // ── AC3 — auto-filled exclusions from the senior's projects ────────────────
 
   it('AC3: the senior is not offered a vacancy at their OWN client (different spelling)', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
 
     const queue = await service.listSuggestions(SENIOR_A.id, ADMIN)
@@ -344,7 +335,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC3: a senior WITHOUT that project still sees the same vacancy', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
 
     const queue = await service.listSuggestions(SENIOR_B.id, ADMIN)
@@ -352,7 +342,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC3: the derived exclusion is listed with its project as the source', async () => {
-    if (!dbAvailable) return
     const { items } = await service.listExclusions(SENIOR_A.id, ADMIN)
     const derived = items.find((i) => i.origin === 'PROJECT')
 
@@ -365,7 +354,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC3: no NEW suggestion row is even created for the senior’s own client', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
 
     const rows = await dbSvc.db
@@ -380,7 +368,6 @@ describe('Job sourcing — real DB integration', () => {
   // ── AC4 — a rejected posting stays rejected ────────────────────────────────
 
   it('AC4: a REJECTED posting disappears from the queue', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
 
     const before = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
@@ -393,7 +380,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC4: a re-collect does NOT resurface a rejected posting as NEW', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const before = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
     const target = before.items[0]!
@@ -410,7 +396,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('AC4: an APPLIED posting also leaves the queue and keeps its status', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const before = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
     const target = before.items[0]!
@@ -426,7 +411,6 @@ describe('Job sourcing — real DB integration', () => {
   // ── Manual exclusions ──────────────────────────────────────────────────────
 
   it('a manual company exclusion hides the vacancy immediately, without re-collecting', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     expect((await service.listSuggestions(SENIOR_B.id, SENIOR_B)).items.length).toBe(3)
 
@@ -440,7 +424,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('adding the same exclusion twice is a no-op, not an error', async () => {
-    if (!dbAvailable) return
     const first = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Devart' },
       SENIOR_B,
@@ -453,7 +436,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('a GLOBAL exclusion applies to every senior', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     await service.createExclusion({ scope: 'GLOBAL', kind: 'COMPANY', value: 'Mobilunity' }, ADMIN)
 
@@ -480,7 +462,6 @@ describe('Job sourcing — real DB integration', () => {
    * refusal.
    */
   it('a SENIOR who passes ANOTHER senior’s id still gets the row on themselves', async () => {
-    if (!dbAvailable) return
     const created = await service.createExclusion(
       // SENIOR_B asking for SENIOR_A's list — the shape an IDOR attempt takes.
       { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Wetelo' },
@@ -502,7 +483,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('an ADMIN/HR without a senior gets a refusal, not a studio-wide row', async () => {
-    if (!dbAvailable) return
     const globalsBefore = await dbSvc.db
       .select()
       .from(jobExclusionFilters)
@@ -523,7 +503,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('HR cannot create an exclusion for a senior outside their teams', async () => {
-    if (!dbAvailable) return
     await expect(
       service.createExclusion(
         { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Ciklum' },
@@ -533,7 +512,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('HR CAN create an exclusion for a senior in their own team', async () => {
-    if (!dbAvailable) return
     const created = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Ciklum' },
       HR_A,
@@ -542,14 +520,12 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('a SENIOR cannot create a studio-wide exclusion', async () => {
-    if (!dbAvailable) return
     await expect(
       service.createExclusion({ scope: 'GLOBAL', kind: 'COMPANY', value: 'Whatever' }, SENIOR_B),
     ).rejects.toThrow(/ADMIN и HR/)
   })
 
   it('deleting an exclusion brings the vacancy back', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const created = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Ciklum' },
@@ -572,31 +548,26 @@ describe('Job sourcing — real DB integration', () => {
   // ── RBAC (real team_members rows) ──────────────────────────────────────────
 
   it('RBAC: a SENIOR always gets their OWN queue, whatever seniorId they pass', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const queue = await service.listSuggestions(SENIOR_A.id, SENIOR_B)
     expect(queue.items.every((i) => i.seniorId === SENIOR_B.id)).toBe(true)
   })
 
   it('RBAC: HR reaches a senior in their own team', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const queue = await service.listSuggestions(SENIOR_A.id, HR_A)
     expect(queue.items.every((i) => i.seniorId === SENIOR_A.id)).toBe(true)
   })
 
   it('RBAC: HR cannot reach a senior from another team', async () => {
-    if (!dbAvailable) return
     await expect(service.listSuggestions(SENIOR_B.id, HR_A)).rejects.toThrow(/не в ваших командах/)
   })
 
   it('RBAC: ACCOUNTANT is rejected outright', async () => {
-    if (!dbAvailable) return
     await expect(service.listSuggestions(SENIOR_A.id, ACCOUNTANT)).rejects.toThrow(/Нет доступа/)
   })
 
   it('RBAC: a SENIOR cannot change the status of another senior’s suggestion', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const otherQueue = await service.listSuggestions(SENIOR_A.id, ADMIN)
     const foreign = otherQueue.items[0]!
@@ -620,7 +591,6 @@ describe('Job sourcing — real DB integration', () => {
    * re-expose the company their colleague had shut out.
    */
   it('RBAC: a SENIOR cannot delete ANOTHER senior’s exclusion (HIGH-2)', async () => {
-    if (!dbAvailable) return
     const victim = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_A.id, kind: 'COMPANY', value: 'Ciklum' },
       ADMIN,
@@ -637,7 +607,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('RBAC: HR cannot delete an exclusion of a senior outside their teams (HIGH-2)', async () => {
-    if (!dbAvailable) return
     const victim = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Devart' },
       ADMIN,
@@ -653,7 +622,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('RBAC: a SENIOR can delete their OWN exclusion (the check does not over-block)', async () => {
-    if (!dbAvailable) return
     const own = await service.createExclusion(
       { scope: 'SENIOR', seniorId: SENIOR_B.id, kind: 'COMPANY', value: 'Devart' },
       SENIOR_B,
@@ -666,7 +634,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('RBAC: a SENIOR cannot delete a GLOBAL exclusion', async () => {
-    if (!dbAvailable) return
     const global = await service.createExclusion(
       { scope: 'GLOBAL', kind: 'COMPANY', value: 'GlobalOnly' },
       ADMIN,
@@ -679,7 +646,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('RBAC: HR cannot act on a suggestion of a senior outside their teams', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const queue = await service.listSuggestions(SENIOR_B.id, ADMIN)
     await expect(
@@ -690,7 +656,6 @@ describe('Job sourcing — real DB integration', () => {
   // ── Retention ──────────────────────────────────────────────────────────────
 
   it('purges stale postings but keeps the ones a senior applied to', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const queue = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
     const applied = queue.items[0]!
@@ -713,7 +678,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('keeps recent postings', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     expect(await service.purgeStalePostings()).toBe(0)
   })
@@ -724,7 +688,6 @@ describe('Job sourcing — real DB integration', () => {
    * could be re-collected and re-offered to the same senior 90 days later.
    */
   it('AC4: a REJECTED posting survives retention, so it can never be re-offered', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const queue = await service.listSuggestions(SENIOR_B.id, SENIOR_B)
     const rejected = queue.items[0]!
@@ -753,7 +716,6 @@ describe('Job sourcing — real DB integration', () => {
 
   /** Code review round 3 — a broken source must not look like a quiet day. */
   it('a feed that yields no postings fails loudly and does NOT mark the source collected', async () => {
-    if (!dbAvailable) return
     await service.collectSource(source)
     const [before] = await dbSvc.db.select().from(jobSources).where(eq(jobSources.id, SOURCE_ID))
     expect(before!.lastCollectedAt).not.toBeNull()
@@ -768,7 +730,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('collectAll survives one broken source and reports it', async () => {
-    if (!dbAvailable) return
     provider.feedXml = '<?xml version="1.0"?><rss><channel></channel></rss>'
 
     // collectAll swallows per-source failures by design (a third-party outage
@@ -790,8 +751,6 @@ describe('Job sourcing — real DB integration', () => {
    * the run must come back reportable rather than blowing up its own schema.
    */
   it('a run with one broken source is reportable, not a 400, and leaks no SQL', async () => {
-    if (!dbAvailable) return
-
     const [secondSource] = await dbSvc.db
       .insert(jobSources)
       .values({ type: 'DOU_RSS', config: { category: 'PHP' } })
@@ -831,7 +790,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('tells an ADMIN/HR to pick a senior instead of complaining about a parameter', async () => {
-    if (!dbAvailable) return
     await expect(service.listSuggestions(undefined, ADMIN)).rejects.toThrow(/Выберите синьора/)
     await expect(service.listSuggestions(undefined, HR_A)).rejects.toThrow(/Выберите синьора/)
     // A SENIOR never needs the parameter — their own queue is implied.
@@ -841,7 +799,6 @@ describe('Job sourcing — real DB integration', () => {
   // ── Untrusted content, end to end ──────────────────────────────────────────
 
   it('stores a hostile description as markdown with no HTML and no script', async () => {
-    if (!dbAvailable) return
     provider.feedXml = douFeed([
       {
         title: 'Dev в Devart, Київ',
@@ -864,7 +821,6 @@ describe('Job sourcing — real DB integration', () => {
 
   /** Security-review round 2, MED-2 — one hostile row must not sink the batch. */
   it('MED-2: a NUL byte in the feed does not abort the whole collection run', async () => {
-    if (!dbAvailable) return
     const nul = '\u0000'
     provider.feedXml = douFeed([
       {
@@ -890,7 +846,6 @@ describe('Job sourcing — real DB integration', () => {
 
   /** Security-review round 2, MED-3 — the URL slug takes part in matching. */
   it('MED-3: an exclusion matches the company in the URL even when the title says otherwise', async () => {
-    if (!dbAvailable) return
     // Title claims an innocuous company; the board-assigned URL slug says EPAM.
     provider.feedXml = douFeed([
       {
@@ -911,7 +866,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('drops a feed entry whose link is not https but keeps the rest of the batch', async () => {
-    if (!dbAvailable) return
     provider.feedXml =
       `<?xml version="1.0"?><rss><channel>` +
       `<item><title>Evil в Hacker, Kyiv</title>` +
@@ -935,7 +889,6 @@ describe('Job sourcing — real DB integration', () => {
   })
 
   it('a feed where EVERY entry is unusable is treated as a broken source', async () => {
-    if (!dbAvailable) return
     provider.feedXml =
       `<?xml version="1.0"?><rss><channel><item>` +
       `<title>Evil в Hacker, Kyiv</title>` +

@@ -29,6 +29,7 @@ import { ProjectAuditLogService } from './project-audit-log.service'
 import { UsersService } from '../users/users.service'
 import { projectMembers, projects, teamMembers, teams, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * dropId update RBAC integration spec — real DB.
@@ -59,7 +60,10 @@ import * as schema from '../database/schema'
  * SEED namespace: a9b8c7d6-e5f4-4020-**
  *   (distinct from 4000/4002/4003/4010 used by other integration specs)
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable (CI unit job).
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  */
 
 const JWT_SECRET = 'drop-id-update-rbac-secret-32c'
@@ -210,7 +214,6 @@ class SentinelProjectsController {
 // ---------------------------------------------------------------------------
 
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -287,430 +290,404 @@ class DropIdUpdateTestModule {}
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('ProjectsService.update dropId validation — real DB integration', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'ProjectsService.update dropId validation — real DB integration',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    // DB availability probe — graceful skip when DATABASE_URL is unset/unreachable
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      await probePool.end()
-    } catch {
-      console.warn(
-        '[drop-id-update integration] SKIPPED — no DB at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
+    beforeAll(async () => {
+      // DB availability probe — graceful skip when DATABASE_URL is unset/unreachable
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        await probePool.end()
+      } catch {
+        throw new Error(
+          '[drop-id-update integration] FAILED — no DB at DATABASE_URL (expected in CI unit job)',
+        )
+      }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [DropIdUpdateTestModule],
-    }).compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [DropIdUpdateTestModule],
+      }).compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'drop-upd-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    app.useGlobalFilters(new ZodExceptionFilter())
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'drop-upd-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      app.useGlobalFilters(new ZodExceptionFilter())
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    // ── Seed test data ────────────────────────────────────────────────────────
-
-    // 1. Test users
-    await db
-      .insert(users)
-      .values([
-        {
-          id: SENIOR1.id,
-          email: SENIOR1.email,
-          displayName: SENIOR1.displayName,
-          role: 'SENIOR',
-          googleId: `test-drop-upd-${SENIOR1.id}`,
-          seniorSharePercent: 26,
-        },
-        {
-          id: JUNIOR1.id,
-          email: JUNIOR1.email,
-          displayName: JUNIOR1.displayName,
-          role: 'JUNIOR',
-          googleId: `test-drop-upd-${JUNIOR1.id}`,
-        },
-        {
-          id: DROP1.id,
-          email: DROP1.email,
-          displayName: DROP1.displayName,
-          role: 'DROP',
-          googleId: `test-drop-upd-${DROP1.id}`,
-        },
-        {
-          id: DROP2_ARCHIVED.id,
-          email: DROP2_ARCHIVED.email,
-          displayName: DROP2_ARCHIVED.displayName,
-          role: 'DROP',
-          googleId: `test-drop-upd-${DROP2_ARCHIVED.id}`,
-          // archivedAt set → this user is archived
-          archivedAt: new Date('2025-01-01'),
-        },
-        {
-          id: HR_OWN.id,
-          email: HR_OWN.email,
-          displayName: HR_OWN.displayName,
-          role: 'HR',
-          googleId: `test-drop-upd-${HR_OWN.id}`,
-        },
-        {
-          id: HR_FOREIGN.id,
-          email: HR_FOREIGN.email,
-          displayName: HR_FOREIGN.displayName,
-          role: 'HR',
-          googleId: `test-drop-upd-${HR_FOREIGN.id}`,
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 2. Test project — owned by SENIOR1, no dropId initially
-    await db
-      .insert(projects)
-      .values([
-        {
-          id: TEST_PROJ_ID,
-          name: 'DropUpd Test Project',
-          companyName: 'DropUpd Corp',
-          domain: 'dropupd-test.io',
-          startDate: new Date('2026-01-01'),
-          seniorId: SENIOR1.id,
-          currency: 'USDT',
-          rate: 5000,
-        },
-      ])
-      .onConflictDoNothing()
-
-    // 3. Teams: OWN_TEAM (SENIOR1 + HR_OWN), FOREIGN_TEAM (HR_FOREIGN only)
-    await db
-      .insert(teams)
-      .values([
-        { id: OWN_TEAM_ID, name: 'DropUpd Own Team' },
-        { id: FOREIGN_TEAM_ID, name: 'DropUpd Foreign Team' },
-      ])
-      .onConflictDoNothing()
-
-    await db
-      .insert(teamMembers)
-      .values([
-        { teamId: OWN_TEAM_ID, userId: SENIOR1.id, joinedAt: new Date() },
-        { teamId: OWN_TEAM_ID, userId: HR_OWN.id, joinedAt: new Date() },
-        { teamId: FOREIGN_TEAM_ID, userId: HR_FOREIGN.id, joinedAt: new Date() },
-      ])
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
       const db = dbSvc.db
-      // FK-safe cleanup order: members → project → teams → users
-      await db.delete(projectMembers).where(inArray(projectMembers.projectId, [TEST_PROJ_ID]))
-      await db.delete(projects).where(inArray(projects.id, [TEST_PROJ_ID]))
+
+      // ── Seed test data ────────────────────────────────────────────────────────
+
+      // 1. Test users
       await db
-        .delete(teamMembers)
-        .where(inArray(teamMembers.teamId, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
-      await db.delete(teams).where(inArray(teams.id, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
-      await db.delete(users).where(inArray(users.id, ALL_TEST_USER_IDS))
-    } catch {
-      // Non-fatal cleanup — don't mask test failures
+        .insert(users)
+        .values([
+          {
+            id: SENIOR1.id,
+            email: SENIOR1.email,
+            displayName: SENIOR1.displayName,
+            role: 'SENIOR',
+            googleId: `test-drop-upd-${SENIOR1.id}`,
+            seniorSharePercent: 26,
+          },
+          {
+            id: JUNIOR1.id,
+            email: JUNIOR1.email,
+            displayName: JUNIOR1.displayName,
+            role: 'JUNIOR',
+            googleId: `test-drop-upd-${JUNIOR1.id}`,
+          },
+          {
+            id: DROP1.id,
+            email: DROP1.email,
+            displayName: DROP1.displayName,
+            role: 'DROP',
+            googleId: `test-drop-upd-${DROP1.id}`,
+          },
+          {
+            id: DROP2_ARCHIVED.id,
+            email: DROP2_ARCHIVED.email,
+            displayName: DROP2_ARCHIVED.displayName,
+            role: 'DROP',
+            googleId: `test-drop-upd-${DROP2_ARCHIVED.id}`,
+            // archivedAt set → this user is archived
+            archivedAt: new Date('2025-01-01'),
+          },
+          {
+            id: HR_OWN.id,
+            email: HR_OWN.email,
+            displayName: HR_OWN.displayName,
+            role: 'HR',
+            googleId: `test-drop-upd-${HR_OWN.id}`,
+          },
+          {
+            id: HR_FOREIGN.id,
+            email: HR_FOREIGN.email,
+            displayName: HR_FOREIGN.displayName,
+            role: 'HR',
+            googleId: `test-drop-upd-${HR_FOREIGN.id}`,
+          },
+        ])
+        .onConflictDoNothing()
+
+      // 2. Test project — owned by SENIOR1, no dropId initially
+      await db
+        .insert(projects)
+        .values([
+          {
+            id: TEST_PROJ_ID,
+            name: 'DropUpd Test Project',
+            companyName: 'DropUpd Corp',
+            domain: 'dropupd-test.io',
+            startDate: new Date('2026-01-01'),
+            seniorId: SENIOR1.id,
+            currency: 'USDT',
+            rate: 5000,
+          },
+        ])
+        .onConflictDoNothing()
+
+      // 3. Teams: OWN_TEAM (SENIOR1 + HR_OWN), FOREIGN_TEAM (HR_FOREIGN only)
+      await db
+        .insert(teams)
+        .values([
+          { id: OWN_TEAM_ID, name: 'DropUpd Own Team' },
+          { id: FOREIGN_TEAM_ID, name: 'DropUpd Foreign Team' },
+        ])
+        .onConflictDoNothing()
+
+      await db
+        .insert(teamMembers)
+        .values([
+          { teamId: OWN_TEAM_ID, userId: SENIOR1.id, joinedAt: new Date() },
+          { teamId: OWN_TEAM_ID, userId: HR_OWN.id, joinedAt: new Date() },
+          { teamId: FOREIGN_TEAM_ID, userId: HR_FOREIGN.id, joinedAt: new Date() },
+        ])
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        // FK-safe cleanup order: members → project → teams → users
+        await db.delete(projectMembers).where(inArray(projectMembers.projectId, [TEST_PROJ_ID]))
+        await db.delete(projects).where(inArray(projects.id, [TEST_PROJ_ID]))
+        await db
+          .delete(teamMembers)
+          .where(inArray(teamMembers.teamId, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
+        await db.delete(teams).where(inArray(teams.id, [OWN_TEAM_ID, FOREIGN_TEAM_ID]))
+        await db.delete(users).where(inArray(users.id, ALL_TEST_USER_IDS))
+      } catch {
+        // Non-fatal cleanup — don't mask test failures
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
-    await app.close()
-  }, 15_000)
 
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
+    // Helper: reset the project's dropId to a given value between tests
+    async function resetDropId(value: string | null): Promise<void> {
+      await dbSvc.db
+        .update(projects)
+        .set({ dropId: value, updatedAt: new Date() })
+        .where(eq(projects.id, TEST_PROJ_ID))
+    }
 
-  // Helper: reset the project's dropId to a given value between tests
-  async function resetDropId(value: string | null): Promise<void> {
-    await dbSvc.db
-      .update(projects)
-      .set({ dropId: value, updatedAt: new Date() })
-      .where(eq(projects.id, TEST_PROJ_ID))
-  }
+    // ── DROP-UPD-1: ADMIN sets valid active DROP → 200, column written ──────────
 
-  // ── DROP-UPD-1: ADMIN sets valid active DROP → 200, column written ──────────
+    it('DROP-UPD-1. ADMIN PATCH {dropId: validActiveDrop} → 200, projects.dropId written to DB', async () => {
+      // Ensure the project starts without a dropId
+      await resetDropId(null)
 
-  it('DROP-UPD-1. ADMIN PATCH {dropId: validActiveDrop} → 200, projects.dropId written to DB', async () => {
-    if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { dropId: DROP1.id },
+      })
+      expect(res.statusCode, 'ADMIN PATCH with valid dropId must return 200').toBe(200)
 
-    // Ensure the project starts without a dropId
-    await resetDropId(null)
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { dropId: DROP1.id },
+      // Verify the column was actually written in the DB
+      const row = await dbSvc.db.query.projects.findFirst({
+        where: eq(projects.id, TEST_PROJ_ID),
+      })
+      expect(row?.dropId, 'projects.dropId must be set to DROP1.id in DB after 200').toBe(DROP1.id)
     })
-    expect(res.statusCode, 'ADMIN PATCH with valid dropId must return 200').toBe(200)
 
-    // Verify the column was actually written in the DB
-    const row = await dbSvc.db.query.projects.findFirst({
-      where: eq(projects.id, TEST_PROJ_ID),
+    // ── DROP-UPD-2: Non-existent UUID → 404 'Drop not found' ───────────────────
+
+    it('DROP-UPD-2. ADMIN PATCH {dropId: nonExistentUUID} → 404 Drop not found', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { dropId: NONEXISTENT_UUID },
+      })
+      expect(res.statusCode, 'Non-existent dropId UUID must return 404').toBe(404)
+
+      const body = res.json() as { message?: string }
+      expect(body.message, "404 body must contain 'Drop not found'").toContain('Drop not found')
     })
-    expect(row?.dropId, 'projects.dropId must be set to DROP1.id in DB after 200').toBe(DROP1.id)
-  })
 
-  // ── DROP-UPD-2: Non-existent UUID → 404 'Drop not found' ───────────────────
+    // ── DROP-UPD-3: User with role≠DROP (JUNIOR) → 400 'User is not a DROP' ────
 
-  it('DROP-UPD-2. ADMIN PATCH {dropId: nonExistentUUID} → 404 Drop not found', async () => {
-    if (!dbAvailable) return
+    it('DROP-UPD-3. ADMIN PATCH {dropId: JUNIOR.id} → 400 User is not a DROP', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { dropId: JUNIOR1.id },
+      })
+      expect(res.statusCode, 'dropId pointing to a non-DROP user must return 400').toBe(400)
 
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { dropId: NONEXISTENT_UUID },
+      const body = res.json() as { message?: string }
+      expect(body.message, "400 body must contain 'User is not a DROP'").toContain(
+        'User is not a DROP',
+      )
     })
-    expect(res.statusCode, 'Non-existent dropId UUID must return 404').toBe(404)
 
-    const body = res.json() as { message?: string }
-    expect(body.message, "404 body must contain 'Drop not found'").toContain('Drop not found')
-  })
+    // ── DROP-UPD-4: Archived DROP user → 400 'Drop is archived' ─────────────────
 
-  // ── DROP-UPD-3: User with role≠DROP (JUNIOR) → 400 'User is not a DROP' ────
+    it('DROP-UPD-4. ADMIN PATCH {dropId: archivedDrop} → 400 Drop is archived', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { dropId: DROP2_ARCHIVED.id },
+      })
+      expect(res.statusCode, 'Archived DROP user as dropId must return 400').toBe(400)
 
-  it('DROP-UPD-3. ADMIN PATCH {dropId: JUNIOR.id} → 400 User is not a DROP', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { dropId: JUNIOR1.id },
+      const body = res.json() as { message?: string }
+      expect(body.message, "400 body must contain 'Drop is archived'").toContain('Drop is archived')
     })
-    expect(res.statusCode, 'dropId pointing to a non-DROP user must return 400').toBe(400)
 
-    const body = res.json() as { message?: string }
-    expect(body.message, "400 body must contain 'User is not a DROP'").toContain(
-      'User is not a DROP',
-    )
-  })
+    // ── DROP-UPD-5: dropId: null on project with existing dropId → 200, cleared ──
 
-  // ── DROP-UPD-4: Archived DROP user → 400 'Drop is archived' ─────────────────
+    it('DROP-UPD-5. ADMIN PATCH {dropId: null} → 200, projects.dropId cleared (null in DB)', async () => {
+      // Ensure the project has a dropId to clear
+      await resetDropId(DROP1.id)
 
-  it('DROP-UPD-4. ADMIN PATCH {dropId: archivedDrop} → 400 Drop is archived', async () => {
-    if (!dbAvailable) return
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { dropId: null },
+      })
+      expect(res.statusCode, 'PATCH {dropId: null} must return 200').toBe(200)
 
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { dropId: DROP2_ARCHIVED.id },
+      // Verify the column is null in the DB
+      const row = await dbSvc.db.query.projects.findFirst({
+        where: eq(projects.id, TEST_PROJ_ID),
+      })
+      expect(row?.dropId, 'projects.dropId must be null in DB after clearing').toBeNull()
     })
-    expect(res.statusCode, 'Archived DROP user as dropId must return 400').toBe(400)
 
-    const body = res.json() as { message?: string }
-    expect(body.message, "400 body must contain 'Drop is archived'").toContain('Drop is archived')
-  })
+    // ── DROP-UPD-6: RBAC denials ─────────────────────────────────────────────────
 
-  // ── DROP-UPD-5: dropId: null on project with existing dropId → 200, cleared ──
-
-  it('DROP-UPD-5. ADMIN PATCH {dropId: null} → 200, projects.dropId cleared (null in DB)', async () => {
-    if (!dbAvailable) return
-
-    // Ensure the project has a dropId to clear
-    await resetDropId(DROP1.id)
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { dropId: null },
+    it('DROP-UPD-6a. ACCOUNTANT PATCH {dropId: validDrop} → 403 (hasOnlyOverride=false, outer RBAC gate)', async () => {
+      // ACCOUNTANT is only allowed when the payload contains ONLY seniorSharePercentOverride.
+      // Including dropId means hasOnlyOverride=false → outer gate denies.
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+        payload: { dropId: DROP1.id },
+      })
+      expect(
+        res.statusCode,
+        'ACCOUNTANT with dropId in payload must be denied (hasOnlyOverride=false → 403)',
+      ).toBe(403)
+      // LOW-4: assert on response body — ForbiddenException() without custom message → 'Forbidden'
+      // This distinguishes it from other 403 paths that may include a custom message.
+      const body = res.json() as { message?: string }
+      expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
     })
-    expect(res.statusCode, 'PATCH {dropId: null} must return 200').toBe(200)
 
-    // Verify the column is null in the DB
-    const row = await dbSvc.db.query.projects.findFirst({
-      where: eq(projects.id, TEST_PROJ_ID),
+    it('DROP-UPD-6b. SENIOR PATCH {dropId: validDrop} → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(SENIOR1) },
+        payload: { dropId: DROP1.id },
+      })
+      expect(res.statusCode, 'SENIOR must be denied (403) when trying to set dropId').toBe(403)
     })
-    expect(row?.dropId, 'projects.dropId must be null in DB after clearing').toBeNull()
-  })
 
-  // ── DROP-UPD-6: RBAC denials ─────────────────────────────────────────────────
-
-  it('DROP-UPD-6a. ACCOUNTANT PATCH {dropId: validDrop} → 403 (hasOnlyOverride=false, outer RBAC gate)', async () => {
-    if (!dbAvailable) return
-
-    // ACCOUNTANT is only allowed when the payload contains ONLY seniorSharePercentOverride.
-    // Including dropId means hasOnlyOverride=false → outer gate denies.
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
-      payload: { dropId: DROP1.id },
+    it('DROP-UPD-6c. JUNIOR PATCH {dropId: validDrop} → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(JUNIOR1) },
+        payload: { dropId: DROP1.id },
+      })
+      expect(res.statusCode, 'JUNIOR must be denied (403) when trying to set dropId').toBe(403)
     })
-    expect(
-      res.statusCode,
-      'ACCOUNTANT with dropId in payload must be denied (hasOnlyOverride=false → 403)',
-    ).toBe(403)
-    // LOW-4: assert on response body — ForbiddenException() without custom message → 'Forbidden'
-    // This distinguishes it from other 403 paths that may include a custom message.
-    const body = res.json() as { message?: string }
-    expect(body.message, "ACCOUNTANT 403 body must contain 'Forbidden'").toContain('Forbidden')
-  })
 
-  it('DROP-UPD-6b. SENIOR PATCH {dropId: validDrop} → 403', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(SENIOR1) },
-      payload: { dropId: DROP1.id },
+    it('DROP-UPD-6d. DROP PATCH {dropId: validDrop} → 403', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(DROP1) },
+        payload: { dropId: DROP1.id },
+      })
+      expect(res.statusCode, 'DROP role must be denied (403) when trying to set dropId').toBe(403)
     })
-    expect(res.statusCode, 'SENIOR must be denied (403) when trying to set dropId').toBe(403)
-  })
 
-  it('DROP-UPD-6c. JUNIOR PATCH {dropId: validDrop} → 403', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(JUNIOR1) },
-      payload: { dropId: DROP1.id },
+    it('DROP-UPD-6e. HR of foreign team PATCH {dropId: validDrop} → 403 (assertHrCanManageProject)', async () => {
+      // HR_FOREIGN is in FOREIGN_TEAM which has no senior = SENIOR1,
+      // so assertHrCanManageProject rejects with 403.
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(HR_FOREIGN) },
+        payload: { dropId: DROP1.id },
+      })
+      expect(
+        res.statusCode,
+        'HR of a foreign team must be denied (403) — project senior not in their teams',
+      ).toBe(403)
     })
-    expect(res.statusCode, 'JUNIOR must be denied (403) when trying to set dropId').toBe(403)
-  })
 
-  it('DROP-UPD-6d. DROP PATCH {dropId: validDrop} → 403', async () => {
-    if (!dbAvailable) return
+    // ── DROP-UPD-7: HR of own team → 200 (proves 403 cases are real, not false-positive) ──
 
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(DROP1) },
-      payload: { dropId: DROP1.id },
+    it('DROP-UPD-7. HR of own team PATCH {dropId: validDrop} → 200 (assertHrCanManageProject passes)', async () => {
+      // Reset to no dropId so the update is meaningful
+      await resetDropId(null)
+
+      // HR_OWN is in OWN_TEAM which contains SENIOR1 (project.seniorId),
+      // so assertHrCanManageProject must pass.
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(HR_OWN) },
+        payload: { dropId: DROP1.id },
+      })
+      expect(
+        res.statusCode,
+        'HR of project own team must be allowed (200) to set a valid dropId',
+      ).toBe(200)
+
+      // Confirm column was written
+      const row = await dbSvc.db.query.projects.findFirst({
+        where: eq(projects.id, TEST_PROJ_ID),
+      })
+      expect(
+        row?.dropId,
+        'projects.dropId must be written to DROP1.id when HR of own team patches it',
+      ).toBe(DROP1.id)
     })
-    expect(res.statusCode, 'DROP role must be denied (403) when trying to set dropId').toBe(403)
-  })
 
-  it('DROP-UPD-6e. HR of foreign team PATCH {dropId: validDrop} → 403 (assertHrCanManageProject)', async () => {
-    if (!dbAvailable) return
+    // ── DROP-UPD-8: absent dropId key (undefined) → 200, column unchanged ────────
+    //
+    // Security contract: `undefined` (key absent from payload) means "leave unchanged".
+    // This is the inverse of `null` (which clears). Regressing this would silently
+    // clear drop routing on any unrelated PATCH (e.g. name update) that doesn't
+    // include dropId.
 
-    // HR_FOREIGN is in FOREIGN_TEAM which has no senior = SENIOR1,
-    // so assertHrCanManageProject rejects with 403.
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(HR_FOREIGN) },
-      payload: { dropId: DROP1.id },
+    it('DROP-UPD-8. ADMIN PATCH without dropId key → 200, projects.dropId unchanged (undefined = unchanged contract)', async () => {
+      // Ensure the project has a dropId set so we can verify it was NOT cleared
+      await resetDropId(DROP1.id)
+
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        // Payload deliberately omits the dropId key — only touches an unrelated field
+        payload: { name: 'DropUpd Test Project (renamed)' },
+      })
+      expect(res.statusCode, 'PATCH without dropId key must return 200').toBe(200)
+
+      // Critical: dropId must be unchanged — absent key must NOT clear the column
+      const row = await dbSvc.db.query.projects.findFirst({
+        where: eq(projects.id, TEST_PROJ_ID),
+      })
+      expect(
+        row?.dropId,
+        'projects.dropId must remain DROP1.id when dropId key is absent from payload',
+      ).toBe(DROP1.id)
+
+      // Restore project name for subsequent tests
+      await dbSvc.db
+        .update(projects)
+        .set({ name: 'DropUpd Test Project', updatedAt: new Date() })
+        .where(eq(projects.id, TEST_PROJ_ID))
     })
-    expect(
-      res.statusCode,
-      'HR of a foreign team must be denied (403) — project senior not in their teams',
-    ).toBe(403)
-  })
 
-  // ── DROP-UPD-7: HR of own team → 200 (proves 403 cases are real, not false-positive) ──
+    // ── DROP-UPD-9: invalid (non-RFC-4122) UUID string → 400 from Zod schema ────
+    //
+    // Zod v4 enforces strict RFC 4122 UUID format on dropId before the service layer
+    // is reached. This test pins that behaviour as a regression guard — ensures Zod
+    // catches bad input at the schema boundary, not inside service logic.
+    // (Finding documented during initial implementation: 'cc00' prefix failed silently
+    // as NotFoundException; this test locks in the correct Zod-layer rejection.)
 
-  it('DROP-UPD-7. HR of own team PATCH {dropId: validDrop} → 200 (assertHrCanManageProject passes)', async () => {
-    if (!dbAvailable) return
+    it('DROP-UPD-9. ADMIN PATCH {dropId: "invalid-uuid"} → 400 from updateProjectSchema.parse (Zod v4 UUID validation)', async () => {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/projects/${TEST_PROJ_ID}`,
+        cookies: { jwt: tokenFor(ADMIN) },
+        payload: { dropId: 'invalid-uuid' },
+      })
+      expect(
+        res.statusCode,
+        'Non-RFC-4122 dropId string must be rejected by Zod schema with 400',
+      ).toBe(400)
 
-    // Reset to no dropId so the update is meaningful
-    await resetDropId(null)
-
-    // HR_OWN is in OWN_TEAM which contains SENIOR1 (project.seniorId),
-    // so assertHrCanManageProject must pass.
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(HR_OWN) },
-      payload: { dropId: DROP1.id },
+      // ZodExceptionFilter (registered via app.useGlobalFilters) handles ZodError on
+      // non-finance routes: { statusCode: 400, message: 'Validation failed', errors: [...] }
+      const body = res.json() as { message?: string; errors?: unknown[] }
+      expect(body.message, "400 body message must be 'Validation failed'").toBe('Validation failed')
+      expect(Array.isArray(body.errors), '400 body must contain errors array from Zod').toBe(true)
     })
-    expect(
-      res.statusCode,
-      'HR of project own team must be allowed (200) to set a valid dropId',
-    ).toBe(200)
-
-    // Confirm column was written
-    const row = await dbSvc.db.query.projects.findFirst({
-      where: eq(projects.id, TEST_PROJ_ID),
-    })
-    expect(
-      row?.dropId,
-      'projects.dropId must be written to DROP1.id when HR of own team patches it',
-    ).toBe(DROP1.id)
-  })
-
-  // ── DROP-UPD-8: absent dropId key (undefined) → 200, column unchanged ────────
-  //
-  // Security contract: `undefined` (key absent from payload) means "leave unchanged".
-  // This is the inverse of `null` (which clears). Regressing this would silently
-  // clear drop routing on any unrelated PATCH (e.g. name update) that doesn't
-  // include dropId.
-
-  it('DROP-UPD-8. ADMIN PATCH without dropId key → 200, projects.dropId unchanged (undefined = unchanged contract)', async () => {
-    if (!dbAvailable) return
-
-    // Ensure the project has a dropId set so we can verify it was NOT cleared
-    await resetDropId(DROP1.id)
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      // Payload deliberately omits the dropId key — only touches an unrelated field
-      payload: { name: 'DropUpd Test Project (renamed)' },
-    })
-    expect(res.statusCode, 'PATCH without dropId key must return 200').toBe(200)
-
-    // Critical: dropId must be unchanged — absent key must NOT clear the column
-    const row = await dbSvc.db.query.projects.findFirst({
-      where: eq(projects.id, TEST_PROJ_ID),
-    })
-    expect(
-      row?.dropId,
-      'projects.dropId must remain DROP1.id when dropId key is absent from payload',
-    ).toBe(DROP1.id)
-
-    // Restore project name for subsequent tests
-    await dbSvc.db
-      .update(projects)
-      .set({ name: 'DropUpd Test Project', updatedAt: new Date() })
-      .where(eq(projects.id, TEST_PROJ_ID))
-  })
-
-  // ── DROP-UPD-9: invalid (non-RFC-4122) UUID string → 400 from Zod schema ────
-  //
-  // Zod v4 enforces strict RFC 4122 UUID format on dropId before the service layer
-  // is reached. This test pins that behaviour as a regression guard — ensures Zod
-  // catches bad input at the schema boundary, not inside service logic.
-  // (Finding documented during initial implementation: 'cc00' prefix failed silently
-  // as NotFoundException; this test locks in the correct Zod-layer rejection.)
-
-  it('DROP-UPD-9. ADMIN PATCH {dropId: "invalid-uuid"} → 400 from updateProjectSchema.parse (Zod v4 UUID validation)', async () => {
-    if (!dbAvailable) return
-
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/projects/${TEST_PROJ_ID}`,
-      cookies: { jwt: tokenFor(ADMIN) },
-      payload: { dropId: 'invalid-uuid' },
-    })
-    expect(
-      res.statusCode,
-      'Non-RFC-4122 dropId string must be rejected by Zod schema with 400',
-    ).toBe(400)
-
-    // ZodExceptionFilter (registered via app.useGlobalFilters) handles ZodError on
-    // non-finance routes: { statusCode: 400, message: 'Validation failed', errors: [...] }
-    const body = res.json() as { message?: string; errors?: unknown[] }
-    expect(body.message, "400 body message must be 'Validation failed'").toBe('Validation failed')
-    expect(Array.isArray(body.errors), '400 body must contain errors array from Zod').toBe(true)
-  })
-})
+  },
+)

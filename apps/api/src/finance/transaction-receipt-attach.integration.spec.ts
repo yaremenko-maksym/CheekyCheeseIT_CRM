@@ -16,7 +16,10 @@
  *   - regression: a receiptless (legacy / systemic) row inserts + reads fine;
  *     a mandatory create path (declareUsdtProjectIncome) without a receipt → 400.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL is unreachable (CI unit job).
+ * DB-SKIP-GUARD: describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is
+ * unset (reports SKIPPED, CI unit job). A DATABASE_URL that IS set but
+ * unreachable throws in beforeAll (reports FAILED) — neither case can look
+ * like "passed" with zero assertions.
  * S3: replaced with a spy-stub (no real MinIO).
  */
 import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common'
@@ -35,6 +38,7 @@ import { CompressionService } from '../documents/compression.service'
 import type { HrAccessService } from '../common/hr-access.service'
 import { documents, transactions, transactionAuditLog } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ── Users (seed ids, mirror receipt-replace.integration.spec.ts) ─────────────
 
@@ -113,7 +117,6 @@ const stubCompression: Partial<CompressionService> = {
   makeThumbnail: vi.fn().mockResolvedValue(null),
 }
 
-let dbAvailable = true
 let _pool: Pool | null = null
 let db: ReturnType<typeof drizzle<typeof schema>>
 let svc: TransactionsService
@@ -138,285 +141,274 @@ async function auditRows(targetId: string) {
   return db.select().from(transactionAuditLog).where(eq(transactionAuditLog.targetId, targetId))
 }
 
-describe('task-receipts-backend — attach/replace receipt (real backend integration)', () => {
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      await probe.end()
-    } catch {
-      console.warn('[receipt-attach integration] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
+describe.skipIf(!hasDatabaseUrl())(
+  'task-receipts-backend — attach/replace receipt (real backend integration)',
+  () => {
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        await probe.end()
+      } catch {
+        throw new Error('[receipt-attach integration] FAILED — no DB reachable at DATABASE_URL')
+      }
 
-    _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    db = drizzle(_pool, { schema })
+      _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      db = drizzle(_pool, { schema })
 
-    const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool: _pool, db })
-    // task-file-storage-hardening HIGH-1: DocumentsService now injects
-    // HrAccessService — unused by the receipt-attach/replace paths this
-    // suite exercises, stubbed to satisfy the constructor signature.
-    const stubHrAccess = { getActiveTeamPeers: async () => [] } as unknown as HrAccessService
-    const documentsService = new DocumentsService(
-      dbSvc,
-      stubS3 as S3Service,
-      stubCompression as CompressionService,
-      stubHrAccess,
-    )
-    svc = makeTransactionsService({ db: dbSvc, documentsService })
+      const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool: _pool, db })
+      // task-file-storage-hardening HIGH-1: DocumentsService now injects
+      // HrAccessService — unused by the receipt-attach/replace paths this
+      // suite exercises, stubbed to satisfy the constructor signature.
+      const stubHrAccess = { getActiveTeamPeers: async () => [] } as unknown as HrAccessService
+      const documentsService = new DocumentsService(
+        dbSvc,
+        stubS3 as S3Service,
+        stubCompression as CompressionService,
+        stubHrAccess,
+      )
+      svc = makeTransactionsService({ db: dbSvc, documentsService })
 
-    // Clean any residue from a prior aborted run.
-    for (const id of ALL_TX)
-      await db
-        .delete(transactionAuditLog)
-        .where(eq(transactionAuditLog.targetId, id))
-        .catch(() => undefined)
-    for (const id of ALL_TX)
-      await db
-        .delete(transactions)
-        .where(eq(transactions.id, id))
-        .catch(() => undefined)
-    for (const id of ALL_DOCS)
-      await db
-        .delete(documents)
-        .where(eq(documents.id, id))
-        .catch(() => undefined)
+      // Clean any residue from a prior aborted run.
+      for (const id of ALL_TX)
+        await db
+          .delete(transactionAuditLog)
+          .where(eq(transactionAuditLog.targetId, id))
+          .catch(() => undefined)
+      for (const id of ALL_TX)
+        await db
+          .delete(transactions)
+          .where(eq(transactions.id, id))
+          .catch(() => undefined)
+      for (const id of ALL_DOCS)
+        await db
+          .delete(documents)
+          .where(eq(documents.id, id))
+          .catch(() => undefined)
 
-    // Docs owned by ARTEM (file receipts).
-    await db.insert(documents).values(docValues(DOC_FILE_A, ARTEM.id, DOC_FILE_A_S3))
-    await db.insert(documents).values(docValues(DOC_FILE_B, ARTEM.id, DOC_FILE_B_S3))
+      // Docs owned by ARTEM (file receipts).
+      await db.insert(documents).values(docValues(DOC_FILE_A, ARTEM.id, DOC_FILE_A_S3))
+      await db.insert(documents).values(docValues(DOC_FILE_B, ARTEM.id, DOC_FILE_B_S3))
 
-    const baseTx = {
-      type: 'SENIOR_INCOME' as const,
-      amount: '1000',
-      senderId: ARTEM.id,
-      receiverId: ARTEM.id,
-      createdBy: ARTEM.id,
-    }
-    await db.insert(transactions).values([
-      { ...baseTx, id: TX_URL, status: 'VALIDATED', currency: 'USD' },
-      { ...baseTx, id: TX_USDT, status: 'VALIDATED', currency: 'USDT' },
-      { ...baseTx, id: TX_FILE, status: 'VALIDATED', currency: 'USD' },
-      { ...baseTx, id: TX_PAID, status: 'PAID', currency: 'USD', receiptExternalUrl: ANY_URL },
-      { ...baseTx, id: TX_OLD, status: 'PAID', currency: 'USD' },
-    ])
-  })
-
-  afterAll(async () => {
-    if (!dbAvailable || !db) return
-    for (const id of ALL_TX)
-      await db
-        .delete(transactionAuditLog)
-        .where(eq(transactionAuditLog.targetId, id))
-        .catch(() => undefined)
-    for (const id of ALL_TX)
-      await db
-        .delete(transactions)
-        .where(eq(transactions.id, id))
-        .catch(() => undefined)
-    for (const id of ALL_DOCS)
-      await db
-        .delete(documents)
-        .where(eq(documents.id, id))
-        .catch(() => undefined)
-    await _pool?.end()
-  })
-
-  // ── RBAC ───────────────────────────────────────────────────────────────────
-
-  it('foreign non-author (DMYTRO) attaching to ARTEM tx → 403', async () => {
-    if (!dbAvailable) return
-    await expect(
-      svc.attachOrReplaceReceipt(TX_URL, { receiptExternalUrl: ANY_URL }, DMYTRO),
-    ).rejects.toBeInstanceOf(ForbiddenException)
-  })
-
-  it('author (ARTEM) attach url on own tx → ok; audit action=ATTACH', async () => {
-    if (!dbAvailable) return
-    await svc.attachOrReplaceReceipt(TX_URL, { receiptExternalUrl: ANY_URL }, ARTEM)
-
-    const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_URL) })
-    expect(row?.receiptExternalUrl).toBe(ANY_URL)
-
-    const audit = await auditRows(TX_URL)
-    expect(audit).toHaveLength(1)
-    expect(audit[0]!.action).toBe('ATTACH')
-    expect(audit[0]!.actorId).toBe(ARTEM.id)
-    expect((audit[0]!.metadata as Record<string, unknown>)['newExtUrl']).toBe(ANY_URL)
-  })
-
-  it('author (ARTEM) replace url on own tx → ok; audit action=REPLACE with old/new', async () => {
-    if (!dbAvailable) return
-    const NEW_URL = 'https://drive.google.com/file/receipt-attach-2'
-    await svc.attachOrReplaceReceipt(TX_URL, { receiptExternalUrl: NEW_URL }, ARTEM)
-
-    const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_URL) })
-    expect(row?.receiptExternalUrl).toBe(NEW_URL)
-
-    const audit = await auditRows(TX_URL)
-    const replace = audit.find((a) => a.action === 'REPLACE')
-    expect(replace).toBeDefined()
-    const meta = replace!.metadata as Record<string, unknown>
-    expect(meta['oldExtUrl']).toBe(ANY_URL)
-    expect(meta['newExtUrl']).toBe(NEW_URL)
-  })
-
-  // ── Currency-aware (USDT explorer-only) ──────────────────────────────────────
-
-  it('USDT tx attach a FILE receipt → 400 (explorer-only)', async () => {
-    if (!dbAvailable) return
-    await expect(
-      svc.attachOrReplaceReceipt(TX_USDT, { receiptDocumentId: DOC_FILE_A }, ARTEM),
-    ).rejects.toBeInstanceOf(BadRequestException)
-  })
-
-  it('USDT tx attach a NON-explorer url → 400', async () => {
-    if (!dbAvailable) return
-    await expect(
-      svc.attachOrReplaceReceipt(TX_USDT, { receiptExternalUrl: ANY_URL }, ARTEM),
-    ).rejects.toBeInstanceOf(BadRequestException)
-  })
-
-  it('USDT tx attach an explorer url → ok', async () => {
-    if (!dbAvailable) return
-    await svc.attachOrReplaceReceipt(TX_USDT, { receiptExternalUrl: EXPLORER_URL }, ARTEM)
-    const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_USDT) })
-    expect(row?.receiptExternalUrl).toBe(EXPLORER_URL)
-    // A second explorer url is a valid REPLACE for a USDT tx.
-    await svc.attachOrReplaceReceipt(TX_USDT, { receiptExternalUrl: EXPLORER_URL_2 }, ARTEM)
-    const row2 = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_USDT) })
-    expect(row2?.receiptExternalUrl).toBe(EXPLORER_URL_2)
-  })
-
-  // ── File receipt: 1:1 replace-with-delete ────────────────────────────────────
-
-  it('non-USDT tx attach a FILE → ok; then replace with another FILE → old doc row deleted + S3 delete', async () => {
-    if (!dbAvailable) return
-    s3DeleteSpy.mockClear()
-
-    // Attach file A.
-    await svc.attachOrReplaceReceipt(TX_FILE, { receiptDocumentId: DOC_FILE_A }, ARTEM)
-    let row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_FILE) })
-    expect(row?.receiptDocumentId).toBe(DOC_FILE_A)
-
-    // Replace with file B → old doc A row hard-deleted + its S3 key cleaned.
-    await svc.attachOrReplaceReceipt(TX_FILE, { receiptDocumentId: DOC_FILE_B }, ARTEM)
-    row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_FILE) })
-    expect(row?.receiptDocumentId).toBe(DOC_FILE_B)
-
-    const docA = await db.query.documents.findFirst({ where: eq(documents.id, DOC_FILE_A) })
-    expect(docA).toBeUndefined() // 1:1 invariant — old doc removed
-    expect(s3DeleteSpy).toHaveBeenCalledWith(DOC_FILE_A_S3)
-
-    const audit = await auditRows(TX_FILE)
-    expect(audit.map((a) => a.action).sort()).toEqual(['ATTACH', 'REPLACE'])
-  })
-
-  it("attaching another owner's document → 403 (self-ownership)", async () => {
-    if (!dbAvailable) return
-    // DMYTRO is not the author of TX_FILE and also owns no doc here; use ADMIN
-    // (privileged, allowed on any tx) trying to bind ARTEM's DOC_FILE_B which is
-    // already bound → must fail ownership (ADMIN self-ownership check).
-    await expect(
-      svc.attachOrReplaceReceipt(TX_OLD, { receiptDocumentId: DOC_FILE_B }, ADMIN),
-    ).rejects.toBeInstanceOf(ForbiddenException)
-  })
-
-  // ── Status matrix (replace after PAID) ───────────────────────────────────────
-
-  it('author (ARTEM) replace receipt AFTER PAID → 403', async () => {
-    if (!dbAvailable) return
-    await expect(
-      svc.attachOrReplaceReceipt(TX_PAID, { receiptExternalUrl: EXPLORER_URL }, ARTEM),
-    ).rejects.toBeInstanceOf(ForbiddenException)
-  })
-
-  it('ACCOUNTANT replace receipt AFTER PAID → ok; audit REPLACE', async () => {
-    if (!dbAvailable) return
-    const NEW_URL = 'https://drive.google.com/file/paid-replaced'
-    await svc.attachOrReplaceReceipt(TX_PAID, { receiptExternalUrl: NEW_URL }, ACCOUNTANT)
-    const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_PAID) })
-    expect(row?.receiptExternalUrl).toBe(NEW_URL)
-    const audit = await auditRows(TX_PAID)
-    expect(audit.some((a) => a.action === 'REPLACE' && a.actorId === ACCOUNTANT.id)).toBe(true)
-  })
-
-  it('ADMIN attach to ANY transaction (not author) → ok', async () => {
-    if (!dbAvailable) return
-    // TX_OLD has no receipt; ADMIN is not the author (createdBy=ARTEM) but is
-    // privileged → allowed.
-    await svc.attachOrReplaceReceipt(TX_OLD, { receiptExternalUrl: ANY_URL }, ADMIN)
-    const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_OLD) })
-    expect(row?.receiptExternalUrl).toBe(ANY_URL)
-  })
-
-  it('attach to a non-existent transaction → 404', async () => {
-    if (!dbAvailable) return
-    await expect(
-      svc.attachOrReplaceReceipt(
-        'f2000002-0000-4000-b000-0000000000ff',
-        { receiptExternalUrl: ANY_URL },
-        ADMIN,
-      ),
-    ).rejects.toBeInstanceOf(NotFoundException)
-  })
-
-  // ── Regression: systemic / legacy receiptless rows ───────────────────────────
-
-  it('regression: a receiptless (systemic/legacy) row inserts + reads without error', async () => {
-    if (!dbAvailable) return
-    // salary-cron / cascade-close insert directly via db.insert (bypassing the
-    // create-schemas), so the Zod mandatory-refine never touches them. Mirror
-    // that shape: a receiptless row must insert AND read back fine.
-    const SYS_ID = 'f2000002-0000-4000-b000-0000000000aa'
-    await db
-      .delete(transactions)
-      .where(eq(transactions.id, SYS_ID))
-      .catch(() => undefined)
-    await expect(
-      db.insert(transactions).values({
-        id: SYS_ID,
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: '800',
-        currency: 'USD',
-        salaryMonth: '2026-07',
+      const baseTx = {
+        type: 'SENIOR_INCOME' as const,
+        amount: '1000',
+        senderId: ARTEM.id,
         receiverId: ARTEM.id,
-        createdBy: ADMIN.id,
-      }),
-    ).resolves.toBeDefined()
+        createdBy: ARTEM.id,
+      }
+      await db.insert(transactions).values([
+        { ...baseTx, id: TX_URL, status: 'VALIDATED', currency: 'USD' },
+        { ...baseTx, id: TX_USDT, status: 'VALIDATED', currency: 'USDT' },
+        { ...baseTx, id: TX_FILE, status: 'VALIDATED', currency: 'USD' },
+        { ...baseTx, id: TX_PAID, status: 'PAID', currency: 'USD', receiptExternalUrl: ANY_URL },
+        { ...baseTx, id: TX_OLD, status: 'PAID', currency: 'USD' },
+      ])
+    })
 
-    const found = await svc.findOne(SYS_ID, ADMIN)
-    expect(found).toBeDefined()
-    expect(found.receiptExternalUrl ?? null).toBeNull()
+    afterAll(async () => {
+      if (!db)
+        throw new Error(
+          '[require-real-db] db not initialized — beforeAll should have thrown already',
+        )
+      for (const id of ALL_TX)
+        await db
+          .delete(transactionAuditLog)
+          .where(eq(transactionAuditLog.targetId, id))
+          .catch(() => undefined)
+      for (const id of ALL_TX)
+        await db
+          .delete(transactions)
+          .where(eq(transactions.id, id))
+          .catch(() => undefined)
+      for (const id of ALL_DOCS)
+        await db
+          .delete(documents)
+          .where(eq(documents.id, id))
+          .catch(() => undefined)
+      await _pool?.end()
+    })
 
-    await db.delete(transactions).where(eq(transactions.id, SYS_ID))
-  })
+    // ── RBAC ───────────────────────────────────────────────────────────────────
 
-  it('regression: legacy PAID row with no receipt is readable via findOne', async () => {
-    if (!dbAvailable) return
-    // TX_OLD started receiptless; after the ADMIN-attach test above it carries a
-    // url. Re-assert findOne succeeds regardless (no throw on read).
-    const found = await svc.findOne(TX_OLD, ADMIN)
-    expect(found.id).toBe(TX_OLD)
-  })
+    it('foreign non-author (DMYTRO) attaching to ARTEM tx → 403', async () => {
+      await expect(
+        svc.attachOrReplaceReceipt(TX_URL, { receiptExternalUrl: ANY_URL }, DMYTRO),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
 
-  // ── Regression: mandatory create path enforces receipt (service defense) ─────
+    it('author (ARTEM) attach url on own tx → ok; audit action=ATTACH', async () => {
+      await svc.attachOrReplaceReceipt(TX_URL, { receiptExternalUrl: ANY_URL }, ARTEM)
 
-  it('regression: declareUsdtProjectIncome without a receipt → 400 (mandatory)', async () => {
-    if (!dbAvailable) return
-    await expect(
-      svc.declareUsdtProjectIncome(
-        {
-          projectId: 'f2000002-0000-4000-c000-000000000001',
-          amount: 100,
-          receiverId: 'COMPANY_ACCOUNT',
-          idempotencyKey: 'f2000002-0000-4000-d000-000000000001',
-        },
-        ADMIN,
-      ),
-    ).rejects.toBeInstanceOf(BadRequestException)
-  })
-})
+      const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_URL) })
+      expect(row?.receiptExternalUrl).toBe(ANY_URL)
+
+      const audit = await auditRows(TX_URL)
+      expect(audit).toHaveLength(1)
+      expect(audit[0]!.action).toBe('ATTACH')
+      expect(audit[0]!.actorId).toBe(ARTEM.id)
+      expect((audit[0]!.metadata as Record<string, unknown>)['newExtUrl']).toBe(ANY_URL)
+    })
+
+    it('author (ARTEM) replace url on own tx → ok; audit action=REPLACE with old/new', async () => {
+      const NEW_URL = 'https://drive.google.com/file/receipt-attach-2'
+      await svc.attachOrReplaceReceipt(TX_URL, { receiptExternalUrl: NEW_URL }, ARTEM)
+
+      const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_URL) })
+      expect(row?.receiptExternalUrl).toBe(NEW_URL)
+
+      const audit = await auditRows(TX_URL)
+      const replace = audit.find((a) => a.action === 'REPLACE')
+      expect(replace).toBeDefined()
+      const meta = replace!.metadata as Record<string, unknown>
+      expect(meta['oldExtUrl']).toBe(ANY_URL)
+      expect(meta['newExtUrl']).toBe(NEW_URL)
+    })
+
+    // ── Currency-aware (USDT explorer-only) ──────────────────────────────────────
+
+    it('USDT tx attach a FILE receipt → 400 (explorer-only)', async () => {
+      await expect(
+        svc.attachOrReplaceReceipt(TX_USDT, { receiptDocumentId: DOC_FILE_A }, ARTEM),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('USDT tx attach a NON-explorer url → 400', async () => {
+      await expect(
+        svc.attachOrReplaceReceipt(TX_USDT, { receiptExternalUrl: ANY_URL }, ARTEM),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+
+    it('USDT tx attach an explorer url → ok', async () => {
+      await svc.attachOrReplaceReceipt(TX_USDT, { receiptExternalUrl: EXPLORER_URL }, ARTEM)
+      const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_USDT) })
+      expect(row?.receiptExternalUrl).toBe(EXPLORER_URL)
+      // A second explorer url is a valid REPLACE for a USDT tx.
+      await svc.attachOrReplaceReceipt(TX_USDT, { receiptExternalUrl: EXPLORER_URL_2 }, ARTEM)
+      const row2 = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_USDT) })
+      expect(row2?.receiptExternalUrl).toBe(EXPLORER_URL_2)
+    })
+
+    // ── File receipt: 1:1 replace-with-delete ────────────────────────────────────
+
+    it('non-USDT tx attach a FILE → ok; then replace with another FILE → old doc row deleted + S3 delete', async () => {
+      s3DeleteSpy.mockClear()
+
+      // Attach file A.
+      await svc.attachOrReplaceReceipt(TX_FILE, { receiptDocumentId: DOC_FILE_A }, ARTEM)
+      let row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_FILE) })
+      expect(row?.receiptDocumentId).toBe(DOC_FILE_A)
+
+      // Replace with file B → old doc A row hard-deleted + its S3 key cleaned.
+      await svc.attachOrReplaceReceipt(TX_FILE, { receiptDocumentId: DOC_FILE_B }, ARTEM)
+      row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_FILE) })
+      expect(row?.receiptDocumentId).toBe(DOC_FILE_B)
+
+      const docA = await db.query.documents.findFirst({ where: eq(documents.id, DOC_FILE_A) })
+      expect(docA).toBeUndefined() // 1:1 invariant — old doc removed
+      expect(s3DeleteSpy).toHaveBeenCalledWith(DOC_FILE_A_S3)
+
+      const audit = await auditRows(TX_FILE)
+      expect(audit.map((a) => a.action).sort()).toEqual(['ATTACH', 'REPLACE'])
+    })
+
+    it("attaching another owner's document → 403 (self-ownership)", async () => {
+      // DMYTRO is not the author of TX_FILE and also owns no doc here; use ADMIN
+      // (privileged, allowed on any tx) trying to bind ARTEM's DOC_FILE_B which is
+      // already bound → must fail ownership (ADMIN self-ownership check).
+      await expect(
+        svc.attachOrReplaceReceipt(TX_OLD, { receiptDocumentId: DOC_FILE_B }, ADMIN),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    // ── Status matrix (replace after PAID) ───────────────────────────────────────
+
+    it('author (ARTEM) replace receipt AFTER PAID → 403', async () => {
+      await expect(
+        svc.attachOrReplaceReceipt(TX_PAID, { receiptExternalUrl: EXPLORER_URL }, ARTEM),
+      ).rejects.toBeInstanceOf(ForbiddenException)
+    })
+
+    it('ACCOUNTANT replace receipt AFTER PAID → ok; audit REPLACE', async () => {
+      const NEW_URL = 'https://drive.google.com/file/paid-replaced'
+      await svc.attachOrReplaceReceipt(TX_PAID, { receiptExternalUrl: NEW_URL }, ACCOUNTANT)
+      const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_PAID) })
+      expect(row?.receiptExternalUrl).toBe(NEW_URL)
+      const audit = await auditRows(TX_PAID)
+      expect(audit.some((a) => a.action === 'REPLACE' && a.actorId === ACCOUNTANT.id)).toBe(true)
+    })
+
+    it('ADMIN attach to ANY transaction (not author) → ok', async () => {
+      // TX_OLD has no receipt; ADMIN is not the author (createdBy=ARTEM) but is
+      // privileged → allowed.
+      await svc.attachOrReplaceReceipt(TX_OLD, { receiptExternalUrl: ANY_URL }, ADMIN)
+      const row = await db.query.transactions.findFirst({ where: eq(transactions.id, TX_OLD) })
+      expect(row?.receiptExternalUrl).toBe(ANY_URL)
+    })
+
+    it('attach to a non-existent transaction → 404', async () => {
+      await expect(
+        svc.attachOrReplaceReceipt(
+          'f2000002-0000-4000-b000-0000000000ff',
+          { receiptExternalUrl: ANY_URL },
+          ADMIN,
+        ),
+      ).rejects.toBeInstanceOf(NotFoundException)
+    })
+
+    // ── Regression: systemic / legacy receiptless rows ───────────────────────────
+
+    it('regression: a receiptless (systemic/legacy) row inserts + reads without error', async () => {
+      // salary-cron / cascade-close insert directly via db.insert (bypassing the
+      // create-schemas), so the Zod mandatory-refine never touches them. Mirror
+      // that shape: a receiptless row must insert AND read back fine.
+      const SYS_ID = 'f2000002-0000-4000-b000-0000000000aa'
+      await db
+        .delete(transactions)
+        .where(eq(transactions.id, SYS_ID))
+        .catch(() => undefined)
+      await expect(
+        db.insert(transactions).values({
+          id: SYS_ID,
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: '800',
+          currency: 'USD',
+          salaryMonth: '2026-07',
+          receiverId: ARTEM.id,
+          createdBy: ADMIN.id,
+        }),
+      ).resolves.toBeDefined()
+
+      const found = await svc.findOne(SYS_ID, ADMIN)
+      expect(found).toBeDefined()
+      expect(found.receiptExternalUrl ?? null).toBeNull()
+
+      await db.delete(transactions).where(eq(transactions.id, SYS_ID))
+    })
+
+    it('regression: legacy PAID row with no receipt is readable via findOne', async () => {
+      // TX_OLD started receiptless; after the ADMIN-attach test above it carries a
+      // url. Re-assert findOne succeeds regardless (no throw on read).
+      const found = await svc.findOne(TX_OLD, ADMIN)
+      expect(found.id).toBe(TX_OLD)
+    })
+
+    // ── Regression: mandatory create path enforces receipt (service defense) ─────
+
+    it('regression: declareUsdtProjectIncome without a receipt → 400 (mandatory)', async () => {
+      await expect(
+        svc.declareUsdtProjectIncome(
+          {
+            projectId: 'f2000002-0000-4000-c000-000000000001',
+            amount: 100,
+            receiverId: 'COMPANY_ACCOUNT',
+            idempotencyKey: 'f2000002-0000-4000-d000-000000000001',
+          },
+          ADMIN,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException)
+    })
+  },
+)
