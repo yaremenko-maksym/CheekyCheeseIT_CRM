@@ -38,10 +38,12 @@ export interface NbuSource {
 
 function asRecordArray(body: unknown): Record<string, unknown>[] | null {
   if (!Array.isArray(body)) return null
-  // Stryker disable next-line ArrayDeclaration: equivalent — seeding this
-  // accumulator with junk cannot be observed. Every consumer is a parser that
-  // reads named fields off each row, and a stray primitive yields `undefined`
-  // for all of them, so the row is dropped before it can become a rate.
+  // Stryker disable next-line ArrayDeclaration: one mutant, and it is equivalent —
+  // seeding this accumulator with a junk element cannot be observed. Both
+  // callers are parsers that read named fields off every row, and a stray
+  // primitive yields `undefined` for all of them, so the element is dropped
+  // before it can become a rate. Scoped to `ArrayDeclaration` alone: no other
+  // mutator applies to this line, so nothing else is silenced with it.
   const out: Record<string, unknown>[] = []
   for (const row of body) {
     if (typeof row !== 'object' || row === null) return null
@@ -86,14 +88,15 @@ function parseCcRateDialect(body: unknown): NbuRateResponse[] | null {
     const exchangedate = toStringOrUndefined(row.exchangedate)
     const perUnit = toFiniteNumber(row.rate_per_unit)
     const raw = toFiniteNumber(row.rate)
-    const units = toFiniteNumber(row.units)
+    // A source that does not state `units` quotes per single unit, so 1 is the
+    // correct default. Defaulting rather than null-guarding removes the
+    // redundant clause from the arithmetic entirely — so there is no
+    // equivalent mutant here to suppress, instead of a directive that would
+    // also silence the two mutants that matter (security-review #574, MED-4).
+    const units = toFiniteNumber(row.units) ?? 1
     // Prefer the explicit per-unit figure; otherwise divide by units when the
     // source states them; otherwise take `rate` as-is (statdirectory dialect).
-    // Stryker disable next-line ConditionalExpression: the `units !== null` half is
-    // equivalent on its own — `null > 0` is already false, so the `units > 0`
-    // guard rejects a missing units count regardless. It stays for legibility:
-    // the null check states the intent, rather than leaning on a coercion.
-    const rate = perUnit ?? (raw !== null && units !== null && units > 0 ? raw / units : raw)
+    const rate = perUnit ?? (raw !== null && units > 0 ? raw / units : raw)
     if (cc === undefined || exchangedate === undefined || rate === null) continue
     const calcdate = toStringOrUndefined(row.calcdate)
     out.push({ cc, rate, exchangedate, ...(calcdate !== undefined ? { calcdate } : {}) })
@@ -114,12 +117,10 @@ function parseOpenDataDialect(body: unknown): NbuRateResponse[] | null {
     const cc = toStringOrUndefined(row.CurrencyCodeL)
     const exchangedate = toStringOrUndefined(row.StartDate)
     const amount = toFiniteNumber(row.Amount)
-    const units = toFiniteNumber(row.Units)
+    // As above: absent `Units` means a per-single-unit quote.
+    const units = toFiniteNumber(row.Units) ?? 1
     if (cc === undefined || exchangedate === undefined || amount === null) continue
-    // Stryker disable next-line ConditionalExpression: as above, the `units !== null`
-    // half is equivalent — `null > 0` is false, so a missing `Units` already
-    // falls through to the undivided amount. Kept for the same reason.
-    const rate = units !== null && units > 0 ? amount / units : amount
+    const rate = units > 0 ? amount / units : amount
     out.push({ cc, rate, exchangedate })
   }
   return out

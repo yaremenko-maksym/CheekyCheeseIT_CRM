@@ -67,13 +67,30 @@ const FETCH_TIMEOUT_MS = 10_000
  *     and the value applies from the NEXT calendar day. The record for Tue
  *     18.08.2026 carries `calcdate` 17.08.2026. Asking for TOMORROW before
  *     that window returns an empty array (verified 19.08 at 13:57 Kyiv).
- *   - ONLY Saturday and Sunday repeat the preceding Friday's value (and its
- *     `calcdate`). Every other day carries its own, different value.
+ *   - Saturday and Sunday repeat the preceding Friday's value (and its
+ *     `calcdate`).
  *   - Public holidays do NOT repeat — the counter-intuitive part, and the
  *     reason a naive "weekends and holidays are stale-but-fine" rule is
  *     wrong. Monday 09.03.2026 (Women's Day observed) = 43.7292 vs Friday's
  *     43.8069. Monday 11.05.2026 (Victory Day observed) = 43.855 vs Friday's
  *     43.8033. New Year's Day 01.01.2026 = 42.3532, its own fresh value.
+ *
+ * ── WHAT IS A LAW HERE, AND WHAT IS ONLY THE CURRENT REGIME ──────────────────
+ * Correction from security-review #574 (MED-6), which measured 2023–2025 —
+ * periods outside the window above. It is NOT true in general that "every
+ * non-weekend day carries its own value": under the FIXED-RATE regime that ran
+ * until October 2023, USD 2023 shows 197 weekday repeats and one identical run
+ * of 276 days. That claim holds only under the managed float in force since
+ * then, and a future peg would break it again.
+ *
+ * The gate does not depend on it. What the accept-condition actually rests on
+ * is the ONE-WAY premise "a weekend day never differs from the preceding
+ * Friday", which the reviewer replayed across five USD/EUR series (2023, 2024,
+ * 2025-H1) for 0 violations and 2,168 acceptances with 0 mispricings. Extra
+ * repeats can only make the gate REFUSE a rate whose value happened to be
+ * identical — the safe direction, costing a retry — never accept a wrong one.
+ * So if the regime changes, this code becomes more conservative, not less
+ * correct; do not "optimise" it by trusting weekday repeats.
  *
  * ── WHY A PURE "AGE ≤ N DAYS" RULE IS UNSAFE, HENCE `noNewRateSince` ─────────
  * Because every non-weekend day gets its own value, age alone cannot tell a
@@ -132,8 +149,15 @@ interface LastKnownGood {
   rateDate: string
   /** Which source produced them (provenance). */
   sourceId: string
-  /** NBU's own publication date (`DD.MM.YYYY`), when the source exposed it. */
-  calcdate?: string
+  /**
+   * NBU's own publication date (`DD.MM.YYYY`), when the source exposed it.
+   * Deliberately a REQUIRED `string | undefined` rather than an optional
+   * property: the value is always known at the one place this is built, so
+   * there is nothing to branch on, and the conditional spread it replaces
+   * needed a mutation suppression that also covered a mutant worth keeping
+   * (security-review #574, MED-4).
+   */
+  calcdate: string | undefined
 }
 
 /** Which source answered, and with what. */
@@ -406,13 +430,7 @@ export class NbuCurrencyService {
           // downloaded them — the freshness gate must compare like with like.
           rateDate: date,
           sourceId,
-          // Stryker disable next-line ConditionalExpression: equivalent — spreading
-          // `{ calcdate: undefined }` instead of omitting the key is
-          // indistinguishable downstream. The only reader is `logProvenance`,
-          // which renders `meta.calcdate ?? '(not exposed)'`, and absent vs
-          // present-but-undefined both take the `??` branch. The conditional is
-          // kept solely to satisfy `exactOptionalPropertyTypes` at compile time.
-          ...(calcdate !== undefined ? { calcdate } : {}),
+          calcdate,
         }
       } else {
         this.logger.warn(
@@ -510,6 +528,25 @@ export class NbuCurrencyService {
     )
   }
 
+  /**
+   * "Today" in UTC — NOT in Kyiv, where NBU's business day actually turns.
+   *
+   * KNOWN GAP, deliberately left to backlog item 148 (security-review #574,
+   * MED-2). Between 00:00 and 03:00 Kyiv this returns the PREVIOUS Kyiv day, so
+   * the service prices with yesterday's rate and caches it under yesterday's
+   * date.
+   *
+   * Re-classified as touching a MONEY path, not display only. The freshness
+   * gate added for MED-6 creates an instance that did not exist before: in that
+   * 3-hour window, during an outage, the cache looks age-0 in UTC terms and is
+   * now ACCEPTED, where the old dateless fallback refused everything. So the
+   * gate's own invariant — "no new rate has taken effect since" — is provably
+   * false for three hours a day. The error is bounded by one NBU day-step
+   * (~0.1–0.3%), which is why it is a backlog item rather than a fix here, but
+   * whoever picks up 148 should treat it as a payout-correctness issue and fix
+   * `todayStr` and the cache key together (changing one alone re-introduces the
+   * mismatch).
+   */
   private todayStr(): string {
     return new Date().toISOString().slice(0, 10).replace(/-/g, '')
   }
@@ -532,26 +569,40 @@ export class NbuCurrencyService {
    * The freshness gate: is a cached rate whose records apply to `cachedYmd`
    * STILL the officially applicable NBU rate on `pricingYmd`?
    *
-   * True only when no new rate has taken effect in between — that is, when
-   * every calendar day after `cachedYmd` up to and including `pricingYmd` is a
-   * Saturday or Sunday, the only days NBU does not produce a new value for
-   * (measured over 383 consecutive days; public holidays DO get their own
-   * value, so they are not exempt). Same-day (age 0) is trivially true and is
-   * the common MED-6 case: the feed answered minutes ago, then died.
+   * True only when no new rate can have taken effect in between — that is,
+   * when every calendar day after `cachedYmd` up to and including `pricingYmd`
+   * is a Saturday or Sunday. Public holidays are NOT exempt: they get their own
+   * value. Same-day (age 0) is trivially true and is the common MED-6 case:
+   * the feed answered minutes ago, then died.
+   *
+   * The premise is deliberately ONE-WAY — "a weekend day never differs from the
+   * preceding Friday" — not the converse "every weekday differs". Only the
+   * former is load-bearing, and it held at 0 violations across five USD/EUR
+   * series spanning 2023–2026 (security-review #574). The converse is merely
+   * true of the current FX regime; where it fails, this function refuses a rate
+   * that happened to be identical, which costs a retry and never money.
    *
    * A cache NEWER than the day being priced (age < 0 — a historical request
    * during an outage) is refused too: today's rate is not last March's rate.
    */
   private noNewRateSince(cachedYmd: string, pricingYmd: string): boolean {
     const age = this.dayDiff(cachedYmd, pricingYmd)
-    // Stryker disable next-line ConditionalExpression: the `age > MAX_CACHED_RATE_AGE_DAYS`
-    // half is deliberately REDUNDANT, so removing it is unobservable: any span
-    // of 3+ calendar days necessarily contains a non-weekend day, which the
-    // loop below already rejects. It is kept as a cheap, explicit ceiling so a
+    // Split from the ceiling below on purpose (security-review #574, MED-4):
+    // as one combined condition, a single line-level suppression also silenced
+    // THIS check — the one that stops a cache NEWER than the day being priced
+    // from being accepted. It carries weight and stays unsuppressed.
+    if (age < 0) return false
+    // Stryker disable next-line ConditionalExpression: this ceiling is deliberately
+    // REDUNDANT — any span of 3+ calendar days necessarily contains a
+    // non-weekend day, which the loop below already rejects, so dropping the
+    // check cannot change an outcome. It is kept as a cheap explicit bound so a
     // future bug in the weekday logic cannot silently widen the window that
-    // decides whether real money may be paid. The `age < 0` half is NOT
-    // redundant and IS covered (a historical request during an outage).
-    if (age < 0 || age > MAX_CACHED_RATE_AGE_DAYS) return false
+    // decides whether real money may be paid. Two mutants fall under this
+    // directive: `→ false` (the equivalent one this reason is about) and
+    // `→ true`, which refuses every cached rate and is independently killed by
+    // the acceptance tests ("a rate cached MINUTES ago…", "…still prices
+    // Saturday and Sunday").
+    if (age > MAX_CACHED_RATE_AGE_DAYS) return false
     const cachedMs = this.ymdToUtcMs(cachedYmd)
     for (let i = 1; i <= age; i++) {
       const dow = new Date(cachedMs + i * 86_400_000).getUTCDay()
@@ -563,8 +614,29 @@ export class NbuCurrencyService {
 
   /**
    * Previous calendar day, computed in UTC.
-   * (Was local-time arithmetic on a UTC-parsed date, which stepped back TWO
-   * days in any timezone behind UTC — invisible on UTC CI runners.)
+   *
+   * The previous implementation mixed a UTC-parsed date with LOCAL-time
+   * arithmetic (`setDate(getDate() - 1)`). Corrected description
+   * (security-review #574, MED-5 — the earlier note here was wrong about both
+   * the trigger and the scope): it did not misbehave in "any timezone behind
+   * UTC". It skipped back TWO days on exactly the day AFTER a DST fall-back,
+   * in any zone that observes DST — including `Europe/Kyiv`, which is AHEAD of
+   * UTC and is where production most plausibly runs. Measured over 1,299
+   * consecutive days per zone:
+   *
+   *   Europe/Kyiv        3 wrong — 20231030 → 20231028 (want 20231029),
+   *                                20241028, 20251027
+   *   America/New_York   3 wrong — 20231106 → 20231104 (want 20231105),
+   *                                20241104, 20251103
+   *   Australia/Sydney   4 wrong — 20230402 → 20230331 (want 20230401), …
+   *                                (southern-hemisphere fall-back is in April)
+   *   UTC                0 wrong  ← why CI never saw it
+   *   Pacific/Kiritimati 0 wrong  ← no DST, despite being UTC+14
+   *
+   * So the pattern is DST, not the sign of the offset, and "our servers are
+   * not west of UTC" is NOT a reason to revert this to local-time arithmetic.
+   * The replacement is pure UTC arithmetic and was wrong on 0 of 1,299 days in
+   * every zone above.
    */
   private prevDayStr(yyyymmdd: string): string {
     return new Date(this.ymdToUtcMs(yyyymmdd) - 86_400_000)

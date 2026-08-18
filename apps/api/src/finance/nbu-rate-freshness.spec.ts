@@ -141,12 +141,13 @@ function pinDay(isoDay: string): void {
 
 describe('MED-6: last-known-good cache freshness gate', () => {
   let svc: NbuCurrencyService
+  let warnSpy: ReturnType<typeof vi.spyOn>
 
   beforeEach(() => {
     requestedUrls.length = 0
     svc = new NbuCurrencyService()
     vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
-    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    warnSpy = vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
     vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
     // Only `Date` is faked — the service's AbortController timer must stay real.
     vi.useFakeTimers({ toFake: ['Date'] })
@@ -287,6 +288,12 @@ describe('MED-6: last-known-good cache freshness gate', () => {
     expect(result.date).toBe('20260706') // still echoes the requested day
     expect(result.rateDate).toBeUndefined() // → payout refused
     expect(parseFloat(result.usdUah)).toBeCloseTo(44.6988, 4) // display still works
+    // The warning must say which of the two prev-day outcomes this was —
+    // "we fell back a day" alone does not tell an operator whether the
+    // payout will go through.
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'display only, money paths refuse',
+    )
   })
 
   it('MED-1: the previous-day path still prices a weekday rate reached on the SAME day', async () => {
@@ -299,6 +306,27 @@ describe('MED-6: last-known-good cache freshness gate', () => {
 
     expect(result.stale).toBe(true)
     expect(result.rateDate).toBe('20260703')
+    expect(warnSpy.mock.calls.map((c) => String(c[0])).join('\n')).toContain(
+      'DATED for the requested day',
+    )
+  })
+
+  it('MED-1: a DEGRADED previous-day response is not dated, even when the calendar allows it', async () => {
+    // Friday→Saturday crosses no new rate, so the calendar says "payable" —
+    // but the response itself was incomplete (no EUR), so `buildResult`
+    // already declined to date it. The calendar check must not resurrect a
+    // date that the response never earned.
+    pinDay('2026-07-04') // Saturday
+    mockNbu({ '20260703': [{ cc: 'USD', rate: 44.6988 }] }) // Friday, USD only
+
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true)
+    expect(result.rateDate).toBeUndefined()
+    // Absent, not present-and-undefined: the codebase distinguishes the two
+    // (`exactOptionalPropertyTypes`), and `buildResult` documents that it omits
+    // the key rather than setting it.
+    expect(Object.prototype.hasOwnProperty.call(result, 'rateDate')).toBe(false)
   })
 
   it('a weekend rate obtained WITH a real date still prices money (unchanged behaviour)', async () => {
