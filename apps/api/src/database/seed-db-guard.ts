@@ -50,6 +50,15 @@
  *     `crm_te_scratch`, `crm_acct_create`, `crm_hr_dash`, …) — follows the
  *     SAME `crm_` prefix convention as the real name. So "disposable" here
  *     means: starts with `crm_`, and is not literally `crm_db`.
+ *
+ * Deliberately NOT covered here (out of scope, flagged for a follow-up):
+ * `db:push` (`drizzle-kit push`, aliased `db:migrate`) can equally alter or
+ * drop columns/tables on whatever `DATABASE_URL` points to, via the exact
+ * same inherited-env-var failure mode this guard closes for `db:seed` — but
+ * it is a direct third-party CLI invocation in `package.json`, not TS code
+ * this repo owns, so there is no import site to hang this same in-process
+ * check off of. Giving it equivalent protection needs a small wrapper
+ * script in front of the CLI call, which is a separate, scoped change.
  */
 
 export const LIVE_DB_NAME = 'crm_db'
