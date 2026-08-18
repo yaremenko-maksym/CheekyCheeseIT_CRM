@@ -11,6 +11,14 @@
  * function is a pure mirror of. In particular: `senderId === receiverId ===
  * null/undefined` (both empty) is a PASS, not a rejection — that is the
  * three-valued-logic trap `IS DISTINCT FROM` falls into and `<>` avoids.
+ *
+ * security-review round 2 (MED-2): case-insensitivity is a SEPARATE truth
+ * table dimension, added below. Verified by hand against a real scratch
+ * Postgres: `'AAAA…'::uuid = 'aaaa…'::uuid` is TRUE (uuid normalises on
+ * comparison) and the DB CHECK DOES reject a case-different-but-equal
+ * self-pay row — so `selfPayError` MUST also treat them as equal, or a
+ * client sending an upper-case id (Zod's `.uuid()` is format-only, not
+ * case-normalising) sails past this guard and hits the DB's opaque 500.
  */
 import { describe, expect, it } from 'vitest'
 import { selfPayError } from './finance'
@@ -54,6 +62,44 @@ describe('selfPayError — mirrors ck_transactions_sender_ne_receiver (sender_id
 
   it('uses a caller-supplied custom message when provided', () => {
     expect(selfPayError(A, A, 'Cannot transfer to yourself')).toBe('Cannot transfer to yourself')
+  })
+
+  // ── security-review round 2 (MED-2): case-insensitive comparison ─────────
+
+  it('same UUID, different case (upper vs lower) → error (matches Postgres uuid semantics)', () => {
+    const upper = A.toUpperCase()
+    expect(selfPayError(upper, A)).not.toBeNull()
+  })
+
+  it('same UUID, different case, args reversed → error (symmetry)', () => {
+    const upper = A.toUpperCase()
+    expect(selfPayError(A, upper)).not.toBeNull()
+  })
+
+  it('same UUID, MIXED case on both sides → error', () => {
+    // 'a0000000-...0001' mixed differently on each side, same underlying id.
+    const mixed1 = 'A0000000-0000-4000-8000-000000000001'
+    const mixed2 = 'a0000000-0000-4000-8000-000000000001'
+    expect(selfPayError(mixed1, mixed2)).not.toBeNull()
+  })
+
+  it('DIFFERENT UUIDs that merely share a case style → still null (case-folding must not over-match)', () => {
+    // Sanity guard against a naive fix that folds too aggressively (e.g.
+    // stripping non-hex chars) — B is a genuinely different id, uppercased.
+    expect(selfPayError(A, B.toUpperCase())).toBeNull()
+  })
+
+  /**
+   * RED-PROOF (MED-2): demonstrates the case-sensitivity bug going red.
+   * Before the fix, `selfPayError` compared with plain `===`, so this exact
+   * call returned `null` (silently passed) — the same-id row would then hit
+   * the DB CHECK as a raw, unhandled `ERROR: new row ... violates check
+   * constraint` (Postgres SQLSTATE 23514) instead of a clean 400. Reverting
+   * `selfPayError` to plain `===` turns this test red immediately.
+   */
+  it('RED-PROOF: case-different self-pay is NEVER silently allowed', () => {
+    const result = selfPayError(A.toUpperCase(), A)
+    expect(result).not.toBeNull()
   })
 
   /**

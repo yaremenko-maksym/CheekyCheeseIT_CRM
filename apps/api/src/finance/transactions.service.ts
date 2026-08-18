@@ -6415,6 +6415,25 @@ export class TransactionsService {
       currency = data.currency
     }
 
+    // security-review round 2 (MED-1): friendly 400 BEFORE the DB CHECK
+    // (ck_transactions_sender_ne_receiver) would reject the UPDATE below with
+    // an opaque constraint-violation error. `tx.receiverId` was fixed at
+    // SALARY creation and this method only re-checks `payer.role ===
+    // 'ADMIN'` — never the RECEIVER's CURRENT role — so senderId===receiverId
+    // would only be caught by the DB, not here, if that ever became possible.
+    //
+    // Verified NOT reachable today by reading (not assuming) both role-
+    // mutation doors: `UsersService.changeRole` and `.adminUpdateUser` BOTH
+    // explicitly refuse `role === 'ADMIN'` ("ADMIN pool is fixed") — so no
+    // SALARY receiver (never ADMIN by construction — createSalary's
+    // SALARY_ELIGIBLE_ROLES gate, both accrual crons filter role explicitly)
+    // can ever become the same row as an ADMIN payer. Kept as defense-in-
+    // depth anyway, same reasoning as the `confirmPayout` guard above: cheap,
+    // and it stops relying on "the ADMIN pool is fixed" holding forever
+    // across every future change to those two methods.
+    const paySalarySelfPayErr = selfPayError(senderId, tx.receiverId)
+    if (paySalarySelfPayErr) throw new BadRequestException(paySalarySelfPayErr)
+
     // ── task-salary-pay-amount: the FACT of the payment vs the OBLIGATION ────
     //
     // `amount`/`currency` on the row become what ACTUALLY left the payer's

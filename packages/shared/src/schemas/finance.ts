@@ -655,13 +655,29 @@ function mandatoryReceiptRefine<T extends ReceiptShape>(
  * company-labelled sender via `senderLabel`, an obligation row with no
  * `senderId` yet, …), exactly the case the DB CHECK's `<>` (not
  * `IS DISTINCT FROM`) was chosen to keep passing.
+ *
+ * security-review round 2 (MED-2): compares CASE-INSENSITIVELY. Postgres's
+ * `uuid` column type normalises on comparison — `'AAAA…'::uuid =
+ * 'aaaa…'::uuid` is TRUE — so the DB CHECK this function mirrors would
+ * reject two differently-cased strings that name the SAME row. A naive `===`
+ * would not: it treats them as different and lets the INSERT/UPDATE through
+ * to fail on the constraint with an opaque 500, defeating the entire point
+ * of this function (AC4 — a friendly 400 BEFORE the DB). Reachable in
+ * practice on `createAdminTransfer`'s ACCOUNTANT path, where `senderId` is a
+ * raw client-supplied UUID string (case not normalised by Zod's `.uuid()`,
+ * which is format-only) compared against `receiver.id`, always
+ * lower-case as returned by Postgres.
  */
 export function selfPayError(
   senderId: string | null | undefined,
   receiverId: string | null | undefined,
   message = 'Отправитель и получатель не могут совпадать',
 ): string | null {
-  if (senderId != null && receiverId != null && senderId === receiverId) {
+  if (
+    senderId != null &&
+    receiverId != null &&
+    senderId.toLowerCase() === receiverId.toLowerCase()
+  ) {
     return message
   }
   return null
