@@ -53,7 +53,15 @@ import { ProjectsService } from '../projects/projects.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { TeamsService } from '../teams/teams.service'
-import { projectAuditLog, projectMembers, projects, userAuditLog, users } from '../database/schema'
+import {
+  projectAuditLog,
+  projectMembers,
+  projects,
+  teamMembers,
+  teams,
+  userAuditLog,
+  users,
+} from '../database/schema'
 import * as schema from '../database/schema'
 import { assertRealDbSchema, hasDatabaseUrl } from '../test/require-real-db'
 
@@ -63,6 +71,12 @@ const ARCHIVED_JUNIOR_ID = 'ae880000-0000-4000-aa00-000000000002'
 const ACTIVE_JUNIOR_ID = 'ae880000-0000-4000-aa00-000000000003'
 const SENIOR_ID = 'ae880000-0000-4000-aa00-000000000004'
 const CHAIN_USER_ID = 'ae880000-0000-4000-aa00-000000000005'
+// MED-3 fixtures — the senior's teammates, one per arrival route (see the
+// createFromInterview describe for what each route is).
+const ACTIVE_HR_ID = 'ae880000-0000-4000-aa00-000000000006'
+const CLOSED_HR_ID = 'ae880000-0000-4000-aa00-000000000007' // archived, membership CLOSED
+const OPEN_HR_ID = 'ae880000-0000-4000-aa00-000000000008' // archived, membership still OPEN
+const TEAM_ID = 'ae880000-0000-4000-cc00-000000000001'
 const PROJECT_ID = 'ae880000-0000-4000-dd00-000000000001'
 const CHAIN_PROJECT_ID = 'ae880000-0000-4000-dd00-000000000002'
 
@@ -72,8 +86,17 @@ const ALL_USER_IDS = [
   ACTIVE_JUNIOR_ID,
   SENIOR_ID,
   CHAIN_USER_ID,
+  ACTIVE_HR_ID,
+  CLOSED_HR_ID,
+  OPEN_HR_ID,
 ] as const
 const ALL_PROJECT_IDS = [PROJECT_ID, CHAIN_PROJECT_ID] as const
+
+/**
+ * Projects `createFromInterview` creates with a server-generated id. Collected
+ * per test so `wipe()` can remove them — they are not in ALL_PROJECT_IDS.
+ */
+const createdProjectIds: string[] = []
 
 const ADMIN: SessionUser = {
   id: ADMIN_ID,
@@ -116,9 +139,14 @@ async function activeMembershipCount(projectId: string, userId: string): Promise
 /** Wipe everything this spec owns, in FK-safe order. */
 async function wipe(): Promise<void> {
   const db = dbSvc.db
+  const projectIds = [...ALL_PROJECT_IDS, ...createdProjectIds]
+  createdProjectIds.length = 0
   await db.delete(projectMembers).where(inArray(projectMembers.userId, [...ALL_USER_IDS]))
-  await db.delete(projectAuditLog).where(inArray(projectAuditLog.targetId, [...ALL_PROJECT_IDS]))
-  await db.delete(projects).where(inArray(projects.id, [...ALL_PROJECT_IDS]))
+  await db.delete(projectMembers).where(inArray(projectMembers.projectId, projectIds))
+  await db.delete(projectAuditLog).where(inArray(projectAuditLog.targetId, projectIds))
+  await db.delete(projects).where(inArray(projects.id, projectIds))
+  await db.delete(teamMembers).where(inArray(teamMembers.userId, [...ALL_USER_IDS]))
+  await db.delete(teams).where(eq(teams.id, TEAM_ID))
   await db.delete(userAuditLog).where(inArray(userAuditLog.targetId, [...ALL_USER_IDS]))
   await db.delete(users).where(inArray(users.id, [...ALL_USER_IDS]))
 }
@@ -207,6 +235,40 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
         salaryCurrency: 'USDT',
         googleId: `g-${CHAIN_USER_ID}`,
       },
+      {
+        id: ACTIVE_HR_ID,
+        email: 'ae88-hr-active@test.spec',
+        displayName: 'AE88 HR Active',
+        role: 'HR',
+        googleId: `g-${ACTIVE_HR_ID}`,
+      },
+      {
+        id: CLOSED_HR_ID,
+        email: 'ae88-hr-closed@test.spec',
+        displayName: 'AE88 HR Dismissed (membership closed)',
+        role: 'HR',
+        googleId: `g-${CLOSED_HR_ID}`,
+        archivedAt: new Date('2026-01-31T00:00:00.000Z'),
+      },
+      {
+        id: OPEN_HR_ID,
+        email: 'ae88-hr-open@test.spec',
+        displayName: 'AE88 HR Dismissed (membership still open)',
+        role: 'HR',
+        googleId: `g-${OPEN_HR_ID}`,
+        archivedAt: new Date('2026-01-31T00:00:00.000Z'),
+      },
+    ])
+
+    // The senior's team, and the three teammates in their three states. Only
+    // `leftAt` differs between CLOSED_HR and OPEN_HR — that is the whole point
+    // of having both.
+    await db.insert(teams).values({ id: TEAM_ID, name: 'AE88 Team' })
+    await db.insert(teamMembers).values([
+      { teamId: TEAM_ID, userId: SENIOR_ID },
+      { teamId: TEAM_ID, userId: ACTIVE_HR_ID },
+      { teamId: TEAM_ID, userId: CLOSED_HR_ID, leftAt: new Date('2026-01-31T00:00:00.000Z') },
+      { teamId: TEAM_ID, userId: OPEN_HR_ID },
     ])
     await db.insert(projects).values([
       {
@@ -378,6 +440,93 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
       })
 
       expect((await rowOf(ACTIVE_JUNIOR_ID)).role).toBe('HR')
+    })
+  })
+
+  // ── MED-3 — the SECOND door into project_members ─────────────────────────
+  describe('AC1 (security-review MED-3) — ProjectsService.createFromInterview', () => {
+    // `addMember` was the door the task named. `createFromInterview` is the
+    // other one: moving an interview to HIRED creates the project AND seats the
+    // senior's HR / ACCOUNTANT teammates on it. It consulted neither `leftAt`
+    // nor `archivedAt`, so a dismissed HR was seated on a brand-new project
+    // — the exact thing `addMember`'s comment declares this endpoint must not
+    // be able to express.
+    //
+    // Two dismissed fixtures, because a dismissed teammate can arrive by two
+    // different routes and only one of them is closed by each filter:
+    //   • CLOSED_HR — archived the normal way, so `UsersService.archive`
+    //     stamped `leftAt` on the team membership. Caught by `isNull(leftAt)`.
+    //   • OPEN_HR — archived with the membership still open (a cascade that
+    //     missed, a hand-edited row). Caught only by `archivedAt`.
+    const makeInterview = (companyName: string) =>
+      ({
+        id: '00000000-0000-4000-ee00-000000000001',
+        seniorId: SENIOR_ID,
+        hrId: null,
+        companyName,
+        vacancyUrl: null,
+        callUrl: null,
+        stage: 'HIRED',
+        notesDomain: 'ai',
+        notesTechStack: null,
+        notesTeamSize: null,
+        notesBenefits: null,
+        notesPaymentType: null,
+        notesSalaryReview: null,
+        notesCorpTech: null,
+        notesGeneral: null,
+        position: 0,
+        createdProjectId: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        senior: null,
+      }) as unknown as Parameters<ProjectsService['createFromInterview']>[0]
+
+    async function seatedUserIds(projectId: string): Promise<string[]> {
+      const rows = await dbSvc.db
+        .select({ userId: projectMembers.userId })
+        .from(projectMembers)
+        .where(and(eq(projectMembers.projectId, projectId), isNull(projectMembers.leftAt)))
+      return rows.map((r) => r.userId).sort()
+    }
+
+    it('seats the active teammate and neither dismissed one', async () => {
+      const project = await projectsService.createFromInterview(makeInterview('AE88 Hired Co'), {
+        ...ADMIN,
+      })
+      expect(project).toBeDefined()
+      createdProjectIds.push(project!.id)
+
+      // The whole assertion in one line: exactly the active HR, nobody else.
+      expect(await seatedUserIds(project!.id)).toEqual([ACTIVE_HR_ID])
+    })
+
+    it('CONTROL: un-archiving the closed-membership HR is NOT enough — `leftAt` still governs', async () => {
+      // Documents which filter does what, so a future reader does not delete
+      // one of them believing the other covers it. CLOSED_HR is no longer
+      // archived, but they genuinely left the team; a new project of that team
+      // is not a reason to re-seat them.
+      await dbSvc.db.update(users).set({ archivedAt: null }).where(eq(users.id, CLOSED_HR_ID))
+
+      const project = await projectsService.createFromInterview(makeInterview('AE88 Hired Co 2'), {
+        ...ADMIN,
+      })
+      createdProjectIds.push(project!.id)
+
+      expect(await seatedUserIds(project!.id)).toEqual([ACTIVE_HR_ID])
+    })
+
+    it('CONTROL: an active teammate whose membership is open IS seated', async () => {
+      // Proves the two refusals above are attributable to `leftAt`/`archivedAt`
+      // and not to the endpoint having quietly stopped seating anyone.
+      await dbSvc.db.update(users).set({ archivedAt: null }).where(eq(users.id, OPEN_HR_ID))
+
+      const project = await projectsService.createFromInterview(makeInterview('AE88 Hired Co 3'), {
+        ...ADMIN,
+      })
+      createdProjectIds.push(project!.id)
+
+      expect(await seatedUserIds(project!.id)).toEqual([ACTIVE_HR_ID, OPEN_HR_ID].sort())
     })
   })
 
