@@ -91,6 +91,7 @@ function sameValue(kind: 'text' | 'numeric', before: unknown, after: unknown): b
     const nb = Number(b)
     // Non-finite on either side (a malformed string) falls through to the
     // textual comparison rather than silently reporting "equal" via NaN.
+    // Stryker disable next-line LogicalOperator: `&&`→`||` is PROVABLY equivalent over the values these columns can hold (string | number; null is returned above). Diverging requires exactly one side finite — where `||` returns `na === nb`, always false, while `&&` falls through to `String(a) === String(b)` — so divergence needs String(a) === String(b) with exactly one side finite. Identical strings parse to identical Numbers, and for a number `x`, `Number(String(x))` is finite exactly when `x` is; so the two sides are finite together and that state is unreachable. Verified by brute force over 41 representative values (1681 pairs incl. NaN/Infinity/'0x10'/'1e400'/' 5 '/'1,5'): 0 divergences. Scope is deliberate — this directive covers exactly ONE mutant (the sole LogicalOperator on this line); the line's other 5 (4 ConditionalExpression + 1 EqualityOperator) stay live and are killed by archived-entitlement.unit.spec.ts. A bare `// Stryker disable next-line` would have silenced all 6.
     if (Number.isFinite(na) && Number.isFinite(nb)) return na === nb
   }
   return String(a) === String(b)

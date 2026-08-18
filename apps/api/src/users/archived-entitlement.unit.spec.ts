@@ -317,9 +317,9 @@ describe('archived-entitlement — layer 2: reading back the true reason for "0 
     const { db, update } = makeDb({ selects: [[]] })
     const svc = makeService(db)
 
-    await expect(svc.changeSalary('nope', { monthlySalary: 10 })).rejects.toBeInstanceOf(
-      NotFoundException,
-    )
+    const err = await svc.changeSalary('nope', { monthlySalary: 10 }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(NotFoundException)
+    expect((err as Error).message).toBe('User not found')
     expect(update).not.toHaveBeenCalled()
   })
 })
