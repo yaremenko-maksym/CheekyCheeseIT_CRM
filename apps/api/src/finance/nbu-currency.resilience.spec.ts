@@ -59,6 +59,64 @@ function mockNbuTimeout() {
     .mockRejectedValue(new DOMException('The operation was aborted.', 'AbortError'))
 }
 
+/**
+ * Pulls the requested day out of an NBU URL, normalised to `YYYYMMDD`.
+ * Handles BOTH date dialects the service speaks: `date=20260301`
+ * (statdirectory / exchange_site) and `date=01.03.2026` (open_data).
+ */
+function requestedDateOf(url: string): string | null {
+  const m = /[?&]date=([^&]+)/.exec(url)
+  if (m === null) return null
+  const raw = m[1] as string
+  if (/^\d{8}$/.test(raw)) return raw
+  const dotted = /^(\d{2})\.(\d{2})\.(\d{4})$/.exec(raw)
+  return dotted === null ? null : `${dotted[3]}${dotted[2]}${dotted[1]}`
+}
+
+/**
+ * URL-AWARE NBU mock — keyed on WHICH DAY the request asks for, never on how
+ * many requests have been made.
+ *
+ * This matters: the service now tries several NBU services per day, so a mock
+ * keyed on call ORDER ("1st call = today, 2nd = previous day") silently stops
+ * describing reality the moment the source list changes — it would answer the
+ * SECOND source for the SAME day as though it were the previous day, and the
+ * test would then be asserting the mock's shape rather than the service's
+ * behaviour. Keyed on the date, the mock states a fact about the world ("NBU
+ * has no data for 01.03, but does for 28.02") that stays true however many
+ * endpoints are consulted, and stays false for a mutant that asks for the
+ * wrong day.
+ *
+ * A day absent from `byDate` responds 200 with an empty array — the same way
+ * the live feed answers for a day it has no record for (verified against
+ * tomorrow's date, 2026-08-18).
+ */
+function mockNbuByDate(
+  byDate: Record<string, Array<{ cc: string; rate: number }> | 'network-error'>,
+): void {
+  // @ts-expect-error — test stub
+  globalThis.fetch = vi.fn().mockImplementation((url: string) => {
+    const day = requestedDateOf(url)
+    const entry = day === null ? undefined : byDate[day]
+    if (entry === 'network-error') return Promise.reject(new Error('ECONNREFUSED'))
+    const rows = entry ?? []
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: () =>
+        Promise.resolve(
+          rows.map((r) => ({
+            r030: 0,
+            txt: r.cc,
+            rate: r.rate,
+            cc: r.cc,
+            exchangedate: day ?? '',
+          })),
+        ),
+    })
+  })
+}
+
 describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () => {
   let svc: NbuCurrencyService
   // NestJS Logger writes to process.stdout/stderr — NOT through console.error/warn.
@@ -74,6 +132,9 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
 
   afterEach(() => {
     vi.restoreAllMocks()
+    // Tests that pin the clock (the freshness gate is calendar-dependent)
+    // must not leak a frozen Date into the next test.
+    vi.useRealTimers()
   })
 
   it('happy path — real rates returned, stale=false', async () => {
@@ -253,20 +314,15 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     ])
     await svc.getRates() // seed the cache with a genuine today rate
 
-    let callCount = 0
-    // @ts-expect-error — test stub
-    globalThis.fetch = vi.fn().mockImplementation(() => {
-      callCount++
-      // Historical exact-date request: empty (holiday) → falls back to the
-      // day before, which succeeds with a DIFFERENT historical rate.
-      const body =
-        callCount === 1
-          ? []
-          : [
-              { r030: 0, txt: 'USD', rate: 37.0, cc: 'USD', exchangedate: '28.02.2026' },
-              { r030: 0, txt: 'EUR', rate: 40.0, cc: 'EUR', exchangedate: '28.02.2026' },
-            ]
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
+    // Historical exact-date request: NBU has no record for 01.03 on any of its
+    // services → falls back to the day before, which succeeds with a DIFFERENT
+    // historical rate.
+    mockNbuByDate({
+      '20260301': [],
+      '20260228': [
+        { cc: 'USD', rate: 37.0 },
+        { cc: 'EUR', rate: 40.0 },
+      ],
     })
     const historicalResult = await svc.getRates('20260301')
     expect(historicalResult.stale).toBe(true) // prev-day fallback is marked stale
@@ -278,25 +334,27 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
   })
 
   it('MED: prev-day fallback result is cached — next failure uses cache not hardcoded', async () => {
-    // Call 1: today fails (empty), prev-day succeeds with known rates.
-    // Verifies that the prev-day success is stored in lastKnownGood so a
+    // Today fails (no record on any service), prev-day succeeds with known
+    // rates. Verifies the prev-day success is stored in lastKnownGood so a
     // subsequent total failure returns the cached rate, not the hardcoded 41.5.
-    let callCount = 0
-    // @ts-expect-error — test stub
-    globalThis.fetch = vi.fn().mockImplementation(() => {
-      callCount++
-      const body: unknown =
-        callCount === 1
-          ? [] // today: empty → try prev-day
-          : callCount === 2
-            ? [
-                { r030: 0, txt: 'USD', rate: 38.5, cc: 'USD', exchangedate: '02.07.2026' },
-                { r030: 0, txt: 'EUR', rate: 42.0, cc: 'EUR', exchangedate: '02.07.2026' },
-              ]
-            : (() => {
-                throw new Error('ECONNREFUSED')
-              })() // subsequent: network down
-      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(body) })
+    //
+    // The clock is PINNED to Tuesday 07.07.2026 on purpose. The freshness gate
+    // added for MED-6 is calendar-dependent — a cached rate survives into the
+    // next day only across a weekend — so leaving "today" to be whatever day
+    // CI happens to run would make the final assertion pass Mon–Fri and fail
+    // on Sunday. Tuesday fixes the interesting case: the cached rate applies
+    // to Monday, and Tuesday has its own official NBU rate, so the cache is
+    // correctly NOT fit to price money.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-07-07T09:00:00Z'))
+
+    mockNbuByDate({
+      '20260707': [], // Tue — no record anywhere → fall back a day
+      '20260706': [
+        // Mon — real publication
+        { cc: 'USD', rate: 38.5 },
+        { cc: 'EUR', rate: 42.0 },
+      ],
     })
 
     const r1 = await svc.getRates()
@@ -315,8 +373,12 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     expect(r2.stale).toBe(true)
     expect(parseFloat(r2.usdUah)).toBeCloseTo(38.5, 4)
     expect(parseFloat(r2.eurUah)).toBeCloseTo(42.0, 4)
-    // A cache-served result has no dated source either — same "genuine
-    // outage" signal as the hardcoded-fallback case above.
+    // MED-6: the cached numbers apply to Monday 06.07, but we are pricing
+    // Tuesday 07.07 — a day that has its own official NBU rate. So the cache
+    // is served for DISPLAY (the 38.5/42.0 asserted above) but carries no
+    // `rateDate`, which is the signal every money path refuses on. Note this
+    // is NOT "cache means outage" any more: the same cache priced on the same
+    // day it applies to IS accepted — see the freshness-gate spec.
     expect(r2.rateDate).toBeUndefined()
   })
 })
