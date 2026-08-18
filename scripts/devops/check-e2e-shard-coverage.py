@@ -75,29 +75,24 @@ KNOWN_UNSHARDED = {
     # --- drop suite ---
     "tests/drop-add-senior.spec.ts",              # debt: not gated, migrate to drop shard later
     "tests/drop-archive-cascade.spec.ts",         # debt: not gated, migrate to drop shard later
-    "tests/drop-archive-impact-contract.spec.ts", # debt: not gated, migrate to drop shard later
-    "tests/drop-archive-real.spec.ts",            # debt: not gated, migrate to drop shard later
-    "tests/drop-archive-user-real.spec.ts",       # debt: not gated, migrate to drop shard later
     "tests/drop-balances-panel.spec.ts",          # debt: not gated, migrate to drop shard later
-    "tests/drop-confirm-payout-edges.spec.ts",    # debt: not gated, migrate to drop shard later
-    "tests/drop-confirm-payout-rbac.spec.ts",     # debt: not gated, migrate to drop shard later
-    "tests/drop-confirm-payout.spec.ts",          # debt: not gated, migrate to drop shard later
     "tests/drop-create-ui-regressions.spec.ts",   # debt: not gated, migrate to drop shard later
     "tests/drop-create.spec.ts",                  # debt: not gated, migrate to drop shard later
-    "tests/drop-distribution-edge.spec.ts",       # debt: not gated, migrate to drop shard later
-    "tests/drop-distribution.spec.ts",            # debt: not gated, migrate to drop shard later
-    "tests/drop-duplicate-email.spec.ts",         # debt: not gated, migrate to drop shard later
     "tests/drop-findings-pr198.spec.ts",          # debt: not gated, migrate to drop shard later
     "tests/drop-income-ui.spec.ts",               # debt: not gated, migrate to drop shard later
     "tests/drop-junior-rbac.spec.ts",             # debt: not gated, migrate to drop shard later
-    "tests/drop-junior-unlock.spec.ts",           # debt: not gated, migrate to drop shard later
-    "tests/drop-multi-hr.spec.ts",                # debt: not gated, migrate to drop shard later
-    "tests/drop-project-create.spec.ts",          # debt: not gated, migrate to drop shard later
     "tests/drop-rbac.spec.ts",                    # debt: not gated, migrate to drop shard later
     "tests/drop-rotate-senior.spec.ts",           # debt: not gated, migrate to drop shard later
     "tests/drop-route-guards.spec.ts",            # debt: not gated, migrate to drop shard later
     "tests/drop-routing-hub.spec.ts",             # debt: not gated, migrate to drop shard later
     "tests/drop-senior-readonly.spec.ts",         # debt: not gated, migrate to drop shard later
+    # --- 12 files GATED 2026-08-18 (PR #573, backlog item 139) — moved out of
+    # this debt list into the `drop-finance` (6) / `drop-lifecycle` (6) shards
+    # in ci.yml: drop-confirm-payout-edges, drop-confirm-payout,
+    # drop-confirm-payout-rbac, drop-junior-unlock, drop-distribution,
+    # drop-distribution-edge, drop-archive-real, drop-archive-user-real,
+    # drop-archive-impact-contract, drop-project-create, drop-duplicate-email,
+    # drop-multi-hr.
     # --- money-path (FM-5 complete): all 3 specs now gated in drop-finance shard.
     # company-account throttle is env-relaxable via RelaxableThrottle (#275/#277).
     # THROTTLE_RELAXED=true + THROTTLER_LIMIT=2000 set in E2E job env (#276).

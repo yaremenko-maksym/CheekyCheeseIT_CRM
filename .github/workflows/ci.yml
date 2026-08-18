@@ -640,7 +640,39 @@ jobs:
             # so listing it here now is a no-op today and self-activates the
             # moment #521 merges — no follow-up PR needed, no window where the
             # spec lands on main unsharded.
-            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts
+            #
+            # 6 files added 2026-08-18 (PR #573, backlog item 139): the
+            # money-path half of a 12-file KNOWN_UNSHARDED sweep (payout
+            # confirm/edges/rbac + junior-unlock + distribution/edge — all
+            # exercise validateTransaction/payout_request against the live
+            # API, same shape as the specs already in this shard). The other
+            # 6 (archive/creation/duplicate-email/multi-hr — team-lifecycle,
+            # not money) went to a new `drop-lifecycle` shard instead of here:
+            # measured on 3 recent main runs (gh run 32139237195/32131138995/
+            # 32126984587) this shard averages ~150-180s while `misc` (the
+            # current critical-path leg — matrix runs in parallel, so overall
+            # E2E wall time = slowest shard) averages ~330-340s. PR #573's
+            # own local measurement (all 24 tests across the 12 files,
+            # 26-56s with 3 workers) extrapolates to roughly 80-170s serial
+            # in CI's workers:1 — enough that dumping all 12 in here risked
+            # landing close to or past the `misc` bottleneck. Splitting 6/6
+            # keeps this shard's growth to roughly half that (~40-85s, i.e.
+            # ~190-265s new total) and gives the other 6 their own parallel
+            # leg (`drop-lifecycle`, see below) instead of stacking onto an
+            # already-heavy one — neither new number approaches `misc`, so
+            # this split adds test coverage without moving the critical path.
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts tests/drop-confirm-payout-edges.spec.ts tests/drop-confirm-payout.spec.ts tests/drop-confirm-payout-rbac.spec.ts tests/drop-junior-unlock.spec.ts tests/drop-distribution.spec.ts tests/drop-distribution-edge.spec.ts
+          - name: drop-lifecycle
+            # New shard, 2026-08-18 (PR #573, backlog item 139) — the
+            # team-lifecycle half of the same 12-file KNOWN_UNSHARDED sweep
+            # (see the `drop-finance` comment above for the duration
+            # measurement behind the 6/6 split). These specs don't touch the
+            # money path (payout/distribution) — they cover archive/detach
+            # (mapDropTeam active-only filter, PR #541), project creation,
+            # duplicate-email validation and multi-HR handling for a DROP
+            # team, so a separate shard also groups them by what they
+            # actually test, not just by filename prefix.
+            files: tests/drop-archive-real.spec.ts tests/drop-archive-user-real.spec.ts tests/drop-archive-impact-contract.spec.ts tests/drop-project-create.spec.ts tests/drop-duplicate-email.spec.ts tests/drop-multi-hr.spec.ts
           # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
           # other leg above (no apps/web dev server; apps/landing prerender +
           # `vite preview` instead — see the matrix.shard.name == 'landing'
@@ -932,7 +964,12 @@ jobs:
         if: always() && steps.scope.outputs.code == 'true'
         run: docker rm -f minio || true
 
-  # Aggregate status of all 5 E2E shards into one PR-level check.
+  # Aggregate status of all 8 E2E shards into one PR-level check.
+  # (auth-nav, team-users, projects, finance, misc, drop-finance,
+  # drop-lifecycle, landing — count corrected 2026-08-18, PR #573 backlog
+  # item 139 wiring; this comment already read "5" before that change, so
+  # do not trust it blindly next time either — recount matrix.shard entries
+  # above instead of copying the number forward.)
   # Branch protection / auto-merge depend on this single job rather than
   # юзинг 5 separate matrix-instance checks.
   e2e_summary:
@@ -945,7 +982,7 @@ jobs:
         env:
           E2E_RESULT: ${{ needs.e2e.result }}
         run: |
-          echo "All 5 shards aggregate result: $E2E_RESULT"
+          echo "All 8 shards aggregate result: $E2E_RESULT"
           if [ "$E2E_RESULT" != "success" ]; then
             echo "::error::E2E shards failed (result=$E2E_RESULT). See individual shard logs above."
             exit 1
