@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Logger } from '@nestjs/common'
+import { kyivToday } from '@crm/shared'
 import { NbuCurrencyService } from './nbu-currency.service'
 
 /**
@@ -597,6 +598,319 @@ describe('previous-day arithmetic survives DST transitions', () => {
 
     const trueUtcDate = new Date('2023-10-30T00:00:00Z').getUTCDate()
     expect(viaLocalGetters).not.toBe(trueUtcDate)
+  })
+})
+
+/**
+ * backlog 148 (security-review #574, MED-2) — the operational day is
+ * `Europe/Kyiv`, not UTC.
+ *
+ * ── WHY THIS IS OBSERVED THROUGH `getRates`, NOT A DIRECT UNIT ON `todayStr` ─
+ * `todayStr` is private; asserting on it directly would mean reaching past the
+ * class's own boundary. Every consumer of "today" goes through it exactly
+ * once (`getRates` → `dateStr`), so pinning the real UTC instant with
+ * `vi.setSystemTime` and reading which `YYYYMMDD` the mock NBU stub was asked
+ * for is a black-box proof of the actual value used for the fetch, the
+ * `isLiveRequest` cache-write gate AND the `rateDate` key — i.e. it proves
+ * AC1 (single, shared key) as a side effect of proving AC4 (the boundary
+ * matrix), because there is only one code path capable of producing a
+ * mismatch and this exercises all of it.
+ *
+ * ── WHY NOT `process.env.TZ` ──────────────────────────────────────────────
+ * See the DST describe block above: a worker caches the zone on first read,
+ * so a second case switching `process.env.TZ` silently keeps evaluating in
+ * the first zone. `vi.setSystemTime` pins the absolute instant instead, and
+ * `todayStr` resolves it against `Europe/Kyiv` via `Intl.DateTimeFormat`
+ * regardless of the host's own zone — nothing here depends on `process.env`.
+ */
+describe('backlog 148: the operational day is Europe/Kyiv, not UTC', () => {
+  let svc: NbuCurrencyService
+  let errorSpy: ReturnType<typeof vi.spyOn>
+
+  beforeEach(() => {
+    requestedUrls.length = 0
+    svc = new NbuCurrencyService()
+    errorSpy = vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
+    vi.useFakeTimers({ toFake: ['Date'] })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
+  })
+
+  /** Pins the absolute UTC instant the system clock reports. */
+  function pinUtc(iso: string): void {
+    vi.setSystemTime(new Date(iso))
+  }
+
+  /** Which `YYYYMMDD` `getRates()` (with no explicit date) actually asked NBU for. */
+  async function askedDay(mockedDay: string): Promise<string | null> {
+    mockNbu({ [mockedDay]: RATES })
+    await svc.getRates()
+    return requestedDay(requestedUrls[0] as string)
+  }
+
+  // ── AC4: the boundary matrix, both seasons ──────────────────────────────────
+  // Kyiv is UTC+2 in winter (EET) and UTC+3 in summer (EEST, DST) — measured
+  // via Intl against the real Europe/Kyiv zone, not assumed:
+  //   winter 2026-01-14T21:59Z = Kyiv 2026-01-14 23:59
+  //   winter 2026-01-14T22:30Z = Kyiv 2026-01-15 00:30 (UTC still on the 14th)
+  //   winter 2026-01-15T00:59Z = Kyiv 2026-01-15 02:59 (UTC already on the 15th
+  //                              at this exact minute in winter — the old UTC
+  //                              code happened to be right here, see the note
+  //                              below)
+  //   winter 2026-01-15T01:01Z = Kyiv 2026-01-15 03:01
+  //   summer 2026-07-14T20:59Z = Kyiv 2026-07-14 23:59
+  //   summer 2026-07-14T21:30Z = Kyiv 2026-07-15 00:30 (UTC still on the 14th)
+  //   summer 2026-07-14T23:59Z = Kyiv 2026-07-15 02:59 (UTC still on the 14th)
+  //   summer 2026-07-15T00:01Z = Kyiv 2026-07-15 03:01
+  const MATRIX = [
+    {
+      season: 'winter (EET, UTC+2)',
+      kyivTime: '23:59',
+      utcInstant: '2026-01-14T21:59:00Z',
+      expectedDay: '20260114',
+      oldUtcDay: '20260114', // UTC calendar date at this instant — matches
+    },
+    {
+      season: 'winter (EET, UTC+2)',
+      kyivTime: '00:30',
+      utcInstant: '2026-01-14T22:30:00Z',
+      expectedDay: '20260115',
+      oldUtcDay: '20260114', // WRONG under the old code — a day behind
+    },
+    {
+      season: 'winter (EET, UTC+2)',
+      kyivTime: '02:59',
+      utcInstant: '2026-01-15T00:59:00Z',
+      expectedDay: '20260115',
+      // The +2h winter offset means UTC has already turned over by 02:59 Kyiv
+      // (02:59 − 2h = 00:59, still the 15th) — the old code happened to agree
+      // here. The bug window in winter is 00:00–02:00 Kyiv, not 00:00–03:00;
+      // the 03:00 figure in the class comment is the DST (summer) worst case.
+      oldUtcDay: '20260115',
+    },
+    {
+      season: 'winter (EET, UTC+2)',
+      kyivTime: '03:01',
+      utcInstant: '2026-01-15T01:01:00Z',
+      expectedDay: '20260115',
+      oldUtcDay: '20260115',
+    },
+    {
+      season: 'summer (EEST, UTC+3)',
+      kyivTime: '23:59',
+      utcInstant: '2026-07-14T20:59:00Z',
+      expectedDay: '20260714',
+      oldUtcDay: '20260714',
+    },
+    {
+      season: 'summer (EEST, UTC+3)',
+      kyivTime: '00:30',
+      utcInstant: '2026-07-14T21:30:00Z',
+      expectedDay: '20260715',
+      oldUtcDay: '20260714', // WRONG under the old code
+    },
+    {
+      season: 'summer (EEST, UTC+3)',
+      kyivTime: '02:59',
+      utcInstant: '2026-07-14T23:59:00Z',
+      expectedDay: '20260715',
+      // The +3h summer offset means UTC has NOT yet turned over at 02:59 Kyiv
+      // (02:59 − 3h = 23:59 the day before) — this is the case the class
+      // comment's "00:00–03:00" window is actually about.
+      oldUtcDay: '20260714', // WRONG under the old code
+    },
+    {
+      season: 'summer (EEST, UTC+3)',
+      kyivTime: '03:01',
+      utcInstant: '2026-07-15T00:01:00Z',
+      expectedDay: '20260715',
+      oldUtcDay: '20260715',
+    },
+  ] as const
+
+  for (const c of MATRIX) {
+    const wrongUnderOldCode = c.oldUtcDay !== c.expectedDay
+    it(`AC4: Kyiv ${c.kyivTime} ${c.season} asks NBU for ${c.expectedDay}${wrongUnderOldCode ? ' (old UTC code asked for ' + c.oldUtcDay + ' — WRONG)' : ' (old UTC code happened to agree here)'}`, async () => {
+      pinUtc(c.utcInstant)
+      const asked = await askedDay(c.expectedDay)
+      console.log(
+        `[AC4] Kyiv ${c.kyivTime} ${c.season} (UTC ${c.utcInstant}) -> requested ${asked}` +
+          (wrongUnderOldCode ? ` | old UTC-based code would have asked for ${c.oldUtcDay}` : ''),
+      )
+      expect(asked).toBe(c.expectedDay)
+    })
+  }
+
+  // ── AC1: the cache key moves WITH the fix, not independently of it ─────────
+  it('AC1: a rate cached right after Kyiv midnight is recognised as fresh later the SAME Kyiv day', async () => {
+    // Seed at Kyiv 2026-01-15 00:30 — UTC is still on the 14th at this instant.
+    // If the cache key were still derived from UTC while the fetch moved to
+    // Kyiv (fixing one without the other, exactly the mismatch the class
+    // comment warns about), this would cache under "20260114" while later
+    // reads that same Kyiv day ask for "20260115" — a permanent miss.
+    pinUtc('2026-01-14T22:30:00Z')
+    mockNbu({ '20260115': RATES })
+    const seeded = await svc.getRates()
+    expect(seeded.rateDate).toBe('20260115')
+
+    // Later the SAME Kyiv day (10:00 Kyiv = 08:00 UTC, well past the boundary),
+    // the feed goes down. The cache must be recognised as age-0 for TODAY, not
+    // stale-from-a-day-that-never-matched.
+    mockTotalOutage()
+    pinUtc('2026-01-15T08:00:00Z')
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true) // it IS the outage fallback
+    expect(result.rateDate).toBe('20260115') // ...but still dated, money paths accept
+  })
+
+  it('AC1: the reverse boundary — cached mid-morning, outage hits right after the NEXT Kyiv midnight', async () => {
+    // Seed comfortably inside 2026-01-15 (10:00 Kyiv = 08:00 UTC).
+    pinUtc('2026-01-15T08:00:00Z')
+    mockNbu({ '20260115': RATES })
+    const seeded = await svc.getRates()
+    expect(seeded.rateDate).toBe('20260115')
+
+    // The feed dies, and the request comes in at Kyiv 2026-01-16 00:30 — UTC
+    // is still on the 15th at that instant. A UTC-keyed cache would see this
+    // as the SAME day (age 0, wrongly accepted for an extra ~90 minutes past
+    // the real Kyiv-day boundary); the Kyiv-keyed cache must see it as the
+    // NEXT day and apply the real freshness gate (age 1, a weekday — refused).
+    mockTotalOutage()
+    pinUtc('2026-01-15T22:30:00Z') // Kyiv 2026-01-16 00:30
+    const result = await svc.getRates()
+
+    expect(result.stale).toBe(true)
+    expect(result.rateDate).toBeUndefined() // Thursday->Friday: a new rate exists, refused
+  })
+
+  // ── AC2: DST transition boundary, both directions ──────────────────────────
+  // Ukraine 2026: clocks spring forward at 2026-03-29 01:00 UTC (Kyiv 02:00
+  // EET -> 04:00 EEST, skipping 03:00-03:59) and fall back at 2026-10-25 01:00
+  // UTC (Kyiv 04:00 EEST -> 03:00 EET, repeating 03:00-03:59) — measured via
+  // Intl against the real tz database, not assumed. Neither transition itself
+  // crosses midnight, so what these guard against is a hardcoded "+2" or "+3"
+  // offset that fails to pick up the NEW offset the instant it takes effect —
+  // exactly the class a fixed-offset implementation (rejected in favour of
+  // `Intl.DateTimeFormat` — see the `todayStr` comment) would get wrong for
+  // half the year.
+  it('AC2: the day AFTER spring-forward already uses the new +3 (EEST) offset at the midnight boundary', async () => {
+    // Kyiv 2026-03-30 00:30 EEST = UTC 2026-03-29 21:30 (still the 29th in
+    // UTC). A stale "+2" offset would compute Kyiv day as the 29th too by
+    // coincidence of rounding; the real EEST offset is what fixes it to the
+    // 30th for the right reason.
+    pinUtc('2026-03-29T21:30:00Z')
+    const asked = await askedDay('20260330')
+    expect(asked).toBe('20260330')
+  })
+
+  it('AC2: the day AFTER fall-back already uses the new +2 (EET) offset at the midnight boundary', async () => {
+    // Kyiv 2026-10-26 00:30 EET = UTC 2026-10-25 22:30 (still the 25th in
+    // UTC). Using the just-retired +3 EEST offset would land on 2026-10-26
+    // 01:30, still the 26th by luck — the case that actually distinguishes the
+    // two offsets is the one below.
+    pinUtc('2026-10-25T22:30:00Z')
+    const asked = await askedDay('20261026')
+    expect(asked).toBe('20261026')
+  })
+
+  it('AC2: fall-back reverse case — a stale +3 offset would roll this into the WRONG day', async () => {
+    // UTC 2026-10-25T21:15Z: real EET (+2) gives Kyiv 2026-10-25 23:15 (still
+    // the 25th). A leftover +3 (EEST) offset would give 2026-10-26 00:15 — the
+    // NEXT day, one day too early. This is the case a hardcoded-offset
+    // implementation gets wrong: it must switch offset exactly at the real
+    // transition instant, not one day later.
+    pinUtc('2026-10-25T21:15:00Z')
+    const asked = await askedDay('20261025')
+    expect(asked).toBe('20261025')
+  })
+
+  // ── AC3: the publication-mode gap is a normal empty answer, not a fault ────
+  // NBU recalculates each business day in the afternoon and the new value
+  // applies from the NEXT calendar day (see the `MAX_CACHED_RATE_AGE_DAYS`
+  // header comment, measured live). Before that window, "tomorrow" has no
+  // record on any source and the exact-match fetch legitimately returns
+  // empty — the two tests below are the two calendar shapes that can follow:
+  // tomorrow is a fresh weekday (refused, correctly) or tomorrow is a weekend
+  // day (payable, since it will only ever repeat today's value).
+  it('AC3: tomorrow is a WEEKDAY — the empty pre-publication gap is not an error, but the fallback is still correctly refused for money', async () => {
+    // Wednesday 2026-07-15, well before the afternoon publication; Thursday
+    // 2026-07-16 has no record on any source yet.
+    pinUtc('2026-07-15T09:00:00Z')
+    mockNbu({ '20260715': RATES }) // only today is published; tomorrow is empty
+    const result = await svc.getRates('20260716')
+
+    expect(result.date).toBe('20260716') // still echoes the requested (tomorrow) day
+    expect(result.stale).toBe(true)
+    // Thursday will get its OWN official rate once published — today's number
+    // is not fit to price it, so this correctly refuses, exactly like the
+    // MED-1 "Sunday cannot price Monday" case.
+    expect(result.rateDate).toBeUndefined()
+    // The empty-tomorrow gap must not be logged as a source/network failure —
+    // it is an expected, normal "not published yet", not a fault. Stronger
+    // than a substring check (security-review PR #578 review, LOW-3): the
+    // previous-day fallback that serves this request only ever WARNs, so
+    // `.error()` must not fire AT ALL, not merely avoid specific phrases.
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('AC3: tomorrow is a WEEKEND day — the pre-publication gap falls back to a real, payable rate', async () => {
+    // Friday 2026-07-17, before the afternoon publication; Saturday
+    // 2026-07-18 has no record yet, but Saturday only ever repeats Friday's
+    // value, so Friday's rate is genuinely fit to price it.
+    pinUtc('2026-07-17T09:00:00Z')
+    mockNbu({ '20260717': RATES })
+    const result = await svc.getRates('20260718')
+
+    expect(result.date).toBe('20260718')
+    expect(result.stale).toBe(true) // honestly not the exact day requested
+    expect(result.rateDate).toBe('20260717') // but a real, dated, payable rate
+    // Stronger than a substring check (security-review PR #578 review, LOW-3).
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  // ── PR #578 review: the day formatter now lives in `@crm/shared` ───────────
+  // The mutation-gate proof for the formatter's OWN construction args (a
+  // mutant that drops `timeZone: 'Europe/Kyiv'` and silently falls back to
+  // the HOST's default zone — invisible on a host whose OS zone also happens
+  // to BE Kyiv, exactly the assumption `todayStr`'s comment warns against)
+  // now lives with the formatter itself, in
+  // `packages/shared/src/utils/kyiv-day.spec.ts`. Duplicating it here would
+  // test `@crm/shared` FROM `@crm/api`'s suite, the wrong package boundary.
+  // What THIS file still owns: proving `NbuCurrencyService.todayStr()` (via
+  // `getRates()`, since it is private) actually PRODUCES the same day
+  // `kyivToday()` does — see the "client key === server day" test below.
+
+  // ── PR #578 review: client cache key and server day MUST agree ─────────────
+  // Security review found three OTHER "today" computations left on plain
+  // UTC after this PR's first pass — the client-side `exchange-rate`
+  // react-query cache key in `amount-currency-input.tsx` / `PaySalaryDialog`
+  // / `UserDialog`, and the DROP-settle `txDate` upper bound in
+  // `settleSeniorPayoutSchema` (+ its mirrored date-picker `maxDate`) — and
+  // asked for proof that, after routing everything through the same
+  // `kyivToday()`, the CLIENT's cache key and the SERVER's actual requested
+  // day agree across the exact boundary window this bug lives in (00:00-03:00
+  // Kyiv, both seasons). `kyivToday()` stands in for "what the client would
+  // compute" (it is the literal function `amount-currency-input.tsx` now
+  // calls for its cache key); `getRates()`'s ACTUAL NBU request — not a
+  // second call to `kyivToday()`, which would only prove the function is
+  // consistent with itself — stands in for the server.
+  it('PR #578 review: the client-side cache key (kyivToday()) matches the day the server actually requests, across the boundary window in both seasons', async () => {
+    for (const c of MATRIX) {
+      pinUtc(c.utcInstant)
+      const clientKey = kyivToday().replace(/-/g, '')
+      const serverDay = await askedDay(clientKey)
+      console.log(
+        `[client===server] Kyiv ${c.kyivTime} ${c.season} (UTC ${c.utcInstant}) — client key=${clientKey}, server requested=${serverDay}`,
+      )
+      expect(serverDay).toBe(clientKey)
+      requestedUrls.length = 0
+    }
   })
 })
 

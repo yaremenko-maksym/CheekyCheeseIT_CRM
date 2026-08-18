@@ -17,6 +17,7 @@ import {
   paySalarySchema,
   settleSeniorPayoutSchema,
 } from './finance'
+import { kyivToday } from '../utils/kyiv-day'
 
 const UUID = 'a0000000-0000-4000-8000-000000000001'
 const UUID2 = 'a0000000-0000-4000-8000-000000000002'
@@ -379,12 +380,22 @@ describe('settleSeniorPayoutSchema — txDate (owner addendum, 2026-08)', () => 
   })
 
   it('accepts today', () => {
-    const today = new Date().toISOString().slice(0, 10)
-    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: today }).success).toBe(true)
+    // security-review PR #578 review (MED-2): `kyivToday()`, the SAME
+    // function the schema itself compares against — NOT
+    // `new Date().toISOString()` (plain UTC), which disagrees with it for up
+    // to 3 hours a day (backlog 148) and would make this test genuinely flaky
+    // when actually run in that window, not merely wrong in theory.
+    expect(settleSeniorPayoutSchema.safeParse({ ...base, txDate: kyivToday() }).success).toBe(true)
   })
 
   it('rejects a future date, on the txDate field, with a russian "future" message', () => {
-    const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+    // "Tomorrow" relative to the KYIV calendar day the schema itself uses —
+    // plain calendar-day arithmetic (no timezone involved once we already
+    // have a YYYY-MM-DD string), so this stays correct regardless of when
+    // the suite actually runs.
+    const tomorrow = new Date(Date.parse(`${kyivToday()}T00:00:00Z`) + 24 * 60 * 60 * 1000)
+      .toISOString()
+      .slice(0, 10)
     const result = settleSeniorPayoutSchema.safeParse({ ...base, txDate: tomorrow })
     expect(result.success).toBe(false)
     if (result.success) return

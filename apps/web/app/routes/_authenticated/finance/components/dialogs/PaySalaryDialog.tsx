@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { AlertTriangle } from 'lucide-react'
 import type { TransactionDto } from '@crm/shared'
 import {
+  kyivToday,
   receiptMandatoryError,
   salaryPaidAmountDeviation,
   transactionAmountError,
@@ -61,8 +62,11 @@ export function PaySalaryDialog({
   // Same query key `AmountCurrencyInput` uses internally (calendar-day scoped,
   // so a tab left open past midnight refetches): an identical key means ONE
   // cache entry and ONE request shared with the input rendered below, not a
-  // second fetch of the same rates.
-  const todayKey = new Date().toISOString().slice(0, 10)
+  // second fetch of the same rates. `kyivToday()`, not the browser's local/UTC
+  // day (security-review PR #578 review, MED-1) — must match the day the
+  // SERVER prices by (backlog 148), or this pre-fills the amount from a rate
+  // a stale-by-up-to-3-hours cache thinks is still "today's".
+  const todayKey = kyivToday()
   const { data: rates } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', todayKey],
     queryFn: () => api.get<ExchangeRates>('/finance/exchange-rate').then((r) => r.data),
