@@ -51,6 +51,43 @@ describe('integration-db-guard setup()', () => {
     expect(queryMock).not.toHaveBeenCalled()
   })
 
+  it('LOW-2 (security review, PR #579): the crm_db refusal message redacts the password too — it used to interpolate the raw DATABASE_URL', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://crm_user:supersecret@localhost:5432/crm_db'
+
+    const message: string = await setup().then(
+      () => {
+        throw new Error('setup() should have thrown')
+      },
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    )
+
+    expect(message).not.toContain('supersecret')
+    expect(message).toContain(':***@')
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('LOW-3 (security review, PR #579): percent-encoded crm%5Fdb (decodes to crm_db for libpq) is BLOCKED — extractDbName percent-decodes, the old hand-rolled extraction did not', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://u:p@localhost:5432/crm%5Fdb'
+
+    await expect(setup()).rejects.toThrow(/must not run against crm_db/)
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('LOW-3 (security review, PR #579): a trailing space after crm_db is BLOCKED — extractDbName trims, the old hand-rolled extraction did not', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://u:p@127.0.0.1:5432/crm_db '
+
+    await expect(setup()).rejects.toThrow(/must not run against crm_db/)
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('a name that merely STARTS WITH crm_db (crm_db_scratch) is NOT blocked — exact-match behaviour unchanged by reusing extractDbName', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://u:p@localhost:5433/crm_db_scratch'
+    queryMock.mockResolvedValue({ rows: [{ version: PG16 }] })
+
+    await expect(setup()).resolves.toBeUndefined()
+    expect(queryMock).toHaveBeenCalledTimes(1)
+  })
+
   it('an unset DATABASE_URL warns and returns — never opens a connection (specs handle the skip)', async () => {
     // DATABASE_URL left unset by beforeEach.
     await expect(setup()).resolves.toBeUndefined()

@@ -87,6 +87,8 @@ import fs from 'fs'
 import { config as loadDotenv } from 'dotenv'
 import { Pool } from 'pg'
 
+import { extractDbName } from '../database/seed-db-guard'
+
 /** Postgres major version pinned for docker-compose (version-pins.md). */
 const EXPECTED_PG_MAJOR = 16
 
@@ -106,24 +108,29 @@ export async function setup(): Promise<void> {
   }
 
   const dbUrl = process.env['DATABASE_URL'] ?? ''
+  // Redacted up front (LOW-2, security review PR #579) so every message in
+  // this function — including the crm_db refusal right below, which used to
+  // interpolate the raw dbUrl (password included) — shares the same
+  // never-print-the-password value; nothing downstream can regress back to
+  // the raw URL because there is no raw reference left to reach for.
+  const redactedUrl = dbUrl.replace(/:[^:@]+@/, ':***@')
 
   // Extract the database name from the connection string (last path segment).
-  // Handles: postgresql://user:pass@host:port/dbname
-  //          postgresql://user:pass@host/dbname
-  //          postgres://user:pass@host:port/dbname
-  let dbName: string
-  try {
-    const parsed = new URL(dbUrl)
-    dbName = parsed.pathname.replace(/^\//, '')
-  } catch {
-    // Malformed URL — no database name to check; let the test fail naturally.
-    dbName = ''
-  }
+  // Reuses seed-db-guard.ts's extractDbName (LOW-3, security review PR #579)
+  // instead of a second, weaker hand-rolled version: this file's own
+  // extraction used to skip percent-decoding and trimming, so `crm%5Fdb`
+  // (decodes to crm_db for libpq) or a trailing space after `crm_db` would
+  // have sailed past the check below undetected — exactly the two bypass
+  // classes seed-db-guard.ts and run-landing-e2e-local.sh's db_name_from_url()
+  // already close. Now that task-ci-db-rename-and-dbpush-guard removed the
+  // CI=true short-circuit above, this extraction runs on every invocation,
+  // CI included, so the weaker version was carrying more load than before.
+  const dbName = extractDbName(dbUrl)
 
   if (dbName === 'crm_db') {
     throw new Error(
       `[integration-db-guard] BLOCKED: integration tests must not run against crm_db locally.\n` +
-        `  DATABASE_URL currently points to: ${dbUrl}\n` +
+        `  DATABASE_URL currently points to: ${redactedUrl}\n` +
         `\n` +
         `  Fix: set DATABASE_URL to crm_qa before running integration tests.\n` +
         `\n` +
@@ -154,7 +161,7 @@ export async function setup(): Promise<void> {
   // different Postgres SERVER used to sail through this guard and then get
   // silently swallowed by every individual spec's own try/catch (the bug this
   // guard now closes at a single choke point — see file doc above).
-  const redactedUrl = dbUrl.replace(/:[^:@]+@/, ':***@')
+  // (redactedUrl computed once, above, before the crm_db branch — see LOW-2.)
   const probe = new Pool({ connectionString: dbUrl, connectionTimeoutMillis: 5000 })
   let serverVersion: string
   try {
