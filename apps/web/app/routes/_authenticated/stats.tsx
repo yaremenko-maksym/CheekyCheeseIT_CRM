@@ -825,10 +825,18 @@ export function StatsPage() {
   // economic part (P&L: income / expenses / salaries / Net / profit + charts +
   // monthly breakdown). The employee/partner-level sections — participants
   // balances, the partner-balances settlement card, and the future
-  // HR/Команда/Проекты placeholders — stay ADMIN-only (`isAdmin`). Other roles
-  // are bounced to the dashboard at / (defense-in-depth over the route-access guard).
-  // task-accountant-stats: economic data is the accountant's profile surface;
-  // employee-level balances must never leak to ACCOUNTANT here.
+  // HR/Команда/Проекты placeholders — are hidden from ACCOUNTANT only HERE,
+  // client-side, via `isAdmin`. Other roles are bounced to the dashboard at /
+  // (defense-in-depth over the route-access guard).
+  // task-accountant-stats: economic data is the accountant's profile surface.
+  // There is no server-side prohibition backing that gate: since 2026-08-17
+  // `canSeeAdminBalances` in `TransactionsService.getSummary` is unconditionally
+  // `true` for both ADMIN and ACCOUNTANT — access to `adminBalances` was
+  // deliberately extended to ACCOUNTANT (owner decision; SEC-3 in #551, MED-1
+  // in #560). The `summary` fetched below (`enabled: isPrivilegedViewer`)
+  // already carries `adminBalances` for ACCOUNTANT too; `isAdmin` here is the
+  // ONLY thing keeping it off the ACCOUNTANT's screen. Do not remove it, and
+  // do not assume the server would catch you if you did.
   const isPrivilegedViewer = user?.role === 'ADMIN' || user?.role === 'ACCOUNTANT'
   const isAdmin = user?.role === 'ADMIN'
 
