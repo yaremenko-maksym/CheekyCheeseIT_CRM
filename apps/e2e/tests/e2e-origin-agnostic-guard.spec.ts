@@ -90,17 +90,22 @@
  *     only accepted if EVERY literal in its chain carries a `process.env`
  *     guard — the `REAL_API_BASE` idiom.
  *
- * Known gap (see also the module doc's own admission at the top): this is a
- * per-FILE, name-based reference graph — it does not do real lexical scope
- * resolution (no shadowing awareness) and it does not follow imports across
- * files (an imported `REAL_API_BASE` is invisible to this scan, which is
- * exactly why importing it from `fixtures.ts` rather than re-declaring it
- * locally is safe — there is nothing left to trace). A `const` whose origin
- * is built through something more indirect than a same-file identifier
- * chain (a function call, a cross-file re-export under a new name, string
- * concatenation via `+` instead of a template literal) is NOT caught. Those
- * are not shapes AC1's inventory found anywhere in this codebase; if one
- * shows up, it needs a fifth self-test case here, not a wider regex.
+ * Known gap: this is a per-FILE, name-based reference graph, not real
+ * lexical scoping — it has no shadowing awareness, and it does not follow
+ * imports across files (an imported `REAL_API_BASE` is invisible to this
+ * scan, which is exactly why importing it from `fixtures.ts` rather than
+ * re-declaring it locally is safe: there is nothing left here to trace).
+ * Walking every `Identifier` under an initializer/argument (rather than
+ * pattern-matching specific expression shapes) does mean ordinary JS
+ * composition is covered for free — `+` string concatenation and
+ * multi-hop `const` chains all resolve correctly (verified directly, not
+ * assumed: see the round-2 review response for the empirical check). What
+ * genuinely defeats it is a `const` whose origin only becomes a literal
+ * INSIDE a function body (`const API_BASE = buildOrigin() + '/api'` — the
+ * call result is opaque to a reference graph built only from `const`/`let`
+ * declarations) or a cross-file re-export under a new name. Neither shape
+ * appears anywhere in AC1's inventory of this codebase's actual bugs; if
+ * one shows up, it needs a fifth self-test case here, not a wider regex.
  */
 import { test, expect } from '@playwright/test'
 import { readFileSync, readdirSync, statSync } from 'node:fs'
