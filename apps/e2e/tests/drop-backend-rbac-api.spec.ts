@@ -60,7 +60,6 @@ import {
   ensureCompanyWalletViaAPI,
   validateTransactionViaAPI,
   createPayoutRequestViaAPI,
-  payPayoutRequestViaAPI,
 } from './fixtures'
 
 const REAL_API = `${REAL_API_BASE}/api`
@@ -160,9 +159,10 @@ test.describe('DROP backend RBAC — direct API regression', () => {
     // so the request never even reaches `TransactionsService.getSummary`
     // (see transactions.summary.roles-guard.spec.ts for the guard-level unit
     // proof that the handler is unreached). Both layers agree DROP is
-    // forbidden; this spec pins the live, end-to-end HTTP contract — 403, with
-    // the guard's own message, not the service's — a fresh caller actually
-    // gets.
+    // forbidden — this spec pins the live, end-to-end HTTP contract a fresh
+    // caller actually gets: 403. (Code-review round on #569: the message
+    // assertion below does NOT additionally prove WHICH of the two layers
+    // produced it — see that comment for what it does and doesn't pin.)
     const suffix = uniqueSuffix()
     const dropEmail = `drop-api-summary-${suffix}@cheekycheese.dev`
 
@@ -191,10 +191,27 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       // (untouched by #566, still gated by service-side ownership).
       expect(res.status()).toBe(403)
       const body = (await res.json()) as { message: string }
-      // The guard layer runs first and throws its own message (distinct from
-      // the service's "Access denied: finance summary requires ADMIN or
-      // ACCOUNTANT role") — asserting on it pins that the 403 actually comes
-      // from the @Roles guard, not merely from a downstream crash.
+      // Code-review round on #569 (MED-1): this assertion does NOT tell the
+      // `RolesGuard` layer's 403 apart from `TransactionsService.getSummary`'s
+      // own 403 — checked both message strings by hand: the guard throws
+      // "Доступ только для ролей: ADMIN, ACCOUNTANT", the service throws
+      // "Access denied: finance summary requires ADMIN or ACCOUNTANT role".
+      // Both contain "ADMIN" and "ACCOUNTANT", so `toContain` can't
+      // distinguish them, and there's no sturdier assertion available here —
+      // unlike `OnboardingGuard`, `RolesGuard`'s `ForbiddenException` carries
+      // no structured error code, only free-text that happens to overlap on
+      // these two words.
+      //
+      // What this DOES rule out is the other, more dangerous way to get a 403
+      // here: `OnboardingGuard` throws `{ error: 'ONBOARDING_REQUIRED',
+      // missing }` — no `message` field at all — so on that path
+      // `body.message` is `undefined` and `.toContain(...)` throws/fails
+      // instead of silently passing. That is the exact confusion this file
+      // had before this fix (see the onboarding note above): without
+      // `onboardDropViaAPI`, the status-only assertion would have passed for
+      // the wrong reason (onboarding-gate 403, not role-gate 403). This
+      // message check is a role-vs-onboarding discriminator, not a
+      // guard-vs-service one.
       expect(body.message).toContain('ADMIN')
       expect(body.message).toContain('ACCOUNTANT')
     } finally {
@@ -321,10 +338,6 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       expect(payRes.status()).toBe(200)
       const body = (await payRes.json()) as { status: string }
       expect(body.status).toBe('PAID')
-
-      // Sanity helper-path: payPayoutRequestViaAPI throws on non-200, so a
-      // second call would already fail if status had silently regressed.
-      // We use the explicit fetch above as the load-bearing assertion.
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)
