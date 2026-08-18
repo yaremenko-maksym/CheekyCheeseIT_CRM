@@ -148,10 +148,20 @@ export class TransactionsController {
     )
   }
 
-  // BIZ-17: DROP resubmit path for REJECTED DROP_INCOME. Service-side ownership
-  // check (tx.receiverId === currentUser.id) is the gate — no @Roles needed;
-  // RolesGuard passes when no metadata is present.
+  // BIZ-17: DROP resubmit path for REJECTED DROP_INCOME. Two independent
+  // checks in `TransactionsService.updateDropIncome`: `currentUser.role !==
+  // 'DROP'` FIRST (an exact role check — the same shape `createDropIncome`
+  // above already carries as `@Roles('DROP')`), THEN `tx.receiverId ===
+  // currentUser.id` for ownership of THIS specific transaction. `@Roles`
+  // expresses the first; it cannot express the second, which stays
+  // service-side. Security-review round on #577 (MED-1): this route used to
+  // carry no `@Roles` at all — the comment here claimed "ownership is the
+  // gate, no @Roles needed" for BOTH checks, which was wrong for the role
+  // check and would have misled the next person who read it instead of the
+  // service. `@Roles('DROP')` below adds the guard layer for the role half;
+  // the service's ownership check is unchanged.
   @Patch('drop-income/:id')
+  @Roles('DROP')
   updateDropIncome(
     @Param('id') id: string,
     @Body() body: unknown,
@@ -326,7 +336,27 @@ export class TransactionsController {
   }
 }
 
+// backlog item 128 (security-review #566): this controller carried NO
+// class-level guard — only `manual-confirm` brought its own method-level
+// `@UseGuards(RolesGuard)`. `create` and `pay` therefore held BOTH money-out
+// routes on the service-side check alone (`currentUser.role !== 'SENIOR' &&
+// currentUser.role !== 'DROP'` in transactions.service.ts). Severity note
+// (do not re-inflate on a future pass): the binding constraint on both
+// routes is OWNERSHIP, not role — `createPayoutRequest` locks rows with
+// `eq(transactions.receiverId, currentUser.id)`, `payPayoutRequest` checks
+// `req.seniorId === currentUser.id` — so a stray SENIOR/DROP/other role
+// simply has no matching rows to act on. This is defense-in-depth (a second,
+// independent layer that rejects BEFORE the handler runs), not the closing
+// of a live hole. `@UseGuards(RolesGuard)` at the class level below mirrors
+// `TransactionsController` / `FinanceSummaryController` above; the
+// per-method `@UseGuards(RolesGuard)` that used to sit on `manual-confirm`
+// is now redundant and removed (same cleanup `paySalary` got in the audit
+// this comment block quotes elsewhere in this file) — @Roles alone is
+// enough once the class carries the guard. The service-side checks are KEPT
+// on every route — never remove them, @Roles cannot express "and it must be
+// MY row".
 @Controller('payout-requests')
+@UseGuards(RolesGuard)
 export class PayoutRequestsController {
   // Explicit @Inject so this REAL controller can be instantiated by Nest's DI in
   // the vitest/esbuild env (which omits `design:paramtypes`) — required by the
@@ -335,22 +365,40 @@ export class PayoutRequestsController {
   // @Roles/@UseGuards from the manual-confirm route turns THAT spec red.
   constructor(@Inject(TransactionsService) private readonly svc: TransactionsService) {}
 
+  // `findPayoutRequests` never throws for a non-eligible role — HR/JUNIOR
+  // get an empty array (200), not a 403, so there is no "unconditional
+  // superset" of allowed roles to lift into `@Roles` here the way #566 did
+  // for `getSummary` (a plain guard would turn that 200-empty into a 403,
+  // changing the contract). Left as-is; service-side filtering is the gate.
   @Get()
   findAll(@CurrentUser() user: SessionUser) {
     return this.svc.findPayoutRequests(user)
   }
 
+  // security-review round on #577 (LOW-1): `TransactionsService.
+  // findPayoutRequest` throws `ForbiddenException` UNCONDITIONALLY for any
+  // role outside `{ADMIN, ACCOUNTANT} ∪ {SENIOR, DROP who own the row}` —
+  // unlike `findAll` above, HR/JUNIOR (and any future role) can NEVER
+  // succeed here, ownership or not. That superset — the roles that can EVER
+  // pass the service check — is exactly what `@Roles` below expresses,
+  // mirroring the backlog-121 pattern (`getSummary` et al.): the guard
+  // rejects the categorically-ineligible roles BEFORE the handler runs; the
+  // service's `isPrivileged`/`isOwner` check is UNCHANGED and still does the
+  // per-row ownership narrowing `@Roles` cannot express.
   @Get(':id')
+  @Roles('ADMIN', 'ACCOUNTANT', 'SENIOR', 'DROP')
   findOne(@Param('id') id: string, @CurrentUser() user: SessionUser) {
     return this.svc.findPayoutRequest(id, user)
   }
 
   @Post()
+  @Roles('SENIOR', 'DROP')
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createPayoutRequest(createPayoutRequestSchema.parse(body).transactionIds, user)
   }
 
   @Patch(':id/pay')
+  @Roles('SENIOR', 'DROP')
   pay(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = payPayoutRequestSchema.parse(body)
     // simulateResult is a DEV-only escape hatch: forwarded only when the
@@ -367,11 +415,11 @@ export class PayoutRequestsController {
   // Phase 8 v2 — manual payout confirmation. ADMIN/ACCOUNTANT mark a payout PAID
   // when it was settled OFF the on-chain happy path (COMPANY_ACCOUNT vouched,
   // ADMIN_USDT to a partner's personal wallet, or CASH). Only COMPANY_ACCOUNT
-  // credits the company balance. RolesGuard enforces RBAC (the @Roles metadata
-  // is inert without it — RolesGuard is NOT a global APP_GUARD); the service
-  // re-checks the role for defense-in-depth.
+  // credits the company balance. RolesGuard enforces RBAC via the class-level
+  // @UseGuards above (the @Roles metadata is inert without it — RolesGuard is
+  // NOT a global APP_GUARD); the service re-checks the role for
+  // defense-in-depth.
   @Post(':id/manual-confirm')
-  @UseGuards(RolesGuard)
   @Roles('ADMIN', 'ACCOUNTANT')
   manualConfirm(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = manualConfirmPayoutSchema.parse(body)
