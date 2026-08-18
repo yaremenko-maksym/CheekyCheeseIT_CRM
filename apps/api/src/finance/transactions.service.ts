@@ -3785,6 +3785,31 @@ export class TransactionsService {
       throw new BadRequestException('Can only transfer to another ADMIN')
     if (receiver.id === effectiveSenderId)
       throw new BadRequestException('Cannot transfer to yourself')
+    // task-archived-user-completeness (AC3). RECEIVER only — the asymmetry is
+    // the whole point. In the HOLDING model an ADMIN_TRANSFER credits the
+    // receiver (`received` in getSummary), i.e. it puts more company money into
+    // that partner's hands. Doing that to a departed partner is a NEW
+    // placement, not the settlement of anything. The SENDER side is the mirror
+    // image and is deliberately left unguarded: an archived admin transferring
+    // out is a departed partner handing back what they still hold, which is
+    // exactly the settlement half this task must not break.
+    //
+    // Unreachable today for the same four reasons spelled out on the dividend
+    // path (`CompanyAccountService.createDividend`) — an archived ADMIN cannot
+    // be produced through the API. Kept as a lock on a door that does not
+    // exist yet, not as dead code.
+    //
+    // Read the dividend path's comment before relaxing this one: an ADMIN
+    // partner has NO `pending_obligations` row (that table's only writer
+    // stamps a senior or a drop, never an admin), so their accumulated share
+    // exists solely as a derived HOLDING balance. With this guard the archived
+    // RECEIVER side is closed on every admin-crediting path at once — fine
+    // while archived admins cannot exist, and a thing a "deactivate partner"
+    // feature has to solve with a settlement path rather than by deleting
+    // these lines.
+    if (receiver.archivedAt) {
+      throw new BadRequestException('Получатель архивирован — перевод невозможен')
+    }
 
     // task-receipts-backend (#8): mandatory receipt, currency-aware (default
     // USDT → explorer-only). Defense-in-depth over Zod; validate the doc binding
