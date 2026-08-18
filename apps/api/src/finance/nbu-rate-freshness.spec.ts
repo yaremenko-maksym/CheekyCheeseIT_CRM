@@ -456,6 +456,150 @@ describe('Part 2: multiple NBU paths, tried in a fixed order', () => {
   })
 })
 
+/**
+ * Independent reference for "one calendar day earlier", built from UTC
+ * component getters. Deliberately a DIFFERENT algorithm from the implementation
+ * (which subtracts 86_400_000 ms): if both were the same arithmetic, the test
+ * would be a tautology that stays green for any shared mistake.
+ */
+function utcPrevDay(ymd: string): string {
+  const d = new Date(
+    Date.UTC(Number(ymd.slice(0, 4)), Number(ymd.slice(4, 6)) - 1, Number(ymd.slice(6, 8))),
+  )
+  d.setUTCDate(d.getUTCDate() - 1)
+  const pad = (n: number): string => String(n).padStart(2, '0')
+  return `${d.getUTCFullYear()}${pad(d.getUTCMonth() + 1)}${pad(d.getUTCDate())}`
+}
+
+describe('previous-day arithmetic survives DST transitions', () => {
+  // Regression cover for the bug fixed in this PR: the old implementation
+  // parsed the date as UTC and then stepped back with LOCAL getters/setters,
+  // which skipped TWO days on the day after a DST fall-back. Pure UTC
+  // arithmetic is what makes it correct — but "correct by construction" is not
+  // a test, and this is precisely the defect that was fixed, so the transition
+  // dates themselves are pinned here.
+  // ── why this does NOT switch process.env.TZ ────────────────────────────────
+  // The obvious way to test this is to set `process.env.TZ` to a DST zone per
+  // case. It does not work reliably, and it fails SILENTLY, which is worse than
+  // not testing at all: inside a worker thread Node caches the zone on first
+  // use, so only the FIRST assignment takes effect. Measured here — a second
+  // case switching to `Australia/Sydney` still evaluated in `Europe/Kyiv`
+  // (local hour 3, not 10). Under plain `vitest` (per-file isolation) the two
+  // cases happened to pass; under Stryker (shared worker) they did not, which
+  // is how it surfaced.
+  //
+  // So instead of simulating a zone, this booby-traps the LOCAL-time accessors
+  // themselves. Correct previous-day arithmetic is a pure UTC operation and
+  // must never read a local component; the old implementation read
+  // `getDate()`. Poisoning those getters makes any local-time dependence
+  // produce a visibly wrong day in EVERY timezone at once — deterministic in
+  // any pool, on any CI runner, and it fails for the actual reason rather than
+  // for an ambient-configuration reason.
+  let svc: NbuCurrencyService
+  const LOCAL_GETTERS = ['getDate', 'getMonth', 'getFullYear'] as const
+  const originals = new Map<string, unknown>()
+
+  /** Makes every local-time component getter return a deliberately wrong value. */
+  function poisonLocalTimeAccessors(): void {
+    for (const name of LOCAL_GETTERS) {
+      const original = Date.prototype[name]
+      originals.set(name, original)
+      // Offset by 15 so any local-based arithmetic lands far from the answer,
+      // rather than throwing — nothing incidental (a logger, the runner) can be
+      // crashed by this, it can only be caught misusing the value.
+      Object.defineProperty(Date.prototype, name, {
+        configurable: true,
+        writable: true,
+        value: function (this: Date): number {
+          return (original as () => number).call(this) + 15
+        },
+      })
+    }
+  }
+
+  function restoreLocalTimeAccessors(): void {
+    for (const [name, original] of originals) {
+      Object.defineProperty(Date.prototype, name, {
+        configurable: true,
+        writable: true,
+        value: original,
+      })
+    }
+    originals.clear()
+  }
+
+  beforeEach(() => {
+    requestedUrls.length = 0
+    svc = new NbuCurrencyService()
+    vi.spyOn(Logger.prototype, 'error').mockImplementation(() => {})
+    vi.spyOn(Logger.prototype, 'warn').mockImplementation(() => {})
+    vi.spyOn(Logger.prototype, 'log').mockImplementation(() => {})
+    // No fake timers here: the requested day is passed explicitly, so "today"
+    // is irrelevant, and faking Date would obscure the behaviour under test.
+  })
+
+  afterEach(() => {
+    restoreLocalTimeAccessors()
+    vi.restoreAllMocks()
+  })
+
+  // The dates are the real transition days measured for this fix (1,299 days
+  // per zone): the old implementation was wrong on exactly these, and nowhere
+  // else. Both are kept even though the accessor trap catches the bug
+  // zone-independently, because they also pin the calendar arithmetic across a
+  // month boundary and at the end of October.
+  const DST_CASES = [
+    {
+      requested: '20231030',
+      expectedPrev: '20231029',
+      wrongPrev: '20231028',
+      why: 'the day after the European October fall-back — measured wrong 3/1299 days in Europe/Kyiv, a zone AHEAD of UTC, which the original bug note wrongly assumed was safe',
+    },
+    {
+      requested: '20230402',
+      expectedPrev: '20230401',
+      wrongPrev: '20230331',
+      why: 'the day after the SOUTHERN-hemisphere fall-back, which falls in April — measured wrong 4/1299 days in Australia/Sydney, a case no October-only fixture reaches, and it crosses a month boundary too',
+    },
+  ] as const
+
+  for (const c of DST_CASES) {
+    it(`steps back exactly one day on ${c.requested} without reading local time — ${c.why}`, async () => {
+      // Pin the hardcoded literal against an independently-computed reference
+      // (UTC component getters, a different algorithm from the implementation's
+      // millisecond subtraction), so a typo in the table cannot quietly weaken
+      // the assertion and so this is not a tautology.
+      expect(utcPrevDay(c.requested)).toBe(c.expectedPrev)
+
+      // The requested day has no record on any service; the day before does.
+      mockNbu({ [c.expectedPrev]: RATES })
+
+      poisonLocalTimeAccessors()
+      await svc.getRates(c.requested)
+      restoreLocalTimeAccessors()
+
+      const daysAsked = requestedUrls.map((u) => requestedDay(u))
+      expect(daysAsked).toContain(c.expectedPrev)
+      // The exact failure mode of the old code: two days back, never one.
+      expect(daysAsked).not.toContain(c.wrongPrev)
+    })
+  }
+
+  it('proves the trap bites: local-time arithmetic on these dates is demonstrably wrong', async () => {
+    // Without this, a future refactor could neutralise `poisonLocalTimeAccessors`
+    // (e.g. by patching a getter nothing reads) and the two tests above would
+    // keep passing while proving nothing. This asserts the trap actually
+    // changes the answer for the arithmetic the old implementation used.
+    poisonLocalTimeAccessors()
+    const d = new Date('2023-10-30T00:00:00Z')
+    const viaLocalGetters = d.getDate() // what the old code read
+    restoreLocalTimeAccessors()
+
+    const trueUtcDate = new Date('2023-10-30T00:00:00Z').getUTCDate()
+    expect(viaLocalGetters).not.toBe(trueUtcDate)
+  })
+})
+
 describe('Part 3: provenance of the applied rate is recoverable from the log', () => {
   let svc: NbuCurrencyService
   let logSpy: ReturnType<typeof vi.spyOn>

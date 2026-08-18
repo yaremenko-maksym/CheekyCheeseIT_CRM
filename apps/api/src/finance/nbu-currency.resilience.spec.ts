@@ -326,6 +326,15 @@ describe('AC3: NbuCurrencyService.getRates — stale detection & logging', () =>
     // Historical exact-date request: NBU has no record for 01.03 on any of its
     // services → falls back to the day before, which succeeds with a DIFFERENT
     // historical rate.
+    //
+    // THE DATES ARE NOT ARBITRARY — do not "modernise" them (security-review
+    // #574, LOW). 01.03.2026 is a SUNDAY and 28.02.2026 the SATURDAY before it,
+    // so the prev-day hop crosses no new NBU rate and `noNewRateSince` lets the
+    // result stay dated. Move this fixture onto a weekday and the assertions
+    // below change for a reason that has nothing to do with cache poisoning —
+    // the prev-day gate (MED-1) would refuse to date it — which reads like an
+    // unrelated regression and sends the next reader hunting a bug that is not
+    // there. Any replacement pair must also be Sat→Sun (or same-day).
     mockNbuByDate({
       '20260301': [],
       '20260228': [
