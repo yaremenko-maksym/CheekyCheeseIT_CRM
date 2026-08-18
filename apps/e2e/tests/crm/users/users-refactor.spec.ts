@@ -345,10 +345,26 @@ test.describe('Users page refactor (PR 2)', () => {
   // Interaction tests (keyboard / a11y) — task-fix-pr33-polish.md #11–#16
   // ─────────────────────────────────────────────────────────────────────────
   test.describe('Interaction tests', () => {
-    // Serial mode: keyboard/focus tests share browser state (listbox open/close
-    // animation) and are sensitive to concurrent tests in other workers racing
-    // on the same DOM events. Running sequentially eliminates the flake.
-    test.describe.configure({ mode: 'serial' })
+    // backlog #124: `mode: 'serial'` removed. The original comment claimed
+    // these tests "share browser state" and race against "concurrent tests
+    // in other workers" — neither holds: every test here uses the `asAdmin`/
+    // `page` fixture, which Playwright creates as a brand-new browser context
+    // per TEST (not per worker, not shared) — see `apps/e2e/tests/fixtures.ts`
+    // `test.extend()`, which wraps the stock `page` fixture without changing
+    // its scope. And CI already runs E2E with `workers: 1`
+    // (playwright.config.ts), so "another worker" touching the same DOM
+    // cannot happen there regardless of serial/parallel mode.
+    // What serial mode DID do: turn one flaky test into eight. Root-caused
+    // "Modal Escape closes dialog" (line below) to a genuine, load-dependent
+    // race in Radix's cross-component DismissableLayer "highest layer"
+    // bookkeeping (a transient Tooltip mounted by the nav sidebar right after
+    // route load can still be mid-unmount when Escape is pressed, so our
+    // dialog isn't the topmost dismissable layer and Radix silently ignores
+    // Escape) — see task-fix-flaky-modal-escape write-up. Serial mode meant
+    // that one rare product-level race took out all 7 siblings ("did not
+    // run") on every occurrence. Each test below is independent (own
+    // navigation, own dialog open, own assertions), so removing serial only
+    // removes that cascade — it does not change what any single test does.
     test('Modal Escape closes dialog and returns focus to trigger button', async ({
       asAdmin: page,
     }) => {
