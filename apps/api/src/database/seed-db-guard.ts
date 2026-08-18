@@ -131,6 +131,13 @@ export function looksDisposable(dbName: string): boolean {
  *      version TRUNCATEd for real. `GITHUB_ACTIONS` has no such casual
  *      path to being set; only the GitHub Actions runner sets it.
  *
+ *      Re-verified after narrowing (2026-08-18, same scratch-container
+ *      method as the file's other execution proofs): `CI=true` alone
+ *      against a `crm_db`-named database now REFUSES (exit 1, marker row
+ *      untouched); `GITHUB_ACTIONS=true` against the same database still
+ *      PROCEEDS (exit 0). Reverting this check back to `CI` turns 3 of
+ *      `seed-db-guard.spec.ts`'s tests red.
+ *
  *   2. `SEED_CONFIRM_LIVE_DB_NAME=<exact db name>` — the owner's own escape
  *      hatch to deliberately reseed a database that doesn't look disposable
  *      (their live `crm_db` included). The confirmation value must equal
