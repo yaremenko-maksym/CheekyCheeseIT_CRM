@@ -151,6 +151,53 @@ assert_red "ОБХОД: pnpm -r --filter=@crm/api run dev" \
   --contains '"decision": "block"' \
   -- h "pnpm -r --filter=@crm/api run dev"
 
+# ── находки security-review PR #561 ──────────────────────────────────────────
+# Систематическое покрытие — test-hook-command-corpus.sh. Здесь именованные
+# находки: в каждой из них разбор НЕ падал, он уверенно отвечал неверно.
+assert_red "REVIEW HIGH-1: env -i — заявлен покрытым в теле PR, а проходил" \
+  --contains '"decision": "block"' \
+  -- h "env -i pnpm dev"
+
+assert_red "REVIEW HIGH-1: sudo -s (-s не берёт значение)" \
+  --contains '"decision": "block"' \
+  -- h "sudo -s pnpm dev"
+
+assert_red "REVIEW HIGH-2: { pnpm dev ; } — «{» как командное слово" \
+  --contains '"decision": "block"' \
+  -- h "{ pnpm dev ; }"
+
+assert_red "REVIEW HIGH-3: неизвестная обёртка script" \
+  --contains '"decision": "block"' \
+  -- h "script -q /dev/null pnpm dev"
+
+assert_red "REVIEW HIGH-3: find -exec" \
+  --contains '"decision": "block"' \
+  -- h "find . -maxdepth 0 -exec pnpm dev \\;"
+
+# MED-5: префикс на ЧУЖОМ сегменте ничего не даёт запуску — тот унаследует
+# живую пару. Это форма инцидента #485, и раньше плоский словарь её отбеливал.
+assert_red "REVIEW MED-5: безопасный префикс на соседнем сегменте, а не на запуске" \
+  --contains '"decision": "block"' \
+  -- h "DATABASE_URL=$SAFE_DB API_PORT=3011 echo ok && pnpm dev"
+
+assert_red "REVIEW MED-5: запуск ДО export — порядок сегментов имеет значение" \
+  --contains '"decision": "block"' \
+  -- h "pnpm dev ; export DATABASE_URL=$SAFE_DB API_PORT=3011"
+
+assert_red "REVIEW LOW: API_PORT=03001 — для Node это 3001" \
+  --contains "3001" \
+  -- h "API_PORT=03001 DATABASE_URL=$SAFE_DB pnpm --filter @crm/api dev"
+
+assert_green "export действительно переносится на следующий сегмент" \
+  -- h "export DATABASE_URL=$SAFE_DB
+export API_PORT=3011
+pnpm dev"
+
+# ── найдено уже ПОСЛЕ фикса ──────────────────────────────────────────────────
+assert_red "ОБХОД-2: env -S сам разбивает строку и запускает её" \
+  --contains '"decision": "block"' \
+  -- h "env -S 'pnpm dev'"
+
 # ── crash is not a verdict (AC6) ──────────────────────────────────────────────
 BROKEN="$(hook_with_broken_lib "$WS" pre-bash-live-db-guard.sh)"
 

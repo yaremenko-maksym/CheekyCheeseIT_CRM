@@ -26,10 +26,22 @@
 # phrase" to "is the dangerous thing what the line EXECUTES". `echo "rm -rf /"`
 # and `rm -rf /` differ in exactly one respect — which token is in command
 # position — so command position is what is now examined, via lib/cmdscan.py
-# (segments split on ;/&&/||/|/&/newline, `sh -c` and `$( )` recursed into,
-# `VAR=v`/`env`/`sudo`/`nohup`/`timeout`/`xargs` unwrapped, heredoc bodies
-# treated as data). Danger behind any of those forms is still caught; see
-# scripts/devops/tests/test-pre-bash-safety.sh, which runs both directions.
+# (segments split on ;/&&/||/|/&/newline and on shell grouping, `sh -c`, `eval`,
+# `find -exec` and `$( )` recursed into, `VAR=v` and the wrapper commands
+# unwrapped, heredoc bodies treated as data). Danger behind any of those forms is
+# still caught; see scripts/devops/tests/test-pre-bash-safety.sh, which runs both
+# directions.
+#
+# AND WHEN THE PARSE CANNOT BE TRUSTED (security review, 2026-08-18). The first
+# version of this rewrite trusted its own answer unless `shlex` had thrown. The
+# review produced 13 reproduced misses — `sudo -s rm -rf /etc` read as command
+# `etc`, `{ rm -rf /etc ; }` as command `{`, `if …; then rm …; fi` as `then` —
+# with the parser reporting no failure at all. The measure of it: with a BROKEN
+# analyzer `sudo -s rm -rf /etc` was blocked, and with a working one it was not.
+# So an unresolved segment is no longer judged by its command word; it is judged
+# by every "the command might start here" reading of itself, through these same
+# predicates. Unknown wrappers fail toward blocking, which is the only direction
+# a list-based approach could never guarantee.
 # ---------------------------------------------------------------------------
 #
 # Contract:
@@ -59,14 +71,19 @@
 #      `+refs/...` refspec) aimed at a ref whose name is main/master.
 #   5. Dropping the live database: `DROP DATABASE [IF EXISTS] crm_db` reaching a
 #      command that is not a plain text consumer, and `dropdb crm_db`.
+#   6. Writing that same SQL to a file and executing the file in the same line
+#      (`echo "…" > /tmp/x.sql && psql -f /tmp/x.sql`). Each segment alone looks
+#      innocent; the chain does not, and the whole chain is right there.
 #
 # Deliberate, stated gaps (same line the sibling pre-bash-cross-agent-blast.sh
 # draws, and for the same reason — closing them means either evaluating the
 # shell or going back to matching the raw line, which is the disease):
 #   - indirection through a variable: `SQL="DROP DATABASE crm_db"; psql "$SQL"`,
 #     `D=/etc; rm -rf "$D"`;
-#   - a dangerous command inside a script file this hook cannot read;
-#   - `eval "$CMD"`.
+#   - a dangerous command inside a script file this hook cannot read.
+# `eval "<literal>"` is NOT a gap — its argument is parsed as code. Neither is an
+# interpreter s inline program (`python3 -c`, `awk BEGIN{system(…)}`): it cannot
+# be parsed as that language, so it is re-read the coarse way instead of trusted.
 # Every real incident used a direct form, and every direct form is caught.
 #
 # Performance note: one python3 start per Bash call — the same cost as the
@@ -106,8 +123,23 @@ blocked = []
 # wrapper nobody has added to the list still cannot hide the command it runs.
 # This is the fix for the review finding that 13 misses all had degraded=False:
 # the parser had not failed, it had been confidently wrong, and nothing checked.
+#
+# `code=True` also re-reads the inline program of an interpreter — python3 -c,
+# perl -e, awk BEGIN{system(...)} — through a punctuation split, because a
+# dangerous command hidden inside another language was caught by the old
+# substring rule and dropping it would be a narrowing nobody agreed to. This
+# hook can afford the resulting false positives; the launcher hooks cannot (the
+# false positive that started all of this was an inline node -e), and do not ask.
+#
+# NB for editors: this python source is a single-quoted bash string. It must not
+# contain a single quote anywhere — use \x27 in patterns, and avoid apostrophes
+# in comments.
 def candidates(seg):
-    return cmdscan.candidates(seg)
+    # A dynamic command word is additionally read as each dangerous command this
+    # hook knows: `$(echo rm) -rf /etc` names nothing resolvable, but `-rf /etc`
+    # is not ambiguous. Both versions of this hook let that through.
+    return cmdscan.candidates(seg, code=True) + cmdscan.as_if(
+        seg, ("rm", "git", "dropdb"))
 
 # ── predicate 1+2: rm -rf on root / home paths ───────────────────────────────
 SAFE_ROOTS = ("/tmp/", "/private/tmp/", "/var/folders/", "/private/var/folders/")
@@ -188,8 +220,12 @@ for seg in scan.segments:
         pos = cand.positionals(GIT_VALUE_FLAGS)
         if not pos or pos[0] != "push":
             continue
+        # `--force-with-lease=main` takes a value, so exact membership missed it
+        # and the short-flag heuristic below only looks at single-dash flags.
+        # Compare the part before the `=`.
         forced = any(
-            f in FORCE_FLAGS or (f.startswith("-") and not f.startswith("--") and "f" in f[1:])
+            f.split("=", 1)[0] in FORCE_FLAGS
+            or (f.startswith("-") and not f.startswith("--") and "f" in f[1:])
             for f in cand.argv if f.startswith("-")
         )
         forced = forced or any(t.startswith("+") for t in pos[1:])

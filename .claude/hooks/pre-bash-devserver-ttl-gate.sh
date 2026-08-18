@@ -24,6 +24,13 @@
 # some segment, rather than a substring of the line. Nothing is relaxed —
 # `pnpm dev` behind `&&`, `sh -c`, `env VAR=v`, `nohup`, `timeout`, an absolute
 # path, or a command substitution is still caught (see the guard tests).
+#
+# And after the security review of that change: a command word the analyzer
+# cannot resolve is no longer taken at face value either. `{ pnpm dev ; }`,
+# `! pnpm dev`, `script -q /dev/null pnpm dev` and `find . -exec pnpm dev \;`
+# all reported a confident, wrong command word and slipped through; now an
+# unconfident segment is judged by every reading of itself, so a wrapper this
+# hook has never heard of cannot smuggle a boot past it.
 # ---------------------------------------------------------------------------
 #
 # Contract (mirrors pre-bash-coder-push-gate.sh):

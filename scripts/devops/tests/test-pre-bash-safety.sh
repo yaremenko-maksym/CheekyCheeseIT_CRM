@@ -184,6 +184,75 @@ assert_red "ОБХОД: через xargs" \
   --contains "[pre:bash:safety] BLOCK" \
   -- h "xargs -I{} psql -c '$DROP'"
 
+# ── находки security-review PR #561 (каждая была воспроизведена ревьюером) ────
+# Систематическое покрытие этого класса — в test-hook-command-corpus.sh (один
+# корпус, оба направления). Здесь остаются именованные находки: читатель ЭТОГО
+# теста должен видеть, на чём хук уже ломался, а не только что он зелёный.
+assert_red "REVIEW HIGH-1: sudo -s съедал команду (-s не берёт значение)" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "sudo -s rm -rf /etc"
+
+assert_red "REVIEW HIGH-1: env -i — идиома «чистое окружение»" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "env -i rm -rf /etc"
+
+assert_red "REVIEW HIGH-2: группировка { … ; } читалась как команда «{»" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "{ rm -rf /etc ; }"
+
+assert_red "REVIEW HIGH-2: if …; then …; fi читалось как команда «then»" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "if true; then git push --force origin main; fi"
+
+assert_red "REVIEW HIGH-2: подоболочка ( … ) склеивалась в «(git»" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "(git push --force origin main)"
+
+assert_red "REVIEW HIGH-3: find -exec — обёртки нет ни в одном списке" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "find . -maxdepth 0 -exec rm -rf /etc \\;"
+
+assert_red "REVIEW HIGH-3: неизвестная обёртка (script) — ловится разбором, не списком" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "script -q /dev/null rm -rf /etc"
+
+assert_red "REVIEW MED-2: git -c core.pager исполняет — значит git не инертен" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "git -c core.pager='psql -c \"$DROP\"' log -1"
+
+assert_red "REVIEW MED-2: awk system() — тоже не инертен" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "awk 'BEGIN{system(\"psql -c \\\"$DROP\\\"\")}'"
+
+assert_red "REVIEW MED-2: цепочка «записал в файл -> тут же исполнил»" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "echo '$DROP;' > /tmp/x.sql && psql -f /tmp/x.sql"
+
+assert_red "REVIEW MED-3: rm -R (заглавная) — тот же рекурсивный флаг" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "rm -Rf /etc"
+
+assert_red "REVIEW MED-4: git -C <path> push --force (идиома из наших же правил)" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "git -C /tmp/some/repo push --force origin main"
+
+# ── найдено уже ПОСЛЕ фикса, попыткой обмануть его самого ────────────────────
+assert_red "ОБХОД-2: неразрешимое слово команды с однозначными аргументами" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "\$(echo rm) -rf /etc"
+
+assert_red "ОБХОД-2: --force-with-lease=main (флаг со значением)" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "git push --force-with-lease=main origin main"
+
+assert_red "ОБХОД-2: опасное внутри чужого языка (python3 -c)" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "python3 -c \"import os; os.system('rm -rf /etc')\""
+
+assert_red "ОБХОД-2: env -S сам разбивает строку и запускает её" \
+  --contains "[pre:bash:safety] BLOCK" \
+  -- h "env -S 'rm -rf /etc'"
+
 # ── crash is not a verdict (AC6) ──────────────────────────────────────────────
 BROKEN="$(hook_with_broken_lib "$WS" pre-bash-safety.sh)"
 

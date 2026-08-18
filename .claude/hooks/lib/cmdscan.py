@@ -121,7 +121,15 @@ CONTRACT
                  refusal text so the reader can see what confused the analyzer)
       .raw       the segment's source text
 
-    readings(seg) -> [Segment]   # conservative re-readings of an uncertain one
+    readings(seg, code=False) -> [Segment]
+        conservative re-readings of an UNCERTAIN segment: one per position the
+        real command could start at. `code=True` also splits on the punctuation
+        that hides a command inside another language.
+    as_if(seg, names) -> [Segment]
+        readings of a DYNAMIC command word as each of `names` — the arguments
+        resolve even when the word does not.
+    candidates(seg, code=False) -> [Segment]
+        what a predicate should actually iterate: the segment plus the above.
     is_dev_server_launch(seg) -> str | None   # label, e.g. "pnpm dev"
     launches(scan) -> [(Segment, label)]      # confidence-aware
 
@@ -172,7 +180,11 @@ WRAPPER_SPEC = {
         "-D", "--chdir", "-R", "--chroot", "-T", "--command-timeout",
     )),
     "doas": _w(value_flags=("-u", "-C")),
-    "env": _w(value_flags=("-u", "--unset", "-C", "--chdir", "-S", "--split-string")),
+    # `env -S "pnpm dev"` splits the string and RUNS it — a value flag would have
+    # swallowed the whole launch. Found by probing the wrapper table, not by
+    # reading it.
+    "env": _w(value_flags=("-u", "--unset", "-C", "--chdir"),
+              code_flags=("-S", "--split-string")),
     "nice": _w(value_flags=("-n", "--adjustment")),
     "ionice": _w(value_flags=(
         "-c", "--class", "-n", "--classdata", "-p", "--pid", "-P", "--pgid",
@@ -676,10 +688,29 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
     return seg, nested, exports
 
 
-def _expand_token(tok):
+# Commands that execute their argument as code in ANOTHER language. This module
+# does not parse python or awk, so their inline code is only ever read the coarse
+# way — see readings(..., code=True) and the caller that asks for it.
+CODE_CAPABLE = {
+    "python", "python3", "perl", "ruby", "php", "node", "deno", "bun",
+    "awk", "gawk", "nawk", "mawk", "sed", "osascript", "expect",
+}
+# Punctuation that separates a quoted command from the code around it:
+# `os.system('rm -rf /etc')` hides `rm` behind a paren and a quote, and shlex
+# glues the lot into one token.
+_CODE_PUNCT = "()[]{},;:'\"`=|&<>"
+
+
+def _expand_token(tok, code=False):
     """Split a token that itself carries a command line (`su -c 'pnpm dev'`)."""
-    if not tok or not any(c.isspace() for c in tok):
+    if not tok:
         return [tok]
+    if code:
+        tok = "".join(" " if c in _CODE_PUNCT else c for c in tok)
+    if not any(c.isspace() for c in tok):
+        return [tok]
+    if code:
+        return tok.split() or [tok]
     try:
         parts = shlex.split(tok, comments=False)
     except ValueError:
@@ -687,7 +718,7 @@ def _expand_token(tok):
     return parts or [tok]
 
 
-def readings(seg):
+def readings(seg, code=False):
     """Every "the real command might start HERE" reading of an uncertain segment.
 
     This is the answer to "what do we do about a parse we cannot trust". Not a
@@ -701,11 +732,11 @@ def readings(seg):
     its `vite` argument is an argument. That is the whole difference between
     this and the substring rule it replaces.
     """
-    if seg.confident:
+    if seg.confident and not code:
         return []
     toks = []
     for tok in ([seg.name] if seg.name else []) + list(seg.argv):
-        toks.extend(_expand_token(tok))
+        toks.extend(_expand_token(tok, code))
     out = []
     for i, word in enumerate(toks):
         base = os.path.basename(word)
@@ -722,9 +753,41 @@ def readings(seg):
     return out
 
 
-def candidates(seg):
-    """The segment itself, plus its conservative re-readings when uncertain."""
-    return [seg] + readings(seg)
+def as_if(seg, names):
+    """Read a segment whose command word is DYNAMIC as if it were each of `names`.
+
+    `$(echo rm) -rf /etc` resolves nothing in command position, but its arguments
+    resolve perfectly — and `-rf /etc` is only ever one thing. The launcher
+    predicate has had this reasoning since the first version (its `dynamic`
+    branch); the destructive predicates did not, and both versions of the hook
+    let this through. Only for genuinely dynamic words: a resolved command word
+    is never second-guessed, or `grep -rn /etc` would start blocking.
+    """
+    if not seg.dynamic:
+        return []
+    return [
+        Segment(n, list(seg.argv), seg.payload, seg.wrappers, False, seg.raw,
+                seg.depth, seg.env, True, None)
+        for n in names
+    ]
+
+
+def candidates(seg, code=False):
+    """The segment itself, plus its conservative re-readings when uncertain.
+
+    `code=True` additionally re-reads the arguments of a CODE_CAPABLE command
+    (`python3 -c "…"`, `awk "…"`) through the punctuation split, because their
+    argument is a program in a language this module does not parse. Only the
+    destructive hook asks for it: there a false positive costs a minute and a
+    miss costs the database. The launcher hooks deliberately do NOT — the
+    reported false positive that started all of this was literally
+    `node -e "console.log('apps/api/dist/main.js')"`, and re-reading that as a
+    launch is the bug, not the fix.
+    """
+    out = [seg] + readings(seg)
+    if code and os.path.basename(seg.name) in CODE_CAPABLE:
+        out.extend(readings(seg, code=True))
+    return out
 
 
 def scan(command_line, depth=0, env=None):

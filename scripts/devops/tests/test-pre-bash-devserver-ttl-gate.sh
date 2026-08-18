@@ -81,6 +81,45 @@ assert_red "кавычки не парсятся — деградированн�
   --contains '"decision": "block"' \
   -- h "pnpm --filter @crm/api dev \"unbalanced"
 
+# ── находки security-review PR #561 ──────────────────────────────────────────
+# Систематическое покрытие — test-hook-command-corpus.sh; здесь именованные.
+assert_red "REVIEW HIGH-1: env -i pnpm dev" \
+  --contains '"decision": "block"' \
+  -- h "env -i pnpm dev"
+
+assert_red "REVIEW HIGH-2: ! pnpm dev (отрицание как командное слово)" \
+  --contains '"decision": "block"' \
+  -- h "! pnpm dev"
+
+assert_red "REVIEW HIGH-2: подоболочка (pnpm dev)" \
+  --contains '"decision": "block"' \
+  -- h "(pnpm dev)"
+
+assert_red "REVIEW HIGH-2: цикл while … do … done" \
+  --contains '"decision": "block"' \
+  -- h "while true; do pnpm dev; done"
+
+assert_red "REVIEW HIGH-3: script -q /dev/null pnpm dev" \
+  --contains '"decision": "block"' \
+  -- h "script -q /dev/null pnpm dev"
+
+assert_red "ОБХОД-2: обёртка внутри обёртки (nohup + script)" \
+  --contains '"decision": "block"' \
+  -- h "nohup script -q /dev/null pnpm dev &"
+
+# Приманка наоборот: dev-ttl.sh должен ОБЁРТЫВАТЬ запуск, а не просто стоять
+# рядом с ним. Здесь он в аргументах самого запуска — TTL не применяется.
+assert_red "ПРИМАНКА-2: dev-ttl.sh аргументом запуска, а не обёрткой" \
+  --contains '"decision": "block"' \
+  -- h "script -q /dev/null pnpm dev -- $TTL"
+
+# Обратная сторона той же проверки: когда обёртка стоит там, где надо, TTL
+# действительно применяется — даже если внешняя обёртка разбирается неточно
+# (`script` меняет грамматику между BSD и GNU). Хук не должен требовать
+# обёртку дважды.
+assert_green "неточная внешняя обёртка поверх настоящей TTL-обёртки — TTL применён" \
+  -- h "script -q /dev/null $TTL -- pnpm dev"
+
 # ── crash is not a verdict (AC6) ──────────────────────────────────────────────
 BROKEN="$(hook_with_broken_lib "$WS" pre-bash-devserver-ttl-gate.sh)"
 

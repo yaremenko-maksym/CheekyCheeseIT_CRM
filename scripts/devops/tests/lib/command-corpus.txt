@@ -1,0 +1,309 @@
+# command-corpus.txt — one corpus, run through the three pre:bash hooks by
+# test-hook-command-corpus.sh. Added 2026-08-18 after the security review of
+# PR #561 found 13 reproduced "main blocked -> PR allows" pairs that hand-picked
+# examples had missed twice in a row.
+#
+# HOW IT WAS BUILT (and how to extend it): materialise the hooks from two git
+# refs and run ONE corpus through both, comparing exit codes pairwise —
+# scripts/devops/tests/compare-hooks-to-ref.sh does exactly that. Any pair where
+# the older tree blocked and the newer one does not is a regression, however
+# exotic the form. Selected examples cannot find this class of defect; a corpus
+# run in both directions can, and did.
+#
+# FORMAT (tab-separated):
+#   <expect>	<hooks>	<command>
+#
+#   expect = block     the hook MUST refuse (and carry the decision contract,
+#                      so a crash cannot pass for a verdict)
+#          = allow     the hook must permit it, AND the old coarse substring
+#                      rule (the degraded fallback) permitted it too
+#          = narrowed  the hook must permit it although the coarse rule REFUSED
+#                      it — a deliberate narrowing. Every such line is a claim
+#                      that this refusal was wrong, written down where a reviewer
+#                      can see it. If a change ever makes the coarse rule allow
+#                      one of these too, the test fails and the annotation gets
+#                      corrected rather than quietly rotting.
+#   hooks  = comma list of safety | db | ttl  (db = live-db-guard,
+#            ttl = devserver-ttl-gate), or `all`
+#
+# The `narrowed` column is the metric the review named: with a BROKEN analyzer
+# `sudo -s rm -rf /etc` was blocked and with a working one it was not — the
+# broken guard was stricter than the working one. Every line below is checked
+# against both, so that can never again be true of anything except a form
+# explicitly listed as `narrowed`.
+
+# ═══ regressions found by the security review of PR #561 ═════════════════════
+# HIGH-1 — one global VALUE_FLAGS set for every wrapper: `-i` takes no value for
+# `env`, `-s`/`-i` take none for `sudo`, so the command word was eaten.
+block	db,ttl	env -i pnpm dev
+block	db,ttl	sudo -s pnpm dev
+block	db,ttl	sudo -i pnpm dev
+block	safety	sudo -s rm -rf /etc
+block	safety	env -i rm -rf /etc
+# HIGH-2 — grouping tokens and reserved words became the command word.
+block	db,ttl	{ pnpm dev ; }
+block	safety	{ rm -rf /etc ; }
+block	safety	if true; then rm -rf /etc; fi
+block	safety	if true; then rm -rf /usr; fi
+block	safety	if true; then git push --force origin main; fi
+block	safety	(git push --force origin main)
+block	ttl	! pnpm dev
+# HIGH-3 — wrappers nobody had listed. The list is now beside the point: an
+# unresolved command word is judged by every reading of the segment.
+block	db,ttl	script -q /dev/null pnpm dev
+block	db,ttl	find . -maxdepth 0 -exec pnpm dev \;
+block	safety	find . -maxdepth 0 -exec rm -rf /etc \;
+# MED-2 — "inert" consumers that execute, and write-then-run chains.
+block	safety	git -c core.pager='psql -c "DROP DATABASE crm_db"' log -1
+block	safety	awk 'BEGIN{system("psql -c \"DROP DATABASE crm_db\"")}'
+block	safety	echo 'DROP DATABASE crm_db;' > /tmp/x.sql && psql -f /tmp/x.sql
+block	safety	echo 'DROP DATABASE crm_db;' | tee /tmp/y.sql && psql -f /tmp/y.sql
+# MED-3/4/5 + LOW — not regressions, closed in the same pass.
+block	safety	rm -Rf /etc
+block	safety	rm -R -f /etc
+block	safety	git -C /Users/maksym/some/repo push --force origin main
+block	db	DATABASE_URL=postgresql://u:p@localhost:5432/crm_qa API_PORT=3011 echo ok && pnpm dev
+block	db	echo start ; DATABASE_URL=postgresql://u:p@localhost:5432/crm_qa API_PORT=3011 true ; pnpm dev
+block	db	API_PORT=03001 DATABASE_URL=postgresql://u:p@localhost:5432/crm_qa pnpm --filter @crm/api dev
+
+# ═══ the same classes, widened past the reviewer's list ══════════════════════
+block	db,ttl	( pnpm dev )
+block	db,ttl	(pnpm dev)
+block	db,ttl	{ vite ; }
+block	ttl	while true; do pnpm dev; done
+block	ttl	until false; do vite; done
+block	safety	while true; do rm -rf /etc; done
+block	safety	for d in /etc; do rm -rf /etc; done
+block	safety	case x in x) rm -rf /etc ;; esac
+block	safety	! rm -rf /etc
+block	safety	{ psql -c 'DROP DATABASE crm_db' ; }
+# unmodelled wrappers — the point is that no list mentions these
+block	db,ttl	parallel pnpm dev
+block	db,ttl	flock -n /tmp/l pnpm dev
+block	db,ttl	watch -n 5 pnpm dev
+block	db,ttl	watch 'pnpm dev'
+block	db,ttl	strace -o /tmp/t pnpm dev
+block	db,ttl	caffeinate -i pnpm dev
+block	db,ttl	unbuffer pnpm dev
+block	db,ttl	su -c 'pnpm dev'
+block	db,ttl	chroot /jail pnpm dev
+block	safety	su -c 'rm -rf /etc'
+block	safety	chroot /jail rm -rf /etc
+block	safety	script -q /dev/null rm -rf /etc
+block	safety	parallel rm -rf /etc
+block	safety	flock -n /tmp/l rm -rf /etc
+# wrappers that always worked, kept so a refactor cannot lose them
+block	db,ttl	nohup pnpm dev
+block	db,ttl	timeout 600 pnpm dev
+block	db,ttl	nice -n 10 pnpm dev
+block	db,ttl	setsid pnpm dev
+block	db,ttl	stdbuf -oL pnpm dev
+block	db,ttl	env FOO=bar pnpm dev
+block	db,ttl	sudo -u maksym pnpm dev
+block	db,ttl	xargs -I{} pnpm dev
+block	db,ttl	npx vite
+block	db,ttl	command pnpm dev
+block	db,ttl	exec pnpm dev
+block	safety	sudo rm -rf /usr/local/lib
+block	safety	xargs -I{} psql -c 'DROP DATABASE crm_db'
+block	safety	nohup rm -rf /etc
+block	safety	timeout 5 rm -rf /etc
+# interpreters, eval, substitution in command position
+block	db,ttl	sh -c 'pnpm dev'
+block	db,ttl	bash -lc 'vite'
+block	db,ttl	eval 'pnpm dev'
+block	db,ttl	$(echo pnpm) dev
+block	db,ttl	`echo pnpm` dev
+block	safety	sh -c 'rm -rf /var/log'
+block	safety	eval 'rm -rf /etc'
+block	safety	eval "psql -c 'DROP DATABASE crm_db'"
+block	safety	bash -c "psql -c 'DROP DATABASE crm_db'"
+# quoting and path forms of the command word
+block	db,ttl	'pnpm' dev
+block	db,ttl	\pnpm dev
+block	db,ttl	/opt/homebrew/bin/pnpm dev
+block	db,ttl	./node_modules/.bin/vite
+block	safety	'rm' -rf /etc
+block	safety	/bin/rm -rf /etc
+block	safety	"rm" -rf /etc
+# separators
+block	db,ttl	cd /tmp && pnpm dev
+block	db,ttl	echo boot ; pnpm dev
+block	db,ttl	false || vite
+block	db,ttl	pnpm dev &
+block	safety	cd /tmp && psql -c 'DROP DATABASE crm_db'
+block	safety	true || rm -rf /etc
+# the launcher surface itself
+block	db,ttl	pnpm dev
+block	db,ttl	pnpm --filter @crm/api dev
+block	db,ttl	npm run dev
+block	db,ttl	yarn dev
+block	db,ttl	turbo dev
+block	db,ttl	vite
+block	db,ttl	vite --port 3010
+block	db,ttl	nest start --watch
+block	db,ttl	node apps/api/dist/main.js
+block	db,ttl	pnpm exec vite
+block	db,ttl	pnpm --filter @crm/api dev "unbalanced
+# the destructive surface
+block	safety	rm -rf /
+block	safety	rm -rf /etc
+block	safety	rm -fr /etc
+block	safety	rm --recursive --force /etc
+block	safety	rm -rf ~
+block	safety	rm -rf $HOME/Desktop
+block	safety	rm -rf ${HOME}/Desktop
+block	safety	:(){ :|:& };:
+block	safety	git push --force origin main
+block	safety	git push -f origin master
+block	safety	git push --force-with-lease origin refs/heads/main
+block	safety	git push origin +main
+block	safety	psql -c 'DROP DATABASE crm_db'
+block	safety	psql -c 'DROP DATABASE IF EXISTS crm_db'
+block	safety	docker exec -i crm-postgres psql -U crm_user -c 'drop database crm_db'
+block	safety	dropdb -h localhost -U crm_user crm_db
+block	safety	PGPASSWORD=x psql -h localhost -c 'DROP DATABASE crm_db'
+# nesting past the analyzer's depth: unread code is refused, not reported clean
+block	safety	$($($($($($($($(rm -rf /etc)))))))
+block	db,ttl	$($($($($($($($(pnpm dev)))))))
+
+# ═══ second adversarial round: forms invented to fool the FIX ════════════════
+# Written after the corpus above was already green, by attacking the new parser
+# rather than the old one. Three of these landed — an unresolvable command word
+# with unambiguous arguments, `env -S`, and `--force-with-lease=main` — and are
+# fixed. Attacking your own fix is the only part of this that scales.
+block	safety	python3 -c "import os; os.system('rm -rf /etc')"
+block	safety	python3 -c "import subprocess; subprocess.run(['psql','-c','DROP DATABASE crm_db'])"
+block	safety	perl -e 'system("rm -rf /etc")'
+block	safety	awk 'BEGIN{system("rm -rf /etc")}'
+block	safety	ruby -e 'system("rm -rf /etc")'
+block	safety	$(echo rm) -rf /etc
+block	safety	`echo rm` -rf /etc
+block	safety	git push --force-with-lease=main origin main
+block	db,ttl	env -S 'pnpm dev'
+block	db,ttl	env --split-string='pnpm dev'
+block	safety	env -S 'rm -rf /etc'
+block	safety	psql -c 'DROP DATABASE crm_db
+block	safety	rm -rf /etc "unbalanced
+block	safety	command -p rm -rf /etc
+block	safety	builtin rm -rf /etc
+block	safety	exec rm -rf /etc
+block	safety	nice -n 5 rm -rf /etc
+block	safety	ionice -c2 rm -rf /etc
+block	safety	setsid rm -rf /etc
+block	safety	stdbuf -oL rm -rf /etc
+block	safety	time rm -rf /etc
+block	safety	sudo -T 5 rm -rf /etc
+block	safety	sudo --preserve-env=PATH rm -rf /etc
+block	safety	env -u FOO rm -rf /etc
+block	safety	xargs -a /tmp/list rm -rf /etc
+block	safety	{ { rm -rf /etc ; } ; }
+block	safety	( ( rm -rf /etc ) )
+block	safety	if true; then if true; then rm -rf /etc; fi; fi
+block	safety	while :; do { rm -rf /etc ; } ; done
+block	safety	eval 'eval "rm -rf /etc"'
+block	safety	sh -c 'sh -c "rm -rf /etc"'
+block	safety	bash -c 'eval "psql -c \"DROP DATABASE crm_db\""'
+block	safety	find . -exec sh -c 'rm -rf /etc' \;
+block	safety	find . -execdir rm -rf /etc \;
+block	safety	find . -ok rm -rf /etc \;
+block	safety	nohup sh -c 'rm -rf /etc' &
+block	safety	timeout 5s env -i rm -rf /etc
+block	safety	sudo -u root env -i rm -rf /etc
+block	safety	'/bin/rm' -rf /etc
+block	safety	r''m -rf /etc
+block	safety	\rm -rf /etc
+block	safety	rm -r -f /etc
+block	safety	rm --force --recursive /etc
+block	safety	rm -rf -- /etc
+block	safety	rm -rf /etc/
+block	safety	rm -rf //etc
+block	safety	git push --force origin HEAD:main
+block	safety	git push --force origin main:main
+block	safety	git -c push.default=current push --force origin main
+block	safety	echo x && git push --force origin main
+block	safety	psql "postgresql://localhost/postgres" -c 'DROP DATABASE crm_db'
+block	safety	docker exec crm-postgres sh -c 'psql -c "DROP DATABASE crm_db"'
+block	safety	printf 'DROP DATABASE crm_db;' > /tmp/z.sql && psql -f /tmp/z.sql
+block	db,ttl	sudo -u maksym env -i pnpm dev
+block	db,ttl	script -c 'pnpm dev' /dev/null
+block	db,ttl	flock /tmp/l -c 'pnpm dev'
+block	db,ttl	nohup script -q /dev/null pnpm dev &
+block	db,ttl	{ { pnpm dev ; } ; }
+block	db,ttl	if true; then pnpm dev; fi
+block	db,ttl	for i in 1; do pnpm dev; done
+block	db,ttl	xargs -n1 -I{} sh -c 'pnpm dev'
+block	db,ttl	pnpm run dev
+block	db,ttl	pnpm run dev:start
+block	db,ttl	npm --prefix apps/api run dev
+block	db,ttl	./node_modules/.bin/nest start
+block	db,ttl	node --max-old-space-size=4096 apps/api/dist/main.js
+block	db,ttl	node apps/api/dist/main
+
+# ═══ what must stay possible ═════════════════════════════════════════════════
+# `narrowed` = the coarse rule refused this and was wrong to. Each of these was
+# an actual refusal on a plain read. The hook split (`db,ttl` but not `safety`)
+# is not cosmetic — it says WHICH coarse rule objected, and it was measured by
+# running the degraded fallback, not reasoned about.
+narrowed	db,ttl	git show HEAD:pnpm-lock.yaml | grep -n vite
+allow	safety	git show HEAD:pnpm-lock.yaml | grep -n vite
+narrowed	db,ttl	ls -la node_modules/.bin/vite
+allow	safety	ls -la node_modules/.bin/vite
+narrowed	db,ttl	node -e "console.log('apps/api/dist/main.js')"
+allow	safety	node -e "console.log('apps/api/dist/main.js')"
+narrowed	db,ttl	sh -c 'grep -n vite pnpm-lock.yaml'
+allow	safety	sh -c 'grep -n vite pnpm-lock.yaml'
+narrowed	db,ttl	which vite
+allow	safety	which vite
+narrowed	safety	gh pr create --title x --body 'блокирует DROP DATABASE crm_db и rm -rf /etc'
+narrowed	safety	echo 'никогда не делай: DROP DATABASE crm_db'
+narrowed	safety	git commit -m 'fix(hooks): block DROP DATABASE crm_db only when executed'
+narrowed	safety	echo 'запрещено: git push --force origin main'
+narrowed	safety	echo 'rm -rf / стерло бы систему'
+narrowed	safety	rm -rf /tmp/guard-test-abc123
+narrowed	safety	rm -rf /private/tmp/claude-501/session/scratchpad
+narrowed	safety	echo 'DROP DATABASE crm_db;' > /tmp/x.sql
+# quoting a fork bomb: the coarse rule let this through as well, because its own
+# JSON-flattening erases `{`. Recorded as `allow`, not `narrowed` — the label has
+# to describe what the fallback DOES, not what it was meant to do.
+allow	safety	echo ':(){ :|:& };:'
+allow	all	grep -rn 'pnpm dev' .claude/rules
+allow	all	rg -n 'nest start' apps/api
+allow	all	echo 'потом запусти: pnpm --filter @crm/api dev'
+allow	all	cat scripts/devops/dev-ttl.sh
+# plain allow — the coarse rule was already fine with these
+allow	all	pnpm --filter @crm/web build
+allow	all	pnpm --filter @crm/e2e test
+allow	all	pnpm install --frozen-lockfile
+allow	all	pnpm typecheck
+allow	all	vitest run apps/api
+allow	all	git status --porcelain
+allow	all	git diff --name-only origin/main..HEAD
+allow	all	git commit -m 'fix(hooks): decide on the command, not the word'
+allow	all	git push origin fix/guards-narrow-to-launch
+allow	all	gh pr view 561 --json body
+allow	all	rm -rf node_modules/.cache
+allow	all	mkdir -p apps/api/dist
+allow	all	head -50 apps/api/dist/main.js
+allow	all	cat apps/web/vite.config.ts
+allow	all	lsof -ti tcp:3010 | xargs kill -9
+allow	all	for p in 3010 3011 3014; do lsof -ti tcp:$p; done
+allow	all	psql -h localhost -U crm_user -d crm_qa -c 'select 1'
+allow	all	docker compose up -d
+allow	all	curl -sS http://localhost:3011/api/health
+allow	all	prettier --write .claude/hooks/lib/cmdscan.py
+allow	all	sed -n '1,50p' apps/api/src/main.ts
+allow	all	find scripts/devops -name 'dev-ttl.sh'
+allow	all	bash scripts/devops/tests/run-guard-tests.sh
+allow	all	scripts/devops/tests/run-guard-tests.sh pre-bash
+allow	all	./scripts/devops/reap-zombie-devservers.sh
+# A launch with a proven-safe environment. The db guard is satisfied and the TTL
+# gate still is not — they check different things and both are supposed to. These
+# are `narrowed` for the db guard because its coarse fallback is environment-BLIND:
+# it refuses any launcher in a worktree, safe values or not. That is the single
+# largest reason the substring rule had to go, and it is worth having pinned.
+narrowed	db	DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
+narrowed	db	DATABASE_URL= vite --port 3010
+narrowed	db	scripts/devops/dev-ttl.sh -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
+block	ttl	DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev
+allow	ttl	scripts/devops/dev-ttl.sh --ttl 7200 -- DATABASE_URL=postgresql://crm_user:password@localhost:5432/crm_qa API_PORT=3011 pnpm --filter @crm/api dev

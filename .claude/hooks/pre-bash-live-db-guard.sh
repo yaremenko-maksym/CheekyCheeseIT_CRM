@@ -43,11 +43,23 @@
 # The parse lives in lib/cmdscan.py (shared with pre-bash-devserver-ttl-gate.sh,
 # which must agree token-for-token on what a launch is — they used to carry the
 # same regex twice, which is why narrowing one alone would still have left this
-# `grep` refused). It splits on `;`/`&&`/`||`/`|`/`&`/newline, recurses into
-# `sh -c` and `$( )`, unwraps `VAR=v`, `env`, `sudo`, `nohup`, `timeout`,
-# `xargs`, `npx`, `dev-ttl.sh --`, and decides on the COMMAND WORD.
-# An unresolvable command word (`$RUNNER dev`) falls back to the old coarse
-# test — conservative by construction.
+# `grep` refused). It splits on `;`/`&&`/`||`/`|`/`&`/newline and on shell
+# grouping, recurses into `sh -c`, `eval`, `find -exec` and `$( )`, unwraps
+# `VAR=v` and the wrapper commands, and decides on the COMMAND WORD.
+#
+# WHAT THE FIRST VERSION GOT WRONG (security review, 2026-08-18). It trusted the
+# parse unless `shlex` had thrown. The review produced 13 reproduced misses —
+# `env -i pnpm dev`, `sudo -s pnpm dev`, `{ pnpm dev ; }`, `script -q /dev/null
+# pnpm dev` — in every one of which the parser had NOT failed; it had answered
+# confidently and wrong. So the trust boundary moved: cmdscan marks a segment
+# `confident` only when it resolved the command word AND understands the command,
+# and an unconfident segment is judged by every "the command might start here"
+# reading of itself. `$RUNNER dev` and an unknown wrapper are now the same case,
+# and neither can turn a would-be block into an allow.
+#
+# The environment is read PER SEGMENT: an inline prefix reaches only the command
+# it is glued to, `export` reaches later segments. `DATABASE_URL=…/crm_qa echo ok
+# && pnpm dev` gives the launch nothing, and is refused.
 # ---------------------------------------------------------------------------
 #
 # Contract:
