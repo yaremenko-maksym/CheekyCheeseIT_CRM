@@ -1832,6 +1832,44 @@ export async function getTeamViaAPI(
   return (await res.json()) as Awaited<ReturnType<typeof getTeamViaAPI>>
 }
 
+/**
+ * Fetch a team's audit-log via GET /api/teams/:id/audit-log (ADMIN-only).
+ *
+ * `TeamsService.mapDropTeam` (security-review PR #541 round 3) filters
+ * `members` to ACTIVE rows only (`leftAt === null`) — a drop-team's GET
+ * response NEVER includes a detached (leftAt-set) historic member, by
+ * design. Specs proving "the senior was detached, not archived" during a
+ * drop-team/drop-user archive cascade therefore cannot observe the
+ * `leftAt` timestamp via `getTeamViaAPI` — the member simply disappears
+ * from the list. This helper reads the audit trail `archiveDropTeam`
+ * writes instead (`action: 'team_member_removed'`, `changes.userId.before`
+ * = the detached user, `changes.role.before` = their pre-detach role) —
+ * the actual observable proof that the cascade ran, not an inference from
+ * absence. Caller must be ADMIN.
+ */
+export async function getTeamAuditLogViaAPI(
+  page: Page,
+  teamId: string,
+): Promise<
+  Array<{
+    id: string
+    actorId: string | null
+    targetId: string
+    action: string
+    changes: Record<string, { before: unknown; after: unknown }>
+    createdAt: string
+  }>
+> {
+  const res = await page.request.get(`${REAL_API_BASE}/api/teams/${teamId}/audit-log`)
+  if (res.status() !== 200) {
+    throw new Error(
+      `getTeamAuditLogViaAPI failed for team ${teamId}: HTTP ${res.status()} — ${await res.text()}`,
+    )
+  }
+  const body = (await res.json()) as { entries: Awaited<ReturnType<typeof getTeamAuditLogViaAPI>> }
+  return body.entries
+}
+
 /** Fetch a user by id via GET /api/users/:id — returns the user shell. */
 export async function getUserViaAPI(
   page: Page,
@@ -2241,6 +2279,11 @@ export async function listPayoutRequestTransactionsViaAPI(
     type: string
     status: string
     amount: string
+    // `currency` was undeclared here even though `mapTx` has always returned
+    // it (same class of gap as the `payoutRequestId` note above) — backlog
+    // item 139 needed it to read the placeholder PAYOUT row's currency
+    // without a second request.
+    currency: string
     receiverId: string | null
     recipientId: string | null
     projectId: string | null
@@ -2258,6 +2301,7 @@ export async function listPayoutRequestTransactionsViaAPI(
       type: string
       status: string
       amount: string
+      currency: string
       receiverId: string | null
       recipientId: string | null
       projectId: string | null
@@ -2467,6 +2511,22 @@ export async function confirmPayoutRawViaAPI(
  *
  * Caller must be ADMIN or ACCOUNTANT to see the full unfiltered list. Other
  * roles get a partial slice per RBAC and may miss PAYOUT rows.
+ *
+ * TRAP (backlog item 139, found while de-flaking the drop specs): the
+ * placeholder PAYOUT row `TransactionsService.createPayoutRequest` inserts
+ * (and later flips to PAID in `applyPayoutPaidCascade`) is NEVER stamped
+ * with `projectId` — unlike PAYOUT_ADMIN / SENIOR_PENDING_PAYOUT /
+ * DROP_PENDING_PAYOUT, which the same cascade DOES stamp (see
+ * `bookCompanyObligations` in transactions.service.ts). This helper's
+ * `?projectId=` filter (same one `listTransactionsByProjectViaAPI` uses)
+ * therefore NEVER returns that PAYOUT row, at any status, before or after
+ * payment — this is a standing backend gap, not a timing issue. To find the
+ * placeholder/paid PAYOUT row for a payout_request, use
+ * `listPayoutRequestTransactionsViaAPI(page, payoutRequestId)` instead — it
+ * joins on `payoutRequestId`, not `projectId`. See the money-path specs
+ * (drop-confirm-payout*.spec.ts, drop-distribution*.spec.ts) for the
+ * pattern. Left un-fixed at the source (apps/api/** is outside this repo's
+ * AutoTest zone-of-write) — flagged for a Coder follow-up.
  */
 export async function findPendingPayoutsForProjectViaAPI(
   page: Page,
