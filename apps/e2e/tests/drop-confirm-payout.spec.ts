@@ -207,6 +207,16 @@ test.describe('Drop confirm-payout — manual confirmation happy path (AC2)', ()
       expect(parseFloat(confirmedRow.amount)).toBeCloseTo(payoutAmount, 2)
       expect(confirmedRow.recipientId).toBe(MAKSYM_ID)
       expect(confirmedRow.receiverId).toBe(MAKSYM_ID)
+      // Backlog item 144: pins the KNOWN DEFECT, not the desired behaviour —
+      // `confirmPayout` snapshots `projectId` from the source PAYOUT row
+      // (`projectId: payoutTx.projectId`), which `createPayoutRequest` never
+      // sets (see the TRAP note on `findPendingPayoutsForProjectViaAPI` in
+      // fixtures.ts), so PAYOUT_CONFIRMED.projectId is always null too, never
+      // the real project id. If this ever turns red, the backend bug was
+      // fixed — replace this with `expect(confirmedRow.projectId).toBe(projectId)`
+      // and drop the `listPayoutRequestTransactionsViaAPI` workaround above
+      // (`listTransactionsByProjectViaAPI` would then find this row directly).
+      expect(confirmedRow.projectId).toBeNull()
       // Pull the row again with the full shape to check currency.
       const confirmedFull = await page.request.get(`${REAL_API}/transactions/${confirmedRow.id}`)
       expect(confirmedFull.status()).toBe(200)
