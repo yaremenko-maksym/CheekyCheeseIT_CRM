@@ -821,9 +821,26 @@ jobs:
         if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @crm/e2e exec playwright install --with-deps chromium
 
+      # backlog item 122 (.claude/tasks/BACKLOG-followups.md, 2026-08-18):
+      # this step used to be a bare `run:` with no cap of its own — the
+      # JOB's `timeout-minutes: 15` above was the only thing that could
+      # ever stop it, and it hung for the full 15 minutes 3 times overnight
+      # (gh run 32084626391 on PR #560 and its rerun, PR #558 an hour
+      # earlier), with the shard's actual E2E tests never even starting.
+      # A job killed by its OWN timeout gets GitHub conclusion `cancelled`
+      # — the exact same conclusion a run gets when a new push preempts it
+      # under this workflow's `concurrency: cancel-in-progress: true`
+      # (routine, no action needed), so a real hang here was
+      # indistinguishable from harmless preemption in the PR checks UI.
+      # scripts/devops/install-playwright-system-deps.sh gives this ONE
+      # step its own short, bounded timeout + retry (same shape as
+      # check-pnpm-audit.mjs's network-retry and gh-merge-pr-with-retry.sh's
+      # shared run_with_timeout helper — see that script's own header for
+      # the full reasoning, including why the step stays rather than being
+      # removed on the cache-hit path).
       - name: Install Playwright system deps (cached run)
         if: steps.scope.outputs.code == 'true' && steps.pw-cache.outputs.cache-hit == 'true'
-        run: pnpm --filter @crm/e2e exec playwright install-deps chromium
+        run: scripts/devops/install-playwright-system-deps.sh
 
       # ── landing-only steps (task-landing-e2e-in-ci.md КОНТРАКТ) ─────────
       # Real admin HTTP API (dev-login → POST/PATCH /api/vacancies), not a
