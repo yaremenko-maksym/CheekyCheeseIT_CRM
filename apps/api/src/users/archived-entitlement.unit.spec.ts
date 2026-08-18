@@ -434,6 +434,25 @@ describe('archived-entitlement — the two writers that legitimately bypass the 
  *     through an alias, raw `sql`, or a helper taking the table as a parameter
  *     would slip past. Nothing in this repo does that today; if that changes,
  *     this check has to change with it.
+ *   • It reads ONE LINE AT A TIME, so the same call split across lines —
+ *     `.update(` on one, `users` on the next — is invisible to it. Measured by
+ *     code review on PR #564: a writer formatted that way is not caught. What
+ *     catches it is not this scanner but PRETTIER, which collapses that call
+ *     back onto a single line, and prettier is enforced twice — the local
+ *     pre-push gate (`.claude/hooks/pre-bash-prettier-gate.sh`) and the CI
+ *     formatting check (`.github/workflows/check-no-skip-hooks.yml`). State
+ *     that plainly rather than as a footnote: THE COVERAGE OF THIS CHECK RESTS
+ *     ON A FORMATTING GATE. Stop enforcing prettier — or exempt this file from
+ *     it — and the hole opens without a single test going red. If that day
+ *     comes, this check has to move to an AST walk (ts-morph / ast-grep),
+ *     which is line-shape-independent.
+ *
+ *     The converse held, and it is why the design is worth keeping: a writer
+ *     declared as a single-line arrow PROPERTY is still caught, even though
+ *     the enclosing-method parser does not understand that syntax. The
+ *     comparison is over the full SET of keys, not over the accuracy of any
+ *     one attribution — so a mis-attributed writer still shows up as a set
+ *     difference. The whole is sturdier than its parsing.
  */
 describe('archived-entitlement — the inventory of everything that writes `users`', () => {
   /**

@@ -912,7 +912,10 @@ export class UsersService {
    * non-spec file under `apps/api/src`, collects the enclosing method of every
    * `.update(users)`, and diffs the whole set against an explicit inventory.
    * A new writer anywhere in the API fails that test by name. That is the only
-   * form in which this paragraph is worth reading.
+   * form in which this paragraph is worth reading — and it too has stated
+   * limits (the scan is line-based, so its coverage of a multi-line call rests
+   * on the prettier gate); they are listed on the check itself, not paraphrased
+   * here, so there is one place to keep honest.
    *
    * ## Two layers, not one
    *
