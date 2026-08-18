@@ -21,6 +21,23 @@
 #                              before answering ONLY the FIRST call (every
 #                              later call answers immediately), simulating
 #                              one hung call that then recovers.
+#   FAKE_PW_DEPS_LOCK_TEXT     optional (round 2, backlog item 122) — when
+#                              set to "1", every FAILING call (rc != 0)
+#                              prints apt/dpkg's own real "another process
+#                              holds the lock" wording instead of the
+#                              generic message below, so a test can drive
+#                              install-playwright-system-deps.sh's lock
+#                              classification without needing a real apt
+#                              lock. Verbatim lines from the actual PR #562
+#                              transcript this whole round exists to fix.
+#                              Ignored if FAKE_PW_DEPS_LOCK_UNTIL_CALL is set.
+#   FAKE_PW_DEPS_LOCK_UNTIL_CALL   optional (round 2) — a call number N:
+#                              FAILING calls 1..N print the lock wording,
+#                              FAILING calls after N print the generic
+#                              message. Models "the lock clears, but the
+#                              NEXT call hits a genuine, unrelated
+#                              dependency error" — a case a blanket
+#                              FAKE_PW_DEPS_LOCK_TEXT=1 cannot represent.
 set -u
 
 : "${FAKE_PW_DEPS_RC_SEQUENCE:?FAKE_PW_DEPS_RC_SEQUENCE not set}"
@@ -54,5 +71,18 @@ if [ "$rc" -eq 0 ]; then
   echo "fake-playwright-deps: call $n ok (0 upgraded, 0 newly installed)"
   exit 0
 fi
-echo "fake-playwright-deps: call $n failed (rc=$rc)" >&2
+
+use_lock_text=0
+if [ -n "${FAKE_PW_DEPS_LOCK_UNTIL_CALL:-}" ]; then
+  [ "$n" -le "$FAKE_PW_DEPS_LOCK_UNTIL_CALL" ] && use_lock_text=1
+elif [ "${FAKE_PW_DEPS_LOCK_TEXT:-}" = "1" ]; then
+  use_lock_text=1
+fi
+
+if [ "$use_lock_text" -eq 1 ]; then
+  echo "E: Could not get lock /var/lib/apt/lists/lock. It is held by process 3760 (apt-get)" >&2
+  echo "E: Unable to lock directory /var/lib/apt/lists/" >&2
+else
+  echo "fake-playwright-deps: call $n failed (rc=$rc)" >&2
+fi
 exit "$rc"
