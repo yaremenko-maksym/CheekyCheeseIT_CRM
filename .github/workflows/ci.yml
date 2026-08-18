@@ -595,7 +595,7 @@ jobs:
             # so listing it here now is a no-op today and self-activates the
             # moment #528 merges — no follow-up PR needed, no window where the
             # spec lands on main unsharded.
-            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts
+            files: tests/auth.spec.ts tests/navigation.spec.ts tests/debug.spec.ts tests/mock_test.spec.ts tests/app-shell-responsive.spec.ts tests/crm-tab-title.spec.ts tests/e2e-origin-agnostic-guard.spec.ts
           - name: team-users
             files: tests/team.spec.ts tests/users.spec.ts tests/rbac-hr-on-senior.spec.ts tests/rbac-junior-on-other.spec.ts
           - name: projects
