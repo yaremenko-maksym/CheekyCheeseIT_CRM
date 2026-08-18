@@ -333,6 +333,54 @@ describe.skipIf(!hasDatabaseUrl())('archived user — entitlement freeze (real D
     })
   })
 
+  // ── AC2, layer 2 — the predicate that lives INSIDE the UPDATE ────────────
+  describe('AC2 — layer 2: `archived_at IS NULL` in the write statement', () => {
+    // WHY WHITE-BOX. `updateUserRow` is deliberately two layers: an in-JS
+    // pre-check against a snapshot read earlier, and the same refusal repeated
+    // as SQL so an archive committing in the TOCTOU window still loses. Every
+    // public caller reads that snapshot immediately before the write, so from
+    // the outside the second layer is unreachable — and, measured: deleting
+    // EITHER layer alone leaves all the black-box tests above green. Reaching
+    // the private method with a deliberately stale snapshot is the only way to
+    // execute the predicate, and executing it is the only way this assertion
+    // means anything (a mocked DB would replay a queued answer no matter what
+    // the WHERE clause said).
+    type PrivateWriter = {
+      updateUserRow: (
+        db: DatabaseService['db'],
+        id: string,
+        existing: { archivedAt: Date | null },
+        set: Record<string, unknown>,
+      ) => Promise<unknown>
+    }
+
+    it('refuses even when the snapshot says the user is active — and the row does not move', async () => {
+      const stale = { ...(await rowOf(ARCHIVED_JUNIOR_ID)), archivedAt: null }
+      const priv = usersService as unknown as PrivateWriter
+
+      await expect(
+        priv.updateUserRow(dbSvc.db, ARCHIVED_JUNIOR_ID, stale, {
+          role: 'HR',
+          updatedAt: new Date(),
+        }),
+      ).rejects.toThrow(ENTITLEMENT_REFUSAL)
+
+      expect((await rowOf(ARCHIVED_JUNIOR_ID)).role).toBe('JUNIOR')
+    })
+
+    it('CONTROL: the same stale-snapshot call succeeds against a user who really is active', async () => {
+      const stale = { ...(await rowOf(ACTIVE_JUNIOR_ID)), archivedAt: null }
+      const priv = usersService as unknown as PrivateWriter
+
+      await priv.updateUserRow(dbSvc.db, ACTIVE_JUNIOR_ID, stale, {
+        role: 'HR',
+        updatedAt: new Date(),
+      })
+
+      expect((await rowOf(ACTIVE_JUNIOR_ID)).role).toBe('HR')
+    })
+  })
+
   // ── AC5 — the chain that bypasses addMember entirely ─────────────────────
   describe('AC5 — JUNIOR on a project → HR → archive → JUNIOR', () => {
     it('is refused at the last step, and `addMember` is never involved', async () => {
