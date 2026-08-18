@@ -27,7 +27,13 @@
 # the SAME throttler override CI already carries, end to end, against a
 # SCRATCH database — never the developer's live `crm_db` (see the DATABASE_URL
 # / REDIS_URL requirement below; this script refuses to run against the
-# docker-compose default database unless ALLOW_DEFAULT_DB=1 is set).
+# docker-compose default database unless SEED_CONFIRM_LIVE_DB_NAME=crm_db is
+# set — task-ci-db-rename-and-dbpush-guard, AC8: the SAME exact-name
+# confirmation env var the db:push/db:seed calls below already enforce on
+# their own, not a second bare on/off flag that could drift from it. A flag
+# like the old `ALLOW_DEFAULT_DB=1` is exactly the shape #576's security
+# review flagged in seed-db-guard.ts's own original GITHUB_ACTIONS exception:
+# a single inherited env var that fully disables the check).
 #
 # Usage:
 #   DATABASE_URL=postgresql://crm_user:password@localhost:5544/crm_db_scratch \
@@ -139,12 +145,14 @@ db_name_from_url() {
 }
 
 DB_NAME="$(db_name_from_url "$DATABASE_URL")"
-if [ "$DB_NAME" = "crm_db" ] && [ "${ALLOW_DEFAULT_DB:-}" != "1" ]; then
+if [ "$DB_NAME" = "crm_db" ] && [ "${SEED_CONFIRM_LIVE_DB_NAME:-}" != "crm_db" ]; then
   echo "run-landing-e2e-local: DATABASE_URL's database name is 'crm_db' — the live/default one" >&2
   echo "(docker-compose.yml POSTGRES_DB, .env.example DATABASE_URL). Host spelling does not matter:" >&2
   echo "this machine has a 'crm_db' database on BOTH its Postgres servers on :5432 (homebrew AND docker)." >&2
   echo "This script runs db:push + db:seed + a landing fixture seed against it — never point it at your live dev DB." >&2
-  echo "Point DATABASE_URL at a scratch database (any other name), or set ALLOW_DEFAULT_DB=1 to override (not recommended)." >&2
+  echo "Point DATABASE_URL at a scratch database (any other name), or set SEED_CONFIRM_LIVE_DB_NAME=crm_db to" >&2
+  echo "override (not recommended) — same escape hatch db:push/db:seed themselves use," >&2
+  echo "see apps/api/src/database/seed-db-guard.ts." >&2
   exit 64
 fi
 

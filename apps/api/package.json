@@ -11,8 +11,8 @@
     "lint": "eslint src",
     "test": "vitest run",
     "test:watch": "vitest",
-    "db:migrate": "drizzle-kit push",
-    "db:push": "drizzle-kit push",
+    "db:migrate": "tsx src/database/seed-db-guard.ts && drizzle-kit push",
+    "db:push": "tsx src/database/seed-db-guard.ts && drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "db:seed": "tsx src/database/seed.ts"
   },

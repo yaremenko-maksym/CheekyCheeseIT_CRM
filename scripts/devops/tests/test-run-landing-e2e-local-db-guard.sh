@@ -42,9 +42,14 @@ eval "$FN_SRC"
 # Mirrors the real call site in run-landing-e2e-local.sh verbatim, INCLUDING
 # its exit code:
 #   DB_NAME="$(db_name_from_url "$DATABASE_URL")"
-#   if [ "$DB_NAME" = "crm_db" ] && [ "${ALLOW_DEFAULT_DB:-}" != "1" ]; then
+#   if [ "$DB_NAME" = "crm_db" ] && [ "${SEED_CONFIRM_LIVE_DB_NAME:-}" != "crm_db" ]; then
 #     ... exit 64
 #   fi
+# (task-ci-db-rename-and-dbpush-guard, AC8: the bypass used to be a bare
+# ALLOW_DEFAULT_DB=1 flag — replaced with the SAME exact-name confirmation
+# env var db:push/db:seed use, so there is one escape-hatch mechanism, not
+# two that can drift apart. This test only exercises db_name_from_url()
+# itself, which is unaffected by that change.)
 # Prints the resolved name (so --contains can pin it in verbose output) and
 # exits NON-ZERO when the real script would BLOCK this URL (assert_red — same
 # "guard went red" convention every other test in this directory uses for a
@@ -132,5 +137,73 @@ assert_green "no database name at all (libpq defaults dbname to the connecting u
 assert_green "bare trailing slash, no database name -> allowed" \
   --contains "resolved db name: ''" \
   -- would_block "postgresql://crm_user:password@localhost:5432/"
+
+# ── task-ci-db-rename-and-dbpush-guard, AC8 — the actual bypass MECHANISM ──────
+# (not just db_name_from_url() above). The old ALLOW_DEFAULT_DB=1 bare flag was
+# replaced with the SAME SEED_CONFIRM_LIVE_DB_NAME=<exact name> exact-match
+# escape hatch db:push/db:seed themselves use (apps/api/src/database/
+# seed-db-guard.ts) — one mechanism, not two that can drift apart. Extracted
+# (sed, not hand-copied — same reasoning as db_name_from_url() above) from the
+# real `if` block that follows the db_name_from_url() call in the real script,
+# run in a subshell per case so its `exit 64` only ends the subshell.
+GUARD_SRC="$(sed -n '/^DB_NAME=/,/^fi$/p' "$SCRIPT_UNDER_TEST")"
+if [ -z "$GUARD_SRC" ]; then
+  echo "test-run-landing-e2e-local-db-guard: could not extract the crm_db guard 'if' block from $SCRIPT_UNDER_TEST" >&2
+  echo "— has it been reshaped? This test's sed range (from the literal 'DB_NAME=' line to the" >&2
+  echo "next line that is exactly 'fi') needs updating to match." >&2
+  exit 1
+fi
+
+would_run_guard() {
+  local url="$1"
+  (
+    DATABASE_URL="$url"
+    eval "$GUARD_SRC"
+    echo "guard allowed the run"
+  )
+}
+
+would_run_guard_with_allow_default_db() {
+  local url="$1"
+  (
+    # shellcheck disable=SC2034 # read by $GUARD_SRC via eval below, not directly
+    DATABASE_URL="$url"
+    # shellcheck disable=SC2034 # the OLD (removed) bypass var — proving it is NOT read anymore
+    ALLOW_DEFAULT_DB=1
+    eval "$GUARD_SRC"
+    echo "guard allowed the run"
+  )
+}
+
+would_run_guard_with_confirm() {
+  local url="$1"
+  (
+    # shellcheck disable=SC2034 # read by $GUARD_SRC via eval below, not directly
+    DATABASE_URL="$url"
+    # shellcheck disable=SC2034 # read by $GUARD_SRC via eval below, not directly
+    SEED_CONFIRM_LIVE_DB_NAME=crm_db
+    eval "$GUARD_SRC"
+    echo "guard allowed the run"
+  )
+}
+
+echo
+echo "-- AC8: bypass mechanism (SEED_CONFIRM_LIVE_DB_NAME, not ALLOW_DEFAULT_DB) --"
+
+assert_red "crm_db, no confirmation set -> blocked" \
+  --not-contains "guard allowed the run" \
+  -- would_run_guard "postgresql://crm_user:password@localhost:5544/crm_db"
+
+assert_red "crm_db, the OLD ALLOW_DEFAULT_DB=1 flag -> still blocked (removed, AC8 — no second mechanism)" \
+  --not-contains "guard allowed the run" \
+  -- would_run_guard_with_allow_default_db "postgresql://crm_user:password@localhost:5544/crm_db"
+
+assert_green "crm_db, SEED_CONFIRM_LIVE_DB_NAME=crm_db -> allowed (same escape hatch as db:push/db:seed)" \
+  --contains "guard allowed the run" \
+  -- would_run_guard_with_confirm "postgresql://crm_user:password@localhost:5544/crm_db"
+
+assert_green "crm_scratch (disposable name), no confirmation needed -> allowed" \
+  --contains "guard allowed the run" \
+  -- would_run_guard "postgresql://crm_user:password@localhost:5544/crm_scratch"
 
 guard_test_summary "test-run-landing-e2e-local-db-guard.sh"

@@ -4,6 +4,7 @@ import {
   DISPOSABLE_NAME_PREFIX,
   LIVE_DB_NAME,
   SEED_LIVE_DB_CONFIRM_ENV,
+  assertDbPushTargetIsDisposable,
   assertSeedTargetIsDisposable,
   extractDbName,
   looksDisposable,
@@ -134,28 +135,26 @@ describe('assertSeedTargetIsDisposable', () => {
     expect(msg).toContain('will not accidentally match')
   })
 
-  it('GITHUB_ACTIONS=true short-circuits before the name check, even against crm_db', () => {
+  it('GITHUB_ACTIONS=true no longer bypasses the guard (removed by task-ci-db-rename-and-dbpush-guard — CI is renamed to crm_ci, which already passes looksDisposable() on its own; see ci.yml/e2e.yml)', () => {
     expect(() =>
       assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { GITHUB_ACTIONS: 'true' }),
-    ).not.toThrow()
-  })
-
-  it('GITHUB_ACTIONS set to any other value does NOT bypass the guard', () => {
-    expect(() =>
-      assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { GITHUB_ACTIONS: 'false' }),
     ).toThrow(/REFUSED/)
   })
 
-  it('plain CI=true does NOT bypass the guard (narrowed per security review, PR #576 MED-1 — CI is an easy-to-type/easy-to-inherit idiom nothing in this repo exports, unlike GITHUB_ACTIONS which only the runner sets)', () => {
+  it('plain CI=true does not bypass the guard either (never did — CI is an easy-to-type/easy-to-inherit idiom nothing in this repo exports)', () => {
     expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'true' })).toThrow(
       /REFUSED/,
     )
   })
 
-  it('CI=true AND GITHUB_ACTIONS=true together still bypass (GITHUB_ACTIONS is what matters)', () => {
+  it('CI=true AND GITHUB_ACTIONS=true together still refuse — no env-var combination bypasses the name check anymore, only the exact-name confirmation below does', () => {
     expect(() =>
       assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'true', GITHUB_ACTIONS: 'true' }),
-    ).not.toThrow()
+    ).toThrow(/REFUSED/)
+  })
+
+  it("CI's own throwaway database name (crm_ci) needs no exception at all — it is crm_-prefixed and not literally crm_db, so it passes looksDisposable() the same way every other scratch name does", () => {
+    expect(() => assertSeedTargetIsDisposable(urlFor('crm_ci'), {})).not.toThrow()
   })
 
   it('the exact-name confirmation env var bypasses the guard for crm_db', () => {
@@ -217,14 +216,14 @@ describe('assertSeedTargetIsDisposable', () => {
     )
   })
 
-  it('defaults to process.env when no env argument is passed', () => {
-    const saved = process.env['GITHUB_ACTIONS']
-    process.env['GITHUB_ACTIONS'] = 'true'
+  it('defaults to process.env when no env argument is passed (confirmSourceEnv falls back to it too)', () => {
+    const saved = process.env[SEED_LIVE_DB_CONFIRM_ENV]
+    process.env[SEED_LIVE_DB_CONFIRM_ENV] = 'crm_db'
     try {
       expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME))).not.toThrow()
     } finally {
-      if (saved === undefined) delete process.env['GITHUB_ACTIONS']
-      else process.env['GITHUB_ACTIONS'] = saved
+      if (saved === undefined) delete process.env[SEED_LIVE_DB_CONFIRM_ENV]
+      else process.env[SEED_LIVE_DB_CONFIRM_ENV] = saved
     }
   })
 
@@ -252,5 +251,71 @@ describe('assertSeedTargetIsDisposable', () => {
         }),
       ).not.toThrow()
     })
+  })
+})
+
+describe('assertDbPushTargetIsDisposable (task-ci-db-rename-and-dbpush-guard, AC5/AC6 — same check, same escape hatch as db:seed, worded for db:push/db:migrate)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('does not throw for a disposable-looking name', () => {
+    expect(() => assertDbPushTargetIsDisposable(urlFor('crm_qa'), {})).not.toThrow()
+  })
+
+  it("does not throw for CI's own throwaway database name (crm_ci)", () => {
+    expect(() => assertDbPushTargetIsDisposable(urlFor('crm_ci'), {})).not.toThrow()
+  })
+
+  it('THROWS for the live db name crm_db, with no override present', () => {
+    expect(() => assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {})).toThrow(
+      /REFUSED: db:push \(drizzle-kit push\) will not run against database 'crm_db'/,
+    )
+  })
+
+  it('the refusal message points at db:push, not db:seed, and names the senior_resumes incident', () => {
+    let thrown: Error | undefined
+    try {
+      assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {})
+    } catch (err) {
+      thrown = err as Error
+    }
+    expect(thrown).toBeInstanceOf(Error)
+    const msg = thrown!.message
+
+    expect(msg).toContain(
+      "REFUSED: db:push (drizzle-kit push) will not run against database 'crm_db'",
+    )
+    expect(msg).toContain('senior_resumes')
+    expect(msg).toContain(`${SEED_LIVE_DB_CONFIRM_ENV}=crm_db pnpm --filter @crm/api db:push`)
+    // Same escape hatch as db:seed — AC6, not a second mechanism.
+    expect(msg).toContain(SEED_LIVE_DB_CONFIRM_ENV)
+  })
+
+  it('the SAME exact-name confirmation env var used by db:seed also bypasses db:push — one mechanism, not two (AC6)', () => {
+    expect(() =>
+      assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {
+        [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db',
+      }),
+    ).not.toThrow()
+  })
+
+  it('a WRONG confirmation value does not bypass db:push either', () => {
+    expect(() =>
+      assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {
+        [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_some_other_db',
+      }),
+    ).toThrow(/REFUSED/)
+  })
+
+  it('defaults confirmSourceEnv to process.env when not passed', () => {
+    const saved = process.env[SEED_LIVE_DB_CONFIRM_ENV]
+    process.env[SEED_LIVE_DB_CONFIRM_ENV] = 'crm_db'
+    try {
+      expect(() => assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME))).not.toThrow()
+    } finally {
+      if (saved === undefined) delete process.env[SEED_LIVE_DB_CONFIRM_ENV]
+      else process.env[SEED_LIVE_DB_CONFIRM_ENV] = saved
+    }
   })
 })

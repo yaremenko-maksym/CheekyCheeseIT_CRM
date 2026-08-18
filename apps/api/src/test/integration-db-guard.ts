@@ -29,7 +29,6 @@
  * unrelated schema. "Connects" is not "connects to the right thing".
  *
  * Guard logic:
- *   - If CI=true  → skip (CI uses a throwaway container DB, crm_db there is safe)
  *   - If DATABASE_URL ends with `/crm_db` → throw an explicit error
  *   - If DATABASE_URL is unset → warn and return (each spec's own
  *     `describe.skipIf(!hasDatabaseUrl())` reports this as SKIPPED, not
@@ -66,6 +65,21 @@
  * so DATABASE_URL is already set to crm_qa (see .env.test).
  * The guard is a second-line safety net for cases where the developer's
  * shell already exports DATABASE_URL pointing at crm_db.
+ *
+ * There used to be a `CI=true` short-circuit above the crm_db check — CI's
+ * own throwaway Postgres container used to be named `crm_db` too (the same
+ * name as the live one), so this guard had to skip itself entirely there.
+ * task-ci-db-rename-and-dbpush-guard renamed CI's throwaway database to
+ * `crm_ci` instead (ci.yml's `integration` job — the one that runs this
+ * globalSetup — see the DATABASE_URL there): `crm_ci` never matches the
+ * literal `crm_db` check below, so CI now passes this guard for real
+ * (connects, confirms Postgres 16, proceeds) rather than skipping it —
+ * which is the SAME code path every local `crm_qa` run already exercises,
+ * not a new one carved out for CI. `CI=true` was a strictly wider bypass
+ * than that: it is a common, easy-to-type idiom for "run non-interactively"
+ * that is not specific to GitHub Actions and not exported by anything else
+ * in this repo, so keeping it would have kept a full, silent off-switch
+ * around for a problem the rename already solves.
  */
 
 import path from 'path'
@@ -89,12 +103,6 @@ export async function setup(): Promise<void> {
     // `quiet: true` — suppress dotenv's upstream "tip" banner (see
     // vitest.config.mts for the full rationale).
     loadDotenv({ path: envTestPath, override: false, quiet: true })
-  }
-
-  // CI uses a throwaway Postgres container — crm_db there is safe to write.
-  if (process.env['CI'] === 'true') {
-    console.log('[integration-db-guard] CI=true — guard skipped (throwaway container DB)')
-    return
   }
 
   const dbUrl = process.env['DATABASE_URL'] ?? ''
