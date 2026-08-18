@@ -1209,6 +1209,50 @@ jobs:
           # apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql
           #   → /opt/crm/apps/api/drizzle/manual/2026-08-12_drop_obligation_company_name_snapshot.sql
 
+      # ── sender/receiver invariant DDL — GUARDED, same reason as the blocks above ──
+      # backlog A-2 (PR #568, fix/sender-receiver-invariant): adds
+      # `ck_transactions_sender_ne_receiver CHECK (sender_id <> receiver_id)` on
+      # `transactions` — no invariant anywhere previously forbade a row that pays a
+      # user to themselves. Owner confirmed zero existing `sender_id = receiver_id`
+      # rows on prod (checked twice, 2026-08-17) before this migration was written —
+      # see the DDL file's own header for the full reasoning, including why `<>` and
+      # not `IS DISTINCT FROM` (the latter would reject the common both-NULL row).
+      # Fully additive (one new CHECK constraint, no existing column touched), same
+      # shape as the job-sourcing/senior-resume/job-source-budgets/admin-income-
+      # backfill/drop-obligation-snapshot module DDL above, not order-critical the
+      # way an enum-VALUE addition to an already-live enum is (Step 2r) — the app-
+      # layer guard (`selfPayError`, added in the same PR) already rejects a
+      # self-pay write before it reaches the DB, so this constraint is defense-in-
+      # depth regardless of whether the old or new api image is running when it
+      # lands. DevOps zone-of-write excludes apps/api/**, so this wiring lands
+      # separately from the Coder branch that creates the file — same guarded copy +
+      # notice-skip pattern as every block above. PR #568 has not merged at the time
+      # this infra-PR lands — a missing file here is the expected steady state until
+      # it does, not an error (same precedent as 2026-08-01_transaction_soft_delete.sql:
+      # this wiring PR merges FIRST, the DDL file merges second).
+      - name: Check for sender/receiver invariant DDL file (guard until PR #568 merges)
+        id: sender-receiver-invariant-ddl-check
+        run: |
+          if [ -f apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql not found in checkout — task-sender-receiver-invariant (PR #568) has not merged to main yet. Skipping copy; deploy job's matching step also notice-skips applying it."
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Copy sender/receiver invariant DDL via SCP (only if present)
+        if: steps.sender-receiver-invariant-ddl-check.outputs.exists == 'true'
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USER }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          source: 'apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql'
+          target: '/opt/crm'
+          # scp-action preserves the source directory tree under target:
+          # apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql
+          #   → /opt/crm/apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql
+
   # ── 4. Pull images + up + migrate + health-check ─────────────────────────
   deploy:
     name: Deploy Stack on VPS
@@ -2436,6 +2480,58 @@ jobs:
                 psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
                 < "$NON_DELETED_TX_VIEW_REAPPLY_FILE"
               echo "==> non_deleted_transactions view DDL re-applied successfully"
+            fi
+
+            # ── Step 2aa: sender/receiver invariant CHECK constraint on transactions (idempotent, GUARDED) ──
+            # backlog A-2 (PR #568, fix/sender-receiver-invariant): adds
+            # `ck_transactions_sender_ne_receiver CHECK (sender_id <> receiver_id)` — no
+            # invariant anywhere previously forbade a `transactions` row that pays a user
+            # to themselves. Owner confirmed zero existing `sender_id = receiver_id` rows
+            # on prod (checked twice, 2026-08-17) before this migration was written. See
+            # the DDL file's own header for the full reasoning, including why `<>` (not
+            # `IS DISTINCT FROM`, which would wrongly reject the common both-NULL row).
+            # Fully additive — one new CHECK constraint, no existing column touched — same
+            # shape as the job-sourcing/senior-resume/job-source-budgets/admin-income-
+            # backfill/drop-obligation-snapshot module DDL above (Step 2s-2y), not order-
+            # critical the way an enum-VALUE addition to an already-live enum is (Step 2r):
+            # the app-layer guard (`selfPayError`, added in the same PR) already rejects a
+            # self-pay write before it reaches the DB, so this constraint is defense-in-
+            # depth regardless of whether the old or new api image is running when it
+            # lands. GUARDED for the same reason as the blocks above — DevOps zone-of-write
+            # excludes apps/api/**, this wiring lands separately from the Coder branch, and
+            # a missing file here is the expected steady state until #568 merges, not an
+            # error. copy-compose job's matching "Check for sender/receiver invariant DDL
+            # file" step mirrors this guard on the scp side.
+            #
+            # The DDL file's own DO block already runs with the equivalent of
+            # ON_ERROR_STOP semantics baked into its validation query (it RAISE EXCEPTIONs
+            # loudly before attempting the ADD CONSTRAINT if any bad row exists) — but that
+            # only matters if psql ITSELF is told to stop on error. `-v ON_ERROR_STOP=1` is
+            # passed explicitly below, same as every apply step in this job: verified by
+            # hand on a scratch DB that without it, psql keeps going after the RAISE
+            # EXCEPTION, the second statement (ADD CONSTRAINT) then also fails with its own
+            # "violated by some row" error, and the whole script still exits 0 — a silent
+            # no-op that would report deploy success on prod while adding no constraint at
+            # all. WITH the flag, the same broken input stops at the first error (exit 3),
+            # never reaching the second statement. This file's idempotency (safe to re-run
+            # forever once the constraint exists) was verified the same way, by hand, on a
+            # clean scratch DB: run twice, second run is a no-op, constraint definition
+            # matches `CHECK ((sender_id <> receiver_id))` via `pg_get_constraintdef`.
+            # Source: apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql
+            SENDER_RECEIVER_INVARIANT_FILE="/opt/crm/apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql"
+
+            if [ ! -f "$SENDER_RECEIVER_INVARIANT_FILE" ]; then
+              echo "::notice::Sender/receiver invariant DDL file not found at $SENDER_RECEIVER_INVARIANT_FILE — task-sender-receiver-invariant (PR #568) has not merged to main yet. Skipping this step; it applies automatically on a future deploy once the file is present."
+            else
+              echo "==> Applying sender/receiver invariant DDL (idempotent) — user=${PGUSER} db=${PGDB}"
+              docker compose \
+                -f docker-compose.prod.yml \
+                -f docker-compose.ghcr.yml \
+                --env-file .env.production \
+                exec -T postgres \
+                psql -U "$PGUSER" -d "$PGDB" -v ON_ERROR_STOP=1 \
+                < "$SENDER_RECEIVER_INVARIANT_FILE"
+              echo "==> sender/receiver invariant DDL applied successfully"
             fi
 
             # ── Step 2zz (preflight, task-infra-aop-observation, security review
