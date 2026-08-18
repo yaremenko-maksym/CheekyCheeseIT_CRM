@@ -368,7 +368,7 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: crm_db
+          POSTGRES_DB: crm_ci
           POSTGRES_USER: crm_user
           POSTGRES_PASSWORD: password
         ports:
@@ -379,7 +379,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
       S3_ENDPOINT: http://localhost:9000
       S3_FORCE_PATH_STYLE: 'true'
       S3_REGION: us-east-1
@@ -470,7 +470,7 @@ jobs:
         env:
           PGPASSWORD: password
         run: |
-          psql -h localhost -U crm_user -d crm_db <<'SQL'
+          psql -h localhost -U crm_user -d crm_ci <<'SQL'
             -- ── Fixture 1: qa-ac6-7x9k2m (documents-unified test #11) ──────────
             INSERT INTO users (
               id, email, display_name, legal_full_name,
@@ -691,7 +691,7 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: crm_db
+          POSTGRES_DB: crm_ci
           POSTGRES_USER: crm_user
           POSTGRES_PASSWORD: password
         ports:
@@ -716,7 +716,7 @@ jobs:
 
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
       REDIS_URL: redis://localhost:6379
       API_PORT: 3001
       GOOGLE_CLIENT_ID: test-client-id
