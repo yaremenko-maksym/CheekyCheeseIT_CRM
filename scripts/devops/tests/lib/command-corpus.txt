@@ -545,3 +545,44 @@ allow	all	GUARD_TEST_HOOKS_TOUCHED=0 bash scripts/devops/tests/run-guard-tests.s
 allow	all	CMDSCAN_LIB=.claude/hooks/lib python3 -c 'print(1)'
 allow	all	GIT_EDITOR=nano git commit
 allow	all	SHELL=/bin/bash pnpm --filter @crm/web build
+
+# ═══ round-5 review: the naming conventions are three, not one ═══════════════
+# The suffix rule caught one of them. Two more say exactly the same thing —
+# "this variable holds a program" — and both are finite and documented, so the
+# answer was to fill the list in, not to invent a third mechanism:
+#   *_RSH        RSYNC_RSH, CVS_RSH (the remote-shell slot)
+#   tool names   POSIX make / autotools, where the variable IS the tool: CC,
+#                CXX, LD, AR, MAKE, RANLIB, STRIP, YACC, LEX and relatives
+# Reproduced on the box against a real makefile, payload = touch a marker:
+# `CC=<cmd> make -e all`, `CXX=<cmd> make`, `STRIP=<cmd> make` and
+# `RSYNC_RSH=<cmd> rsync` all created theirs. CVS_RSH is the documented pair of
+# RSYNC_RSH; cvs is not installed here, so that one rides on the convention.
+#
+# Explicitly NOT here, tracked as backlog 138: LD_PRELOAD, DYLD_INSERT_LIBRARIES
+# and IFS do not NAME a program, they change how a named one finds its code —
+# a library path is nothing for a nested parse to read, and the false-positive
+# profile is different (LD_LIBRARY_PATH is ordinary). BASH_ENV, ENV,
+# PYTHONSTARTUP, PERL5OPT, GIT_TEMPLATE_DIR name a FILE: the stated file gap,
+# which the pre-narrowing hooks missed too, so main and this head agree.
+block	safety	CC='rm -rf /etc' make all
+block	safety	CXX='rm -rf /etc' make -f Makefile2 all
+block	safety	STRIP='rm -rf /etc' make -e all
+block	safety	LD='rm -rf /etc' make
+block	safety	MAKE='rm -rf /etc' make -f build.mk
+block	safety	AR='rm -rf /etc' make lib
+block	safety	RANLIB='rm -rf /etc' make lib
+block	safety	YACC='rm -rf /etc' make parser
+block	safety	LEX='rm -rf /etc' make lexer
+block	safety	RSYNC_RSH='rm -rf /etc' rsync data host:/tmp/
+block	safety	CVS_RSH='rm -rf /etc' cvs -d :ext:host:/cvsroot checkout mod
+block	safety	env CC='rm -rf /etc' nice make all
+block	db,ttl	CC='pnpm dev' make all
+block	db,ttl	RSYNC_RSH='pnpm dev' rsync data host:/tmp/
+# receipts: the same variables holding what they normally hold. `CC_FLAGS` is
+# the edge that keeps the rule honest — it is neither a tool name nor a _CMD,
+# so it stays data.
+allow	all	CC=clang make all
+allow	all	CXX=g++ make -j4
+allow	all	MAKE=gmake ./configure
+allow	all	RSYNC_RSH=ssh rsync -av apps/ host:/tmp/
+allow	all	CC_FLAGS='-O2 -Wall' make all
