@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common'
+import { kyivToday } from '@crm/shared'
 import { NBU_SOURCES, type NbuRateResponse } from './nbu-rate-sources'
 
 export interface ExchangeRateResult {
@@ -197,7 +198,11 @@ export class NbuCurrencyService {
    * right day from the third source than the wrong day from the first.
    */
   async getRates(date?: string): Promise<ExchangeRateResult> {
-    const dateStr = date ?? this.todayStr()
+    // security-review PR #578 review (LOW-1): computed ONCE — `todayStr()`
+    // is not free (it formats against a real timezone database) and both
+    // reads below must agree on the exact same instant regardless.
+    const today = this.todayStr()
+    const dateStr = date ?? today
     // security-review PR #521 round 3 (MED): `lastKnownGood` backs EVERY
     // other consumer's outage fallback (balances, summaries — anything that
     // calls `getRates()` with no date at all). It must only ever hold a
@@ -205,7 +210,7 @@ export class NbuCurrencyService {
     // can legitimately succeed against NBU, and caching that success would
     // silently overwrite the shared "current" rate with a months-old one.
     // Gate cache writes on the ORIGINALLY REQUESTED date being today's.
-    const isLiveRequest = dateStr === this.todayStr()
+    const isLiveRequest = dateStr === today
 
     // Attempt 1: the exact requested date.
     const exact = await this.fetchFromSources(dateStr)
@@ -529,26 +534,46 @@ export class NbuCurrencyService {
   }
 
   /**
-   * "Today" in UTC — NOT in Kyiv, where NBU's business day actually turns.
+   * "Today" in `Europe/Kyiv` — where NBU's operational day actually turns —
+   * NOT in UTC (backlog item 148, security-review #574 MED-2).
    *
-   * KNOWN GAP, deliberately left to backlog item 148 (security-review #574,
-   * MED-2). Between 00:00 and 03:00 Kyiv this returns the PREVIOUS Kyiv day, so
-   * the service prices with yesterday's rate and caches it under yesterday's
-   * date.
+   * ── THE BUG THIS REPLACES ─────────────────────────────────────────────────
+   * The previous implementation took the UTC calendar date. Kyiv is ahead of
+   * UTC (+2 in winter, +3 in summer under DST), so for a window right after
+   * Kyiv midnight — 00:00–02:00 in winter, 00:00–03:00 in summer — the UTC
+   * calendar day had not yet turned over: the service asked NBU for
+   * YESTERDAY, priced with yesterday's rate, and — the part that made this a
+   * MONEY path rather than display-only — cached it under yesterday's date.
+   * The MED-6 freshness gate (`noNewRateSince`) then saw an outage cache as
+   * age-0 in that same window and ACCEPTED it, where the old dateless
+   * fallback used to refuse everything. So the gate's own invariant — "no new
+   * rate has taken effect since" — was provably false for up to three hours a
+   * day. Fixing only the fetch/cache DAY here (not a second, separate "today"
+   * getter) is what keeps the cache key in sync: `getRates()` derives
+   * `dateStr` from this one function and threads it through the fetch, the
+   * `isLiveRequest` cache-write gate and `rateDate`, so there is nowhere left
+   * for a UTC/Kyiv day to leak in independently and make the cache serve
+   * yesterday's numbers under today's key (or vice versa).
    *
-   * Re-classified as touching a MONEY path, not display only. The freshness
-   * gate added for MED-6 creates an instance that did not exist before: in that
-   * 3-hour window, during an outage, the cache looks age-0 in UTC terms and is
-   * now ACCEPTED, where the old dateless fallback refused everything. So the
-   * gate's own invariant — "no new rate has taken effect since" — is provably
-   * false for three hours a day. The error is bounded by one NBU day-step
-   * (~0.1–0.3%), which is why it is a backlog item rather than a fix here, but
-   * whoever picks up 148 should treat it as a payout-correctness issue and fix
-   * `todayStr` and the cache key together (changing one alone re-introduces the
-   * mismatch).
+   * ── WHY THIS DELEGATES TO `@crm/shared` (PR #578 review, MED-1/MED-2) ─────
+   * The `Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Kyiv', ... })`
+   * formatter used to live here as a private static field. Security review
+   * on PR #578 found THREE OTHER "today" computations left on plain UTC —
+   * the client-side `exchange-rate` react-query cache key
+   * (`amount-currency-input.tsx` and its siblings) and the DROP-settle
+   * `txDate` upper bound (`settleSeniorPayoutSchema` plus its mirrored
+   * date-picker `maxDate`) — which is exactly the failure MODE this fix
+   * exists to close, just one level up: a THIRD, independently-defined
+   * "today" quietly reappearing is how the original UTC-vs-Kyiv bug happened
+   * in the first place. `kyivToday()` in `@crm/shared` (`utils/kyiv-day.ts`)
+   * is now the ONLY definition, shared verbatim by the server, the web
+   * client's cache keys, and the Zod schema — see its module comment for the
+   * full "why `Intl.DateTimeFormat`, not manual offset arithmetic, and not
+   * `process.env.TZ` in tests" reasoning (unchanged from what used to live
+   * here) and its own mutation-gate coverage of the formatter's construction.
    */
   private todayStr(): string {
-    return new Date().toISOString().slice(0, 10).replace(/-/g, '')
+    return kyivToday().replace(/-/g, '')
   }
 
   /** `YYYYMMDD` → UTC epoch ms at midnight of that calendar day. */

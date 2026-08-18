@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
 import type { TransactionDto } from '@crm/shared'
-import { receiptMandatoryError } from '@crm/shared'
+import { kyivToday, receiptMandatoryError } from '@crm/shared'
 import { Button } from '@/components/ui/button'
 import {
   Dialog,
@@ -481,28 +481,23 @@ export function SettleSeniorPayoutDialog({
                 // dialog that today only holds the transaction). Not worth
                 // it for a coincidence window measured in milliseconds.
                 minDate={tx.createdAt.slice(0, 10)}
-                // Stryker disable next-line MethodExpression: same reasoning as minDate above — "today" sliced to a date vs the full instant is indistinguishable under TZ=UTC
-                //
-                // security-review PR #521 round 3 (LOW, decided NOT to fix
-                // — see the round-3 response): this is UTC "today", not the
-                // operator's LOCAL calendar day. For a positive-offset
-                // timezone (Kyiv, UTC+2/+3 — this team's realistic
-                // operator base) that means, for a few hours right after
-                // local midnight, the calendar still shows what FEELS like
-                // "yesterday" as the latest selectable day — annoying, but
-                // safe: it can only ever be MORE restrictive than the
-                // operator's own clock, never less. A negative-offset
-                // timezone could in principle select a date that is
-                // locally "tomorrow" — but the SERVER validates the exact
-                // same UTC "today" (`settleSeniorPayoutSchema`'s superRefine
-                // in finance.ts), so nothing wrong is ever silently
-                // accepted end-to-end; a mismatch here surfaces as an
-                // explicit 400, not a wrong payout. Not worth reconciling
-                // against the operator's actual local timezone (would
-                // require plumbing it through both sides and keeping them
-                // in lockstep) for a UX-only edge case with no realistic
-                // operator today.
-                maxDate={new Date().toISOString().slice(0, 10)}
+                // security-review PR #578 review (MED-2) — SUPERSEDES the
+                // round-3 "decided NOT to fix" note this used to carry. That
+                // note reasoned UTC "today" was merely ANNOYING (more
+                // restrictive than the operator's own Kyiv clock, never
+                // less) precisely BECAUSE the server validated the same UTC
+                // "today" right behind it (`settleSeniorPayoutSchema`'s
+                // superRefine) — a mismatch could only ever surface as an
+                // explicit 400, never a wrong payout. Backlog 148 changed
+                // that premise: the server's OWN "today" (`getRates()` with
+                // no date) is now the KYIV day, so a UTC picker bound here
+                // would disagree with the server for up to 3 hours a day
+                // instead of merely lagging the operator's own clock.
+                // `kyivToday()` — the SAME function the schema's upper bound
+                // now calls — keeps this picker, the schema, and the actual
+                // priced rate agreed on the same day, closing the gap
+                // instead of merely bounding its blast radius.
+                maxDate={kyivToday()}
                 className="w-full"
                 data-testid="settle-senior-txdate"
               />

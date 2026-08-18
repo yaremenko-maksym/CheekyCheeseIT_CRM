@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query'
+import { kyivToday } from '@crm/shared'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -87,7 +88,12 @@ export function AmountCurrencyInput({
   // ut-20: cache key is the **calendar day** (YYYY-MM-DD) — so when the
   // browser tab survives past midnight, the query auto-invalidates and
   // refetches today's NBU rate instead of showing yesterday's cached value.
-  const todayKey = new Date().toISOString().slice(0, 10)
+  // security-review PR #578 review (MED-1): `kyivToday()`, NOT the browser's
+  // local/UTC calendar day — the server prices NBU's rate by the KYIV
+  // operational day (backlog 148), and a UTC-keyed cache here could hold a
+  // "today" entry for up to 3 hours after the server's own day has already
+  // rolled over, silently showing yesterday's rate as current.
+  const todayKey = kyivToday()
 
   const { data: rates, isFetching } = useQuery<ExchangeRates>({
     queryKey: ['exchange-rate', todayKey],
