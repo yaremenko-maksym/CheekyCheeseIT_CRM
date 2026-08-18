@@ -211,10 +211,15 @@ esac
 # ── analyzer failure — NOT a verdict ──────────────────────────────────────────
 echo "[pre:bash:safety] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
 
-if echo "$INPUT" | grep -qE 'rm[[:space:]]+-rf?[[:space:]]+(/[a-zA-Z]|~/?|\$HOME)' ||
-  echo "$INPUT" | grep -qE ':[[:space:]]*\([[:space:]]*\)[[:space:]]*\{[[:space:]]*:[[:space:]]*\|[[:space:]]*:[[:space:]]*&[[:space:]]*\}[[:space:]]*;[[:space:]]*:' ||
-  echo "$INPUT" | grep -qE 'git[[:space:]]+push.*(--force|--force-with-lease|[[:space:]]-f([[:space:]]|$)).*((origin[[:space:]]+)?(main|master))' ||
-  echo "$INPUT" | grep -qiE 'DROP[[:space:]]+DATABASE[[:space:]]+crm_db'; then
+# JSON punctuation flattened to spaces: the raw stdin is JSON, so a command's
+# last token is followed by `"` and the patterns' `([[:space:]]|$)` boundaries
+# would never match — a fallback that quietly matches nothing is worse than no
+# fallback, because it looks like protection.
+FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
+if echo "$FLAT" | grep -qE 'rm[[:space:]]+-rf?[[:space:]]+(/[a-zA-Z]|/[[:space:]]|~/?|\$HOME)' ||
+  echo "$FLAT" | grep -qE ':[[:space:]]*\([[:space:]]*\)[[:space:]]*\{[[:space:]]*:[[:space:]]*\|[[:space:]]*:[[:space:]]*&[[:space:]]*\}[[:space:]]*;[[:space:]]*:' ||
+  echo "$FLAT" | grep -qE 'git[[:space:]]+push.*(--force|--force-with-lease|[[:space:]]-f([[:space:]]|$)).*((origin[[:space:]]+)?(main|master))' ||
+  echo "$FLAT" | grep -qiE 'DROP[[:space:]]+DATABASE[[:space:]]+crm_db'; then
   printf '%s\n' '{"decision":"block","reason":"⚠️ ДЕГРАДИРОВАННЫЙ РЕЖИМ safety-хука: анализатор команды не отработал (см. INTERNAL ERROR в stderr), поэтому применено старое грубое правило «слово-подстрока». Это может быть ЛОЖНОЕ срабатывание (оно ловит и обычное цитирование). Чини .claude/hooks/lib/cmdscan.py, а не обходи хук."}'
   echo "[pre:bash:safety] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2

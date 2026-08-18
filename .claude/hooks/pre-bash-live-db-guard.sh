@@ -232,7 +232,13 @@ esac
 echo "[pre:bash:live-db-guard] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
 
 LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
-if echo "$INPUT" | grep -qE "$LEGACY" && echo "$INPUT" | grep -qE '\.claude/worktrees/|/tmp/claude-'; then
+# The raw stdin is JSON, so the command's last token is followed by `"` — the
+# legacy pattern's `([[:space:]]|$)` boundary would silently never match and the
+# fallback would let everything through. Turning JSON punctuation into spaces
+# restores the token boundaries without needing a parser (python3 may be exactly
+# what is missing here). Verified by test case "СЛОМАННЫЙ анализатор + опасный запуск".
+FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
+if echo "$FLAT" | grep -qE "$LEGACY" && echo "$FLAT" | grep -qE '\.claude/worktrees/|/tmp/claude-'; then
   printf '%s\n' '{"decision":"block","reason":"⚠️ ДЕГРАДИРОВАННЫЙ РЕЖИМ live-db-guard: анализатор команды не отработал (см. INTERNAL ERROR в stderr), поэтому применено старое грубое правило «слово-подстрока». Это может быть ЛОЖНОЕ срабатывание. Почини .claude/hooks/lib/cmdscan.py вместо обхода: bash .claude/hooks/pre-bash-live-db-guard.sh < <(echo JSON) покажет причину."}'
   echo "[pre:bash:live-db-guard] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2

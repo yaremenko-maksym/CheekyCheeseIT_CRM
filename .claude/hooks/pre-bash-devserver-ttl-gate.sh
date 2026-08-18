@@ -128,9 +128,12 @@ esac
 echo "[pre:bash:devserver-ttl-gate] INTERNAL ERROR: анализатор не отработал (rc=$RC) — это НЕ вердикт хука." >&2
 
 LEGACY='(^|[/[:space:]])nest(\.js)?[[:space:]]+start|(^|[/[:space:]])vite([[:space:]]|$)|(^|[[:space:]])(pnpm|npm|yarn|turbo)([[:space:]]+(-[^[:space:]]+|--filter[[:space:]]+[^[:space:]]+|run))*[[:space:]]+dev(:start)?([[:space:]]|$)|node[[:space:]][^;|&]*dist/main'
-if echo "$INPUT" | grep -qE "$LEGACY" &&
-  echo "$INPUT" | grep -qE '\.claude/worktrees/|/tmp/claude-' &&
-  ! echo "$INPUT" | grep -q 'dev-ttl\.sh'; then
+# JSON punctuation flattened to spaces so the legacy pattern's `([[:space:]]|$)`
+# boundaries still hold on the raw stdin (see the sibling hook for the full note).
+FLAT=$(printf '%s' "$INPUT" | tr '"{},' '    ')
+if echo "$FLAT" | grep -qE "$LEGACY" &&
+  echo "$FLAT" | grep -qE '\.claude/worktrees/|/tmp/claude-' &&
+  ! echo "$FLAT" | grep -q 'dev-ttl\.sh'; then
   printf '%s\n' '{"decision":"block","reason":"⚠️ ДЕГРАДИРОВАННЫЙ РЕЖИМ devserver-ttl-gate: анализатор команды не отработал (см. INTERNAL ERROR в stderr), поэтому применено старое грубое правило «слово-подстрока». Это может быть ЛОЖНОЕ срабатывание. Чини .claude/hooks/lib/cmdscan.py, а не обходи хук."}'
   echo "[pre:bash:devserver-ttl-gate] BLOCK (degraded fallback, coarse substring rule)" >&2
   exit 2
