@@ -290,8 +290,8 @@ export function assertDbPushTargetIsDisposable(
 }
 
 /**
- * CLI entry point — closes the one path PR #576's security review flagged
- * as still open (see the file doc above): `db:push` / `db:migrate`
+ * CLI entry point body — closes the one path PR #576's security review
+ * flagged as still open (see the file doc above): `db:push` / `db:migrate`
  * (`drizzle-kit push`) can alter or drop columns/tables on whatever
  * `DATABASE_URL` points at, via the exact same inherited-env-var failure
  * mode `db:seed` already guards against, but `drizzle-kit` is a separate
@@ -302,21 +302,25 @@ export function assertDbPushTargetIsDisposable(
  * command: `tsx src/database/seed-db-guard.ts && drizzle-kit push`. Bash's
  * `&&` means `drizzle-kit push` never starts unless this process exits 0.
  *
- * `require.main === module` is Node's standard "am I the entry point"
- * check — true only when this file is invoked directly (`tsx
- * src/database/seed-db-guard.ts`), false when it is `import`ed by
- * `seed.ts` or by this file's own `.spec.ts` (in both of those cases some
- * OTHER file is `require.main`). Verified by execution
- * (task-ci-db-rename-and-dbpush-guard): running this file directly via tsx
- * logs `true`; the existing unit tests, which import this file's exports
- * without ever executing it as the entry point, do not trigger this block
- * (confirmed by them continuing to pass unmodified).
+ * Deliberately pulled OUT of the `require.main === module` gate below into
+ * its own exported function: a `require.main` check is only ever true when
+ * THIS file is the process entry point, which nothing in this repo's test
+ * harness can trigger — vitest is always the entry point when a `.spec.ts`
+ * imports this module. Leaving this logic inline inside that `if` would have
+ * left every mutant in it permanently `NoCoverage` (verified: the first cut
+ * of this function DID leave it inline, and Stryker reported 10 no-coverage
+ * mutants across this whole body — see task-ci-db-rename-and-dbpush-guard).
+ * Extracting it means `seed-db-guard.spec.ts` can call this function
+ * directly (mocking `process.exit` the way it already mocks other
+ * side-effecting calls), so the actual logic — not just the one-line gate —
+ * has real, killed mutation coverage instead of relying solely on the by-hand
+ * `tsx` executions this PR's body documents.
  */
-if (require.main === module) {
+export function runDbPushGuardCli(env: NodeJS.ProcessEnv = process.env): void {
   // Mirrors seed.ts's own pre-dotenv snapshot (see the doc above): captured
   // BEFORE loadEnvQuietly() below runs, so the escape hatch cannot be
   // satisfied by anything sitting in apps/api/.env.
-  const preDotenvEnv: NodeJS.ProcessEnv = { ...process.env }
+  const preDotenvEnv: NodeJS.ProcessEnv = { ...env }
   loadEnvQuietly()
 
   const databaseUrl = process.env['DATABASE_URL']
@@ -325,6 +329,7 @@ if (require.main === module) {
       '[seed-db-guard] REFUSED: DATABASE_URL is not set — refusing to run db:push/db:migrate blind.',
     )
     process.exit(1)
+    return
   }
 
   try {
@@ -333,4 +338,36 @@ if (require.main === module) {
     console.error(err instanceof Error ? err.message : String(err))
     process.exit(1)
   }
+}
+
+/**
+ * `require.main === module` is Node's standard "am I the entry point" check
+ * — true only when this file is invoked directly (`tsx
+ * src/database/seed-db-guard.ts`), false when it is `import`ed by `seed.ts`
+ * or by this file's own `.spec.ts` (in both of those cases some OTHER file
+ * is `require.main`). Verified by execution
+ * (task-ci-db-rename-and-dbpush-guard): running this file directly via tsx
+ * logs `true`; the existing unit tests, which import this file's exports
+ * without ever executing it as the entry point, do not trigger this branch
+ * (confirmed by them continuing to pass unmodified).
+ *
+ * Stryker suppression (task-ci-db-rename-and-dbpush-guard): `require.main`
+ * is never `=== module` inside a vitest worker — vitest itself is always
+ * the entry point there, for every test in this repo, not just this file's
+ * own spec. That makes `if (false) {}` a TRUE equivalent mutant here:
+ * inside any test run, the real condition and the literal `false` take the
+ * identical branch every single time, so no test — in this file or any
+ * other — could ever observe a difference. `if (true) {}` and
+ * `require.main !== module` are not equivalent to real behaviour in
+ * principle (they would run `runDbPushGuardCli()` unconditionally, including
+ * during a plain `import`), but calling the now-extracted, fully-tested
+ * `runDbPushGuardCli()` is exactly what the tests above already exercise
+ * directly — so forcing this ONE line's gate open or closed changes nothing
+ * a test can see beyond what is already covered by calling that function on
+ * its own. The gate itself is verified the only way it can be: by running
+ * `tsx src/database/seed-db-guard.ts` for real (documented in this PR).
+ */
+// Stryker disable next-line ConditionalExpression,EqualityOperator: see the paragraph above.
+if (require.main === module) {
+  runDbPushGuardCli()
 }
