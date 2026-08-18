@@ -29,7 +29,6 @@
  * unrelated schema. "Connects" is not "connects to the right thing".
  *
  * Guard logic:
- *   - If CI=true  → skip (CI uses a throwaway container DB, crm_db there is safe)
  *   - If DATABASE_URL ends with `/crm_db` → throw an explicit error
  *   - If DATABASE_URL is unset → warn and return (each spec's own
  *     `describe.skipIf(!hasDatabaseUrl())` reports this as SKIPPED, not
@@ -66,12 +65,29 @@
  * so DATABASE_URL is already set to crm_qa (see .env.test).
  * The guard is a second-line safety net for cases where the developer's
  * shell already exports DATABASE_URL pointing at crm_db.
+ *
+ * There used to be a `CI=true` short-circuit above the crm_db check — CI's
+ * own throwaway Postgres container used to be named `crm_db` too (the same
+ * name as the live one), so this guard had to skip itself entirely there.
+ * task-ci-db-rename-and-dbpush-guard renamed CI's throwaway database to
+ * `crm_ci` instead (ci.yml's `integration` job — the one that runs this
+ * globalSetup — see the DATABASE_URL there): `crm_ci` never matches the
+ * literal `crm_db` check below, so CI now passes this guard for real
+ * (connects, confirms Postgres 16, proceeds) rather than skipping it —
+ * which is the SAME code path every local `crm_qa` run already exercises,
+ * not a new one carved out for CI. `CI=true` was a strictly wider bypass
+ * than that: it is a common, easy-to-type idiom for "run non-interactively"
+ * that is not specific to GitHub Actions and not exported by anything else
+ * in this repo, so keeping it would have kept a full, silent off-switch
+ * around for a problem the rename already solves.
  */
 
 import path from 'path'
 import fs from 'fs'
 import { config as loadDotenv } from 'dotenv'
 import { Pool } from 'pg'
+
+import { extractDbName } from '../database/seed-db-guard'
 
 /** Postgres major version pinned for docker-compose (version-pins.md). */
 const EXPECTED_PG_MAJOR = 16
@@ -91,31 +107,30 @@ export async function setup(): Promise<void> {
     loadDotenv({ path: envTestPath, override: false, quiet: true })
   }
 
-  // CI uses a throwaway Postgres container — crm_db there is safe to write.
-  if (process.env['CI'] === 'true') {
-    console.log('[integration-db-guard] CI=true — guard skipped (throwaway container DB)')
-    return
-  }
-
   const dbUrl = process.env['DATABASE_URL'] ?? ''
+  // Redacted up front (LOW-2, security review PR #579) so every message in
+  // this function — including the crm_db refusal right below, which used to
+  // interpolate the raw dbUrl (password included) — shares the same
+  // never-print-the-password value; nothing downstream can regress back to
+  // the raw URL because there is no raw reference left to reach for.
+  const redactedUrl = dbUrl.replace(/:[^:@]+@/, ':***@')
 
   // Extract the database name from the connection string (last path segment).
-  // Handles: postgresql://user:pass@host:port/dbname
-  //          postgresql://user:pass@host/dbname
-  //          postgres://user:pass@host:port/dbname
-  let dbName: string
-  try {
-    const parsed = new URL(dbUrl)
-    dbName = parsed.pathname.replace(/^\//, '')
-  } catch {
-    // Malformed URL — no database name to check; let the test fail naturally.
-    dbName = ''
-  }
+  // Reuses seed-db-guard.ts's extractDbName (LOW-3, security review PR #579)
+  // instead of a second, weaker hand-rolled version: this file's own
+  // extraction used to skip percent-decoding and trimming, so `crm%5Fdb`
+  // (decodes to crm_db for libpq) or a trailing space after `crm_db` would
+  // have sailed past the check below undetected — exactly the two bypass
+  // classes seed-db-guard.ts and run-landing-e2e-local.sh's db_name_from_url()
+  // already close. Now that task-ci-db-rename-and-dbpush-guard removed the
+  // CI=true short-circuit above, this extraction runs on every invocation,
+  // CI included, so the weaker version was carrying more load than before.
+  const dbName = extractDbName(dbUrl)
 
   if (dbName === 'crm_db') {
     throw new Error(
       `[integration-db-guard] BLOCKED: integration tests must not run against crm_db locally.\n` +
-        `  DATABASE_URL currently points to: ${dbUrl}\n` +
+        `  DATABASE_URL currently points to: ${redactedUrl}\n` +
         `\n` +
         `  Fix: set DATABASE_URL to crm_qa before running integration tests.\n` +
         `\n` +
@@ -146,7 +161,7 @@ export async function setup(): Promise<void> {
   // different Postgres SERVER used to sail through this guard and then get
   // silently swallowed by every individual spec's own try/catch (the bug this
   // guard now closes at a single choke point — see file doc above).
-  const redactedUrl = dbUrl.replace(/:[^:@]+@/, ':***@')
+  // (redactedUrl computed once, above, before the crm_db branch — see LOW-2.)
   const probe = new Pool({ connectionString: dbUrl, connectionTimeoutMillis: 5000 })
   let serverVersion: string
   try {

@@ -23,7 +23,7 @@ jobs:
       pull-requests: write
 
     env:
-      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
       REDIS_URL: redis://localhost:6379
       JWT_SECRET: ${{ secrets.JWT_SECRET || 'ci-jwt-secret-32-chars-minimum-xxxxx' }}
       GOOGLE_CLIENT_ID: test-client-id
@@ -54,7 +54,7 @@ jobs:
         env:
           POSTGRES_USER: crm_user
           POSTGRES_PASSWORD: password
-          POSTGRES_DB: crm_db
+          POSTGRES_DB: crm_ci
         ports: ['5432:5432']
         options: >-
           --health-cmd pg_isready

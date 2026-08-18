@@ -36,11 +36,11 @@ describe('integration-db-guard setup()', () => {
     process.env = { ...savedEnv }
   })
 
-  it('CI=true short-circuits before ever opening a connection', async () => {
+  it('CI=true no longer short-circuits (removed by task-ci-db-rename-and-dbpush-guard — CI is now crm_ci, see below) — still BLOCKED for literal crm_db', async () => {
     process.env['CI'] = 'true'
     process.env['DATABASE_URL'] = 'postgresql://u:p@localhost:5432/crm_db'
 
-    await expect(setup()).resolves.toBeUndefined()
+    await expect(setup()).rejects.toThrow(/must not run against crm_db/)
     expect(queryMock).not.toHaveBeenCalled()
   })
 
@@ -49,6 +49,43 @@ describe('integration-db-guard setup()', () => {
 
     await expect(setup()).rejects.toThrow(/must not run against crm_db/)
     expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('LOW-2 (security review, PR #579): the crm_db refusal message redacts the password too — it used to interpolate the raw DATABASE_URL', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://crm_user:supersecret@localhost:5432/crm_db'
+
+    const message: string = await setup().then(
+      () => {
+        throw new Error('setup() should have thrown')
+      },
+      (err: unknown) => (err instanceof Error ? err.message : String(err)),
+    )
+
+    expect(message).not.toContain('supersecret')
+    expect(message).toContain(':***@')
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('LOW-3 (security review, PR #579): percent-encoded crm%5Fdb (decodes to crm_db for libpq) is BLOCKED — extractDbName percent-decodes, the old hand-rolled extraction did not', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://u:p@localhost:5432/crm%5Fdb'
+
+    await expect(setup()).rejects.toThrow(/must not run against crm_db/)
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('LOW-3 (security review, PR #579): a trailing space after crm_db is BLOCKED — extractDbName trims, the old hand-rolled extraction did not', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://u:p@127.0.0.1:5432/crm_db '
+
+    await expect(setup()).rejects.toThrow(/must not run against crm_db/)
+    expect(queryMock).not.toHaveBeenCalled()
+  })
+
+  it('a name that merely STARTS WITH crm_db (crm_db_scratch) is NOT blocked — exact-match behaviour unchanged by reusing extractDbName', async () => {
+    process.env['DATABASE_URL'] = 'postgresql://u:p@localhost:5433/crm_db_scratch'
+    queryMock.mockResolvedValue({ rows: [{ version: PG16 }] })
+
+    await expect(setup()).resolves.toBeUndefined()
+    expect(queryMock).toHaveBeenCalledTimes(1)
   })
 
   it('an unset DATABASE_URL warns and returns — never opens a connection (specs handle the skip)', async () => {
@@ -62,6 +99,16 @@ describe('integration-db-guard setup()', () => {
     queryMock.mockResolvedValue({ rows: [{ version: PG16 }] })
 
     await expect(setup()).resolves.toBeUndefined()
+    expect(endMock).toHaveBeenCalledTimes(1)
+  })
+
+  it("CI's own throwaway database (crm_ci, task-ci-db-rename-and-dbpush-guard) passes through like any other non-crm_db name — no CI-specific carve-out needed", async () => {
+    process.env['CI'] = 'true'
+    process.env['DATABASE_URL'] = 'postgresql://crm_user:password@localhost:5432/crm_ci'
+    queryMock.mockResolvedValue({ rows: [{ version: PG16 }] })
+
+    await expect(setup()).resolves.toBeUndefined()
+    expect(queryMock).toHaveBeenCalledTimes(1)
     expect(endMock).toHaveBeenCalledTimes(1)
   })
 

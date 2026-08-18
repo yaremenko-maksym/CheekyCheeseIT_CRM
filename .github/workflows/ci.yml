@@ -241,6 +241,18 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-prod-ddl-wiring.py
 
+      # Incident guard (task-ci-db-rename-and-dbpush-guard, security review PR #579
+      # MED-2, 2026-08-18): db:push/db:migrate in apps/api/package.json are
+      # fail-closed against a live database ONLY because of one string —
+      # `tsx src/database/seed-db-guard.ts && drizzle-kit push`. Deleting the guard
+      # prefix, downgrading `&&` to `;`, or reordering the two steps all silently
+      # reopen the exact destructive path this whole PR closed, and nothing else
+      # in the pipeline would notice. Same "wire it or explicitly acknowledge it"
+      # pattern as the DDL wiring guard above.
+      - name: db:push guard wiring check
+        if: steps.scope.outputs.code == 'true'
+        run: python3 scripts/devops/check-db-push-guard-wiring.py
+
       # Incident guard (fix/backup-freshness-wiring, 2026-08-04): deploy.yml's backup-
       # freshness check was written against appleboy/ssh-action's CURRENT docs
       # (`capture_stdout: true` + `outputs.stdout`), but its version pin was left at
@@ -254,7 +266,7 @@ jobs:
         if: steps.scope.outputs.code == 'true'
         run: python3 scripts/devops/check-ssh-action-capture-stdout-version.py
 
-      # Guards for the guards (task-guards-teeth, 2026-08-07). The three steps
+      # Guards for the guards (task-guards-teeth, 2026-08-07). The four steps
       # above — plus six more check-* scripts that run on the VPS during deploy —
       # stood between this repo and production with ZERO tests. That is not a
       # theoretical worry: check-prod-ddl-wiring.py, created in response to a real
@@ -368,7 +380,7 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: crm_db
+          POSTGRES_DB: crm_ci
           POSTGRES_USER: crm_user
           POSTGRES_PASSWORD: password
         ports:
@@ -379,7 +391,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     env:
-      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
       S3_ENDPOINT: http://localhost:9000
       S3_FORCE_PATH_STYLE: 'true'
       S3_REGION: us-east-1
@@ -470,7 +482,7 @@ jobs:
         env:
           PGPASSWORD: password
         run: |
-          psql -h localhost -U crm_user -d crm_db <<'SQL'
+          psql -h localhost -U crm_user -d crm_ci <<'SQL'
             -- ── Fixture 1: qa-ac6-7x9k2m (documents-unified test #11) ──────────
             INSERT INTO users (
               id, email, display_name, legal_full_name,
@@ -691,7 +703,7 @@ jobs:
       postgres:
         image: postgres:16-alpine
         env:
-          POSTGRES_DB: crm_db
+          POSTGRES_DB: crm_ci
           POSTGRES_USER: crm_user
           POSTGRES_PASSWORD: password
         ports:
@@ -716,7 +728,7 @@ jobs:
 
     env:
       NODE_ENV: test
-      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_db
+      DATABASE_URL: postgresql://crm_user:password@localhost:5432/crm_ci
       REDIS_URL: redis://localhost:6379
       API_PORT: 3001
       GOOGLE_CLIENT_ID: test-client-id

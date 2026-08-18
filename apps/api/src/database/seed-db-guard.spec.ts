@@ -1,12 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
+// Real dotenv side effects would make this file's behaviour depend on
+// whether the machine running it happens to have an apps/api/.env — mocked
+// out so runDbPushGuardCli()'s tests below are hermetic regardless (task-
+// ci-db-rename-and-dbpush-guard).
+vi.mock('./load-env-quietly', () => ({ loadEnvQuietly: vi.fn() }))
+
 import {
   DISPOSABLE_NAME_PREFIX,
   LIVE_DB_NAME,
   SEED_LIVE_DB_CONFIRM_ENV,
+  assertDbPushTargetIsDisposable,
   assertSeedTargetIsDisposable,
   extractDbName,
   looksDisposable,
+  runDbPushGuardCli,
 } from './seed-db-guard'
 
 function urlFor(dbName: string): string {
@@ -134,28 +142,26 @@ describe('assertSeedTargetIsDisposable', () => {
     expect(msg).toContain('will not accidentally match')
   })
 
-  it('GITHUB_ACTIONS=true short-circuits before the name check, even against crm_db', () => {
+  it('GITHUB_ACTIONS=true no longer bypasses the guard (removed by task-ci-db-rename-and-dbpush-guard — CI is renamed to crm_ci, which already passes looksDisposable() on its own; see ci.yml/e2e.yml)', () => {
     expect(() =>
       assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { GITHUB_ACTIONS: 'true' }),
-    ).not.toThrow()
-  })
-
-  it('GITHUB_ACTIONS set to any other value does NOT bypass the guard', () => {
-    expect(() =>
-      assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { GITHUB_ACTIONS: 'false' }),
     ).toThrow(/REFUSED/)
   })
 
-  it('plain CI=true does NOT bypass the guard (narrowed per security review, PR #576 MED-1 — CI is an easy-to-type/easy-to-inherit idiom nothing in this repo exports, unlike GITHUB_ACTIONS which only the runner sets)', () => {
+  it('plain CI=true does not bypass the guard either (never did — CI is an easy-to-type/easy-to-inherit idiom nothing in this repo exports)', () => {
     expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'true' })).toThrow(
       /REFUSED/,
     )
   })
 
-  it('CI=true AND GITHUB_ACTIONS=true together still bypass (GITHUB_ACTIONS is what matters)', () => {
+  it('CI=true AND GITHUB_ACTIONS=true together still refuse — no env-var combination bypasses the name check anymore, only the exact-name confirmation below does', () => {
     expect(() =>
       assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME), { CI: 'true', GITHUB_ACTIONS: 'true' }),
-    ).not.toThrow()
+    ).toThrow(/REFUSED/)
+  })
+
+  it("CI's own throwaway database name (crm_ci) needs no exception at all — it is crm_-prefixed and not literally crm_db, so it passes looksDisposable() the same way every other scratch name does", () => {
+    expect(() => assertSeedTargetIsDisposable(urlFor('crm_ci'), {})).not.toThrow()
   })
 
   it('the exact-name confirmation env var bypasses the guard for crm_db', () => {
@@ -217,14 +223,14 @@ describe('assertSeedTargetIsDisposable', () => {
     )
   })
 
-  it('defaults to process.env when no env argument is passed', () => {
-    const saved = process.env['GITHUB_ACTIONS']
-    process.env['GITHUB_ACTIONS'] = 'true'
+  it('defaults to process.env when no env argument is passed (confirmSourceEnv falls back to it too)', () => {
+    const saved = process.env[SEED_LIVE_DB_CONFIRM_ENV]
+    process.env[SEED_LIVE_DB_CONFIRM_ENV] = 'crm_db'
     try {
       expect(() => assertSeedTargetIsDisposable(urlFor(LIVE_DB_NAME))).not.toThrow()
     } finally {
-      if (saved === undefined) delete process.env['GITHUB_ACTIONS']
-      else process.env['GITHUB_ACTIONS'] = saved
+      if (saved === undefined) delete process.env[SEED_LIVE_DB_CONFIRM_ENV]
+      else process.env[SEED_LIVE_DB_CONFIRM_ENV] = saved
     }
   })
 
@@ -251,6 +257,225 @@ describe('assertSeedTargetIsDisposable', () => {
           [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db',
         }),
       ).not.toThrow()
+    })
+  })
+})
+
+describe('assertDbPushTargetIsDisposable (task-ci-db-rename-and-dbpush-guard, AC5/AC6 — same check, same escape hatch as db:seed, worded for db:push/db:migrate)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('does not throw for a disposable-looking name', () => {
+    expect(() => assertDbPushTargetIsDisposable(urlFor('crm_qa'), {})).not.toThrow()
+  })
+
+  it("does not throw for CI's own throwaway database name (crm_ci)", () => {
+    expect(() => assertDbPushTargetIsDisposable(urlFor('crm_ci'), {})).not.toThrow()
+  })
+
+  it('THROWS for the live db name crm_db, with no override present', () => {
+    expect(() => assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {})).toThrow(
+      /REFUSED: db:push \(drizzle-kit push\) will not run against database 'crm_db'/,
+    )
+  })
+
+  it('the refusal message points at db:push, not db:seed, and names the senior_resumes incident', () => {
+    let thrown: Error | undefined
+    try {
+      assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {})
+    } catch (err) {
+      thrown = err as Error
+    }
+    expect(thrown).toBeInstanceOf(Error)
+    const msg = thrown!.message
+
+    expect(msg).toContain(
+      "REFUSED: db:push (drizzle-kit push) will not run against database 'crm_db'",
+    )
+    // Every distinct piece of the dangerParagraph, in full — not just one
+    // substring — so emptying any ONE of its concatenated lines is caught
+    // (mutation-gate found 3 survivors here before these three assertions).
+    expect(msg).toContain(
+      'drizzle-kit push syncs the database schema to match schema.ts, which can',
+    )
+    expect(msg).toContain(
+      'drop or alter existing tables and columns without asking — this is exactly',
+    )
+    expect(msg).toContain('what destroyed the live senior_resumes table on 2026-08-12')
+    expect(msg).toContain('genuinely your own database and you want to push schema to it, set:')
+    expect(msg).toContain(`${SEED_LIVE_DB_CONFIRM_ENV}=crm_db pnpm --filter @crm/api db:push`)
+    // Same escape hatch as db:seed — AC6, not a second mechanism.
+    expect(msg).toContain(SEED_LIVE_DB_CONFIRM_ENV)
+  })
+
+  it('the SAME exact-name confirmation env var used by db:seed also bypasses db:push — one mechanism, not two (AC6)', () => {
+    expect(() =>
+      assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {
+        [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db',
+      }),
+    ).not.toThrow()
+  })
+
+  it('a WRONG confirmation value does not bypass db:push either', () => {
+    expect(() =>
+      assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME), {
+        [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_some_other_db',
+      }),
+    ).toThrow(/REFUSED/)
+  })
+
+  it('defaults confirmSourceEnv to process.env when not passed', () => {
+    const saved = process.env[SEED_LIVE_DB_CONFIRM_ENV]
+    process.env[SEED_LIVE_DB_CONFIRM_ENV] = 'crm_db'
+    try {
+      expect(() => assertDbPushTargetIsDisposable(urlFor(LIVE_DB_NAME))).not.toThrow()
+    } finally {
+      if (saved === undefined) delete process.env[SEED_LIVE_DB_CONFIRM_ENV]
+      else process.env[SEED_LIVE_DB_CONFIRM_ENV] = saved
+    }
+  })
+})
+
+describe('runDbPushGuardCli (task-ci-db-rename-and-dbpush-guard, AC5 — the actual db:push CLI entry-point logic, extracted out of the untestable require.main gate so it has real mutation coverage)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('DATABASE_URL unset — refuses loudly, exits 1, and never reaches the name check', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    runDbPushGuardCli({}, {})
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        '[seed-db-guard] REFUSED: DATABASE_URL is not set — refusing to run db:push/db:migrate blind.',
+      ),
+    )
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(exitSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('a disposable-looking DATABASE_URL — no exit, no error, runs clean', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    runDbPushGuardCli({}, { DATABASE_URL: urlFor('crm_scratch') })
+
+    expect(exitSpy).not.toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it("CI's own throwaway database name (crm_ci) — no exit, no error", () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    runDbPushGuardCli({}, { DATABASE_URL: urlFor('crm_ci') })
+
+    expect(exitSpy).not.toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('the live db name, no confirmation — refuses, exits 1, and the error names db:push (not db:seed)', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    runDbPushGuardCli({}, { DATABASE_URL: urlFor(LIVE_DB_NAME) })
+
+    expect(errorSpy).toHaveBeenCalledWith(
+      expect.stringContaining(
+        "REFUSED: db:push (drizzle-kit push) will not run against database 'crm_db'",
+      ),
+    )
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(exitSpy).toHaveBeenCalledTimes(1)
+  })
+
+  it('the live db name WITH the exact-name confirmation present in preDotenvEnv — warns and proceeds, no exit', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    runDbPushGuardCli(
+      { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' },
+      { DATABASE_URL: urlFor(LIVE_DB_NAME) },
+    )
+
+    expect(warnSpy).toHaveBeenCalledWith(
+      `[seed-db-guard] ${SEED_LIVE_DB_CONFIRM_ENV} confirms wiping 'crm_db' — proceeding.`,
+    )
+    expect(exitSpy).not.toHaveBeenCalled()
+    expect(errorSpy).not.toHaveBeenCalled()
+  })
+
+  it('a confirmation for a DIFFERENT db name does not leak permission onto the live one — still refuses', () => {
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+
+    runDbPushGuardCli(
+      { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_some_other_db' },
+      { DATABASE_URL: urlFor(LIVE_DB_NAME) },
+    )
+
+    expect(exitSpy).toHaveBeenCalledWith(1)
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('REFUSED'))
+  })
+
+  it('defaults both preDotenvEnv and postDotenvEnv to process.env when neither is passed', () => {
+    const saved = { ...process.env }
+    process.env['DATABASE_URL'] = urlFor(LIVE_DB_NAME)
+    process.env[SEED_LIVE_DB_CONFIRM_ENV] = 'crm_db'
+    const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+
+    try {
+      runDbPushGuardCli()
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("confirms wiping 'crm_db'"))
+    } finally {
+      process.env = saved
+    }
+  })
+
+  describe('MED-1 (security review, PR #579) — the confirmation MUST come from preDotenvEnv, DATABASE_URL MUST come from postDotenvEnv, never mixed up', () => {
+    it('a confirmation present ONLY in postDotenvEnv (as if apps/api/.env injected it) does NOT bypass — models dotenv, not the real shell invocation, having set it', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const preDotenvEnv = {} // the real shell invocation never set it
+      const postDotenvEnv = {
+        DATABASE_URL: urlFor(LIVE_DB_NAME),
+        [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db', // as if apps/api/.env injected this
+      }
+
+      runDbPushGuardCli(preDotenvEnv, postDotenvEnv)
+
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('REFUSED'))
+    })
+
+    it('a confirmation present in preDotenvEnv DOES bypass even when postDotenvEnv does not carry it — models it being typed on the real invoking command line', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const preDotenvEnv = { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' } // shell exported it
+      const postDotenvEnv = { DATABASE_URL: urlFor(LIVE_DB_NAME) } // .env did not also set it here
+
+      runDbPushGuardCli(preDotenvEnv, postDotenvEnv)
+
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("confirms wiping 'crm_db'"))
+    })
+
+    it('DATABASE_URL is read from postDotenvEnv, never preDotenvEnv — a URL present ONLY in the wrong parameter is invisible (proves the wiring, not just the end behaviour)', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const preDotenvEnv = { DATABASE_URL: urlFor('crm_scratch') } // wrong parameter — must be ignored
+      const postDotenvEnv = {} // the parameter DATABASE_URL is actually read from is empty
+
+      runDbPushGuardCli(preDotenvEnv, postDotenvEnv)
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('DATABASE_URL is not set'))
+      expect(exitSpy).toHaveBeenCalledWith(1)
     })
   })
 })

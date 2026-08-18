@@ -1,6 +1,8 @@
 /**
- * Seed DB guard — refuses `db:seed`'s destructive TRUNCATE unless the
- * target database is recognizably disposable.
+ * Seed DB guard — refuses `db:seed`'s destructive TRUNCATE (and, since
+ * task-ci-db-rename-and-dbpush-guard, `db:push` / `db:migrate`'s destructive
+ * schema sync too — see the CLI entry point at the bottom of this file)
+ * unless the target database is recognizably disposable.
  *
  * Incident this closes (2026-08-18): an agent preparing an isolated
  * environment wrote its own `.env` pointing at a scratch database, then ran
@@ -13,6 +15,19 @@
  * first step, unconditionally. There was no dump and archiving was off —
  * nothing was recoverable.
  *
+ * Second incident this closes (2026-08-12, follow-up tracked at the time and
+ * closed by task-ci-db-rename-and-dbpush-guard): `db:push` (`drizzle-kit
+ * push`) synchronizes the database to match `schema.ts` — an agent's
+ * checkout was 40 commits behind `main`, and running `db:push` against the
+ * live database dropped the `senior_resumes` table because that checkout's
+ * `schema.ts` did not know about it yet. `db:push` is a direct third-party
+ * CLI invocation (`drizzle-kit`), not TS code this repo owns, so there is no
+ * import site to hang an in-process check off of the way `db:seed` has one
+ * in `seed.ts` — the CLI entry point at the bottom of this file (`require.main
+ * === module`) exists specifically to give it an equivalent check anyway, run
+ * as its own process in front of `drizzle-kit push` (wired in
+ * `apps/api/package.json`).
+ *
  * Design (owner decision, 2026-08-18): the check lives IN the seed script
  * itself, not a wrapper script or a git hook — a wrapper can be skipped by
  * calling the underlying command directly, a hook can be bypassed, an
@@ -20,7 +35,12 @@
  * memory of "be careful" does not survive a session boundary. A check that
  * runs unconditionally inside the one function that TRUNCATEs is the only
  * thing that cannot be bypassed by accident — whoever runs this script,
- * however they run it.
+ * however they run it. `db:push` has no such in-process function to hang the
+ * check off of (see above) — the closest equivalent is a process that must
+ * run, and exit zero, before `drizzle-kit push` is allowed to start; the CLI
+ * entry point at the bottom of this file is exactly that, run from the SAME
+ * file (not a copy) so the two commands' disposable-name logic and escape
+ * hatch can never drift apart from each other.
  *
  * Allowlist, not denylist: this refuses any database name that does not
  * *look* disposable, rather than merely blocking the one name known today
@@ -33,13 +53,22 @@
  * is pure string logic, checked before anything opens a socket.
  *
  * "Disposable-looking" is defined by what this repo's own tooling actually
- * uses, not a guess (checked 2026-08-18):
+ * uses, not a guess (checked 2026-08-18, re-checked 2026-08-18 after
+ * task-ci-db-rename-and-dbpush-guard's CI rename):
  *   - the ONE real name is `crm_db` — docker-compose.yml's `POSTGRES_DB`,
  *     `.env.example`'s `DATABASE_URL`, and deploy.yml's generated
  *     `/opt/crm/.env.production` on the prod VPS all use exactly this name.
- *   - CI's OWN throwaway Postgres service is ALSO named `crm_db`
- *     (ci.yml + e2e.yml `services.postgres.env.POSTGRES_DB` and each job's
- *     `DATABASE_URL`) — a fresh container recreated per run, safe to wipe.
+ *   - CI's OWN throwaway Postgres service is named `crm_ci` (ci.yml + e2e.yml
+ *     `services.postgres.env.POSTGRES_DB` and each job's `DATABASE_URL`) — a
+ *     fresh container recreated per run, safe to wipe, and — same as every
+ *     other scratch name below — already `crm_`-prefixed and not literally
+ *     `crm_db`, so it needs no special-case exception in this file at all.
+ *     (Renamed FROM `crm_db` by task-ci-db-rename-and-dbpush-guard
+ *     specifically to remove the need for the `GITHUB_ACTIONS` exception
+ *     this file used to carry — a full bypass gated on one inherited env
+ *     var is a strictly worse shape of protection than "the name this repo's
+ *     own CI already uses happens to pass the same check everyone else's
+ *     scratch database does.")
  *   - every OTHER database name actually used anywhere in this repo —
  *     `.env.test`'s `crm_qa`, `run-landing-e2e-local.sh`'s own
  *     `crm_db_scratch` example, and every ad-hoc scratch name an agent has
@@ -47,19 +76,9 @@
  *     `crm_te_scratch`, `crm_acct_create`, `crm_hr_dash`, …) — follows the
  *     SAME `crm_` prefix convention as the real name. So "disposable" here
  *     means: starts with `crm_`, and is not literally `crm_db`.
- *
- * Deliberately NOT covered here (out of scope, flagged for a follow-up):
- * `db:push` (`drizzle-kit push`, aliased `db:migrate`) can equally alter or
- * drop columns/tables on whatever `DATABASE_URL` points to, via the exact
- * same inherited-env-var failure mode this guard closes for `db:seed` — but
- * it is a direct third-party CLI invocation in `package.json`, not TS code
- * this repo owns, so there is no import site to hang this same in-process
- * check off of. Giving it equivalent protection needs a small wrapper
- * script in front of the CLI call, which is a separate, scoped change.
- * (security-review on PR #576, 2026-08-18: this is the single unclosed
- * path, and drizzle-kit push already destroyed a live table once —
- * `senior_resumes`, 2026-08-12. Tracked as a follow-up, not bundled here.)
  */
+
+import { loadEnvQuietly } from './load-env-quietly'
 
 export const LIVE_DB_NAME = 'crm_db'
 export const DISPOSABLE_NAME_PREFIX = 'crm_'
@@ -117,69 +136,58 @@ export function looksDisposable(dbName: string): boolean {
 }
 
 /**
- * Throws BEFORE any TRUNCATE (and before opening any DB connection at all)
- * unless the resolved database name looks disposable, per
- * {@link looksDisposable}, or one of two deliberate exceptions applies:
- *
- *   1. `GITHUB_ACTIONS=true` — set ONLY by GitHub Actions itself, on every
- *      job, unconditionally (no workflow-file wiring needed). CI's postgres
- *      service happens to also be named `crm_db` (a fresh throwaway
- *      container recreated per run, safe to wipe) — see the file doc above.
- *
- *      Deliberately narrower than the more generic `CI=true` (security
- *      review on PR #576, 2026-08-18): `CI=true <cmd>` is a common,
- *      easy-to-type idiom for "run this non-interactively" that a human OR
- *      an agent can reach for outside of GitHub Actions entirely — and it
- *      is not exported by anything in this repo, so it is not something a
- *      normal workflow would already have set by accident. Accepting it
- *      here would hand back a full, silent bypass gated on exactly the
- *      class of variable (an easily-inherited/easily-typed env var) this
- *      guard exists to defend against — verified by execution: with
- *      `CI=true` accepted and a non-disposable-looking name, the old
- *      version TRUNCATEd for real. `GITHUB_ACTIONS` has no such casual
- *      path to being set; only the GitHub Actions runner sets it.
- *
- *      Re-verified after narrowing (2026-08-18, same scratch-container
- *      method as the file's other execution proofs): `CI=true` alone
- *      against a `crm_db`-named database now REFUSES (exit 1, marker row
- *      untouched); `GITHUB_ACTIONS=true` against the same database still
- *      PROCEEDS (exit 0). Reverting this check back to `CI` turns 3 of
- *      `seed-db-guard.spec.ts`'s tests red.
- *
- *   2. `SEED_CONFIRM_LIVE_DB_NAME=<exact db name>` — the owner's own escape
- *      hatch to deliberately reseed a database that doesn't look disposable
- *      (their live `crm_db` included). The confirmation value must equal
- *      the EXACT database name being targeted, typed at invocation time —
- *      not a plain on/off flag. A flag like `SEED_ALLOW_LIVE_DB=1` is
- *      exactly the shape of thing that silently survives in an inherited
- *      shell environment (the incident this guard exists for was caused by
- *      precisely that pattern, with `DATABASE_URL`); a value that must
- *      match the specific name of THIS run's target cannot be satisfied by
- *      accidentally-inherited state from an unrelated earlier session.
- *
- *      This value is deliberately read from `confirmSourceEnv`, NOT from
- *      `env` (security review on PR #576, 2026-08-18, LOW-2): `env` is
- *      normally `process.env` AFTER seed.ts's `loadEnvQuietly()` has run,
- *      i.e. it also reflects whatever `apps/api/.env` set. If the
- *      confirmation were read from there, setting it once in `.env` to
- *      unblock a single deliberate reseed would make that "one-time"
- *      confirmation permanent — silently re-confirming on every future
- *      run, defeating the entire point of requiring it typed per
- *      invocation. `confirmSourceEnv` must be a snapshot of `process.env`
- *      taken BEFORE dotenv ran (seed.ts does this at its very first line);
- *      dotenv's own default behaviour — never overriding an already-set
- *      variable — means a value present in that pre-dotenv snapshot can
- *      only have come from the real shell invocation, never from a file.
+ * Per-command copy for the refusal message {@link assertTargetIsDisposable}
+ * throws — the disposable-name check and escape hatch are shared between
+ * `db:seed` and `db:push`/`db:migrate` (same function, same env var; see
+ * {@link SEED_LIVE_DB_CONFIRM_ENV}), but the two commands are destructive in
+ * different ways, so the wording naming the danger and the command to
+ * re-invoke has to differ.
  */
-export function assertSeedTargetIsDisposable(
-  databaseUrl: string,
-  env: NodeJS.ProcessEnv = process.env,
-  confirmSourceEnv: NodeJS.ProcessEnv = env,
-): void {
-  if (env['GITHUB_ACTIONS'] === 'true') {
-    return
-  }
+interface RefusalCopy {
+  /** e.g. "db:seed will not TRUNCATE" — the clause right after "REFUSED: ". */
+  headline: string
+  /**
+   * One short paragraph (its own continuation lines pre-indented with two
+   * spaces) explaining what the command would have done and introducing the
+   * override instructions that follow it.
+   */
+  dangerParagraph: string
+  /** The exact command line to show in the override instructions. */
+  commandLine: string
+}
 
+const SEED_REFUSAL_COPY: RefusalCopy = {
+  headline: 'db:seed will not TRUNCATE',
+  dangerParagraph:
+    "seed.ts's main() truncates every table before reseeding — if this is genuinely\n" +
+    '  your own database and you want to wipe it on purpose, set:',
+  commandLine: 'pnpm --filter @crm/api db:seed',
+}
+
+const DB_PUSH_REFUSAL_COPY: RefusalCopy = {
+  headline: 'db:push (drizzle-kit push) will not run against',
+  dangerParagraph:
+    'drizzle-kit push syncs the database schema to match schema.ts, which can\n' +
+    '  drop or alter existing tables and columns without asking — this is exactly\n' +
+    '  what destroyed the live senior_resumes table on 2026-08-12. If this is\n' +
+    '  genuinely your own database and you want to push schema to it, set:',
+  commandLine: 'pnpm --filter @crm/api db:push',
+}
+
+/**
+ * Shared refusal logic for both `db:seed` and `db:push`/`db:migrate` —
+ * {@link assertSeedTargetIsDisposable} and {@link assertDbPushTargetIsDisposable}
+ * are both thin wrappers around this, differing only in the message copy
+ * they pass. Deliberately ONE implementation of the disposable-name check
+ * and the escape hatch: two separate copies (or two separate escape-hatch
+ * env vars) would inevitably drift from each other over time
+ * (task-ci-db-rename-and-dbpush-guard, AC6).
+ */
+function assertTargetIsDisposable(
+  databaseUrl: string,
+  copy: RefusalCopy,
+  confirmSourceEnv: NodeJS.ProcessEnv,
+): void {
   const dbName = extractDbName(databaseUrl)
   if (looksDisposable(dbName)) {
     return
@@ -194,15 +202,196 @@ export function assertSeedTargetIsDisposable(
 
   const shownName = dbName.length > 0 ? dbName : '(unknown — could not parse DATABASE_URL)'
   throw new Error(
-    `[seed-db-guard] REFUSED: db:seed will not TRUNCATE database '${shownName}'.\n` +
+    `[seed-db-guard] REFUSED: ${copy.headline} database '${shownName}'.\n` +
       `  This database name does not look disposable — expected a '${DISPOSABLE_NAME_PREFIX}'-\n` +
       `  prefixed scratch/QA name, not exactly '${LIVE_DB_NAME}'.\n` +
       `\n` +
-      `  seed.ts's main() truncates every table before reseeding — if this is genuinely\n` +
-      `  your own database and you want to wipe it on purpose, set:\n` +
-      `    ${SEED_LIVE_DB_CONFIRM_ENV}=${dbName || '<exact db name>'} pnpm --filter @crm/api db:seed\n` +
+      `  ${copy.dangerParagraph}\n` +
+      `    ${SEED_LIVE_DB_CONFIRM_ENV}=${dbName || '<exact db name>'} ${copy.commandLine}\n` +
       `  (the value must equal the exact database name above, typed for THIS run on the\n` +
       `  command line — putting it in apps/api/.env will not work, and an inherited or\n` +
       `  stale env var from an earlier session will not accidentally match).\n`,
   )
+}
+
+/**
+ * Throws BEFORE any TRUNCATE (and before opening any DB connection at all)
+ * unless the resolved database name looks disposable, per
+ * {@link looksDisposable}, or the one deliberate exception applies:
+ *
+ * `SEED_CONFIRM_LIVE_DB_NAME=<exact db name>` — the owner's own escape
+ * hatch to deliberately reseed a database that doesn't look disposable
+ * (their live `crm_db` included). The confirmation value must equal the
+ * EXACT database name being targeted, typed at invocation time — not a
+ * plain on/off flag. A flag like `SEED_ALLOW_LIVE_DB=1` is exactly the
+ * shape of thing that silently survives in an inherited shell environment
+ * (the incident this guard exists for was caused by precisely that
+ * pattern, with `DATABASE_URL`); a value that must match the specific name
+ * of THIS run's target cannot be satisfied by accidentally-inherited state
+ * from an unrelated earlier session.
+ *
+ * This value is deliberately read from `confirmSourceEnv`, NOT from `env`
+ * (security review on PR #576, 2026-08-18, LOW-2): `env` is normally
+ * `process.env` AFTER seed.ts's `loadEnvQuietly()` has run, i.e. it also
+ * reflects whatever `apps/api/.env` set. If the confirmation were read from
+ * there, setting it once in `.env` to unblock a single deliberate reseed
+ * would make that "one-time" confirmation permanent — silently
+ * re-confirming on every future run, defeating the entire point of
+ * requiring it typed per invocation. `confirmSourceEnv` must be a snapshot
+ * of `process.env` taken BEFORE dotenv ran (seed.ts does this at its very
+ * first line); dotenv's own default behaviour — never overriding an
+ * already-set variable — means a value present in that pre-dotenv snapshot
+ * can only have come from the real shell invocation, never from a file.
+ *
+ * There used to be a second exception here — `GITHUB_ACTIONS=true` — for
+ * CI's own throwaway Postgres, which used to be named `crm_db` (the same
+ * name as the live one). task-ci-db-rename-and-dbpush-guard renamed that
+ * throwaway database to `crm_ci` instead (see the file doc above): a
+ * `crm_`-prefixed name that is not `crm_db` already passes
+ * {@link looksDisposable} on its own, exactly like every other scratch name
+ * in this repo, so the exception is no longer needed and has been removed —
+ * a bypass keyed on a single inherited env var (`GITHUB_ACTIONS`) is a full,
+ * silent off-switch, and removing the reason it existed is strictly safer
+ * than narrowing it further.
+ *
+ * `env` is kept as a parameter (used only as {@link confirmSourceEnv}'s
+ * default) rather than removed outright, so every existing call site —
+ * `seed.ts`'s `assertSeedTargetIsDisposable(databaseUrl, process.env,
+ * preDotenvEnv)` included — keeps working unchanged.
+ */
+export function assertSeedTargetIsDisposable(
+  databaseUrl: string,
+  env: NodeJS.ProcessEnv = process.env,
+  confirmSourceEnv: NodeJS.ProcessEnv = env,
+): void {
+  assertTargetIsDisposable(databaseUrl, SEED_REFUSAL_COPY, confirmSourceEnv)
+}
+
+/**
+ * Same check as {@link assertSeedTargetIsDisposable}, worded for `db:push` /
+ * `db:migrate` (both alias `drizzle-kit push` — see apps/api/package.json)
+ * instead of `db:seed`. Same disposable-name logic, same
+ * `SEED_CONFIRM_LIVE_DB_NAME` escape hatch — deliberately NOT a second
+ * mechanism (task-ci-db-rename-and-dbpush-guard, AC6): a
+ * `db:push`-specific env var name would only ever drift from this one over
+ * time, and the owner only has to remember one name either way.
+ *
+ * Called from this file's own CLI entry point below, not imported by
+ * anything else — `drizzle-kit push` is a separate third-party process with
+ * no import site of its own, so the check has to run as ITS OWN process,
+ * in front of it, rather than in-process the way `db:seed` calls this
+ * file's sibling function directly from `seed.ts`.
+ */
+export function assertDbPushTargetIsDisposable(
+  databaseUrl: string,
+  confirmSourceEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  assertTargetIsDisposable(databaseUrl, DB_PUSH_REFUSAL_COPY, confirmSourceEnv)
+}
+
+/**
+ * CLI entry point body — closes the one path PR #576's security review
+ * flagged as still open (see the file doc above): `db:push` / `db:migrate`
+ * (`drizzle-kit push`) can alter or drop columns/tables on whatever
+ * `DATABASE_URL` points at, via the exact same inherited-env-var failure
+ * mode `db:seed` already guards against, but `drizzle-kit` is a separate
+ * third-party CLI process — there is no import site inside it to hang an
+ * in-process check off of the way `seed.ts` does.
+ *
+ * Wired in `apps/api/package.json` as a prefix in front of the real
+ * command: `tsx src/database/seed-db-guard.ts && drizzle-kit push`. Bash's
+ * `&&` means `drizzle-kit push` never starts unless this process exits 0.
+ *
+ * Deliberately pulled OUT of the `require.main === module` gate below into
+ * its own exported function: a `require.main` check is only ever true when
+ * THIS file is the process entry point, which nothing in this repo's test
+ * harness can trigger — vitest is always the entry point when a `.spec.ts`
+ * imports this module. Leaving this logic inline inside that `if` would have
+ * left every mutant in it permanently `NoCoverage` (verified: the first cut
+ * of this function DID leave it inline, and Stryker reported 10 no-coverage
+ * mutants across this whole body — see task-ci-db-rename-and-dbpush-guard).
+ * Extracting it means `seed-db-guard.spec.ts` can call this function
+ * directly (mocking `process.exit` the way it already mocks other
+ * side-effecting calls), so the actual logic — not just the one-line gate —
+ * has real, killed mutation coverage instead of relying solely on the by-hand
+ * `tsx` executions this PR's body documents.
+ *
+ * INVERTED DEPENDENCY (security review, PR #579, MED-1): the first cut of
+ * this function called `loadEnvQuietly()` internally, between capturing
+ * `preDotenvEnv` and reading `DATABASE_URL` — the exact same
+ * snapshot-then-load shape `seed.ts` uses. But the spec file mocks
+ * `./load-env-quietly` to a no-op for every OTHER test in it (so importing
+ * this module never touches the real filesystem), which made that no-op
+ * blind to its own ordering: swapping the snapshot and the `loadEnvQuietly()`
+ * call produced ZERO test failures (54/54 green), while the swapped version
+ * is a real regression — a `SEED_CONFIRM_LIVE_DB_NAME` sitting in
+ * `apps/api/.env` would then land INSIDE the snapshot and silently become a
+ * permanent bypass instead of a per-invocation one (this is exactly LOW-2
+ * from PR #576's own review, reopened). This function no longer calls
+ * `loadEnvQuietly()` or reads `process.env` itself at all — it takes BOTH
+ * environments as explicit parameters, the same inversion
+ * `assertSeedTargetIsDisposable`'s `env`/`confirmSourceEnv` pair already
+ * uses. The property under test becomes "which of the two parameters feeds
+ * which check", provable with two plain objects and no dotenv/filesystem
+ * involved (see `seed-db-guard.spec.ts`'s MED-1 cases) — not "did two
+ * statements run in the right order inside a mocked-away side effect".
+ */
+export function runDbPushGuardCli(
+  preDotenvEnv: NodeJS.ProcessEnv = process.env,
+  postDotenvEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  const databaseUrl = postDotenvEnv['DATABASE_URL']
+  if (!databaseUrl) {
+    console.error(
+      '[seed-db-guard] REFUSED: DATABASE_URL is not set — refusing to run db:push/db:migrate blind.',
+    )
+    process.exit(1)
+    return
+  }
+
+  try {
+    assertDbPushTargetIsDisposable(databaseUrl, preDotenvEnv)
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err))
+    process.exit(1)
+  }
+}
+
+/**
+ * `require.main === module` is Node's standard "am I the entry point" check
+ * — true only when this file is invoked directly (`tsx
+ * src/database/seed-db-guard.ts`), false when it is `import`ed by `seed.ts`
+ * or by this file's own `.spec.ts` (in both of those cases some OTHER file
+ * is `require.main`). Verified by execution
+ * (task-ci-db-rename-and-dbpush-guard): running this file directly via tsx
+ * logs `true`; the existing unit tests, which import this file's exports
+ * without ever executing it as the entry point, do not trigger this branch
+ * (confirmed by them continuing to pass unmodified).
+ *
+ * Stryker suppression (task-ci-db-rename-and-dbpush-guard): `require.main`
+ * is never `=== module` inside a vitest worker — vitest itself is always
+ * the entry point there, for every test in this repo, not just this file's
+ * own spec. That makes `if (false) {}` a TRUE equivalent mutant here:
+ * inside any test run, the real condition and the literal `false` take the
+ * identical branch every single time, so no test — in this file or any
+ * other — could ever observe a difference. `if (true) {}` and
+ * `require.main !== module` are not equivalent to real behaviour in
+ * principle (they would run `runDbPushGuardCli()` unconditionally, including
+ * during a plain `import`), but calling the now-extracted, fully-tested
+ * `runDbPushGuardCli()` is exactly what the tests above already exercise
+ * directly — so forcing this ONE line's gate open or closed changes nothing
+ * a test can see beyond what is already covered by calling that function on
+ * its own. The gate itself is verified the only way it can be: by running
+ * `tsx src/database/seed-db-guard.ts` for real (documented in this PR).
+ */
+// Stryker disable next-line ConditionalExpression,EqualityOperator: see the paragraph above.
+if (require.main === module) {
+  // The one place this file still has to physically snapshot-then-load, in
+  // that order — see runDbPushGuardCli's own doc above for why the ORDERING
+  // PROPERTY itself is tested via that function's two explicit parameters
+  // instead of here. What is left here is three lines with nothing left to
+  // get subtly wrong: capture, load, delegate.
+  const preDotenvEnv: NodeJS.ProcessEnv = { ...process.env }
+  loadEnvQuietly()
+  runDbPushGuardCli(preDotenvEnv, process.env)
 }
