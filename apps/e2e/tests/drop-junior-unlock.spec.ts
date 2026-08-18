@@ -45,6 +45,7 @@ import {
   cleanupDropViaAPI,
   createDropProjectViaAPI,
   createDropIncomeViaAPI,
+  onboardDropViaAPI,
   validateTransactionViaAPI,
   listTransactionsByProjectViaAPI,
 } from './fixtures'
@@ -67,6 +68,11 @@ test.describe('Drop income → junior salary unlock signal (AC4)', () => {
     })
 
     try {
+      // Backlog item 139: onboard the fresh DROP (contract + ToS) before ANY
+      // non-bypassed route lets them through — see `onboardDropViaAPI`'s
+      // jsdoc. `createDropIncomeViaAPI` below is not on the bypass list.
+      await onboardDropViaAPI(page, { dropId, dropEmail })
+
       const { projectId } = await createDropProjectViaAPI(page, {
         dropId,
         seniorEmail: SEED_EMAILS.seniorA,
@@ -77,12 +83,15 @@ test.describe('Drop income → junior salary unlock signal (AC4)', () => {
       const { txId } = await createDropIncomeViaAPI(page, { projectId, amount: 1000 })
 
       await loginViaApi(page, SEED_EMAILS.accountant)
-      const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
-      // payoutRequestId being non-null proves that `validateTransaction`
-      // reached the end of its db.transaction(...) — meaning the
-      // `unlockJuniorSalaryForProject` side-effect also ran without
-      // crashing the cascade.
-      expect(payoutRequestId).toBeTruthy()
+      // task-drop-payout-company-account (backlog item 139): validate now
+      // ONLY flips PENDING → VALIDATED for both SENIOR_INCOME and
+      // DROP_INCOME — it no longer auto-creates a payout_request (so
+      // `payoutRequestId` is always null here, not a meaningful signal
+      // anymore). `validateTransactionViaAPI` itself throws on any non-200
+      // response, so simply reaching the line below already proves the
+      // cascade — including the `unlockJuniorSalaryForProject` side-effect
+      // this test exists to cover — completed without crashing.
+      await validateTransactionViaAPI(page, txId)
 
       // Verify the project HAS a VALIDATED DROP_INCOME row — this is the
       // signal `createMonthlySalaries` reads to decide PENDING vs. LOCKED.
@@ -94,13 +103,14 @@ test.describe('Drop income → junior salary unlock signal (AC4)', () => {
       expect(validatedDropIncome).toBeTruthy()
       expect(parseFloat(validatedDropIncome!.amount)).toBeCloseTo(1000, 2)
 
-      // The validate cascade also created the placeholder PAYOUT (PENDING_PAYMENT)
-      // — that's the per-income payable bucket for `payPayoutRequest`. Sanity
-      // assertion that the surrounding flow is intact.
-      const placeholderPayout = txs.find(
-        (t) => t.type === 'PAYOUT' && t.status === 'PENDING_PAYMENT',
-      )
-      expect(placeholderPayout).toBeTruthy()
+      // NOTE (backlog item 139): this used to also assert a placeholder
+      // PAYOUT (PENDING_PAYMENT) row existed here — that coverage MOVED, not
+      // lost: the placeholder PAYOUT is now created by the DROP's own
+      // explicit `POST /api/payout-requests` call (createPayoutRequestViaAPI
+      // in fixtures.ts), which is out of scope for THIS test (the junior-
+      // unlock signal fires at validate time, before any payout_request
+      // exists) and is covered directly by drop-confirm-payout*.spec.ts and
+      // drop-distribution*.spec.ts.
     } finally {
       await cleanupDropViaAPI(page, dropId)
     }
