@@ -27,11 +27,21 @@
  *      If someone later adds `role` or `monthlySalary` to either, this goes red
  *      instead of quietly opening a fourth door.
  *
+ *   3. **That a THIRD direct writer cannot appear unnoticed.** Point 2 names
+ *      two methods one by one, so it is structurally blind to anything else —
+ *      security review measured exactly that (MED-1) by planting a third
+ *      writer and watching all 42 tests stay green. The last block in this
+ *      file is therefore ENUMERATING: it scans the tree and diffs the full set
+ *      of `.update(users)` writers against an explicit inventory.
+ *
  * Plus the pure semantics of the discriminator itself (`changed`, not
  * `present`; `numeric` columns compared by value because Drizzle returns them
  * as strings) — the rules that decide whether a write is a NEW ENTITLEMENT or
  * an ordinary settlement-time edit.
  */
+import { readFileSync, readdirSync, statSync } from 'node:fs'
+import path from 'node:path'
+
 import { BadRequestException, NotFoundException } from '@nestjs/common'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -395,5 +405,126 @@ describe('archived-entitlement — the two writers that legitimately bypass the 
       expect(written.length).toBeGreaterThan(0)
       expect(written.filter((k) => forbidden.has(k))).toEqual([])
     }
+  })
+})
+
+/**
+ * task-archived-user-completeness — security-review MED-1.
+ *
+ * The docblock on `UsersService.updateUserRow` used to promise that a third
+ * direct writer "turns that spec red instead of quietly opening a new door".
+ * It did not. The reviewer measured it: a planted method writing `role` and
+ * `monthlySalary` straight through `db.update(users)` left all 42 tests green,
+ * because the block above names `updateProfile` and `updateRequisites` ONE BY
+ * ONE and cannot see anything else. A comment promising a guarantee the suite
+ * does not give is the same defect this PR set out to fix, one level down — so
+ * the promise is made true here rather than deleted.
+ *
+ * The check is ENUMERATING, not by-name: it scans every non-spec `.ts` under
+ * `apps/api/src`, collects the enclosing method of every `.update(users)`, and
+ * compares the whole set against the inventory below. A new writer — in this
+ * service or any other — is a diff to that set and fails here with the file and
+ * method named.
+ *
+ * ITS HONEST LIMITS, so the next reader does not over-trust this one either:
+ *   • It proves a writer EXISTS and is accounted for. It does NOT prove the
+ *     writer is safe — that is the `set`-capture block above for the two that
+ *     bypass the choke point, and the behavioural specs for the rest.
+ *   • It matches `.update(users)` textually. A writer reaching the table
+ *     through an alias, raw `sql`, or a helper taking the table as a parameter
+ *     would slip past. Nothing in this repo does that today; if that changes,
+ *     this check has to change with it.
+ */
+describe('archived-entitlement — the inventory of everything that writes `users`', () => {
+  /**
+   * Every method in `apps/api/src` that issues `db.update(users)`, with the
+   * reason it is allowed to. Adding a row here is a deliberate act — that is
+   * the entire mechanism.
+   */
+  const KNOWN_USERS_WRITERS: Record<string, string> = {
+    // The choke point itself — the only writer that may move an entitlement column.
+    'users/users.service.ts::updateUserRow': 'the choke point',
+    // Bypass the choke point; proven above to write no entitlement column.
+    'users/users.service.ts::updateProfile': 'contacts / display name only',
+    'users/users.service.ts::updateRequisites': 'payment requisites only — settlement path',
+    // Write columns that decide nothing about what anyone is owed.
+    'users/users.service.ts::setAdminNote': 'admin_note only',
+    'users/users.service.ts::archive': 'archived_at only',
+    'users/users.service.ts::unarchivePairTx': 'archived_at only',
+    'users/users.service.ts::updateGoogleId': 'google_id only',
+    'users/users.service.ts::archiveDrop': 'archived_at only',
+    'teams/teams.service.ts::archiveDropTeam': 'archived_at only, paired drop-team archive',
+  }
+
+  const SRC_ROOT = path.resolve(import.meta.dirname, '..')
+
+  /**
+   * `<relative path>::<method>` → `<path>:<line>` for every `db.update(users)`
+   * in the tree.
+   *
+   * Tracks the enclosing method by indentation (class members sit at exactly
+   * two spaces) and skips comments — the `updateUserRow` docblock discusses
+   * `this.db.db.update(users)` in prose, and counting that as a writer would
+   * make the check fire on its own documentation.
+   */
+  function collectUsersWriters(): Record<string, string> {
+    const METHOD =
+      /^ {2}(?:private |public |protected |readonly |static )*(?:async )?([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\(/
+    const out: Record<string, string> = {}
+
+    const walk = (dir: string): string[] =>
+      readdirSync(dir).flatMap((entry) => {
+        const full = path.join(dir, entry)
+        if (statSync(full).isDirectory()) return walk(full)
+        return full.endsWith('.ts') && !full.endsWith('.spec.ts') ? [full] : []
+      })
+
+    for (const file of walk(SRC_ROOT)) {
+      const rel = path.relative(SRC_ROOT, file).split(path.sep).join('/')
+      let method: string | null = null
+      let inBlockComment = false
+
+      readFileSync(file, 'utf8')
+        .split('\n')
+        .forEach((line, index) => {
+          const trimmed = line.trim()
+          if (inBlockComment) {
+            if (trimmed.includes('*/')) inBlockComment = false
+            return
+          }
+          if (trimmed.startsWith('/*')) {
+            if (!trimmed.includes('*/')) inBlockComment = true
+            return
+          }
+          if (trimmed.startsWith('//') || trimmed.startsWith('*')) return
+
+          const match = METHOD.exec(line)
+          if (match?.[1]) method = match[1]
+          if (/\.update\(\s*users\s*\)/.test(line)) {
+            out[`${rel}::${method ?? '<top-level>'}`] = `${rel}:${index + 1}`
+          }
+        })
+    }
+    return out
+  }
+
+  it('every `db.update(users)` in apps/api/src belongs to a method on the inventory', () => {
+    const actual = collectUsersWriters()
+
+    // Fails in BOTH directions on purpose. An unlisted writer is a new,
+    // unguarded door into the table. A listed one that has vanished means the
+    // inventory — and the docblock leaning on it — describes code that is gone.
+    expect(Object.keys(actual).sort()).toEqual(Object.keys(KNOWN_USERS_WRITERS).sort())
+  })
+
+  it('the scan is not vacuous — it really locates the choke point', () => {
+    // A scanner that silently found nothing would make the test above pass by
+    // comparing two near-empty sets. Pin the one entry whose absence means the
+    // parse broke rather than the code changed.
+    const actual = collectUsersWriters()
+    expect(actual['users/users.service.ts::updateUserRow']).toMatch(
+      /^users\/users\.service\.ts:\d+$/,
+    )
+    expect(Object.keys(actual)).toHaveLength(Object.keys(KNOWN_USERS_WRITERS).length)
   })
 })
