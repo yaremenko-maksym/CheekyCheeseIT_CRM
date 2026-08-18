@@ -3,6 +3,7 @@ import {
   bigserial,
   boolean,
   char,
+  check,
   customType,
   index,
   integer,
@@ -1043,6 +1044,31 @@ export const transactions = pgTable(
       .where(
         sql`${t.type} IN ('DROP_PENDING_PAYOUT', 'PAYOUT_DROP') AND ${t.sourceIncomeTransactionId} IS NOT NULL`,
       ),
+    // task-sender-receiver-invariant (backlog A-2). Nothing anywhere used to
+    // forbid a row that pays a user to themselves — no DB CHECK, no Zod
+    // `.refine`, no service-layer check. The system was intact only because
+    // the one write path that could produce such a row (the pre-obligations
+    // legacy cascade) was deleted; `bookCompanyObligations` simply never
+    // fills `senderId` for the obligation rows it writes. A self-paying row
+    // has already happened once in prod (a deleted-path artifact) and cost a
+    // real investigation before an owner decision could say which of two
+    // disagreeing readers was right.
+    //
+    // `<>` (NOT `IS DISTINCT FROM`) is deliberate and verified by hand on a
+    // scratch DB (see the task file / PR body for the four-case proof), not
+    // assumed: SQL's three-valued logic makes `x <> y` evaluate to NULL (not
+    // FALSE) whenever either side is NULL, and CHECK only rejects an
+    // explicit FALSE — so a row with one or both sides empty still passes.
+    // `sender_id IS DISTINCT FROM receiver_id` looks like the "safe" NULL-aware
+    // choice but is actually wrong here: `NULL IS DISTINCT FROM NULL` is FALSE,
+    // so that variant would reject every legitimate both-NULL row (senderLabel-
+    // only company rows, obligation rows with no senderId, etc — there are many).
+    //
+    // ADD CONSTRAINT DDL (prod is applied via deploy.yml — there is no SSH; see
+    // apps/api/drizzle/manual/2026-08-18_sender_receiver_invariant.sql):
+    //   ALTER TABLE transactions ADD CONSTRAINT ck_transactions_sender_ne_receiver
+    //     CHECK (sender_id <> receiver_id);
+    check('ck_transactions_sender_ne_receiver', sql`${t.senderId} <> ${t.receiverId}`),
   ],
 )
 
