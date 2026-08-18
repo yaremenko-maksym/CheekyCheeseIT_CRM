@@ -18,17 +18,27 @@ and watching whether anything went red. That is what mutation testing automates:
 it applies a small change to your source, re-runs the tests, and reports whether
 they noticed.
 
-## The two halves
+## The three halves
 
-|                | PR gate (`ci.yml`, `quality` job)            | Nightly (`mutation-nightly.yml`) |
-| -------------- | -------------------------------------------- | -------------------------------- |
-| Scope          | only the LINES this branch changed           | whole packages on `main`         |
-| Verdict        | one survivor → build red                     | inventory → alert issue          |
-| Cost           | proportional to the diff (see numbers below) | up to 5h per package leg         |
-| Blocks a merge | yes                                          | no                               |
+|                | Pre-push hook (`.claude/hooks/pre-bash-mutation-gate.sh`) | PR gate (`ci.yml`, `quality` job)            | Nightly (`mutation-nightly.yml`) |
+| -------------- | --------------------------------------------------------- | -------------------------------------------- | -------------------------------- |
+| Scope          | same as the PR gate — the LINES this branch changed       | only the LINES this branch changed           | whole packages on `main`         |
+| Verdict        | BLOCK on a real finding, visible SKIP on anything else    | one survivor → build red                     | inventory → alert issue          |
+| Cost           | budget-capped at 120s locally (see the hook's own header) | proportional to the diff (see numbers below) | up to 5h per package leg         |
+| Blocks a merge | no — only slows a `git push` locally                      | yes                                          | no                               |
 
 The PR gate is affordable because it is line-scoped. It is also blind to
 everything written before it existed — that is the nightly's job.
+
+The pre-push hook exists because, before it did, the gate ran by memory: the
+same session that built it still went red on it in CI twice, because nothing
+ran it before push (`task-mutation-gate-mechanical`, 2026-08-18). It runs the
+SAME `--changed` command the PR gate does, but only ever BLOCKS on a real
+finding — Stryker missing, `packages/shared` not built, or the gate hitting its
+own error path are all a visible `SKIP`, never a silent pass and never a hard
+block, because CI remains the actual, unskippable check. See the hook's own
+header comment for the full BLOCK/SKIP/PASS decision tree and why each branch
+lands where it does.
 
 ## Reading a red gate
 
@@ -191,3 +201,18 @@ Everything lives in `scripts/devops/mutation-gate.mjs`:
   stopping point as `check-guard-tests-exist.sh`.
 - **`apps/landing` is not swept** — no unit specs of its own worth mutating yet.
   Add it to `PACKAGES` the day that changes.
+- **`*.integration.spec.ts` is invisible to this gate, structurally.** A
+  `NoCoverage` finding in a file exercised only by an integration spec is
+  expected, not a hole — see
+  `.claude/rules/common/mutation-gate-integration-specs.md` for the mechanism
+  and what to do about it (a unit-level double, not an integration spec — the
+  gate cannot see either one, but only the double is a tool requirement rather
+  than duplication). The gate labels this heuristically
+  (`looksIntegrationOnly()` — a filename match, not proof); always look before
+  trusting the label either way.
+- **A suppression's printed count is per (line, mutator), not per author's
+  intent.** `// Stryker disable next-line <mutator>` silences EVERY mutant that
+  mutator produces on that line — measured three times higher than expected
+  (#531: eight vs. two intended; #554: four vs. one). `groupSuppressions()`
+  prints the real count from Stryker's own report specifically so nobody has to
+  get this right by memory a fourth time.
