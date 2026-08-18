@@ -79,6 +79,9 @@ jobs:
               - '!docs/**'
               - '!**.md'
               - '!.github/CODEOWNERS'
+            hooks:
+              - '.claude/hooks/**'
+              - 'scripts/devops/tests/**'
 
       # Single source of truth for "should this job do work?" — every work-step
       # below keys off `steps.scope.outputs.code`.
@@ -94,9 +97,13 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           PR_CODE: ${{ steps.filter.outputs.code }}
+          PR_HOOKS: ${{ steps.filter.outputs.hooks }}
         run: |
           if [ "$EVENT" = "pull_request" ]; then CODE="$PR_CODE"; else CODE=true; fi
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          if [ "$EVENT" = "pull_request" ]; then HOOKS="$PR_HOOKS"; else HOOKS=true; fi
+          echo "hooks=$HOOKS" >> "$GITHUB_OUTPUT"
+          echo "Hook corpus sweep: $HOOKS"
           echo "Run scope: event=$EVENT code=$CODE"
           {
             echo "### CI scope"
@@ -104,6 +111,7 @@ jobs:
             echo "- event: \`$EVENT\`"
             echo "- ref: \`$GITHUB_REF\`"
             echo "- work-steps enabled: \`$CODE\`"
+            echo "- hook corpus sweep: \`$HOOKS\`"
           } >> "$GITHUB_STEP_SUMMARY"
 
       - uses: pnpm/action-setup@v4
@@ -273,6 +281,8 @@ jobs:
       # a comment it cannot go stale.
       - name: Guard tests (every check-* script, both directions)
         if: steps.scope.outputs.code == 'true'
+        env:
+          GUARD_TEST_HOOKS_TOUCHED: ${{ steps.scope.outputs.hooks == 'true' && '1' || '0' }}
         run: bash scripts/devops/tests/run-guard-tests.sh
 
       # ── Mutation gate (task-mutation-gate, 2026-08-11) ────────────────────
@@ -630,7 +640,7 @@ jobs:
             # so listing it here now is a no-op today and self-activates the
             # moment #521 merges — no follow-up PR needed, no window where the
             # spec lands on main unsharded.
-            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts
+            files: tests/pending-settlement.spec.ts tests/drop-role-end-to-end.spec.ts tests/rbac-matrix-smoke.spec.ts tests/drop-share-usdt-income.spec.ts tests/drop-share-usdt-gates.spec.ts tests/project-payment-type-and-drop-share.spec.ts tests/drop-share-slider.spec.ts tests/transaction-receipts.spec.ts tests/drop-payout-currency.spec.ts tests/drop-backend-rbac-api.spec.ts
           # task-landing-e2e-in-ci.md Part 2. Different stack shape than every
           # other leg above (no apps/web dev server; apps/landing prerender +
           # `vite preview` instead — see the matrix.shard.name == 'landing'

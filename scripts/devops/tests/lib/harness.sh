@@ -34,6 +34,16 @@
 #       STDOUT CONTRACT rather than an exit code — `STATUS=stale` on exit 0 is its
 #       red. Semantically identical to assert_green + constraints; named separately
 #       so that "this test has a negative case" stays greppable and honest.
+#   assert_contract "<desc>" [--contains S]... [--not-contains S]... -- <cmd>...
+#       checks the OUTPUT only and ignores the exit code. For the .claude/hooks
+#       subjects, whose documented contract is exactly that: a refusal is
+#       {"decision":"block"} on stdout, and the exit code cannot tell a refusal
+#       from a crash (bash exits 2 on a syntax error too). Needed for the one
+#       question the codes cannot answer — "did the DEGRADED fallback object to
+#       this command?" — where a hook may legitimately answer 0 (fast-exit
+#       before the analyzer) or 1 (analyzer dead, nothing matched). Not a
+#       negative case: it never asserts a refusal, so it does not count toward
+#       the meta-guard's requirement.
 #
 # Env:
 #   GUARD_TEST_VERBOSE=1   print each case's captured output (this is how the PR
@@ -125,6 +135,9 @@ _gt_assert() {
         why="expected NON-zero exit (guard should have gone red), got 0"
       fi
       ;;
+    contract)
+      : # output constraints only — see assert_contract in the header
+      ;;
   esac
 
   local needle
@@ -151,6 +164,7 @@ _gt_assert() {
     green) tag="green" ;;
     red) tag="RED  " ;;
     signal) tag="RED! " ;;
+    contract) tag="contr" ;;
   esac
 
   if [ "$ok" = "1" ]; then
@@ -168,6 +182,7 @@ _gt_assert() {
 assert_green() { _gt_assert green "$@"; }
 assert_red() { _gt_assert red "$@"; }
 assert_red_signal() { _gt_assert signal "$@"; }
+assert_contract() { _gt_assert contract "$@"; }
 
 # ── temp workspace ─────────────────────────────────────────────────────────────
 # Every test builds its fixtures under its own mktemp -d. The parent worktree is

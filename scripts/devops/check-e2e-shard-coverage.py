@@ -78,7 +78,6 @@ KNOWN_UNSHARDED = {
     "tests/drop-archive-impact-contract.spec.ts", # debt: not gated, migrate to drop shard later
     "tests/drop-archive-real.spec.ts",            # debt: not gated, migrate to drop shard later
     "tests/drop-archive-user-real.spec.ts",       # debt: not gated, migrate to drop shard later
-    "tests/drop-backend-rbac-api.spec.ts",        # debt: not gated, migrate to drop shard later
     "tests/drop-balances-panel.spec.ts",          # debt: not gated, migrate to drop shard later
     "tests/drop-confirm-payout-edges.spec.ts",    # debt: not gated, migrate to drop shard later
     "tests/drop-confirm-payout-rbac.spec.ts",     # debt: not gated, migrate to drop shard later
