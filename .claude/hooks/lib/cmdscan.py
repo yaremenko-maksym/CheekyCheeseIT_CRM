@@ -64,6 +64,22 @@ holds:
     argument grammars differ between BSD and GNU);
   - the command itself is one this module claims to understand (UNDERSTOOD).
 
+WHAT "UNDERSTOOD" HAD TO MEAN (round 3 of the same review). That fifth condition
+leaked, because the list said one thing and contained another: it promised
+commands that do not execute their argument, and held `tar`, `rsync`, `ssh`,
+`nc`, `psql`, `git` — all six of which execute exactly that. And membership is
+not a hint. confident=True short-circuits readings() entirely, so
+`tar --use-compress-program 'rm -rf /etc' -cf /dev/null .` was read as "a tar
+command", full stop. Eleven forms on the safety hook, one on both launcher
+hooks, all regressions against main.
+
+The list is now defined by what the module can SAY about a command, in two
+kinds: it executes nothing (`grep`), or what it executes is extracted here and
+becomes a segment of its own (`sh -c`, `eval`, `find -exec`, `git`, `psql`,
+CODE_CAPABLE). Note which way this fails: a command left OUT costs a false
+positive, one wrongly left IN costs a miss — the round-2 fix inverted that for
+the wrapper list, and this puts UNDERSTOOD on the same side of it.
+
 Anything else is UNCERTAIN, and an uncertain segment is not judged by its
 command word at all. It is judged by `readings()`: every "what if the real
 command starts at token i" reading of the segment, re-expanded through quoted
@@ -230,37 +246,107 @@ WRAPPER_SPEC = {
 
 INTERPRETERS = {"sh", "bash", "zsh", "dash", "ksh", "ash"}
 
-# Commands this module claims to understand well enough to judge by name alone:
-# either it models them (`node`, `pnpm`, `rm`, `git`) or they demonstrably do not
-# execute an argument as a command line (`grep`, `ls`, `cat`). Everything NOT
-# here is uncertain — which is the point. This list is allowed to be incomplete;
-# incompleteness costs a false positive, never a miss. Add to it only for
-# commands whose argument handling you have actually checked.
+# Commands this module claims to understand well enough to judge by NAME ALONE.
+# Membership means one of exactly two things and nothing else:
+#
+#   (a) the command does not execute any of its arguments. `grep`, `ls`, `cat`
+#       consume text and emit text, whatever the text happens to say.
+#   (b) it DOES execute something, and that execution surface is extracted right
+#       here, so what it runs becomes a segment in its own right: `sh -c` and
+#       `eval` (parsed as code above), `find -exec` (_find_exec_commands),
+#       `git` (_git_exec_commands), `psql` (_psql_exec_commands), and the
+#       inline-code interpreters reached through CODE_CAPABLE (`node -e`,
+#       `python3 -c`, `awk BEGIN{system(…)}`).
+#
+# A command that executes an argument WITHOUT a model here does not belong,
+# however everyday it is — and that is the defect this list carried into the
+# second security review of PR #561. `tar`, `rsync`, `ssh`, `nc`, `psql` and
+# `git` all sat here while all six run what they are handed, and membership is
+# not a hint: it sets confident=True, which means readings() is never consulted
+# at all. `tar --use-compress-program 'rm -rf /etc' -cf /dev/null .` was
+# therefore judged "a tar command" and allowed, where the coarse rule this PR
+# replaces refused it. Eleven such forms on the safety hook, one on both
+# launcher hooks; every one a regression against main.
+#
+# NOTE THE DIRECTION OF FAILURE, because it is what makes this list safe to be
+# wrong about: a command MISSING from here costs a false positive (it is read
+# through readings(), which is conservative), while a command wrongly PRESENT
+# costs a miss. The two mistakes are not symmetric. When in doubt, leave it out.
+#
+# REMOVED 2026-08-18, with the surface that disqualifies each. `▶` = reproduced
+# on this machine by handing the flag a payload that touches a marker file — the
+# marker appeared. The rest are documented GNU/ncat/deprecated forms that this
+# macOS box does not ship, kept out for the platform we also run on (CI is
+# ubuntu-latest, where the GNU forms are the real ones):
+#     tar          ▶ --use-compress-program;  GNU -I, --to-command, --rsh-command
+#     rsync        ▶ -e / --rsh;  --rsync-path (runs on the far side)
+#     ssh          ▶ -o ProxyCommand= (runs LOCALLY);  plus the remote command
+#     scp          ▶ -S;  -o ProxyCommand=
+#     zip          ▶ -TT / --unzip-command
+#     brew         ▶ brew ruby -e …, brew sh -c …
+#     pnpm/npm/yarn ▶ exec / dlx / x — `pnpm exec rm -rf /etc` is one token away
+#     bun            x / exec, same family. Its `-e` IS modelled (CODE_CAPABLE),
+#                    but the launcher hooks do not ask for that re-reading, so
+#                    `bun x pnpm dev` needed readings() to be reachable at all
+#     nc             -e / -c (ncat and GNU netcat; macOS BSD nc has neither)
+#     sort           GNU --compress-program
+#     bat            --pager
+#     wget           --use-askpass
+#     launchctl      submit -l x -- <cmd>, bootstrap
+#     source / .     execute the contents of the file they are handed
+#
+# NOT removed although they execute too — `rg` (--pre) and `ag` (--pager) are
+# handed a PATTERN, i.e. free text, and readings() reads free text as commands:
+# dropping `rg` turned `rg -n 'nest start' apps/api` into an instant refusal.
+# They keep their place and give up their exec surface instead (EXEC_FLAG_SPEC),
+# exactly as git and psql do. The dividing line is what the argv normally holds:
+# paths and hosts (tar, rsync, ssh, scp, zip, wget, sort, bat, launchctl) can be
+# removed for free; prose, SQL and regexes cannot.
+#
+# KEPT, each re-checked rather than assumed (the sweep was command by command,
+# not spot checks — the review found its six by looking, not by enumerating):
+#   node / python / python3 / bun — these DO execute `-e`/`-c`, and that surface
+#     is modelled through CODE_CAPABLE: the safety hook re-reads it (code=True).
+#     The launcher hooks decline the same re-reading on purpose — the false
+#     positive that started this whole PR was
+#     `node -e "console.log('apps/api/dist/main.js')"` (review LOW-1, an
+#     accepted trade, deliberately not revisited here).
+#   sh / bash / zsh / dash / ksh / ash — `-c` is parsed as code above.
+#   pip, turbo, vite, vitest, playwright, eslint, prettier, tsx, tsc,
+#     redis-cli, openssl — they run code that arrives in a FILE or a package
+#     (a config, a test, a formula, an engine .so), never a command line spelled
+#     out in the argument. That is the stated `./boot.sh` gap, the same one
+#     `bash script.sh` has, not this one.
+#   gh — gone through option by option: none takes a command. `gh alias set`
+#     DEFINES one, which runs on a LATER invocation; that is the cross-segment
+#     indirection gap. Shell `alias` and `history` are the same case.
+#   pg_dump / pg_restore / createdb / dropdb / pg_isready — no shell escape;
+#     `dropdb crm_db` is dangerous as ITSELF and has its own predicate.
 UNDERSTOOD = set(INTERPRETERS) | {
     # text in, text out
     "echo", "printf", "cat", "tee", "head", "tail", "grep", "egrep", "fgrep",
-    "rg", "ag", "wc", "sort", "uniq", "cut", "tr", "diff", "comm", "column",
+    "rg", "ag", "wc", "uniq", "cut", "tr", "diff", "comm", "column",
     "pbcopy", "pbpaste", "jq", "yq", "base64", "shasum", "md5", "sha1sum",
     "sha256sum", "fold", "paste", "join", "rev", "expand", "unexpand", "nl",
-    "strings", "xxd", "od", "bat",
+    "strings", "xxd", "od",
     # shell builtins / trivia
-    "true", "false", ":", "test", "[", "cd", "pwd", "source", ".", "export",
+    "true", "false", ":", "test", "[", "cd", "pwd", "export",
     "set", "unset", "shift", "read", "wait", "sleep", "date", "seq", "expr",
     "basename", "dirname", "realpath", "readlink", "which", "type", "whoami",
     "id", "hostname", "uname", "sw_vers", "printenv", "alias", "history",
     # filesystem
     "ls", "stat", "file", "find", "mkdir", "rmdir", "rm", "cp", "mv", "ln",
-    "touch", "chmod", "chown", "du", "df", "tar", "zip", "unzip", "gzip",
-    "gunzip", "mktemp", "install", "rsync", "diskutil",
+    "touch", "chmod", "chown", "du", "df", "unzip", "gzip",
+    "gunzip", "mktemp", "install", "diskutil",
     # processes / network
     "ps", "pgrep", "pkill", "kill", "killall", "lsof", "top", "uptime",
-    "curl", "wget", "ping", "dig", "nslookup", "host", "nc", "ssh", "scp",
-    "openssl", "launchctl",
+    "curl", "ping", "dig", "nslookup", "host",
+    "openssl",
     # this project's toolchain (each modelled below or provably not a launcher)
-    "git", "gh", "node", "python", "python3", "pip", "pip3", "pnpm", "npm",
-    "yarn", "turbo", "bun", "vite", "nest", "tsc", "vitest", "playwright",
+    "git", "gh", "node", "python", "python3", "pip", "pip3",
+    "turbo", "vite", "nest", "tsc", "vitest", "playwright",
     "prettier", "eslint", "tsx", "psql", "pg_dump", "pg_restore", "createdb",
-    "dropdb", "pg_isready", "redis-cli", "brew",
+    "dropdb", "pg_isready", "redis-cli",
 }
 
 ASSIGN_RE = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)=(.*)$", re.S)
@@ -625,6 +711,161 @@ def _find_exec_commands(argv):
     return out
 
 
+# ── git and psql: understood BECAUSE what they execute is extracted ───────────
+# Both run commands, so by the rule above neither could stay in UNDERSTOOD on
+# trust. Dropping them was not an option either: they are the two commands an
+# agent types all day, and an uncertain segment is judged by readings() — which
+# would read `git commit -m "fix: pnpm dev startup"` as a launch and
+# `git commit -m "block DROP DATABASE crm_db"` as a drop. Those two exact
+# refusals are what this PR exists to remove; trading them back for coverage of
+# `git -c core.pager=…` would be a circle.
+#
+# So they take the third route, the one `find` already takes: stay understood,
+# and hand over what they execute. `find … -exec X` yields X as a segment
+# (_find_exec_commands); the same treatment here means `git -c core.pager='rm
+# -rf /etc' log` yields `rm -rf /etc`, judged by every predicate, while
+# `git commit -m 'rm -rf /etc'` yields nothing, because a message is not a
+# command. That distinction is the entire thesis of this PR, applied one level
+# down.
+#
+# Verified by execution 2026-08-18 in a throwaway repo, payload = touch a marker:
+#   alias.<x>=!<cmd>   ▶   rebase -x <cmd>       ▶   difftool --extcmd=<cmd>  ▶
+#   ls-remote --upload-pack=<cmd>  ▶   -c sequence.editor=<cmd>  ▶
+#   -c core.pager=<cmd>  — marker only under a tty (git skips the pager when
+#   stdout is a pipe), which is why it is covered by KEY-BLIND extraction below
+#   rather than by a list of pager-ish keys.
+#
+# `-c` is read KEY-BLIND on purpose: git has dozens of config keys that name a
+# program (core.pager, core.editor, core.sshCommand, core.askPass,
+# sequence.editor, diff.external, diff.*.textconv, filter.*.clean/smudge,
+# credential.helper, alias.*, gpg.program, uploadpack.packObjectsHook,
+# protocol.*.command, ssh.variant …) and enumerating them is exactly the losing
+# game the wrapper list was. Every `-c` VALUE is parsed as code instead. The
+# cost is nil: `git -c user.name='John Doe' commit` yields the segment
+# `John Doe`, which no predicate has anything to say about.
+GIT_CODE_FLAGS = (
+    "-x", "--exec", "--extcmd", "--upload-pack", "--receive-pack",
+    "--tree-filter", "--index-filter", "--parent-filter", "--msg-filter",
+    "--commit-filter", "--tag-name-filter", "--env-filter",
+)
+# `<lead> <verb> <command…>` — the subcommands that take a command line as
+# positional arguments rather than as a flag value.
+GIT_CODE_SUBCOMMANDS = (("submodule", "foreach"), ("bisect", "run"))
+
+
+# Commands kept in UNDERSTOOD with their (small, closed, documented) exec
+# surface extracted here instead — the same third category as git/psql/find.
+#
+# WHY NOT JUST REMOVE THEM, like tar and rsync. Because of what their ORDINARY
+# arguments are. A removed command is read through readings(), which tries every
+# token as a possible command word — and `rg` and `ag` are handed a PATTERN,
+# which is free text that quotes commands all day long. Deleting `rg` from the
+# list made `rg -n \x27nest start\x27 apps/api` a refusal on the spot (caught by
+# test-pre-bash-devserver-ttl-gate.sh, and pinned in the corpus as an `allow`).
+# That refusal is the precise bug this PR exists to remove, so the rule is:
+#   argv is paths and hosts  -> remove from UNDERSTOOD, readings() covers it;
+#   argv is free text        -> keep, and hand over the exec surface here.
+# tar, rsync, ssh, scp, zip, launchctl, wget, sort, bat take paths, hosts and
+# files, so removing them costs nothing. `git -m`, `psql -c`, `rg <pattern>`
+# take prose, SQL and regexes, so they stay and pay the price of being modelled.
+EXEC_FLAG_SPEC = {
+    # ripgrep runs a preprocessor per file (`--pre`) and a hostname binary.
+    "rg": ("--pre", "--hostname-bin"),
+    # the silver searcher pipes through a pager of your choosing.
+    "ag": ("--pager",),
+}
+
+
+def _flag_value_commands(argv, flags):
+    """Values of `flags`, in both `--flag value` and `--flag=value` spelling."""
+    out = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok.split("=", 1)[0] in flags:
+            if "=" in tok:
+                out.append(tok.split("=", 1)[1])
+            elif i + 1 < len(argv):
+                out.append(argv[i + 1])
+                i += 1
+        i += 1
+    return [c for c in out if c and c.strip()]
+
+
+def _as_code(tokens):
+    """Join tokens back into one command line for re-scanning."""
+    if len(tokens) == 1:
+        # Already a command line in a single quoted token — re-quoting it would
+        # turn `rm -rf /etc` into one word.
+        return tokens[0]
+    return " ".join(shlex.quote(t) for t in tokens)
+
+
+def _git_config_code(value):
+    """The command hiding in a `-c key=value` pair, if the value carries one."""
+    if "=" not in value:
+        return []
+    body = value.split("=", 1)[1].strip()
+    # `alias.x=!sh -c …` — the bang means "this is a shell command", and it is
+    # not part of the command word.
+    body = body.lstrip("!").strip()
+    return [body] if body else []
+
+
+def _git_exec_commands(argv):
+    out = []
+    i = 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok == "-c" and i + 1 < len(argv):
+            out.extend(_git_config_code(argv[i + 1]))
+            i += 2
+            continue
+        if tok.startswith("-c") and not tok.startswith("--") and len(tok) > 2:
+            out.extend(_git_config_code(tok[2:]))
+            i += 1
+            continue
+        i += 1
+    # `--config-env=KEY=ENVVAR` is deliberately absent from GIT_CODE_FLAGS: it
+    # names an environment variable, whose value is not on this line at all.
+    # That is the stated variable-indirection gap, not something to guess at.
+    out.extend(_flag_value_commands(argv, GIT_CODE_FLAGS))
+    for lead, verb in GIT_CODE_SUBCOMMANDS:
+        for j in range(len(argv) - 1):
+            if argv[j] == lead and argv[j + 1] == verb:
+                # Everything after the verb, flags included: `git bisect run
+                # rm -rf /etc` means the flags ARE the command s flags, and
+                # dropping them turned a recursive rm into a harmless one.
+                rest = argv[j + 2:]
+                if rest:
+                    out.append(_as_code(rest))
+                break
+    return [c for c in out if c and c.strip()]
+
+
+# psql executes two things that are not SQL: the `\!` meta-command hands the
+# rest of the line to a shell (reproduced against a live local server — marker
+# appeared; it needs a CONNECTION, which is why a probe against a dead port says
+# nothing), and `COPY … FROM PROGRAM '<cmd>'` runs a command server-side. Both
+# were caught by the coarse rule this PR replaces, so both have to survive it.
+# Read from the whole payload, not just `-c`: `psql -f - <<SQL … \! … SQL` is the
+# same command in a different shirt.
+PSQL_BANG_RE = re.compile(r"\\!\s*(\S.*)")
+PSQL_PROGRAM_RE = re.compile(r"\bPROGRAM\s+(['\"])(.+?)\1", re.I)
+
+
+def _psql_exec_commands(payload):
+    out = []
+    for chunk in payload:
+        for line in str(chunk).splitlines():
+            m = PSQL_BANG_RE.search(line)
+            if m:
+                out.append(m.group(1).strip())
+            for pm in PSQL_PROGRAM_RE.finditer(line):
+                out.append(pm.group(2).strip())
+    return [c for c in out if c]
+
+
 def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
     payload = list(tokens) + list(heredocs)
     own = {}
@@ -670,6 +911,17 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
     if name == "find":
         nested.extend(_find_exec_commands(argv))
 
+    # The other two commands that stay UNDERSTOOD only because what they execute
+    # is handed over here rather than trusted away (see GIT_CODE_FLAGS above).
+    if name == "git":
+        nested.extend(_git_exec_commands(argv))
+
+    if name == "psql":
+        nested.extend(_psql_exec_commands(payload))
+
+    if name in EXEC_FLAG_SPEC:
+        nested.extend(_flag_value_commands(argv, EXEC_FLAG_SPEC[name]))
+
     # ── the confidence verdict ────────────────────────────────────────────────
     why = None
     if degraded:
@@ -694,6 +946,10 @@ def _build_segment(raw, tokens, heredocs, running_env, depth, degraded):
 CODE_CAPABLE = {
     "python", "python3", "perl", "ruby", "php", "node", "deno", "bun",
     "awk", "gawk", "nawk", "mawk", "sed", "osascript", "expect",
+    # `brew ruby -e "system(\x27rm -rf /etc\x27)"` — verified by execution, the
+    # marker appeared. It is ruby with a homebrew environment around it, so it
+    # belongs on this list and not among the wrappers.
+    "brew",
 }
 # Punctuation that separates a quoted command from the code around it:
 # `os.system('rm -rf /etc')` hides `rm` behind a paren and a quote, and shlex
@@ -707,15 +963,33 @@ def _expand_token(tok, code=False):
         return [tok]
     if code:
         tok = "".join(" " if c in _CODE_PUNCT else c for c in tok)
-    if not any(c.isspace() for c in tok):
-        return [tok]
-    if code:
-        return tok.split() or [tok]
-    try:
-        parts = shlex.split(tok, comments=False)
-    except ValueError:
-        parts = tok.split()
-    return parts or [tok]
+        parts = tok.split() or [tok]
+    elif any(c.isspace() for c in tok):
+        try:
+            parts = shlex.split(tok, comments=False)
+        except ValueError:
+            parts = tok.split()
+        parts = parts or [tok]
+    else:
+        parts = [tok]
+
+    # `--rsh=rm -rf /etc`, `-o ProxyCommand=rm -rf /etc`,
+    # `--compress-program=rm -rf /etc`: the option that carries the command is
+    # glued to its command word, so the word never reaches command position and
+    # `_plausible_command_word` rejects it for the `=` it is wearing. Every one
+    # of the four leaks left after pruning UNDERSTOOD was this same shape, on a
+    # different flag of a different command — a list of flags would have been
+    # the wrapper list again, so the split is on the punctuation instead.
+    # `!` leads a git alias body (`alias.x=!rm -rf /etc`) and is not part of the
+    # command word either.
+    out = []
+    for part in parts:
+        out.append(part)
+        if not code and "=" in part:
+            rhs = part.split("=", 1)[1].lstrip("!")
+            if rhs and rhs != part:
+                out.append(rhs)
+    return out
 
 
 def readings(seg, code=False):
@@ -785,8 +1059,16 @@ def candidates(seg, code=False):
     launch is the bug, not the fix.
     """
     out = [seg] + readings(seg)
-    if code and os.path.basename(seg.name) in CODE_CAPABLE:
-        out.extend(readings(seg, code=True))
+    if code:
+        # The interpreter is not always in command position. `yarn node -e
+        # "require(\x27child_process\x27).execSync(\x27rm -rf /etc\x27)"` puts it
+        # one token in, and testing only `seg.name` meant the direct form blocked
+        # while the wrapped one did not — found by attacking this fix rather than
+        # the one before it. So every READING that names an interpreter gets the
+        # punctuation split too, not just the segment.
+        for cand in list(out):
+            if os.path.basename(cand.name) in CODE_CAPABLE:
+                out.extend(readings(cand, code=True))
     return out
 
 

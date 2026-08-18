@@ -57,6 +57,12 @@
 # reading of itself. `$RUNNER dev` and an unknown wrapper are now the same case,
 # and neither can turn a would-be block into an allow.
 #
+# The third round then fixed the OTHER half of that sentence — "AND understands
+# the command". The understood list contained commands that run their argument
+# (`tar`, `rsync`, `ssh`, `pnpm exec`, …), and being on it skips the re-reading
+# entirely, so `bun x pnpm dev` reached this hook as "a bun command". Pruned in
+# lib/cmdscan.py; `git` and `psql` stay and surrender their exec surface instead.
+#
 # The environment is read PER SEGMENT: an inline prefix reaches only the command
 # it is glued to, `export` reaches later segments. `DATABASE_URL=…/crm_qa echo ok
 # && pnpm dev` gives the launch nothing, and is refused.

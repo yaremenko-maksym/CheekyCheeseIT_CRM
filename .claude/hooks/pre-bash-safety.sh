@@ -42,6 +42,17 @@
 # by every "the command might start here" reading of itself, through these same
 # predicates. Unknown wrappers fail toward blocking, which is the only direction
 # a list-based approach could never guarantee.
+#
+# AND WHAT "UNDERSTOOD" HAD TO MEAN (third round of the same review). The
+# conservative path above is reached only for segments cmdscan does NOT claim to
+# understand — and that list still held `tar`, `rsync`, `ssh`, `nc`, `psql` and
+# `git`, all of which run what they are handed. Eleven forms on THIS hook were
+# allowed here and refused by main, `tar --use-compress-program 'rm -rf /etc'`
+# among them, with the marker file to prove the payload really runs. The list is
+# pruned to what it always claimed to be, and the two commands that had to stay
+# (git and psql — an agent types them all day, and reading their prose through
+# readings() would refuse `git commit -m "…pnpm dev…"`) now hand over what they
+# execute the way `find -exec` always did. See lib/cmdscan.py, UNDERSTOOD.
 # ---------------------------------------------------------------------------
 #
 # Contract:
@@ -255,6 +266,10 @@ INERT = {
 }
 # `git -c core.pager="psql -c ..." log -1` runs psql. So does an alias set the
 # same way. `git` is inert only when it is not being handed configuration.
+# Belt AND braces since the third review round: cmdscan now also lifts the value
+# of every `git -c` out as a segment of its own, so that command is caught twice
+# over. Neither check makes the other redundant — this one says "the phrase
+# reached a git that is not inert", the other says "and here is what it ran".
 GIT_EXEC_FLAGS = ("-c", "--config-env", "--exec-path")
 
 

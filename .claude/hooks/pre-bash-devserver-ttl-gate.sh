@@ -31,6 +31,11 @@
 # all reported a confident, wrong command word and slipped through; now an
 # unconfident segment is judged by every reading of itself, so a wrapper this
 # hook has never heard of cannot smuggle a boot past it.
+#
+# Third round: that re-reading is skipped for any command cmdscan claims to
+# understand, and the list claimed too much — `bun x pnpm dev` counted as "a bun
+# command" and booted unwrapped. The list now holds only commands that execute
+# nothing, or whose exec surface cmdscan hands over (lib/cmdscan.py, UNDERSTOOD).
 # ---------------------------------------------------------------------------
 #
 # Contract (mirrors pre-bash-coder-push-gate.sh):

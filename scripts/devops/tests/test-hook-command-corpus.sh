@@ -25,6 +25,23 @@
 # line through the degraded fallback as well means that can only ever be true of
 # a form somebody deliberately wrote down as `narrowed`.
 #
+# WHY THAT METRIC WAS GREEN AND STILL MISSED A HOLE (third review round). It was
+# computed only where a corpus row named the hook, over a corpus that contained
+# no example of the class that leaked: `UNDERSTOOD` claimed to list commands
+# that do not execute their argument, and held `tar`, `rsync`, `ssh`, `nc`,
+# `psql`, `git`, which all do. Zero matching lines meant zero measurements —
+# the number was true about the corpus and silent about the code. A green check
+# that cannot reach the defect is the third of its kind in this PR, so the
+# widening is structural rather than a few more lines:
+#
+#   * the corpus gained the class (see the third-round section of the file), and
+#   * the sweep at the bottom runs EVERY line through ALL THREE hooks under BOTH
+#     baselines, and requires every "degraded refuses, analyzer permits" pair to
+#     be a line explicitly labelled `narrowed` for that hook.
+#
+# So the metric no longer depends on anyone having written the row for the right
+# hook, and a future line of an unforeseen class is measured the moment it lands.
+#
 # Nothing here executes any corpus command: each is handed to a hook as the text
 # of a tool call, which is exactly the input the hook sees in production.
 set -u
@@ -112,5 +129,67 @@ while IFS=$'\t' read -r expect hooks cmd <&3; do
     esac
   done
 done 3<"$CORPUS"
+
+# ── the metric, swept over the whole corpus ──────────────────────────────────
+# For every line and EVERY hook — not just the hooks the row happens to name —
+# ask the two questions that define the property: does the analyzer permit this,
+# and would the coarse fallback have refused it? A yes/yes pair is a narrowing,
+# and a narrowing that nobody wrote down is the shape the last three findings
+# arrived in. Cost: the degraded run only happens where the analyzer permitted,
+# so the sweep adds roughly twenty seconds, not a second run of the whole file.
+ALL_HOOKS="safety db ttl"
+DECLARED="$WS/declared-narrowings.txt"
+: >"$DECLARED"
+while IFS=$'\t' read -r expect hooks cmd <&3; do
+  case "${expect:-}" in
+    "" | \#*) continue ;;
+  esac
+  [ "$expect" = "narrowed" ] || continue
+  [ "$hooks" = "all" ] && hooks="safety,db,ttl"
+  for key in $(printf '%s' "$hooks" | tr ',' ' '); do
+    printf '%s\t%s\n' "$key" "$cmd" >>"$DECLARED"
+  done
+done 3<"$CORPUS"
+
+verdict_rc() { # $1 = hook path, $2 = command  -> prints the exit code
+  hook_at "$1" "$2" >/dev/null 2>&1
+  printf '%s' "$?"
+}
+
+METRIC_PAIRS=0
+METRIC_STRICTER=0
+METRIC_UNDECLARED=0
+METRIC_LIST=""
+while IFS=$'\t' read -r expect hooks cmd <&3; do
+  case "${expect:-}" in
+    "" | \#*) continue ;;
+  esac
+  [ -n "${cmd:-}" ] || continue
+  for key in $ALL_HOOKS; do
+    METRIC_PAIRS=$((METRIC_PAIRS + 1))
+    file="$(hook_file "$key")"
+    [ "$(verdict_rc "$REPO_ROOT/.claude/hooks/$file" "$cmd")" = "2" ] && continue
+    [ "$(verdict_rc "$(broken_hook "$key")" "$cmd")" = "2" ] || continue
+    METRIC_STRICTER=$((METRIC_STRICTER + 1))
+    if ! printf '%s\t%s\n' "$key" "$cmd" | grep -Fxqf - "$DECLARED"; then
+      METRIC_UNDECLARED=$((METRIC_UNDECLARED + 1))
+      METRIC_LIST="${METRIC_LIST}  [$key] $cmd
+"
+    fi
+  done
+done 3<"$CORPUS"
+
+metric_verdict() {
+  [ "$METRIC_UNDECLARED" -eq 0 ] && return 0
+  echo "деградированный режим строже рабочего на формах, которые никто не заявлял:"
+  printf '%s' "$METRIC_LIST"
+  echo "Каждая — либо регресс, либо сужение: пометь строку как \`narrowed\` для этого хука."
+  return 1
+}
+
+echo
+echo "-- метрика: деградированный строже рабочего в $METRIC_STRICTER из $METRIC_PAIRS пар"
+assert_green "метрика: все $METRIC_STRICTER строгих пар заявлены как narrowed" \
+  -- metric_verdict
 
 guard_test_summary "test-hook-command-corpus.sh"
