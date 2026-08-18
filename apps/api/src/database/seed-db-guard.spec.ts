@@ -338,23 +338,15 @@ describe('assertDbPushTargetIsDisposable (task-ci-db-rename-and-dbpush-guard, AC
 })
 
 describe('runDbPushGuardCli (task-ci-db-rename-and-dbpush-guard, AC5 — the actual db:push CLI entry-point logic, extracted out of the untestable require.main gate so it has real mutation coverage)', () => {
-  const savedDatabaseUrl = process.env['DATABASE_URL']
-  const savedConfirm = process.env[SEED_LIVE_DB_CONFIRM_ENV]
-
   afterEach(() => {
     vi.restoreAllMocks()
-    if (savedDatabaseUrl === undefined) delete process.env['DATABASE_URL']
-    else process.env['DATABASE_URL'] = savedDatabaseUrl
-    if (savedConfirm === undefined) delete process.env[SEED_LIVE_DB_CONFIRM_ENV]
-    else process.env[SEED_LIVE_DB_CONFIRM_ENV] = savedConfirm
   })
 
   it('DATABASE_URL unset — refuses loudly, exits 1, and never reaches the name check', () => {
-    delete process.env['DATABASE_URL']
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    runDbPushGuardCli({})
+    runDbPushGuardCli({}, {})
 
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -366,33 +358,30 @@ describe('runDbPushGuardCli (task-ci-db-rename-and-dbpush-guard, AC5 — the act
   })
 
   it('a disposable-looking DATABASE_URL — no exit, no error, runs clean', () => {
-    process.env['DATABASE_URL'] = urlFor('crm_scratch')
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    runDbPushGuardCli({})
+    runDbPushGuardCli({}, { DATABASE_URL: urlFor('crm_scratch') })
 
     expect(exitSpy).not.toHaveBeenCalled()
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
   it("CI's own throwaway database name (crm_ci) — no exit, no error", () => {
-    process.env['DATABASE_URL'] = urlFor('crm_ci')
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    runDbPushGuardCli({})
+    runDbPushGuardCli({}, { DATABASE_URL: urlFor('crm_ci') })
 
     expect(exitSpy).not.toHaveBeenCalled()
     expect(errorSpy).not.toHaveBeenCalled()
   })
 
   it('the live db name, no confirmation — refuses, exits 1, and the error names db:push (not db:seed)', () => {
-    process.env['DATABASE_URL'] = urlFor(LIVE_DB_NAME)
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    runDbPushGuardCli({})
+    runDbPushGuardCli({}, { DATABASE_URL: urlFor(LIVE_DB_NAME) })
 
     expect(errorSpy).toHaveBeenCalledWith(
       expect.stringContaining(
@@ -403,13 +392,15 @@ describe('runDbPushGuardCli (task-ci-db-rename-and-dbpush-guard, AC5 — the act
     expect(exitSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('the live db name WITH the exact-name confirmation present in the pre-dotenv env — warns and proceeds, no exit', () => {
-    process.env['DATABASE_URL'] = urlFor(LIVE_DB_NAME)
+  it('the live db name WITH the exact-name confirmation present in preDotenvEnv — warns and proceeds, no exit', () => {
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    runDbPushGuardCli({ [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' })
+    runDbPushGuardCli(
+      { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' },
+      { DATABASE_URL: urlFor(LIVE_DB_NAME) },
+    )
 
     expect(warnSpy).toHaveBeenCalledWith(
       `[seed-db-guard] ${SEED_LIVE_DB_CONFIRM_ENV} confirms wiping 'crm_db' — proceeding.`,
@@ -419,25 +410,72 @@ describe('runDbPushGuardCli (task-ci-db-rename-and-dbpush-guard, AC5 — the act
   })
 
   it('a confirmation for a DIFFERENT db name does not leak permission onto the live one — still refuses', () => {
-    process.env['DATABASE_URL'] = urlFor(LIVE_DB_NAME)
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
 
-    runDbPushGuardCli({ [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_some_other_db' })
+    runDbPushGuardCli(
+      { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_some_other_db' },
+      { DATABASE_URL: urlFor(LIVE_DB_NAME) },
+    )
 
     expect(exitSpy).toHaveBeenCalledWith(1)
     expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('REFUSED'))
   })
 
-  it('defaults env to process.env when not passed', () => {
+  it('defaults both preDotenvEnv and postDotenvEnv to process.env when neither is passed', () => {
+    const saved = { ...process.env }
     process.env['DATABASE_URL'] = urlFor(LIVE_DB_NAME)
     process.env[SEED_LIVE_DB_CONFIRM_ENV] = 'crm_db'
     const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
     const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
 
-    runDbPushGuardCli()
+    try {
+      runDbPushGuardCli()
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("confirms wiping 'crm_db'"))
+    } finally {
+      process.env = saved
+    }
+  })
 
-    expect(exitSpy).not.toHaveBeenCalled()
-    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("confirms wiping 'crm_db'"))
+  describe('MED-1 (security review, PR #579) — the confirmation MUST come from preDotenvEnv, DATABASE_URL MUST come from postDotenvEnv, never mixed up', () => {
+    it('a confirmation present ONLY in postDotenvEnv (as if apps/api/.env injected it) does NOT bypass — models dotenv, not the real shell invocation, having set it', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const preDotenvEnv = {} // the real shell invocation never set it
+      const postDotenvEnv = {
+        DATABASE_URL: urlFor(LIVE_DB_NAME),
+        [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db', // as if apps/api/.env injected this
+      }
+
+      runDbPushGuardCli(preDotenvEnv, postDotenvEnv)
+
+      expect(exitSpy).toHaveBeenCalledWith(1)
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('REFUSED'))
+    })
+
+    it('a confirmation present in preDotenvEnv DOES bypass even when postDotenvEnv does not carry it — models it being typed on the real invoking command line', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => undefined)
+      const preDotenvEnv = { [SEED_LIVE_DB_CONFIRM_ENV]: 'crm_db' } // shell exported it
+      const postDotenvEnv = { DATABASE_URL: urlFor(LIVE_DB_NAME) } // .env did not also set it here
+
+      runDbPushGuardCli(preDotenvEnv, postDotenvEnv)
+
+      expect(exitSpy).not.toHaveBeenCalled()
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("confirms wiping 'crm_db'"))
+    })
+
+    it('DATABASE_URL is read from postDotenvEnv, never preDotenvEnv — a URL present ONLY in the wrong parameter is invisible (proves the wiring, not just the end behaviour)', () => {
+      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never)
+      const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => undefined)
+      const preDotenvEnv = { DATABASE_URL: urlFor('crm_scratch') } // wrong parameter — must be ignored
+      const postDotenvEnv = {} // the parameter DATABASE_URL is actually read from is empty
+
+      runDbPushGuardCli(preDotenvEnv, postDotenvEnv)
+
+      expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('DATABASE_URL is not set'))
+      expect(exitSpy).toHaveBeenCalledWith(1)
+    })
   })
 })

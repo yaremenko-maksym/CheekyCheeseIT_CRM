@@ -315,15 +315,32 @@ export function assertDbPushTargetIsDisposable(
  * side-effecting calls), so the actual logic — not just the one-line gate —
  * has real, killed mutation coverage instead of relying solely on the by-hand
  * `tsx` executions this PR's body documents.
+ *
+ * INVERTED DEPENDENCY (security review, PR #579, MED-1): the first cut of
+ * this function called `loadEnvQuietly()` internally, between capturing
+ * `preDotenvEnv` and reading `DATABASE_URL` — the exact same
+ * snapshot-then-load shape `seed.ts` uses. But the spec file mocks
+ * `./load-env-quietly` to a no-op for every OTHER test in it (so importing
+ * this module never touches the real filesystem), which made that no-op
+ * blind to its own ordering: swapping the snapshot and the `loadEnvQuietly()`
+ * call produced ZERO test failures (54/54 green), while the swapped version
+ * is a real regression — a `SEED_CONFIRM_LIVE_DB_NAME` sitting in
+ * `apps/api/.env` would then land INSIDE the snapshot and silently become a
+ * permanent bypass instead of a per-invocation one (this is exactly LOW-2
+ * from PR #576's own review, reopened). This function no longer calls
+ * `loadEnvQuietly()` or reads `process.env` itself at all — it takes BOTH
+ * environments as explicit parameters, the same inversion
+ * `assertSeedTargetIsDisposable`'s `env`/`confirmSourceEnv` pair already
+ * uses. The property under test becomes "which of the two parameters feeds
+ * which check", provable with two plain objects and no dotenv/filesystem
+ * involved (see `seed-db-guard.spec.ts`'s MED-1 cases) — not "did two
+ * statements run in the right order inside a mocked-away side effect".
  */
-export function runDbPushGuardCli(env: NodeJS.ProcessEnv = process.env): void {
-  // Mirrors seed.ts's own pre-dotenv snapshot (see the doc above): captured
-  // BEFORE loadEnvQuietly() below runs, so the escape hatch cannot be
-  // satisfied by anything sitting in apps/api/.env.
-  const preDotenvEnv: NodeJS.ProcessEnv = { ...env }
-  loadEnvQuietly()
-
-  const databaseUrl = process.env['DATABASE_URL']
+export function runDbPushGuardCli(
+  preDotenvEnv: NodeJS.ProcessEnv = process.env,
+  postDotenvEnv: NodeJS.ProcessEnv = process.env,
+): void {
+  const databaseUrl = postDotenvEnv['DATABASE_URL']
   if (!databaseUrl) {
     console.error(
       '[seed-db-guard] REFUSED: DATABASE_URL is not set — refusing to run db:push/db:migrate blind.',
@@ -369,5 +386,12 @@ export function runDbPushGuardCli(env: NodeJS.ProcessEnv = process.env): void {
  */
 // Stryker disable next-line ConditionalExpression,EqualityOperator: see the paragraph above.
 if (require.main === module) {
-  runDbPushGuardCli()
+  // The one place this file still has to physically snapshot-then-load, in
+  // that order — see runDbPushGuardCli's own doc above for why the ORDERING
+  // PROPERTY itself is tested via that function's two explicit parameters
+  // instead of here. What is left here is three lines with nothing left to
+  // get subtly wrong: capture, load, delegate.
+  const preDotenvEnv: NodeJS.ProcessEnv = { ...process.env }
+  loadEnvQuietly()
+  runDbPushGuardCli(preDotenvEnv, process.env)
 }
