@@ -1228,6 +1228,28 @@ export class ProjectsService {
       where: eq(users.id, userId),
     })
     if (!user) throw new NotFoundException('User not found')
+    // task-archived-user-completeness (AC1). A membership row is an ACCRUAL
+    // SUBSCRIPTION, not a label: `createMonthlySalaries` walks
+    // `project_members WHERE left_at IS NULL` and mints a fresh PENDING salary
+    // for the junior on it every month. This INSERT is what re-opens that
+    // subscription — `UsersService.archive` closes a junior's memberships by
+    // stamping `leftAt`, and nothing here consulted `archivedAt`, so a
+    // dismissed junior could simply be added back and start accruing again.
+    // `leftAt` tracks PROJECT membership; `archivedAt` tracks EMPLOYMENT, and
+    // the accrual question belongs to the second one.
+    //
+    // Refused for every role, not just JUNIOR: HR/ACCOUNTANT memberships do
+    // not drive the cron (their salary is role-based and that query already
+    // filters `archivedAt`), but putting a dismissed person back on a live
+    // project is not something this endpoint should be able to express at all.
+    //
+    // This is the FIRST of two layers, deliberately the cheaper one. The
+    // second — `user.archivedAt` in the cron's JUNIOR loop (PR #549) — is what
+    // actually stands between an archived junior and money, and it re-reads
+    // the flag at accrual time, so a race here cannot mint a salary.
+    if (user.archivedAt) {
+      throw new BadRequestException('Пользователь архивирован — добавить в проект нельзя')
+    }
     if (user.role !== 'JUNIOR' && user.role !== 'HR' && user.role !== 'ACCOUNTANT') {
       throw new BadRequestException(
         'Only JUNIORs, HRs, and ACCOUNTANTs can be added as project members',

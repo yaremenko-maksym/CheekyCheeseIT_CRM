@@ -668,6 +668,30 @@ export class CompanyAccountService {
     if (receiver.role !== 'ADMIN') {
       throw new BadRequestException('Дивиденды можно вывести только на счёт админа')
     }
+    // task-archived-user-completeness (AC3). A dividend is a DISCRETIONARY
+    // distribution of company profit, decided now — not the settlement of a
+    // debt the company already booked. So it is a new entitlement, and an
+    // archived partner must not receive one. (Contrast: what the company
+    // already owes a departed partner lives in `pending_obligations` /
+    // PAYOUT rows and is settled through the payout paths, which deliberately
+    // do NOT check archival — that money was earned.)
+    //
+    // NOT REACHABLE TODAY, AND THAT IS THE POINT. An archived ADMIN cannot
+    // currently exist: `createUser` refuses role=ADMIN, `changeRole` and
+    // `adminUpdateUser` refuse promoting anyone INTO ADMIN and refuse touching
+    // another ADMIN's role, and `UsersService.archive` refuses to archive an
+    // ADMIN other than the actor while the controller refuses self-archive.
+    // This line is a lock on a door that does not exist yet — it holds the
+    // invariant the moment any one of those four is relaxed (a "deactivate
+    // partner" feature, a seed/script path, a demotion flow), instead of
+    // making that change silently open a money-out path. Do not delete it as
+    // dead code: it is unreachable BY those four guards, not by its own
+    // irrelevance. `TransactionsService.createAdminIncome` /
+    // `declareUsdtProjectIncome` / `confirmPayout` already carry the same
+    // line for the same reason.
+    if (receiver.archivedAt) {
+      throw new BadRequestException('Получатель архивирован — дивиденды не выплачиваются')
+    }
 
     // MED (TOCTOU + overdraw): gate-read + debit-write serialized under the
     // shared company-account advisory lock. Acquire the lock FIRST, then re-read

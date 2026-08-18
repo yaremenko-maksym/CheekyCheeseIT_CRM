@@ -21,6 +21,11 @@ import {
   type User,
 } from '../database/schema'
 import type { DrizzleTx } from '../database/types'
+import {
+  ARCHIVED_ENTITLEMENT_MESSAGE,
+  changedEntitlementFields,
+  type EntitlementSnapshot,
+} from './archived-entitlement'
 import { TeamAuditLogService } from '../teams/team-audit-log.service'
 import { TeamsService } from '../teams/teams.service'
 import { ProjectAuditLogService } from '../projects/project-audit-log.service'
@@ -567,10 +572,13 @@ export class UsersService {
     // saved but team comms lost) would leave inconsistent state on the
     // critical comms field — atomicity matters here.
     const updated = await this.db.db.transaction(async (tx) => {
-      const rows = await tx.update(users).set(set).where(eq(users.id, id)).returning()
-
-      const u = rows[0]
-      if (!u) throw new NotFoundException('User not found')
+      // task-archived-user-completeness (AC2): routed through `updateUserRow`
+      // so this endpoint refuses exactly what `PATCH /:id/role` refuses. Note
+      // it refuses on an ACTUAL change only — an admin fixing an archived
+      // employee's IBAN so their earned payout can be sent resubmits the whole
+      // form, unchanged `role` and `monthlySalary` included, and must not be
+      // blocked (that edit is settlement, not a new entitlement).
+      const u = await this.updateUserRow(tx, id, existing, set)
 
       // SENIOR-only: optional team composition reconcile.
       if (u.role === 'SENIOR' && (data.hrIds !== undefined || data.accountantId !== undefined)) {
@@ -864,6 +872,81 @@ export class UsersService {
     return updated
   }
 
+  /**
+   * task-archived-user-completeness (AC2) — the single write path for every
+   * UPDATE that can move an entitlement column, and the only place the
+   * archived-user refusal is spelled out.
+   *
+   * ## Why one choke point instead of a check per endpoint
+   *
+   * The defect this closes is not one missing `if`. `changeRole` and
+   * `adminUpdateUser` are two doors into the SAME state (`PATCH /:id/role`
+   * and the `role` field of `PATCH /:id`), and `changeSalary` is a third into
+   * the money half of it — the reported chain (JUNIOR → HR → archive →
+   * JUNIOR) walks through them precisely because they do not agree with each
+   * other. Five copies of the same `if` agree only until someone edits one of
+   * them, and the next door added to this service starts out with zero. Here
+   * the decision (which columns, which message, actual-change semantics) is
+   * stated ONCE in `archived-entitlement.ts` and every writer inherits it by
+   * calling this method rather than by remembering a rule.
+   *
+   * The honest limit of a choke point: it protects writers that USE it. A
+   * future method reaching for `this.db.db.update(users)` directly is not
+   * covered — which is why this is not the only layer (see below), and why
+   * `archived-entitlement.unit.spec.ts` asserts that every `users` writer in
+   * this service routes through here.
+   *
+   * ## Two layers, not one
+   *
+   * `existing` is read BEFORE this call (its callers need it for their own
+   * guards), so on its own it is a TOCTOU window: an archive committing
+   * between that read and this UPDATE would let the change through. When the
+   * write actually moves an entitlement column, the refusal is therefore
+   * ALSO expressed as `archived_at IS NULL` inside the statement, where
+   * Postgres re-evaluates it against the committed row. Same two-layer shape
+   * `TransactionsService` already uses for the salary receiver
+   * (`assertSalaryReceiverNotArchived` + `salaryReceiverNotArchivedFilter`).
+   *
+   * When nothing entitlement-bearing changes, no predicate is added: the
+   * statement stays exactly what it was, so settlement-time edits (requisites,
+   * contacts, a resubmitted unchanged role) are untouched.
+   */
+  private async updateUserRow(
+    db: DatabaseService['db'] | DrizzleTx,
+    id: string,
+    existing: EntitlementSnapshot,
+    set: Record<string, unknown>,
+  ): Promise<User> {
+    const changed = changedEntitlementFields(existing, set)
+    if (changed.length > 0 && existing.archivedAt) {
+      throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
+    }
+
+    const rows = await db
+      .update(users)
+      .set(set)
+      .where(
+        changed.length > 0 ? and(eq(users.id, id), isNull(users.archivedAt)) : eq(users.id, id),
+      )
+      .returning()
+
+    const updated = rows[0]
+    if (updated) return updated
+
+    // Zero rows with the archival predicate attached is ambiguous by itself —
+    // the row may be missing, or it may have been archived since `existing`
+    // was read. Re-read (same executor, so it sees this transaction's own
+    // writes) rather than guess, so the operator gets the true reason.
+    if (changed.length > 0) {
+      const [current] = await db
+        .select({ archivedAt: users.archivedAt })
+        .from(users)
+        .where(eq(users.id, id))
+      if (current?.archivedAt) throw new BadRequestException(ARCHIVED_ENTITLEMENT_MESSAGE)
+    }
+    throw new NotFoundException('User not found')
+  }
+
   async changeRole(id: string, role: User['role'], actorId: string): Promise<User> {
     // SEC-03 (MED): privilege-escalation guards. These mirror the protections in
     // adminUpdateUser and createUser so that the lightweight PATCH /:id/role
@@ -896,14 +979,13 @@ export class UsersService {
       throw new ForbiddenException('Администратор не может сменить собственную роль')
     }
 
-    const rows = await this.db.db
-      .update(users)
-      .set({ role, updatedAt: new Date() })
-      .where(eq(users.id, id))
-      .returning()
-    const updated = rows[0]
-    if (!updated) throw new NotFoundException('User not found')
-    return updated
+    // (5) task-archived-user-completeness (AC2): an archived user's role is
+    // frozen. Guards (1)–(4) are about privilege; this one is about money —
+    // the role is half of what the salary cron reads to mint a new PENDING
+    // salary, so flipping a dismissed employee back to JUNIOR/HR re-opens an
+    // accrual they cannot earn. Enforced in `updateUserRow`, not inline, so
+    // `PATCH /:id` (adminUpdateUser) cannot disagree with `PATCH /:id/role`.
+    return this.updateUserRow(this.db.db, id, existing, { role, updatedAt: new Date() })
   }
 
   async changeSalary(
@@ -919,10 +1001,13 @@ export class UsersService {
       set.monthlySalary = data.monthlySalary != null ? String(data.monthlySalary) : null
     if (data.salaryCurrency !== undefined) set.salaryCurrency = data.salaryCurrency
     if (data.seniorSharePercent !== undefined) set.seniorSharePercent = data.seniorSharePercent
-    const rows = await this.db.db.update(users).set(set).where(eq(users.id, id)).returning()
-    const updated = rows[0]
-    if (!updated) throw new NotFoundException('User not found')
-    return updated
+    // task-archived-user-completeness (AC2): this method wrote blind (no read
+    // of the target at all), so it could not have known the user was archived.
+    // The read is what `updateUserRow` compares against — without it every
+    // resubmit of an unchanged salary would look like a change and 400.
+    const existing = await this.findById(id)
+    if (!existing) throw new NotFoundException('User not found')
+    return this.updateUserRow(this.db.db, id, existing, set)
   }
 
   async setAdminNote(id: string, note: string | null): Promise<User> {
