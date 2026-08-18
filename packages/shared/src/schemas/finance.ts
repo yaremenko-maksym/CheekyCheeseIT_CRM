@@ -635,6 +635,38 @@ function mandatoryReceiptRefine<T extends ReceiptShape>(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Sender/receiver invariant (task-sender-receiver-invariant, backlog A-2)
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure, framework-agnostic mirror of the DB-level
+ * `ck_transactions_sender_ne_receiver` CHECK on `transactions`
+ * (`sender_id <> receiver_id`, see the constraint's doc comment in
+ * `apps/api/src/database/schema.ts`) — SAME shape as `receiptMandatoryError`
+ * above: one function, called wherever a write path needs a friendly 400
+ * INSTEAD of letting the constraint reject the INSERT/UPDATE as a raw
+ * Postgres error.
+ *
+ * Mirrors the DB's SQL three-valued-logic semantics exactly, on purpose:
+ * `senderId === receiverId` only ever returns an error when BOTH are
+ * non-null AND equal. Either side `null`/`undefined` always passes — most
+ * `transactions` rows legitimately carry one or both sides empty (a
+ * company-labelled sender via `senderLabel`, an obligation row with no
+ * `senderId` yet, …), exactly the case the DB CHECK's `<>` (not
+ * `IS DISTINCT FROM`) was chosen to keep passing.
+ */
+export function selfPayError(
+  senderId: string | null | undefined,
+  receiverId: string | null | undefined,
+  message = 'Отправитель и получатель не могут совпадать',
+): string | null {
+  if (senderId != null && receiverId != null && senderId === receiverId) {
+    return message
+  }
+  return null
+}
+
 /**
  * Body for the generic `PATCH /transactions/:id/receipt` attach/replace endpoint
  * (pm-brief §6). Exactly one of receiptDocumentId / receiptExternalUrl, mandatory
