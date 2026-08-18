@@ -29,7 +29,10 @@ import {
   createDropProjectViaAPI,
   createDropIncomeViaAPI,
   validateTransactionViaAPI,
-  findPendingPayoutsForProjectViaAPI,
+  createPayoutRequestViaAPI,
+  onboardDropViaAPI,
+  ensureCompanyWalletViaAPI,
+  listPayoutRequestTransactionsViaAPI,
   confirmPayoutRawViaAPI,
   confirmPayoutViaAPI,
 } from './fixtures'
@@ -60,6 +63,12 @@ async function setupPendingPayout(page: import('@playwright/test').Page): Promis
     dropSharePercent: 5,
   })
 
+  // Backlog item 139: onboard the fresh DROP (contract + ToS) before ANY
+  // non-bypassed route lets them through, and configure the company wallet
+  // — required by `createPayoutRequestViaAPI` below.
+  await onboardDropViaAPI(page, { dropId, dropEmail })
+  await ensureCompanyWalletViaAPI(page)
+
   const { projectId } = await createDropProjectViaAPI(page, {
     dropId,
     seniorEmail: SEED_EMAILS.seniorA,
@@ -75,17 +84,30 @@ async function setupPendingPayout(page: import('@playwright/test').Page): Promis
   })
 
   await loginViaApi(page, SEED_EMAILS.accountant)
-  const { payoutRequestId } = await validateTransactionViaAPI(page, txId)
+  // task-drop-payout-company-account (backlog item 139): validate now ONLY
+  // flips PENDING → VALIDATED — it no longer auto-creates a payout_request.
+  await validateTransactionViaAPI(page, txId)
+
+  // The DROP bundles their own VALIDATED income into a payout_request
+  // explicitly, same as SENIOR — this is what creates the placeholder
+  // PAYOUT (PENDING_PAYMENT) row the RBAC matrix probes below.
+  await loginViaApi(page, dropEmail)
+  const { payoutRequestId } = await createPayoutRequestViaAPI(page, [txId])
   if (!payoutRequestId) {
-    throw new Error('setupPendingPayout: validate did not return payoutRequestId')
+    throw new Error('setupPendingPayout: createPayoutRequest did not return an id')
   }
 
+  // `createPayoutRequest` never stamps `projectId` on the placeholder
+  // PAYOUT row it inserts — see the TRAP note on
+  // `findPendingPayoutsForProjectViaAPI` in fixtures.ts. Find it by
+  // payout_request id instead.
   await loginViaApi(page, SEED_ADMIN_EMAIL)
-  const pending = await findPendingPayoutsForProjectViaAPI(page, projectId)
-  if (pending.length === 0) {
+  const payoutTxs = await listPayoutRequestTransactionsViaAPI(page, payoutRequestId)
+  const payoutTx = payoutTxs.find((t) => t.type === 'PAYOUT')
+  if (!payoutTx) {
     throw new Error('setupPendingPayout: no PENDING_PAYMENT PAYOUT row produced')
   }
-  return { dropId, projectId, payoutTxId: pending[0]!.id, dropEmail }
+  return { dropId, projectId, payoutTxId: payoutTx.id, dropEmail }
 }
 
 test.describe('Drop confirm-payout — RBAC (AC4)', () => {
@@ -94,10 +116,22 @@ test.describe('Drop confirm-payout — RBAC (AC4)', () => {
     try {
       // DROP can see their PAYOUT row (it's their own send), but the
       // «Подтвердить оплату» button is ADMIN/ACCOUNTANT-only.
+      //
+      // Backlog item 139: `/finance` renders a role-specific component —
+      // DROP gets `DropFinancePage` (routes/_authenticated/finance/index.tsx
+      // `if (isDrop) return <DropFinancePage />`), which lists outgoing
+      // payments via GET /finance/drop/me/payments in a card with
+      // `data-testid="drop-payment-row-<id>"` — NOT the shared
+      // `tx-row-<id>` grid the ADMIN/ACCOUNTANT table uses. This spec
+      // predates that split (or was never updated for it) and asserted the
+      // wrong testid, which never turned red because the file isn't in any
+      // CI shard. `DropFinancePage` also never renders a
+      // `confirm-payout-button-*` at all (that assertion already held for
+      // the right reason).
       await loginViaApi(page, dropEmail)
       await page.goto('/finance')
       // Sanity: the DROP DOES see the PAYOUT row.
-      await expect(page.getByTestId(`tx-row-${payoutTxId}`)).toBeVisible({
+      await expect(page.getByTestId(`drop-payment-row-${payoutTxId}`)).toBeVisible({
         timeout: 15_000,
       })
       // But the Phase 3 button must NOT be rendered.
