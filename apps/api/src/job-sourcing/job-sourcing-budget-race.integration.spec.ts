@@ -10,6 +10,7 @@ import { DouRssProvider } from './dou.provider'
 import type { NormalizedPosting } from './job-source.provider'
 import { JobSourceBudgetExhaustedError } from './source-budget.error'
 import { JobSourcingService } from './job-sourcing.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Backlog #53 — the window-reset boundary race on `chargeBudget`'s
@@ -37,9 +38,10 @@ import { JobSourcingService } from './job-sourcing.service'
  * removal of the guard — proven below by giving a source a real limit of 1
  * and confirming the second call throws when there is truly nothing left.
  *
- * DB-SKIP-GUARD: when DATABASE_URL is unreachable (CI unit job) every test
- * returns early and the suite stays green — same convention as the sibling
- * job-sourcing.integration.spec.ts.
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * NO HARDCODED DATES (lessons — a fixed calendar date compared against a
  * live `now()` is exactly the class of test that starts failing on its own
@@ -157,12 +159,11 @@ function posting(id: string): NormalizedPosting {
   }
 }
 
-describe('Job sourcing — budget window-reset boundary race (#53)', () => {
+describe.skipIf(!hasDatabaseUrl())('Job sourcing — budget window-reset boundary race (#53)', () => {
   let pool: Pool
   let dbSvc: DatabaseService
   let service: JobSourcingService
   let provider: CannedProvider
-  let dbAvailable = true
   /** Always a full calendar day behind whenever this test actually runs. */
   let yesterday: Date
 
@@ -172,9 +173,7 @@ describe('Job sourcing — budget window-reset boundary race (#53)', () => {
       await probe.query('SELECT 1')
       await probe.end()
     } catch {
-      console.warn('[job-sourcing budget-race] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[job-sourcing budget-race] FAILED — no DB reachable at DATABASE_URL')
     }
 
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -187,7 +186,6 @@ describe('Job sourcing — budget window-reset boundary race (#53)', () => {
   }, 30_000)
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     provider.postings = [posting('race-1')]
     // Yesterday, in a DAY window — `chargeBudget`'s own `new Date()` (real,
     // unmocked) is always "today" relative to this, so every read of this row
@@ -266,20 +264,16 @@ describe('Job sourcing — budget window-reset boundary race (#53)', () => {
   })
 
   afterEach(async () => {
-    if (!dbAvailable) return
     await cleanupCreatedRows(dbSvc)
   })
 
   afterAll(async () => {
-    if (!dbAvailable) return
     await cleanupCreatedRows(dbSvc)
     await dbSvc.db.delete(jobSources).where(inArray(jobSources.id, [...SOURCE_IDS]))
     await pool.end()
   }, 30_000)
 
   it('a second caller holding a STALE pre-rollover snapshot still succeeds when the fresh window has room', async () => {
-    if (!dbAvailable) return
-
     const staleSnapshot = {
       id: SOURCE_A_ID,
       type: 'DOU_RSS' as const,
@@ -307,8 +301,6 @@ describe('Job sourcing — budget window-reset boundary race (#53)', () => {
   })
 
   it('CONTROL: genuine exhaustion still refuses — the fix is a retry, not a bypass', async () => {
-    if (!dbAvailable) return
-
     const staleSnapshot = {
       id: SOURCE_B_ID,
       type: 'DOU_RSS' as const,
@@ -346,8 +338,6 @@ describe('Job sourcing — budget window-reset boundary race (#53)', () => {
    * the re-read, which is exactly the `!fresh` branch.
    */
   it('MED-1 (#532 review): a source deleted mid-charge REFUSES instead of falling through to the provider', async () => {
-    if (!dbAvailable) return
-
     const staleSnapshot = {
       id: SOURCE_C_ID,
       type: 'DOU_RSS' as const,

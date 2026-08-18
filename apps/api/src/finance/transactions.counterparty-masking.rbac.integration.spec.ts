@@ -64,8 +64,9 @@
  *         path, mirroring CM-6 for the counterparty.
  *
  * DB-SKIP-GUARD:
- *   dbAvailable = false when DATABASE_URL is unreachable (CI unit job without
- *   Postgres). Each test early-returns — stays green in no-DB environments.
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * SEED strategy:
  *   UUID namespace: ca5f0000-* (users) / ca5f0001-* (transactions) /
@@ -83,6 +84,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { transactions, users, payoutRequests } from '../database/schema'
 import * as schema from '../database/schema'
 import type { TransactionsService } from './transactions.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ---------------------------------------------------------------------------
 // Personas — namespace ca5f0000-*
@@ -192,22 +194,19 @@ const ALL_USER_IDS = [ADMIN_MAKSYM.id, ACCOUNTANT_1.id, SENIOR_1.id, DROP_1.id]
 // DB-skip-guard
 // ---------------------------------------------------------------------------
 
-let dbAvailable = true
 let _pool: Pool | null = null
 let svc: TransactionsService
 
-describe('CM — counterparty RBAC masking (real-DB)', () => {
+describe.skipIf(!hasDatabaseUrl())('CM — counterparty RBAC masking (real-DB)', () => {
   beforeAll(async () => {
     try {
       const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
       await probe.query('SELECT 1')
       await probe.end()
     } catch {
-      console.warn(
-        '[cm-counterparty-masking] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+      throw new Error(
+        '[cm-counterparty-masking] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
       )
-      dbAvailable = false
-      return
     }
 
     _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -407,7 +406,10 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   })
 
   afterAll(async () => {
-    if (!dbAvailable || !_pool) return
+    if (!_pool)
+      throw new Error(
+        '[require-real-db] _pool not initialized — beforeAll should have thrown already',
+      )
     const db = drizzle(_pool, { schema })
     await db
       .delete(transactions)
@@ -427,8 +429,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CM-1: company-funded — DROP masked, ADMIN raw ─────────────────────────
 
   it('CM-1 — company-funded PAYOUT_DROP: DROP sees «CheekyCheeseIT», ADMIN sees raw COMPANY', async () => {
-    if (!dbAvailable) return
-
     const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_DROP_COMPANY_ID)
     expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
     expect(dropRow!.senderLabel).toBe('CheekyCheeseIT')
@@ -445,8 +445,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CM-2 / CM-7: admin-personal — DROP masked (no admin identity), ACCOUNTANT real
 
   it('CM-2 — admin-personal PAYOUT_DROP: DROP gets no admin id/name, ACCOUNTANT gets the real admin', async () => {
-    if (!dbAvailable) return
-
     const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_DROP_ADMIN_ID)
     expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
     expect(dropRow!.senderLabel).toBe('CheekyCheeseIT')
@@ -465,8 +463,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CM-3: external client is NOT masked for anyone ────────────────────────
 
   it('CM-3 — external-client SENIOR_INCOME is NOT masked (SENIOR and ADMIN both see the client)', async () => {
-    if (!dbAvailable) return
-
     const seniorRow = (await svc.findAll(SENIOR_1)).find((t) => t.id === TX_SENIOR_CLIENT_ID)
     expect(seniorRow, 'senior sees their own income row').toBeDefined()
     expect(seniorRow!.senderLabel).toBe(EXTERNAL_CLIENT_LABEL)
@@ -478,8 +474,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CM-4: whole-response security grep — no admin identity leaks to DROP ───
 
   it('CM-4 — DROP findAll payload contains NO admin displayName or id anywhere', async () => {
-    if (!dbAvailable) return
-
     // Whole-response grep: the internal ADMIN counterparty's real identity must
     // never appear in the network payload of a non-privileged viewer — neither
     // the human-readable displayName nor the enumerable user id. This is the
@@ -496,8 +490,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CM-5: findOne path masks admin-personal for DROP, discloses for ACCOUNTANT
 
   it('CM-5 — findOne masks the admin counterparty for DROP, discloses it for ACCOUNTANT', async () => {
-    if (!dbAvailable) return
-
     const dropOne = await svc.findOne(TX_DROP_ADMIN_ID, DROP_1)
     expect(dropOne.senderLabel).toBe('CheekyCheeseIT')
     expect(dropOne.senderId).toBeNull()
@@ -511,8 +503,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CM-6: findPayoutRequest path (third mapTx call site) ──────────────────
 
   it('CM-6 — findPayoutRequest masks the admin counterparty for the owning DROP, real for ACCOUNTANT', async () => {
-    if (!dbAvailable) return
-
     const dropReq = await svc.findPayoutRequest(PR_1_ID, DROP_1)
     const dropTx = dropReq.transactions.find((t) => t.id === TX_PR_ADMIN_ID)
     expect(dropTx, 'linked tx must be present for the owner').toBeDefined()
@@ -529,8 +519,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CM-8 (MED-1): deleted admin-personal payer — orphaned senderId=null ────
 
   it('CM-8 — admin-personal payer DELETED (senderId=null, fundingSource=ADMIN_PERSONAL): DROP still gets CheekyCheeseIT, ADMIN sees the snapshot label', async () => {
-    if (!dbAvailable) return
-
     const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_DROP_DELETED_ADMIN_ID)
     expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
     // Before the MED-1 fix, isAdminPartner required a live sideId and this
@@ -559,8 +547,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CB-1: createdBy (registrar) masking on findAll ────────────────────────
 
   it('CB-1 — admin-booked row: DROP sees createdBy=null, ACCOUNTANT sees the real admin UUID', async () => {
-    if (!dbAvailable) return
-
     const dropRow = (await svc.findAll(DROP_1)).find((t) => t.id === TX_CB_ADMIN_ID)
     expect(dropRow, 'drop must see their own PAYOUT_DROP row').toBeDefined()
     // The registrar audit UUID (an ADMIN) is stripped for the non-privileged
@@ -578,8 +564,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CB-2: same masking on the findOne call site ───────────────────────────
 
   it('CB-2 — findOne masks createdBy for DROP, discloses it for ACCOUNTANT', async () => {
-    if (!dbAvailable) return
-
     const dropOne = await svc.findOne(TX_CB_ADMIN_ID, DROP_1)
     expect(dropOne.createdBy).toBeNull()
 
@@ -590,8 +574,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CB-3: self-preserve (non-regression for canAttachReceipt author gate) ──
 
   it('CB-3 — a viewer sees their OWN createdBy on rows they authored (not nulled)', async () => {
-    if (!dbAvailable) return
-
     // TX_DROP_COMPANY_ID is seeded with createdBy=DROP_1.id (the drop authored
     // it). Masking must NOT strip the viewer's own id — otherwise the frontend
     // `canAttachReceipt` author gate (`createdBy === currentUserId`) would drop
@@ -611,8 +593,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CB-4: whole-payload security grep — no admin registrar UUID for DROP ───
 
   it('CB-4 — DROP findAll payload never carries the admin registrar UUID via createdBy', async () => {
-    if (!dbAvailable) return
-
     // The CB seed row (TX_CB_ADMIN_ID) is company-funded with senderId=null, so
     // the admin's UUID has no counterparty vector — if it appears anywhere in
     // the DROP payload it can ONLY be an un-masked createdBy leak.
@@ -623,8 +603,6 @@ describe('CM — counterparty RBAC masking (real-DB)', () => {
   // ── CB-5: createdBy + validatedBy masking on the findPayoutRequest path ────
 
   it('CB-5 — findPayoutRequest masks createdBy AND validatedBy for the owning DROP, discloses both for ADMIN/ACCOUNTANT', async () => {
-    if (!dbAvailable) return
-
     // The owning DROP views their own payout request. The linked, company-funded
     // row was booked AND validated by the admin — but the admin is NEITHER the
     // counterparty (company pool) NOR the viewer, so both audit UUIDs must be

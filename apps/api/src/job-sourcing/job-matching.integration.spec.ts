@@ -22,6 +22,7 @@ import {
   SUGGESTION_RANKING_WINDOW,
   JobSourcingService,
 } from './job-sourcing.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Stack matching + source budgets — real-database integration spec
@@ -122,12 +123,11 @@ class CountingProvider extends DouRssProvider {
   }
 }
 
-describe('Job matching + source budgets — real DB integration', () => {
+describe.skipIf(!hasDatabaseUrl())('Job matching + source budgets — real DB integration', () => {
   let pool: Pool
   let dbSvc: DatabaseService
   let service: JobSourcingService
   let provider: CountingProvider
-  let dbAvailable = true
   /**
    * Sources this spec switched off so `collectAll` sees ONLY its own.
    *
@@ -148,9 +148,7 @@ describe('Job matching + source budgets — real DB integration', () => {
       await probe.query('SELECT 1')
       await probe.end()
     } catch {
-      console.warn('[job-matching integration] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[job-matching integration] FAILED — no DB reachable at DATABASE_URL')
     }
 
     pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
@@ -221,7 +219,6 @@ describe('Job matching + source budgets — real DB integration', () => {
   })
 
   afterAll(async () => {
-    if (!dbAvailable) return
     const db = dbSvc.db
     if (disabledSourceIds.length > 0) {
       await db
@@ -240,7 +237,6 @@ describe('Job matching + source budgets — real DB integration', () => {
   })
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     const db = dbSvc.db
     await db.delete(jobSuggestions).where(inArray(jobSuggestions.seniorId, ALL_USER_IDS))
     await db.delete(jobPostings).where(eq(jobPostings.sourceId, SOURCE_ID))
@@ -283,7 +279,6 @@ describe('Job matching + source budgets — real DB integration', () => {
 
   describe('ranking by stack match (AC1, AC3)', () => {
     beforeEach(async () => {
-      if (!dbAvailable) return
       await seedSource()
       provider.batch = [
         // Irrelevant to a Java senior — and PUBLISHED LATEST, so under the old
@@ -306,7 +301,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('puts the matching vacancy above a fresher irrelevant one', async () => {
-      if (!dbAvailable) return
       const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
 
       expect(queue.items[0]?.posting.title).toBe('Senior Java Developer')
@@ -317,7 +311,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('names the keywords it matched on, folding spellings', async () => {
-      if (!dbAvailable) return
       const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
 
       // Resume says `PostgreSQL`, the vacancy says `Postgres`.
@@ -326,7 +319,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('collapses the irrelevant one but keeps it counted and reachable (AC3)', async () => {
-      if (!dbAvailable) return
       const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
 
       expect(queue.lowMatchCount).toBe(1)
@@ -337,7 +329,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('echoes the threshold and the stack so the UI can explain the split (AC4)', async () => {
-      if (!dbAvailable) return
       const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
 
       expect(queue.threshold).toBe(0.2)
@@ -358,7 +349,6 @@ describe('Job matching + source budgets — real DB integration', () => {
      * order, and removing it flips the assertion.
      */
     it('orders two above-threshold matches by score, not by date', async () => {
-      if (!dbAvailable) return
       // Fresh state: this test needs its own two postings.
       await dbSvc.db.delete(jobSuggestions).where(inArray(jobSuggestions.seniorId, ALL_USER_IDS))
       await dbSvc.db.delete(jobPostings).where(eq(jobPostings.sourceId, SOURCE_ID))
@@ -394,7 +384,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('a senior with no resume gets freshness order and NO hidden tail', async () => {
-      if (!dbAvailable) return
       // The measured reality when this shipped: 0 of 4 active seniors had a
       // resume. Scoring everything 0 would have collapsed their entire queue.
       const queue = await service.listSuggestions(SENIOR_NO_RESUME.id, ADMIN)
@@ -429,7 +418,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     const OTHER_SENIOR_ROWS = 30
 
     beforeEach(async () => {
-      if (!dbAvailable) return
       await seedSource()
 
       // One strong match, newest, so it lands inside the window and on top.
@@ -457,7 +445,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     }, 120_000)
 
     it('reports the TRUE total, not the size of the window', async () => {
-      if (!dbAvailable) return
       const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
 
       // 1 strong + OVERFLOW weak. If pass 1 ever grows a LIMIT, this collapses
@@ -467,7 +454,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('ranks within the window without losing the strong match', async () => {
-      if (!dbAvailable) return
       const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
 
       expect(queue.items[0]?.posting.title).toBe('Senior Java Developer')
@@ -475,7 +461,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('demotes only what it actually judged — the window, not the whole queue', async () => {
-      if (!dbAvailable) return
       const queue = await service.listSuggestions(SENIOR_JAVA.id, ADMIN)
 
       // Everything scored is either shown or demoted; nothing judged is dropped.
@@ -489,7 +474,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('keeps one senior’s queue out of another’s, at a volume where it shows', async () => {
-      if (!dbAvailable) return
       // With two rows a missing `WHERE senior_id = ?` is indistinguishable from a
       // present one. Both seniors are in the same team, so the collector already
       // offered them the SAME OVERFLOW + 1 postings; giving one of them a known
@@ -554,7 +538,6 @@ describe('Job matching + source budgets — real DB integration', () => {
 
   describe('source budget stops collection (AC5)', () => {
     it('refuses to FETCH when the budget is spent', async () => {
-      if (!dbAvailable) return
       const source = await seedSource({
         budgetLimit: 5,
         budgetWindow: 'MONTH',
@@ -570,7 +553,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('reports the stop as a budget stop, not as a broken feed', async () => {
-      if (!dbAvailable) return
       await seedSource({
         budgetLimit: 5,
         budgetWindow: 'MONTH',
@@ -587,7 +569,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('collects normally while the budget lasts, and charges one unit', async () => {
-      if (!dbAvailable) return
       const source = await seedSource({
         budgetLimit: 5,
         budgetWindow: 'MONTH',
@@ -604,7 +585,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('an unlimited source is never blocked', async () => {
-      if (!dbAvailable) return
       const source = await seedSource({ budgetLimit: null, budgetWindow: null })
       provider.batch = [posting({ externalId: 'free-1' })]
 
@@ -615,7 +595,6 @@ describe('Job matching + source budgets — real DB integration', () => {
 
   describe('manual runs spend the same budget (AC6)', () => {
     it('repeated manual triggers stop at the cap instead of overrunning it', async () => {
-      if (!dbAvailable) return
       await seedSource({
         budgetLimit: 3,
         budgetWindow: 'MONTH',
@@ -654,7 +633,6 @@ describe('Job matching + source budgets — real DB integration', () => {
      * JSearch's 200/month is how an allowance quietly goes missing.
      */
     it('two SIMULTANEOUS manual runs cannot both spend the last unit', async () => {
-      if (!dbAvailable) return
       await seedSource({
         budgetLimit: 1,
         budgetWindow: 'MONTH',
@@ -676,7 +654,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('a manual spend leaves the scheduled run nothing left to spend', async () => {
-      if (!dbAvailable) return
       await seedSource({
         budgetLimit: 1,
         budgetWindow: 'MONTH',
@@ -697,7 +674,6 @@ describe('Job matching + source budgets — real DB integration', () => {
 
   describe('trigger mode decides who may collect (§5)', () => {
     it('the cron does not touch a MANUAL-only source', async () => {
-      if (!dbAvailable) return
       await seedSource({ triggerMode: 'MANUAL', budgetLimit: 200, budgetWindow: 'MONTH' })
       provider.batch = [posting({ externalId: 'manual-only' })]
 
@@ -710,7 +686,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('the same source collects when a human asks', async () => {
-      if (!dbAvailable) return
       await seedSource({ triggerMode: 'MANUAL', budgetLimit: 200, budgetWindow: 'MONTH' })
       provider.batch = [posting({ externalId: 'manual-only-2' })]
 
@@ -725,7 +700,6 @@ describe('Job matching + source budgets — real DB integration', () => {
 
   describe('remaining budget as the UI reads it (AC7)', () => {
     it('reports the remainder and the reset instant', async () => {
-      if (!dbAvailable) return
       await seedSource({
         budgetLimit: 200,
         budgetWindow: 'MONTH',
@@ -742,7 +716,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('shows a full allowance once the window has rolled over', async () => {
-      if (!dbAvailable) return
       // Counter belongs to JULY; "now" is August. Reading the row raw would
       // report a spent budget for a month that has already reset.
       await seedSource({
@@ -757,7 +730,6 @@ describe('Job matching + source budgets — real DB integration', () => {
     })
 
     it('reports an unlimited source as unlimited rather than as zero', async () => {
-      if (!dbAvailable) return
       await seedSource({ budgetLimit: null, budgetWindow: null })
 
       const mine = (await service.listSources(ADMIN)).find((s) => s.id === SOURCE_ID)

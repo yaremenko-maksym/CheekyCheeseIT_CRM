@@ -16,8 +16,10 @@
  *   - ACCOUNTANT (privileged for VISIBILITY, not for this journal) gets 403.
  *   - A non-existent transaction id gets 404.
  *
- * DB-SKIP-GUARD: dbAvailable=false → every test early-returns (no DB in CI
- * unit job).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * SEED strategy: UUID namespace ad100000-* — distinct from other specs.
  */
@@ -33,6 +35,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
 import type { TransactionsService } from './transactions.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 const ADMIN_1: SessionUser = {
   id: 'ad100000-0000-4000-aa00-000000000001',
@@ -66,113 +69,111 @@ const ALL_USER_IDS = [ADMIN_1, ACCOUNTANT_1, SENIOR_1].map((u) => u.id)
 const TX_ID = 'ad100001-0000-4000-b000-000000000001'
 const NONEXISTENT_TX_ID = 'ad100001-0000-4000-b000-00000000dead'
 
-let dbAvailable = true
 let _pool: Pool | null = null
 let svc: TransactionsService
 
-describe('security-review PR #456 (MED-3) — GET transactions/:id/audit-log (real-DB)', () => {
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      await probe.end()
-    } catch {
-      console.warn(
-        '[transaction-audit-log-read] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
-    }
+describe.skipIf(!hasDatabaseUrl())(
+  'security-review PR #456 (MED-3) — GET transactions/:id/audit-log (real-DB)',
+  () => {
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        await probe.end()
+      } catch {
+        throw new Error(
+          '[transaction-audit-log-read] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
+      }
 
-    _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-    const db = drizzle(_pool, { schema })
+      _pool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+      const db = drizzle(_pool, { schema })
 
-    const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
-    Object.assign(dbSvc, { pool: _pool, db })
-    svc = makeTransactionsService({ db: dbSvc })
+      const dbSvc = Object.create(DatabaseService.prototype) as DatabaseService
+      Object.assign(dbSvc, { pool: _pool, db })
+      svc = makeTransactionsService({ db: dbSvc })
 
-    for (const u of [ADMIN_1, ACCOUNTANT_1, SENIOR_1]) {
+      for (const u of [ADMIN_1, ACCOUNTANT_1, SENIOR_1]) {
+        await db
+          .insert(users)
+          .values({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: 26,
+          })
+          .onConflictDoNothing()
+      }
+
       await db
-        .insert(users)
+        .insert(transactions)
         .values({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: 26,
+          id: TX_ID,
+          type: 'EXPENSE',
+          status: 'PAID',
+          amount: '250',
+          currency: 'USDT',
+          senderLabel: 'Client Co',
+          createdBy: ADMIN_1.id,
         })
         .onConflictDoNothing()
-    }
+    })
 
-    await db
-      .insert(transactions)
-      .values({
-        id: TX_ID,
-        type: 'EXPENSE',
-        status: 'PAID',
-        amount: '250',
-        currency: 'USDT',
-        senderLabel: 'Client Co',
-        createdBy: ADMIN_1.id,
-      })
-      .onConflictDoNothing()
-  })
+    afterAll(async () => {
+      if (!_pool)
+        throw new Error(
+          '[require-real-db] _pool not initialized — beforeAll should have thrown already',
+        )
+      const db = drizzle(_pool, { schema })
+      await db
+        .delete(transactions)
+        .where(inArray(transactions.id, [TX_ID]))
+        .catch(() => undefined)
+      await db
+        .delete(users)
+        .where(inArray(users.id, ALL_USER_IDS))
+        .catch(() => undefined)
+      await _pool.end()
+    })
 
-  afterAll(async () => {
-    if (!dbAvailable || !_pool) return
-    const db = drizzle(_pool, { schema })
-    await db
-      .delete(transactions)
-      .where(inArray(transactions.id, [TX_ID]))
-      .catch(() => undefined)
-    await db
-      .delete(users)
-      .where(inArray(users.id, ALL_USER_IDS))
-      .catch(() => undefined)
-    await _pool.end()
-  })
+    it('ADMIN sees the real DELETE then RESTORE journal, newest first, with actorName + metadata resolved', async () => {
+      await svc.adminDeleteTransaction(TX_ID, 'дубликат расхода', ADMIN_1)
+      await svc.restoreTransaction(TX_ID, 'проверили — не дубликат', ADMIN_1)
 
-  it('ADMIN sees the real DELETE then RESTORE journal, newest first, with actorName + metadata resolved', async () => {
-    if (!dbAvailable) return
+      const log = await svc.getTransactionAuditLog(TX_ID, ADMIN_1)
 
-    await svc.adminDeleteTransaction(TX_ID, 'дубликат расхода', ADMIN_1)
-    await svc.restoreTransaction(TX_ID, 'проверили — не дубликат', ADMIN_1)
+      // Newest first: RESTORE, then DELETE.
+      const restoreEntry = log.find((e) => e.action === 'RESTORE')
+      const deleteEntry = log.find((e) => e.action === 'DELETE')
+      expect(restoreEntry).toBeDefined()
+      expect(deleteEntry).toBeDefined()
+      expect(log.indexOf(restoreEntry!)).toBeLessThan(log.indexOf(deleteEntry!))
 
-    const log = await svc.getTransactionAuditLog(TX_ID, ADMIN_1)
+      expect(restoreEntry!.actorId).toBe(ADMIN_1.id)
+      expect(restoreEntry!.actorName).toBe(ADMIN_1.displayName)
+      expect(restoreEntry!.metadata['reason']).toBe('проверили — не дубликат')
+      expect(restoreEntry!.metadata['previousDeletionReason']).toBe('дубликат расхода')
 
-    // Newest first: RESTORE, then DELETE.
-    const restoreEntry = log.find((e) => e.action === 'RESTORE')
-    const deleteEntry = log.find((e) => e.action === 'DELETE')
-    expect(restoreEntry).toBeDefined()
-    expect(deleteEntry).toBeDefined()
-    expect(log.indexOf(restoreEntry!)).toBeLessThan(log.indexOf(deleteEntry!))
+      expect(deleteEntry!.actorName).toBe(ADMIN_1.displayName)
+      expect(deleteEntry!.metadata['reason']).toBe('дубликат расхода')
+      expect(deleteEntry!.metadata['type']).toBe('EXPENSE')
+    })
 
-    expect(restoreEntry!.actorId).toBe(ADMIN_1.id)
-    expect(restoreEntry!.actorName).toBe(ADMIN_1.displayName)
-    expect(restoreEntry!.metadata['reason']).toBe('проверили — не дубликат')
-    expect(restoreEntry!.metadata['previousDeletionReason']).toBe('дубликат расхода')
+    it('ACCOUNTANT (visibility-privileged, not audit-log-privileged) — 403', async () => {
+      await expect(svc.getTransactionAuditLog(TX_ID, ACCOUNTANT_1)).rejects.toThrow(
+        ForbiddenException,
+      )
+    })
 
-    expect(deleteEntry!.actorName).toBe(ADMIN_1.displayName)
-    expect(deleteEntry!.metadata['reason']).toBe('дубликат расхода')
-    expect(deleteEntry!.metadata['type']).toBe('EXPENSE')
-  })
+    it('SENIOR — 403', async () => {
+      await expect(svc.getTransactionAuditLog(TX_ID, SENIOR_1)).rejects.toThrow(ForbiddenException)
+    })
 
-  it('ACCOUNTANT (visibility-privileged, not audit-log-privileged) — 403', async () => {
-    if (!dbAvailable) return
-    await expect(svc.getTransactionAuditLog(TX_ID, ACCOUNTANT_1)).rejects.toThrow(
-      ForbiddenException,
-    )
-  })
-
-  it('SENIOR — 403', async () => {
-    if (!dbAvailable) return
-    await expect(svc.getTransactionAuditLog(TX_ID, SENIOR_1)).rejects.toThrow(ForbiddenException)
-  })
-
-  it('a non-existent transaction id — 404', async () => {
-    if (!dbAvailable) return
-    await expect(svc.getTransactionAuditLog(NONEXISTENT_TX_ID, ADMIN_1)).rejects.toThrow(
-      NotFoundException,
-    )
-  })
-})
+    it('a non-existent transaction id — 404', async () => {
+      await expect(svc.getTransactionAuditLog(NONEXISTENT_TX_ID, ADMIN_1)).rejects.toThrow(
+        NotFoundException,
+      )
+    })
+  },
+)

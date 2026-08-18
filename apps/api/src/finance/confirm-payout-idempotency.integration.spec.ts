@@ -33,6 +33,7 @@ import type { InvoicesService } from '../invoices/invoices.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // ── Personas (stable IDs, namespaced to this spec) ────────────────────────
 // HIGH-4 fix: IDs must be valid UUID v4 format (8-4-4-4-12 hex groups).
@@ -87,7 +88,6 @@ const stubInvoices = {
 } as unknown as InvoicesService
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -136,274 +136,266 @@ class TestDbModule {}
 })
 class TestModule {}
 
-describe('confirmPayout — BIZ-02 double-credit idempotency (real DB)', () => {
-  let svc: TransactionsService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'confirmPayout — BIZ-02 double-credit idempotency (real DB)',
+  () => {
+    let svc: TransactionsService
+    let dbSvc: DatabaseService
 
-  async function cleanup() {
-    const db = dbSvc.db
-    await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
-    await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
-    await db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
-    await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
-  }
+    async function cleanup() {
+      const db = dbSvc.db
+      await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+      await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
+      await db.delete(transactions).where(inArray(transactions.receiverId, TEST_USER_IDS))
+      await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
+    }
 
-  /**
-   * Seed a PAYOUT transaction in PENDING_PAYMENT state.
-   * Returns the payout transaction id.
-   */
-  async function seedPayoutTx(amount = '500', payoutRequestId?: string): Promise<string> {
-    const [payout] = await dbSvc.db
-      .insert(transactions)
-      .values({
-        type: 'PAYOUT',
-        status: 'PENDING_PAYMENT',
-        amount,
-        currency: 'USDT',
-        senderId: SENIOR.id,
-        receiverId: SENIOR.id,
-        payoutRequestId: payoutRequestId ?? null,
-        createdBy: SENIOR.id,
-      })
-      .returning()
-    return payout!.id
-  }
+    /**
+     * Seed a PAYOUT transaction in PENDING_PAYMENT state.
+     * Returns the payout transaction id.
+     */
+    async function seedPayoutTx(amount = '500', payoutRequestId?: string): Promise<string> {
+      const [payout] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount,
+          currency: 'USDT',
+          senderId: SENIOR.id,
+          receiverId: SENIOR.id,
+          payoutRequestId: payoutRequestId ?? null,
+          createdBy: SENIOR.id,
+        })
+        .returning()
+      return payout!.id
+    }
 
-  /**
-   * HIGH-3: Seed a payout_request R (status PENDING) + linked PAYOUT P.
-   * Returns { requestId, payoutTxId }.
-   * Used for cross-path tests: confirmPayout(P) should flip R to PAID so
-   * that payPayoutRequest(R) cannot open a second credit.
-   */
-  async function seedPayoutRequestWithPayout(
-    amount = '500',
-  ): Promise<{ requestId: string; payoutTxId: string }> {
-    const [req] = await dbSvc.db
-      .insert(payoutRequests)
-      .values({
-        seniorId: SENIOR.id,
-        incomeAmount: amount,
-        payableAmount: amount,
-        contractAddress: '0x0000000000000000000000000000000000000000',
-        status: 'PENDING',
-      })
-      .returning()
-    const requestId = req!.id
+    /**
+     * HIGH-3: Seed a payout_request R (status PENDING) + linked PAYOUT P.
+     * Returns { requestId, payoutTxId }.
+     * Used for cross-path tests: confirmPayout(P) should flip R to PAID so
+     * that payPayoutRequest(R) cannot open a second credit.
+     */
+    async function seedPayoutRequestWithPayout(
+      amount = '500',
+    ): Promise<{ requestId: string; payoutTxId: string }> {
+      const [req] = await dbSvc.db
+        .insert(payoutRequests)
+        .values({
+          seniorId: SENIOR.id,
+          incomeAmount: amount,
+          payableAmount: amount,
+          contractAddress: '0x0000000000000000000000000000000000000000',
+          status: 'PENDING',
+        })
+        .returning()
+      const requestId = req!.id
 
-    const payoutTxId = await seedPayoutTx(amount, requestId)
-    return { requestId, payoutTxId }
-  }
+      const payoutTxId = await seedPayoutTx(amount, requestId)
+      return { requestId, payoutTxId }
+    }
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT table_name FROM information_schema.tables WHERE table_name='transactions' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[confirm-payout-idempotency] SKIPPED — transactions table not found')
-        dbAvailable = false
-        return
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_name='transactions' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[confirm-payout-idempotency] FAILED — transactions table not found')
+        }
+      } catch {
+        throw new Error('[confirm-payout-idempotency] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[confirm-payout-idempotency] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [TestModule],
-    }).compile()
-    await moduleRef.init()
-    svc = moduleRef.get(TransactionsService)
-    dbSvc = moduleRef.get(DatabaseService)
+      const moduleRef = await Test.createTestingModule({
+        imports: [TestModule],
+      }).compile()
+      await moduleRef.init()
+      svc = moduleRef.get(TransactionsService)
+      dbSvc = moduleRef.get(DatabaseService)
 
-    const db = dbSvc.db
-    await cleanup()
-    await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    await db
-      .insert(users)
-      .values(
-        ALL.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
-          googleId: `test-google-biz02-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    const existing = await db.query.companyAccount.findFirst()
-    if (!existing) {
-      await db.insert(companyAccount).values({
-        id: ACCOUNT_ID,
-        walletAddress: WALLET,
-        confirmationThreshold: 12,
-        updatedBy: ADMIN.id,
-      })
-    }
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      const db = dbSvc.db
       await cleanup()
-      await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
-    }
-    await _pool?.end()
-  }, 15_000)
+      await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
+      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      await db
+        .insert(users)
+        .values(
+          ALL.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
+            googleId: `test-google-biz02-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
 
-  beforeEach(async () => {
-    if (!dbAvailable) return
-    await cleanup()
-  })
+      const existing = await db.query.companyAccount.findFirst()
+      if (!existing) {
+        await db.insert(companyAccount).values({
+          id: ACCOUNT_ID,
+          walletAddress: WALLET,
+          confirmationThreshold: 12,
+          updatedBy: ADMIN.id,
+        })
+      }
+    }, 30_000)
 
-  it('AC1-a: two concurrent confirmPayout → exactly one PAYOUT_CONFIRMED, second throws', async () => {
-    if (!dbAvailable) return
-    const payoutTxId = await seedPayoutTx('1000')
-    const CRYPTO_HASH = '0x' + 'aa'.repeat(32) + 'bb'
-    const CRYPTO_HASH2 = '0x' + 'cc'.repeat(32) + 'dd'
+    afterAll(async () => {
+      try {
+        await cleanup()
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await _pool?.end()
+    }, 15_000)
 
-    const results = await Promise.allSettled([
-      svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CRYPTO', txHash: CRYPTO_HASH }),
-      svc.confirmPayout(payoutTxId, ADMIN2.id, ADMIN, { method: 'CRYPTO', txHash: CRYPTO_HASH2 }),
-    ])
-
-    const fulfilled = results.filter((r) => r.status === 'fulfilled')
-    const rejected = results.filter((r) => r.status === 'rejected')
-    expect(fulfilled).toHaveLength(1)
-    expect(rejected).toHaveLength(1)
-
-    // Exactly ONE PAYOUT_CONFIRMED row must exist
-    const confirmed = await dbSvc.db.query.transactions.findMany({
-      where: and(
-        eq(transactions.type, 'PAYOUT_CONFIRMED'),
-        // Both admins were candidates — check total count
-      ),
+    beforeEach(async () => {
+      await cleanup()
     })
-    const confirmedForThisPayout = confirmed.filter(
-      (tx) => tx.createdBy === ADMIN.id || tx.createdBy === ADMIN2.id,
-    )
-    // The key invariant: only 1 PAYOUT_CONFIRMED was inserted
-    expect(
-      confirmed.filter(
-        (tx) =>
-          tx.senderId === SENIOR.id || tx.receiverId === ADMIN.id || tx.receiverId === ADMIN2.id,
-      ).length,
-    ).toBe(1)
 
-    // The PAYOUT row must be PAID
-    const payoutRow = await dbSvc.db.query.transactions.findFirst({
-      where: eq(transactions.id, payoutTxId),
-    })
-    expect(payoutRow?.status).toBe('PAID')
-    void confirmedForThisPayout
-  }, 30_000)
+    it('AC1-a: two concurrent confirmPayout → exactly one PAYOUT_CONFIRMED, second throws', async () => {
+      const payoutTxId = await seedPayoutTx('1000')
+      const CRYPTO_HASH = '0x' + 'aa'.repeat(32) + 'bb'
+      const CRYPTO_HASH2 = '0x' + 'cc'.repeat(32) + 'dd'
 
-  it('AC1-b: sequential second confirmPayout throws BadRequest (already confirmed)', async () => {
-    if (!dbAvailable) return
-    const payoutTxId = await seedPayoutTx('500')
-    const HASH = '0x' + 'ee'.repeat(32) + 'ff'
+      const results = await Promise.allSettled([
+        svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CRYPTO', txHash: CRYPTO_HASH }),
+        svc.confirmPayout(payoutTxId, ADMIN2.id, ADMIN, { method: 'CRYPTO', txHash: CRYPTO_HASH2 }),
+      ])
 
-    await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CRYPTO', txHash: HASH })
+      const fulfilled = results.filter((r) => r.status === 'fulfilled')
+      const rejected = results.filter((r) => r.status === 'rejected')
+      expect(fulfilled).toHaveLength(1)
+      expect(rejected).toHaveLength(1)
 
-    await expect(
-      svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, {
-        method: 'CRYPTO',
-        txHash: '0x' + '11'.repeat(32) + '22',
-      }),
-    ).rejects.toThrow()
-
-    // Still only one PAYOUT_CONFIRMED
-    const confirmed = await dbSvc.db.query.transactions.findMany({
-      where: eq(transactions.type, 'PAYOUT_CONFIRMED'),
-    })
-    expect(confirmed).toHaveLength(1)
-  }, 30_000)
-
-  it('AC1-c: CASH method confirmPayout is idempotent — second call throws, no double credit', async () => {
-    if (!dbAvailable) return
-    const payoutTxId = await seedPayoutTx('250')
-
-    await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
-
-    await expect(
-      svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null }),
-    ).rejects.toThrow()
-
-    const confirmed = await dbSvc.db.query.transactions.findMany({
-      where: eq(transactions.type, 'PAYOUT_CONFIRMED'),
-    })
-    expect(confirmed).toHaveLength(1)
-  }, 30_000)
-
-  // ── HIGH-3: Real cross-path integration tests ────────────────────────────
-  //
-  // These are the ACTUAL cross-path tests referenced in the file header:
-  // confirmPayout(PAYOUT_P) atomically flips payout_request R to PAID, so
-  // payPayoutRequest(R) (which gates on req.status === 'PENDING') is blocked.
-  // Previously this describe block only contained confirmPayout×confirmPayout
-  // (within-path). The cross-path tests are here.
-  describe('BIZ-02 cross-path: confirmPayout then payPayoutRequest blocked', () => {
-    it('after confirmPayout(P) → payout_request R is PAID → payPayoutRequest(R) throws "already paid"', async () => {
-      if (!dbAvailable) return
-      const { requestId, payoutTxId } = await seedPayoutRequestWithPayout('600')
-
-      // Step 1: ADMIN confirms via confirmPayout (the "direct PAYOUT confirm" path)
-      await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
-
-      // Step 2: the linked payout_request must now be PAID (BIZ-02 cross-path flip)
-      const reqAfter = await dbSvc.db.query.payoutRequests.findFirst({
-        where: eq(payoutRequests.id, requestId),
-      })
-      expect(reqAfter?.status).toBe('PAID')
-
-      // Step 3: SENIOR attempting payPayoutRequest on the now-PAID request must be
-      // rejected — "already paid" guard in payPayoutRequest (req.status !== 'PENDING').
-      await expect(
-        svc.payPayoutRequest(requestId, '0xSIMdeadbeefdeadbeef', SENIOR, 'success'),
-      ).rejects.toThrow('already paid')
-
-      // Step 4: no double-credit — exactly ONE PAYOUT_CONFIRMED row for this payout
+      // Exactly ONE PAYOUT_CONFIRMED row must exist
       const confirmed = await dbSvc.db.query.transactions.findMany({
         where: and(
           eq(transactions.type, 'PAYOUT_CONFIRMED'),
-          eq(transactions.receiverId, ADMIN.id),
+          // Both admins were candidates — check total count
         ),
       })
-      expect(confirmed).toHaveLength(1)
+      const confirmedForThisPayout = confirmed.filter(
+        (tx) => tx.createdBy === ADMIN.id || tx.createdBy === ADMIN2.id,
+      )
+      // The key invariant: only 1 PAYOUT_CONFIRMED was inserted
+      expect(
+        confirmed.filter(
+          (tx) =>
+            tx.senderId === SENIOR.id || tx.receiverId === ADMIN.id || tx.receiverId === ADMIN2.id,
+        ).length,
+      ).toBe(1)
 
-      // Step 5: PAYOUT row is PAID exactly once, no duplicate ledger entries
+      // The PAYOUT row must be PAID
       const payoutRow = await dbSvc.db.query.transactions.findFirst({
-        where: and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+        where: eq(transactions.id, payoutTxId),
       })
       expect(payoutRow?.status).toBe('PAID')
+      void confirmedForThisPayout
     }, 30_000)
 
-    it('after confirmPayout(P) → second confirmPayout on same PAYOUT tx throws, no double credit', async () => {
-      if (!dbAvailable) return
-      const { payoutTxId } = await seedPayoutRequestWithPayout('400')
+    it('AC1-b: sequential second confirmPayout throws BadRequest (already confirmed)', async () => {
+      const payoutTxId = await seedPayoutTx('500')
+      const HASH = '0x' + 'ee'.repeat(32) + 'ff'
 
-      // First confirm succeeds
-      await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
+      await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CRYPTO', txHash: HASH })
 
-      // Second confirm on the same PAYOUT tx must be rejected (within-path guard)
       await expect(
-        svc.confirmPayout(payoutTxId, ADMIN2.id, ADMIN, { method: 'CASH', txHash: null }),
+        svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, {
+          method: 'CRYPTO',
+          txHash: '0x' + '11'.repeat(32) + '22',
+        }),
       ).rejects.toThrow()
 
-      // Still only one PAYOUT_CONFIRMED total
+      // Still only one PAYOUT_CONFIRMED
       const confirmed = await dbSvc.db.query.transactions.findMany({
         where: eq(transactions.type, 'PAYOUT_CONFIRMED'),
       })
-      expect(confirmed.length).toBe(1)
+      expect(confirmed).toHaveLength(1)
     }, 30_000)
-  })
-})
+
+    it('AC1-c: CASH method confirmPayout is idempotent — second call throws, no double credit', async () => {
+      const payoutTxId = await seedPayoutTx('250')
+
+      await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
+
+      await expect(
+        svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null }),
+      ).rejects.toThrow()
+
+      const confirmed = await dbSvc.db.query.transactions.findMany({
+        where: eq(transactions.type, 'PAYOUT_CONFIRMED'),
+      })
+      expect(confirmed).toHaveLength(1)
+    }, 30_000)
+
+    // ── HIGH-3: Real cross-path integration tests ────────────────────────────
+    //
+    // These are the ACTUAL cross-path tests referenced in the file header:
+    // confirmPayout(PAYOUT_P) atomically flips payout_request R to PAID, so
+    // payPayoutRequest(R) (which gates on req.status === 'PENDING') is blocked.
+    // Previously this describe block only contained confirmPayout×confirmPayout
+    // (within-path). The cross-path tests are here.
+    describe('BIZ-02 cross-path: confirmPayout then payPayoutRequest blocked', () => {
+      it('after confirmPayout(P) → payout_request R is PAID → payPayoutRequest(R) throws "already paid"', async () => {
+        const { requestId, payoutTxId } = await seedPayoutRequestWithPayout('600')
+
+        // Step 1: ADMIN confirms via confirmPayout (the "direct PAYOUT confirm" path)
+        await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
+
+        // Step 2: the linked payout_request must now be PAID (BIZ-02 cross-path flip)
+        const reqAfter = await dbSvc.db.query.payoutRequests.findFirst({
+          where: eq(payoutRequests.id, requestId),
+        })
+        expect(reqAfter?.status).toBe('PAID')
+
+        // Step 3: SENIOR attempting payPayoutRequest on the now-PAID request must be
+        // rejected — "already paid" guard in payPayoutRequest (req.status !== 'PENDING').
+        await expect(
+          svc.payPayoutRequest(requestId, '0xSIMdeadbeefdeadbeef', SENIOR, 'success'),
+        ).rejects.toThrow('already paid')
+
+        // Step 4: no double-credit — exactly ONE PAYOUT_CONFIRMED row for this payout
+        const confirmed = await dbSvc.db.query.transactions.findMany({
+          where: and(
+            eq(transactions.type, 'PAYOUT_CONFIRMED'),
+            eq(transactions.receiverId, ADMIN.id),
+          ),
+        })
+        expect(confirmed).toHaveLength(1)
+
+        // Step 5: PAYOUT row is PAID exactly once, no duplicate ledger entries
+        const payoutRow = await dbSvc.db.query.transactions.findFirst({
+          where: and(eq(transactions.payoutRequestId, requestId), eq(transactions.type, 'PAYOUT')),
+        })
+        expect(payoutRow?.status).toBe('PAID')
+      }, 30_000)
+
+      it('after confirmPayout(P) → second confirmPayout on same PAYOUT tx throws, no double credit', async () => {
+        const { payoutTxId } = await seedPayoutRequestWithPayout('400')
+
+        // First confirm succeeds
+        await svc.confirmPayout(payoutTxId, ADMIN.id, ADMIN, { method: 'CASH', txHash: null })
+
+        // Second confirm on the same PAYOUT tx must be rejected (within-path guard)
+        await expect(
+          svc.confirmPayout(payoutTxId, ADMIN2.id, ADMIN, { method: 'CASH', txHash: null }),
+        ).rejects.toThrow()
+
+        // Still only one PAYOUT_CONFIRMED total
+        const confirmed = await dbSvc.db.query.transactions.findMany({
+          where: eq(transactions.type, 'PAYOUT_CONFIRMED'),
+        })
+        expect(confirmed.length).toBe(1)
+      }, 30_000)
+    })
+  },
+)

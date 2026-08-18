@@ -20,6 +20,7 @@ import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * #254 review LOW fix (FM-5 guard-test gate) — REAL-controller RBAC integration
@@ -122,7 +123,6 @@ const stubInvoices = {
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -190,161 +190,159 @@ class TestDatabaseModule {}
 })
 class PaySalaryRbacTestModule {}
 
-describe('pay-salary route — real backend RBAC integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'pay-salary route — real backend RBAC integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT column_name FROM information_schema.columns
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT column_name FROM information_schema.columns
          WHERE table_name='transactions' AND column_name='salary_month' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[pay-salary rbac] SKIPPED — transactions table not found / missing column')
-        dbAvailable = false
-        return
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error(
+            '[pay-salary rbac] FAILED — transactions table not found / missing column',
+          )
+        }
+      } catch {
+        throw new Error('[pay-salary rbac] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[pay-salary rbac] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [PaySalaryRbacTestModule],
-    })
-      // Real TransactionsController is decorated `@UseGuards(RolesGuard)` on the
-      // paySalary method. In a standalone Test module the method-scoped guard is
-      // not auto-wired with a Reflector, so we override it with a
-      // fully-constructed instance — this exercises the REAL RolesGuard logic
-      // (getAllAndOverride(@Roles) → 403) against the live JWT request.
-      .overrideGuard(RolesGuard)
-      .useValue(new RolesGuard(new Reflector()))
-      .compile()
+      const moduleRef = await Test.createTestingModule({
+        imports: [PaySalaryRbacTestModule],
+      })
+        // Real TransactionsController is decorated `@UseGuards(RolesGuard)` on the
+        // paySalary method. In a standalone Test module the method-scoped guard is
+        // not auto-wired with a Reflector, so we override it with a
+        // fully-constructed instance — this exercises the REAL RolesGuard logic
+        // (getAllAndOverride(@Roles) → 403) against the live JWT request.
+        .overrideGuard(RolesGuard)
+        .useValue(new RolesGuard(new Reflector()))
+        .compile()
 
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'pay-salary-rbac-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'pay-salary-rbac-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
 
-    // Surgical cleanup of leftover rows from a prior run.
-    await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
-    await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-
-    await dbSvc.db
-      .insert(users)
-      .values(
-        ALL.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      // Surgical cleanup of leftover rows from a prior run.
       await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
+
+      await dbSvc.db
+        .insert(users)
+        .values(
+          ALL.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await dbSvc.db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+        await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    const tokenFor = (u: SessionUser) => jwt.sign(u)
+
+    // Audit 2026-06-27 (LOW #5): the partial unique index
+    // `uq_transactions_salary_receiver_month` allows at most ONE SALARY per
+    // (receiver, month). Each test seeds its own fresh PENDING salary, so the
+    // month MUST be unique per seed — otherwise the 2nd seed would hit the unique
+    // constraint. A monotonic month counter keeps every seeded row distinct.
+    let salaryMonthSeq = 0
+    /** Seed a fresh PENDING SALARY tx authored by ADMIN (unique month), return id. */
+    async function seedPendingSalary(): Promise<string> {
+      salaryMonthSeq += 1
+      // 2030-01 .. 2030-12 .. then wrap into 2031 — always a valid YYYY-MM, always
+      // unique within a run and far from any live/seed salary data.
+      const year = 2030 + Math.floor(salaryMonthSeq / 12)
+      const monthNum = (salaryMonthSeq % 12) + 1
+      const salaryMonth = `${year}-${String(monthNum).padStart(2, '0')}`
+      const [tx] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'SALARY',
+          status: 'PENDING',
+          amount: '500',
+          currency: 'USDT',
+          receiverId: JUNIOR.id,
+          createdBy: ADMIN.id,
+          salaryMonth,
+        })
+        .returning()
+      return tx!.id
     }
-    await app.close()
-  }, 15_000)
 
-  const tokenFor = (u: SessionUser) => jwt.sign(u)
-
-  // Audit 2026-06-27 (LOW #5): the partial unique index
-  // `uq_transactions_salary_receiver_month` allows at most ONE SALARY per
-  // (receiver, month). Each test seeds its own fresh PENDING salary, so the
-  // month MUST be unique per seed — otherwise the 2nd seed would hit the unique
-  // constraint. A monotonic month counter keeps every seeded row distinct.
-  let salaryMonthSeq = 0
-  /** Seed a fresh PENDING SALARY tx authored by ADMIN (unique month), return id. */
-  async function seedPendingSalary(): Promise<string> {
-    salaryMonthSeq += 1
-    // 2030-01 .. 2030-12 .. then wrap into 2031 — always a valid YYYY-MM, always
-    // unique within a run and far from any live/seed salary data.
-    const year = 2030 + Math.floor(salaryMonthSeq / 12)
-    const monthNum = (salaryMonthSeq % 12) + 1
-    const salaryMonth = `${year}-${String(monthNum).padStart(2, '0')}`
-    const [tx] = await dbSvc.db
-      .insert(transactions)
-      .values({
-        type: 'SALARY',
-        status: 'PENDING',
-        amount: '500',
-        currency: 'USDT',
-        receiverId: JUNIOR.id,
-        createdBy: ADMIN.id,
-        salaryMonth,
+    async function paySalary(user: SessionUser, txId: string): Promise<number> {
+      const res = await app.inject({
+        method: 'PATCH',
+        url: `/api/transactions/${txId}/pay`,
+        cookies: { jwt: tokenFor(user) },
+        // paySalarySchema requires fundingSource + currency (both mandatory).
+        // ADMIN_PERSONAL path: payerAdminId must be a valid ADMIN in the DB.
+        // task-receipts-backend (review round 1): pay-time proof now MANDATORY
+        // too (USDT → explorer-only).
+        payload: {
+          fundingSource: 'ADMIN_PERSONAL',
+          payerAdminId: ADMIN.id,
+          currency: 'USDT',
+          receiptExternalUrl: 'https://etherscan.io/tx/0xpaysalaryrbacspec',
+        },
       })
-      .returning()
-    return tx!.id
-  }
+      return res.statusCode
+    }
 
-  async function paySalary(user: SessionUser, txId: string): Promise<number> {
-    const res = await app.inject({
-      method: 'PATCH',
-      url: `/api/transactions/${txId}/pay`,
-      cookies: { jwt: tokenFor(user) },
-      // paySalarySchema requires fundingSource + currency (both mandatory).
-      // ADMIN_PERSONAL path: payerAdminId must be a valid ADMIN in the DB.
-      // task-receipts-backend (review round 1): pay-time proof now MANDATORY
-      // too (USDT → explorer-only).
-      payload: {
-        fundingSource: 'ADMIN_PERSONAL',
-        payerAdminId: ADMIN.id,
-        currency: 'USDT',
-        receiptExternalUrl: 'https://etherscan.io/tx/0xpaysalaryrbacspec',
-      },
-    })
-    return res.statusCode
-  }
+    // ── 403: non-ADMIN roles are blocked at the HTTP guard (before handler) ──────
+    // Each 403 proves the guard fired BEFORE the handler; a leaked handler would
+    // have flipped the tx to PAID (or returned 400 on a business-logic mismatch).
+    for (const persona of [SENIOR, ACCOUNTANT, JUNIOR, HR, DROP]) {
+      it(`PATCH :id/pay — ${persona.role} → 403 (guard fires before handler)`, async () => {
+        const txId = await seedPendingSalary()
+        const code = await paySalary(persona, txId)
+        expect(code).toBe(403)
 
-  // ── 403: non-ADMIN roles are blocked at the HTTP guard (before handler) ──────
-  // Each 403 proves the guard fired BEFORE the handler; a leaked handler would
-  // have flipped the tx to PAID (or returned 400 on a business-logic mismatch).
-  for (const persona of [SENIOR, ACCOUNTANT, JUNIOR, HR, DROP]) {
-    it(`PATCH :id/pay — ${persona.role} → 403 (guard fires before handler)`, async () => {
-      if (!dbAvailable) return
+        // Defense-in-depth assertion: the tx must still be PENDING (handler never ran).
+        const row = await dbSvc.db.query.transactions.findFirst({
+          where: (t, { eq }) => eq(t.id, txId),
+        })
+        expect(row?.status).toBe('PENDING')
+      })
+    }
+
+    // ── 2xx: ADMIN reaches the handler ────────────────────────────────────────
+    it('PATCH :id/pay — ADMIN → 2xx (reaches handler, tx PAID)', async () => {
       const txId = await seedPendingSalary()
-      const code = await paySalary(persona, txId)
-      expect(code).toBe(403)
+      const code = await paySalary(ADMIN, txId)
+      expect(code).toBeGreaterThanOrEqual(200)
+      expect(code).toBeLessThan(300)
 
-      // Defense-in-depth assertion: the tx must still be PENDING (handler never ran).
       const row = await dbSvc.db.query.transactions.findFirst({
         where: (t, { eq }) => eq(t.id, txId),
       })
-      expect(row?.status).toBe('PENDING')
+      expect(row?.status).toBe('PAID')
     })
-  }
-
-  // ── 2xx: ADMIN reaches the handler ────────────────────────────────────────
-  it('PATCH :id/pay — ADMIN → 2xx (reaches handler, tx PAID)', async () => {
-    if (!dbAvailable) return
-    const txId = await seedPendingSalary()
-    const code = await paySalary(ADMIN, txId)
-    expect(code).toBeGreaterThanOrEqual(200)
-    expect(code).toBeLessThan(300)
-
-    const row = await dbSvc.db.query.transactions.findFirst({
-      where: (t, { eq }) => eq(t.id, txId),
-    })
-    expect(row?.status).toBe('PAID')
-  })
-})
+  },
+)

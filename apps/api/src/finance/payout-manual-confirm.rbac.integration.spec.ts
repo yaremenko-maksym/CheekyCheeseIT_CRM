@@ -20,6 +20,7 @@ import type { EtherscanService } from './etherscan.service'
 import type { NbuCurrencyService } from './nbu-currency.service'
 import { companyAccount, payoutRequests, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * task-payout-company-wallet (Phase 8 v2) — REAL-controller RBAC integration for
@@ -125,7 +126,6 @@ const stubDocuments = {} as never
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -193,178 +193,173 @@ class TestDatabaseModule {}
 })
 class PayoutManualConfirmRbacTestModule {}
 
-describe('payout manual-confirm — real backend RBAC integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
-  let svc: TransactionsService
+describe.skipIf(!hasDatabaseUrl())(
+  'payout manual-confirm — real backend RBAC integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
+    let svc: TransactionsService
 
-  beforeAll(async () => {
-    try {
-      const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probe.query('SELECT 1')
-      const check = await probe.query(
-        `SELECT table_name FROM information_schema.tables WHERE table_name='payout_requests' LIMIT 1`,
-      )
-      await probe.end()
-      if (check.rowCount === 0) {
-        console.warn('[payout-manual-confirm rbac] SKIPPED — payout_requests table not found')
-        dbAvailable = false
-        return
+    beforeAll(async () => {
+      try {
+        const probe = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probe.query('SELECT 1')
+        const check = await probe.query(
+          `SELECT table_name FROM information_schema.tables WHERE table_name='payout_requests' LIMIT 1`,
+        )
+        await probe.end()
+        if (check.rowCount === 0) {
+          throw new Error('[payout-manual-confirm rbac] FAILED — payout_requests table not found')
+        }
+      } catch {
+        throw new Error('[payout-manual-confirm rbac] FAILED — no DB reachable at DATABASE_URL')
       }
-    } catch {
-      console.warn('[payout-manual-confirm rbac] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
-    }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [PayoutManualConfirmRbacTestModule],
-    })
-      // Real PayoutRequestsController is decorated `@UseGuards(RolesGuard)`. In a
-      // standalone Test module the controller-scoped guard is not auto-wired with
-      // a Reflector, so we override it with a fully-constructed instance — this
-      // exercises the REAL RolesGuard logic (getAllAndOverride(@Roles) → 403)
-      // against the live JWT request.
-      .overrideGuard(RolesGuard)
-      .useValue(new RolesGuard(new Reflector()))
-      .compile()
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'payout-manual-confirm-rbac-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    svc = app.get(TransactionsService)
-    const db = dbSvc.db
-
-    // Surgical cleanup of leftover rows from a prior run.
-    await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
-    await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
-    await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
-    await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-
-    await db
-      .insert(users)
-      .values(
-        ALL.map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // createPayoutRequest reads companyAccount.walletAddress — ensure one exists.
-    const existing = await db.query.companyAccount.findFirst()
-    if (existing) {
-      await db
-        .update(companyAccount)
-        .set({ walletAddress: WALLET })
-        .where(eq(companyAccount.id, existing.id))
-    } else {
-      await db.insert(companyAccount).values({
-        id: ACCOUNT_ID,
-        walletAddress: WALLET,
-        confirmationThreshold: 12,
-        updatedBy: ADMIN.id,
+      const moduleRef = await Test.createTestingModule({
+        imports: [PayoutManualConfirmRbacTestModule],
       })
-    }
-  }, 30_000)
+        // Real PayoutRequestsController is decorated `@UseGuards(RolesGuard)`. In a
+        // standalone Test module the controller-scoped guard is not auto-wired with
+        // a Reflector, so we override it with a fully-constructed instance — this
+        // exercises the REAL RolesGuard logic (getAllAndOverride(@Roles) → 403)
+        // against the live JWT request.
+        .overrideGuard(RolesGuard)
+        .useValue(new RolesGuard(new Reflector()))
+        .compile()
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'payout-manual-confirm-rbac-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
 
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
+      svc = app.get(TransactionsService)
       const db = dbSvc.db
+
+      // Surgical cleanup of leftover rows from a prior run.
       await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
       await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
       await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
       await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
       await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-    } catch {
-      // non-fatal
+
+      await db
+        .insert(users)
+        .values(
+          ALL.map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.role === 'SENIOR' ? 26 : 0,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      // createPayoutRequest reads companyAccount.walletAddress — ensure one exists.
+      const existing = await db.query.companyAccount.findFirst()
+      if (existing) {
+        await db
+          .update(companyAccount)
+          .set({ walletAddress: WALLET })
+          .where(eq(companyAccount.id, existing.id))
+      } else {
+        await db.insert(companyAccount).values({
+          id: ACCOUNT_ID,
+          walletAddress: WALLET,
+          confirmationThreshold: 12,
+          updatedBy: ADMIN.id,
+        })
+      }
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        const db = dbSvc.db
+        await db.delete(transactions).where(inArray(transactions.createdBy, TEST_USER_IDS))
+        await db.delete(transactions).where(inArray(transactions.senderId, TEST_USER_IDS))
+        await db.delete(payoutRequests).where(inArray(payoutRequests.seniorId, TEST_USER_IDS))
+        await db.delete(companyAccount).where(inArray(companyAccount.id, [ACCOUNT_ID]))
+        await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    const tokenFor = (u: SessionUser) => jwt.sign(u)
+
+    // Seed a fresh PENDING payout owned by SENIOR (real createPayoutRequest path)
+    // and return its id. Each success case consumes one (confirm flips it to PAID).
+    async function seedPendingPayout(): Promise<string> {
+      const [income] = await dbSvc.db
+        .insert(transactions)
+        .values({
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '1000',
+          currency: 'USDT',
+          receiverId: SENIOR.id,
+          seniorSharePercent: 26,
+          createdBy: SENIOR.id,
+        })
+        .returning()
+      const pr = await svc.createPayoutRequest([income!.id], SENIOR)
+      return pr.id
     }
-    await app.close()
-  }, 15_000)
 
-  const tokenFor = (u: SessionUser) => jwt.sign(u)
-
-  // Seed a fresh PENDING payout owned by SENIOR (real createPayoutRequest path)
-  // and return its id. Each success case consumes one (confirm flips it to PAID).
-  async function seedPendingPayout(): Promise<string> {
-    const [income] = await dbSvc.db
-      .insert(transactions)
-      .values({
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '1000',
-        currency: 'USDT',
-        receiverId: SENIOR.id,
-        seniorSharePercent: 26,
-        createdBy: SENIOR.id,
+    async function manualConfirm(user: SessionUser, payoutId: string): Promise<number> {
+      const res = await app.inject({
+        method: 'POST',
+        url: `/api/payout-requests/${payoutId}/manual-confirm`,
+        cookies: { jwt: tokenFor(user) },
+        payload: { method: 'CASH' },
       })
-      .returning()
-    const pr = await svc.createPayoutRequest([income!.id], SENIOR)
-    return pr.id
-  }
+      return res.statusCode
+    }
 
-  async function manualConfirm(user: SessionUser, payoutId: string): Promise<number> {
-    const res = await app.inject({
-      method: 'POST',
-      url: `/api/payout-requests/${payoutId}/manual-confirm`,
-      cookies: { jwt: tokenFor(user) },
-      payload: { method: 'CASH' },
-    })
-    return res.statusCode
-  }
+    // ── 403: SENIOR / DROP / JUNIOR / HR are blocked at the HTTP guard ───────────
+    // The payout id is a fresh PENDING one, so a 403 proves the guard fired BEFORE
+    // the handler (a leaked handler would have flipped it to PAID / 200).
+    for (const persona of [SENIOR, DROP, JUNIOR, HR]) {
+      it(`POST manual-confirm — ${persona.role} → 403 (guard fires before handler)`, async () => {
+        const payoutId = await seedPendingPayout()
+        expect(await manualConfirm(persona, payoutId)).toBe(403)
 
-  // ── 403: SENIOR / DROP / JUNIOR / HR are blocked at the HTTP guard ───────────
-  // The payout id is a fresh PENDING one, so a 403 proves the guard fired BEFORE
-  // the handler (a leaked handler would have flipped it to PAID / 200).
-  for (const persona of [SENIOR, DROP, JUNIOR, HR]) {
-    it(`POST manual-confirm — ${persona.role} → 403 (guard fires before handler)`, async () => {
-      if (!dbAvailable) return
+        // Defense-in-depth: the payout must still be PENDING (handler never ran).
+        const pr = await dbSvc.db.query.payoutRequests.findFirst({
+          where: eq(payoutRequests.id, payoutId),
+        })
+        expect(pr?.status).toBe('PENDING')
+      })
+    }
+
+    // ── 2xx: ADMIN / ACCOUNTANT reach the handler ───────────────────────────────
+    it('POST manual-confirm — ADMIN → 2xx (reaches handler, payout PAID)', async () => {
       const payoutId = await seedPendingPayout()
-      expect(await manualConfirm(persona, payoutId)).toBe(403)
+      const code = await manualConfirm(ADMIN, payoutId)
+      expect(code).toBeGreaterThanOrEqual(200)
+      expect(code).toBeLessThan(300)
 
-      // Defense-in-depth: the payout must still be PENDING (handler never ran).
       const pr = await dbSvc.db.query.payoutRequests.findFirst({
         where: eq(payoutRequests.id, payoutId),
       })
-      expect(pr?.status).toBe('PENDING')
+      expect(pr?.status).toBe('PAID')
     })
-  }
 
-  // ── 2xx: ADMIN / ACCOUNTANT reach the handler ───────────────────────────────
-  it('POST manual-confirm — ADMIN → 2xx (reaches handler, payout PAID)', async () => {
-    if (!dbAvailable) return
-    const payoutId = await seedPendingPayout()
-    const code = await manualConfirm(ADMIN, payoutId)
-    expect(code).toBeGreaterThanOrEqual(200)
-    expect(code).toBeLessThan(300)
+    it('POST manual-confirm — ACCOUNTANT → 2xx (reaches handler, payout PAID)', async () => {
+      const payoutId = await seedPendingPayout()
+      const code = await manualConfirm(ACCOUNTANT, payoutId)
+      expect(code).toBeGreaterThanOrEqual(200)
+      expect(code).toBeLessThan(300)
 
-    const pr = await dbSvc.db.query.payoutRequests.findFirst({
-      where: eq(payoutRequests.id, payoutId),
+      const pr = await dbSvc.db.query.payoutRequests.findFirst({
+        where: eq(payoutRequests.id, payoutId),
+      })
+      expect(pr?.status).toBe('PAID')
     })
-    expect(pr?.status).toBe('PAID')
-  })
-
-  it('POST manual-confirm — ACCOUNTANT → 2xx (reaches handler, payout PAID)', async () => {
-    if (!dbAvailable) return
-    const payoutId = await seedPendingPayout()
-    const code = await manualConfirm(ACCOUNTANT, payoutId)
-    expect(code).toBeGreaterThanOrEqual(200)
-    expect(code).toBeLessThan(300)
-
-    const pr = await dbSvc.db.query.payoutRequests.findFirst({
-      where: eq(payoutRequests.id, payoutId),
-    })
-    expect(pr?.status).toBe('PAID')
-  })
-})
+  },
+)

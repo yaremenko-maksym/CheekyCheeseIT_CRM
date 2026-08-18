@@ -21,10 +21,10 @@
  *         against seeded telemetry_events.
  *   AC6 — rate-limit 429 on POST /api/telemetry/errors.
  *
- * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable or
- * the telemetry_errors table is missing (CI unit job / DB not yet pushed) —
- * every test bails early and stays green (same pattern as
- * vacancies.integration.spec.ts).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against the scratch DB:
  *   pnpm --filter @crm/api exec vitest run telemetry.integration
@@ -62,6 +62,7 @@ import {
 } from './telemetry-errors.service'
 import { TelemetryEventsService } from './telemetry-events.service'
 import { TelemetryExceptionFilter } from './telemetry-exception.filter'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 const JWT_SECRET = 'telemetry-integration-secret-32-chars!!'
 const DIGEST_TOKEN = 'telemetry-integration-real-digest-token-32chars!!'
@@ -121,8 +122,6 @@ const fakeConfigService = { get: (key: string) => fakeEnv[key] } as unknown as C
 // ---------------------------------------------------------------------------
 // TestDatabaseModule — same pattern as vacancies.integration.spec.ts.
 // ---------------------------------------------------------------------------
-
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -229,7 +228,7 @@ async function buildApp(): Promise<NestFastifyApplication> {
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('Telemetry — real backend integration', () => {
+describe.skipIf(!hasDatabaseUrl())('Telemetry — real backend integration', () => {
   let app: NestFastifyApplication
   let jwt: JwtService
   let dbSvc: DatabaseService
@@ -247,16 +246,12 @@ describe('Telemetry — real backend integration', () => {
       )
       await probePool.end()
       if (check.rowCount === 0) {
-        console.warn(
-          '[telemetry integration] SKIPPED — telemetry_errors table not found (run db:push)',
+        throw new Error(
+          '[telemetry integration] FAILED — telemetry_errors table not found (run db:push)',
         )
-        dbAvailable = false
-        return
       }
     } catch {
-      console.warn('[telemetry integration] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[telemetry integration] FAILED — no DB reachable at DATABASE_URL')
     }
 
     app = await buildApp()
@@ -281,7 +276,6 @@ describe('Telemetry — real backend integration', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       await dbSvc.db.execute('TRUNCATE TABLE telemetry_events, telemetry_errors RESTART IDENTITY')
       await dbSvc.db.delete(users).where(inArray(users.id, TEST_USER_IDS))
@@ -295,7 +289,6 @@ describe('Telemetry — real backend integration', () => {
 
   describe('AC2 — upsert grouping + RESOLVED→NEW regression', () => {
     it('3 identical error reports → 1 row, count=3', async () => {
-      if (!dbAvailable) return
       const payload = { message: `AC2 dedup test ${Date.now()}`, route: '/finance' }
 
       for (let i = 0; i < 3; i++) {
@@ -317,7 +310,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it('RESOLVED + repeat → flips back to NEW (regression)', async () => {
-      if (!dbAvailable) return
       const message = `AC2 regression test ${Date.now()}`
 
       await app.inject({
@@ -351,7 +343,6 @@ describe('Telemetry — real backend integration', () => {
 
   describe('AC4 — recursion guard', () => {
     it('an artificial error INSIDE /api/telemetry/* does NOT create a telemetry_errors row, and still returns a normal 5xx response', async () => {
-      if (!dbAvailable) return
       const [{ count: before }] = await dbSvc.db
         .execute<{ count: string }>('SELECT count(*)::text AS count FROM telemetry_errors')
         .then((r) => r.rows as { count: string }[])
@@ -377,7 +368,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it('an artificial error on a NORMAL (non-telemetry) route DOES create a telemetry_errors row', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({ method: 'GET', url: '/api/debug/debug-throw-normal' })
 
       expect(res.statusCode).toBe(500)
@@ -395,7 +385,6 @@ describe('Telemetry — real backend integration', () => {
 
   describe('AC5 — digest', () => {
     it('401 without a token', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/telemetry/digest?since=${encodeURIComponent(new Date(0).toISOString())}`,
@@ -404,7 +393,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it('401 with a wrong token', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'GET',
         url: `/api/telemetry/digest?since=${encodeURIComponent(new Date(0).toISOString())}`,
@@ -414,7 +402,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it('200 with the real token — returns a NEW error created earlier, then a repeat call with the same since does NOT duplicate it', async () => {
-      if (!dbAvailable) return
       const message = `AC5 digest test ${Date.now()}`
       await app.inject({
         method: 'POST',
@@ -451,7 +438,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it('ux=1 returns UX aggregates computed from seeded telemetry_events', async () => {
-      if (!dbAvailable) return
       const route = `/ux-test-route-${Date.now()}`
       const target = `ux-test-target-${Date.now()}`
 
@@ -523,7 +509,6 @@ describe('Telemetry — real backend integration', () => {
 
   describe('AC6 — rate limit', () => {
     it('POST /api/telemetry/errors — 11th request within the window is 429', async () => {
-      if (!dbAvailable) return
       let lastStatus = 0
       for (let i = 0; i < 11; i++) {
         const res = await app.inject({
@@ -555,17 +540,14 @@ describe('Telemetry — real backend integration', () => {
     let capApp: NestFastifyApplication
 
     beforeAll(async () => {
-      if (!dbAvailable) return
       capApp = await buildApp()
     }, 20_000)
 
     afterAll(async () => {
-      if (!dbAvailable) return
       await capApp.close()
     }, 20_000)
 
     it('AC1: at the row cap, a NEW fingerprint is refused (no row created) — the rejected occurrence never lands in telemetry_errors', async () => {
-      if (!dbAvailable) return
       const svc = capApp.get(TelemetryErrorsService)
       const spy = vi
         .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
@@ -593,7 +575,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it('AC1: at the row cap, count++ on an EXISTING fingerprint still works — the ONE signal we cannot afford to lose during a real mass-error incident', async () => {
-      if (!dbAvailable) return
       const message = `row-cap existing-fingerprint ${Date.now()}`
 
       // Create it normally FIRST, well under the (mocked) cap threshold.
@@ -632,7 +613,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it("AC2: the cap-reached signal is recorded with a FIXED message (never the rejected occurrence's own message)", async () => {
-      if (!dbAvailable) return
       const svc = capApp.get(TelemetryErrorsService)
       const spy = vi
         .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
@@ -659,7 +639,6 @@ describe('Telemetry — real backend integration', () => {
     })
 
     it('AC2: repeated cap-reached rejections dedupe into ONE row with a growing count — the signal never floods the table itself', async () => {
-      if (!dbAvailable) return
       const svc = capApp.get(TelemetryErrorsService)
       const spy = vi
         .spyOn(svc as unknown as { getApproxRowCount: () => Promise<number> }, 'getApproxRowCount')
@@ -701,7 +680,6 @@ describe('Telemetry — real backend integration', () => {
 
   describe('AC3/AC4 — digest select limit for telemetry_errors (task-telemetry-caps)', () => {
     it('returns at most TELEMETRY_ERRORS_DIGEST_LIMIT errors when N > limit rows match `since`, and the response shape is unchanged', async () => {
-      if (!dbAvailable) return
       // `since` captured BEFORE the fixture insert, and every fixture row
       // dated strictly AFTER it — isolates this assertion from any `NEW`
       // rows earlier tests in this file may have left behind.

@@ -32,6 +32,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import type { InvoicesService } from '../invoices/invoices.service'
 import { transactionAuditLog, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 // Far-future month: no live cron data or other spec can collide with it.
 const MONTH = '2099-11'
@@ -57,7 +58,6 @@ const stubInvoices = {
 } as unknown as InvoicesService
 
 let _pool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -102,7 +102,7 @@ class TestDatabaseModule {}
 })
 class ArchivedReceiverTestModule {}
 
-describe('salary — archived receiver barrier (E-1, real DB)', () => {
+describe.skipIf(!hasDatabaseUrl())('salary — archived receiver barrier (E-1, real DB)', () => {
   let svc: TransactionsService
   let dbSvc: DatabaseService
 
@@ -153,9 +153,7 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
       await probe.query('SELECT 1')
       await probe.end()
     } catch {
-      console.warn('[salary-archived-receiver] SKIPPED — no DB reachable at DATABASE_URL')
-      dbAvailable = false
-      return
+      throw new Error('[salary-archived-receiver] FAILED — no DB reachable at DATABASE_URL')
     }
 
     const moduleRef = await Test.createTestingModule({
@@ -211,7 +209,6 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
   }, 30_000)
 
   afterAll(async () => {
-    if (!dbAvailable) return
     try {
       await cleanup()
       await dbSvc.db.delete(users).where(inArray(users.id, MY_USER_IDS))
@@ -222,13 +219,10 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
   }, 15_000)
 
   beforeEach(async () => {
-    if (!dbAvailable) return
     await cleanup()
   })
 
   it('AC1: the cron pays the active employee and skips the archived ones', async () => {
-    if (!dbAvailable) return
-
     await svc.createMonthlySalaries(MONTH)
 
     expect(await salaryRowsFor(ACTIVE_HR_ID)).toHaveLength(1)
@@ -237,8 +231,6 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
   }, 30_000)
 
   it('AC2: createSalary refuses an archived receiver', async () => {
-    if (!dbAvailable) return
-
     await expect(
       svc.createSalary(
         { receiverId: ARCHIVED_HR_ID, amount: 1500, salaryMonth: MONTH },
@@ -250,8 +242,6 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
   }, 30_000)
 
   it('AC2: an already-accumulated PENDING salary of an archived receiver cannot be paid', async () => {
-    if (!dbAvailable) return
-
     // Insert the row the way the cron did BEFORE the filter existed — the exact
     // shape of the rows that may already sit on prod.
     const [row] = await dbSvc.db
@@ -289,8 +279,6 @@ describe('salary — archived receiver barrier (E-1, real DB)', () => {
   }, 30_000)
 
   it('MED-3: the in-write archival guard does NOT block an ACTIVE receiver’s payment', async () => {
-    if (!dbAvailable) return
-
     // The regression this guards against is the one MED-3's fix could itself
     // introduce. `salaryReceiverNotArchivedFilter` adds a correlated
     // `NOT EXISTS` to the UPDATE's WHERE; if the correlation were inverted (or

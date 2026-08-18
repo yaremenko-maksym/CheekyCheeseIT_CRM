@@ -18,9 +18,10 @@
  *     MED-3 — a REAL write failure (not garbage input) still responds 204,
  *       but is recorded into `telemetry_errors` with a FIXED message.
  *
- * DB-SKIP-GUARD: `dbAvailable = false` when DATABASE_URL is unreachable or
- * the `csp_reports` table is missing — every test bails early and stays
- * green (same pattern as telemetry.integration.spec.ts).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against the scratch DB:
  *   pnpm --filter @crm/api exec vitest run csp-reports.integration
@@ -49,6 +50,7 @@ import { ZodExceptionFilter } from '../zod-exception.filter'
 import { registerCspReportContentTypeParser } from './csp-report-content-type-parser'
 import { CSP_REPORT_WRITE_FAILURE_MESSAGE, CspReportsController } from './csp-reports.controller'
 import { CSP_REPORTS_CAP_REACHED_MESSAGE, CspReportsService } from './csp-reports.service'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 const DIGEST_TOKEN = 'csp-reports-integration-real-digest-token-32chars!!'
 /** Matches `FRONTEND_URL` below — every well-formed test payload's `document-uri` must be on THIS origin (HIGH-1d). */
@@ -60,8 +62,6 @@ const INGEST_FAILURE_MESSAGE = CSP_REPORT_WRITE_FAILURE_MESSAGE
 // contact.integration.spec.ts / telemetry.integration.spec.ts (this spec
 // builds TWO app instances: main + a rate-limit-dedicated one).
 // ---------------------------------------------------------------------------
-
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -173,17 +173,25 @@ async function buildApp(
   return app
 }
 
-async function probeDb(): Promise<boolean> {
+/**
+ * Throws if the `csp_reports` table is missing at DATABASE_URL. Deliberately
+ * does NOT catch connection errors — those propagate on their own, failing
+ * `beforeAll` loudly with Postgres's own error text instead of a silent skip.
+ */
+async function assertCspReportsTableExists(): Promise<void> {
+  const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
   try {
-    const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
     await probePool.query('SELECT 1')
     const check = await probePool.query(
       `SELECT table_name FROM information_schema.tables WHERE table_name='csp_reports' LIMIT 1`,
     )
+    if (check.rowCount === 0) {
+      throw new Error(
+        '[csp-reports integration] FAILED — csp_reports table not found at this DATABASE_URL (run db:push)',
+      )
+    }
+  } finally {
     await probePool.end()
-    return check.rowCount !== 0
-  } catch {
-    return false
   }
 }
 
@@ -191,18 +199,12 @@ async function probeDb(): Promise<boolean> {
 // Suite
 // ---------------------------------------------------------------------------
 
-describe('CSP Reports — real backend integration', () => {
+describe.skipIf(!hasDatabaseUrl())('CSP Reports — real backend integration', () => {
   let app: NestFastifyApplication
   let dbSvc: DatabaseService
 
   beforeAll(async () => {
-    dbAvailable = await probeDb()
-    if (!dbAvailable) {
-      console.warn(
-        '[csp-reports integration] SKIPPED — no DB reachable at DATABASE_URL, or csp_reports table missing (run db:push)',
-      )
-      return
-    }
+    await assertCspReportsTableExists()
 
     // Relax the REAL per-route @RelaxableThrottle(CSP_REPORT_LIMIT=60) for
     // every test EXCEPT the dedicated "rate limit" describe block below
@@ -222,7 +224,6 @@ describe('CSP Reports — real backend integration', () => {
 
   afterAll(async () => {
     delete process.env['THROTTLE_RELAXED']
-    if (!dbAvailable) return
     try {
       await dbSvc.db.execute('TRUNCATE TABLE csp_reports RESTART IDENTITY')
       await dbSvc.db
@@ -242,7 +243,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── AC2 — application/csp-report (report-uri) ────────────────────────────
 
   it('application/csp-report — 204, row created with normalized fields', async () => {
-    if (!dbAvailable) return
     // `effective-directive` MUST be a real, allow-listed CSP directive
     // (HIGH-1c) — per-test isolation now comes from a unique `blocked-uri`
     // segment instead (still free text).
@@ -279,7 +279,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── AC2 — application/reports+json (report-to) ────────────────────────────
 
   it('application/reports+json — 204, row created from a csp-violation entry, non-csp-violation entries ignored', async () => {
-    if (!dbAvailable) return
     const marker = `x-${Date.now()}`
     const res = await app.inject({
       method: 'POST',
@@ -313,7 +312,6 @@ describe('CSP Reports — real backend integration', () => {
 
   describe('AC2 — garbage input → 204, no record', () => {
     it('malformed JSON body (Content-Type matches, body is not valid JSON) → 204', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'POST',
         url: '/api/public/csp-report',
@@ -324,7 +322,6 @@ describe('CSP Reports — real backend integration', () => {
     })
 
     it('valid JSON but a completely unrelated shape (a bare number) → 204', async () => {
-      if (!dbAvailable) return
       const res = await app.inject({
         method: 'POST',
         url: '/api/public/csp-report',
@@ -335,7 +332,6 @@ describe('CSP Reports — real backend integration', () => {
     })
 
     it('csp-report with no usable directive → 204, no row created', async () => {
-      if (!dbAvailable) return
       const marker = `no-directive-marker-${Date.now()}`
       const res = await app.inject({
         method: 'POST',
@@ -357,7 +353,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── Security round 1 HIGH-1d — origin check (the mass-reflection vector) ──
 
   it('a document-uri from a FOREIGN origin is dropped → 204, no row created', async () => {
-    if (!dbAvailable) return
     const marker = `foreign-origin-marker-${Date.now()}`
     const res = await app.inject({
       method: 'POST',
@@ -382,7 +377,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── Security round 1 HIGH-1e — batch cap (Zod .max(10)) ───────────────────
 
   it('a reports+json batch over 10 entries is rejected wholesale → 204, no rows created', async () => {
-    if (!dbAvailable) return
     const marker = `batch-cap-marker-${Date.now()}`
     const items = Array.from({ length: 11 }, (_, i) => ({
       type: 'csp-violation',
@@ -409,7 +403,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── LOW — 32 KB parser-level body limit (separate from the global limit) ─
 
   it('a body over the 32 KB parser limit is rejected with 413', async () => {
-    if (!dbAvailable) return
     const oversized = JSON.stringify({
       'csp-report': {
         'document-uri': `${OUR_ORIGIN}/x`,
@@ -431,7 +424,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── AC3 — dedup: 3 identical reports → 1 row, count=3 ─────────────────────
 
   it('AC3 — 3 identical csp-report submissions → 1 row, count=3', async () => {
-    if (!dbAvailable) return
     const marker = `dedup-${Date.now()}`
     const body = JSON.stringify({
       'csp-report': {
@@ -459,7 +451,6 @@ describe('CSP Reports — real backend integration', () => {
   })
 
   it('MED-2 — a conflicting submission does NOT overwrite disposition/userAgent (data-poisoning guard)', async () => {
-    if (!dbAvailable) return
     const marker = `no-overwrite-${Date.now()}`
     const blockedUri = `https://evil.example/${marker}.js`
     const documentUri = `${OUR_ORIGIN}/no-overwrite`
@@ -506,7 +497,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── Security round 1 MED-3 — write failure IS observable (unlike garbage) ─
 
   it('a REAL write failure still responds 204, but is recorded into telemetry_errors with a FIXED message', async () => {
-    if (!dbAvailable) return
     const svc = app.get(CspReportsService)
     const spy = vi
       .spyOn(svc, 'recordViolation')
@@ -544,7 +534,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── Security round 2 MED-residual — cap exhaustion IS observable too ────
 
   it('a row-cap rejection still responds 204, but is recorded into telemetry_errors with a FIXED message (distinct from the write-failure one)', async () => {
-    if (!dbAvailable) return
     const svc = app.get(CspReportsService)
     // Forces the cap branch without actually inserting CSP_REPORTS_ROW_CAP
     // rows — `getApproxRowCount` is the ONE call `recordViolation` makes to
@@ -588,7 +577,6 @@ describe('CSP Reports — real backend integration', () => {
   // ── AC4 — digest visibility ────────────────────────────────────────────
 
   it('AC4 — a recorded violation appears in GET /api/telemetry/digest cspViolations, with cspViolationsTotal reflecting the match count', async () => {
-    if (!dbAvailable) return
     const marker = `digest-visible-${Date.now()}`
     await app.inject({
       method: 'POST',
@@ -624,7 +612,6 @@ describe('CSP Reports — real backend integration', () => {
 
   describe('AC2 — rate limit (429 once CSP_REPORT_LIMIT/60/hour is exceeded)', () => {
     it('returns 429 once the real per-endpoint cap is exceeded within the window', async () => {
-      if (!dbAvailable) return
       const previousRelaxed = process.env['THROTTLE_RELAXED']
       process.env['THROTTLE_RELAXED'] = 'false'
       const rlApp = await buildApp(1_000)

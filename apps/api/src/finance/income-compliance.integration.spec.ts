@@ -21,6 +21,7 @@ import { makeTransactionsService } from './__test-helpers__/make-transactions-se
 import { TransactionsService } from './transactions.service'
 import { projects, transactions, users } from '../database/schema'
 import * as schema from '../database/schema'
+import { hasDatabaseUrl } from '../test/require-real-db'
 
 /**
  * Income compliance — «Контроль приходов» real-backend integration spec (real
@@ -44,9 +45,10 @@ import * as schema from '../database/schema'
  * describe block asserts the SHIPPING controller carries the identical gate
  * metadata.
  *
- * DB-SKIP-GUARD: dbAvailable=false when DATABASE_URL unreachable OR the
- * `projects` table is absent → every test returns early and stays green (so the
- * CI unit job without a DB is unaffected).
+ * DB-SKIP-GUARD:
+ *   describe.skipIf(!hasDatabaseUrl()) when DATABASE_URL is unset (reports
+ *   SKIPPED). A DATABASE_URL that IS set but unusable throws in beforeAll
+ *   (reports FAILED). Neither case can look like "passed" with zero assertions.
  *
  * Run against the scratch crm_qa DB (NEVER the live crm_db — guard #233 also
  * blocks crm_db locally). vitest auto-loads apps/api/.env.test (→ crm_qa) for
@@ -329,7 +331,6 @@ class SentinelFinanceController {
 
 // ── TestDatabaseModule (real Pool) ──────────────────────────────────────────
 let _testPool: Pool | null = null
-let dbAvailable = true
 
 @Global()
 @Module({
@@ -390,697 +391,680 @@ class TestDatabaseModule {}
 class IncomeComplianceTestModule {}
 
 // ── Suite ───────────────────────────────────────────────────────────────────
-describe('income-compliance — real backend integration (real DB, no mocks)', () => {
-  let app: NestFastifyApplication
-  let jwt: JwtService
-  let dbSvc: DatabaseService
+describe.skipIf(!hasDatabaseUrl())(
+  'income-compliance — real backend integration (real DB, no mocks)',
+  () => {
+    let app: NestFastifyApplication
+    let jwt: JwtService
+    let dbSvc: DatabaseService
 
-  const now = new Date()
-  const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
-  const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
+    const now = new Date()
+    const thisMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 15))
+    const lastMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 15))
 
-  async function cleanup(db: DatabaseService['db']): Promise<void> {
-    await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
-    await db.delete(projects).where(inArray(projects.id, TEST_PROJECT_IDS))
-    await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
-  }
+    async function cleanup(db: DatabaseService['db']): Promise<void> {
+      await db.delete(transactions).where(inArray(transactions.id, TEST_TX_IDS))
+      await db.delete(projects).where(inArray(projects.id, TEST_PROJECT_IDS))
+      await db.delete(users).where(inArray(users.id, TEST_USER_IDS))
+    }
 
-  beforeAll(async () => {
-    try {
-      const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
-      await probePool.query('SELECT 1')
-      const schemaCheck = await probePool.query(
-        `SELECT table_name FROM information_schema.tables
+    beforeAll(async () => {
+      try {
+        const probePool = new Pool({ connectionString: process.env['DATABASE_URL'] })
+        await probePool.query('SELECT 1')
+        const schemaCheck = await probePool.query(
+          `SELECT table_name FROM information_schema.tables
          WHERE table_name='projects' LIMIT 1`,
-      )
-      await probePool.end()
-      if (schemaCheck.rowCount === 0) {
-        console.warn('[income-compliance integration] SKIPPED — projects table not found')
-        dbAvailable = false
-        return
+        )
+        await probePool.end()
+        if (schemaCheck.rowCount === 0) {
+          throw new Error('[income-compliance integration] FAILED — projects table not found')
+        }
+      } catch {
+        throw new Error(
+          '[income-compliance integration] FAILED — no DB reachable at DATABASE_URL (expected in CI unit job)',
+        )
       }
-    } catch {
-      console.warn(
-        '[income-compliance integration] SKIPPED — no DB reachable at DATABASE_URL (expected in CI unit job)',
-      )
-      dbAvailable = false
-      return
+
+      const moduleRef = await Test.createTestingModule({
+        imports: [IncomeComplianceTestModule],
+      }).compile()
+
+      app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
+      await app.register(cookie, { secret: 'income-compliance-integration-cookie-secret' })
+      app.setGlobalPrefix('api')
+      await app.init()
+      await app.getHttpAdapter().getInstance().ready()
+
+      jwt = moduleRef.get(JwtService)
+      dbSvc = app.get(DatabaseService)
+      const db = dbSvc.db
+
+      await cleanup(db)
+
+      // ── Seed users ──────────────────────────────────────────────────────────
+      await db
+        .insert(users)
+        .values(
+          [
+            ADMIN,
+            ADMIN_OWNER,
+            SENIOR_LAG,
+            SENIOR_DONE,
+            JUNIOR,
+            HR,
+            ACCOUNTANT,
+            DROP,
+            SENIOR_ACCRUED,
+            DROP_ACCRUED,
+            DROP_SETTLED,
+            ORPHAN,
+            SENIOR_SILENT,
+            DROP_PREVIOUS_OWNER,
+            DROP_NEW_OWNER,
+            SENIOR_PAYOUT_REQUESTED,
+          ].map((u) => ({
+            id: u.id,
+            email: u.email,
+            displayName: u.displayName,
+            role: u.role,
+            seniorSharePercent: u.seniorSharePercent,
+            googleId: `test-google-${u.id}`,
+          })),
+        )
+        .onConflictDoNothing()
+
+      // ── Seed projects ─────────────────────────────────────────────────────────
+      await db.insert(projects).values([
+        {
+          id: PROJ_LAG_SUBMITTED,
+          name: 'Lag Submitted',
+          companyName: 'Acme Lag1',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_LAG.id,
+          rate: 50,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_LAG_MISSING,
+          name: 'Lag Missing',
+          companyName: 'Globex Lag2',
+          domain: 'EdTech',
+          startDate: lastMonth,
+          seniorId: SENIOR_LAG.id,
+          rate: 40,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_DONE,
+          name: 'Done Project',
+          companyName: 'Initech Done',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_DONE.id,
+          rate: 60,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_ADMIN,
+          name: 'Admin Project',
+          companyName: 'AdminCo',
+          domain: 'E-Commerce',
+          startDate: lastMonth,
+          seniorId: ADMIN_OWNER.id,
+          rate: 70,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_ARCHIVED,
+          name: 'Archived Project',
+          companyName: 'Dead Arch',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_LAG.id,
+          rate: 30,
+          archivedAt: thisMonth,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_DROP,
+          name: 'Drop Project',
+          companyName: 'DropCo',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_DONE.id,
+          dropId: DROP.id,
+          rate: 55,
+          createdAt: lastMonth,
+        },
+        // task-compliance-overview-pending-types — obligation-model projects.
+        {
+          id: PROJ_SENIOR_ACCRUED,
+          name: 'Senior Accrued Project',
+          companyName: 'Accrual Co',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_ACCRUED.id,
+          rate: 45,
+          createdAt: lastMonth,
+        },
+        {
+          id: PROJ_DROP_ACCRUED,
+          name: 'Drop Accrued Project',
+          companyName: 'Accrual Drop Co',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_SILENT.id,
+          dropId: DROP_ACCRUED.id,
+          rate: 45,
+          createdAt: lastMonth,
+        },
+        {
+          // Reproduces the reported prod symptom: a USDT project whose DROP
+          // share was booked AND paid — `settleByCompany` flips the SAME row in
+          // place to PAYOUT_DROP/PAID, never a DROP_INCOME (impossible here).
+          id: PROJ_DROP_SETTLED,
+          name: 'GamingTec',
+          companyName: 'GamingTec LLC',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_SILENT.id,
+          dropId: DROP_SETTLED.id,
+          rate: 45,
+          createdAt: lastMonth,
+        },
+        {
+          // security-review PR #531 (MED-1) — dropId is CURRENTLY DROP_NEW_OWNER;
+          // a stray DROP_PENDING_PAYOUT row (seeded below) still carries
+          // receiverId=DROP_PREVIOUS_OWNER, simulating a mid-month reassignment.
+          id: PROJ_REASSIGNED,
+          name: 'Reassigned Project',
+          companyName: 'Reassign Co',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_SILENT.id,
+          dropId: DROP_NEW_OWNER.id,
+          rate: 45,
+          createdAt: lastMonth,
+        },
+        {
+          // security-review PR #531 (MED-2) — SENIOR_PAYOUT_REQUESTED's income
+          // is VALIDATED but currently PENDING_PAYMENT (payout requested).
+          id: PROJ_PAYOUT_REQUESTED,
+          name: 'Payout Requested Project',
+          companyName: 'Payout Co',
+          domain: 'AI',
+          startDate: lastMonth,
+          seniorId: SENIOR_PAYOUT_REQUESTED.id,
+          rate: 45,
+          createdAt: lastMonth,
+        },
+      ])
+
+      // ── Seed income transactions ────────────────────────────────────────────
+      await db.insert(transactions).values([
+        {
+          // SENIOR_LAG: PROJ_LAG_SUBMITTED VALIDATED this month → counted.
+          id: TX_LAG_VALIDATED,
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '1000',
+          currency: 'USD',
+          receiverId: SENIOR_LAG.id,
+          projectId: PROJ_LAG_SUBMITTED,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR_LAG.id,
+        },
+        {
+          // SENIOR_LAG: PROJ_LAG_MISSING only PENDING this month → NOT counted,
+          // pendingValidation badge.
+          id: TX_LAG_PENDING,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING',
+          amount: '500',
+          currency: 'USD',
+          receiverId: SENIOR_LAG.id,
+          projectId: PROJ_LAG_MISSING,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR_LAG.id,
+        },
+        {
+          // SENIOR_DONE: PROJ_DONE VALIDATED → 1/1.
+          id: TX_DONE_VALIDATED,
+          type: 'SENIOR_INCOME',
+          status: 'VALIDATED',
+          amount: '2000',
+          currency: 'USD',
+          receiverId: SENIOR_DONE.id,
+          projectId: PROJ_DONE,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR_DONE.id,
+        },
+        {
+          // ADMIN_OWNER: PROJ_ADMIN ADMIN_INCOME PAID → 1/1.
+          id: TX_ADMIN_PAID,
+          type: 'ADMIN_INCOME',
+          status: 'PAID',
+          amount: '3000',
+          currency: 'USD',
+          receiverId: ADMIN_OWNER.id,
+          projectId: PROJ_ADMIN,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN_OWNER.id,
+        },
+        {
+          // DROP: PROJ_DROP DROP_INCOME VALIDATED → DROP 1/1. The senior owner
+          // (SENIOR_DONE) of the same project gets NO SENIOR_INCOME here → so
+          // SENIOR_DONE has PROJ_DROP as a missing project (income type mismatch).
+          id: TX_DROP_VALIDATED,
+          type: 'DROP_INCOME',
+          status: 'VALIDATED',
+          amount: '800',
+          currency: 'USD',
+          receiverId: DROP.id,
+          projectId: PROJ_DROP,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: DROP.id,
+        },
+        // task-compliance-overview-pending-types — obligation-model rows.
+        {
+          // SENIOR_ACCRUED: booked by the ADMIN's USDT declaration, NOT yet paid
+          // out by the company → accrued, NOT submitted, NOT the red false alarm.
+          id: TX_SENIOR_ACCRUED,
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '234.5',
+          currency: 'USDT',
+          senderLabel: 'COMPANY',
+          receiverId: SENIOR_ACCRUED.id,
+          projectId: PROJ_SENIOR_ACCRUED,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+        {
+          // DROP_ACCRUED: symmetric — booked, not yet paid.
+          id: TX_DROP_ACCRUED,
+          type: 'DROP_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '40.02',
+          currency: 'USDT',
+          senderLabel: 'COMPANY',
+          receiverId: DROP_ACCRUED.id,
+          projectId: PROJ_DROP_ACCRUED,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+        {
+          // DROP_SETTLED: the reported prod symptom — `settleByCompany` flips a
+          // DROP_PENDING_PAYOUT row IN PLACE to PAYOUT_DROP/PAID (never a second
+          // row, never a DROP_INCOME row). Must count as submitted, 1/1.
+          id: TX_DROP_SETTLED,
+          type: 'PAYOUT_DROP',
+          status: 'PAID',
+          amount: '10563.00',
+          currency: 'UAH',
+          originalAmount: '235.4345',
+          originalCurrency: 'USDT',
+          exchangeRate: '44.86598183',
+          senderLabel: 'COMPANY',
+          receiverId: DROP_SETTLED.id,
+          projectId: PROJ_DROP_SETTLED,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+        {
+          // AC3 regression guard: a stray obligation-shaped row whose
+          // `receiverId` is ORPHAN (who owns NO active project), attached to
+          // PROJ_ADMIN — a project ADMIN_OWNER owns, whose receiver evidence
+          // types are ADMIN_INCOME ONLY (ADMIN never gets an obligation type).
+          // This row must be invisible to the aggregation entirely: it neither
+          // creates an ORPHAN receiver nor perturbs ADMIN_OWNER's 1/1.
+          id: TX_ORPHAN_STRAY,
+          type: 'SENIOR_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '99',
+          currency: 'USDT',
+          senderLabel: 'COMPANY',
+          receiverId: ORPHAN.id,
+          projectId: PROJ_ADMIN,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+        {
+          // security-review PR #531 (MED-1) — real-DB regression: same TYPE,
+          // same PROJECT, but receiverId is the project's PREVIOUS drop owner,
+          // not its CURRENT one (PROJ_REASSIGNED.dropId = DROP_NEW_OWNER).
+          // Evidence must be keyed by receiver, not just project+type — this row
+          // must be invisible to DROP_NEW_OWNER's evaluation.
+          id: TX_REASSIGNED_STRAY,
+          type: 'DROP_PENDING_PAYOUT',
+          status: 'PENDING_PAYMENT',
+          amount: '50',
+          currency: 'USDT',
+          senderLabel: 'COMPANY',
+          receiverId: DROP_PREVIOUS_OWNER.id,
+          projectId: PROJ_REASSIGNED,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: ADMIN.id,
+        },
+        {
+          // security-review PR #531 (MED-2) — real-DB regression: a VALIDATED
+          // self-declare SENIOR_INCOME flipped to PENDING_PAYMENT by
+          // createPayoutRequest (payout requested). Must count as submitted —
+          // the income was already earned, this is not a company obligation.
+          id: TX_PAYOUT_REQUESTED,
+          type: 'SENIOR_INCOME',
+          status: 'PENDING_PAYMENT',
+          amount: '1200',
+          currency: 'USD',
+          receiverId: SENIOR_PAYOUT_REQUESTED.id,
+          projectId: PROJ_PAYOUT_REQUESTED,
+          txDate: thisMonth,
+          createdAt: thisMonth,
+          createdBy: SENIOR_PAYOUT_REQUESTED.id,
+        },
+      ])
+    }, 30_000)
+
+    afterAll(async () => {
+      try {
+        await cleanup(dbSvc.db)
+      } catch {
+        // non-fatal
+      }
+      await app.close()
+    }, 15_000)
+
+    function tokenFor(user: SessionUser): string {
+      return jwt.sign(user)
     }
 
-    const moduleRef = await Test.createTestingModule({
-      imports: [IncomeComplianceTestModule],
-    }).compile()
-
-    app = moduleRef.createNestApplication<NestFastifyApplication>(new FastifyAdapter())
-    await app.register(cookie, { secret: 'income-compliance-integration-cookie-secret' })
-    app.setGlobalPrefix('api')
-    await app.init()
-    await app.getHttpAdapter().getInstance().ready()
-
-    jwt = moduleRef.get(JwtService)
-    dbSvc = app.get(DatabaseService)
-    const db = dbSvc.db
-
-    await cleanup(db)
-
-    // ── Seed users ──────────────────────────────────────────────────────────
-    await db
-      .insert(users)
-      .values(
-        [
-          ADMIN,
-          ADMIN_OWNER,
-          SENIOR_LAG,
-          SENIOR_DONE,
-          JUNIOR,
-          HR,
-          ACCOUNTANT,
-          DROP,
-          SENIOR_ACCRUED,
-          DROP_ACCRUED,
-          DROP_SETTLED,
-          ORPHAN,
-          SENIOR_SILENT,
-          DROP_PREVIOUS_OWNER,
-          DROP_NEW_OWNER,
-          SENIOR_PAYOUT_REQUESTED,
-        ].map((u) => ({
-          id: u.id,
-          email: u.email,
-          displayName: u.displayName,
-          role: u.role,
-          seniorSharePercent: u.seniorSharePercent,
-          googleId: `test-google-${u.id}`,
-        })),
-      )
-      .onConflictDoNothing()
-
-    // ── Seed projects ─────────────────────────────────────────────────────────
-    await db.insert(projects).values([
-      {
-        id: PROJ_LAG_SUBMITTED,
-        name: 'Lag Submitted',
-        companyName: 'Acme Lag1',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_LAG.id,
-        rate: 50,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_LAG_MISSING,
-        name: 'Lag Missing',
-        companyName: 'Globex Lag2',
-        domain: 'EdTech',
-        startDate: lastMonth,
-        seniorId: SENIOR_LAG.id,
-        rate: 40,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_DONE,
-        name: 'Done Project',
-        companyName: 'Initech Done',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_DONE.id,
-        rate: 60,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_ADMIN,
-        name: 'Admin Project',
-        companyName: 'AdminCo',
-        domain: 'E-Commerce',
-        startDate: lastMonth,
-        seniorId: ADMIN_OWNER.id,
-        rate: 70,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_ARCHIVED,
-        name: 'Archived Project',
-        companyName: 'Dead Arch',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_LAG.id,
-        rate: 30,
-        archivedAt: thisMonth,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_DROP,
-        name: 'Drop Project',
-        companyName: 'DropCo',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_DONE.id,
-        dropId: DROP.id,
-        rate: 55,
-        createdAt: lastMonth,
-      },
-      // task-compliance-overview-pending-types — obligation-model projects.
-      {
-        id: PROJ_SENIOR_ACCRUED,
-        name: 'Senior Accrued Project',
-        companyName: 'Accrual Co',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_ACCRUED.id,
-        rate: 45,
-        createdAt: lastMonth,
-      },
-      {
-        id: PROJ_DROP_ACCRUED,
-        name: 'Drop Accrued Project',
-        companyName: 'Accrual Drop Co',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_SILENT.id,
-        dropId: DROP_ACCRUED.id,
-        rate: 45,
-        createdAt: lastMonth,
-      },
-      {
-        // Reproduces the reported prod symptom: a USDT project whose DROP
-        // share was booked AND paid — `settleByCompany` flips the SAME row in
-        // place to PAYOUT_DROP/PAID, never a DROP_INCOME (impossible here).
-        id: PROJ_DROP_SETTLED,
-        name: 'GamingTec',
-        companyName: 'GamingTec LLC',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_SILENT.id,
-        dropId: DROP_SETTLED.id,
-        rate: 45,
-        createdAt: lastMonth,
-      },
-      {
-        // security-review PR #531 (MED-1) — dropId is CURRENTLY DROP_NEW_OWNER;
-        // a stray DROP_PENDING_PAYOUT row (seeded below) still carries
-        // receiverId=DROP_PREVIOUS_OWNER, simulating a mid-month reassignment.
-        id: PROJ_REASSIGNED,
-        name: 'Reassigned Project',
-        companyName: 'Reassign Co',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_SILENT.id,
-        dropId: DROP_NEW_OWNER.id,
-        rate: 45,
-        createdAt: lastMonth,
-      },
-      {
-        // security-review PR #531 (MED-2) — SENIOR_PAYOUT_REQUESTED's income
-        // is VALIDATED but currently PENDING_PAYMENT (payout requested).
-        id: PROJ_PAYOUT_REQUESTED,
-        name: 'Payout Requested Project',
-        companyName: 'Payout Co',
-        domain: 'AI',
-        startDate: lastMonth,
-        seniorId: SENIOR_PAYOUT_REQUESTED.id,
-        rate: 45,
-        createdAt: lastMonth,
-      },
-    ])
-
-    // ── Seed income transactions ────────────────────────────────────────────
-    await db.insert(transactions).values([
-      {
-        // SENIOR_LAG: PROJ_LAG_SUBMITTED VALIDATED this month → counted.
-        id: TX_LAG_VALIDATED,
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '1000',
-        currency: 'USD',
-        receiverId: SENIOR_LAG.id,
-        projectId: PROJ_LAG_SUBMITTED,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR_LAG.id,
-      },
-      {
-        // SENIOR_LAG: PROJ_LAG_MISSING only PENDING this month → NOT counted,
-        // pendingValidation badge.
-        id: TX_LAG_PENDING,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING',
-        amount: '500',
-        currency: 'USD',
-        receiverId: SENIOR_LAG.id,
-        projectId: PROJ_LAG_MISSING,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR_LAG.id,
-      },
-      {
-        // SENIOR_DONE: PROJ_DONE VALIDATED → 1/1.
-        id: TX_DONE_VALIDATED,
-        type: 'SENIOR_INCOME',
-        status: 'VALIDATED',
-        amount: '2000',
-        currency: 'USD',
-        receiverId: SENIOR_DONE.id,
-        projectId: PROJ_DONE,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR_DONE.id,
-      },
-      {
-        // ADMIN_OWNER: PROJ_ADMIN ADMIN_INCOME PAID → 1/1.
-        id: TX_ADMIN_PAID,
-        type: 'ADMIN_INCOME',
-        status: 'PAID',
-        amount: '3000',
-        currency: 'USD',
-        receiverId: ADMIN_OWNER.id,
-        projectId: PROJ_ADMIN,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN_OWNER.id,
-      },
-      {
-        // DROP: PROJ_DROP DROP_INCOME VALIDATED → DROP 1/1. The senior owner
-        // (SENIOR_DONE) of the same project gets NO SENIOR_INCOME here → so
-        // SENIOR_DONE has PROJ_DROP as a missing project (income type mismatch).
-        id: TX_DROP_VALIDATED,
-        type: 'DROP_INCOME',
-        status: 'VALIDATED',
-        amount: '800',
-        currency: 'USD',
-        receiverId: DROP.id,
-        projectId: PROJ_DROP,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: DROP.id,
-      },
-      // task-compliance-overview-pending-types — obligation-model rows.
-      {
-        // SENIOR_ACCRUED: booked by the ADMIN's USDT declaration, NOT yet paid
-        // out by the company → accrued, NOT submitted, NOT the red false alarm.
-        id: TX_SENIOR_ACCRUED,
-        type: 'SENIOR_PENDING_PAYOUT',
-        status: 'PENDING_PAYMENT',
-        amount: '234.5',
-        currency: 'USDT',
-        senderLabel: 'COMPANY',
-        receiverId: SENIOR_ACCRUED.id,
-        projectId: PROJ_SENIOR_ACCRUED,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-      {
-        // DROP_ACCRUED: symmetric — booked, not yet paid.
-        id: TX_DROP_ACCRUED,
-        type: 'DROP_PENDING_PAYOUT',
-        status: 'PENDING_PAYMENT',
-        amount: '40.02',
-        currency: 'USDT',
-        senderLabel: 'COMPANY',
-        receiverId: DROP_ACCRUED.id,
-        projectId: PROJ_DROP_ACCRUED,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-      {
-        // DROP_SETTLED: the reported prod symptom — `settleByCompany` flips a
-        // DROP_PENDING_PAYOUT row IN PLACE to PAYOUT_DROP/PAID (never a second
-        // row, never a DROP_INCOME row). Must count as submitted, 1/1.
-        id: TX_DROP_SETTLED,
-        type: 'PAYOUT_DROP',
-        status: 'PAID',
-        amount: '10563.00',
-        currency: 'UAH',
-        originalAmount: '235.4345',
-        originalCurrency: 'USDT',
-        exchangeRate: '44.86598183',
-        senderLabel: 'COMPANY',
-        receiverId: DROP_SETTLED.id,
-        projectId: PROJ_DROP_SETTLED,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-      {
-        // AC3 regression guard: a stray obligation-shaped row whose
-        // `receiverId` is ORPHAN (who owns NO active project), attached to
-        // PROJ_ADMIN — a project ADMIN_OWNER owns, whose receiver evidence
-        // types are ADMIN_INCOME ONLY (ADMIN never gets an obligation type).
-        // This row must be invisible to the aggregation entirely: it neither
-        // creates an ORPHAN receiver nor perturbs ADMIN_OWNER's 1/1.
-        id: TX_ORPHAN_STRAY,
-        type: 'SENIOR_PENDING_PAYOUT',
-        status: 'PENDING_PAYMENT',
-        amount: '99',
-        currency: 'USDT',
-        senderLabel: 'COMPANY',
-        receiverId: ORPHAN.id,
-        projectId: PROJ_ADMIN,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-      {
-        // security-review PR #531 (MED-1) — real-DB regression: same TYPE,
-        // same PROJECT, but receiverId is the project's PREVIOUS drop owner,
-        // not its CURRENT one (PROJ_REASSIGNED.dropId = DROP_NEW_OWNER).
-        // Evidence must be keyed by receiver, not just project+type — this row
-        // must be invisible to DROP_NEW_OWNER's evaluation.
-        id: TX_REASSIGNED_STRAY,
-        type: 'DROP_PENDING_PAYOUT',
-        status: 'PENDING_PAYMENT',
-        amount: '50',
-        currency: 'USDT',
-        senderLabel: 'COMPANY',
-        receiverId: DROP_PREVIOUS_OWNER.id,
-        projectId: PROJ_REASSIGNED,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: ADMIN.id,
-      },
-      {
-        // security-review PR #531 (MED-2) — real-DB regression: a VALIDATED
-        // self-declare SENIOR_INCOME flipped to PENDING_PAYMENT by
-        // createPayoutRequest (payout requested). Must count as submitted —
-        // the income was already earned, this is not a company obligation.
-        id: TX_PAYOUT_REQUESTED,
-        type: 'SENIOR_INCOME',
-        status: 'PENDING_PAYMENT',
-        amount: '1200',
-        currency: 'USD',
-        receiverId: SENIOR_PAYOUT_REQUESTED.id,
-        projectId: PROJ_PAYOUT_REQUESTED,
-        txDate: thisMonth,
-        createdAt: thisMonth,
-        createdBy: SENIOR_PAYOUT_REQUESTED.id,
-      },
-    ])
-  }, 30_000)
-
-  afterAll(async () => {
-    if (!dbAvailable) return
-    try {
-      await cleanup(dbSvc.db)
-    } catch {
-      // non-fatal
-    }
-    await app.close()
-  }, 15_000)
-
-  function tokenFor(user: SessionUser): string {
-    return jwt.sign(user)
-  }
-
-  async function overviewAs(user: SessionUser): Promise<IncomeComplianceOverviewDto> {
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/finance/income-compliance',
-      cookies: { jwt: tokenFor(user) },
-    })
-    return incomeComplianceOverviewSchema.parse(res.json())
-  }
-
-  // ── RBAC (AC4) ──────────────────────────────────────────────────────────────
-  const forbidden: Array<[string, SessionUser]> = [
-    ['SENIOR', SENIOR_LAG],
-    ['JUNIOR', JUNIOR],
-    ['HR', HR],
-    ['DROP', DROP],
-  ]
-  for (const [label, persona] of forbidden) {
-    it(`RBAC: ${label} → 403`, async () => {
-      if (!dbAvailable) return
+    async function overviewAs(user: SessionUser): Promise<IncomeComplianceOverviewDto> {
       const res = await app.inject({
         method: 'GET',
         url: '/api/finance/income-compliance',
-        cookies: { jwt: tokenFor(persona) },
+        cookies: { jwt: tokenFor(user) },
       })
-      expect(res.statusCode).toBe(403)
+      return incomeComplianceOverviewSchema.parse(res.json())
+    }
+
+    // ── RBAC (AC4) ──────────────────────────────────────────────────────────────
+    const forbidden: Array<[string, SessionUser]> = [
+      ['SENIOR', SENIOR_LAG],
+      ['JUNIOR', JUNIOR],
+      ['HR', HR],
+      ['DROP', DROP],
+    ]
+    for (const [label, persona] of forbidden) {
+      it(`RBAC: ${label} → 403`, async () => {
+        const res = await app.inject({
+          method: 'GET',
+          url: '/api/finance/income-compliance',
+          cookies: { jwt: tokenFor(persona) },
+        })
+        expect(res.statusCode).toBe(403)
+      })
+    }
+
+    it('RBAC: ADMIN → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/finance/income-compliance',
+        cookies: { jwt: tokenFor(ADMIN) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-  }
 
-  it('RBAC: ADMIN → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/finance/income-compliance',
-      cookies: { jwt: tokenFor(ADMIN) },
+    it('RBAC: ACCOUNTANT → 200', async () => {
+      const res = await app.inject({
+        method: 'GET',
+        url: '/api/finance/income-compliance',
+        cookies: { jwt: tokenFor(ACCOUNTANT) },
+      })
+      expect(res.statusCode).toBe(200)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('RBAC: ACCOUNTANT → 200', async () => {
-    if (!dbAvailable) return
-    const res = await app.inject({
-      method: 'GET',
-      url: '/api/finance/income-compliance',
-      cookies: { jwt: tokenFor(ACCOUNTANT) },
+    it('ADMIN and ACCOUNTANT see the IDENTICAL overview (same company-wide list)', async () => {
+      const a = await overviewAs(ADMIN)
+      const b = await overviewAs(ACCOUNTANT)
+      expect(a).toEqual(b)
     })
-    expect(res.statusCode).toBe(200)
-  })
 
-  it('ADMIN and ACCOUNTANT see the IDENTICAL overview (same company-wide list)', async () => {
-    if (!dbAvailable) return
-    const a = await overviewAs(ADMIN)
-    const b = await overviewAs(ACCOUNTANT)
-    expect(a).toEqual(b)
-  })
-
-  // ── X/N correctness (AC1/AC2/AC3) ─────────────────────────────────────────────
-  it('SENIOR_LAG: 1/2 — only the VALIDATED project counted; PENDING is a badge', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const lag = r.receivers.find((x) => x.userId === SENIOR_LAG.id)!
-    expect(lag.role).toBe('SENIOR')
-    expect(lag.expected).toBe(2) // archived project excluded from N (AC3)
-    expect(lag.submitted).toBe(1)
-    expect(lag.pendingCount).toBe(1)
-    const missing = lag.missingProjects
-    expect(missing).toHaveLength(1)
-    expect(missing[0]).toMatchObject({ projectId: PROJ_LAG_MISSING, pendingValidation: true })
-  })
-
-  it('archived project is NOT in the receiver denominator (AC3)', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const lag = r.receivers.find((x) => x.userId === SENIOR_LAG.id)!
-    const ids = lag.missingProjects.map((p) => p.projectId)
-    expect(ids).not.toContain(PROJ_ARCHIVED)
-    expect(lag.expected).toBe(2)
-  })
-
-  it('SENIOR_DONE: PROJ_DONE counted (1) but PROJ_DROP missing (no SENIOR_INCOME) → 1/2', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const done = r.receivers.find((x) => x.userId === SENIOR_DONE.id)!
-    expect(done.expected).toBe(2) // PROJ_DONE + PROJ_DROP (both active, senior = SENIOR_DONE)
-    expect(done.submitted).toBe(1) // only PROJ_DONE has a SENIOR_INCOME
-    const ids = done.missingProjects.map((p) => p.projectId)
-    expect(ids).toContain(PROJ_DROP)
-  })
-
-  it('ADMIN-as-senior: ADMIN_INCOME PAID counts → 1/1, role ADMIN_SENIOR', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const adminOwner = r.receivers.find((x) => x.userId === ADMIN_OWNER.id)!
-    expect(adminOwner.role).toBe('ADMIN_SENIOR')
-    expect(adminOwner.expected).toBe(1)
-    expect(adminOwner.submitted).toBe(1)
-    expect(adminOwner.missingProjects).toHaveLength(0)
-  })
-
-  it('DROP receiver: DROP_INCOME VALIDATED → 1/1, role DROP', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const drop = r.receivers.find((x) => x.userId === DROP.id)!
-    expect(drop.role).toBe('DROP')
-    expect(drop.expected).toBe(1)
-    expect(drop.submitted).toBe(1)
-  })
-
-  // ── Obligation model (task-compliance-overview-pending-types) ────────────────
-  it('SENIOR_ACCRUED: booked-not-yet-paid SENIOR_PENDING_PAYOUT → accrued, NOT submitted, NOT the red false alarm', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const senior = r.receivers.find((x) => x.userId === SENIOR_ACCRUED.id)!
-    expect(senior.role).toBe('SENIOR')
-    expect(senior.expected).toBe(1)
-    expect(senior.submitted).toBe(0)
-    expect(senior.accruedCount).toBe(1)
-    expect(senior.pendingCount).toBe(0)
-    expect(senior.missingProjects).toHaveLength(1)
-    expect(senior.missingProjects[0]).toMatchObject({
-      projectId: PROJ_SENIOR_ACCRUED,
-      submitted: false,
-      pendingValidation: false,
-      accrued: true,
+    // ── X/N correctness (AC1/AC2/AC3) ─────────────────────────────────────────────
+    it('SENIOR_LAG: 1/2 — only the VALIDATED project counted; PENDING is a badge', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const lag = r.receivers.find((x) => x.userId === SENIOR_LAG.id)!
+      expect(lag.role).toBe('SENIOR')
+      expect(lag.expected).toBe(2) // archived project excluded from N (AC3)
+      expect(lag.submitted).toBe(1)
+      expect(lag.pendingCount).toBe(1)
+      const missing = lag.missingProjects
+      expect(missing).toHaveLength(1)
+      expect(missing[0]).toMatchObject({ projectId: PROJ_LAG_MISSING, pendingValidation: true })
     })
-  })
 
-  it('DROP_ACCRUED: booked-not-yet-paid DROP_PENDING_PAYOUT → accrued, NOT submitted', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const drop = r.receivers.find((x) => x.userId === DROP_ACCRUED.id)!
-    expect(drop.role).toBe('DROP')
-    expect(drop.submitted).toBe(0)
-    expect(drop.accruedCount).toBe(1)
-    expect(drop.missingProjects[0]).toMatchObject({
-      projectId: PROJ_DROP_ACCRUED,
-      accrued: true,
-      pendingValidation: false,
+    it('archived project is NOT in the receiver denominator (AC3)', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const lag = r.receivers.find((x) => x.userId === SENIOR_LAG.id)!
+      const ids = lag.missingProjects.map((p) => p.projectId)
+      expect(ids).not.toContain(PROJ_ARCHIVED)
+      expect(lag.expected).toBe(2)
     })
-  })
 
-  // The reported prod symptom, reproduced byte-for-byte: a settled DROP
-  // obligation (`settleByCompany` flipped DROP_PENDING_PAYOUT → PAYOUT_DROP in
-  // place) must count as submitted, 1/1 — the false «Нет приходов» accusation
-  // this task exists to fix.
-  it('DROP_SETTLED: settled PAYOUT_DROP (PAID) counts as submitted — the reported false-lag regression', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const drop = r.receivers.find((x) => x.userId === DROP_SETTLED.id)!
-    expect(drop.role).toBe('DROP')
-    expect(drop.expected).toBe(1)
-    expect(drop.submitted).toBe(1)
-    expect(drop.accruedCount).toBe(0)
-    expect(drop.missingProjects).toHaveLength(0)
-  })
-
-  // AC3 — the main risk of this task: recognising more TYPES must never widen
-  // WHO is visible. A stray obligation row whose receiverId is a non-owner
-  // must not surface that person as a receiver, nor perturb the real owner's
-  // (ADMIN_OWNER's) figures — real DB, real query, not a unit stub.
-  it('AC3: a stray obligation row for a non-owner (ORPHAN) does not add a receiver, and does not perturb the real owner', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    expect(r.receivers.some((x) => x.userId === ORPHAN.id)).toBe(false)
-    const adminOwner = r.receivers.find((x) => x.userId === ADMIN_OWNER.id)!
-    expect(adminOwner.expected).toBe(1)
-    expect(adminOwner.submitted).toBe(1)
-    expect(adminOwner.accruedCount).toBe(0)
-    expect(adminOwner.missingProjects).toHaveLength(0)
-  })
-
-  it('ADMIN and ACCOUNTANT see the IDENTICAL obligation-model receivers too', async () => {
-    if (!dbAvailable) return
-    const a = await overviewAs(ADMIN)
-    const b = await overviewAs(ACCOUNTANT)
-    const pick = (dto: IncomeComplianceOverviewDto, id: string) =>
-      dto.receivers.find((x) => x.userId === id)
-    expect(pick(a, SENIOR_ACCRUED.id)).toEqual(pick(b, SENIOR_ACCRUED.id))
-    expect(pick(a, DROP_SETTLED.id)).toEqual(pick(b, DROP_SETTLED.id))
-  })
-
-  // security-review PR #531 round 1, MED-1 — real DB. Concrete failure path:
-  // a project's dropId is reassigned mid-month; the OLD owner's already-booked
-  // obligation must NOT be inherited by the NEW owner. Evidence is keyed by
-  // (project, type, receiver), not project+type alone.
-  it("MED-1: reassigned project — the NEW owner does NOT inherit the OLD owner's obligation evidence", async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    // DROP_PREVIOUS_OWNER owns no active project — never a receiver, despite
-    // having a real DROP_PENDING_PAYOUT row in the DB.
-    expect(r.receivers.find((x) => x.userId === DROP_PREVIOUS_OWNER.id)).toBeUndefined()
-    // DROP_NEW_OWNER is the project's CURRENT owner — must show genuinely
-    // missing (nothing was ever booked in their name), not accrued/submitted.
-    const newOwner = r.receivers.find((x) => x.userId === DROP_NEW_OWNER.id)!
-    expect(newOwner.role).toBe('DROP')
-    expect(newOwner.expected).toBe(1)
-    expect(newOwner.submitted).toBe(0)
-    expect(newOwner.accruedCount).toBe(0)
-    expect(newOwner.missingProjects).toHaveLength(1)
-    expect(newOwner.missingProjects[0]).toMatchObject({
-      projectId: PROJ_REASSIGNED,
-      submitted: false,
-      accrued: false,
-      pendingValidation: false,
+    it('SENIOR_DONE: PROJ_DONE counted (1) but PROJ_DROP missing (no SENIOR_INCOME) → 1/2', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const done = r.receivers.find((x) => x.userId === SENIOR_DONE.id)!
+      expect(done.expected).toBe(2) // PROJ_DONE + PROJ_DROP (both active, senior = SENIOR_DONE)
+      expect(done.submitted).toBe(1) // only PROJ_DONE has a SENIOR_INCOME
+      const ids = done.missingProjects.map((p) => p.projectId)
+      expect(ids).toContain(PROJ_DROP)
     })
-  })
 
-  // security-review PR #531 round 1, MED-2 — real DB. A VALIDATED self-declare
-  // income mid-payout-request (status flipped to PENDING_PAYMENT by
-  // createPayoutRequest) must count as submitted, never accrued.
-  it("MED-2: a senior's VALIDATED income mid-payout-request (PENDING_PAYMENT) counts as submitted, not accrued", async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const senior = r.receivers.find((x) => x.userId === SENIOR_PAYOUT_REQUESTED.id)!
-    expect(senior.role).toBe('SENIOR')
-    expect(senior.expected).toBe(1)
-    expect(senior.submitted).toBe(1)
-    expect(senior.accruedCount).toBe(0)
-    expect(senior.missingProjects).toHaveLength(0)
-  })
+    it('ADMIN-as-senior: ADMIN_INCOME PAID counts → 1/1, role ADMIN_SENIOR', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const adminOwner = r.receivers.find((x) => x.userId === ADMIN_OWNER.id)!
+      expect(adminOwner.role).toBe('ADMIN_SENIOR')
+      expect(adminOwner.expected).toBe(1)
+      expect(adminOwner.submitted).toBe(1)
+      expect(adminOwner.missingProjects).toHaveLength(0)
+    })
 
-  it('laggards-first sort: SENIOR_LAG / SENIOR_DONE (0.5) above ADMIN_OWNER / DROP (1.0)', async () => {
-    if (!dbAvailable) return
-    const r = await overviewAs(ACCOUNTANT)
-    const order = r.receivers.map((x) => x.userId)
-    const idxLag = order.indexOf(SENIOR_LAG.id)
-    const idxAdmin = order.indexOf(ADMIN_OWNER.id)
-    const idxDrop = order.indexOf(DROP.id)
-    expect(idxLag).toBeLessThan(idxAdmin)
-    expect(idxLag).toBeLessThan(idxDrop)
-  })
+    it('DROP receiver: DROP_INCOME VALIDATED → 1/1, role DROP', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const drop = r.receivers.find((x) => x.userId === DROP.id)!
+      expect(drop.role).toBe('DROP')
+      expect(drop.expected).toBe(1)
+      expect(drop.submitted).toBe(1)
+    })
 
-  it('totals roll-up is internally consistent + reflects the seeded receivers', async () => {
-    if (!dbAvailable) return
-    // crm_qa is a SHARED scratch DB that may carry other active projects, so the
-    // ABSOLUTE company-wide totals are not deterministic. We assert two things
-    // that ARE deterministic:
-    //   1. The roll-up is INTERNALLY consistent with the receivers array
-    //      (Σ per-receiver figures === totals), proving the aggregation is sound.
-    //   2. OUR four seeded receivers contribute exactly the expected sub-totals.
-    const r = await overviewAs(ACCOUNTANT)
+    // ── Obligation model (task-compliance-overview-pending-types) ────────────────
+    it('SENIOR_ACCRUED: booked-not-yet-paid SENIOR_PENDING_PAYOUT → accrued, NOT submitted, NOT the red false alarm', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const senior = r.receivers.find((x) => x.userId === SENIOR_ACCRUED.id)!
+      expect(senior.role).toBe('SENIOR')
+      expect(senior.expected).toBe(1)
+      expect(senior.submitted).toBe(0)
+      expect(senior.accruedCount).toBe(1)
+      expect(senior.pendingCount).toBe(0)
+      expect(senior.missingProjects).toHaveLength(1)
+      expect(senior.missingProjects[0]).toMatchObject({
+        projectId: PROJ_SENIOR_ACCRUED,
+        submitted: false,
+        pendingValidation: false,
+        accrued: true,
+      })
+    })
 
-    // (1) Internal consistency over the FULL receivers list.
-    const sumExpected = r.receivers.reduce((s, x) => s + x.expected, 0)
-    const sumSubmitted = r.receivers.reduce((s, x) => s + x.submitted, 0)
-    const sumPending = r.receivers.reduce((s, x) => s + x.pendingCount, 0)
-    const sumAccrued = r.receivers.reduce((s, x) => s + x.accruedCount, 0)
-    const lagging = r.receivers.filter((x) => x.submitted < x.expected).length
-    const complete = r.receivers.filter((x) => x.submitted >= x.expected).length
-    expect(r.totals.expectedProjects).toBe(sumExpected)
-    expect(r.totals.submittedProjects).toBe(sumSubmitted)
-    expect(r.totals.pendingProjects).toBe(sumPending)
-    expect(r.totals.accruedProjects).toBe(sumAccrued)
-    expect(r.totals.laggingReceivers).toBe(lagging)
-    expect(r.totals.completeReceivers).toBe(complete)
+    it('DROP_ACCRUED: booked-not-yet-paid DROP_PENDING_PAYOUT → accrued, NOT submitted', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const drop = r.receivers.find((x) => x.userId === DROP_ACCRUED.id)!
+      expect(drop.role).toBe('DROP')
+      expect(drop.submitted).toBe(0)
+      expect(drop.accruedCount).toBe(1)
+      expect(drop.missingProjects[0]).toMatchObject({
+        projectId: PROJ_DROP_ACCRUED,
+        accrued: true,
+        pendingValidation: false,
+      })
+    })
 
-    // (2) OUR four seeded receivers — deterministic sub-totals.
-    const mine = r.receivers.filter((x) =>
-      [SENIOR_LAG.id, SENIOR_DONE.id, ADMIN_OWNER.id, DROP.id].includes(x.userId),
-    )
-    expect(mine).toHaveLength(4)
-    expect(mine.reduce((s, x) => s + x.expected, 0)).toBe(6) // 2+2+1+1
-    expect(mine.reduce((s, x) => s + x.submitted, 0)).toBe(4) // 1+1+1+1
-    expect(mine.reduce((s, x) => s + x.pendingCount, 0)).toBe(1) // PROJ_LAG_MISSING
-    expect(mine.filter((x) => x.submitted >= x.expected)).toHaveLength(2) // ADMIN_OWNER + DROP
-    expect(mine.filter((x) => x.submitted < x.expected)).toHaveLength(2) // SENIOR_LAG + SENIOR_DONE
-  })
-})
+    // The reported prod symptom, reproduced byte-for-byte: a settled DROP
+    // obligation (`settleByCompany` flipped DROP_PENDING_PAYOUT → PAYOUT_DROP in
+    // place) must count as submitted, 1/1 — the false «Нет приходов» accusation
+    // this task exists to fix.
+    it('DROP_SETTLED: settled PAYOUT_DROP (PAID) counts as submitted — the reported false-lag regression', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const drop = r.receivers.find((x) => x.userId === DROP_SETTLED.id)!
+      expect(drop.role).toBe('DROP')
+      expect(drop.expected).toBe(1)
+      expect(drop.submitted).toBe(1)
+      expect(drop.accruedCount).toBe(0)
+      expect(drop.missingProjects).toHaveLength(0)
+    })
+
+    // AC3 — the main risk of this task: recognising more TYPES must never widen
+    // WHO is visible. A stray obligation row whose receiverId is a non-owner
+    // must not surface that person as a receiver, nor perturb the real owner's
+    // (ADMIN_OWNER's) figures — real DB, real query, not a unit stub.
+    it('AC3: a stray obligation row for a non-owner (ORPHAN) does not add a receiver, and does not perturb the real owner', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      expect(r.receivers.some((x) => x.userId === ORPHAN.id)).toBe(false)
+      const adminOwner = r.receivers.find((x) => x.userId === ADMIN_OWNER.id)!
+      expect(adminOwner.expected).toBe(1)
+      expect(adminOwner.submitted).toBe(1)
+      expect(adminOwner.accruedCount).toBe(0)
+      expect(adminOwner.missingProjects).toHaveLength(0)
+    })
+
+    it('ADMIN and ACCOUNTANT see the IDENTICAL obligation-model receivers too', async () => {
+      const a = await overviewAs(ADMIN)
+      const b = await overviewAs(ACCOUNTANT)
+      const pick = (dto: IncomeComplianceOverviewDto, id: string) =>
+        dto.receivers.find((x) => x.userId === id)
+      expect(pick(a, SENIOR_ACCRUED.id)).toEqual(pick(b, SENIOR_ACCRUED.id))
+      expect(pick(a, DROP_SETTLED.id)).toEqual(pick(b, DROP_SETTLED.id))
+    })
+
+    // security-review PR #531 round 1, MED-1 — real DB. Concrete failure path:
+    // a project's dropId is reassigned mid-month; the OLD owner's already-booked
+    // obligation must NOT be inherited by the NEW owner. Evidence is keyed by
+    // (project, type, receiver), not project+type alone.
+    it("MED-1: reassigned project — the NEW owner does NOT inherit the OLD owner's obligation evidence", async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      // DROP_PREVIOUS_OWNER owns no active project — never a receiver, despite
+      // having a real DROP_PENDING_PAYOUT row in the DB.
+      expect(r.receivers.find((x) => x.userId === DROP_PREVIOUS_OWNER.id)).toBeUndefined()
+      // DROP_NEW_OWNER is the project's CURRENT owner — must show genuinely
+      // missing (nothing was ever booked in their name), not accrued/submitted.
+      const newOwner = r.receivers.find((x) => x.userId === DROP_NEW_OWNER.id)!
+      expect(newOwner.role).toBe('DROP')
+      expect(newOwner.expected).toBe(1)
+      expect(newOwner.submitted).toBe(0)
+      expect(newOwner.accruedCount).toBe(0)
+      expect(newOwner.missingProjects).toHaveLength(1)
+      expect(newOwner.missingProjects[0]).toMatchObject({
+        projectId: PROJ_REASSIGNED,
+        submitted: false,
+        accrued: false,
+        pendingValidation: false,
+      })
+    })
+
+    // security-review PR #531 round 1, MED-2 — real DB. A VALIDATED self-declare
+    // income mid-payout-request (status flipped to PENDING_PAYMENT by
+    // createPayoutRequest) must count as submitted, never accrued.
+    it("MED-2: a senior's VALIDATED income mid-payout-request (PENDING_PAYMENT) counts as submitted, not accrued", async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const senior = r.receivers.find((x) => x.userId === SENIOR_PAYOUT_REQUESTED.id)!
+      expect(senior.role).toBe('SENIOR')
+      expect(senior.expected).toBe(1)
+      expect(senior.submitted).toBe(1)
+      expect(senior.accruedCount).toBe(0)
+      expect(senior.missingProjects).toHaveLength(0)
+    })
+
+    it('laggards-first sort: SENIOR_LAG / SENIOR_DONE (0.5) above ADMIN_OWNER / DROP (1.0)', async () => {
+      const r = await overviewAs(ACCOUNTANT)
+      const order = r.receivers.map((x) => x.userId)
+      const idxLag = order.indexOf(SENIOR_LAG.id)
+      const idxAdmin = order.indexOf(ADMIN_OWNER.id)
+      const idxDrop = order.indexOf(DROP.id)
+      expect(idxLag).toBeLessThan(idxAdmin)
+      expect(idxLag).toBeLessThan(idxDrop)
+    })
+
+    it('totals roll-up is internally consistent + reflects the seeded receivers', async () => {
+      // crm_qa is a SHARED scratch DB that may carry other active projects, so the
+      // ABSOLUTE company-wide totals are not deterministic. We assert two things
+      // that ARE deterministic:
+      //   1. The roll-up is INTERNALLY consistent with the receivers array
+      //      (Σ per-receiver figures === totals), proving the aggregation is sound.
+      //   2. OUR four seeded receivers contribute exactly the expected sub-totals.
+      const r = await overviewAs(ACCOUNTANT)
+
+      // (1) Internal consistency over the FULL receivers list.
+      const sumExpected = r.receivers.reduce((s, x) => s + x.expected, 0)
+      const sumSubmitted = r.receivers.reduce((s, x) => s + x.submitted, 0)
+      const sumPending = r.receivers.reduce((s, x) => s + x.pendingCount, 0)
+      const sumAccrued = r.receivers.reduce((s, x) => s + x.accruedCount, 0)
+      const lagging = r.receivers.filter((x) => x.submitted < x.expected).length
+      const complete = r.receivers.filter((x) => x.submitted >= x.expected).length
+      expect(r.totals.expectedProjects).toBe(sumExpected)
+      expect(r.totals.submittedProjects).toBe(sumSubmitted)
+      expect(r.totals.pendingProjects).toBe(sumPending)
+      expect(r.totals.accruedProjects).toBe(sumAccrued)
+      expect(r.totals.laggingReceivers).toBe(lagging)
+      expect(r.totals.completeReceivers).toBe(complete)
+
+      // (2) OUR four seeded receivers — deterministic sub-totals.
+      const mine = r.receivers.filter((x) =>
+        [SENIOR_LAG.id, SENIOR_DONE.id, ADMIN_OWNER.id, DROP.id].includes(x.userId),
+      )
+      expect(mine).toHaveLength(4)
+      expect(mine.reduce((s, x) => s + x.expected, 0)).toBe(6) // 2+2+1+1
+      expect(mine.reduce((s, x) => s + x.submitted, 0)).toBe(4) // 1+1+1+1
+      expect(mine.reduce((s, x) => s + x.pendingCount, 0)).toBe(1) // PROJ_LAG_MISSING
+      expect(mine.filter((x) => x.submitted >= x.expected)).toHaveLength(2) // ADMIN_OWNER + DROP
+      expect(mine.filter((x) => x.submitted < x.expected)).toHaveLength(2) // SENIOR_LAG + SENIOR_DONE
+    })
+  },
+)
 
 // ── SHIPPING-ROUTE GATE ───────────────────────────────────────────────────────
 // Prove the RBAC gate is on the LIVE production controller, not just the test
 // sentinel. These assertions read the decorator metadata DIRECTLY off the
 // production `FinanceSummaryController`. They run WITHOUT a DB, so they always
 // execute (mirrors senior-summary.integration.spec.ts).
-describe('income-compliance — SHIPPING route carries the RBAC gate (production controller)', () => {
-  const reflector = new Reflector()
+describe.skipIf(!hasDatabaseUrl())(
+  'income-compliance — SHIPPING route carries the RBAC gate (production controller)',
+  () => {
+    const reflector = new Reflector()
 
-  it('getIncomeCompliance handler ships @Roles(ADMIN, ACCOUNTANT)', () => {
-    const roles = reflector.get<string[]>(
-      ROLES_KEY,
-      FinanceSummaryController.prototype.getIncomeCompliance,
-    )
-    expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
-  })
+    it('getIncomeCompliance handler ships @Roles(ADMIN, ACCOUNTANT)', () => {
+      const roles = reflector.get<string[]>(
+        ROLES_KEY,
+        FinanceSummaryController.prototype.getIncomeCompliance,
+      )
+      expect(roles).toEqual(['ADMIN', 'ACCOUNTANT'])
+    })
 
-  it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
-    const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
-      | unknown[]
-      | undefined
-    expect(guards).toBeDefined()
-    expect(guards).toContain(RolesGuard)
-  })
-})
+    it('FinanceSummaryController is guarded by @UseGuards(RolesGuard) at class level', () => {
+      const guards = Reflect.getMetadata('__guards__', FinanceSummaryController) as
+        | unknown[]
+        | undefined
+      expect(guards).toBeDefined()
+      expect(guards).toContain(RolesGuard)
+    })
+  },
+)
