@@ -11,7 +11,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 
 import { JwtAuthGuard } from '../auth/jwt.guard'
-import { RolesGuard } from '../common/guards/roles.guard'
+import { GUARD_REFUSAL_MESSAGE, RolesGuard } from '../common/guards/roles.guard'
 import { HrAccessService } from '../common/hr-access.service'
 import { DatabaseService } from '../database/database.service'
 import { jobSources, users } from '../database/schema'
@@ -163,8 +163,12 @@ describe.skipIf(!hasDatabaseUrl())(
      * them apart. These HTTP tests pin the DECORATOR by requiring the guard's
      * wording; the service check is pinned separately, by calling the service
      * directly further down. Neither test can now cover for the other's absence.
+     *
+     * backlog item 133: pins the exported constant, not a copied literal — the
+     * guard's wording was genericized (no more role list in the message) and
+     * this is now the only other place in the repo that cares what it says.
      */
-    const GUARD_REFUSAL = 'Доступ только для ролей'
+    const GUARD_REFUSAL = GUARD_REFUSAL_MESSAGE
     const SERVICE_REFUSAL = 'Источники подбора вакансий настраивает ADMIN'
 
     beforeAll(async () => {

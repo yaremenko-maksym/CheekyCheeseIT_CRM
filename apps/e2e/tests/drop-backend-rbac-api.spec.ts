@@ -190,30 +190,30 @@ test.describe('DROP backend RBAC — direct API regression', () => {
       // the separate self-only `GET /api/finance/drop/me/summary` route
       // (untouched by #566, still gated by service-side ownership).
       expect(res.status()).toBe(403)
-      const body = (await res.json()) as { message: string }
+      const body = (await res.json()) as { message?: string }
       // Code-review round on #569 (MED-1): this assertion does NOT tell the
       // `RolesGuard` layer's 403 apart from `TransactionsService.getSummary`'s
-      // own 403 — checked both message strings by hand: the guard throws
-      // "Доступ только для ролей: ADMIN, ACCOUNTANT", the service throws
-      // "Access denied: finance summary requires ADMIN or ACCOUNTANT role".
-      // Both contain "ADMIN" and "ACCOUNTANT", so `toContain` can't
-      // distinguish them, and there's no sturdier assertion available here —
-      // unlike `OnboardingGuard`, `RolesGuard`'s `ForbiddenException` carries
-      // no structured error code, only free-text that happens to overlap on
-      // these two words.
+      // own 403 — both used to mention "ADMIN"/"ACCOUNTANT" in free text, so
+      // `toContain` couldn't distinguish them either.
       //
-      // What this DOES rule out is the other, more dangerous way to get a 403
-      // here: `OnboardingGuard` throws `{ error: 'ONBOARDING_REQUIRED',
-      // missing }` — no `message` field at all — so on that path
-      // `body.message` is `undefined` and `.toContain(...)` throws/fails
-      // instead of silently passing. That is the exact confusion this file
-      // had before this fix (see the onboarding note above): without
-      // `onboardDropViaAPI`, the status-only assertion would have passed for
-      // the wrong reason (onboarding-gate 403, not role-gate 403). This
-      // message check is a role-vs-onboarding discriminator, not a
-      // guard-vs-service one.
-      expect(body.message).toContain('ADMIN')
-      expect(body.message).toContain('ACCOUNTANT')
+      // backlog item 133 (2026-08-18): `RolesGuard`'s message no longer names
+      // the allowed roles at all (genericized on purpose — see
+      // roles.guard.ts), so that old "contains ADMIN/ACCOUNTANT" check is
+      // gone; a role-gate 403 now differs from an onboarding-gate 403 by
+      // PRESENCE of `message`, not its wording:
+      //   - `RolesGuard` throws a plain-string `ForbiddenException`, which
+      //     Nest always wraps as `{ statusCode, message, error }` — `message`
+      //     is present (the guard's generic sentence).
+      //   - `OnboardingGuard` throws `{ error: 'ONBOARDING_REQUIRED',
+      //     missing }` — an object response used VERBATIM as the body, no
+      //     `message` field at all — so on that path `body.message` is
+      //     `undefined`.
+      // That is the exact confusion this file had before the original #569
+      // fix (see the onboarding note above): without `onboardDropViaAPI`,
+      // the status-only assertion would have passed for the wrong reason
+      // (onboarding-gate 403, not role-gate 403). This still catches it.
+      expect(typeof body.message).toBe('string')
+      expect(body.message).not.toContain('ONBOARDING_REQUIRED')
     } finally {
       await loginViaApi(page, SEED_ADMIN_EMAIL).catch(() => undefined)
       await cleanupDropViaAPI(page, dropId)

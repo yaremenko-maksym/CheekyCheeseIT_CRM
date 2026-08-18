@@ -326,7 +326,27 @@ export class TransactionsController {
   }
 }
 
+// backlog item 128 (security-review #566): this controller carried NO
+// class-level guard — only `manual-confirm` brought its own method-level
+// `@UseGuards(RolesGuard)`. `create` and `pay` therefore held BOTH money-out
+// routes on the service-side check alone (`currentUser.role !== 'SENIOR' &&
+// currentUser.role !== 'DROP'` in transactions.service.ts). Severity note
+// (do not re-inflate on a future pass): the binding constraint on both
+// routes is OWNERSHIP, not role — `createPayoutRequest` locks rows with
+// `eq(transactions.receiverId, currentUser.id)`, `payPayoutRequest` checks
+// `req.seniorId === currentUser.id` — so a stray SENIOR/DROP/other role
+// simply has no matching rows to act on. This is defense-in-depth (a second,
+// independent layer that rejects BEFORE the handler runs), not the closing
+// of a live hole. `@UseGuards(RolesGuard)` at the class level below mirrors
+// `TransactionsController` / `FinanceSummaryController` above; the
+// per-method `@UseGuards(RolesGuard)` that used to sit on `manual-confirm`
+// is now redundant and removed (same cleanup `paySalary` got in the audit
+// this comment block quotes elsewhere in this file) — @Roles alone is
+// enough once the class carries the guard. The service-side checks are KEPT
+// on every route — never remove them, @Roles cannot express "and it must be
+// MY row".
 @Controller('payout-requests')
+@UseGuards(RolesGuard)
 export class PayoutRequestsController {
   // Explicit @Inject so this REAL controller can be instantiated by Nest's DI in
   // the vitest/esbuild env (which omits `design:paramtypes`) — required by the
@@ -346,11 +366,13 @@ export class PayoutRequestsController {
   }
 
   @Post()
+  @Roles('SENIOR', 'DROP')
   create(@Body() body: unknown, @CurrentUser() user: SessionUser) {
     return this.svc.createPayoutRequest(createPayoutRequestSchema.parse(body).transactionIds, user)
   }
 
   @Patch(':id/pay')
+  @Roles('SENIOR', 'DROP')
   pay(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = payPayoutRequestSchema.parse(body)
     // simulateResult is a DEV-only escape hatch: forwarded only when the
@@ -367,11 +389,11 @@ export class PayoutRequestsController {
   // Phase 8 v2 — manual payout confirmation. ADMIN/ACCOUNTANT mark a payout PAID
   // when it was settled OFF the on-chain happy path (COMPANY_ACCOUNT vouched,
   // ADMIN_USDT to a partner's personal wallet, or CASH). Only COMPANY_ACCOUNT
-  // credits the company balance. RolesGuard enforces RBAC (the @Roles metadata
-  // is inert without it — RolesGuard is NOT a global APP_GUARD); the service
-  // re-checks the role for defense-in-depth.
+  // credits the company balance. RolesGuard enforces RBAC via the class-level
+  // @UseGuards above (the @Roles metadata is inert without it — RolesGuard is
+  // NOT a global APP_GUARD); the service re-checks the role for
+  // defense-in-depth.
   @Post(':id/manual-confirm')
-  @UseGuards(RolesGuard)
   @Roles('ADMIN', 'ACCOUNTANT')
   manualConfirm(@Param('id') id: string, @Body() body: unknown, @CurrentUser() user: SessionUser) {
     const data = manualConfirmPayoutSchema.parse(body)
