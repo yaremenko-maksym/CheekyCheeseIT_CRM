@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import {
+  CrmDialogBody,
+  CrmDialogContent,
+  CrmDialogFooter,
+  CrmDialogHeader,
   Dialog,
-  DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -207,40 +208,50 @@ export function ArchiveConfirmDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent>
-        <DialogHeader>
+      {/* task-archive-pending-modal (round 2, design fidelity BLOCK): the
+          original bare DialogContent had no max-height/overflow-y-auto, so
+          on 320/375 with a real PENDING+cascade payload the dialog grew
+          taller than the viewport with nothing to scroll it — header, close
+          button, and (worst case) both footer buttons went off-screen.
+          maxWidth="sm:max-w-lg" keeps this dialog's ORIGINAL width (the
+          generic DialogContent's unconditional max-w-lg) — only the
+          height/scroll behaviour changes here. */}
+      <CrmDialogContent maxWidth="sm:max-w-lg">
+        <CrmDialogHeader>
           <DialogTitle className="text-destructive">{title}</DialogTitle>
           <DialogDescription className="sr-only">
             Подтверждение архивации. Введите имя для подтверждения действия.
           </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 text-sm">
-          {isLoading ? (
-            <Skeleton className="h-16 w-full" />
-          ) : (
-            <>
-              <p className="text-muted-foreground">
-                {renderImpactText(entityType, entityName, impact)}
+        </CrmDialogHeader>
+        <CrmDialogBody className="pb-2">
+          <div className="space-y-3 text-sm">
+            {isLoading ? (
+              <Skeleton className="h-16 w-full" />
+            ) : (
+              <>
+                <p className="text-muted-foreground">
+                  {renderImpactText(entityType, entityName, impact)}
+                </p>
+                {(impact?.type === 'user' || impact?.type === 'team') && (
+                  <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
+                )}
+              </>
+            )}
+            {expected && (
+              <p>
+                Для подтверждения введите {confirmInputLabel}:{' '}
+                <strong className="text-foreground">{expected}</strong>
               </p>
-              {(impact?.type === 'user' || impact?.type === 'team') && (
-                <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
-              )}
-            </>
-          )}
-          {expected && (
-            <p>
-              Для подтверждения введите {confirmInputLabel}:{' '}
-              <strong className="text-foreground">{expected}</strong>
-            </p>
-          )}
-          <Input
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder={expected}
-            data-testid="archive-confirm-input"
-          />
-        </div>
-        <DialogFooter>
+            )}
+            <Input
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={expected}
+              data-testid="archive-confirm-input"
+            />
+          </div>
+        </CrmDialogBody>
+        <CrmDialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Отмена
           </Button>
@@ -255,8 +266,8 @@ export function ArchiveConfirmDialog({
           >
             Архивировать
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </CrmDialogFooter>
+      </CrmDialogContent>
     </Dialog>
   )
 }

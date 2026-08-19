@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import {
+  CrmDialogBody,
+  CrmDialogContent,
+  CrmDialogFooter,
+  CrmDialogHeader,
   Dialog,
-  DialogContent,
   DialogDescription,
-  DialogFooter,
-  DialogHeader,
   DialogTitle,
-} from '@/components/ui/dialog'
+} from '@/components/ui/crm-dialog'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -25,6 +26,16 @@ import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePend
  * (`ImpactWarning`, exported from `components/users/ArchiveConfirmDialog`)
  * plus the shared pending-transactions warning — one rule, three surfaces,
  * not three copies of it.
+ *
+ * task-archive-pending-modal (round 2, design fidelity BLOCK): originally
+ * built on the bare `DialogContent` (no max-height/overflow-y-auto) — on
+ * 320/375 with a real PENDING+cascade payload the dialog grew to ~840px
+ * against a 568px viewport, cutting off the title, the close button, AND
+ * BOTH footer buttons at once (this was the worse of the two broken
+ * dialogs — this one never even had scrollable impact text before this
+ * fix). `CrmDialogContent`/`CrmDialogBody`/`CrmDialogFooter` (same pattern
+ * `components/users/ArchiveConfirmDialog.tsx` already used correctly) fixes
+ * it: max-h-[90dvh], scrollable body, header/footer pinned.
  */
 export function ArchiveUserDialog({
   user,
@@ -40,39 +51,41 @@ export function ArchiveUserDialog({
 
   return (
     <Dialog open onOpenChange={(o) => !o && onClose()}>
-      <DialogContent onCloseAutoFocus={(e) => e.preventDefault()}>
-        <DialogHeader>
+      <CrmDialogContent maxWidth="sm:max-w-lg" onCloseAutoFocus={(e) => e.preventDefault()}>
+        <CrmDialogHeader>
           <DialogTitle className="text-destructive">Архивировать пользователя</DialogTitle>
           <DialogDescription className="sr-only">
             Подтверждение архивации пользователя. Введите имя для подтверждения.
           </DialogDescription>
-        </DialogHeader>
-        <div className="space-y-3 text-sm">
-          {isLoading ? (
-            <>
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-4 w-3/4" />
-            </>
-          ) : (
-            <>
-              <ImpactWarning user={user} impact={impact} />
-              {impact?.type === 'user' && (
-                <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
-              )}
-            </>
-          )}
-          <p>
-            Для подтверждения введите имя:{' '}
-            <strong className="text-foreground">{user.displayName}</strong>
-          </p>
-          <Input
-            data-testid="archive-confirm-name-input"
-            value={typed}
-            onChange={(e) => setTyped(e.target.value)}
-            placeholder={user.displayName}
-          />
-        </div>
-        <DialogFooter>
+        </CrmDialogHeader>
+        <CrmDialogBody className="pb-2">
+          <div className="space-y-3 text-sm">
+            {isLoading ? (
+              <>
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-3/4" />
+              </>
+            ) : (
+              <>
+                <ImpactWarning user={user} impact={impact} />
+                {impact?.type === 'user' && (
+                  <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
+                )}
+              </>
+            )}
+            <p>
+              Для подтверждения введите имя:{' '}
+              <strong className="text-foreground">{user.displayName}</strong>
+            </p>
+            <Input
+              data-testid="archive-confirm-name-input"
+              value={typed}
+              onChange={(e) => setTyped(e.target.value)}
+              placeholder={user.displayName}
+            />
+          </div>
+        </CrmDialogBody>
+        <CrmDialogFooter>
           <Button variant="ghost" onClick={onClose}>
             Отмена
           </Button>
@@ -87,8 +100,8 @@ export function ArchiveUserDialog({
           >
             Архивировать
           </Button>
-        </DialogFooter>
-      </DialogContent>
+        </CrmDialogFooter>
+      </CrmDialogContent>
     </Dialog>
   )
 }
