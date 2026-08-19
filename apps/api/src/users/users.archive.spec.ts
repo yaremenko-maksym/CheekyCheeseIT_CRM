@@ -281,9 +281,16 @@ function makeDb(store: FakeStore) {
   }
 
   const makeHandle = (target: 'db' | 'tx') => ({
-    select: (_proj?: unknown) => ({
+    // `vi.fn(...)` wrapping is pure instrumentation — identical return value,
+    // identical behaviour — added so specs can assert on the PROJECTION a
+    // caller passed (`select.mock.calls`), the same technique
+    // archived-entitlement.unit.spec.ts uses. The fake ignores the projection
+    // when computing rows (it always returns full raw store objects), so
+    // without this a `.select({...})` → `.select({})` mutation is invisible
+    // to every assertion that only reads returned VALUES.
+    select: vi.fn((_proj?: unknown) => ({
       from: (table: unknown) => selectChain(table),
-    }),
+    })),
     insert: wrapMutation(buildInsert, 'insert', target),
     update: wrapMutation(buildUpdate, 'update', target),
     delete: wrapMutation(buildDelete, 'delete', target),
@@ -796,7 +803,7 @@ describe('UsersService.getArchiveImpact', () => {
   it('SENIOR: returns paired cascade counts + named projects', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
-    const { service } = buildService(store)
+    const { service, db } = buildService(store)
     const impact = await service.getArchiveImpact('senior-1')
     expect(impact).toMatchObject({
       type: 'user',
@@ -810,6 +817,20 @@ describe('UsersService.getArchiveImpact', () => {
       hrAccountantsToBeRemoved: 2,
       pendingTransactions: [],
     })
+    // The projectNames above come from a `.select({ id, name })` that
+    // actually asked for `name` — not from the fake happening to return the
+    // full row regardless of projection.
+    const projectSelectCall = (db.select as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown> | undefined
+        return arg && 'name' in arg && 'id' in arg
+      },
+    )
+    expect(projectSelectCall).toBeDefined()
+    expect(Object.keys(projectSelectCall![0] as Record<string, unknown>).sort()).toEqual([
+      'id',
+      'name',
+    ])
   })
 
   // task-archive-pending-modal (AC2). Seeds a still-open SALARY reminder
@@ -878,15 +899,53 @@ describe('UsersService.getArchiveImpact', () => {
         currency: 'USD',
         deletedAt: new Date(),
       },
+      // DROP_INCOME PENDING — the third AC1 category. `senior-1` is not
+      // actually a DROP in this fixture; the filter itself does not key on
+      // the receiver's role, only on receiverId + type + status, so this
+      // pins that DROP_INCOME is genuinely in the allow-list (not merely
+      // "happens to also be SALARY/SENIOR_INCOME").
+      {
+        id: 'tx-drop-income-pending',
+        type: 'DROP_INCOME',
+        status: 'PENDING',
+        receiverId: 'senior-1',
+        salaryMonth: null,
+        txDate: new Date('2026-07-20T00:00:00.000Z'),
+        amount: '300.00',
+        currency: 'USDT',
+        deletedAt: null,
+      },
     )
-    const { service } = buildService(store)
+    const { service, db } = buildService(store)
 
     const impact = await service.getArchiveImpact('senior-1')
 
     expect(impact.type).toBe('user')
     const pending =
       impact.type === 'user' && impact.role === 'SENIOR' ? impact.pendingTransactions : undefined
-    expect(pending?.map((t) => t.id).sort()).toEqual(['tx-income-pending', 'tx-salary-pending'])
+    expect(pending?.map((t) => t.id).sort()).toEqual([
+      'tx-drop-income-pending',
+      'tx-income-pending',
+      'tx-salary-pending',
+    ])
+
+    // The projection actually asked for all six columns the modal renders —
+    // not a coincidence of the fake returning full rows regardless of it.
+    const pendingSelectCall = (db.select as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown> | undefined
+        return arg && 'salaryMonth' in arg && 'txDate' in arg
+      },
+    )
+    expect(pendingSelectCall).toBeDefined()
+    expect(Object.keys(pendingSelectCall![0] as Record<string, unknown>).sort()).toEqual([
+      'amount',
+      'currency',
+      'id',
+      'salaryMonth',
+      'txDate',
+      'type',
+    ])
   })
 
   it('HR: returns teamsCount', async () => {

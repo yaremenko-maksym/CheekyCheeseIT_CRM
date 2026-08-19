@@ -498,6 +498,26 @@ describe('TeamsService.getArchiveImpact', () => {
     })
   })
 
+  // task-archive-pending-modal (AC2). Same defensive union-narrowing as the
+  // DROP branch's own test: if `UsersService.getArchiveImpact` ever answered
+  // with a shape that is NOT `type:'user', role:'SENIOR'`, `seniorImpact`
+  // resolves to `null` — projectNames/pendingTransactions must fall back to
+  // `[]` instead of throwing on the optional chain.
+  it('SENIOR branch: projectNames/pendingTransactions default to [] when seniorImpact is null', async () => {
+    const team = makeActiveTeam()
+    const { service } = buildService({
+      team,
+      usersServiceImpact: async () => ({ type: 'user', role: 'JUNIOR', projectsCount: 0 }),
+    })
+    const impact = await service.getArchiveImpact('team-1', adminUser)
+    expect(impact).toMatchObject({
+      type: 'team',
+      teamType: 'SENIOR',
+      projectNames: [],
+      pendingTransactions: [],
+    })
+  })
+
   // Drop-archive round 2 (B2+B5): DROP teams return drop-specific fields.
   // Verifies the dispatch + chain stubs by overriding the db chain to
   // return the appropriate rows per role lookup. The lookup order in the
@@ -522,7 +542,11 @@ describe('TeamsService.getArchiveImpact', () => {
       [{ id: 'senior-9', displayName: 'Отцепляющийся Синьор' }], // senior lookup
       [{ userId: 'hr-1' }, { userId: 'hr-2' }], // HR count
       [{ userId: 'acc-1' }], // ACCOUNTANT count
-      [{ id: 'proj-1' }, { id: 'proj-2' }, { id: 'proj-3' }], // drop-projects
+      [
+        { id: 'proj-1', name: 'Drop Proj 1' },
+        { id: 'proj-2', name: 'Drop Proj 2' },
+        { id: 'proj-3', name: 'Drop Proj 3' },
+      ], // drop-projects
     ]
     const db = {
       query: {
@@ -580,10 +604,104 @@ describe('TeamsService.getArchiveImpact', () => {
       seniorName: 'Отцепляющийся Синьор',
       // Forwarded 1:1 from UsersService.getArchiveImpact(dropId).
       pendingTransactions: [{ id: 'tx-1', type: 'DROP_INCOME' }],
+      // task-archive-pending-modal (AC8): named, not just counted.
+      projectNames: ['Drop Proj 1', 'Drop Proj 2', 'Drop Proj 3'],
       seniorWillBeDetached: true,
       projectsCount: 3,
       membersAffected: 3, // 2 HR + 1 ACCOUNTANT
     })
     expect(usersService.getArchiveImpact).toHaveBeenCalledWith('drop-1')
+    // The `.select({...})` projection actually asked for `name` — not just
+    // `id` — so `projectNames` above is drawn from a real column, not a
+    // coincidence of the fake ignoring the projection.
+    const projectSelectCall = (db.select as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call: unknown[]) => {
+        const arg = call[0] as Record<string, unknown> | undefined
+        return arg && 'name' in arg
+      },
+    )
+    expect(projectSelectCall).toBeDefined()
+    expect(Object.keys(projectSelectCall![0] as Record<string, unknown>).sort()).toEqual([
+      'id',
+      'name',
+    ])
+  })
+
+  // task-archive-pending-modal (AC2). The `i.type === 'user' && i.role ===
+  // 'DROP'` guard exists because `UsersService.getArchiveImpact` is a union
+  // return type — this pins the DEFENSIVE side: an unexpected shape (would
+  // only happen if UsersService's own dispatch changed under us) must not
+  // crash the team-impact call, just yield no pending list. All THREE
+  // ways a mocked shape can fail to match are exercised separately —
+  // neither half of the `&&` alone is enough to prove the other half is
+  // load-bearing (mutating either operand to `true` must still flip the
+  // result on at least one fixture).
+  it.each([
+    [
+      'both wrong (type AND role mismatch)',
+      { type: 'team', pendingTransactions: [{ id: 'wrong' }] },
+    ],
+    [
+      'type wrong, role right',
+      { type: 'team', role: 'DROP', pendingTransactions: [{ id: 'wrong' }] },
+    ],
+    [
+      'type right, role wrong',
+      { type: 'user', role: 'SENIOR', pendingTransactions: [{ id: 'wrong' }] },
+    ],
+  ])('DROP branch: pendingTransactions defaults to [] — %s', async (_label, mockedUserImpact) => {
+    const dropTeam: FakeTeam = {
+      id: 'team-drop-2',
+      name: 'Drop Team 2',
+      type: 'DROP',
+      archivedAt: null,
+      members: [],
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }
+    const queue: unknown[][] = [
+      [{ id: 'drop-2', displayName: 'Дроп Two' }], // drop lookup
+      [], // no senior
+      [], // no HR
+      [], // no ACCOUNTANT
+      [], // no drop-projects
+    ]
+    const db = {
+      query: {
+        teams: { findFirst: vi.fn(async () => dropTeam), findMany: vi.fn(async () => []) },
+        teamMembers: {},
+        projects: { findMany: vi.fn(async () => []) },
+      },
+      select: vi.fn(() => ({
+        from: vi.fn(() => ({
+          innerJoin: vi.fn(() => ({
+            where: vi.fn(() => ({
+              then: (onF: (rows: unknown[]) => unknown) =>
+                Promise.resolve(onF((queue.shift() ?? []) as unknown[])),
+            })),
+          })),
+          where: vi.fn(() => ({
+            then: (onF: (rows: unknown[]) => unknown) =>
+              Promise.resolve(onF((queue.shift() ?? []) as unknown[])),
+          })),
+        })),
+      })),
+      update: vi.fn(),
+      insert: vi.fn(),
+      delete: vi.fn().mockReturnValue({ where: vi.fn().mockResolvedValue([]) }),
+      transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => fn({} as never),
+    }
+    const usersService = {
+      archive: vi.fn(),
+      unarchive: vi.fn(),
+      getArchiveImpact: vi.fn().mockResolvedValue(mockedUserImpact),
+    }
+    const service = new TeamsService(
+      { db } as never,
+      usersService as never,
+      makeTeamAuditLogService() as never,
+    )
+    const impact = await service.getArchiveImpact('team-drop-2', adminUser)
+    expect(impact).toMatchObject({ type: 'team', teamType: 'DROP', pendingTransactions: [] })
   })
 })
