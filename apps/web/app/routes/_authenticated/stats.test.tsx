@@ -681,6 +681,57 @@ describe('StatsPage — ADMIN full surface (no regression)', () => {
   })
 })
 
+// backlog #132: `useMemo` used to sit AFTER `if (!user || !isPrivilegedViewer)
+// return null` — a hook declared past an early-return guard. `useAuth()`
+// genuinely starts as `{ user: null, isLoading: true }` on the real page's
+// FIRST render (the /auth/me query hasn't resolved yet) and later re-renders
+// the SAME mounted instance with a resolved, privileged user — exactly the
+// loading→resolved transition `rerender()` reproduces below. A hook that
+// only runs on SOME renders of a component is a Rules-of-Hooks violation;
+// React throws "Rendered more hooks than during the previous render" the
+// instant it happens, which took the whole page down via the app's error
+// boundary in production (see project_ui_perf_pass memory) — no lint rule
+// and no code review caught it; only a live render transition does, which
+// is why this pins the transition itself, not just a single static render.
+describe('StatsPage — Rules of Hooks (backlog #132 regression)', () => {
+  function mockLoadingQueries() {
+    useQueryMock.mockReturnValue({ data: undefined, isLoading: true })
+  }
+
+  function mockResolvedQueries() {
+    useQueryMock.mockImplementation((opts: { queryKey?: unknown[] }) => {
+      const key = opts?.queryKey?.[0]
+      if (key === 'finance-summary') return { data: makeSummary(), isLoading: false }
+      if (key === 'income-compliance') return { data: makeCompliance(), isLoading: false }
+      return { data: undefined, isLoading: false }
+    })
+  }
+
+  it('does not throw when auth resolves loading→ADMIN across renders of the same instance', () => {
+    useAuthMock.mockReturnValue({ user: null, isLoading: true })
+    mockLoadingQueries()
+    const { rerender } = render(<StatsPage />)
+
+    useAuthMock.mockReturnValue({ user: makeUser('ADMIN'), isLoading: false })
+    mockResolvedQueries()
+
+    expect(() => rerender(<StatsPage />)).not.toThrow()
+    expect(screen.getByTestId('stats-page-admin')).toBeInTheDocument()
+  })
+
+  it('does not throw when auth resolves loading→ACCOUNTANT across renders of the same instance', () => {
+    useAuthMock.mockReturnValue({ user: null, isLoading: true })
+    mockLoadingQueries()
+    const { rerender } = render(<StatsPage />)
+
+    useAuthMock.mockReturnValue({ user: makeUser('ACCOUNTANT'), isLoading: false })
+    mockResolvedQueries()
+
+    expect(() => rerender(<StatsPage />)).not.toThrow()
+    expect(screen.getByTestId('stats-page-accountant')).toBeInTheDocument()
+  })
+})
+
 // task-compliance-overview-pending-types (mutation-gate). `receiverStatus`
 // decides the amber-vs-red false-positive-avoidance colour this task exists
 // to fix — pinned directly (pure function), not only through rendered text,
