@@ -279,7 +279,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
           // TWO entries — pins the ', ' join separator, same reason as the
           // team-type test above.
           projectNames: ['Project A', 'Project B'],
-          hrAccountantsToBeRemoved: 3,
+          hrAccountantsOnTeam: 3,
           juniorsAffected: 4,
         },
       })
@@ -322,7 +322,7 @@ describe('AdminActionsMenu — trigger + dropdown', () => {
         teamName: 'Alpha Team',
         projectsCount: 0,
         projectNames: [],
-        hrAccountantsToBeRemoved: 0,
+        hrAccountantsOnTeam: 0,
         juniorsAffected: 0,
       },
     })

@@ -833,7 +833,7 @@ describe('UsersService.getArchiveImpact', () => {
       // task-archive-pending-modal (AC8): named list, not just a count.
       projectNames: ['P1', 'P2'],
       juniorsAffected: 2,
-      hrAccountantsToBeRemoved: 2,
+      hrAccountantsOnTeam: 2,
       pendingTransactions: [],
     })
     // The projectNames above come from a `.select({ id, name })` that

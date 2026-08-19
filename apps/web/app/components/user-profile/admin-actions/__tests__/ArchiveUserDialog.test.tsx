@@ -144,7 +144,7 @@ describe('ArchiveUserDialog (profile page) — reuses ImpactWarning + AC2 pendin
           teamName: 'Alpha Team',
           projectsCount: 2,
           projectNames: ['Project A', 'Project B'],
-          hrAccountantsToBeRemoved: 3,
+          hrAccountantsOnTeam: 3,
           juniorsAffected: 4,
           pendingTransactions: [
             {

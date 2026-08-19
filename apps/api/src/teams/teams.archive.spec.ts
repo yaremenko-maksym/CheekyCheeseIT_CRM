@@ -9,6 +9,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
 import {
+  projectMembers as projectMembersTable,
   projects as projectsTable,
   teamMembers as teamMembersTable,
   teams as teamsTable,
@@ -174,7 +175,7 @@ function buildService(
           role: 'SENIOR',
           isPaired: true,
           projectsCount: 0,
-          hrAccountantsToBeRemoved: 0,
+          hrAccountantsOnTeam: 0,
         })),
     ),
   }
@@ -328,8 +329,14 @@ describe('TeamsService.archive', () => {
       teams: [
         { id: teamId, type: 'DROP', archivedAt: null as Date | null, name: 'Drop Team' },
       ] as Array<{ id: string; type: string; archivedAt: Date | null; name: string }>,
+      // task-archive-pending-modal (round 2, code-review MED-1): HR/ACCOUNTANT
+      // rows alongside the DROP row — the SAME table `archiveDropTeam` reads
+      // to resolve the drop/senior. Present so the AC9-membership test below
+      // can assert they are untouched by a REAL cascade run, not a stubbed one.
       teamMembers: [
         { id: 'tm-drop', teamId, userId: dropId, role: 'DROP', leftAt: null as Date | null },
+        { id: 'tm-hr', teamId, userId: 'hr-1', role: 'HR', leftAt: null as Date | null },
+        { id: 'tm-acc', teamId, userId: 'acc-1', role: 'ACCOUNTANT', leftAt: null as Date | null },
       ] as Array<{ id: string; teamId: string; userId: string; role: string; leftAt: Date | null }>,
       users: [{ id: dropId, role: 'DROP', archivedAt: null as Date | null }] as Array<{
         id: string
@@ -340,6 +347,14 @@ describe('TeamsService.archive', () => {
         { id: 'proj-1', dropId, archivedAt: null as Date | null },
         { id: 'proj-2', dropId, archivedAt: null as Date | null },
       ] as Array<{ id: string; dropId: string; archivedAt: Date | null }>,
+      // task-archive-pending-modal (round 2, code-review MED-1): JUNIORs on
+      // the drop-projects — `archiveDropTeam` must never read OR write this
+      // table (AC9 removed that cascade). Presence here + the assertion
+      // below is what proves absence, not a comment claiming it.
+      projectMembers: [
+        { id: 'pm-1', projectId: 'proj-1', userId: 'junior-1', leftAt: null as Date | null },
+        { id: 'pm-2', projectId: 'proj-2', userId: 'junior-2', leftAt: null as Date | null },
+      ] as Array<{ id: string; projectId: string; userId: string; leftAt: Date | null }>,
     }
 
     type Store = typeof store
@@ -349,6 +364,7 @@ describe('TeamsService.archive', () => {
       store.teamMembers = snap.teamMembers
       store.users = snap.users
       store.projects = snap.projects
+      store.projectMembers = snap.projectMembers
     }
 
     // Minimal chainable query/update builder over the plain-object store —
@@ -371,6 +387,7 @@ describe('TeamsService.archive', () => {
       [teamMembersTable, 'teamMembers'],
       [usersTable, 'users'],
       [projectsTable, 'projects'],
+      [projectMembersTable, 'projectMembers'],
     ])
     const resolveTable = (table: unknown): keyof Store => {
       const key = tableMap.get(table)
@@ -510,6 +527,47 @@ describe('TeamsService.archive', () => {
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
   })
+
+  // task-archive-pending-modal (round 2, code-review MED-1). The SENIOR path
+  // has a direct test proving HR/ACCOUNTANT/JUNIOR membership survives the
+  // cascade untouched (`users.archive.spec.ts`: "archives senior + team +
+  // projects; HR/Acc/Junior membership is left untouched"). The DROP path's
+  // only coverage of the SAME claim was indirect — a salary-cron fixture
+  // hard-codes `leftAt: null` as an INPUT rather than producing it by
+  // actually running the cascade. This is the DROP-path mirror of the
+  // SENIOR test, against the REAL `archiveDropTeam` (not a stub).
+  it('AC9 (DROP path): archives drop + team + projects; HR/Acc/Junior membership is left untouched', async () => {
+    const { db, store, teamId, dropId } = buildAtomicityFixture({})
+    const usersService = { archive: vi.fn(), unarchive: vi.fn(), getArchiveImpact: vi.fn() }
+    const service = new TeamsService(
+      { db } as never,
+      usersService as never,
+      makeTeamAuditLogService() as never,
+    )
+    vi.spyOn(service, 'findOne').mockResolvedValue({ id: teamId } as never)
+
+    await service.archive(teamId, adminUser)
+
+    // The cascade itself did happen — team, drop user, and both projects archived.
+    expect(store.teams.find((t) => t.id === teamId)?.archivedAt).toBeInstanceOf(Date)
+    expect(store.users.find((u) => u.id === dropId)?.archivedAt).toBeInstanceOf(Date)
+    expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
+    expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
+
+    // AC9: HR + ACCOUNTANT team_members stay active — archiving the team is
+    // not archiving them.
+    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeNull()
+    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeNull()
+
+    // The DROP's own team_member row is untouched by this cascade too (it's
+    // the `users.archivedAt` update that marks the drop archived, not `leftAt`).
+    expect(store.teamMembers.find((m) => m.userId === dropId)?.leftAt).toBeNull()
+
+    // AC9: active JUNIORs on the now-archived drop-projects stay attached —
+    // their salary keeps accruing off their own `archivedAt`, not the project's.
+    expect(store.projectMembers.find((m) => m.userId === 'junior-1')?.leftAt).toBeNull()
+    expect(store.projectMembers.find((m) => m.userId === 'junior-2')?.leftAt).toBeNull()
+  })
 })
 
 // ---------------------------------------------------------------------------
@@ -553,7 +611,7 @@ describe('TeamsService.getArchiveImpact', () => {
         projectsCount: 3,
         projectNames: ['P1', 'P2', 'P3'],
         juniorsAffected: 2,
-        hrAccountantsToBeRemoved: 4,
+        hrAccountantsOnTeam: 4,
         pendingTransactions: [{ id: 'tx-9', type: 'SALARY' }],
       }),
     })

@@ -60,7 +60,7 @@ function renderImpactText(
           {teamPart} — связанная пара, убрать по одному нельзя. Будут архивированы: профиль{' '}
           {roleGenitive}, команда и все её проекты ({impact.projectsCount ?? 0} шт.
           {projectNames.length > 0 ? `: ${projectNames.join(', ')}` : ''}). HR/бухгалтеры на команде
-          ({impact.hrAccountantsToBeRemoved ?? 0}) и JUNIOR на этих проектах (
+          ({impact.hrAccountantsOnTeam ?? 0}) и JUNIOR на этих проектах (
           {impact.juniorsAffected ?? 0}) остаются активными членами и продолжают получать оплату —
           архивация команды/проектов их не касается. Восстановление возможно — пара{' '}
           {role === 'SENIOR' ? 'senior' : 'drop'}

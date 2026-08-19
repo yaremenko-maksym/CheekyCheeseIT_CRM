@@ -190,12 +190,12 @@ export function ImpactWarning({
       impact && impact.type === 'user' && impact.isPaired && impact.juniorsAffected !== undefined
         ? impact.juniorsAffected
         : 0
-    const hrAccountantsToBeRemoved =
+    const hrAccountantsOnTeam =
       impact &&
       impact.type === 'user' &&
       impact.isPaired &&
-      impact.hrAccountantsToBeRemoved !== undefined
-        ? impact.hrAccountantsToBeRemoved
+      impact.hrAccountantsOnTeam !== undefined
+        ? impact.hrAccountantsOnTeam
         : 0
 
     return (
@@ -217,7 +217,7 @@ export function ImpactWarning({
         </p>
         <p className="text-muted-foreground">
           HR/бухгалтеры на команде (
-          <strong className="text-foreground">{hrAccountantsToBeRemoved}</strong>) и JUNIOR на этих
+          <strong className="text-foreground">{hrAccountantsOnTeam}</strong>) и JUNIOR на этих
           проектах (<strong className="text-foreground">{juniorsAffected}</strong>)
           <strong className="text-foreground"> остаются активными членами</strong> и продолжают
           получать оплату на общих основаниях — архивация команды/проектов их не касается.

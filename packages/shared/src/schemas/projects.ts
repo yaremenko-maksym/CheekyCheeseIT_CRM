@@ -363,10 +363,18 @@ export const archiveImpactSchema = z.union([
     // be removed" — HR/ACCOUNTANT/JUNIOR keep their membership through a
     // SENIOR/DROP cascade archive (only the team/projects themselves gain
     // `archivedAt`). Kept as "how many people are on the affected
-    // team/projects" — still useful for the warning copy, renamed nothing
-    // to avoid an unrelated schema churn across teams.service.ts.
+    // team/projects" — still useful for the warning copy.
+    // security-review PR #584 round 2 (code-review MED): `hrAccountantsOnTeam`
+    // was originally shipped as `hrAccountantsToBeRemoved`, a name that
+    // stopped matching reality the moment AC9 landed — nobody is removed
+    // any more. Renamed (not just commented) across the schema, both
+    // backend producers, and all three frontend consumers in the same PR —
+    // the blast radius was small (11 files) and fully covered by tests, so
+    // there was no reason to leave a misleading field name live in the API
+    // contract. `juniorsAffected` was NOT renamed — not flagged by review,
+    // out of scope for this pass.
     juniorsAffected: z.number().int().nonnegative().optional(),
-    hrAccountantsToBeRemoved: z.number().int().nonnegative().optional(),
+    hrAccountantsOnTeam: z.number().int().nonnegative().optional(),
     noDependencies: z.boolean().optional(),
     // task-archive-pending-modal (AC2): earned-but-unpaid rows that will
     // stay in the system after this archive. Empty/absent ⇒ modal renders

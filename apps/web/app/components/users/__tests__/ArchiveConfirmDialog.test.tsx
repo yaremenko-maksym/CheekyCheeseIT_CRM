@@ -145,7 +145,7 @@ describe('ArchiveConfirmDialog (users list) — role-aware ImpactWarning + AC2 p
           teamName: 'Alpha Team',
           projectsCount: 2,
           projectNames: ['Project A', 'Project B'],
-          hrAccountantsToBeRemoved: 3,
+          hrAccountantsOnTeam: 3,
           juniorsAffected: 4,
           pendingTransactions: [
             {
@@ -231,7 +231,7 @@ describe('ArchiveConfirmDialog (users list) — role-aware ImpactWarning + AC2 p
         isPaired: true,
         projectsCount: 0,
         projectNames: [],
-        hrAccountantsToBeRemoved: 0,
+        hrAccountantsOnTeam: 0,
         juniorsAffected: 0,
         pendingTransactions: [],
       },

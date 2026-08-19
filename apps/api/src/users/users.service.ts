@@ -1396,7 +1396,7 @@ export class UsersService {
         where: and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)),
       })
       let teamName: string | null = null
-      let hrAccountantsToBeRemoved = 0
+      let hrAccountantsOnTeam = 0
       if (seniorMembership) {
         const team = await this.db.db.query.teams.findFirst({
           where: eq(teams.id, seniorMembership.teamId),
@@ -1412,7 +1412,7 @@ export class UsersService {
               ne(teamMembers.userId, id),
             ),
           )
-        hrAccountantsToBeRemoved = others.length
+        hrAccountantsOnTeam = others.length
       }
       const seniorProjects = await this.db.db
         .select({ id: projects.id, name: projects.name })
@@ -1435,7 +1435,7 @@ export class UsersService {
         projectsCount: seniorProjects.length,
         projectNames: seniorProjects.map((p) => p.name),
         juniorsAffected,
-        hrAccountantsToBeRemoved,
+        hrAccountantsOnTeam,
         pendingTransactions,
       }
     }
@@ -1468,7 +1468,7 @@ export class UsersService {
         where: and(eq(teamMembers.userId, id), isNull(teamMembers.leftAt)),
       })
       let teamName: string | null = null
-      let hrAccountantsToBeRemoved = 0
+      let hrAccountantsOnTeam = 0
       if (dropMembership) {
         const team = await this.db.db.query.teams.findFirst({
           where: eq(teams.id, dropMembership.teamId),
@@ -1484,7 +1484,7 @@ export class UsersService {
               ne(teamMembers.userId, id),
             ),
           )
-        hrAccountantsToBeRemoved = others.length
+        hrAccountantsOnTeam = others.length
       }
       const dropProjects = await this.db.db
         .select({ id: projects.id, name: projects.name })
@@ -1509,7 +1509,7 @@ export class UsersService {
         projectsCount: dropProjects.length,
         projectNames: dropProjects.map((p) => p.name),
         juniorsAffected,
-        hrAccountantsToBeRemoved,
+        hrAccountantsOnTeam,
         pendingTransactions,
       }
     }

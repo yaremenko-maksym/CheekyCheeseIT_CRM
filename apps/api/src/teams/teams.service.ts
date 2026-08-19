@@ -801,7 +801,7 @@ export class TeamsService {
       // task-archive-pending-modal (AC8/AC2): forwarded 1:1 from the senior's
       // own user-impact — archiving the team IS archiving the senior.
       projectNames: seniorImpact?.projectNames ?? [],
-      membersAffected: seniorImpact?.hrAccountantsToBeRemoved ?? 0,
+      membersAffected: seniorImpact?.hrAccountantsOnTeam ?? 0,
       teamType: 'SENIOR',
       pendingTransactions: seniorImpact?.pendingTransactions ?? [],
     }

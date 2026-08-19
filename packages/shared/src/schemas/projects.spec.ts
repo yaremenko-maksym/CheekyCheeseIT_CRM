@@ -138,7 +138,7 @@ describe('archiveImpactSchema — user/team variants carry pendingTransactions +
       projectsCount: 1,
       projectNames: ['Project A'],
       juniorsAffected: 1,
-      hrAccountantsToBeRemoved: 2,
+      hrAccountantsOnTeam: 2,
       pendingTransactions: [
         {
           id: 'a0000000-0000-4000-8000-000000000001',
