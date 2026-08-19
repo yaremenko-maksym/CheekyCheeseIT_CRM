@@ -711,9 +711,11 @@ export class TeamsService {
           and(eq(teamMembers.teamId, teamId), eq(users.role, 'SENIOR'), isNull(teamMembers.leftAt)),
         )
         .then((rows) => rows[0])
-      // Active HR/Accountant count — all will be detached (leftAt=now) by
-      // `archiveDropTeam`. Computed cheaply with a single query excluding
-      // the drop + senior rows.
+      // Active HR/Accountant count. task-archive-pending-modal (AC9): these
+      // are NOT detached by `archiveDropTeam` any more — they keep their
+      // membership and keep earning. Kept as "how many are on this team" for
+      // the warning copy. Computed cheaply with a single query excluding the
+      // drop + senior rows.
       const others = await this.db.db
         .select({ userId: teamMembers.userId })
         .from(teamMembers)
@@ -732,12 +734,23 @@ export class TeamsService {
             eq(users.role, 'ACCOUNTANT'),
           ),
         )
-      // Drop-projects count.
+      // Drop-projects count + names (AC8).
       const dropProjects = dropRow
         ? await this.db.db
-            .select({ id: projects.id })
+            .select({ id: projects.id, name: projects.name })
             .from(projects)
             .where(and(eq(projects.dropId, dropRow.id), isNull(projects.archivedAt)))
+        : []
+      // task-archive-pending-modal (AC2): the drop's own pending
+      // transactions — delegate to UsersService so the rule lives in ONE
+      // place. Only reachable when the drop resolved (a team with no active
+      // drop member has nothing to forward).
+      const dropPendingTransactions = dropRow
+        ? await this.usersService
+            .getArchiveImpact(dropRow.id)
+            .then((i) =>
+              i.type === 'user' && i.role === 'DROP' ? (i.pendingTransactions ?? []) : [],
+            )
         : []
       return {
         type: 'team',
@@ -747,10 +760,12 @@ export class TeamsService {
         // The new `dropName` field is what the v2 UI keys on.
         seniorName: seniorRow?.displayName ?? '',
         projectsCount: dropProjects.length,
+        projectNames: dropProjects.map((p) => p.name),
         membersAffected: others.length + accountants.length,
         teamType: 'DROP',
         dropName: dropRow?.displayName ?? '',
         seniorWillBeDetached: !!seniorRow,
+        pendingTransactions: dropPendingTransactions,
       }
     }
 
@@ -783,8 +798,12 @@ export class TeamsService {
       teamName: team.name,
       seniorName: seniorRow.displayName,
       projectsCount: seniorImpact?.projectsCount ?? 0,
+      // task-archive-pending-modal (AC8/AC2): forwarded 1:1 from the senior's
+      // own user-impact — archiving the team IS archiving the senior.
+      projectNames: seniorImpact?.projectNames ?? [],
       membersAffected: seniorImpact?.hrAccountantsToBeRemoved ?? 0,
       teamType: 'SENIOR',
+      pendingTransactions: seniorImpact?.pendingTransactions ?? [],
     }
   }
 

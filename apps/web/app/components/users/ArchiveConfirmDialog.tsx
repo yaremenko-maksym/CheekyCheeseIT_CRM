@@ -17,15 +17,22 @@ import {
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import { api } from '@/lib/axios'
+import { ArchivePendingTransactionsList } from '@/components/archive/ArchivePendingTransactionsList'
 
 /**
  * Replaces the old DeleteUserDialog. Behaviour:
  *  - On open, fetches GET /users/:id/archive-impact for cascade counts
  *  - Warning text varies by role:
- *      SENIOR    — pair-archive (team + N projects + JUNIORs unattached)
- *      HR/ACC    — removed from N teams (teams stay active)
- *      JUNIOR    — removed from M projects (projects stay active)
- *      ADMIN     — no cascades
+ *      SENIOR/DROP — cascade-archive (team + N named projects, one operation).
+ *                    HR/ACCOUNTANT on the team and JUNIOR on the projects keep
+ *                    their membership and keep earning — task-archive-pending-
+ *                    modal AC9 (owner decision 2026-08-19).
+ *      HR/ACC      — removed from N teams (teams stay active)
+ *      JUNIOR      — removed from M projects (projects stay active)
+ *      ADMIN       — no cascades
+ *  - Any PENDING salary/income addressed to the user is listed separately
+ *    (ArchivePendingTransactionsList) — it survives the archive and stays
+ *    payable (task-archive-pending-modal AC2).
  *  - Confirm disabled until name input matches displayName exactly
  *  - On confirm, DELETE /users/:id → invalidate ['users-admin'], teams, projects
  */
@@ -50,12 +57,18 @@ export function ArchiveConfirmDialog({
     mutationFn: () => api.delete(`/users/${user!.id}`),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['users-admin'] })
-      if (user?.role === 'SENIOR') {
+      // task-archive-pending-modal (AC7): DROP cascades team+projects exactly
+      // like SENIOR — both need the same invalidation.
+      if (user?.role === 'SENIOR' || user?.role === 'DROP') {
         void queryClient.invalidateQueries({ queryKey: ['teams'] })
         void queryClient.invalidateQueries({ queryKey: ['projects'] })
       }
       const msg =
-        user?.role === 'SENIOR' ? 'Синьор и команда архивированы' : 'Пользователь архивирован'
+        user?.role === 'SENIOR'
+          ? 'Синьор и команда архивированы'
+          : user?.role === 'DROP'
+            ? 'Дроп и команда архивированы'
+            : 'Пользователь архивирован'
       toast.success(msg)
       handleClose()
     },
@@ -90,7 +103,12 @@ export function ArchiveConfirmDialog({
                 <Skeleton className="h-4 w-2/3" />
               </>
             ) : (
-              <ImpactWarning user={user} impact={impact} />
+              <>
+                <ImpactWarning user={user} impact={impact} />
+                {impact?.type === 'user' && (
+                  <ArchivePendingTransactionsList transactions={impact.pendingTransactions} />
+                )}
+              </>
             )}
 
             {user && (
@@ -146,29 +164,31 @@ function ImpactWarning({
     </strong>
   )
 
-  if (user.role === 'SENIOR') {
+  // task-archive-pending-modal (AC7/AC9, owner decision 2026-08-19): SENIOR
+  // and DROP share the same cascade shape — команда+проекты archived as one
+  // operation, third parties (HR/ACCOUNTANT on the team, JUNIOR on the
+  // projects) keep their membership and keep earning off their OWN
+  // `archivedAt`, untouched by this cascade.
+  if (user.role === 'SENIOR' || user.role === 'DROP') {
+    const roleLabel = user.role === 'SENIOR' ? 'синьора' : 'дропа'
     const teamName =
-      impact && impact.type === 'user' && impact.role === 'SENIOR' && impact.teamName
+      impact && impact.type === 'user' && impact.isPaired && impact.teamName
         ? impact.teamName
-        : 'команда синьора'
+        : `команда ${roleLabel}`
     const projectsCount =
-      impact &&
-      impact.type === 'user' &&
-      impact.role === 'SENIOR' &&
-      impact.projectsCount !== undefined
+      impact && impact.type === 'user' && impact.isPaired && impact.projectsCount !== undefined
         ? impact.projectsCount
         : 0
+    const projectNames =
+      impact && impact.type === 'user' && impact.isPaired ? (impact.projectNames ?? []) : []
     const juniorsAffected =
-      impact &&
-      impact.type === 'user' &&
-      impact.role === 'SENIOR' &&
-      impact.juniorsAffected !== undefined
+      impact && impact.type === 'user' && impact.isPaired && impact.juniorsAffected !== undefined
         ? impact.juniorsAffected
         : 0
     const hrAccountantsToBeRemoved =
       impact &&
       impact.type === 'user' &&
-      impact.role === 'SENIOR' &&
+      impact.isPaired &&
       impact.hrAccountantsToBeRemoved !== undefined
         ? impact.hrAccountantsToBeRemoved
         : 0
@@ -177,19 +197,29 @@ function ImpactWarning({
       <div className="space-y-2">
         <p data-testid="archive-warning-senior">
           {name} и его команда <strong className="text-foreground">{teamName}</strong> — связанная
-          пара.
+          пара. Убрать по одному нельзя — архивируются одной операцией.
         </p>
         <p className="text-muted-foreground">
-          При архивации будут архивированы: профиль синьора, команда{' '}
-          <strong className="text-foreground">{teamName}</strong> (HR/бухгалтеры будут отвязаны —{' '}
-          <strong className="text-foreground">{hrAccountantsToBeRemoved}</strong>), и все его
-          проекты (<strong className="text-foreground">{projectsCount}</strong> штук,{' '}
-          <strong className="text-foreground">{juniorsAffected}</strong> активных JUNIORов будут
-          отвязаны).
+          При архивации будут архивированы: профиль {roleLabel}, команда{' '}
+          <strong className="text-foreground">{teamName}</strong> и все её проекты (
+          <strong className="text-foreground">{projectsCount}</strong> шт.
+          {projectNames.length > 0 && (
+            <>
+              : <strong className="text-foreground">{projectNames.join(', ')}</strong>
+            </>
+          )}
+          ).
+        </p>
+        <p className="text-muted-foreground">
+          HR/бухгалтеры на команде (
+          <strong className="text-foreground">{hrAccountantsToBeRemoved}</strong>) и JUNIOR на этих
+          проектах (<strong className="text-foreground">{juniorsAffected}</strong>)
+          <strong className="text-foreground"> остаются активными членами</strong> и продолжают
+          получать оплату на общих основаниях — архивация команды/проектов их не касается.
         </p>
         <p className="text-xs text-muted-foreground/80">
-          Восстановление возможно — пара senior+team вернётся, но проекты нужно будет
-          восстанавливать отдельно с cascade-подтверждением.
+          Восстановление возможно — пара {roleLabel === 'синьора' ? 'senior' : 'drop'}+team
+          вернётся, но проекты нужно будет восстанавливать отдельно с cascade-подтверждением.
         </p>
       </div>
     )

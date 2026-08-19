@@ -473,8 +473,10 @@ describe('TeamsService.getArchiveImpact', () => {
         isPaired: true,
         teamName: team.name,
         projectsCount: 3,
+        projectNames: ['P1', 'P2', 'P3'],
         juniorsAffected: 2,
         hrAccountantsToBeRemoved: 4,
+        pendingTransactions: [{ id: 'tx-9', type: 'SALARY' }],
       }),
     })
     const impact = await service.getArchiveImpact('team-1', adminUser)
@@ -484,6 +486,10 @@ describe('TeamsService.getArchiveImpact', () => {
       teamName: team.name,
       seniorName: 'Senior',
       projectsCount: 3,
+      // task-archive-pending-modal (AC2/AC8): forwarded 1:1 from the
+      // senior's own user-impact.
+      projectNames: ['P1', 'P2', 'P3'],
+      pendingTransactions: [{ id: 'tx-9', type: 'SALARY' }],
       membersAffected: 4,
       // Drop-archive round 2 (B2): senior-team responses now carry an
       // explicit teamType discriminator. Frontend keys on this to render
@@ -549,7 +555,14 @@ describe('TeamsService.getArchiveImpact', () => {
     const usersService = {
       archive: vi.fn(),
       unarchive: vi.fn(),
-      getArchiveImpact: vi.fn(),
+      // task-archive-pending-modal (AC2): getArchiveImpact('team') now also
+      // forwards the drop's own pending transactions via ONE extra call to
+      // UsersService.getArchiveImpact(dropId).
+      getArchiveImpact: vi.fn().mockResolvedValue({
+        type: 'user',
+        role: 'DROP',
+        pendingTransactions: [{ id: 'tx-1', type: 'DROP_INCOME' }],
+      }),
     }
     const service = new TeamsService(
       { db } as never,
@@ -565,9 +578,12 @@ describe('TeamsService.getArchiveImpact', () => {
       dropName: 'Дроп Иван',
       // Senior is informational — gets detached, not archived.
       seniorName: 'Отцепляющийся Синьор',
+      // Forwarded 1:1 from UsersService.getArchiveImpact(dropId).
+      pendingTransactions: [{ id: 'tx-1', type: 'DROP_INCOME' }],
       seniorWillBeDetached: true,
       projectsCount: 3,
       membersAffected: 3, // 2 HR + 1 ACCOUNTANT
     })
+    expect(usersService.getArchiveImpact).toHaveBeenCalledWith('drop-1')
   })
 })
