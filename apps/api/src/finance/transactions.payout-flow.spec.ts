@@ -737,6 +737,25 @@ describe('createPayoutRequest (#7)', () => {
       ).values.mock.calls[0]?.[0] as Record<string, unknown>
       expect(payoutInsertArg['projectId']).toBeNull()
     })
+
+    // Mutation-gate (task-mutation-gate): kills the `OptionalChaining` mutant
+    // on `lockedRows[0]?.projectId ?? null` — mutating it to `lockedRows[0]
+    // .projectId ?? null` survived every OTHER test here because a locked
+    // batch is never actually empty through the real HTTP path (the DTO's
+    // `.min(1)` on `transactionIds` — packages/shared/src/schemas/finance.ts
+    // — guarantees at least one id, and the count-mismatch guard right above
+    // this line only fires when `lockedRows.length !== transactionIds.length`,
+    // which `0 !== 0` does not). The ONLY way to observe the `?.` is to call
+    // the service directly with an empty array, bypassing the DTO — exactly
+    // like this test suite's other RBAC/guard tests already do. Without the
+    // `?.`, `lockedRows[0]` is `undefined` and `.projectId` throws
+    // `Cannot read properties of undefined`.
+    it('mutation-gate: an empty locked-rows batch (DTO-bypassing direct call) does not throw — proves the `?.` on lockedRows[0] is load-bearing', async () => {
+      const prRow = makePayoutRequestRow('pr-empty-1')
+      const { svc } = makeServiceWithTransaction([], prRow)
+
+      await expect(svc.createPayoutRequest([], SENIOR_USER)).resolves.toBeDefined()
+    })
   })
 
   it('throws BadRequest when the company wallet is not configured', async () => {
