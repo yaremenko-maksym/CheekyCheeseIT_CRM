@@ -497,7 +497,13 @@ vi.mock('drizzle-orm', async (importOriginal) => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.archive — SENIOR (pair cascade)', () => {
-  it('archives senior + team + projects, sets leftAt for HR/Acc but NOT senior himself', async () => {
+  // task-archive-pending-modal (AC9, owner decision 2026-08-19): a SENIOR/DROP
+  // cascade archive touches the TEAM and the PROJECTS — never the membership
+  // of a third party sitting on them. HR/ACCOUNTANT/JUNIOR keep earning off
+  // their own `archivedAt` (see the salary cron), so leaving `leftAt` alone
+  // here is what keeps that true. Renamed from the pre-AC9 title, which
+  // asserted the opposite.
+  it('archives senior + team + projects; HR/Acc/Junior membership is left untouched', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)
@@ -509,16 +515,18 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
 
-    // HR + ACCOUNTANT team_members are deactivated.
-    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeInstanceOf(Date)
-    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeInstanceOf(Date)
+    // AC9: HR + ACCOUNTANT team_members stay active — archiving the team is
+    // not archiving them.
+    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeNull()
+    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeNull()
 
-    // SENIOR's own team_member row stays leftAt = NULL.
+    // SENIOR's own team_member row stays leftAt = NULL (unchanged by AC9).
     expect(store.teamMembers.find((m) => m.userId === 'senior-1')?.leftAt).toBeNull()
 
-    // Active JUNIORs in archived projects are detached.
-    expect(store.projectMembers.find((m) => m.userId === 'junior-1')?.leftAt).toBeInstanceOf(Date)
-    expect(store.projectMembers.find((m) => m.userId === 'junior-2')?.leftAt).toBeInstanceOf(Date)
+    // AC9: active JUNIORs on the now-archived projects stay attached — their
+    // salary keeps accruing off their own `archivedAt`, not the project's.
+    expect(store.projectMembers.find((m) => m.userId === 'junior-1')?.leftAt).toBeNull()
+    expect(store.projectMembers.find((m) => m.userId === 'junior-2')?.leftAt).toBeNull()
   })
 
   it('writes audit log entries to user / team / project tables', async () => {
@@ -535,6 +543,11 @@ describe('UsersService.archive — SENIOR (pair cascade)', () => {
     expect(userActions).toContain('user_archived')
     expect(teamActions).toContain('team_archived')
     expect(projectActions.filter((a) => a === 'project_archived')).toHaveLength(2)
+    // AC9: nobody is being removed from the team/projects any more — the
+    // per-member 'team_member_removed'/'project_member_removed' entries this
+    // cascade used to write are gone.
+    expect(teamActions).not.toContain('team_member_removed')
+    expect(projectActions).not.toContain('project_member_removed')
   })
 
   it('throws BadRequestException on double-archive (idempotency)', async () => {
@@ -693,7 +706,10 @@ describe('UsersService.archive — HR / ACCOUNTANT / JUNIOR / ADMIN', () => {
 // ---------------------------------------------------------------------------
 
 describe('UsersService.unarchive — SENIOR (pair restore)', () => {
-  it('restores senior + team; leaves projects archived; HR/Acc leftAt NOT restored', async () => {
+  // task-archive-pending-modal (AC9): HR/Acc membership was never closed by
+  // archive() any more, so "NOT restored" is now simply "never touched" —
+  // title + body updated to say so instead of the pre-AC9 claim.
+  it('restores senior + team; leaves projects archived; HR/Acc/Junior membership was never touched', async () => {
     const store = emptyStore()
     seedSeniorWithTeamAndProjects(store)
     const { service } = buildService(store)
@@ -713,9 +729,14 @@ describe('UsersService.unarchive — SENIOR (pair restore)', () => {
     expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeInstanceOf(Date)
     expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeInstanceOf(Date)
 
-    // HR/Acc memberships stay closed.
-    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeInstanceOf(Date)
-    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeInstanceOf(Date)
+    // AC9: HR/Acc memberships were never closed — still active before AND
+    // after unarchive.
+    expect(store.teamMembers.find((m) => m.userId === 'hr-1')?.leftAt).toBeNull()
+    expect(store.teamMembers.find((m) => m.userId === 'acc-1')?.leftAt).toBeNull()
+
+    // JUNIOR project memberships were never closed either.
+    expect(store.projectMembers.find((m) => m.userId === 'junior-1')?.leftAt).toBeNull()
+    expect(store.projectMembers.find((m) => m.userId === 'junior-2')?.leftAt).toBeNull()
 
     // SENIOR's row remains active.
     expect(store.teamMembers.find((m) => m.userId === 'senior-1')?.leftAt).toBeNull()

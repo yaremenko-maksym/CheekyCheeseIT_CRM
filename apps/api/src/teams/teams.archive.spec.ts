@@ -8,6 +8,12 @@ import { BadRequestException, ForbiddenException, NotFoundException } from '@nes
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionUser } from '@crm/shared'
 import { TeamsService } from './teams.service'
+import {
+  projects as projectsTable,
+  teamMembers as teamMembersTable,
+  teams as teamsTable,
+  users as usersTable,
+} from '../database/schema'
 
 const adminUser: SessionUser = {
   id: 'admin-1',
@@ -276,8 +282,155 @@ describe('TeamsService.archive', () => {
       .spyOn(service, 'archiveDropTeam')
       .mockResolvedValue({ archivedProjects: 0, detachedSeniorId: null })
     await service.archive('team-1', adminUser)
-    expect(archiveDropTeamSpy).toHaveBeenCalledWith('team-1')
+    // task-archive-pending-modal (AC10): archiveDropTeam is now called WITH a
+    // `tx` — the call is wrapped in `db.transaction()` so a mid-cascade
+    // failure rolls back instead of leaving partial state. The fake
+    // `db.transaction` above hands the callback `{}` as the tx object.
+    expect(archiveDropTeamSpy).toHaveBeenCalledWith('team-1', {})
     expect(usersService.archive).not.toHaveBeenCalled()
+  })
+
+  // task-archive-pending-modal (AC10). Before this fix, `archive()` called
+  // `archiveDropTeam(teamId)` with NO `tx` — every write inside it ran as its
+  // own separate statement against `this.db.db`, so a failure partway through
+  // (e.g. archiving the 2nd of 2 drop-projects) left the 1st project archived
+  // and nothing else. This test forces exactly that failure through the REAL
+  // `archive()` → `db.transaction()` → `archiveDropTeam(teamId, tx)` path,
+  // against a snapshot/rollback-capable fake store (same technique as
+  // `users.archive.spec.ts`'s SENIOR rollback test), and asserts the store is
+  // back to its PRE-archive shape — not "the write we happened to check".
+  it('AC10: interrupting the DROP cascade mid-way leaves NOTHING changed (atomic)', async () => {
+    const dropId = 'drop-1'
+    const teamId = 'team-drop-1'
+    const store = {
+      teams: [
+        { id: teamId, type: 'DROP', archivedAt: null as Date | null, name: 'Drop Team' },
+      ] as Array<{ id: string; type: string; archivedAt: Date | null; name: string }>,
+      teamMembers: [
+        { id: 'tm-drop', teamId, userId: dropId, role: 'DROP', leftAt: null as Date | null },
+      ] as Array<{ id: string; teamId: string; userId: string; role: string; leftAt: Date | null }>,
+      users: [{ id: dropId, role: 'DROP', archivedAt: null as Date | null }] as Array<{
+        id: string
+        role: string
+        archivedAt: Date | null
+      }>,
+      projects: [
+        { id: 'proj-1', dropId, archivedAt: null as Date | null },
+        { id: 'proj-2', dropId, archivedAt: null as Date | null },
+      ] as Array<{ id: string; dropId: string; archivedAt: Date | null }>,
+    }
+
+    type Store = typeof store
+    const snapshot = (): Store => JSON.parse(JSON.stringify(store)) as Store
+    const restore = (snap: Store) => {
+      store.teams = snap.teams
+      store.teamMembers = snap.teamMembers
+      store.users = snap.users
+      store.projects = snap.projects
+    }
+
+    // Minimal chainable query/update builder over the plain-object store —
+    // enough surface for archiveDropTeam's own calls (select/innerJoin/where,
+    // update/set/where). WHERE expressions arrive as `{ __predicate }` (this
+    // file's top-level `vi.mock('drizzle-orm', ...)` — same convention as
+    // `users.archive.spec.ts`). Forces a throw on the SECOND projects UPDATE
+    // (i.e. partway through the drop-projects loop).
+    type Pred = { __predicate: (row: Record<string, unknown>) => boolean }
+    const asPredicate = (expr: unknown): ((row: Record<string, unknown>) => boolean) =>
+      expr && typeof expr === 'object' && '__predicate' in expr
+        ? (expr as Pred).__predicate
+        : () => true
+
+    // `.from(teams)` / `.update(projects)` etc. hand the REAL imported table
+    // OBJECT, not a string — resolve it to a store key by reference, same
+    // technique `users.archive.spec.ts`'s `tableMap` uses.
+    const tableMap = new Map<unknown, keyof Store>([
+      [teamsTable, 'teams'],
+      [teamMembersTable, 'teamMembers'],
+      [usersTable, 'users'],
+      [projectsTable, 'projects'],
+    ])
+    const resolveTable = (table: unknown): keyof Store => {
+      const key = tableMap.get(table)
+      if (!key) throw new Error('[AC10 fake db] unmapped table in select/update')
+      return key
+    }
+
+    let projectUpdateCount = 0
+    function selectChain(table: unknown, expr: unknown) {
+      const rows = (store[resolveTable(table)] as Array<Record<string, unknown>>).filter(
+        asPredicate(expr),
+      )
+      const thenable = {
+        then: (onF: (v: unknown[]) => unknown) => Promise.resolve(onF(rows)),
+      }
+      return thenable
+    }
+    const db = {
+      // `TeamsService.archive` reads the team via `db.query.teams.findFirst`
+      // BEFORE dispatching to archiveDropTeam — needs its own stub, separate
+      // from the plain `select` chain archiveDropTeam itself uses.
+      query: {
+        teams: {
+          findFirst: () => Promise.resolve(store.teams.find((t) => t.id === teamId) as unknown),
+        },
+      },
+      select: () => ({
+        from: (table: unknown) => ({
+          where: (expr: unknown) => selectChain(table, expr),
+          innerJoin: () => ({
+            where: (expr: unknown) => selectChain(table, expr),
+          }),
+        }),
+      }),
+      update: (table: unknown) => ({
+        set: (values: Record<string, unknown>) => ({
+          where: (expr: unknown) => {
+            const key = resolveTable(table)
+            if (key === 'projects') {
+              projectUpdateCount += 1
+              if (projectUpdateCount === 2) {
+                throw new Error('Simulated failure archiving the 2nd drop-project')
+              }
+            }
+            const pred = asPredicate(expr)
+            for (const row of store[key] as Array<Record<string, unknown>>) {
+              if (pred(row)) Object.assign(row, values)
+            }
+            return Promise.resolve()
+          },
+        }),
+      }),
+      transaction: async <T>(fn: (tx: unknown) => Promise<T>): Promise<T> => {
+        const snap = snapshot()
+        try {
+          // The tx handle IS `db` itself here — the fake has no separate
+          // tx-vs-base-connection distinction, only rollback-on-throw.
+          return await fn(db)
+        } catch (err) {
+          restore(snap)
+          throw err
+        }
+      },
+    }
+
+    const usersService = { archive: vi.fn(), unarchive: vi.fn(), getArchiveImpact: vi.fn() }
+    const service = new TeamsService(
+      { db } as never,
+      usersService as never,
+      makeTeamAuditLogService() as never,
+    )
+
+    await expect(service.archive(teamId, adminUser)).rejects.toThrow(
+      'Simulated failure archiving the 2nd drop-project',
+    )
+
+    // Nothing moved: team, drop user, and BOTH projects (including the first
+    // one, which the un-transactional code used to leave archived).
+    expect(store.teams.find((t) => t.id === teamId)?.archivedAt).toBeNull()
+    expect(store.users.find((u) => u.id === dropId)?.archivedAt).toBeNull()
+    expect(store.projects.find((p) => p.id === 'proj-1')?.archivedAt).toBeNull()
+    expect(store.projects.find((p) => p.id === 'proj-2')?.archivedAt).toBeNull()
   })
 })
 
