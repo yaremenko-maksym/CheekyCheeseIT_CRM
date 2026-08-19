@@ -1380,9 +1380,12 @@ export class ProjectsService {
 
     if (!project) return project
 
-    // Find all teams where this senior is a member
+    // Find all teams where this senior is CURRENTLY a member. Backlog #136:
+    // this query used to ignore `leftAt`, so a team the senior had already
+    // left still fed its HR/ACCOUNTANT into a brand-new project — a stale
+    // team membership was outliving the membership itself.
     const seniorTeamMemberships = await conn.query.teamMembers.findMany({
-      where: eq(teamMembers.userId, interview.seniorId),
+      where: and(eq(teamMembers.userId, interview.seniorId), isNull(teamMembers.leftAt)),
     })
     const teamIds = seniorTeamMemberships.map((m) => m.teamId)
 
